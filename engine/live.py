@@ -1,287 +1,768 @@
 """
-engine/live.py — Live Trading Engine
-Polls Dhan market feed every minute, evaluates conditions,
-places orders via Dhan API when signals trigger.
+engine/live.py — Live Auto-Trading Engine
+Places REAL orders via Dhan API.
+Polls market data, evaluates conditions, manages option positions,
+and places entry/exit/SL orders to the broker.
 """
 
 import asyncio
 import time as time_module
-from datetime import datetime, time
+from datetime import datetime, time, date as date_type, timedelta
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# UPDATED: Using the new dynamic indicator parser
 from engine.indicators import compute_dynamic_indicators
-from engine.backtest  import eval_condition_group, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS
-from broker.dhan import DhanClient
+from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
+from broker.dhan import DhanClient, ScripMaster, UNDERLYING_MAP
 import config
 
+
+# Lazy import to avoid circular dependency
+def _get_instrument_map():
+    from app import INSTRUMENT_MAP
+    return INSTRUMENT_MAP
+
+
 class LiveEngine:
+    """
+    Live auto-trading engine.
+    - Fetches real market data from Dhan
+    - Evaluates entry/exit conditions
+    - Places REAL option orders via Dhan API
+    - Manages stop-loss orders at broker level
+    - Tracks positions, P&L and order status
+    """
+
     def __init__(self, dhan: DhanClient = None):
-        self.dhan           = dhan or DhanClient()
-        self.running        = False
-        self.in_trade       = False
-        self.entry_price    = 0.0
-        self.entry_time     = None
-        self.peak_price     = 0.0   # for trailing SL
-        self.trades_today   = 0
-        self.daily_pnl      = 0.0   # realized P&L today
-        self.last_date      = None
-        self.candle_buffer  = []   # rolling window of candles
-        self.log            = []   # trade log
-        self.status_msg     = "Idle"
-        self.current_ltp    = 0.0
-        self.order_id       = None
+        self.dhan = dhan or DhanClient()
+        self.running = False
+        self.session_date = None
+        self.mode = "auto"  # "auto" for real orders
 
-        # Strategy config (overridable)
-        self.entry_conditions = DEFAULT_ENTRY_CONDITIONS
-        self.exit_conditions  = DEFAULT_EXIT_CONDITIONS
-        self.strategy_cfg = {
-            "max_trades_per_day": config.MAX_TRADES_PER_DAY,
-            "market_open":        time(9, 15),
-            "market_close":       time(15, 25),
-            "lots":               4,
-            "lot_size":           25,
-            "stoploss_pct":       10,
-            "symbol":             "NIFTY",
-            "security_id":        "13",
-            "exchange":           "IDX_I",
-            "indicators":         [] # List of strings like ["EMA_14_5m"]
-        }
+        # Strategy + execution config
+        self.strategy: dict = {}
+        self.deploy_config: dict = {}
+        self.entry_conditions: list = []
+        self.exit_conditions: list = []
 
-    def configure(self, entry_conditions: list, exit_conditions: list, strategy_cfg: dict):
+        # Trading state
+        self.in_trade = False
+        self.positions: List[dict] = []        # Open positions with order info
+        self.closed_trades: List[dict] = []    # Completed trades
+        self.trades_today = 0
+        self.daily_pnl = 0.0
+        self.max_daily_loss = 0.0
+
+        # Market data
+        self.current_spot = 0.0
+        self.current_time: Optional[datetime] = None
+        self.candle_buffer = pd.DataFrame()
+        self.current_candle: dict = {}
+        self.current_indicators: dict = {}
+        self._prev_row = None  # For crossover detection
+
+        # Logging
+        self.event_log: List[dict] = []
+
+    # ── Configuration ─────────────────────────────────────────
+    def configure(self, strategy: dict, entry_conditions: list,
+                  exit_conditions: list, deploy_config: dict = None):
+        """Configure the live trading engine with strategy + execution settings."""
+        self.strategy = strategy
         self.entry_conditions = entry_conditions
-        self.exit_conditions  = exit_conditions
-        self.strategy_cfg.update(strategy_cfg)
+        self.exit_conditions = exit_conditions
+        self.deploy_config = deploy_config or strategy.get("deploy_config", {})
+        self.max_daily_loss = float(strategy.get("max_daily_loss", 0) or 0)
+        self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
+        self.log_event("info", f"Mode: {'Auto Trading (REAL ORDERS)' if self.deploy_config.get('order_type') == 'auto' else 'Paper Testing'}")
+        self.log_event("info", f"Product: {self.deploy_config.get('product_type', 'MIS')}")
+        self.log_event("info", f"Entry order: {self.deploy_config.get('entry_order', 'MARKET')}")
 
-    def _fetch_recent_candles(self, n_candles: int = 150) -> pd.DataFrame:
-        from datetime import timedelta
-        today    = datetime.now().strftime("%Y-%m-%d")
-        from_dt  = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    # ── Logging ───────────────────────────────────────────────
+    def log_event(self, event_type: str, message: str, data: dict = None):
+        event = {
+            "time": datetime.now(),
+            "type": event_type,
+            "message": message,
+            "data": data or {}
+        }
+        self.event_log.append(event)
+        ts = event["time"].strftime("%H:%M:%S")
+        print(f"[LIVE] [{ts}] [{event_type.upper()}] {message}")
 
-        # Use configured instrument details instead of hardcoded values
-        instrument = self.strategy_cfg.get("instrument", "26000")
+    async def _emit(self, callback, event: dict):
+        if not callback:
+            return
         try:
-            from app import INSTRUMENT_MAP
-            inst_info = INSTRUMENT_MAP.get(instrument, {})
-            sec_id = inst_info.get("dhan_id", self.strategy_cfg.get("security_id", "13"))
-            seg = inst_info.get("dhan_seg", self.strategy_cfg.get("exchange", "IDX_I"))
-            inst_type = inst_info.get("dhan_type", "INDEX")
-        except ImportError:
-            sec_id = self.strategy_cfg.get("security_id", "13")
-            seg = self.strategy_cfg.get("exchange", "IDX_I")
-            inst_type = "INDEX"
+            if asyncio.iscoroutinefunction(callback):
+                await callback(event)
+            else:
+                callback(event)
+        except Exception as e:
+            print(f"[LIVE] Callback error: {e}")
 
-        # Extract timeframe from indicators (e.g., EMA_14_5m -> 5)
-        candle_type = "5"
-        for ind in self.strategy_cfg.get("indicators", []):
+    # ── Main Loop ─────────────────────────────────────────────
+    async def start(self, callback=None):
+        """Start the live trading engine."""
+        self.running = True
+        self.session_date = date_type.today()
+        self.daily_pnl = 0.0
+
+        self.log_event("start", "🚀 Live Auto-Trading Engine Started (REAL ORDERS)")
+        self.log_event("info", f"Instrument: {self._get_instrument_name()}")
+        self.log_event("info", f"Timeframe: {self._get_timeframe()}m")
+        self.log_event("info", f"Max trades/day: {self.strategy.get('max_trades_per_day', 1)}")
+        if self.max_daily_loss > 0:
+            self.log_event("info", f"Max daily loss: ₹{self.max_daily_loss:,.0f}")
+
+        # Pre-load scrip master for option lookup
+        self.log_event("info", "Loading scrip master for option security IDs...")
+        try:
+            loaded = ScripMaster.ensure_loaded()
+            if loaded:
+                symbol = self._get_underlying_symbol()
+                expiry = ScripMaster.get_nearest_expiry(symbol)
+                self.log_event("info", f"Scrip master loaded. Nearest {symbol} expiry: {expiry}")
+            else:
+                self.log_event("warning", "Scrip master not loaded — option orders may fail")
+        except Exception as e:
+            self.log_event("error", f"Scrip master load error: {e}")
+
+        poll_interval = self.strategy.get("poll_interval", config.POLL_INTERVAL_SEC)
+
+        while self.running:
+            try:
+                await self._tick(callback)
+            except Exception as e:
+                self.log_event("error", f"Tick error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+            await asyncio.sleep(poll_interval)
+
+    def stop(self):
+        """Stop the live trading engine."""
+        self.running = False
+
+        # Force close open positions
+        if self.positions:
+            self.log_event("warning", f"Engine stopping with {len(self.positions)} open positions!")
+            for pos in self.positions:
+                self.log_event("warning",
+                    f"⚠ Open position: {pos.get('underlying','')} "
+                    f"{pos.get('strike','')}{pos.get('option_type','')} "
+                    f"Order ID: {pos.get('entry_order_id','?')}")
+
+        total_pnl = sum(t.get("pnl", 0) for t in self.closed_trades)
+        win_count = len([t for t in self.closed_trades if t.get("pnl", 0) > 0])
+
+        self.log_event("stop", "🛑 Live Auto-Trading Engine Stopped")
+        self.log_event("info",
+            f"Session: {len(self.closed_trades)} trades | "
+            f"Winners: {win_count} | P&L: ₹{total_pnl:,.2f}")
+
+    # ── Tick ──────────────────────────────────────────────────
+    async def _tick(self, callback=None):
+        """Single tick — fetch data, evaluate conditions, manage trades."""
+        now = datetime.now()
+        self.current_time = now
+        cur_time = now.time()
+
+        # New day reset
+        if now.date() != self.session_date:
+            self.trades_today = 0
+            self.daily_pnl = 0.0
+            self.session_date = now.date()
+            self.log_event("info", f"📅 New trading day: {self.session_date}")
+
+        # Market hours check
+        market_open_str = self.strategy.get("market_open", "09:15")
+        market_close_str = self.strategy.get("market_close", "15:25")
+        if isinstance(market_open_str, str):
+            h, m = map(int, market_open_str.split(":"))
+            market_open = time(h, m)
+        else:
+            market_open = market_open_str
+        if isinstance(market_close_str, str):
+            h, m = map(int, market_close_str.split(":"))
+            market_close = time(h, m)
+        else:
+            market_close = market_close_str
+
+        if not (market_open <= cur_time <= market_close):
+            if callback:
+                await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+            return
+
+        # Fetch live candle data
+        try:
+            df = await self._fetch_live_data()
+            if df.empty:
+                return
+            self.candle_buffer = df
+            self.current_spot = float(df["close"].iloc[-1])
+            if callback:
+                await self._emit(callback, {
+                    "type": "price_update",
+                    "spot": self.current_spot,
+                    "time": str(now)
+                })
+        except Exception as e:
+            self.log_event("error", f"Data fetch error: {e}")
+            return
+
+        latest_row = df.iloc[-1]
+        prev_row = df.iloc[-2] if len(df) >= 2 else None
+
+        # ── Manage open positions ──
+        for pos in list(self.positions):
+            if pos.get("status") == "closed":
+                continue
+
+            # Get current option premium
+            current_premium = await self._get_current_premium(pos)
+            pos["current_premium"] = current_premium
+
+            # Calculate unrealized P&L
+            direction = 1 if pos["transaction_type"] == "BUY" else -1
+            pos["unrealized_pnl"] = round(
+                (current_premium - pos["entry_premium"]) *
+                direction * pos["lots"] * pos["lot_size"], 2
+            )
+
+            # Check exit conditions
+            exit_reason = self._check_exit_conditions(pos, latest_row, current_premium)
+            if exit_reason:
+                await self._exit_position(pos, exit_reason, current_premium, callback)
+
+        # ── Check entry conditions ──
+        max_trades = self.strategy.get("max_trades_per_day", 1)
+        daily_loss_hit = (self.max_daily_loss > 0 and
+                         self.daily_pnl <= -self.max_daily_loss)
+
+        if daily_loss_hit and not self.in_trade:
+            pass  # Skip — daily loss limit hit
+        elif self.trades_today < max_trades and not self.in_trade:
+            entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+            if entry_sig:
+                await self._enter_trade(latest_row, callback)
+
+        self._prev_row = latest_row
+
+        # Send status update
+        if callback:
+            await self._emit(callback, self.get_status())
+
+    # ── Data Fetch ────────────────────────────────────────────
+    async def _fetch_live_data(self) -> pd.DataFrame:
+        """Fetch live candle data with indicators applied."""
+        timeframe = self._get_timeframe()
+        valid_intervals = [1, 5, 15, 25, 60]
+        if timeframe not in valid_intervals:
+            timeframe = 5
+
+        instrument = self.strategy.get("instrument", "26000")
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        to_date = datetime.now().strftime("%Y-%m-%d")
+
+        inst_map = _get_instrument_map()
+        inst_info = inst_map.get(instrument, {})
+
+        df_raw = self.dhan.get_historical_data(
+            security_id=inst_info.get("dhan_id", "13"),
+            exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
+            instrument_type=inst_info.get("dhan_type", "INDEX"),
+            from_date=from_date,
+            to_date=to_date,
+            candle_type=str(timeframe),
+        )
+
+        indicators = self.strategy.get("indicators", [])
+        df = compute_dynamic_indicators(df_raw, indicators)
+
+        # Store current candle + indicators for UI
+        if not df.empty:
+            last = df.iloc[-1]
+            self.current_candle = {
+                "open": round(float(last.get("open", 0)), 2),
+                "high": round(float(last.get("high", 0)), 2),
+                "low": round(float(last.get("low", 0)), 2),
+                "close": round(float(last.get("close", 0)), 2),
+                "volume": int(last.get("volume", 0)),
+                "openInterest": int(last.get("oi", 0)),
+                "updated_at": datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
+            }
+            ohlcv_cols = {
+                "open", "high", "low", "close", "volume", "oi", "timestamp",
+                "date", "datetime", "time_of_day",
+                "current_open", "current_high", "current_low", "current_close",
+                "yesterday_open", "yesterday_high", "yesterday_low", "yesterday_close",
+                "cpr_type", "pivot", "bc", "tc", "cpr_range", "cpr_width_pct",
+                "cpr_is_narrow", "supertrend_dir",
+            }
+            self.current_indicators = {}
+            for col in df.columns:
+                if col in ohlcv_cols:
+                    continue
+                try:
+                    val = last[col]
+                    if pd.isna(val):
+                        continue
+                    self.current_indicators[col] = round(float(val), 2)
+                except (TypeError, ValueError):
+                    pass
+
+        return df.tail(200)
+
+    # ── Option Premium ────────────────────────────────────────
+    async def _get_current_premium(self, pos: dict) -> float:
+        """Fetch current premium for an option position from Dhan LTP API."""
+        try:
+            ltp = self.dhan.get_option_ltp(
+                underlying=pos["underlying"],
+                strike=pos["strike"],
+                expiry=pos["expiry"],
+                option_type=pos["option_type"],
+            )
+            if ltp > 0:
+                return ltp
+        except Exception as e:
+            self.log_event("error", f"LTP fetch failed for {pos['underlying']} "
+                          f"{pos['strike']}{pos['option_type']}: {e}")
+
+        # Fallback: estimate based on spot movement
+        spot_change_pct = (
+            (self.current_spot - pos["entry_spot"]) / pos["entry_spot"]
+            if pos["entry_spot"] else 0
+        )
+        delta = 0.5 if pos["option_type"] == "CE" else -0.5
+        est = pos["entry_premium"] * (1 + spot_change_pct * delta * 2)
+        return max(0.5, round(est, 2))
+
+    # ── Entry ─────────────────────────────────────────────────
+    async def _enter_trade(self, row: pd.Series, callback=None):
+        """Enter trade: place real orders for each leg."""
+        self.log_event("signal", "✅ ENTRY CONDITIONS MET", {
+            "spot": self.current_spot,
+            "time": str(self.current_time),
+        })
+
+        legs = self.strategy.get("legs", [])
+        if not legs:
+            self.log_event("warning", "No legs configured — cannot enter trade")
+            return
+
+        instrument = self.strategy.get("instrument", "26000")
+        underlying = ScripMaster.instrument_to_symbol(instrument)
+        strike_step = get_strike_step(instrument)
+        expiry = ScripMaster.get_nearest_expiry(underlying)
+        if not expiry:
+            self.log_event("error", f"No expiry found for {underlying} — cannot place order")
+            return
+
+        lot_size = ScripMaster.get_lot_size(underlying, expiry)
+        if lot_size == 0:
+            lot_size = get_lot_size(instrument, self.session_date)
+
+        # Deploy config for execution
+        product_type = self.deploy_config.get("product_type", "MIS")
+        if product_type == "NRML":
+            product_type = "MARGIN"  # Dhan uses MARGIN for NRML
+        entry_order_type = self.deploy_config.get("entry_order", "MARKET")
+        place_leg_sl = self.deploy_config.get("place_leg_sl", "no") == "yes"
+        sqoff_on_fail = self.deploy_config.get("sqoff_on_fail", "no") == "yes"
+
+        entered_positions = []
+        any_failed = False
+
+        for i, leg in enumerate(legs):
+            strike = self._calculate_strike(leg, self.current_spot, strike_step)
+            opt_type = leg.get("option_type", "CE")
+            txn_type = leg.get("transaction_type", "BUY")
+            lots = leg.get("lots", 1)
+            quantity = lots * lot_size
+
+            # Trading symbol for display
+            trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
+
+            self.log_event("entry",
+                f"🦿 Leg {i+1}: {txn_type} {lots}x {strike}{opt_type} "
+                f"({entry_order_type}, {product_type})")
+
+            # Place the entry order
+            try:
+                result = self.dhan.place_option_order(
+                    underlying=underlying,
+                    strike_price=strike,
+                    option_type=opt_type,
+                    expiry=expiry,
+                    transaction_type=txn_type,
+                    quantity=quantity,
+                    order_type=entry_order_type,
+                    product_type=product_type,
+                    tag=f"AF_E{i+1}_{opt_type}_{strike}",
+                )
+                order_id = result.get("orderId", "")
+                self.log_event("order",
+                    f"✅ Order placed: {txn_type} {trading_symbol} | "
+                    f"OrderID: {order_id}")
+            except Exception as e:
+                self.log_event("error",
+                    f"❌ Order FAILED for Leg {i+1}: {e}")
+                any_failed = True
+                if sqoff_on_fail and entered_positions:
+                    self.log_event("warning",
+                        "Square-off triggered due to failed entry")
+                    for pos in entered_positions:
+                        await self._exit_position(pos, "ENTRY_FAIL_SQOFF",
+                                                   pos["entry_premium"], callback)
+                    return
+                continue
+
+            # Get fill price (use LTP as estimate — real fill comes from order book)
+            entry_premium = self.dhan.get_option_ltp(
+                underlying, strike, expiry, opt_type
+            ) or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+
+            position = {
+                "id": len(self.positions) + len(self.closed_trades) + 1,
+                "leg_num": i + 1,
+                "underlying": underlying,
+                "transaction_type": txn_type,
+                "option_type": opt_type,
+                "strike": strike,
+                "expiry": expiry,
+                "entry_time": self.current_time,
+                "entry_spot": self.current_spot,
+                "entry_premium": entry_premium,
+                "current_premium": entry_premium,
+                "lots": lots,
+                "lot_size": lot_size,
+                "quantity": quantity,
+                "sl_pct": leg.get("sl_pct", 0),
+                "target_pct": leg.get("target_pct", 0),
+                "trail_pct": leg.get("trail_pct", 0),
+                "sqoff_time": leg.get("sqoff_time",
+                              self.strategy.get("market_close", "15:20")),
+                "unrealized_pnl": 0,
+                "peak_premium": entry_premium,
+                "entry_order_id": order_id,
+                "sl_order_id": None,
+                "exit_order_id": None,
+                "trading_symbol": trading_symbol,
+                "symbol": trading_symbol,  # For UI display
+                "status": "open",
+            }
+
+            # Place SL order to broker if configured
+            if place_leg_sl and leg.get("sl_pct", 0) > 0:
+                await self._place_sl_order(position)
+
+            self.positions.append(position)
+            entered_positions.append(position)
+
+        if entered_positions:
+            self.in_trade = True
+            self.trades_today += 1
+            self.log_event("info",
+                f"📊 Trade #{self.trades_today}: {len(entered_positions)} legs opened")
+        else:
+            self.log_event("error", "No legs could be entered")
+
+    # ── SL Order Placement ────────────────────────────────────
+    async def _place_sl_order(self, pos: dict):
+        """Place a stop-loss order at the broker for a position."""
+        sl_pct = pos.get("sl_pct", 0)
+        if sl_pct <= 0:
+            return
+
+        opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
+
+        # Calculate SL trigger price
+        if pos["transaction_type"] == "BUY":
+            trigger = round(pos["entry_premium"] * (1 - sl_pct / 100), 2)
+        else:
+            trigger = round(pos["entry_premium"] * (1 + sl_pct / 100), 2)
+
+        # SL-Limit price difference from deploy config
+        sl_limit_diff = float(self.deploy_config.get("sl_limit_diff_pct", 1) or 1)
+        if pos["transaction_type"] == "BUY":
+            limit_price = round(trigger * (1 - sl_limit_diff / 100), 2)
+        else:
+            limit_price = round(trigger * (1 + sl_limit_diff / 100), 2)
+
+        product_type = self.deploy_config.get("product_type", "MIS")
+        if product_type == "NRML":
+            product_type = "MARGIN"
+
+        try:
+            result = self.dhan.place_sl_order(
+                underlying=pos["underlying"],
+                strike_price=pos["strike"],
+                option_type=pos["option_type"],
+                expiry=pos["expiry"],
+                transaction_type=opposite_txn,
+                quantity=pos["quantity"],
+                trigger_price=trigger,
+                price=limit_price,
+                product_type=product_type,
+                order_type="SL",
+                tag=f"AF_SL_{pos['option_type']}_{pos['strike']}",
+            )
+            pos["sl_order_id"] = result.get("orderId", "")
+            self.log_event("order",
+                f"🛡 SL order placed for Leg {pos['leg_num']}: "
+                f"trigger=₹{trigger} limit=₹{limit_price} "
+                f"OrderID: {pos['sl_order_id']}")
+        except Exception as e:
+            self.log_event("error",
+                f"SL order failed for Leg {pos['leg_num']}: {e}")
+
+    # ── Exit ──────────────────────────────────────────────────
+    async def _exit_position(self, pos: dict, reason: str,
+                              exit_premium: float, callback=None):
+        """Exit a position: place exit order and cancel SL order."""
+        opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
+
+        exit_order_type = self.deploy_config.get("exit_order", "MARKET")
+        product_type = self.deploy_config.get("product_type", "MIS")
+        if product_type == "NRML":
+            product_type = "MARGIN"
+
+        # Cancel existing SL order first
+        if pos.get("sl_order_id"):
+            try:
+                self.dhan.cancel_order(pos["sl_order_id"])
+                self.log_event("order",
+                    f"🚫 SL order cancelled: {pos['sl_order_id']}")
+            except Exception as e:
+                self.log_event("warning",
+                    f"SL cancel failed (may already be triggered): {e}")
+
+        # Place exit order
+        try:
+            result = self.dhan.place_option_order(
+                underlying=pos["underlying"],
+                strike_price=pos["strike"],
+                option_type=pos["option_type"],
+                expiry=pos["expiry"],
+                transaction_type=opposite_txn,
+                quantity=pos["quantity"],
+                order_type=exit_order_type,
+                product_type=product_type,
+                tag=f"AF_X_{pos['option_type']}_{pos['strike']}",
+            )
+            pos["exit_order_id"] = result.get("orderId", "")
+            self.log_event("order",
+                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} "
+                f"| OrderID: {pos['exit_order_id']}")
+        except Exception as e:
+            self.log_event("error",
+                f"❌ Exit order FAILED for Leg {pos['leg_num']}: {e}")
+            return
+
+        # Update position
+        pos["status"] = "closed"
+        pos["exit_time"] = self.current_time
+        pos["exit_premium"] = exit_premium
+        pos["exit_reason"] = reason
+
+        direction = 1 if pos["transaction_type"] == "BUY" else -1
+        pnl = round(
+            (exit_premium - pos["entry_premium"]) *
+            direction * pos["lots"] * pos["lot_size"], 2
+        )
+        pos["pnl"] = pnl
+        self.daily_pnl += pnl
+
+        self.closed_trades.append(pos.copy())
+        self.positions.remove(pos)
+
+        self.log_event("exit",
+            f"🔚 Leg {pos['leg_num']} closed ({reason}): "
+            f"Entry ₹{pos['entry_premium']:.2f} → "
+            f"Exit ₹{exit_premium:.2f} | P&L: ₹{pnl:,.2f}")
+
+        # Check if all legs closed
+        if not self.positions:
+            self.in_trade = False
+            trade_pnl = sum(
+                t["pnl"] for t in self.closed_trades
+                if t.get("exit_time") == self.current_time
+            )
+            self.log_event("info",
+                f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | "
+                f"Daily P&L: ₹{self.daily_pnl:,.2f}")
+
+    # ── Exit Condition Check ──────────────────────────────────
+    def _check_exit_conditions(self, pos: dict, row: pd.Series,
+                                current_premium: float) -> Optional[str]:
+        """Check if any exit condition is met for a position."""
+        # Update peak premium for trailing SL
+        if pos["transaction_type"] == "BUY":
+            pos["peak_premium"] = max(
+                pos.get("peak_premium", pos["entry_premium"]),
+                current_premium
+            )
+        else:
+            pos["peak_premium"] = min(
+                pos.get("peak_premium", pos["entry_premium"]),
+                current_premium
+            )
+
+        # Trailing stop loss
+        trail_pct = pos.get("trail_pct", 0)
+        if trail_pct > 0:
+            peak = pos["peak_premium"]
+            if pos["transaction_type"] == "BUY":
+                trail_sl = peak * (1 - trail_pct / 100)
+                if current_premium <= trail_sl:
+                    return "TRAILING_SL"
+            else:
+                trail_sl = peak * (1 + trail_pct / 100)
+                if current_premium >= trail_sl:
+                    return "TRAILING_SL"
+
+        # Static stop loss (engine-level — backup if broker SL not placed)
+        sl_pct = pos.get("sl_pct", 0)
+        if sl_pct > 0:
+            if pos["transaction_type"] == "BUY":
+                if current_premium <= pos["entry_premium"] * (1 - sl_pct / 100):
+                    return "STOP_LOSS"
+            else:
+                if current_premium >= pos["entry_premium"] * (1 + sl_pct / 100):
+                    return "STOP_LOSS"
+
+        # Target profit
+        target_pct = pos.get("target_pct", 0)
+        if target_pct > 0:
+            if pos["transaction_type"] == "BUY":
+                if current_premium >= pos["entry_premium"] * (1 + target_pct / 100):
+                    return "TARGET"
+            else:
+                if current_premium <= pos["entry_premium"] * (1 - target_pct / 100):
+                    return "TARGET"
+
+        # Signal exit
+        if eval_condition_group(row, self.exit_conditions, self._prev_row):
+            return "EXIT_SIGNAL"
+
+        # Square-off time
+        sqoff = pos.get("sqoff_time", "15:20")
+        if isinstance(sqoff, str):
+            h, m = map(int, sqoff.split(":"))
+            sqoff = time(h, m)
+        if self.current_time and self.current_time.time() >= sqoff:
+            return "SQUARE_OFF"
+
+        return None
+
+    # ── Helpers ───────────────────────────────────────────────
+    def _calculate_strike(self, leg: dict, spot: float,
+                           strike_step: int) -> int:
+        """Calculate strike price based on leg configuration."""
+        atm = round(spot / strike_step) * strike_step
+        strike_type = leg.get("strike_type", "atm")
+        strike_value = leg.get("strike_value", 0)
+        option_type = leg.get("option_type", "CE")
+
+        if strike_type == "atm":
+            return int(atm)
+        elif strike_type == "strike_price":
+            return int(round(strike_value / strike_step) * strike_step)
+        elif strike_type == "otm":
+            offset = int(round(strike_value / strike_step) * strike_step)
+            return int(atm + offset if option_type == "CE" else atm - offset)
+        elif strike_type == "itm":
+            offset = int(round(strike_value / strike_step) * strike_step)
+            return int(atm - offset if option_type == "CE" else atm + offset)
+        elif strike_type == "spot_price":
+            offset = int(round(strike_value / strike_step) * strike_step)
+            return int(round((spot + offset) / strike_step) * strike_step)
+        return int(atm)
+
+    def _estimate_premium(self, strike: int, spot: float,
+                           option_type: str, strike_step: int) -> float:
+        """Estimate option premium (fallback when LTP unavailable)."""
+        moneyness = (spot - strike) if option_type == "CE" else (strike - spot)
+        atm_prem = spot * 0.005
+        if moneyness > 0:
+            intrinsic = moneyness
+            extrinsic = atm_prem * 0.5 * max(0, 1 - abs(moneyness) / (spot * 0.2))
+            return max(1, round(intrinsic + extrinsic, 2))
+        else:
+            distance_pct = abs(moneyness) / spot
+            return max(1, round(atm_prem * max(0.05, 1 - distance_pct * 5), 2))
+
+    def _get_underlying_symbol(self) -> str:
+        """Get underlying symbol for scrip master lookup."""
+        inst = self.strategy.get("instrument", "26000")
+        return UNDERLYING_MAP.get(inst, "NIFTY")
+
+    def _get_instrument_name(self) -> str:
+        names = {
+            "26000": "NIFTY 50", "26009": "BANK NIFTY",
+            "1": "SENSEX", "26017": "NIFTY FIN SVC",
+            "26037": "FINNIFTY", "26041": "MIDCPNIFTY",
+        }
+        return names.get(self.strategy.get("instrument", "26000"), "Unknown")
+
+    def _get_timeframe(self) -> int:
+        """Extract candle timeframe from indicators."""
+        for ind in self.strategy.get("indicators", []):
             if "_" in ind and ind.endswith("m"):
                 parts = ind.split("_")
                 for p in parts:
                     if p.endswith("m") and p[:-1].isdigit():
-                        candle_type = p[:-1]
-                        break
+                        return int(p[:-1])
+        return 5
 
-        df = self.dhan.get_historical_data(
-            security_id      = sec_id,
-            exchange_segment = seg,
-            instrument_type  = inst_type,
-            from_date        = from_dt,
-            to_date          = today,
-            candle_type      = candle_type,
-        )
-        return df.tail(n_candles)
-
-    async def start(self, on_update=None):
-        self.running = True
-        self.status_msg = "Running"
-        self._emit(on_update, {"type": "log", "msg": "Live engine started"})
-
-        market_open  = self.strategy_cfg["market_open"]
-        market_close = self.strategy_cfg["market_close"]
-        
-        # Ensure market_open/close are time objects (handle string inputs)
-        if isinstance(market_open, str):
-            h, m = map(int, market_open.split(':'))
-            market_open = time(h, m)
-        if isinstance(market_close, str):
-            h, m = map(int, market_close.split(':'))
-            market_close = time(h, m)
-
-        while self.running:
-            now  = datetime.now()
-            cur  = now.time()
-            date = now.date()
-
-            if date != self.last_date:
-                self.trades_today = 0
-                self.daily_pnl    = 0.0
-                self.last_date    = date
-                self.in_trade     = False
-                self._emit(on_update, {"type": "log", "msg": f"New day: {date}"})
-
-            if not (market_open <= cur < market_close):
-                wait_msg = "Waiting for market open..." if cur < market_open else "Market closed."
-                self.status_msg = wait_msg
-                self._emit(on_update, {"type": "log", "msg": wait_msg})
-                await asyncio.sleep(30)
-                continue
-
-            try:
-                df_raw = self._fetch_recent_candles(150)
-                
-                # UPDATED: Get indicators from the current live configuration
-                ui_indicators = self.strategy_cfg.get("indicators", [])
-                
-                # Calculate exactly what the user selected in the UI
-                df = compute_dynamic_indicators(df_raw, ui_indicators)
-
-            except Exception as e:
-                err_msg = f"Data fetch error: {e}"
-                self.status_msg = err_msg
-                self._emit(on_update, {"type": "error", "msg": err_msg})
-                await asyncio.sleep(config.POLL_INTERVAL_SEC)
-                continue
-
-            if df.empty:
-                await asyncio.sleep(config.POLL_INTERVAL_SEC)
-                continue
-
-            prev_row = df.iloc[-2] if len(df) >= 2 else None
-            row = df.iloc[-1]
-            self.current_ltp = float(row["close"])
-            self._emit(on_update, {"type": "ltp", "ltp": self.current_ltp, "time": str(now)})
-
-            if self.in_trade:
-                # Update peak price for trailing SL
-                self.peak_price = max(self.peak_price, self.current_ltp)
-                sl_price = self.entry_price * (1 - self.strategy_cfg["stoploss_pct"] / 100)
-                # Trailing stop loss
-                trail_pct = float(self.strategy_cfg.get("trail_pct", 0) or 0)
-                if trail_pct > 0:
-                    trail_sl = self.peak_price * (1 - trail_pct / 100)
-                    sl_price = max(sl_price, trail_sl)  # trailing SL is tighter
-                exit_signal = eval_condition_group(row, self.exit_conditions, prev_row)
-                hit_sl      = self.current_ltp <= sl_price
-                eod         = cur >= time(15, 20)
-
-                if hit_sl or exit_signal or eod:
-                    reason = "TrailingSL" if (trail_pct > 0 and hit_sl and self.peak_price > self.entry_price) else ("StopLoss" if hit_sl else ("EOD" if eod else "Signal"))
-                    await self._exit_trade(row, reason, on_update)
-            else:
-                max_hit    = self.trades_today >= self.strategy_cfg["max_trades_per_day"]
-                max_loss   = float(self.strategy_cfg.get("max_daily_loss", 0) or 0)
-                loss_hit   = max_loss > 0 and self.daily_pnl <= -max_loss
-                time_ok    = True  # Allow entries throughout market hours
-                entry_sig  = eval_condition_group(row, self.entry_conditions, prev_row)
-
-                if not max_hit and not loss_hit and time_ok and entry_sig:
-                    await self._enter_trade(row, on_update)
-
-            self.status_msg = f"Monitoring — LTP: ₹{self.current_ltp:,.2f}"
-            await asyncio.sleep(config.POLL_INTERVAL_SEC)
-
-    def stop(self):
-        self.running    = False
-        self.status_msg = "Stopped"
-
-    async def _enter_trade(self, row, on_update):
-        self._emit(on_update, {
-            "type":  "signal_entry",
-            "msg":   f"Entry signal at ₹{row['close']:.2f}",
-            "price": float(row["close"]),
-            "time":  str(datetime.now()),
-        })
-
-        try:
-            result = self.dhan.place_order(
-                security_id      = self.strategy_cfg["security_id"],
-                exchange_segment = self.strategy_cfg["exchange"],
-                transaction_type = "BUY",
-                quantity         = self.strategy_cfg["lots"] * self.strategy_cfg["lot_size"],
-                order_type       = "MARKET",
-                product_type     = "INTRADAY",
-                tag              = "AlgoForge_ENTRY",
-            )
-            self.order_id   = result.get("orderId")
-            self.in_trade   = True
-            self.entry_price = float(row["close"])
-            self.peak_price  = self.entry_price  # initialize peak for trailing SL
-            self.entry_time  = datetime.now()
-            self._emit(on_update, {
-                "type":     "order_placed",
-                "msg":      f"BUY order placed | OrderID: {self.order_id}",
-                "order_id": self.order_id,
-            })
-        except Exception as e:
-            self._emit(on_update, {"type": "error", "msg": f"Order failed: {e}"})
-
-    async def _exit_trade(self, row, reason: str, on_update):
-        exit_price = float(row["close"])
-        pnl = (exit_price - self.entry_price) * self.strategy_cfg["lots"] * self.strategy_cfg["lot_size"]
-
-        self._emit(on_update, {
-            "type":    "signal_exit",
-            "msg":     f"Exit ({reason}) at ₹{exit_price:.2f} | P&L: ₹{pnl:,.2f}",
-            "price":   exit_price,
-            "pnl":     pnl,
-            "reason":  reason,
-            "time":    str(datetime.now()),
-        })
-
-        try:
-            result = self.dhan.place_order(
-                security_id      = self.strategy_cfg["security_id"],
-                exchange_segment = self.strategy_cfg["exchange"],
-                transaction_type = "SELL",
-                quantity         = self.strategy_cfg["lots"] * self.strategy_cfg["lot_size"],
-                order_type       = "MARKET",
-                product_type     = "INTRADAY",
-                tag              = "AlgoForge_EXIT",
-            )
-            trade_log = {
-                "entry_time":  str(self.entry_time),
-                "exit_time":   str(datetime.now()),
-                "entry_price": self.entry_price,
-                "exit_price":  exit_price,
-                "pnl":         round(pnl, 2),
-                "reason":      reason,
-            }
-            self.log.append(trade_log)
-            self.trades_today += 1
-            self.daily_pnl += round(pnl, 2)
-            self.in_trade = False
-            self.order_id = None
-        except Exception as e:
-            self._emit(on_update, {"type": "error", "msg": f"Exit order failed: {e}"})
-
-    def _emit(self, callback, event: dict):
-        if callback:
-            try:
-                # Check if callback is a coroutine function and handle accordingly
-                if asyncio.iscoroutinefunction(callback):
-                    # Callback is async — schedule it but don't await here
-                    asyncio.create_task(callback(event))
-                else:
-                    callback(event)
-            except Exception as e:
-                print(f"[EMIT ERROR] {e}")
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] [{event.get('type','?').upper()}] {event.get('msg', event)}")
-
+    # ── Status ────────────────────────────────────────────────
     def get_status(self) -> dict:
+        """Get current engine status for UI display."""
+        total_pnl = sum(p.get("unrealized_pnl", 0) for p in self.positions)
+        total_pnl += sum(t.get("pnl", 0) for t in self.closed_trades)
+
+        # Serialize positions (convert datetime objects)
+        positions_out = []
+        for p in self.positions:
+            out = {k: v for k, v in p.items()}
+            if isinstance(out.get("entry_time"), datetime):
+                out["entry_time"] = str(out["entry_time"])
+            positions_out.append(out)
+
+        closed_out = []
+        for t in self.closed_trades:
+            out = {k: v for k, v in t.items()}
+            if isinstance(out.get("entry_time"), datetime):
+                out["entry_time"] = str(out["entry_time"])
+            if isinstance(out.get("exit_time"), datetime):
+                out["exit_time"] = str(out["exit_time"])
+            closed_out.append(out)
+
         return {
-            "running":       self.running,
-            "status_msg":    self.status_msg,
-            "in_trade":      self.in_trade,
-            "entry_price":   self.entry_price,
-            "current_ltp":   self.current_ltp,
-            "trades_today":  self.trades_today,
-            "trade_log":     self.log,
-            "unrealized_pnl": round(
-                (self.current_ltp - self.entry_price) * self.strategy_cfg["lots"] * self.strategy_cfg["lot_size"]
-                if self.in_trade else 0, 2
-            ),
+            "running": self.running,
+            "mode": self.mode,
+            "in_trade": self.in_trade,
+            "current_spot": self.current_spot,
+            "current_time": str(self.current_time) if self.current_time else None,
+            "trades_today": self.trades_today,
+            "daily_pnl": round(self.daily_pnl, 2),
+            "positions": positions_out,
+            "closed_trades": closed_out,
+            "total_pnl": round(total_pnl, 2),
+            "strategy_name": self.strategy.get("run_name", "Live Strategy"),
+            "instrument": self.strategy.get("instrument", ""),
+            "current_candle": self.current_candle,
+            "current_indicators": self.current_indicators,
+            "event_log": [
+                {
+                    "time": e["time"].strftime("%H:%M:%S"),
+                    "type": e["type"],
+                    "message": e["message"],
+                }
+                for e in self.event_log[-50:]
+            ],
         }

@@ -46,6 +46,9 @@ ENV/
 strategies.json
 runs.json
 
+# Scrip master cache (downloaded daily, ~5MB)
+.scrip_cache/
+
 # SSH keys — NEVER commit
 *.pem
 *.key

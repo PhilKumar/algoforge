@@ -71,6 +71,18 @@ class LiveStartRequest(BaseModel):
     entry_conditions: Optional[List[dict]] = None
     exit_conditions:  Optional[List[dict]] = None
     strategy_config:  Optional[dict]       = None
+    # Full strategy fields (used when deploying from modal)
+    run_name:         str   = ""
+    instrument:       str   = ""
+    indicators:       List[str]            = []
+    legs:             Optional[List[dict]] = None
+    deploy_config:    Optional[dict]       = None
+    max_trades_per_day: int = 1
+    market_open:      str   = "09:15"
+    market_close:     str   = "15:25"
+    max_daily_loss:   float = 0
+    lots:             int   = 1
+    stoploss_pct:     float = 10.0
 
 class OrderRequest(BaseModel):
     security_id:      str
@@ -550,28 +562,50 @@ async def api_run_backtest(payload: StrategyPayload):
 # ── Live Engine ───────────────────────────────────────────────────
 @app.post("/api/live/start")
 async def live_start(req: LiveStartRequest):
+    """Start live auto-trading with full strategy configuration."""
     global _live_task
     if live_engine.running:
         return {"status": "already_running"}
 
-    if req.entry_conditions or req.exit_conditions or req.strategy_config:
-        live_engine.configure(
-            entry_conditions = req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-            exit_conditions  = req.exit_conditions  or DEFAULT_EXIT_CONDITIONS,
-            strategy_cfg     = req.strategy_config  or {},
-        )
+    # Build strategy dict from the request (same structure as paper engine)
+    strategy_dict = {}
+    if req.strategy_config:
+        strategy_dict = dict(req.strategy_config)
+    else:
+        strategy_dict = {
+            "run_name": req.run_name or "Live Strategy",
+            "instrument": req.instrument or "26000",
+            "indicators": req.indicators or [],
+            "max_trades_per_day": int(req.max_trades_per_day or 1),
+            "market_open": req.market_open or "09:15",
+            "market_close": req.market_close or "15:25",
+            "legs": req.legs or [],
+            "deploy_config": req.deploy_config or {},
+            "max_daily_loss": float(req.max_daily_loss or 0),
+            "lots": req.lots,
+            "stoploss_pct": req.stoploss_pct,
+            "poll_interval": 10,
+        }
+
+    deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
+
+    live_engine.configure(
+        strategy=strategy_dict,
+        entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+        exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+        deploy_config=deploy_config,
+    )
 
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
             try:
-                await ws.send_json(event)
+                await ws.send_json({"source": "live", **event})
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
 
-    # Use asyncio.create_task for proper async execution
-    _live_task = asyncio.create_task(live_engine.start(on_update=broadcast))
-    return {"status": "started"}
+    _live_task = asyncio.create_task(live_engine.start(callback=broadcast))
+    return {"status": "started", "message": "Auto trading started with REAL orders"}
 
 
 @app.post("/api/live/stop")
@@ -591,6 +625,29 @@ async def live_stop():
 @app.get("/api/live/status")
 async def live_status():
     return live_engine.get_status()
+
+
+@app.get("/api/live/trades/csv")
+async def export_live_trades_csv():
+    """Export live auto-trading trades to CSV"""
+    import io, csv as csv_mod
+    if not live_engine or not live_engine.closed_trades:
+        raise HTTPException(status_code=404, detail="No live trades available")
+    output = io.StringIO()
+    fields = ["id","leg_num","transaction_type","option_type","strike","entry_time",
+              "exit_time","entry_premium","exit_premium","lots","lot_size","pnl",
+              "exit_reason","entry_order_id","exit_order_id"]
+    writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    writer.writeheader()
+    for t in live_engine.closed_trades:
+        row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=live_trades_{datetime.now().strftime('%Y%m%d')}.csv"}
+    )
 
 
 # ── Paper Trading (Real Market Data) ──────────────────────────────

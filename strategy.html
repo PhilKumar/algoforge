@@ -540,6 +540,7 @@
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
         <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">▶ Run Backtest</button>
+        <button class="btn" onclick="openDeployModal()" style="flex: 1; background: var(--purple); border: 1px solid rgba(139,92,246,0.45); color: #fff; font-size: 13px; font-weight: 700;">🚀 Deploy</button>
         <button class="btn" onclick="saveStrategy()" style="flex: 1; background: var(--card2); border: 1px solid var(--border); font-size: 13px; color: var(--text);">💾 Save</button>
       </div>
     </div>
@@ -943,7 +944,7 @@
       <div id="live-status-badge" style="padding:3px 10px; border-radius:4px; font-size:11px; font-weight:600; background:rgba(239,68,68,0.15); color:#f87171;">STOPPED</div>
     </div>
     <div style="display:flex; gap:8px;">
-      <button class="btn" id="live-stop-btn" onclick="stopPaperTrade()" style="background: rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:12px; padding:6px 16px;">⏹ Stop Run</button>
+      <button class="btn" id="live-stop-btn" onclick="stopPaperTrade()" style="background: rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:12px; padding:6px 16px;">⏹ Stop</button>
       <button class="btn" onclick="loadLiveMonitor()" style="background: rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); font-size:12px; padding:6px 16px;">🔄 Refresh</button>
     </div>
   </div>
@@ -3397,7 +3398,7 @@ function setDeployType(type) {
 }
 
 async function deployStrategy() {
-  const isPaper = document.getElementById('deploy-paper-btn').dataset.active === '1' || !document.getElementById('deploy-auto-btn').dataset.active;
+  const isPaper = document.getElementById('deploy-paper-btn').dataset.active === '1';
   const deployRunName = document.getElementById('deploy-run-name').value.trim();
   if (!deployRunName) {
     toast('Enter a run name in deploy modal', 'warn');
@@ -3432,29 +3433,49 @@ async function deployStrategy() {
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
         toast('📝 Strategy deployed in Paper Testing mode', 'success');
+        _activeRunMode = 'paper';
       } else {
-        toast(data.message || 'Paper deploy failed', 'danger');
+        toast(data.message || data.detail || 'Paper deploy failed', 'danger');
         return;
       }
     } else {
+      // Auto trading — confirm with user (REAL MONEY!)
+      if (!confirm('⚠️ AUTO TRADING — This will place REAL orders with real money.\n\nAre you sure you want to proceed?')) {
+        return;
+      }
       const res = await fetch('/api/live/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          run_name: deployRunName,
+          instrument: payload.instrument,
+          indicators: payload.indicators,
           entry_conditions: payload.entry_conditions,
           exit_conditions: payload.exit_conditions,
+          legs: payload.legs,
+          deploy_config: deployConfig,
+          max_trades_per_day: payload.max_trades_per_day,
+          market_open: payload.market_open,
+          market_close: payload.market_close,
+          max_daily_loss: payload.max_daily_loss || 0,
+          lots: payload.lots,
+          stoploss_pct: payload.stoploss_pct,
           strategy_config: payload,
         })
       });
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
-        toast('🚀 Strategy deployed for Auto Trading', 'success');
+        toast('🚀 Strategy deployed for Auto Trading (REAL ORDERS)', 'success');
+        _activeRunMode = 'auto';
       } else {
-        toast(data.message || 'Auto deploy failed', 'danger');
+        toast(data.message || data.detail || 'Auto deploy failed', 'danger');
         return;
       }
     }
     closeDeployModal();
+    // Switch to Live Monitor tab
+    showPage('live-page', document.getElementById('nav-live'));
+    startLiveMonitor();
   } catch (err) {
     toast('Deploy failed: ' + err.message, 'danger');
   }
@@ -3464,6 +3485,7 @@ async function deployStrategy() {
 //  LIVE MONITOR
 // ══════════════════════════════════════════════════════════════
 let liveMonitorInterval = null;
+let _activeRunMode = 'paper'; // 'paper' or 'auto'
 
 function startLiveMonitor() {
   loadLiveMonitor();
@@ -3476,14 +3498,24 @@ function stopLiveMonitor() {
 }
 
 function downloadPaperCSV() {
-  window.open('/api/paper/trades/csv', '_blank');
+  if (_activeRunMode === 'auto') {
+    window.open('/api/live/trades/csv', '_blank');
+  } else {
+    window.open('/api/paper/trades/csv', '_blank');
+  }
 }
 
 async function stopPaperTrade() {
-  if (!confirm('Stop the active paper trade run?')) return;
+  const label = _activeRunMode === 'auto' ? 'auto trading run' : 'paper trade run';
+  if (!confirm(`Stop the active ${label}?`)) return;
   try {
-    await fetch('/api/paper/stop', { method: 'POST' });
-    toast('Paper trade stopped', 'warn');
+    if (_activeRunMode === 'auto') {
+      await fetch('/api/live/stop', { method: 'POST' });
+      toast('Auto trading stopped', 'warn');
+    } else {
+      await fetch('/api/paper/stop', { method: 'POST' });
+      toast('Paper trade stopped', 'warn');
+    }
     loadLiveMonitor();
   } catch(e) { toast('Error stopping trade', 'danger'); }
 }
@@ -3492,8 +3524,26 @@ const INST_NAMES = { '26000': 'NIFTY 50', '26009': 'BANK NIFTY', '26037': 'FINNI
 
 async function loadLiveMonitor() {
   try {
-    const res = await fetch('/api/paper/status');
-    const d = await res.json();
+    // Check both paper and live status — show whichever is running
+    const [paperRes, liveRes] = await Promise.all([
+      fetch('/api/paper/status'),
+      fetch('/api/live/status')
+    ]);
+    const paperData = await paperRes.json();
+    const liveData = await liveRes.json();
+
+    // Decide which to display
+    let d;
+    if (liveData.running) {
+      d = liveData;
+      _activeRunMode = 'auto';
+    } else if (paperData.running) {
+      d = paperData;
+      _activeRunMode = 'paper';
+    } else {
+      // Neither running — show whichever has data, prefer last active
+      d = (_activeRunMode === 'auto' && (liveData.closed_trades || []).length > 0) ? liveData : paperData;
+    }
     renderLiveMonitor(d);
   } catch(e) { console.error('Live monitor fetch error:', e); }
 }
@@ -3524,7 +3574,14 @@ function renderLiveMonitor(d) {
   const pnlEl = document.getElementById('live-closed-pnl');
   pnlEl.textContent = '₹' + closedPnL.toFixed(2);
   pnlEl.style.color = closedPnL >= 0 ? 'var(--success)' : 'var(--danger)';
-  document.getElementById('live-run-type').textContent = 'Paper';
+  const runTypeEl = document.getElementById('live-run-type');
+  if (_activeRunMode === 'auto' || d.mode === 'auto') {
+    runTypeEl.textContent = '🤖 Auto';
+    runTypeEl.style.color = 'var(--accent2)';
+  } else {
+    runTypeEl.textContent = '📝 Paper';
+    runTypeEl.style.color = 'var(--accent)';
+  }
   document.getElementById('live-trades-today').textContent = d.trades_today || 0;
 
   // Instrument label + candle updated time
