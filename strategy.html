@@ -312,7 +312,7 @@
 <div style="text-align: center; margin-bottom: 6px; position: relative;">
   <div style="position: absolute; width: 180px; height: 180px; background: rgba(0, 200, 150, 0.15); filter: blur(60px); border-radius: 50%; z-index: -1; left: 50%; top: 50%; transform: translate(-50%, -50%);"></div>
   <img src="logo.jpg" alt="AlgoForge" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" style="height: 85px; width: auto; border-radius: 14px; cursor: pointer; filter: drop-shadow(0 0 18px rgba(0, 200, 150, 0.3));" title="Go to Dashboard">
-  <p style="color: var(--muted); font-size: 12px; font-family: 'Outfit', sans-serif; font-weight: 400; letter-spacing: 3px; text-transform: uppercase; margin-top: 6px;">Chart Your Course · Let Algorithms Run The Force</p>
+  <p style="color: var(--muted); font-size: 12px; font-family: 'Outfit', sans-serif; font-weight: 400; letter-spacing: 3px; text-transform: uppercase; margin-top: 6px;">Discipline Over Emotion · Algorithms Over Impulse</p>
 </div>
 
 <!-- Row 2: Ticker bar centered -->
@@ -342,6 +342,27 @@
       <div style="font-size: 9px; color: var(--danger); letter-spacing: 1.5px; font-weight: 600; margin-bottom: 4px;">ATM PE</div>
       <div id="ticker-atm-pe" style="font-weight: 600; font-family: 'Outfit', sans-serif; font-size: 17px; color: var(--danger); letter-spacing: -0.3px;">--</div>
       <div id="ticker-atm-pe-chg" style="font-size: 10px; font-family: 'Outfit', sans-serif; font-weight: 500; margin-top: 1px;">--</div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 2b: Clock + Expiry info -->
+<div style="display: flex; justify-content: center; margin-bottom: 10px; gap: 16px; flex-wrap: wrap;">
+  <div id="header-clock" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 5px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+    <span style="font-size: 14px;">🕐</span>
+    <span id="clock-date">--</span>
+    <span style="color: var(--muted)">|</span>
+    <span id="clock-time" style="font-weight: 700; color: var(--accent); min-width: 70px;">--:--:--</span>
+  </div>
+  <div id="expiry-info" style="display: flex; gap: 10px; align-items: center;">
+    <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; padding: 5px 12px; font-size: 11px; color: #a5b4fc;">
+      <span style="font-weight: 600;">NIFTY</span> <span id="expiry-nifty" style="color: var(--text); font-family: 'JetBrains Mono', monospace;">--</span>
+    </div>
+    <div style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; padding: 5px 12px; font-size: 11px; color: #fbbf24;">
+      <span style="font-weight: 600;">BANKNIFTY</span> <span id="expiry-banknifty" style="color: var(--text); font-family: 'JetBrains Mono', monospace;">--</span>
+    </div>
+    <div style="background: rgba(236,72,153,0.08); border: 1px solid rgba(236,72,153,0.2); border-radius: 8px; padding: 5px 12px; font-size: 11px; color: #f472b6;">
+      <span style="font-weight: 600;">SENSEX</span> <span id="expiry-sensex" style="color: var(--text); font-family: 'JetBrains Mono', monospace;">--</span>
     </div>
   </div>
 </div>
@@ -1152,9 +1173,11 @@ function showPage(id, btn) {
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
   document.querySelectorAll('.ut').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active-page');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
+  // Persist active tab across page refresh
+  try { localStorage.setItem('algoforge_active_tab', id); } catch(e) {}
 }
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 
@@ -1169,6 +1192,31 @@ document.addEventListener('DOMContentLoaded', () => {
   updateTicker();
   setInterval(updateTicker, 30000);
   setInterval(loadPortfolioData, 60000); // Refresh portfolio every minute
+
+  // Restore active tab from previous session
+  try {
+    const savedTab = localStorage.getItem('algoforge_active_tab');
+    if (savedTab && document.getElementById(savedTab)) {
+      const tabMap = {
+        'dashboard-page': 'nav-dashboard',
+        'portfolio-page': 'nav-portfolio',
+        'builder-page': 'nav-builder',
+        'results-page': 'nav-results',
+        'live-page': 'nav-live'
+      };
+      const btnId = tabMap[savedTab];
+      if (btnId) {
+        showPage(savedTab, document.getElementById(btnId));
+        if (savedTab === 'live-page') startLiveMonitor();
+      }
+    }
+  } catch(e) {}
+
+  // Start clock
+  updateClock();
+  setInterval(updateClock, 1000);
+  // Load expiry dates
+  loadExpiryDates();
 });
 
 async function checkTokenExpiry() {
@@ -1564,6 +1612,65 @@ function setTickerValue(priceId, chgId, data) {
     chgEl.textContent = `${dir} ${isUp ? '+' : ''}${data.change.toFixed(2)} (${isUp ? '+' : ''}${data.pct.toFixed(2)}%)`;
     chgEl.style.color = isUp ? 'var(--success)' : 'var(--danger)';
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CLOCK & EXPIRY DATES
+// ══════════════════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateEl = document.getElementById('clock-date');
+  const timeEl = document.getElementById('clock-time');
+  if (dateEl) dateEl.textContent = dateStr;
+  if (timeEl) timeEl.textContent = timeStr;
+
+  // Color market hours
+  const h = now.getHours(), m = now.getMinutes();
+  const mins = h * 60 + m;
+  const inMarket = mins >= 555 && mins <= 930; // 9:15 - 15:30
+  if (timeEl) timeEl.style.color = inMarket ? 'var(--success)' : 'var(--accent)';
+}
+
+function loadExpiryDates() {
+  fetch('/api/expiry-dates').then(r => r.json()).then(data => {
+    if (data.status === 'ok') {
+      const fmt = (d) => {
+        if (!d) return '--';
+        const dt = new Date(d + 'T00:00:00');
+        const today = new Date(); today.setHours(0,0,0,0);
+        const diff = Math.ceil((dt - today) / 86400000);
+        const label = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+        if (diff === 0) return `${label} (TODAY!)`;
+        if (diff === 1) return `${label} (Tomorrow)`;
+        return `${label} (${diff}d)`;
+      };
+      const nEl = document.getElementById('expiry-nifty');
+      const bEl = document.getElementById('expiry-banknifty');
+      const sEl = document.getElementById('expiry-sensex');
+      if (nEl) nEl.textContent = fmt(data.nifty);
+      if (bEl) bEl.textContent = fmt(data.banknifty);
+      if (sEl) sEl.textContent = fmt(data.sensex);
+
+      // Highlight if expiry is today
+      if (data.nifty && nEl) {
+        const dt = new Date(data.nifty + 'T00:00:00');
+        const today = new Date(); today.setHours(0,0,0,0);
+        if (dt.getTime() === today.getTime()) nEl.style.color = '#f87171';
+      }
+      if (data.banknifty && bEl) {
+        const dt = new Date(data.banknifty + 'T00:00:00');
+        const today = new Date(); today.setHours(0,0,0,0);
+        if (dt.getTime() === today.getTime()) bEl.style.color = '#f87171';
+      }
+      if (data.sensex && sEl) {
+        const dt = new Date(data.sensex + 'T00:00:00');
+        const today = new Date(); today.setHours(0,0,0,0);
+        if (dt.getTime() === today.getTime()) sEl.style.color = '#f87171';
+      }
+    }
+  }).catch(e => console.warn('Expiry fetch error:', e));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2524,7 +2631,22 @@ async function copyEditStrategy() {
     }
   }
   
-  if (!p) { toast('No backtest data to copy. Run backtest first!', 'warn'); return; }
+  // If still no payload, try to load the most recent run
+  if (!p) {
+    try {
+      const runsRes = await fetch('/api/runs');
+      const allRuns = await runsRes.json();
+      if (allRuns && allRuns.length > 0) {
+        const latestId = allRuns[allRuns.length - 1].id;
+        const res = await fetch('/api/runs/' + latestId);
+        p = await res.json();
+        currentViewingRunId = latestId;
+        lastBacktestPayload = p;
+      }
+    } catch(e) {}
+  }
+  
+  if (!p) { toast('No backtest data to copy. Run a backtest first!', 'warn'); return; }
   
   try {
     // Switch to builder page
@@ -3515,8 +3637,14 @@ async function stopPaperTrade() {
     } else {
       await fetch('/api/paper/stop', { method: 'POST' });
       toast('Paper trade stopped', 'warn');
+      // Also sync the Strategy Builder paper buttons
+      const startBtn = document.getElementById('start-paper-btn');
+      const stopBtn = document.getElementById('stop-paper-btn');
+      if (startBtn) startBtn.style.display = 'block';
+      if (stopBtn) stopBtn.style.display = 'none';
     }
-    loadLiveMonitor();
+    // Small delay for engine to fully stop, then refresh
+    setTimeout(() => loadLiveMonitor(), 500);
   } catch(e) { toast('Error stopping trade', 'danger'); }
 }
 
@@ -3568,6 +3696,12 @@ function renderLiveMonitor(d) {
     statusEl.textContent = 'Idle'; statusEl.style.color = 'var(--muted)';
   }
   document.getElementById('live-tab-dot').textContent = running ? '🟢' : '🔴';
+
+  // Toggle stop button visibility based on running state
+  const stopBtn = document.getElementById('live-stop-btn');
+  if (stopBtn) {
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+  }
 
   // Stat cards
   const closedPnL = round2(d.total_pnl || 0);

@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from broker.dhan     import DhanClient
+from broker.dhan     import DhanClient, ScripMaster
 from engine.backtest import run_backtest, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS
 from engine.live     import LiveEngine
 from engine.paper_trading import PaperTradingEngine
@@ -930,13 +930,32 @@ async def get_ticker():
         vix_price, vix_chg, vix_pct = _last_close_and_change("^INDIAVIX")
 
         if nifty_price > 0:
+            # Fetch real ATM CE/PE option prices from Dhan
+            atm_ce_data = {"price": 0, "change": 0, "pct": 0}
+            atm_pe_data = {"price": 0, "change": 0, "pct": 0}
+            try:
+                if dhan._is_configured():
+                    ScripMaster.ensure_loaded()
+                    expiry = ScripMaster.get_nearest_expiry("NIFTY")
+                    if expiry:
+                        atm_strike = round(nifty_price / 50) * 50
+                        ce_ltp = dhan.get_option_ltp("NIFTY", atm_strike, expiry, "CE")
+                        pe_ltp = dhan.get_option_ltp("NIFTY", atm_strike, expiry, "PE")
+                        if ce_ltp > 0:
+                            atm_ce_data = {"price": round(ce_ltp, 2), "change": 0, "pct": 0}
+                        if pe_ltp > 0:
+                            atm_pe_data = {"price": round(pe_ltp, 2), "change": 0, "pct": 0}
+                        print(f"[TICKER] ATM {atm_strike}: CE={ce_ltp}, PE={pe_ltp}")
+            except Exception as opt_err:
+                print(f"[TICKER] ATM CE/PE fetch failed: {opt_err}")
+
             result = {
                 "status": "ok",
                 "nifty":  {"price": round(nifty_price, 2), "change": round(nifty_chg, 2), "pct": round(nifty_pct, 2)},
                 "sensex": {"price": round(sensex_price, 2), "change": round(sensex_chg, 2), "pct": round(sensex_pct, 2)},
                 "vix":    {"price": round(vix_price, 2), "change": round(vix_chg, 2), "pct": round(vix_pct, 2)},
-                "atmCE":  {"price": round(nifty_price * 0.005, 2), "change": 0, "pct": 0},
-                "atmPE":  {"price": round(nifty_price * 0.004, 2), "change": 0, "pct": 0},
+                "atmCE":  atm_ce_data,
+                "atmPE":  atm_pe_data,
             }
             
             _ticker_cache["data"] = result
@@ -980,13 +999,27 @@ async def get_ticker():
                         sensex_ltp = float(sensex_info)
                 
                 if nifty_ltp > 0:
+                    # Try real ATM CE/PE from Dhan option LTP
+                    atm_ce_fb = {"price": 0, "change": 0, "pct": 0}
+                    atm_pe_fb = {"price": 0, "change": 0, "pct": 0}
+                    try:
+                        ScripMaster.ensure_loaded()
+                        fb_exp = ScripMaster.get_nearest_expiry("NIFTY")
+                        if fb_exp:
+                            atm_s = round(nifty_ltp / 50) * 50
+                            ce_p = dhan.get_option_ltp("NIFTY", atm_s, fb_exp, "CE")
+                            pe_p = dhan.get_option_ltp("NIFTY", atm_s, fb_exp, "PE")
+                            if ce_p > 0: atm_ce_fb["price"] = round(ce_p, 2)
+                            if pe_p > 0: atm_pe_fb["price"] = round(pe_p, 2)
+                    except: pass
+
                     result = {
                         "status": "ok",
                         "nifty":  {"price": nifty_ltp, "change": 0, "pct": 0},
                         "sensex": {"price": sensex_ltp, "change": 0, "pct": 0},
                         "vix":    {"price": 0, "change": 0, "pct": 0},
-                        "atmCE":  {"price": round(nifty_ltp * 0.005, 2), "change": 0, "pct": 0},
-                        "atmPE":  {"price": round(nifty_ltp * 0.004, 2), "change": 0, "pct": 0},
+                        "atmCE":  atm_ce_fb,
+                        "atmPE":  atm_pe_fb,
                     }
                     _ticker_cache["data"] = result
                     _ticker_cache["timestamp"] = time.time()
@@ -995,6 +1028,25 @@ async def get_ticker():
                 print(f"[TICKER] Dhan fallback failed: {ex}")
         
         return {"status": "error", "msg": str(e)[:100]}
+
+
+# ── Expiry Dates ──────────────────────────────────────────────────
+@app.get("/api/expiry-dates")
+async def get_expiry_dates():
+    """Return nearest expiry dates for NIFTY, BANKNIFTY, SENSEX"""
+    try:
+        ScripMaster.ensure_loaded()
+        nifty_exp = ScripMaster.get_nearest_expiry("NIFTY") or ""
+        bn_exp = ScripMaster.get_nearest_expiry("BANKNIFTY") or ""
+        sensex_exp = ScripMaster.get_nearest_expiry("SENSEX") or ""
+        return {
+            "status": "ok",
+            "nifty": nifty_exp,
+            "banknifty": bn_exp,
+            "sensex": sensex_exp,
+        }
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
 
 
 # ── Run ───────────────────────────────────────────────────────────
