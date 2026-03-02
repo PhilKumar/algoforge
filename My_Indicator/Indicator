@@ -1,0 +1,1073 @@
+//@version=6
+indicator("Pivot Points Standard + CPR", "Phil_All-in-One", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ========== MASTER TOGGLES ==========
+enableMainCPRSectionInput = input.bool(title="🔄 Main CPR", defval=true, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable CPR, Main Pivots (R1-R5/S1-S5), Midpoints, Previous Day High/Low, and Initial Balance")
+enableNextDayCPRSectionInput = input.bool(title="🔄 Next Day CPR", defval=true, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable Next Day CPR, Next Day Pivots (R1-R4/S1-S4), Next Day Midpoints, and Next PDH/PDL")
+enableAdditionalCPRTimeframesInput = input.bool(title="🔄 Additional CPR Timeframes", defval=false, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable all Additional CPR Timeframes (TF1, TF2, TF3)")
+enableAllEMAsInput = input.bool(title="🔄 All EMAs", defval=true, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable all EMA lines (EMA 1, EMA 2, EMA 3)")
+enableSupertrendInput = input.bool(title="🔄 Supertrend", defval=true, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable Supertrend indicator")
+enableBollingerBandsInput = input.bool(title="🔄 Bollinger Bands", defval=false, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable Bollinger Bands")
+enableVWAPInput = input.bool(title="🔄 VWAP", defval=true, group="Master Controls", display = display.data_window, tooltip="Master switch to enable/disable VWAP indicator")
+
+// ========== Additional CPR Timeframes Settings ==========
+showAdditionalCPRInput = input.bool(title="Enable Additional CPR Timeframes", defval=false, group="Additional CPR Timeframes", display = display.data_window)
+
+// Timeframe 1 Settings
+additionalTF1Input = input.timeframe(title="Timeframe 1", defval="60", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF1Input = input.bool(title="Show TF1 CPR", defval=true, group="Additional CPR Timeframes", display = display.data_window)
+tf1TcColorInput = input.color(color.blue, "TF1 TC", inline="TF1CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf1BcColorInput = input.color(color.blue, "TF1 BC", inline="TF1CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf1PpColorInput = input.color(color.fuchsia, "TF1 PP", inline="TF1CPR", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF1PivotsInput = input.bool(title="Show TF1 R1-R4/S1-S4", defval=true, group="Additional CPR Timeframes", display = display.data_window)
+tf1RColorInput = input.color(color.red, "TF1 R", inline="TF1SR", group="Additional CPR Timeframes", display = display.data_window)
+tf1SColorInput = input.color(color.green, "TF1 S", inline="TF1SR", group="Additional CPR Timeframes", display = display.data_window)
+
+// Timeframe 2 Settings
+additionalTF2Input = input.timeframe(title="Timeframe 2", defval="240", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF2Input = input.bool(title="Show TF2 CPR", defval=true, group="Additional CPR Timeframes", display = display.data_window)
+tf2TcColorInput = input.color(color.blue, "TF2 TC", inline="TF2CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf2BcColorInput = input.color(color.blue, "TF2 BC", inline="TF2CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf2PpColorInput = input.color(color.fuchsia, "TF2 PP", inline="TF2CPR", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF2PivotsInput = input.bool(title="Show TF2 R1-R4/S1-S4", defval=true, group="Additional CPR Timeframes", display = display.data_window)
+tf2RColorInput = input.color(color.red, "TF2 R", inline="TF2SR", group="Additional CPR Timeframes", display = display.data_window)
+tf2SColorInput = input.color(color.green, "TF2 S", inline="TF2SR", group="Additional CPR Timeframes", display = display.data_window)
+
+// Timeframe 3 Settings
+additionalTF3Input = input.timeframe(title="Timeframe 3", defval="D", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF3Input = input.bool(title="Show TF3 CPR", defval=false, group="Additional CPR Timeframes", display = display.data_window)
+tf3TcColorInput = input.color(color.blue, "TF3 TC", inline="TF3CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf3BcColorInput = input.color(color.blue, "TF3 BC", inline="TF3CPR", group="Additional CPR Timeframes", display = display.data_window)
+tf3PpColorInput = input.color(color.fuchsia, "TF3 PP", inline="TF3CPR", group="Additional CPR Timeframes", display = display.data_window)
+showAdditionalTF3PivotsInput = input.bool(title="Show TF3 R1-R4/S1-S4", defval=false, group="Additional CPR Timeframes", display = display.data_window)
+tf3RColorInput = input.color(color.red, "TF3 R", inline="TF3SR", group="Additional CPR Timeframes", display = display.data_window)
+tf3SColorInput = input.color(color.green, "TF3 S", inline="TF3SR", group="Additional CPR Timeframes", display = display.data_window)
+
+extendAdditionalCPRLinesInput = input.bool(title="Extend CPR lines to TF end", defval=true, group="Additional CPR Timeframes", display = display.data_window, tooltip="When enabled, CPR lines will extend exactly to the end of their respective timeframe periods")
+
+pivotTypeInput           = input.string(title="Type", defval="Traditional", options=["Traditional", "Fibonacci", "Woodie", "Classic", "DM", "Camarilla"])
+pivotAnchorInput         = input.string(title="Pivots Timeframe", defval="Auto", options=["Auto", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Biyearly", "Triyearly", "Quinquennially", "Decennially"])
+maxHistoricalPivotsInput = input.int(title="Number of Pivots Back", defval=15, minval=1, maxval=200, display = display.data_window)
+isDailyBasedInput        = input.bool(title="Use Daily-based Values", defval=true, display = display.data_window, tooltip="When this option is unchecked, Pivot Points will use intraday data while calculating on intraday charts. If Extended Hours are displayed on the chart, they will be taken into account during the pivot level calculation. If intraday OHLC values are different from daily-based values (normal for stocks), the pivot levels will also differ.")
+showLabelsInput          = input.bool(title="Show Labels", defval=true, group="labels", display = display.data_window)
+showPricesInput          = input.bool(title="Show Prices", defval=true, group="labels", display = display.data_window)
+positionLabelsInput      = input.string("Left", "Labels Position", options=["Left", "Right"], group="labels", display = display.data_window, active = showLabelsInput or showPricesInput)
+linewidthInput           = input.int(title="Line Width", defval=1, minval=1, maxval=100, group="levels", display = display.data_window)
+
+// ========== CPR Settings ==========
+showCPRInput = input.bool(title="Show CPR (TC/BC/PP)", defval=true, group="CPR", display = display.data_window)
+showMainPivotsInput = input.bool(title="Show Main Pivot Levels (R1-R5/S1-S5)", defval=true, group="CPR", display = display.data_window)
+tcColorInput = input.color(color.blue, "TC", inline="CPR", group="CPR", display = display.data_window)
+bcColorInput = input.color(color.blue, "BC", inline="CPR", group="CPR", display = display.data_window)
+ppColorInput = input.color(color.fuchsia, "CPP", inline="CPR2", group="CPR", display = display.data_window)
+
+// ========== Midpoint Levels Settings ==========
+showMidpointsInput = input.bool(title="Show Midpoint Lines", defval=true, group="Midpoint Levels", display = display.data_window)
+
+// R0.5/S0.5 Settings (between PP and R1/S1)
+showR0_5S0_5Input = input.bool(title="Show R0.5/S0.5 (PP↔R1/S1)", defval=true, group="Midpoint Levels", display = display.data_window)
+r0_5ColorInput = input.color(color.yellow, "R0.5", inline="R0.5S0.5", group="Midpoint Levels", display = display.data_window)
+s0_5ColorInput = input.color(color.orange, "S0.5", inline="R0.5S0.5", group="Midpoint Levels", display = display.data_window)
+
+// R1.5/S1.5 Settings (between R1/S1 and R2/S2)
+showR1_5S1_5Input = input.bool(title="Show R1.5/S1.5 (R1↔R2/S1↔S2)", defval=true, group="Midpoint Levels", display = display.data_window)
+r1_5ColorInput = input.color(color.yellow, "R1.5", inline="R1.5S1.5", group="Midpoint Levels", display = display.data_window)
+s1_5ColorInput = input.color(color.orange, "S1.5", inline="R1.5S1.5", group="Midpoint Levels", display = display.data_window)
+
+// R2.5/S2.5 Settings (between R2/S2 and R3/S3)
+showR2_5S2_5Input = input.bool(title="Show R2.5/S2.5 (R2↔R3/S2↔S3)", defval=true, group="Midpoint Levels", display = display.data_window)
+r2_5ColorInput = input.color(color.yellow, "R2.5", inline="R2.5S2.5", group="Midpoint Levels", display = display.data_window)
+s2_5ColorInput = input.color(color.orange, "S2.5", inline="R2.5S2.5", group="Midpoint Levels", display = display.data_window)
+
+// R3.5/S3.5 Settings (between R3/S3 and R4/S4)
+showR3_5S3_5Input = input.bool(title="Show R3.5/S3.5 (R3↔R4/S3↔S4)", defval=true, group="Midpoint Levels", display = display.data_window)
+r3_5ColorInput = input.color(color.yellow, "R3.5", inline="R3.5S3.5", group="Midpoint Levels", display = display.data_window)
+s3_5ColorInput = input.color(color.orange, "S3.5", inline="R3.5S3.5", group="Midpoint Levels", display = display.data_window)
+
+// ========== Next Day CPR Settings ==========
+showNextCPRInput = input.bool(title="Show Next CPR (TC/BC/PP)", defval=true, group="Next Day CPR", display = display.data_window)
+nextTcColorInput = input.color(color.lime, "Next TC", inline="NextCPR", group="Next Day CPR", display = display.data_window)
+nextBcColorInput = input.color(color.fuchsia, "Next BC", inline="NextCPR", group="Next Day CPR", display = display.data_window)
+nextPpColorInput = input.color(color.aqua, "Next PP", inline="NextCPR2", group="Next Day CPR", display = display.data_window)
+
+// Next Day Pivot Levels
+showNextR1S1Input = input.bool(title="Show Next R1/S1", defval=true, group="Next Day CPR", display = display.data_window)
+nextR1ColorInput = input.color(color.yellow, "Next R1", inline="NextR1S1", group="Next Day CPR", display = display.data_window)
+nextS1ColorInput = input.color(color.orange, "Next S1", inline="NextR1S1", group="Next Day CPR", display = display.data_window)
+
+showNextR2S2Input = input.bool(title="Show Next R2/S2", defval=true, group="Next Day CPR", display = display.data_window)
+nextR2ColorInput = input.color(color.yellow, "Next R2", inline="NextR2S2", group="Next Day CPR", display = display.data_window)
+nextS2ColorInput = input.color(color.orange, "Next S2", inline="NextR2S2", group="Next Day CPR", display = display.data_window)
+
+showNextR3S3Input = input.bool(title="Show Next R3/S3", defval=true, group="Next Day CPR", display = display.data_window)
+nextR3ColorInput = input.color(color.yellow, "Next R3", inline="NextR3S3", group="Next Day CPR", display = display.data_window)
+nextS3ColorInput = input.color(color.orange, "Next S3", inline="NextR3S3", group="Next Day CPR", display = display.data_window)
+
+showNextR4S4Input = input.bool(title="Show Next R4/S4", defval=true, group="Next Day CPR", display = display.data_window)
+nextR4ColorInput = input.color(color.yellow, "Next R4", inline="NextR4S4", group="Next Day CPR", display = display.data_window)
+nextS4ColorInput = input.color(color.orange, "Next S4", inline="NextR4S4", group="Next Day CPR", display = display.data_window)
+
+// Next Day Midpoint Settings
+showNextMidpointsInput = input.bool(title="Show Next Day Midpoints", defval=true, group="Next Day CPR", display = display.data_window)
+showNextR0_5S0_5Input = input.bool(title="Show Next R0.5/S0.5 (PP↔R1/S1)", defval=true, group="Next Day CPR", display = display.data_window)
+nextR0_5ColorInput = input.color(color.yellow, "Next R0.5", inline="NextR0.5S0.5", group="Next Day CPR", display = display.data_window)
+nextS0_5ColorInput = input.color(color.orange, "Next S0.5", inline="NextR0.5S0.5", group="Next Day CPR", display = display.data_window)
+
+showNextR1_5S1_5Input = input.bool(title="Show Next R1.5/S1.5 (R1↔R2/S1↔S2)", defval=true, group="Next Day CPR", display = display.data_window)
+nextR1_5ColorInput = input.color(color.yellow, "Next R1.5", inline="NextR1.5S1.5", group="Next Day CPR", display = display.data_window)
+nextS1_5ColorInput = input.color(color.orange, "Next S1.5", inline="NextR1.5S1.5", group="Next Day CPR", display = display.data_window)
+
+showNextR2_5S2_5Input = input.bool(title="Show Next R2.5/S2.5 (R2↔R3/S2↔S3)", defval=true, group="Next Day CPR", display = display.data_window)
+nextR2_5ColorInput = input.color(color.yellow, "Next R2.5", inline="NextR2.5S2.5", group="Next Day CPR", display = display.data_window)
+nextS2_5ColorInput = input.color(color.orange, "Next S2.5", inline="NextR2.5S2.5", group="Next Day CPR", display = display.data_window)
+
+// Next Day Previous Day High/Low
+showNextPrevDayInput = input.bool(title="Show Next PDH/PDL", defval=true, group="Next Day CPR", display = display.data_window)
+nextPdhColorInput = input.color(color.blue, "Next PDH", inline="NextPrevDay", group="Next Day CPR", display = display.data_window)
+nextPdlColorInput = input.color(color.red, "Next PDL", inline="NextPrevDay", group="Next Day CPR", display = display.data_window)
+
+// Next Day Line Extension Settings
+extendNextCPRLineInput = input.bool(title="Extend line by days", defval=false, inline="extend", group="Next Day CPR", display = display.data_window)
+nextCPRLineDaysInput = input.int(title="", defval=1, minval=1, maxval=10, inline="extend", group="Next Day CPR", display = display.data_window, tooltip="Enable this when the Next CPR lines are not visible(i.e. there is a trading holiday in upcoming session).")
+checkHolidaysInput = input.bool(title="Check NSE/BSE holidays", defval=true, group="Next Day CPR", display = display.data_window, tooltip="Enable this when the Next CPR lines are not visible(i.e. there is a trading holiday in upcoming session).")
+
+// Previous Day High/Low Settings
+showPrevDayInput = input.bool(title="Show Previous Day High/Low", defval=true, group="Previous Day", display = display.data_window)
+prevHighColorInput = input.color(color.blue, "Previous High", inline="PrevDay", group="Previous Day", display = display.data_window)
+prevLowColorInput = input.color(color.orange, "Previous Low", inline="PrevDay", group="Previous Day", display = display.data_window)
+
+// Initial Balance Settings
+showIB1HInput = input.bool(title="Show 1H Initial Balance (9:15-10:15)", defval=true, group="Initial Balance", display = display.data_window)
+showIB4HInput = input.bool(title="Show 4H Initial Balance (5:30-9:30)", defval=true, group="Initial Balance", display = display.data_window)
+ibHighColorInput = input.color(color.gray, "1H IB High", inline="IB1H", group="Initial Balance", display = display.data_window)
+ibLowColorInput = input.color(color.gray, "1H IB Low", inline="IB1H", group="Initial Balance", display = display.data_window)
+ib4hHighColorInput = input.color(color.blue, "4H IB High", inline="IB4H", group="Initial Balance", display = display.data_window)
+ib4hLowColorInput = input.color(color.purple, "4H IB Low", inline="IB4H", group="Initial Balance", display = display.data_window)
+ibTimezoneInput = input.string(title="Timezone", defval="Asia/Kolkata", options=["Asia/Kolkata", "America/New_York", "America/Chicago", "Europe/London"], group="Initial Balance", display = display.data_window)
+
+// Bollinger Bands Settings
+showBBInput = input.bool(title="Show Bollinger Bands", defval=false, group="Bollinger Bands", display = display.data_window)
+bbLengthInput = input.int(title="BB Length", defval=20, minval=1, group="Bollinger Bands", display = display.data_window)
+bbMATypeInput = input.string(title="BB MA Type", defval="SMA", options=["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="Bollinger Bands", display = display.data_window)
+bbSourceInput = input(close, title="BB Source", group="Bollinger Bands", display = display.data_window)
+bbMultInput = input.float(title="BB StdDev", defval=2.0, minval=0.001, maxval=50, group="Bollinger Bands", display = display.data_window)
+bbOffsetInput = input.int(title="BB Offset", defval=0, minval=-500, maxval=500, group="Bollinger Bands", display = display.data_window)
+bbUpperColorInput = input.color(color.rgb(242, 54, 69, 95), "Upper Band", inline="BB1", group="Bollinger Bands", display = display.data_window)
+bbLowerColorInput = input.color(color.rgb(8, 153, 129, 95), "Lower Band", inline="BB1", group="Bollinger Bands", display = display.data_window)
+bbBasisColorInput = input.color(color.rgb(41, 98, 255, 95), "Basis", inline="BB2", group="Bollinger Bands", display = display.data_window)
+bbFillColorInput = input.color(color.rgb(33, 150, 243, 95), "Fill", inline="BB2", group="Bollinger Bands", display = display.data_window)
+
+// EMA Settings
+showEMA1Input = input.bool(title="Show EMA 1", defval=true, group="EMA Lines", display = display.data_window)
+ema1LengthInput = input.int(title="EMA 1 Length", defval=20, minval=1, group="EMA Lines", display = display.data_window)
+ema1ColorInput = input.color(color.yellow, "EMA 1 Color", inline="EMA1", group="EMA Lines", display = display.data_window)
+ema1WidthInput = input.int(title="Width", defval=2, minval=1, maxval=10, inline="EMA1", group="EMA Lines", display = display.data_window)
+
+showEMA2Input = input.bool(title="Show EMA 2", defval=true, group="EMA Lines", display = display.data_window)
+ema2LengthInput = input.int(title="EMA 2 Length", defval=50, minval=1, group="EMA Lines", display = display.data_window)
+ema2ColorInput = input.color(color.orange, "EMA 2 Color", inline="EMA2", group="EMA Lines", display = display.data_window)
+ema2WidthInput = input.int(title="Width", defval=2, minval=1, maxval=10, inline="EMA2", group="EMA Lines", display = display.data_window)
+
+showEMA3Input = input.bool(title="Show EMA 3", defval=true, group="EMA Lines", display = display.data_window)
+ema3LengthInput = input.int(title="EMA 3 Length", defval=200, minval=1, group="EMA Lines", display = display.data_window)
+ema3ColorInput = input.color(color.red, "EMA 3 Color", inline="EMA3", group="EMA Lines", display = display.data_window)
+ema3WidthInput = input.int(title="Width", defval=2, minval=1, maxval=10, inline="EMA3", group="EMA Lines", display = display.data_window)
+
+// Supertrend Settings
+showSupertrendInput = input.bool(title="Show Supertrend", defval=true, group="Supertrend", display = display.data_window)
+supertrendPeriodInput = input.int(title="ATR Period", defval=10, minval=1, group="Supertrend", display = display.data_window)
+supertrendFactorInput = input.float(title="ATR Multiplier", defval=3.0, minval=0.1, step=0.1, group="Supertrend", display = display.data_window)
+supertrendSourceInput = input.source(title="Source", defval=hl2, group="Supertrend", display = display.data_window)
+changeATRInput = input.bool(title="Change ATR Calculation Method?", defval=true, group="Supertrend", display = display.data_window)
+showSignalsInput = input.bool(title="Show Buy/Sell Signals?", defval=true, group="Supertrend", display = display.data_window)
+highlightingInput = input.bool(title="Highlighter On/Off?", defval=true, group="Supertrend", display = display.data_window)
+supertrendUpColorInput = input.color(color.green, "Uptrend Color", inline="ST", group="Supertrend", display = display.data_window)
+supertrendDownColorInput = input.color(color.red, "Downtrend Color", inline="ST", group="Supertrend", display = display.data_window)
+supertrendWidthInput = input.int(title="Width", defval=2, minval=1, maxval=10, inline="ST", group="Supertrend", display = display.data_window)
+
+// VWAP Settings
+showVWAPInput = input.bool(title="Show VWAP", defval=true, group="VWAP", display = display.data_window)
+vwapColorInput = input.color(color.purple, "VWAP Color", inline="VWAP", group="VWAP", display = display.data_window)
+vwapWidthInput = input.int(title="Width", defval=2, minval=1, maxval=10, inline="VWAP", group="VWAP", display = display.data_window)
+
+DEFAULT_COLOR = #FB8C00
+
+showLevel2and3 = pivotTypeInput != "DM"
+showLevel4 = pivotTypeInput != "DM" and pivotTypeInput != "Fibonacci"
+showLevel5 = pivotTypeInput == "Traditional" or pivotTypeInput == "Camarilla"
+
+pColorInput = input.color(DEFAULT_COLOR, "P‏  ‏  ‏", inline="P", group="levels", display = display.data_window)
+pShowInput = input.bool(true, "", inline="P", group="levels", display = display.data_window)
+s1ColorInput = input.color(DEFAULT_COLOR, "S1", inline="S1/R1" , group="levels", display = display.data_window)
+s1ShowInput = input.bool(true, "", inline="S1/R1", group="levels", display = display.data_window)
+r1ColorInput = input.color(DEFAULT_COLOR, "‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏R1", inline="S1/R1", group="levels", display = display.data_window)
+r1ShowInput = input.bool(true, "", inline="S1/R1", group="levels", display = display.data_window)
+s2ColorInput = input.color(DEFAULT_COLOR, "S2", inline="S2/R2", group="levels", display = display.data_window, active = showLevel2and3)
+s2ShowInput = input.bool(true, "", inline="S2/R2", group="levels", display = display.data_window, active = showLevel2and3)
+r2ColorInput = input.color(DEFAULT_COLOR, "‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏R2", inline="S2/R2", group="levels", display = display.data_window, active = showLevel2and3)
+r2ShowInput = input.bool(true, "", inline="S2/R2", group="levels", display = display.data_window, active = showLevel2and3)
+s3ColorInput = input.color(DEFAULT_COLOR, "S3", inline="S3/R3", group="levels", display = display.data_window, active = showLevel2and3)
+s3ShowInput = input.bool(true, "", inline="S3/R3", group="levels", display = display.data_window, active = showLevel2and3)
+r3ColorInput = input.color(DEFAULT_COLOR, "‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏R3", inline="S3/R3", group="levels", display = display.data_window, active = showLevel2and3)
+r3ShowInput = input.bool(true, "", inline="S3/R3", group="levels", display = display.data_window, active = showLevel2and3)
+s4ColorInput = input.color(DEFAULT_COLOR, "S4", inline="S4/R4", group="levels", display = display.data_window, active = showLevel4)
+s4ShowInput = input.bool(true, "", inline="S4/R4", group="levels", display = display.data_window, active = showLevel4)
+r4ColorInput = input.color(DEFAULT_COLOR, "‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏R4", inline="S4/R4", group="levels", display = display.data_window, active = showLevel4)
+r4ShowInput = input.bool(true, "", inline="S4/R4", group="levels", display = display.data_window, active = showLevel4)
+s5ColorInput = input.color(DEFAULT_COLOR, "S5", inline="S5/R5", group="levels", display = display.data_window, active = showLevel5)
+s5ShowInput = input.bool(true, "", inline="S5/R5", group="levels", display = display.data_window, active = showLevel5)
+r5ColorInput = input.color(DEFAULT_COLOR, "‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏R5", inline="S5/R5", group="levels", display = display.data_window, active = showLevel5)
+r5ShowInput = input.bool(true, "", inline="S5/R5", group="levels", display = display.data_window, active = showLevel5)
+
+type graphicSettings
+    string levelName
+    color levelColor
+    bool showLevel
+
+var graphicSettingsArray = array.from(
+      graphicSettings.new(" P", pColorInput, pShowInput and showMainPivotsInput and enableMainCPRSectionInput),
+      graphicSettings.new("R1", r1ColorInput, r1ShowInput and showMainPivotsInput and enableMainCPRSectionInput), graphicSettings.new("S1", s1ColorInput, s1ShowInput and showMainPivotsInput and enableMainCPRSectionInput),
+      graphicSettings.new("R2", r2ColorInput, r2ShowInput and showMainPivotsInput and enableMainCPRSectionInput), graphicSettings.new("S2", s2ColorInput, s2ShowInput and showMainPivotsInput and enableMainCPRSectionInput),
+      graphicSettings.new("R3", r3ColorInput, r3ShowInput and showMainPivotsInput and enableMainCPRSectionInput), graphicSettings.new("S3", s3ColorInput, s3ShowInput and showMainPivotsInput and enableMainCPRSectionInput),
+      graphicSettings.new("R4", r4ColorInput, r4ShowInput and showMainPivotsInput and enableMainCPRSectionInput), graphicSettings.new("S4", s4ColorInput, s4ShowInput and showMainPivotsInput and enableMainCPRSectionInput),
+      graphicSettings.new("R5", r5ColorInput, r5ShowInput and showMainPivotsInput and enableMainCPRSectionInput), graphicSettings.new("S5", s5ColorInput, s5ShowInput and showMainPivotsInput and enableMainCPRSectionInput))
+
+autoAnchor = switch
+    timeframe.isintraday => timeframe.multiplier <= 15 ? "1D" : "1W"
+    timeframe.isdaily    => "1M"
+    => "12M"
+
+pivotTimeframe = switch pivotAnchorInput
+    "Auto"      => autoAnchor
+    "Daily"     => "1D"
+    "Weekly"    => "1W"
+    "Monthly"   => "1M"
+    "Quarterly" => "3M"
+    => "12M"
+
+//@variable The number of years in the selected Pivot period
+pivotYearMultiplier = switch pivotAnchorInput
+    "Biyearly"       => 2
+    "Triyearly"      => 3
+    "Quinquennially" => 5
+    "Decennially"    => 10
+    => 1
+
+//@variable The number of values in the pivots of the selected type
+numOfPivotLevels = switch pivotTypeInput
+    "Traditional" => 11
+    "Camarilla"   => 11
+    "Woodie"      => 9
+    "Classic"     => 9
+    "Fibonacci"   => 7
+    "DM"          => 3
+
+type pivotGraphic
+    line pivotLine
+    label pivotLabel
+
+method delete(pivotGraphic graphic) =>
+    graphic.pivotLine.delete()
+    graphic.pivotLabel.delete()
+
+// Variables for Initial Balance and previous values
+
+var float ib4hHigh = na
+var float ib4hLow = na
+var int ib4hSessionStart = na
+var int ib4hSessionEnd = na
+
+var float prevIb4hHigh = na
+var float prevIb4hLow = na
+var int prevIb4hStart = na
+
+var float ib1hHigh = na
+var float ib1hLow = na
+var int ib1hSessionStart = na
+var int ib1hSessionEnd = na
+
+var drawnGraphics = matrix.new<pivotGraphic>()
+var drawnCPRGraphics = matrix.new<pivotGraphic>()
+var drawnPrevDayGraphics = matrix.new<pivotGraphic>()
+var drawnIBGraphics = matrix.new<pivotGraphic>()
+var drawnAdditionalTF1Graphics = matrix.new<pivotGraphic>()
+var drawnAdditionalTF2Graphics = matrix.new<pivotGraphic>()
+var drawnAdditionalTF3Graphics = matrix.new<pivotGraphic>()
+
+localPivotTimeframeChange = timeframe.change(pivotTimeframe) and year % pivotYearMultiplier == 0
+securityPivotTimeframeChange = timeframe.change(timeframe.period) and year % pivotYearMultiplier == 0
+
+pivotTimeframeChangeCounter(condition) => 
+    var count = 0
+    if condition and bar_index > 0
+        count += 1
+    count
+
+localPivots = ta.pivot_point_levels(pivotTypeInput, localPivotTimeframeChange)
+securityPivotPointsArray = ta.pivot_point_levels(pivotTypeInput, securityPivotTimeframeChange)
+
+securityTimeframe = timeframe.isintraday ? "1D" : timeframe.period
+[securityPivots, securityPivotCounter] = request.security(syminfo.tickerid, pivotTimeframe, [securityPivotPointsArray, pivotTimeframeChangeCounter(securityPivotTimeframeChange)], lookahead = barmerge.lookahead_on)
+pivotPointsArray = isDailyBasedInput ? securityPivots : localPivots
+
+// Get OHLC for CPR calculation
+[securityHigh, securityLow, securityClose] = request.security(syminfo.tickerid, pivotTimeframe, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+localHigh = high[1]
+localLow = low[1] 
+localClose = close[1]
+
+cprHigh = isDailyBasedInput ? securityHigh : localHigh
+cprLow = isDailyBasedInput ? securityLow : localLow
+cprClose = isDailyBasedInput ? securityClose : localClose
+
+// Calculate CPR levels
+pivot = (cprHigh + cprLow + cprClose) / 3
+bc = (cprHigh + cprLow) / 2
+tc = (pivot - bc) + pivot
+
+// Calculate EMA values
+ema1 = ta.ema(close, ema1LengthInput)
+ema2 = ta.ema(close, ema2LengthInput)
+ema3 = ta.ema(close, ema3LengthInput)
+
+// Calculate Custom Supertrend
+atr2 = ta.sma(ta.tr, supertrendPeriodInput)
+atr = changeATRInput ? ta.atr(supertrendPeriodInput) : atr2
+up = supertrendSourceInput - (supertrendFactorInput * atr)
+up1 = nz(up[1], up)
+up := close[1] > up1 ? math.max(up, up1) : up
+dn = supertrendSourceInput + (supertrendFactorInput * atr)
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? math.min(dn, dn1) : dn
+var int trend = 1
+trend := nz(trend[1], trend)
+trend := trend == -1 and close > dn1 ? 1 : trend == 1 and close < up1 ? -1 : trend
+supertrend = trend == 1 ? up : dn
+supertrendColor = trend == 1 ? supertrendUpColorInput : supertrendDownColorInput
+
+// Buy/Sell Signals
+buySignal = trend == 1 and trend[1] == -1
+sellSignal = trend == -1 and trend[1] == 1
+
+// Calculate VWAP
+vwapValue = ta.vwap(close)
+
+// Initialize variables for Initial Balance tracking
+// Current IB variables
+
+
+// Get current bar's time in IST
+currentHour = hour(time, "Asia/Kolkata")
+currentMinute = minute(time, "Asia/Kolkata")
+
+// Session Detection
+is1hIBTime = (currentHour == 9 and currentMinute >= 15) or 
+             (currentHour == 10 and currentMinute <= 15)
+
+// 4H Session logic with exact conditions
+is4hIBTime = (currentHour == 5 and currentMinute >= 30) or 
+             (currentHour == 6) or 
+             (currentHour == 7) or 
+             (currentHour == 8) or 
+             (currentHour == 9 and currentMinute <= 30)
+
+// Track 1H Initial Balance (9:15-10:15)
+if currentHour == 9 and currentMinute == 15 and not(hour(time[1], "Asia/Kolkata") == 9 and minute(time[1], "Asia/Kolkata") == 15)
+    ib1hHigh := high
+    ib1hLow := low
+    ib1hSessionStart := time
+else if is1hIBTime
+    ib1hHigh := math.max(ib1hHigh, high)
+    ib1hLow := math.min(ib1hLow, low)
+if currentHour == 10 and currentMinute == 15
+    ib1hSessionEnd := time
+
+// Track 4H Initial Balance (5:30-9:30)
+if currentHour == 5 and currentMinute == 30
+    ib4hHigh := high
+    ib4hLow := low
+    ib4hSessionStart := time
+    label.new(bar_index, high, text="4H Start", style=label.style_none, textcolor=color.white)
+else if is4hIBTime
+    ib4hHigh := math.max(ib4hHigh, high)
+    ib4hLow := math.min(ib4hLow, low)
+if currentHour == 9 and currentMinute == 30
+    ib4hSessionEnd := time
+    // Store previous day's values when session ends
+    if not na(ib4hHigh) and not na(ib4hLow)
+        prevIb4hHigh := ib4hHigh
+        prevIb4hLow := ib4hLow
+        prevIb4hStart := ib4hSessionStart
+
+// Define session flags for condition checks
+isIB1HSession = is1hIBTime
+isIB4HSession = is4hIBTime
+
+// This section has been moved to the consolidated variables section above
+
+//@function Sets the ending points of the currently active pivots to `endTime`.
+affixOldPivots(endTime) =>
+    if drawnGraphics.rows() > 0
+        lastGraphics = drawnGraphics.row(drawnGraphics.rows() - 1)
+
+        for graphic in lastGraphics
+            graphic.pivotLine.set_x2(endTime)
+            if positionLabelsInput == "Right"
+                graphic.pivotLabel.set_x(endTime)
+
+//@function Sets the ending points of the currently active CPR lines to `endTime`.
+affixOldCPR(endTime) =>
+    if drawnCPRGraphics.rows() > 0
+        lastCPRGraphics = drawnCPRGraphics.row(drawnCPRGraphics.rows() - 1)
+
+        for graphic in lastCPRGraphics
+            graphic.pivotLine.set_x2(endTime)
+            if positionLabelsInput == "Right"
+                graphic.pivotLabel.set_x(endTime)
+
+//@function Sets the ending points of the currently active Previous Day lines to `endTime`.
+affixOldPrevDay(endTime) =>
+    if drawnPrevDayGraphics.rows() > 0
+        lastPrevDayGraphics = drawnPrevDayGraphics.row(drawnPrevDayGraphics.rows() - 1)
+
+        for graphic in lastPrevDayGraphics
+            graphic.pivotLine.set_x2(endTime)
+            if positionLabelsInput == "Right"
+                graphic.pivotLabel.set_x(endTime)
+
+//@function Sets the ending points of the currently active Initial Balance lines to `endTime`.
+affixOldIB(endTime) =>
+    if drawnIBGraphics.rows() > 0
+        lastIBGraphics = drawnIBGraphics.row(drawnIBGraphics.rows() - 1)
+
+        for graphic in lastIBGraphics
+            graphic.pivotLine.set_x2(endTime)
+            if positionLabelsInput == "Right"
+                graphic.pivotLabel.set_x(endTime)
+
+//@function Draws pivot lines and labels from `startTime` to the approximate end of the period.
+drawNewPivots(startTime) =>
+    
+    newGraphics = array.new<pivotGraphic>()
+
+    for [index, coord] in pivotPointsArray
+        levelSettings = graphicSettingsArray.get(index)
+        if not na(coord) and levelSettings.showLevel
+            lineEndTime = startTime + timeframe.in_seconds(pivotTimeframe) * 1000 * pivotYearMultiplier
+            pivotLine = line.new(startTime, coord, lineEndTime, coord, xloc = xloc.bar_time, color=levelSettings.levelColor, width=linewidthInput)
+            pivotLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                               y = coord,
+                               text = (showLabelsInput ? levelSettings.levelName + " " : "") + (showPricesInput ? "(" + str.tostring(coord, format.mintick) + ")" : ""),
+                               style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                               textcolor = levelSettings.levelColor,
+                               color = #00000000,
+                               xloc=xloc.bar_time)
+            
+            newGraphics.push(pivotGraphic.new(pivotLine, pivotLabel))
+    
+    drawnGraphics.add_row(array_id = newGraphics)
+
+    if drawnGraphics.rows() > maxHistoricalPivotsInput
+        oldGraphics = drawnGraphics.remove_row(0)
+        
+        for graphic in oldGraphics
+            graphic.delete()
+
+//@function Draws CPR lines and labels from `startTime` to the approximate end of the period.
+drawNewCPR(startTime) =>
+    
+    newCPRGraphics = array.new<pivotGraphic>()
+
+    if enableMainCPRSectionInput and showCPRInput and not na(tc) and not na(bc) and not na(pivot)
+        lineEndTime = startTime + timeframe.in_seconds(pivotTimeframe) * 1000 * pivotYearMultiplier
+        
+        // Draw TC line
+        tcLine = line.new(startTime, tc, lineEndTime, tc, xloc = xloc.bar_time, color=tcColorInput, width=linewidthInput)
+        tcLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                           y = tc,
+                           text = (showLabelsInput ? "TC " : "") + (showPricesInput ? "(" + str.tostring(tc, format.mintick) + ")" : ""),
+                           style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                           textcolor = tcColorInput,
+                           color = #00000000,
+                           xloc=xloc.bar_time)
+        
+        // Draw BC line
+        bcLine = line.new(startTime, bc, lineEndTime, bc, xloc = xloc.bar_time, color=bcColorInput, width=linewidthInput)
+        bcLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                           y = bc,
+                           text = (showLabelsInput ? "BC " : "") + (showPricesInput ? "(" + str.tostring(bc, format.mintick) + ")" : ""),
+                           style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                           textcolor = bcColorInput,
+                           color = #00000000,
+                           xloc=xloc.bar_time)
+        
+        // Draw PP (Central Pivot) line
+        ppLine = line.new(startTime, pivot, lineEndTime, pivot, xloc = xloc.bar_time, color=ppColorInput, width=linewidthInput)
+        ppLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                           y = pivot,
+                           text = (showLabelsInput ? "PP " : "") + (showPricesInput ? "(" + str.tostring(pivot, format.mintick) + ")" : ""),
+                           style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                           textcolor = ppColorInput,
+                           color = #00000000,
+                           xloc=xloc.bar_time)
+
+        newCPRGraphics.push(pivotGraphic.new(tcLine, tcLabel))
+        newCPRGraphics.push(pivotGraphic.new(bcLine, bcLabel))
+        newCPRGraphics.push(pivotGraphic.new(ppLine, ppLabel))
+
+    // Calculate and draw R1-R4 and S1-S4 levels (independent of CPR toggle)
+    if not na(tc) and not na(bc) and not na(pivot)
+        lineEndTime = startTime + timeframe.in_seconds(pivotTimeframe) * 1000 * pivotYearMultiplier
+        r1 = 2 * pivot - cprLow
+        s1 = 2 * pivot - cprHigh
+        r2 = pivot + (cprHigh - cprLow)
+        s2 = pivot - (cprHigh - cprLow)
+        r3 = cprHigh + 2 * (pivot - cprLow)
+        s3 = cprLow - 2 * (cprHigh - pivot)
+        r4 = r3 + (r1 - pivot)
+        s4 = s3 - (pivot - s1)
+
+        // Draw midpoint lines (independent of main pivot toggle)
+        if enableMainCPRSectionInput and showMidpointsInput
+            // R0.5 and S0.5
+            if showR0_5S0_5Input
+                r0_5 = math.avg(pivot, r1)
+                s0_5 = math.avg(pivot, s1)
+                r0_5Line = line.new(startTime, r0_5, lineEndTime, r0_5, xloc = xloc.bar_time, color=r0_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                s0_5Line = line.new(startTime, s0_5, lineEndTime, s0_5, xloc = xloc.bar_time, color=s0_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                r0_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                           y = r0_5,
+                           text = (showLabelsInput ? "R0.5 " : "") + (showPricesInput ? "(" + str.tostring(r0_5, format.mintick) + ")" : ""),
+                           style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                           textcolor = r0_5ColorInput,
+                           color = #00000000,
+                           xloc=xloc.bar_time)
+                s0_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                           y = s0_5,
+                           text = (showLabelsInput ? "S0.5 " : "") + (showPricesInput ? "(" + str.tostring(s0_5, format.mintick) + ")" : ""),
+                           style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                           textcolor = s0_5ColorInput,
+                           color = #00000000,
+                           xloc=xloc.bar_time)
+                newCPRGraphics.push(pivotGraphic.new(r0_5Line, r0_5Label))
+                newCPRGraphics.push(pivotGraphic.new(s0_5Line, s0_5Label))
+
+            // R1.5 and S1.5 between R1/S1 and R2/S2
+            if showR1_5S1_5Input and not na(r1) and not na(r2) and not na(s1) and not na(s2)
+                r1_5 = math.avg(r1, r2)
+                s1_5 = math.avg(s1, s2)
+                r1_5Line = line.new(startTime, r1_5, lineEndTime, r1_5, xloc = xloc.bar_time, color=r1_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                s1_5Line = line.new(startTime, s1_5, lineEndTime, s1_5, xloc = xloc.bar_time, color=s1_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                r1_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                   y = r1_5,
+                                   text = (showLabelsInput ? "R1.5 " : "") + (showPricesInput ? "(" + str.tostring(r1_5, format.mintick) + ")" : ""),
+                                   style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                   textcolor = r1_5ColorInput,
+                                   color = #00000000,
+                                   xloc=xloc.bar_time)
+                s1_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                   y = s1_5,
+                                   text = (showLabelsInput ? "S1.5 " : "") + (showPricesInput ? "(" + str.tostring(s1_5, format.mintick) + ")" : ""),
+                                   style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                   textcolor = s1_5ColorInput,
+                                   color = #00000000,
+                                   xloc=xloc.bar_time)
+                newCPRGraphics.push(pivotGraphic.new(r1_5Line, r1_5Label))
+                newCPRGraphics.push(pivotGraphic.new(s1_5Line, s1_5Label))
+
+                // R2.5 and S2.5 between R2/S2 and R3/S3
+                if showR2_5S2_5Input and not na(r2) and not na(r3) and not na(s2) and not na(s3)
+                    r2_5 = math.avg(r2, r3)
+                    s2_5 = math.avg(s2, s3)
+                    r2_5Line = line.new(startTime, r2_5, lineEndTime, r2_5, xloc = xloc.bar_time, color=r2_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                    s2_5Line = line.new(startTime, s2_5, lineEndTime, s2_5, xloc = xloc.bar_time, color=s2_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                    r2_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                       y = r2_5,
+                                       text = (showLabelsInput ? "R2.5 " : "") + (showPricesInput ? "(" + str.tostring(r2_5, format.mintick) + ")" : ""),
+                                       style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                       textcolor = r2_5ColorInput,
+                                       color = #00000000,
+                                       xloc=xloc.bar_time)
+                    s2_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                       y = s2_5,
+                                       text = (showLabelsInput ? "S2.5 " : "") + (showPricesInput ? "(" + str.tostring(s2_5, format.mintick) + ")" : ""),
+                                       style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                       textcolor = s2_5ColorInput,
+                                       color = #00000000,
+                                       xloc=xloc.bar_time)
+                    newCPRGraphics.push(pivotGraphic.new(r2_5Line, r2_5Label))
+                    newCPRGraphics.push(pivotGraphic.new(s2_5Line, s2_5Label))
+
+            if showR3_5S3_5Input and not na(r3) and not na(r4) and not na(s3) and not na(s4)
+                r3_5 = math.avg(r3, r4)
+                s3_5 = math.avg(s3, s4)
+                r3_5Line = line.new(startTime, r3_5, lineEndTime, r3_5, xloc = xloc.bar_time, color=r3_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                s3_5Line = line.new(startTime, s3_5, lineEndTime, s3_5, xloc = xloc.bar_time, color=s3_5ColorInput, width=linewidthInput, style=line.style_dotted)
+                r3_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                               y = r3_5,
+                                   text = (showLabelsInput ? "R3.5 " : "") + (showPricesInput ? "(" + str.tostring(r3_5, format.mintick) + ")" : ""),
+                                   style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                   textcolor = r3_5ColorInput,
+                                   color = #00000000,
+                               xloc=xloc.bar_time)
+                s3_5Label = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                   y = s3_5,
+                                   text = (showLabelsInput ? "S3.5 " : "") + (showPricesInput ? "(" + str.tostring(s3_5, format.mintick) + ")" : ""),
+                                   style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                   textcolor = s3_5ColorInput,
+                                   color = #00000000,
+                                   xloc=xloc.bar_time)
+                newCPRGraphics.push(pivotGraphic.new(r3_5Line, r3_5Label))
+                newCPRGraphics.push(pivotGraphic.new(s3_5Line, s3_5Label))
+    
+    drawnCPRGraphics.add_row(array_id = newCPRGraphics)
+
+    if drawnCPRGraphics.rows() > maxHistoricalPivotsInput
+        oldCPRGraphics = drawnCPRGraphics.remove_row(0)
+        
+        for graphic in oldCPRGraphics
+            graphic.delete()
+
+//@function Draws Previous Day High/Low lines and labels from `startTime` to the approximate end of the period.
+drawNewPrevDay(startTime) =>
+    
+    newPrevDayGraphics = array.new<pivotGraphic>()
+
+    if enableMainCPRSectionInput and showPrevDayInput and not na(cprHigh) and not na(cprLow)
+        lineEndTime = startTime + timeframe.in_seconds(pivotTimeframe) * 1000 * pivotYearMultiplier
+        
+        // Draw Previous High line
+        prevHighLine = line.new(startTime, cprHigh, lineEndTime, cprHigh, xloc = xloc.bar_time, color=prevHighColorInput, width=linewidthInput, style=line.style_dotted)
+        prevHighLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                                 y = cprHigh,
+                                 text = (showLabelsInput ? "PDH " : "") + (showPricesInput ? "(" + str.tostring(cprHigh, format.mintick) + ")" : ""),
+                                 style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                                 textcolor = prevHighColorInput,
+                                 color = #00000000,
+                                 xloc=xloc.bar_time)
+        
+        // Draw Previous Low line
+        prevLowLine = line.new(startTime, cprLow, lineEndTime, cprLow, xloc = xloc.bar_time, color=prevLowColorInput, width=linewidthInput, style=line.style_dotted)
+        prevLowLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime, y = cprLow, text = (showLabelsInput ? "PDL " : "") + (showPricesInput ? "(" + str.tostring(cprLow, format.mintick) + ")" : ""), style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left, textcolor = prevLowColorInput, color = #00000000, xloc=xloc.bar_time)
+        
+        newPrevDayGraphics.push(pivotGraphic.new(prevHighLine, prevHighLabel))
+        newPrevDayGraphics.push(pivotGraphic.new(prevLowLine, prevLowLabel))
+    
+    drawnPrevDayGraphics.add_row(array_id = newPrevDayGraphics)
+
+    if drawnPrevDayGraphics.rows() > maxHistoricalPivotsInput
+        oldPrevDayGraphics = drawnPrevDayGraphics.remove_row(0)
+        
+        for graphic in oldPrevDayGraphics
+            graphic.delete()
+
+//@function Draws Initial Balance High/Low lines and labels from `startTime` to the approximate end of the period.
+drawNewIB(startTime) =>
+    
+    newIBGraphics = array.new<pivotGraphic>()
+
+    lineEndTime = startTime + timeframe.in_seconds("1D") * 1000  // Extend IB lines for the full day
+    
+    // Draw 1H Initial Balance lines
+    if enableMainCPRSectionInput and showIB1HInput and not na(ib1hHigh) and not na(ib1hLow)
+        ib1hHighLine = line.new(startTime, ib1hHigh, lineEndTime, ib1hHigh, xloc = xloc.bar_time, color=ibHighColorInput, width=linewidthInput, style=line.style_dashed)
+        ib1hHighLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                               y = ib1hHigh,
+                               text = (showLabelsInput and showPricesInput ? "IBH " + str.tostring(ib1hHigh, format.mintick) : showLabelsInput ? "IBH" : showPricesInput ? str.tostring(ib1hHigh, format.mintick) : ""),
+                               style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                               textcolor = ibHighColorInput,
+                               color = #00000000,
+                               xloc=xloc.bar_time)
+        newIBGraphics.push(pivotGraphic.new(ib1hHighLine, ib1hHighLabel))
+
+        ib1hLowLine = line.new(startTime, ib1hLow, lineEndTime, ib1hLow, xloc = xloc.bar_time, color=ibLowColorInput, width=linewidthInput, style=line.style_dashed)
+        ib1hLowLabel = label.new(x = positionLabelsInput == "Left" ? startTime : lineEndTime,
+                              y = ib1hLow,
+                              text = (showLabelsInput and showPricesInput ? "IBL " + str.tostring(ib1hLow, format.mintick) : showLabelsInput ? "IBL" : showPricesInput ? str.tostring(ib1hLow, format.mintick) : ""),
+                              style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left,
+                              textcolor = ibLowColorInput,
+                              color = #00000000,
+                              xloc=xloc.bar_time)
+        newIBGraphics.push(pivotGraphic.new(ib1hLowLine, ib1hLowLabel))
+
+    // Draw 4H Initial Balance lines
+    if enableMainCPRSectionInput and showIB4HInput and not na(ib4hHigh) and not na(ib4hLow)
+        ib4hHighLine = line.new(startTime, ib4hHigh, lineEndTime, ib4hHigh, xloc = xloc.bar_time, color=ib4hHighColorInput, width=linewidthInput, style=line.style_dashed)
+        label ib4hHighLabel = na
+        if showLabelsInput and positionLabelsInput == "Left"
+            ib4hHighText = "IBH" + (showPricesInput ? " " + str.tostring(ib4hHigh, format.mintick) : "")
+            ib4hHighLabel := label.new(x = startTime, y = ib4hHigh, text = ib4hHighText, style = label.style_label_right, color = color.new(color.black, 100), textcolor = ib4hHighColorInput, xloc = xloc.bar_time)
+        newIBGraphics.push(pivotGraphic.new(ib4hHighLine, ib4hHighLabel))
+
+        ib4hLowLine = line.new(startTime, ib4hLow, lineEndTime, ib4hLow, xloc = xloc.bar_time, color=ib4hLowColorInput, width=linewidthInput, style=line.style_dashed)
+        label ib4hLowLabel = na
+        if showLabelsInput and positionLabelsInput == "Left"
+            ib4hLowText = "IBL" + (showPricesInput ? " " + str.tostring(ib4hLow, format.mintick) : "")
+            ib4hLowLabel := label.new(x = startTime, y = ib4hLow, text = ib4hLowText, style = label.style_label_right, color = color.new(color.black, 100), textcolor = ib4hLowColorInput, xloc = xloc.bar_time)
+        newIBGraphics.push(pivotGraphic.new(ib4hLowLine, ib4hLowLabel))
+    
+    drawnIBGraphics.add_row(array_id = newIBGraphics)
+
+    if drawnIBGraphics.rows() > maxHistoricalPivotsInput
+        oldIBGraphics = drawnIBGraphics.remove_row(0)
+        
+        for graphic in oldIBGraphics
+            graphic.delete()
+
+// Holiday checking function for NSE/BSE
+isHoliday(_date) =>
+    is_holiday = (_date == timestamp(2024, 12, 25, 15, 30) or _date == timestamp(2025, 02, 26, 15, 30) or _date == timestamp(2025, 03, 14, 15, 30) or _date == timestamp(2025, 03, 31, 15, 30) or _date == timestamp(2025, 04, 10, 15, 30) or _date == timestamp(2025, 04, 14, 15, 30) or _date == timestamp(2025, 04, 18, 15, 30) or _date == timestamp(2025, 05, 01, 15, 30) or _date == timestamp(2025, 08, 15, 15, 30) or _date == timestamp(2025, 08, 27, 15, 30) or _date == timestamp(2025, 10, 02, 15, 30) or _date == timestamp(2025, 10, 21, 15, 30) or _date == timestamp(2025, 10, 22, 15, 30) or _date == timestamp(2025, 11, 05, 15, 30) or _date == timestamp(2025, 12, 25, 15, 30))
+    is_holiday
+
+// Function to get end time for developing CPR
+getNextCPREndTime() =>
+    ONE_DAY = 1000 * 60 * 60 * 24
+    var next_end_time = 0
+    if pivotTimeframe == "1D"
+        next_end_time := time_close(pivotTimeframe) + ONE_DAY
+    else if pivotTimeframe == "1W"
+        next_end_time := time_close(pivotTimeframe) + (ONE_DAY * 7)
+    else if pivotTimeframe == "1M"
+        next_end_time := time_close(pivotTimeframe) + (ONE_DAY * 30)
+    else if pivotTimeframe == "3M"
+        next_end_time := time_close(pivotTimeframe) + (ONE_DAY * 30 * 3)
+    else if pivotTimeframe == "6M"
+        next_end_time := time_close(pivotTimeframe) + (ONE_DAY * 30 * 6)
+    else
+        next_end_time := time_close(pivotTimeframe) + (ONE_DAY * 30 * 12)
+
+    // Skip weekends and holidays
+    while dayofweek(next_end_time) == dayofweek.saturday or dayofweek(next_end_time) == dayofweek.sunday or (checkHolidaysInput and isHoliday(next_end_time))
+        next_end_time := next_end_time + ONE_DAY
+
+    if extendNextCPRLineInput
+        next_end_time := next_end_time + (ONE_DAY * nextCPRLineDaysInput)
+
+    next_end_time
+
+// Function to draw Next CPR line and label
+drawNextCPRLineAndLabel(_price, _line_color, _text, _text_color, _style = line.style_solid) =>
+    var next_start_time = 0
+    next_start_time := time_close(pivotTimeframe)
+    var next_end_time = 0
+    next_end_time := getNextCPREndTime()
+
+    // All lines use the same width now
+    _aLine = line.new(x1=next_start_time, y1=_price, x2=next_end_time, y2=_price, xloc=xloc.bar_time, color=_line_color, width=linewidthInput, style=_style)
+    line.delete(_aLine[1])
+
+    if showLabelsInput or showPricesInput
+        display_text = ""
+        if showLabelsInput and showPricesInput and _text != ''
+            display_text := str.format("{0} ({1})", _text, str.tostring(_price, format.mintick))
+        else if showLabelsInput and _text != ''
+            display_text := _text
+        else if showPricesInput
+            display_text := str.format("({0})", str.tostring(_price, format.mintick))
+        
+        // Use the same label positioning logic as main pivots
+        label_x_position = positionLabelsInput == "Left" ? next_start_time : next_end_time
+        label_style = positionLabelsInput == "Left" ? label.style_label_right : label.style_label_left
+        
+        _aLabel = label.new(label_x_position, _price, xloc=xloc.bar_time, text=display_text, textcolor=_text_color, style=label_style, color=#00000000)
+        label.delete(_aLabel[1])
+    _aLine
+
+//@function Draws Next CPR lines in the upcoming session timeframe.
+drawNewNextCPR(startTime) =>
+    // Get current session data for next CPR calculation
+    [currHigh, currLow, currClose] = request.security(syminfo.tickerid, pivotTimeframe, [high, low, close], lookahead = barmerge.lookahead_on)
+    
+    if enableNextDayCPRSectionInput and showNextCPRInput and not na(currHigh) and not na(currLow) and not na(currClose)
+        // Calculate Next CPR using current session data
+        nextPivot = (currHigh + currLow + currClose) / 3.0
+        nextBc = (currHigh + currLow) / 2.0
+        nextTc = (nextPivot * 2) - nextBc
+        
+        // Draw Next CPR lines individually (TC, BC, PP)
+        nextTcLine = drawNextCPRLineAndLabel(nextTc, nextTcColorInput, "TC", nextTcColorInput)
+        nextBcLine = drawNextCPRLineAndLabel(nextBc, nextBcColorInput, "BC", nextBcColorInput)
+        nextPpLine = drawNextCPRLineAndLabel(nextPivot, nextPpColorInput, "CPP", nextPpColorInput)
+        
+        float nextR1 = na
+        float nextS1 = na
+        float nextR2 = na
+        float nextS2 = na
+        float nextR3 = na
+        float nextS3 = na
+        float nextR4 = na
+        float nextS4 = na
+
+        // Midpoint variables
+        float nextR0_5 = na  // Between PP and R1
+        float nextR1_5 = na  // Between R1 and R2
+        float nextR2_5 = na  // Between R2 and R3
+        float nextR3_5 = na  // Between R3 and R4
+        float nextS0_5 = na  // Between PP and S1
+        float nextS1_5 = na  // Between S1 and S2
+        float nextS2_5 = na  // Between S2 and S3
+        float nextS3_5 = na  // Between S3 and S4
+
+        // Variables to store R2 and S2 for midpoint calculation
+        float tempNextR2 = na
+        float tempNextS2 = na
+
+        // Calculate and draw Next R1/S1 levels
+        if showNextR1S1Input
+            nextR1 := nextPivot * 2 - currLow
+            nextS1 := nextPivot * 2 - currHigh
+            drawNextCPRLineAndLabel(nextR1, nextR1ColorInput, "R1", nextR1ColorInput)
+            drawNextCPRLineAndLabel(nextS1, nextS1ColorInput, "S1", nextS1ColorInput)
+
+        // Calculate and draw Next R2/S2 levels
+        if showNextR2S2Input
+            nextR2 := nextPivot + (currHigh - currLow)  // R2 = P + (H - L)
+            nextS2 := nextPivot - (currHigh - currLow)  // S2 = P - (H - L)
+            tempNextR2 := nextR2
+            tempNextS2 := nextS2
+            drawNextCPRLineAndLabel(nextR2, nextR2ColorInput, "R2", nextR2ColorInput)
+            drawNextCPRLineAndLabel(nextS2, nextS2ColorInput, "S2", nextS2ColorInput)
+        else
+            // Calculate R2/S2 even if not displayed, for midpoint calculation
+            tempNextR2 := nextPivot + (currHigh - currLow)
+            tempNextS2 := nextPivot - (currHigh - currLow)
+        
+        // Calculate and draw Next R3/S3 levels
+        if showNextR3S3Input
+            nextR3 := currHigh + 2 * (nextPivot - currLow)  // R3 = H + 2(P - L)
+            nextS3 := currLow - 2 * (currHigh - nextPivot)  // S3 = L - 2(H - P)
+            drawNextCPRLineAndLabel(nextR3, nextR3ColorInput, "R3", nextR3ColorInput)
+            drawNextCPRLineAndLabel(nextS3, nextS3ColorInput, "S3", nextS3ColorInput)
+        
+        // Calculate and draw Next R4/S4 levels
+        if showNextR4S4Input
+            nextR4 := nextR3 + (nextR1 - nextPivot)  // R4 = R3 + (R1 - P)
+            nextS4 := nextS3 - (nextPivot - nextS1)  // S4 = S3 - (P - S1)
+            drawNextCPRLineAndLabel(nextR4, nextR4ColorInput, "R4", nextR4ColorInput)
+            drawNextCPRLineAndLabel(nextS4, nextS4ColorInput, "S4", nextS4ColorInput)
+        
+        // Draw Next Day Midpoint levels
+        if showNextMidpointsInput
+            // Next R0.5/S0.5 (between PP and R1/S1)
+            if showNextR0_5S0_5Input and not na(nextPivot) and not na(nextR1) and not na(nextS1)
+                nextR0_5 := math.avg(nextPivot, nextR1)
+                nextS0_5 := math.avg(nextPivot, nextS1)
+                drawNextCPRLineAndLabel(nextR0_5, nextR0_5ColorInput, "R0.5", nextR0_5ColorInput, line.style_dotted)
+                drawNextCPRLineAndLabel(nextS0_5, nextS0_5ColorInput, "S0.5", nextS0_5ColorInput, line.style_dotted)
+            
+            // Next R1.5/S1.5 (between R1/S1 and R2/S2)
+            if showNextR1_5S1_5Input and not na(nextR1) and not na(tempNextR2) and not na(nextS1) and not na(tempNextS2)
+                nextR1_5 := math.avg(nextR1, tempNextR2)
+                nextS1_5 := math.avg(nextS1, tempNextS2)
+                drawNextCPRLineAndLabel(nextR1_5, nextR1_5ColorInput, "R1.5", nextR1_5ColorInput, line.style_dotted)
+                drawNextCPRLineAndLabel(nextS1_5, nextS1_5ColorInput, "S1.5", nextS1_5ColorInput, line.style_dotted)
+            
+            // Next R2.5/S2.5 (between R2/S2 and R3/S3)
+            if showNextR2_5S2_5Input and not na(tempNextR2) and not na(nextR3) and not na(tempNextS2) and not na(nextS3)
+                nextR2_5 := math.avg(tempNextR2, nextR3)
+                nextS2_5 := math.avg(tempNextS2, nextS3)
+                drawNextCPRLineAndLabel(nextR2_5, nextR2_5ColorInput, "R2.5", nextR2_5ColorInput, line.style_dotted)
+                drawNextCPRLineAndLabel(nextS2_5, nextS2_5ColorInput, "S2.5", nextS2_5ColorInput, line.style_dotted)
+        
+        // Draw Next PDH/PDL levels (current session high/low become next session's previous day levels)
+        if showNextPrevDayInput
+            drawNextCPRLineAndLabel(currHigh, nextPdhColorInput, "PDH", nextPdhColorInput, line.style_dotted)
+            drawNextCPRLineAndLabel(currLow, nextPdlColorInput, "PDL", nextPdlColorInput, line.style_dotted)
+
+
+localPivotDrawConditionStatic = not isDailyBasedInput and localPivotTimeframeChange
+securityPivotDrawConditionStatic = isDailyBasedInput and securityPivotCounter != securityPivotCounter[1]
+
+var isMultiYearly = array.from("Biyearly", "Triyearly", "Quinquennially", "Decennially").includes(pivotAnchorInput)
+localPivotDrawConditionDeveloping = not isDailyBasedInput and time_close == time_close(pivotTimeframe) and not isMultiYearly 
+securityPivotDrawConditionDeveloping = false
+
+if (securityPivotDrawConditionStatic or localPivotDrawConditionStatic)
+    affixOldPivots(time)
+    affixOldCPR(time)
+    affixOldPrevDay(time)
+    affixOldIB(time)
+    drawNewPivots(time)
+    drawNewCPR(time)
+    drawNewPrevDay(time)
+
+// Clear old IB lines at the start of either session
+clearOldLines = (isIB1HSession and not isIB1HSession[1]) or (isIB4HSession and not isIB4HSession[1])
+
+// Store 4H IB levels when session ends
+if (isIB4HSession[1] and not isIB4HSession and not na(ib4hHigh) and not na(ib4hLow))
+    if barstate.isconfirmed
+        prevIb4hHigh := ib4hHigh
+        prevIb4hLow := ib4hLow
+        prevIb4hStart := ib4hSessionStart
+        drawNewIB(ib4hSessionStart)
+
+// Draw IB levels for new sessions (only if we're not showing 4H IB)
+if (isIB1HSession[1] and not isIB1HSession and not na(ib1hHigh) and not na(ib1hLow) and not showIB4HInput)
+    drawNewIB(ib1hSessionStart)
+
+// Draw previous day's 4H IB only if not in the current 4H session and not already drawn
+if barstate.islast and not isIB4HSession and not na(prevIb4hHigh) and not na(prevIb4hLow) and time != ib4hSessionStart
+    drawNewIB(prevIb4hStart)
+
+// If possible, draw pivots from the beginning of the chart if none were found
+var FIRST_BAR_TIME = time
+if (barstate.islastconfirmedhistory and drawnGraphics.columns() == 0)
+
+    if not na(securityPivots) and securityPivotCounter > 0
+        if isDailyBasedInput
+            drawNewPivots(FIRST_BAR_TIME)
+            drawNewCPR(FIRST_BAR_TIME)
+            drawNewPrevDay(FIRST_BAR_TIME)
+        else 
+            runtime.error("Not enough intraday data to calculate Pivot Points. Lower the Pivots Timeframe or turn on the 'Use Daily-based Values' option in the indicator settings.")
+    else
+        runtime.error("Not enough data to calculate Pivot Points. Lower the Pivots Timeframe in the indicator settings.")
+
+// Plot EMA lines
+plot(enableAllEMAsInput and showEMA1Input ? ema1 : na, title="EMA 1", color=ema1ColorInput, linewidth=ema1WidthInput)
+plot(enableAllEMAsInput and showEMA2Input ? ema2 : na, title="EMA 2", color=ema2ColorInput, linewidth=ema2WidthInput)
+plot(enableAllEMAsInput and showEMA3Input ? ema3 : na, title="EMA 3", color=ema3ColorInput, linewidth=ema3WidthInput)
+
+// Plot Custom Supertrend
+upPlot = plot(enableSupertrendInput and showSupertrendInput and trend == 1 ? up : na, title="Up Trend", style=plot.style_linebr, linewidth=supertrendWidthInput, color=supertrendUpColorInput)
+dnPlot = plot(enableSupertrendInput and showSupertrendInput and trend == -1 ? dn : na, title="Down Trend", style=plot.style_linebr, linewidth=supertrendWidthInput, color=supertrendDownColorInput)
+
+// Plot Buy/Sell Signals
+plotshape(enableSupertrendInput and showSupertrendInput and buySignal ? up : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=supertrendUpColorInput)
+plotshape(enableSupertrendInput and showSupertrendInput and buySignal and showSignalsInput ? up : na, title="Buy", text="Buy", location=location.absolute, style=shape.labelup, size=size.tiny, color=supertrendUpColorInput, textcolor=color.white)
+plotshape(enableSupertrendInput and showSupertrendInput and sellSignal ? dn : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=supertrendDownColorInput)
+plotshape(enableSupertrendInput and showSupertrendInput and sellSignal and showSignalsInput ? dn : na, title="Sell", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=supertrendDownColorInput, textcolor=color.white)
+
+// Plot middle line for highlighting
+mPlot = plot(enableSupertrendInput and showSupertrendInput ? ohlc4 : na, title="", style=plot.style_circles, linewidth=1, color=color.new(color.white, 100))
+
+// Highlighting fills
+longFillColor = enableSupertrendInput and showSupertrendInput and highlightingInput ? (trend == 1 ? color.new(supertrendUpColorInput, 90) : color.new(color.white, 100)) : color.new(color.white, 100)
+shortFillColor = enableSupertrendInput and showSupertrendInput and highlightingInput ? (trend == -1 ? color.new(supertrendDownColorInput, 90) : color.new(color.white, 100)) : color.new(color.white, 100)
+fill(mPlot, upPlot, title="UpTrend Highlighter", color=longFillColor)
+fill(mPlot, dnPlot, title="DownTrend Highlighter", color=shortFillColor)
+
+// Plot VWAP
+plot(enableVWAPInput and showVWAPInput ? vwapValue : na, title="VWAP", color=vwapColorInput, linewidth=vwapWidthInput)
+
+// Draw developing/next CPR on every bar
+drawNewNextCPR(time)
+
+// ========== Additional CPR Timeframes Logic ==========
+//@function Calculate timeframe duration in milliseconds
+getTimeframeDuration(tf) =>
+    switch tf
+        "1" => 1 * 60 * 1000              // 1 minute
+        "3" => 3 * 60 * 1000              // 3 minutes
+        "5" => 5 * 60 * 1000              // 5 minutes
+        "15" => 15 * 60 * 1000            // 15 minutes
+        "30" => 30 * 60 * 1000            // 30 minutes
+        "45" => 45 * 60 * 1000            // 45 minutes
+        "60" => 1 * 60 * 60 * 1000        // 1 hour
+        "120" => 2 * 60 * 60 * 1000       // 2 hours
+        "180" => 3 * 60 * 60 * 1000       // 3 hours
+        "240" => 4 * 60 * 60 * 1000       // 4 hours
+        "D" => 24 * 60 * 60 * 1000        // 1 day
+        "W" => 7 * 24 * 60 * 60 * 1000    // 1 week
+        "M" => 30 * 24 * 60 * 60 * 1000   // 1 month
+        => 24 * 60 * 60 * 1000            // default 1 day
+
+//@function Draw CPR lines for additional timeframe with historical tracking
+drawAdditionalCPR(tf, showTF, showPivots, tcColor, bcColor, ppColor, rColor, sColor, tfLabel, graphicsMatrix) =>
+    if enableAdditionalCPRTimeframesInput and showAdditionalCPRInput and showTF and extendAdditionalCPRLinesInput
+        // Get OHLC from the specified timeframe
+        [tfHigh, tfLow, tfClose] = request.security(syminfo.tickerid, tf, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+        
+        // Get timeframe boundaries
+        tfTime = request.security(syminfo.tickerid, tf, time, lookahead = barmerge.lookahead_on)
+        bool newTfPeriod = ta.change(tfTime) != 0
+        
+        if newTfPeriod and not na(tfHigh) and not na(tfLow) and not na(tfClose)
+            // Calculate CPR levels
+            tfPivot = (tfHigh + tfLow + tfClose) / 3
+            tfBc = (tfHigh + tfLow) / 2
+            tfTc = (tfPivot - tfBc) + tfPivot
+            
+            // Calculate R1-R4 and S1-S4 levels
+            tfR1 = 2 * tfPivot - tfLow
+            tfS1 = 2 * tfPivot - tfHigh
+            tfR2 = tfPivot + (tfHigh - tfLow)
+            tfS2 = tfPivot - (tfHigh - tfLow)
+            tfR3 = tfHigh + 2 * (tfPivot - tfLow)
+            tfS3 = tfLow - 2 * (tfHigh - tfPivot)
+            tfR4 = tfR3 + (tfR1 - tfPivot)
+            tfS4 = tfS3 - (tfPivot - tfS1)
+            
+            // Calculate time boundaries
+            int tfDuration = getTimeframeDuration(tf)
+            int tfStartTime = int(time)
+            int tfEndTime = int(time) + tfDuration
+            
+            // Create new graphics array for this period
+            newTfGraphics = array.new<pivotGraphic>()
+            
+            // Draw CPR lines extending to end of timeframe
+            tfTcLine = line.new(x1=tfStartTime, y1=tfTc, x2=tfEndTime, y2=tfTc, xloc=xloc.bar_time, color=tcColor, width=2, style=line.style_solid)
+            tfBcLine = line.new(x1=tfStartTime, y1=tfBc, x2=tfEndTime, y2=tfBc, xloc=xloc.bar_time, color=bcColor, width=2, style=line.style_solid)
+            tfCpLine = line.new(x1=tfStartTime, y1=tfPivot, x2=tfEndTime, y2=tfPivot, xloc=xloc.bar_time, color=ppColor, width=2, style=line.style_solid)
+            
+            // Add CPR lines to graphics array (with dummy labels)
+            newTfGraphics.push(pivotGraphic.new(tfTcLine, label.new(tfStartTime, tfTc, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+            newTfGraphics.push(pivotGraphic.new(tfBcLine, label.new(tfStartTime, tfBc, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+            newTfGraphics.push(pivotGraphic.new(tfCpLine, label.new(tfStartTime, tfPivot, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+            
+            // Draw pivot lines if enabled
+            if showPivots
+                tfR1Line = line.new(x1=tfStartTime, y1=tfR1, x2=tfEndTime, y2=tfR1, xloc=xloc.bar_time, color=rColor, width=1, style=line.style_solid)
+                tfS1Line = line.new(x1=tfStartTime, y1=tfS1, x2=tfEndTime, y2=tfS1, xloc=xloc.bar_time, color=sColor, width=1, style=line.style_solid)
+                tfR2Line = line.new(x1=tfStartTime, y1=tfR2, x2=tfEndTime, y2=tfR2, xloc=xloc.bar_time, color=rColor, width=1, style=line.style_solid)
+                tfS2Line = line.new(x1=tfStartTime, y1=tfS2, x2=tfEndTime, y2=tfS2, xloc=xloc.bar_time, color=sColor, width=1, style=line.style_solid)
+                tfR3Line = line.new(x1=tfStartTime, y1=tfR3, x2=tfEndTime, y2=tfR3, xloc=xloc.bar_time, color=rColor, width=1, style=line.style_solid)
+                tfS3Line = line.new(x1=tfStartTime, y1=tfS3, x2=tfEndTime, y2=tfS3, xloc=xloc.bar_time, color=sColor, width=1, style=line.style_solid)
+                tfR4Line = line.new(x1=tfStartTime, y1=tfR4, x2=tfEndTime, y2=tfR4, xloc=xloc.bar_time, color=rColor, width=1, style=line.style_solid)
+                tfS4Line = line.new(x1=tfStartTime, y1=tfS4, x2=tfEndTime, y2=tfS4, xloc=xloc.bar_time, color=sColor, width=1, style=line.style_solid)
+                
+                // Add pivot lines to graphics array (with dummy labels)
+                newTfGraphics.push(pivotGraphic.new(tfR1Line, label.new(tfStartTime, tfR1, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfS1Line, label.new(tfStartTime, tfS1, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfR2Line, label.new(tfStartTime, tfR2, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfS2Line, label.new(tfStartTime, tfS2, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfR3Line, label.new(tfStartTime, tfR3, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfS3Line, label.new(tfStartTime, tfS3, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfR4Line, label.new(tfStartTime, tfR4, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+                newTfGraphics.push(pivotGraphic.new(tfS4Line, label.new(tfStartTime, tfS4, xloc=xloc.bar_time, color=#00000000, textcolor=#00000000, style=label.style_none)))
+            
+            // Add this period's graphics to the matrix
+            graphicsMatrix.add_row(array_id = newTfGraphics)
+            
+            // Remove old periods if we exceed the maximum
+            if graphicsMatrix.rows() > maxHistoricalPivotsInput
+                oldTfGraphics = graphicsMatrix.remove_row(0)
+                for graphic in oldTfGraphics
+                    graphic.delete()
+
+// Draw additional CPR timeframes
+drawAdditionalCPR(additionalTF1Input, showAdditionalTF1Input, showAdditionalTF1PivotsInput, tf1TcColorInput, tf1BcColorInput, tf1PpColorInput, tf1RColorInput, tf1SColorInput, "TF1", drawnAdditionalTF1Graphics)
+drawAdditionalCPR(additionalTF2Input, showAdditionalTF2Input, showAdditionalTF2PivotsInput, tf2TcColorInput, tf2BcColorInput, tf2PpColorInput, tf2RColorInput, tf2SColorInput, "TF2", drawnAdditionalTF2Graphics)
+drawAdditionalCPR(additionalTF3Input, showAdditionalTF3Input, showAdditionalTF3PivotsInput, tf3TcColorInput, tf3BcColorInput, tf3PpColorInput, tf3RColorInput, tf3SColorInput, "TF3", drawnAdditionalTF3Graphics)
+
+// Bollinger Bands calculation and plotting
+bbMa(source, length, _type) =>
+    switch _type
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+bbBasis = bbMa(bbSourceInput, bbLengthInput, bbMATypeInput)
+bbDev = bbMultInput * ta.stdev(bbSourceInput, bbLengthInput)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+// Plot Bollinger Bands
+bbBasisPlot = plot(enableBollingerBandsInput and showBBInput ? bbBasis : na, "BB Basis", color=bbBasisColorInput, offset=bbOffsetInput)
+bbUpperPlot = plot(enableBollingerBandsInput and showBBInput ? bbUpper : na, "BB Upper", color=bbUpperColorInput, offset=bbOffsetInput)
+bbLowerPlot = plot(enableBollingerBandsInput and showBBInput ? bbLower : na, "BB Lower", color=bbLowerColorInput, offset=bbOffsetInput)
+fill(bbUpperPlot, bbLowerPlot, color=enableBollingerBandsInput and showBBInput ? bbFillColorInput : na, title="BB Background")
