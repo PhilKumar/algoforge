@@ -18,7 +18,7 @@ DHAN_CLIENT_ID    = os.getenv('DHAN_CLIENT_ID', 'YOUR_CLIENT_ID_HERE')
 DHAN_ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN', 'YOUR_ACCESS_TOKEN_HERE')
 
 def get_token_expiry() -> dict:
-    \"\"\"Decode JWT token and return expiry info without external libs\"\"\"
+    """Decode JWT token and return expiry info without external libs"""
     try:
         parts = DHAN_ACCESS_TOKEN.split(".")
         if len(parts) < 2:
