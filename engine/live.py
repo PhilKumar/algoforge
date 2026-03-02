@@ -25,7 +25,9 @@ class LiveEngine:
         self.in_trade       = False
         self.entry_price    = 0.0
         self.entry_time     = None
+        self.peak_price     = 0.0   # for trailing SL
         self.trades_today   = 0
+        self.daily_pnl      = 0.0   # realized P&L today
         self.last_date      = None
         self.candle_buffer  = []   # rolling window of candles
         self.log            = []   # trade log
@@ -115,6 +117,7 @@ class LiveEngine:
 
             if date != self.last_date:
                 self.trades_today = 0
+                self.daily_pnl    = 0.0
                 self.last_date    = date
                 self.in_trade     = False
                 self._emit(on_update, {"type": "log", "msg": f"New day: {date}"})
@@ -146,25 +149,35 @@ class LiveEngine:
                 await asyncio.sleep(config.POLL_INTERVAL_SEC)
                 continue
 
+            prev_row = df.iloc[-2] if len(df) >= 2 else None
             row = df.iloc[-1]
             self.current_ltp = float(row["close"])
             self._emit(on_update, {"type": "ltp", "ltp": self.current_ltp, "time": str(now)})
 
             if self.in_trade:
+                # Update peak price for trailing SL
+                self.peak_price = max(self.peak_price, self.current_ltp)
                 sl_price = self.entry_price * (1 - self.strategy_cfg["stoploss_pct"] / 100)
-                exit_signal = eval_condition_group(row, self.exit_conditions)
+                # Trailing stop loss
+                trail_pct = float(self.strategy_cfg.get("trail_pct", 0) or 0)
+                if trail_pct > 0:
+                    trail_sl = self.peak_price * (1 - trail_pct / 100)
+                    sl_price = max(sl_price, trail_sl)  # trailing SL is tighter
+                exit_signal = eval_condition_group(row, self.exit_conditions, prev_row)
                 hit_sl      = self.current_ltp <= sl_price
                 eod         = cur >= time(15, 20)
 
                 if hit_sl or exit_signal or eod:
-                    reason = "StopLoss" if hit_sl else ("EOD" if eod else "Signal")
+                    reason = "TrailingSL" if (trail_pct > 0 and hit_sl and self.peak_price > self.entry_price) else ("StopLoss" if hit_sl else ("EOD" if eod else "Signal"))
                     await self._exit_trade(row, reason, on_update)
             else:
                 max_hit    = self.trades_today >= self.strategy_cfg["max_trades_per_day"]
+                max_loss   = float(self.strategy_cfg.get("max_daily_loss", 0) or 0)
+                loss_hit   = max_loss > 0 and self.daily_pnl <= -max_loss
                 time_ok    = True  # Allow entries throughout market hours
-                entry_sig  = eval_condition_group(row, self.entry_conditions)
+                entry_sig  = eval_condition_group(row, self.entry_conditions, prev_row)
 
-                if not max_hit and time_ok and entry_sig:
+                if not max_hit and not loss_hit and time_ok and entry_sig:
                     await self._enter_trade(row, on_update)
 
             self.status_msg = f"Monitoring — LTP: ₹{self.current_ltp:,.2f}"
@@ -195,6 +208,7 @@ class LiveEngine:
             self.order_id   = result.get("orderId")
             self.in_trade   = True
             self.entry_price = float(row["close"])
+            self.peak_price  = self.entry_price  # initialize peak for trailing SL
             self.entry_time  = datetime.now()
             self._emit(on_update, {
                 "type":     "order_placed",
@@ -237,6 +251,7 @@ class LiveEngine:
             }
             self.log.append(trade_log)
             self.trades_today += 1
+            self.daily_pnl += round(pnl, 2)
             self.in_trade = False
             self.order_id = None
         except Exception as e:

@@ -23,7 +23,7 @@ os.chdir(_HERE)
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -132,6 +132,11 @@ async def health():
                             config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"),
         "live_running":    live_engine.running,
     }
+
+@app.get("/api/token-status")
+async def token_status():
+    """Check Dhan API token expiry"""
+    return config.get_token_expiry()
 
 
 # ── Broker Connection Validation ──────────────────────────────────
@@ -781,6 +786,54 @@ async def delete_run(rid: int):
     runs = _load_runs()
     _save_runs([r for r in runs if r.get("id") != rid])
     return {"deleted": rid}
+
+@app.get("/api/runs/{rid}/csv")
+async def export_run_csv(rid: int):
+    """Export backtest trades to CSV"""
+    import io, csv
+    runs = _load_runs()
+    run = None
+    for r in runs:
+        if r.get("id") == rid:
+            run = r; break
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    trades = run.get("trades", [])
+    if not trades:
+        raise HTTPException(status_code=404, detail="No trades in this run")
+    output = io.StringIO()
+    fields = ["id","entry_time","exit_time","entry_price","exit_price","pnl","cumulative","exit_reason","option_type","strike","qty","txn_type"]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    writer.writeheader()
+    for t in trades:
+        writer.writerow(t)
+    output.seek(0)
+    name = run.get("run_name", f"run_{rid}").replace(" ", "_")
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={name}_trades.csv"}
+    )
+
+@app.get("/api/paper/trades/csv")
+async def export_paper_trades_csv():
+    """Export paper trading trades to CSV"""
+    import io, csv
+    if not paper_engine or not paper_engine.closed_trades:
+        raise HTTPException(status_code=404, detail="No paper trades available")
+    output = io.StringIO()
+    fields = ["id","leg_num","transaction_type","option_type","strike","entry_time","exit_time","entry_premium","exit_premium","lots","lot_size","pnl","exit_reason"]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    writer.writeheader()
+    for t in paper_engine.closed_trades:
+        row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=paper_trades_{datetime.now().strftime('%Y%m%d')}.csv"}
+    )
 
 # ── Live Ticker (Dhan LTP) ───────────────────────────────────────
 

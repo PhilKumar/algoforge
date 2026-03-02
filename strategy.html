@@ -359,10 +359,41 @@
 
 <!-- ═══ DASHBOARD ═══ -->
 <div id="dashboard-page" class="page-section active-page">
+  <!-- Token Expiry Alert Banner -->
+  <div id="token-alert" style="display:none; background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05)); border: 2px solid rgba(239,68,68,0.4); border-radius: 10px; padding: 14px 20px; margin: 0 auto 16px auto; max-width: 1100px; align-items: center; gap: 12px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size:22px;">🔑</span>
+      <div style="flex:1;">
+        <div id="token-alert-title" style="font-weight:700; color:var(--danger); font-size:13px;">Dhan API Token Expiring Soon</div>
+        <div id="token-alert-msg" style="font-size:12px; color:rgba(255,255,255,0.8); line-height:1.5;"></div>
+      </div>
+    </div>
+  </div>
   <div class="card flex-row" style="max-width: 600px; margin: 0 auto 20px auto;">
     <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block;"></span>
     <span id="broker-text" style="font-weight: 600; font-size: 16px;">Live Broker: Not Connected</span>
     <button onclick="toggleBroker()" class="btn" style="margin-left: auto;">Toggle Connection</button>
+  </div>
+  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+    <h3 style="margin-bottom: 12px; font-size: 16px;">🧩 Strategy Templates</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;" id="template-grid">
+      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('supertrend_cpr')">
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">📈 Supertrend + CPR Narrow</div>
+        <div style="font-size:11px; color:var(--muted); line-height:1.4;">Buy when Supertrend is bullish & CPR is narrow. Sells on Supertrend bearish flip. NIFTY 5m.</div>
+      </div>
+      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('orb_breakout')">
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔥 ORB Breakout</div>
+        <div style="font-size:11px; color:var(--muted); line-height:1.4;">Opening Range Breakout (15m). Enters on high break after 9:30. ATM CE option with 20% SL.</div>
+      </div>
+      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('ema_crossover')">
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔀 EMA Crossover</div>
+        <div style="font-size:11px; color:var(--muted); line-height:1.4;">EMA 9 crosses above EMA 21. Classic momentum strategy on NIFTY 5m candles.</div>
+      </div>
+      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('rsi_reversal')">
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔄 RSI Reversal</div>
+        <div style="font-size:11px; color:var(--muted); line-height:1.4;">RSI dips below 30 then crosses above. Mean-reversion play on BANKNIFTY 15m.</div>
+      </div>
+    </div>
   </div>
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <h3 style="margin-bottom: 15px;">Saved Strategies</h3>
@@ -455,6 +486,10 @@
         <div style="margin-bottom: 8px;">
           <label>Max Trades Per Day</label>
           <input type="number" id="max-trades-per-day" value="1" min="1" max="20" step="1" title="Maximum number of trades allowed per day">
+        </div>
+        <div style="margin-bottom: 8px;">
+          <label>Max Daily Loss (₹)</label>
+          <input type="number" id="max-daily-loss" value="0" min="0" step="500" placeholder="0 = unlimited" title="Stop trading if daily realized loss exceeds this amount (0 = no limit)">
         </div>
       </div>
 
@@ -989,7 +1024,10 @@
 
   <!-- Closed Trades -->
   <div style="margin:0 28px 28px; background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden;">
-    <div style="padding:12px 16px; border-bottom:1px solid var(--border); font-weight:700; font-size:13px;">Completed Trades</div>
+    <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-weight:700; font-size:13px;">Completed Trades</span>
+      <button class="btn btn-sm" onclick="downloadPaperCSV()" style="font-size:11px; padding:4px 10px; background:linear-gradient(135deg, var(--success), rgba(34,197,94,0.7)); color:#000; font-weight:600;">⬇ Export CSV</button>
+    </div>
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
       <thead>
         <tr style="background:var(--card2);">
@@ -1125,11 +1163,153 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchStrategies();
   fetchRuns();
   loadPortfolioData();
+  checkTokenExpiry();
   // Don't add default conditions - user adds them via indicators or manually
   updateTicker();
   setInterval(updateTicker, 30000);
   setInterval(loadPortfolioData, 60000); // Refresh portfolio every minute
 });
+
+async function checkTokenExpiry() {
+  try {
+    const res = await fetch('/api/token-status');
+    const data = await res.json();
+    const el = document.getElementById('token-alert');
+    if (!data.valid) { el.style.display='block'; el.querySelector('#token-alert-title').textContent='Token Error'; el.querySelector('#token-alert-msg').textContent=data.error; return; }
+    if (data.expired) {
+      el.style.display='block';
+      el.querySelector('#token-alert-title').textContent='⛔ Dhan API Token EXPIRED';
+      el.querySelector('#token-alert-msg').innerHTML=`Token expired on <strong>${data.expiry_date}</strong>. Live/paper trading will NOT work. <a href="https://dhanhq.co" target="_blank" style="color:var(--accent);">Renew token →</a>`;
+      el.style.borderColor='rgba(239,68,68,0.6)';
+    } else if (data.days_left <= 7) {
+      el.style.display='block';
+      el.querySelector('#token-alert-title').textContent=`⚠️ Token expires in ${data.days_left} day${data.days_left===1?'':'s'}`;
+      el.querySelector('#token-alert-msg').innerHTML=`Expires on <strong>${data.expiry_date}</strong>. <a href="https://dhanhq.co" target="_blank" style="color:var(--accent);">Renew token →</a>`;
+      el.style.borderColor='rgba(245,158,11,0.4)';
+      el.style.background='linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))';
+    }
+  } catch(e) { console.warn('Token check failed:', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STRATEGY TEMPLATES
+// ══════════════════════════════════════════════════════════════
+const STRATEGY_TEMPLATES = {
+  supertrend_cpr: {
+    run_name: 'Supertrend_CPR_Narrow',
+    instrument: '26000',
+    segment: 'IDX_I',
+    market_open: '09:15', market_close: '15:25',
+    stoploss_pct: 10, target_profit_pct: 20,
+    max_trades_per_day: 2, max_daily_loss: 5000,
+    indicators: ['Supertrend_10_2.7_5m', 'CPR_5m'],
+    entry_conditions: [
+      {left: 'supertrend_dir', operator: '==', right: 'number', right_number_value: 1, connector: 'AND'},
+      {left: 'cpr_is_narrow', operator: 'is_true', right: 'true', connector: 'AND'}
+    ],
+    exit_conditions: [
+      {left: 'supertrend_dir', operator: '==', right: 'number', right_number_value: -1, connector: 'AND'}
+    ],
+    legs: [{option_type: 'CE', transaction_type: 'BUY', strike_type: 'atm', strike_value: 0, lots: 1, sl_pct: 20, target_pct: 40, trail_pct: 15, sqoff_time: '15:20'}]
+  },
+  orb_breakout: {
+    run_name: 'ORB_Breakout_15m',
+    instrument: '26000',
+    segment: 'IDX_I',
+    market_open: '09:15', market_close: '15:25',
+    stoploss_pct: 10, target_profit_pct: 20,
+    max_trades_per_day: 1, max_daily_loss: 3000,
+    indicators: ['ORB_15m'],
+    entry_conditions: [
+      {left: 'ORB_Breakout_Up', operator: 'is_true', right: 'true', connector: 'AND'},
+      {left: 'Time_Of_Day', operator: '>=', right_time: '09:30', connector: 'AND'}
+    ],
+    exit_conditions: [
+      {left: 'current_close', operator: 'crosses_below', right: 'ORB_High', connector: 'AND'}
+    ],
+    legs: [{option_type: 'CE', transaction_type: 'BUY', strike_type: 'atm', strike_value: 0, lots: 1, sl_pct: 20, target_pct: 30, trail_pct: 0, sqoff_time: '15:20'}]
+  },
+  ema_crossover: {
+    run_name: 'EMA_9_21_Crossover',
+    instrument: '26000',
+    segment: 'IDX_I',
+    market_open: '09:15', market_close: '15:25',
+    stoploss_pct: 10, target_profit_pct: 20,
+    max_trades_per_day: 2, max_daily_loss: 5000,
+    indicators: ['EMA_9_5m', 'EMA_21_5m'],
+    entry_conditions: [
+      {left: 'EMA_9_5m', operator: 'crosses_above', right: 'EMA_21_5m', connector: 'AND'}
+    ],
+    exit_conditions: [
+      {left: 'EMA_9_5m', operator: 'crosses_below', right: 'EMA_21_5m', connector: 'AND'}
+    ],
+    legs: [{option_type: 'CE', transaction_type: 'BUY', strike_type: 'atm', strike_value: 0, lots: 1, sl_pct: 15, target_pct: 30, trail_pct: 10, sqoff_time: '15:20'}]
+  },
+  rsi_reversal: {
+    run_name: 'RSI_Reversal_BN',
+    instrument: '26009',
+    segment: 'IDX_I',
+    market_open: '09:15', market_close: '15:25',
+    stoploss_pct: 10, target_profit_pct: 20,
+    max_trades_per_day: 1, max_daily_loss: 4000,
+    indicators: ['RSI_14_15m', 'EMA_20_15m'],
+    entry_conditions: [
+      {left: 'RSI_14_15m', operator: 'crosses_above', right: 'number', right_number_value: 30, connector: 'AND'},
+      {left: 'current_close', operator: 'is_above', right: 'EMA_20_15m', connector: 'AND'}
+    ],
+    exit_conditions: [
+      {left: 'RSI_14_15m', operator: 'is_above', right: 'number', right_number_value: 70, connector: 'AND'}
+    ],
+    legs: [{option_type: 'CE', transaction_type: 'BUY', strike_type: 'atm', strike_value: 0, lots: 1, sl_pct: 25, target_pct: 50, trail_pct: 20, sqoff_time: '15:20'}]
+  }
+};
+
+function loadTemplate(key) {
+  const t = STRATEGY_TEMPLATES[key];
+  if (!t) return;
+  // Switch to builder tab
+  showPage('builder-page', document.getElementById('nav-builder'));
+  // Fill in fields
+  document.getElementById('run-name-input').value = t.run_name;
+  document.getElementById('segment-select').value = t.segment || 'IDX_I';
+  document.getElementById('segment-select').dispatchEvent(new Event('change'));
+  setTimeout(() => {
+    document.getElementById('instrument-select').value = t.instrument;
+    document.getElementById('entry-time-start').value = t.market_open;
+    document.getElementById('sq-time').value = t.market_close;
+    document.getElementById('txn-sl').value = t.stoploss_pct;
+    document.getElementById('target-profit').value = t.target_profit_pct;
+    document.getElementById('max-trades-per-day').value = t.max_trades_per_day;
+    document.getElementById('max-daily-loss').value = t.max_daily_loss || 0;
+    // Set indicators
+    myIndicators = [...t.indicators];
+    renderIndicatorFields();
+    // Set conditions
+    const entryBox = document.getElementById('entry-conditions-list');
+    const exitBox = document.getElementById('exit-conditions-list');
+    entryBox.innerHTML = ''; exitBox.innerHTML = '';
+    t.entry_conditions.forEach(c => addConditionRow('entry', c));
+    t.exit_conditions.forEach(c => addConditionRow('exit', c));
+    // Set legs
+    const legsBox = document.getElementById('legs-container');
+    legsBox.innerHTML = '';
+    t.legs.forEach((leg, i) => {
+      addLeg();
+      const id = i + 1;
+      const setVal = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = val; };
+      setVal(`leg-${id}-type`, leg.option_type);
+      setVal(`leg-${id}-txn`, leg.transaction_type);
+      setVal(`leg-${id}-strike-type`, leg.strike_type);
+      setVal(`leg-${id}-strike-value`, leg.strike_value);
+      setVal(`leg-${id}-lots`, leg.lots);
+      setVal(`leg-${id}-sl`, leg.sl_pct);
+      setVal(`leg-${id}-target`, leg.target_pct);
+      setVal(`leg-${id}-trail-pct`, leg.trail_pct);
+      setVal(`leg-${id}-sqoff`, leg.sqoff_time);
+    });
+    showToast(`Template "${t.run_name}" loaded! Customize and run backtest.`, 'success');
+  }, 200);
+}
 
 // ══════════════════════════════════════════════════════════════
 //  FETCH & DISPLAY BACKTEST RUNS
@@ -1738,6 +1918,7 @@ function loadStrategy(id) {
   document.getElementById('entry-time-start').value = s.market_open || '09:15';
   document.getElementById('sq-time').value = s.market_close || '15:25';
   document.getElementById('max-trades-per-day').value = s.max_trades_per_day || 1;
+  document.getElementById('max-daily-loss').value = s.max_daily_loss || 0;
   if (s.from_date) document.getElementById('bt-from-date').value = s.from_date;
   if (s.to_date) document.getElementById('bt-to-date').value = s.to_date;
   
@@ -2370,6 +2551,7 @@ async function copyEditStrategy() {
     document.getElementById('entry-time-start').value = p.market_open || '09:15';
     document.getElementById('sq-time').value = p.market_close || '15:25';
     document.getElementById('max-trades-per-day').value = p.max_trades_per_day || 1;
+    document.getElementById('max-daily-loss').value = p.max_daily_loss || 0;
     if (p.from_date) document.getElementById('bt-from-date').value = p.from_date;
     if (p.to_date) document.getElementById('bt-to-date').value = p.to_date;
     
@@ -2475,6 +2657,7 @@ function copyEditStrategy_OLD() {
   document.getElementById('entry-time-start').value = p.market_open || '09:15';
   document.getElementById('sq-time').value = p.market_close || '15:25';
   document.getElementById('max-trades-per-day').value = p.max_trades_per_day || 1;
+  document.getElementById('max-daily-loss').value = p.max_daily_loss || 0;
   if (p.from_date) document.getElementById('bt-from-date').value = p.from_date;
   if (p.to_date) document.getElementById('bt-to-date').value = p.to_date;
   
@@ -2595,6 +2778,7 @@ function buildPayload() {
     market_open: document.getElementById('entry-time-start').value,
     market_close: document.getElementById('sq-time').value,
     max_trades_per_day: parseInt(document.getElementById('max-trades-per-day').value || 1),
+    max_daily_loss: parseFloat(document.getElementById('max-daily-loss').value || 0),
     indicators: myIndicators,
     entry_conditions: gatherConditions('entry'),
     exit_conditions: gatherConditions('exit'),
@@ -2858,15 +3042,23 @@ function renderHeatmap(trades) {
 }
 
 function downloadCSV() {
+  // If viewing a saved run, use server-side CSV endpoint (includes all fields)
+  if (currentViewingRunId) {
+    window.open(`/api/runs/${currentViewingRunId}/csv`, '_blank');
+    toast('CSV Downloaded ✓', 'success');
+    return;
+  }
+  // Fallback: client-side CSV for fresh backtest results
   if (!lastBacktestData || !lastBacktestData.trades) { toast('No data to download', 'warn'); return; }
-  let csv = '#,Entry Time,Exit Time,Entry Price,Exit Price,P&L,Reason,Cumulative\n';
+  let csv = '#,Entry Time,Exit Time,Entry Price,Exit Price,P&L,Reason,Cumulative,Option Type,Strike,Qty,Txn Type\n';
   lastBacktestData.trades.forEach(t => {
-    csv += `${t.id},${t.entry_time},${t.exit_time},${t.entry_price},${t.exit_price},${t.pnl},${t.exit_reason},${t.cumulative}\n`;
+    csv += `${t.id},${t.entry_time},${t.exit_time},${t.entry_price},${t.exit_price},${t.pnl},${t.exit_reason},${t.cumulative},${t.option_type||''},${t.strike||''},${t.qty||''},${t.txn_type||''}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'backtest_trades.csv'; a.click();
+  const name = (lastBacktestPayload && lastBacktestPayload.run_name) || 'backtest_trades';
+  a.href = url; a.download = name.replace(/\s+/g, '_') + '_trades.csv'; a.click();
   URL.revokeObjectURL(url);
   toast('CSV Downloaded ✓', 'success');
 }
@@ -3281,6 +3473,10 @@ function startLiveMonitor() {
 
 function stopLiveMonitor() {
   if (liveMonitorInterval) { clearInterval(liveMonitorInterval); liveMonitorInterval = null; }
+}
+
+function downloadPaperCSV() {
+  window.open('/api/paper/trades/csv', '_blank');
 }
 
 async function stopPaperTrade() {

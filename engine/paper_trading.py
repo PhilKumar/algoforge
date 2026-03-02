@@ -48,6 +48,8 @@ class PaperTradingEngine:
         self.positions = []  # List of open positions
         self.closed_trades = []  # Historical trades
         self.trades_today = 0
+        self.daily_pnl = 0.0       # Realized P&L for today
+        self.max_daily_loss = 0.0  # Will be set from strategy config
         
         # Live data
         self.current_spot = 0.0
@@ -55,6 +57,7 @@ class PaperTradingEngine:
         self.candle_buffer = pd.DataFrame()
         self.current_indicators = {}  # Latest indicator values for UI
         self.current_candle = {}      # Latest OHLCV candle for UI
+        self._prev_row = None         # Previous candle row for crossover detection
         
         # Logging
         self.event_log = []
@@ -95,10 +98,14 @@ class PaperTradingEngine:
         """Start the paper trading engine"""
         self.running = True
         self.session_date = date_type.today()
+        self.daily_pnl = 0.0
+        self.max_daily_loss = float(self.strategy.get("max_daily_loss", 0) or 0)
         self.log_event("start", "🚀 Paper Trading Engine Started (LIVE DATA MODE)")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
         self.log_event("info", f"Timeframe: {self._get_timeframe()} minutes")
         self.log_event("info", f"Max trades/day: {self.strategy.get('max_trades_per_day', 1)}")
+        if self.max_daily_loss > 0:
+            self.log_event("info", f"Max daily loss: ₹{self.max_daily_loss:,.0f}")
         
         poll_interval = self.strategy.get("poll_interval", 10)  # seconds (default 10s)
         
@@ -136,6 +143,7 @@ class PaperTradingEngine:
         # Check if new day
         if now.date() != self.session_date:
             self.trades_today = 0
+            self.daily_pnl = 0.0
             self.session_date = now.date()
             self.log_event("info", f"📅 New trading day: {self.session_date}")
         
@@ -205,11 +213,19 @@ class PaperTradingEngine:
         
         # Check entry conditions (if not in trade)
         max_trades = self.strategy.get("max_trades_per_day", 1)
-        if self.trades_today < max_trades and not self.in_trade:
-            entry_triggered = eval_condition_group(latest_row, self.entry_conditions)
+        # Check max daily loss limit
+        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+        if daily_loss_hit and not self.in_trade:
+            pass  # Skip entry — daily loss limit reached
+        elif self.trades_today < max_trades and not self.in_trade:
+            prev_row = df.iloc[-2] if len(df) >= 2 else None
+            entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
             
             if entry_triggered:
                 await self._enter_trade(latest_row)
+        
+        # Store previous row for crossover detection in exit conditions
+        self._prev_row = latest_row
         
         # Send status update
         if callback:
@@ -305,7 +321,28 @@ class PaperTradingEngine:
     
     def _check_exit_conditions(self, position: dict, row: pd.Series, current_premium: float) -> Optional[str]:
         """Check if any exit condition is met"""
-        # Stop loss check
+        # Update peak premium for trailing SL
+        if position["transaction_type"] == "BUY":
+            position["peak_premium"] = max(position.get("peak_premium", position["entry_premium"]), current_premium)
+        else:
+            position["peak_premium"] = min(position.get("peak_premium", position["entry_premium"]), current_premium)
+
+        # Trailing stop loss check (takes priority over static SL)
+        trail_pct = position.get("trail_pct", 0)
+        if trail_pct > 0:
+            peak = position["peak_premium"]
+            if position["transaction_type"] == "BUY":
+                trail_sl = peak * (1 - trail_pct / 100)
+                if current_premium <= trail_sl:
+                    self.log_event("exit", f"Trailing SL hit: peak={peak:.2f} trail={trail_sl:.2f} current={current_premium:.2f}")
+                    return "TRAILING_SL"
+            else:  # SELL
+                trail_sl = peak * (1 + trail_pct / 100)
+                if current_premium >= trail_sl:
+                    self.log_event("exit", f"Trailing SL hit: peak={peak:.2f} trail={trail_sl:.2f} current={current_premium:.2f}")
+                    return "TRAILING_SL"
+
+        # Static stop loss check
         sl_pct = position.get("sl_pct", 0)
         if sl_pct > 0:
             sl_threshold = position["entry_premium"] * (1 - sl_pct / 100)
@@ -324,7 +361,7 @@ class PaperTradingEngine:
                 return "TARGET"
         
         # Signal exit
-        if eval_condition_group(row, self.exit_conditions):
+        if eval_condition_group(row, self.exit_conditions, self._prev_row):
             return "EXIT_SIGNAL"
         
         # Square off time
@@ -384,6 +421,7 @@ class PaperTradingEngine:
                 "trail_pct": leg.get("trail_pct", 0),
                 "sqoff_time": leg.get("sqoff_time", "15:20"),
                 "unrealized_pnl": 0,
+                "peak_premium": entry_premium,  # for trailing SL
                 "status": "open"
             }
             
@@ -413,6 +451,7 @@ class PaperTradingEngine:
             position["lot_size"]
         )
         position["pnl"] = round(pnl, 2)
+        self.daily_pnl += position["pnl"]
         
         self.closed_trades.append(position.copy())
         self.positions.remove(position)

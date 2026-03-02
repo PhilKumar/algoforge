@@ -5,6 +5,8 @@
 
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timezone
+import base64, json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,6 +16,34 @@ load_dotenv()
 # ⚠ WARNING: Credentials are loaded from .env (not from source code)
 DHAN_CLIENT_ID    = os.getenv('DHAN_CLIENT_ID', 'YOUR_CLIENT_ID_HERE')
 DHAN_ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN', 'YOUR_ACCESS_TOKEN_HERE')
+
+def get_token_expiry() -> dict:
+    \"\"\"Decode JWT token and return expiry info without external libs\"\"\"
+    try:
+        parts = DHAN_ACCESS_TOKEN.split(".")
+        if len(parts) < 2:
+            return {"valid": False, "error": "Not a valid JWT token"}
+        payload = parts[1]
+        # Add padding
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        decoded = json.loads(base64.urlsafe_b64decode(payload))
+        exp_ts = decoded.get("exp", 0)
+        if not exp_ts:
+            return {"valid": False, "error": "No expiry found in token"}
+        exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+        now = datetime.now(tz=timezone.utc)
+        days_left = (exp_dt - now).days
+        return {
+            "valid": True,
+            "expiry_date": exp_dt.strftime("%Y-%m-%d %H:%M UTC"),
+            "days_left": days_left,
+            "expired": days_left < 0,
+            "warning": days_left <= 7
+        }
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
 
 # ── Dhan API Base URLs ──────────────────────────────────────
 DHAN_BASE_URL    = "https://api.dhan.co"

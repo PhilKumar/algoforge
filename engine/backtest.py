@@ -60,7 +60,7 @@ def _parse_time(val):
     return time(h, m)
 
 # ── Condition Evaluator ────────────────────────────────────────────
-def eval_condition(row, cond):
+def eval_condition(row, cond, prev_row=None):
     left = cond["left"]
     op = cond["operator"]
     
@@ -109,11 +109,29 @@ def eval_condition(row, cond):
     lv_f = float(lv)
     rv_f = float(rv)
     
-    # Note: "crosses_above" and "crosses_below" require historical context not available in this function
-    # For now, implement them the same as is_above/is_below. In a full implementation,
-    # you would track previous candle values in the main backtest loop.
-    if op in ("is_above","crosses_above"): return lv_f > rv_f
-    elif op in ("is_below","crosses_below"): return lv_f < rv_f
+    # Crossover detection: requires previous row to compare
+    if op == "crosses_above":
+        if prev_row is None:
+            return lv_f > rv_f  # fallback if no prev row
+        plv = prev_row.get("close") if left == "current_close" else prev_row.get(left)
+        prv = prev_row.get("close") if r == "current_close" else (float(cond.get("right_number_value", 0)) if r == "number" else prev_row.get(r))
+        try:
+            plv_f = float(plv); prv_f = float(prv)
+        except (TypeError, ValueError):
+            return lv_f > rv_f
+        return plv_f <= prv_f and lv_f > rv_f
+    elif op == "crosses_below":
+        if prev_row is None:
+            return lv_f < rv_f  # fallback if no prev row
+        plv = prev_row.get("close") if left == "current_close" else prev_row.get(left)
+        prv = prev_row.get("close") if r == "current_close" else (float(cond.get("right_number_value", 0)) if r == "number" else prev_row.get(r))
+        try:
+            plv_f = float(plv); prv_f = float(prv)
+        except (TypeError, ValueError):
+            return lv_f < rv_f
+        return plv_f >= prv_f and lv_f < rv_f
+    if op == "is_above": return lv_f > rv_f
+    elif op == "is_below": return lv_f < rv_f
     elif op == "==": return bool(lv)==rv if isinstance(rv,bool) else lv_f==rv_f
     elif op == ">=": return lv_f >= rv_f
     elif op == "<=": return lv_f <= rv_f
@@ -121,11 +139,11 @@ def eval_condition(row, cond):
     elif op == "is_false": return not bool(lv)
     return False
 
-def eval_condition_group(row, conditions):
+def eval_condition_group(row, conditions, prev_row=None):
     if not conditions: return False
-    result = eval_condition(row, conditions[0])
+    result = eval_condition(row, conditions[0], prev_row)
     for c in conditions[1:]:
-        v = eval_condition(row, c)
+        v = eval_condition(row, c, prev_row)
         conn = c.get("logic", c.get("connector","AND")).upper()
         if conn in ("AND","IF"): result = result and v
         elif conn == "OR": result = result or v
@@ -176,13 +194,14 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     strike_step = get_strike_step(instrument)
 
     # Option leg
-    has_opt=False; ot=None; ltxn="BUY"; lsl=0; ltgt=0; sqoff=mkt_close
+    has_opt=False; ot=None; ltxn="BUY"; lsl=0; ltgt=0; ltrail=0; sqoff=mkt_close
     strike_type="atm"; strike_value=0
     if legs and isinstance(legs, list) and len(legs) > 0:
         leg = legs[0]
         if leg.get("option_type") in ("CE","PE"):
             has_opt=True; ot=leg["option_type"]; ltxn=leg.get("transaction_type","BUY")
             lsl=float(leg.get("sl_pct",0) or 0); ltgt=float(leg.get("target_pct",0) or 0)
+            ltrail=float(leg.get("trail_pct",0) or 0)
             lots=int(leg.get("lots",1) or 1)
             strike_type=leg.get("strike_type","atm") or "atm"
             strike_value=float(leg.get("strike_value",0) or 0)
@@ -212,11 +231,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     total_pnl = 0.0
     trades=[]; equity=[]; in_trade=False
     ei=0.0; ep=0.0; et=None; slp=0.0; tgtp=0.0; td=0; ld=None
-    strike_name=""; trade_qty=0; lot_size=75; atm_prem_ref=0
+    strike_name=""; trade_qty=0; lot_size=75; atm_prem_ref=0; peak_prem=0.0
 
     print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} sl={sl_pct}% sqoff={sqoff}")
     print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
 
+    prev_row = None
     for ts, row in df.iterrows():
         ct=ts.time(); cd=ts.date()
 
@@ -245,22 +265,39 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         if in_trade:
             c=float(row["close"])
             cp=_est_prem(c,ei,ep,ot,atm_prem_ref) if has_opt else c
-            sh=False; th=False
+            # Update peak premium for trailing SL
+            if has_opt:
+                if ltxn=="BUY": peak_prem=max(peak_prem, cp)
+                else: peak_prem=min(peak_prem, cp)
+            else:
+                peak_prem=max(peak_prem, c)
+            sh=False; th=False; trail_hit=False
             if has_opt and lsl>0: sh=(ltxn=="BUY" and cp<=slp) or (ltxn=="SELL" and cp>=slp)
             elif not has_opt and sl_pct>0: sh=c<=ei*(1-sl_pct/100)
             if has_opt and ltgt>0: th=(ltxn=="BUY" and cp>=tgtp) or (ltxn=="SELL" and cp<=tgtp)
+            # Trailing stop loss check
+            if has_opt and ltrail>0:
+                if ltxn=="BUY" and cp<=peak_prem*(1-ltrail/100): trail_hit=True
+                elif ltxn=="SELL" and cp>=peak_prem*(1+ltrail/100): trail_hit=True
+            elif not has_opt and ltrail>0:
+                if c<=peak_prem*(1-ltrail/100): trail_hit=True
 
             if sh:
                 xp=slp if has_opt else ei*(1-sl_pct/100)
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,xp,lots,lot_size)
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"StopLoss",total_pnl,ot,strike_name,trade_qty,ltxn))
                 in_trade=False; td+=1
+            elif trail_hit:
+                trail_xp=peak_prem*(1-ltrail/100) if (has_opt and ltxn=="BUY") or not has_opt else peak_prem*(1+ltrail/100)
+                pnl=_opt_pnl(ep,trail_xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,trail_xp,lots,lot_size)
+                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,trail_xp,pnl,"TrailingSL",total_pnl,ot,strike_name,trade_qty,ltxn))
+                in_trade=False; td+=1
             elif th:
                 xp=tgtp if has_opt else c
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"Target",total_pnl,ot,strike_name,trade_qty,ltxn))
                 in_trade=False; td+=1
-            elif eval_condition_group(row, exit_conditions):
+            elif eval_condition_group(row, exit_conditions, prev_row):
                 pnl=_opt_pnl(ep,cp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,cp if has_opt else c,pnl,"Signal",total_pnl,ot,strike_name,trade_qty,ltxn))
                 in_trade=False; td+=1
@@ -269,7 +306,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             # Only skip the very first 5min candle (09:15) — enter from 09:20
             if not is_daily and ct<ENTRY_EARLIEST: equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)}); continue
 
-            if eval_condition_group(row, entry_conditions):
+            if eval_condition_group(row, entry_conditions, prev_row):
                 in_trade=True; ei=float(row["close"]); et=ts
                 lot_size = get_lot_size(instrument, cd)
                 trade_qty = lots * lot_size
@@ -379,10 +416,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     slp=round(ep*(1-lsl/100),2) if lsl>0 else 0
                     tgtp=round(ep*(1+ltgt/100),2) if ltgt>0 else 0
                     atm_prem_ref=atm_prem  # store for delta estimation during trade
+                    peak_prem=ep  # initialize peak for trailing SL
                 else:
-                    ep=ei; slp=ei*(1-sl_pct/100); tgtp=0
+                    ep=ei; slp=ei*(1-sl_pct/100); tgtp=0; peak_prem=ei
 
         equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)})
+        prev_row = row
 
     if not trades:
         return {"status":"no_trades","message":"No trades generated.","trades":[],"equity":equity[-500:],"stats":{},"monthly":[],"day_of_week":[],"yearly":[]}
