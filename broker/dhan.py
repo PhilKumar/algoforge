@@ -675,11 +675,13 @@ class DhanClient:
 
     def get_ltp(self, security_ids: list, exchange_segment: str = "NSE_EQ") -> dict:
         """Get Last Traded Price for given securities"""
+        # Dhan API requires security IDs as integers
+        int_ids = [int(sid) for sid in security_ids]
         payload = {
-            "NSE_EQ": security_ids if exchange_segment == "NSE_EQ" else [],
-            "NSE_FNO": security_ids if exchange_segment == "NSE_FNO" else [],
-            "BSE_FNO": security_ids if exchange_segment == "BSE_FNO" else [],
-            "IDX_I": security_ids if exchange_segment == "IDX_I" else [],
+            "NSE_EQ": int_ids if exchange_segment == "NSE_EQ" else [],
+            "NSE_FNO": int_ids if exchange_segment == "NSE_FNO" else [],
+            "BSE_FNO": int_ids if exchange_segment == "BSE_FNO" else [],
+            "IDX_I": int_ids if exchange_segment == "IDX_I" else [],
         }
         resp = requests.post(
             f"{self.base_url}/v2/marketfeed/ltp",
@@ -705,13 +707,23 @@ class DhanClient:
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
         try:
             data = self.get_ltp([security_id], exchange_segment=exchange_seg)
-            # Dhan LTP response format varies; handle common structures
+            # Dhan response: {"NSE_FNO": {"54880": {"last_price": 15.6}}}
             if isinstance(data, dict):
+                seg_data = data.get(exchange_seg, {})
+                if isinstance(seg_data, dict):
+                    sid_data = seg_data.get(str(security_id), seg_data.get(int(security_id), {}))
+                    if isinstance(sid_data, dict):
+                        return float(sid_data.get("last_price", sid_data.get("ltp", 0)))
+                    elif isinstance(sid_data, (int, float)):
+                        return float(sid_data)
+                # Fallback: iterate all nested values
                 for key, val in data.items():
                     if isinstance(val, dict):
-                        return float(val.get("last_price", val.get("ltp", 0)))
-                    elif isinstance(val, (int, float)):
-                        return float(val)
+                        for k2, v2 in val.items():
+                            if isinstance(v2, dict):
+                                return float(v2.get("last_price", v2.get("ltp", 0)))
+                            elif isinstance(v2, (int, float)):
+                                return float(v2)
             return 0.0
         except Exception as e:
             print(f"[DHAN] Option LTP fetch failed: {e}")

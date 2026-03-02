@@ -939,13 +939,20 @@ async def get_ticker():
                     expiry = ScripMaster.get_nearest_expiry("NIFTY")
                     if expiry:
                         atm_strike = round(nifty_price / 50) * 50
-                        ce_ltp = dhan.get_option_ltp("NIFTY", atm_strike, expiry, "CE")
-                        pe_ltp = dhan.get_option_ltp("NIFTY", atm_strike, expiry, "PE")
-                        if ce_ltp > 0:
-                            atm_ce_data = {"price": round(ce_ltp, 2), "change": 0, "pct": 0}
-                        if pe_ltp > 0:
-                            atm_pe_data = {"price": round(pe_ltp, 2), "change": 0, "pct": 0}
-                        print(f"[TICKER] ATM {atm_strike}: CE={ce_ltp}, PE={pe_ltp}")
+                        # Fetch both CE and PE in a single API call to avoid rate limits
+                        ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
+                        pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
+                        if ce_sid and pe_sid:
+                            both_ids = [int(ce_sid), int(pe_sid)]
+                            data = dhan.get_ltp(both_ids, exchange_segment="NSE_FNO")
+                            fno = data.get("NSE_FNO", {})
+                            ce_ltp = float((fno.get(str(ce_sid), {}) or {}).get("last_price", 0))
+                            pe_ltp = float((fno.get(str(pe_sid), {}) or {}).get("last_price", 0))
+                            if ce_ltp > 0:
+                                atm_ce_data = {"price": round(ce_ltp, 2), "change": 0, "pct": 0}
+                            if pe_ltp > 0:
+                                atm_pe_data = {"price": round(pe_ltp, 2), "change": 0, "pct": 0}
+                            print(f"[TICKER] ATM {atm_strike}: CE={ce_ltp}, PE={pe_ltp}")
             except Exception as opt_err:
                 print(f"[TICKER] ATM CE/PE fetch failed: {opt_err}")
 
@@ -1007,10 +1014,15 @@ async def get_ticker():
                         fb_exp = ScripMaster.get_nearest_expiry("NIFTY")
                         if fb_exp:
                             atm_s = round(nifty_ltp / 50) * 50
-                            ce_p = dhan.get_option_ltp("NIFTY", atm_s, fb_exp, "CE")
-                            pe_p = dhan.get_option_ltp("NIFTY", atm_s, fb_exp, "PE")
-                            if ce_p > 0: atm_ce_fb["price"] = round(ce_p, 2)
-                            if pe_p > 0: atm_pe_fb["price"] = round(pe_p, 2)
+                            ce_s = ScripMaster.lookup("NIFTY", atm_s, fb_exp, "CE")
+                            pe_s = ScripMaster.lookup("NIFTY", atm_s, fb_exp, "PE")
+                            if ce_s and pe_s:
+                                both = dhan.get_ltp([int(ce_s), int(pe_s)], exchange_segment="NSE_FNO")
+                                fno = both.get("NSE_FNO", {})
+                                ce_p = float((fno.get(str(ce_s), {}) or {}).get("last_price", 0))
+                                pe_p = float((fno.get(str(pe_s), {}) or {}).get("last_price", 0))
+                                if ce_p > 0: atm_ce_fb["price"] = round(ce_p, 2)
+                                if pe_p > 0: atm_pe_fb["price"] = round(pe_p, 2)
                     except: pass
 
                     result = {
