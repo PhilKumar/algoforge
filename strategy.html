@@ -1007,16 +1007,7 @@
 
 <!-- ═══ DASHBOARD ═══ -->
 <div id="dashboard-page" class="page-section active-page">
-  <!-- Token Expiry Alert Banner -->
-  <div id="token-alert" style="display:none; background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05)); border: 2px solid rgba(239,68,68,0.4); border-radius: 10px; padding: 14px 20px; margin: 0 auto 16px auto; max-width: 1100px; align-items: center; gap: 12px;">
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:22px;">🔑</span>
-      <div style="flex:1;">
-        <div id="token-alert-title" style="font-weight:700; color:var(--danger); font-size:13px;">Dhan API Token Expiring Soon</div>
-        <div id="token-alert-msg" style="font-size:12px; color:rgba(255,255,255,0.8); line-height:1.5;"></div>
-      </div>
-    </div>
-  </div>
+
 
   <!-- Dashboard Summary Cards Row -->
   <div style="max-width: 1100px; margin: 0 auto 20px auto;">
@@ -1998,7 +1989,6 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchStrategies();
   fetchRuns();
   loadPortfolioData();
-  checkTokenExpiry();
   loadDashboardSummary();
   // Don't add default conditions - user adds them via indicators or manually
   updateTicker();
@@ -2037,26 +2027,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadExpiryDates();
 });
 
-async function checkTokenExpiry() {
-  try {
-    const res = await fetch('/api/token-status');
-    const data = await res.json();
-    const el = document.getElementById('token-alert');
-    if (!data.valid) { el.style.display='block'; el.querySelector('#token-alert-title').textContent='Token Error'; el.querySelector('#token-alert-msg').textContent=data.error; return; }
-    if (data.expired) {
-      el.style.display='block';
-      el.querySelector('#token-alert-title').textContent='⛔ Dhan API Token EXPIRED';
-      el.querySelector('#token-alert-msg').innerHTML=`Token expired on <strong>${data.expiry_date}</strong>. Live/paper trading will NOT work. <a href="https://dhanhq.co" target="_blank" style="color:var(--accent);">Renew token →</a>`;
-      el.style.borderColor='rgba(239,68,68,0.6)';
-    } else if (data.days_left <= 7) {
-      el.style.display='block';
-      el.querySelector('#token-alert-title').textContent=`⚠️ Token expires in ${data.days_left} day${data.days_left===1?'':'s'}`;
-      el.querySelector('#token-alert-msg').innerHTML=`Expires on <strong>${data.expiry_date}</strong>. <a href="https://dhanhq.co" target="_blank" style="color:var(--accent);">Renew token →</a>`;
-      el.style.borderColor='rgba(245,158,11,0.4)';
-      el.style.background='linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))';
-    }
-  } catch(e) { console.warn('Token check failed:', e); }
-}
+
 
 // ══════════════════════════════════════════════════════════════
 //  STRATEGY TEMPLATES
