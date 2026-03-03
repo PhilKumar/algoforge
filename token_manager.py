@@ -94,7 +94,7 @@ def auto_generate_token() -> str | None:
     """
     Main entry point: generate a fresh token using TOTP.
     Returns the new access token string, or None on failure.
-    Updates config.DHAN_ACCESS_TOKEN in-memory.
+    Updates config.DHAN_ACCESS_TOKEN in-memory AND .env on disk.
     """
     import config
 
@@ -119,10 +119,35 @@ def auto_generate_token() -> str | None:
         # Update in-memory config
         config.DHAN_ACCESS_TOKEN = new_token
         log.info("[TokenManager] ✅ config.DHAN_ACCESS_TOKEN updated in-memory")
+        # Persist to .env so it survives restarts
+        _update_env_token(new_token)
         return new_token
     else:
         log.error(f"[TokenManager] Failed to generate token: {result.get('error')}")
         return None
+
+
+def _update_env_token(new_token: str):
+    """Update DHAN_ACCESS_TOKEN in the .env file on disk."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    try:
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+        with open(env_path, "w") as f:
+            found = False
+            for line in lines:
+                if line.startswith("DHAN_ACCESS_TOKEN="):
+                    f.write(f"DHAN_ACCESS_TOKEN={new_token}\n")
+                    found = True
+                else:
+                    f.write(line)
+            if not found:
+                f.write(f"DHAN_ACCESS_TOKEN={new_token}\n")
+        log.info("[TokenManager] ✅ .env updated with new token")
+    except Exception as e:
+        log.warning(f"[TokenManager] Could not update .env: {e}")
 
 
 async def token_renewal_loop():
@@ -146,6 +171,7 @@ async def token_renewal_loop():
         result = renew_access_token(client_id, config.DHAN_ACCESS_TOKEN)
         if result.get("success"):
             config.DHAN_ACCESS_TOKEN = result["accessToken"]
+            _update_env_token(result["accessToken"])
             log.info("[TokenManager] ✅ Token renewed via /RenewToken")
             continue
 

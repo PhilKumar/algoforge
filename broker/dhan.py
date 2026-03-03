@@ -276,10 +276,19 @@ class ScripMaster:
 class DhanClient:
     def __init__(self, client_id: str = None, access_token: str = None):
         self.client_id    = client_id or config.DHAN_CLIENT_ID
-        self.access_token = access_token or config.DHAN_ACCESS_TOKEN
+        self._fixed_token = access_token  # None means "use config dynamically"
         self.base_url     = config.DHAN_BASE_URL
         self.data_url     = config.DHAN_DATA_URL
-        self.headers = {
+
+    @property
+    def access_token(self) -> str:
+        """Always return the current token from config (updated by token_manager)."""
+        return self._fixed_token or config.DHAN_ACCESS_TOKEN
+
+    @property
+    def headers(self) -> dict:
+        """Build headers dynamically so token changes are always picked up."""
+        return {
             "access-token": self.access_token,
             "client-id":    self.client_id,
             "Content-Type": "application/json",
@@ -647,7 +656,7 @@ class DhanClient:
         
         try:
             resp = requests.get(
-                f"{self.base_url}/fundlimit",
+                f"{self.base_url}/v2/fundlimit",
                 headers=self.headers,
                 timeout=10,
             )

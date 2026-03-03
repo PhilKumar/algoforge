@@ -96,21 +96,46 @@ _paper_task = None   # track paper trading task
 # ── Authentication ────────────────────────────────────────────────
 AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "202603"))
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
-_active_sessions: dict = {}  # token -> expiry datetime
+_SESSION_FILE = os.path.join(_HERE, ".sessions.json")
+
+def _load_sessions() -> dict:
+    """Load sessions from shared file (works across workers)."""
+    try:
+        if os.path.exists(_SESSION_FILE):
+            with open(_SESSION_FILE, "r") as f:
+                data = json.loads(f.read())
+            # Clean expired sessions
+            now = datetime.now().isoformat()
+            return {k: v for k, v in data.items() if v > now}
+    except Exception:
+        pass
+    return {}
+
+def _save_sessions(sessions: dict):
+    """Persist sessions to shared file."""
+    try:
+        with open(_SESSION_FILE, "w") as f:
+            f.write(json.dumps(sessions))
+    except Exception:
+        pass
 
 def _create_session() -> str:
+    sessions = _load_sessions()
     token = secrets.token_hex(32)
-    _active_sessions[token] = datetime.now() + timedelta(hours=24)
+    sessions[token] = (datetime.now() + timedelta(hours=24)).isoformat()
+    _save_sessions(sessions)
     return token
 
 def _validate_session(token: str) -> bool:
     if not token:
         return False
-    exp = _active_sessions.get(token)
-    if not exp:
+    sessions = _load_sessions()
+    exp_str = sessions.get(token)
+    if not exp_str:
         return False
-    if datetime.now() > exp:
-        _active_sessions.pop(token, None)
+    if datetime.now() > datetime.fromisoformat(exp_str):
+        sessions.pop(token, None)
+        _save_sessions(sessions)
         return False
     return True
 
@@ -277,7 +302,9 @@ async def auth_status(request: Request):
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
     token = _get_session_token(request)
-    _active_sessions.pop(token, None)
+    sessions = _load_sessions()
+    sessions.pop(token, None)
+    _save_sessions(sessions)
     resp = JSONResponse({"status": "ok"})
     resp.delete_cookie("algoforge_session")
     return resp
@@ -1272,23 +1299,85 @@ async def export_paper_trades_csv():
 
 
 # Ticker caching
-_ticker_cache = {"data": None, "timestamp": 0, "ttl": 60}  # Cache for 60 seconds
+_ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}  # Cache for 30 seconds
 
 @app.get("/api/ticker")
 async def get_ticker():
-    """Fetch live index prices from yfinance (real market data)"""
+    """Fetch live index prices — Dhan API is primary source, yfinance is fallback"""
     global _ticker_cache
     
     # Return cached data if still valid
     if _ticker_cache["data"] and (time.time() - _ticker_cache["timestamp"]) < _ticker_cache["ttl"]:
-        age = time.time() - _ticker_cache["timestamp"]
-        print(f"[TICKER] Returning cached data (age: {age:.1f}s)")
         return _ticker_cache["data"]
     
+    # ── PRIMARY: Dhan LTP API ─────────────────────────────────
+    if dhan._is_configured():
+        try:
+            print("[TICKER] Fetching from Dhan API (primary)...")
+            # Security IDs: NIFTY 50=13, SENSEX=51, INDIA VIX=25
+            idx_data = dhan.get_ltp(
+                security_ids=[13, 51, 25],
+                exchange_segment="IDX_I"
+            )
+            
+            idx = idx_data.get("IDX_I", idx_data) if isinstance(idx_data, dict) else {}
+            
+            def _extract_ltp(d, sid):
+                info = d.get(str(sid), {})
+                if isinstance(info, dict):
+                    return float(info.get("last_price", info.get("ltp", 0)))
+                elif isinstance(info, (int, float)):
+                    return float(info)
+                return 0.0
+            
+            nifty_ltp  = _extract_ltp(idx, 13)
+            sensex_ltp = _extract_ltp(idx, 51)
+            vix_ltp    = _extract_ltp(idx, 25)
+            
+            if nifty_ltp > 0:
+                # ATM CE/PE options
+                atm_ce = {"price": 0, "change": 0, "pct": 0}
+                atm_pe = {"price": 0, "change": 0, "pct": 0}
+                try:
+                    ScripMaster.ensure_loaded()
+                    expiry = ScripMaster.get_nearest_expiry("NIFTY")
+                    if expiry:
+                        atm_strike = round(nifty_ltp / 50) * 50
+                        ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
+                        pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
+                        if ce_sid and pe_sid:
+                            opt_data = dhan.get_ltp([int(ce_sid), int(pe_sid)], exchange_segment="NSE_FNO")
+                            fno = opt_data.get("NSE_FNO", opt_data) if isinstance(opt_data, dict) else {}
+                            ce_p = _extract_ltp(fno, ce_sid)
+                            pe_p = _extract_ltp(fno, pe_sid)
+                            if ce_p > 0: atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
+                            if pe_p > 0: atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
+                            print(f"[TICKER] ATM {atm_strike}: CE={ce_p}, PE={pe_p}")
+                except Exception as opt_err:
+                    print(f"[TICKER] ATM CE/PE fetch failed: {opt_err}")
+                
+                result = {
+                    "status": "ok",
+                    "source": "dhan",
+                    "nifty":  {"price": round(nifty_ltp, 2), "change": 0, "pct": 0},
+                    "sensex": {"price": round(sensex_ltp, 2), "change": 0, "pct": 0},
+                    "vix":    {"price": round(vix_ltp, 2), "change": 0, "pct": 0},
+                    "atmCE":  atm_ce,
+                    "atmPE":  atm_pe,
+                }
+                _ticker_cache["data"] = result
+                _ticker_cache["timestamp"] = time.time()
+                print(f"[TICKER] Dhan: NIFTY={nifty_ltp}, SENSEX={sensex_ltp}, VIX={vix_ltp}")
+                return result
+            else:
+                print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")
+        except Exception as e:
+            print(f"[TICKER] Dhan API failed: {type(e).__name__}: {str(e)[:100]}, trying yfinance...")
+    
+    # ── FALLBACK: yfinance ────────────────────────────────────
     try:
         import yfinance as yf
-        
-        print("[TICKER] Fetching live data from yfinance...")
+        print("[TICKER] Fetching from yfinance (fallback)...")
         
         def _last_close_and_change(symbol: str):
             ticker = yf.Ticker(symbol)
@@ -1306,116 +1395,25 @@ async def get_ticker():
         vix_price, vix_chg, vix_pct = _last_close_and_change("^INDIAVIX")
 
         if nifty_price > 0:
-            # Fetch real ATM CE/PE option prices from Dhan
-            atm_ce_data = {"price": 0, "change": 0, "pct": 0}
-            atm_pe_data = {"price": 0, "change": 0, "pct": 0}
-            try:
-                if dhan._is_configured():
-                    ScripMaster.ensure_loaded()
-                    expiry = ScripMaster.get_nearest_expiry("NIFTY")
-                    if expiry:
-                        atm_strike = round(nifty_price / 50) * 50
-                        # Fetch both CE and PE in a single API call to avoid rate limits
-                        ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
-                        pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
-                        if ce_sid and pe_sid:
-                            both_ids = [int(ce_sid), int(pe_sid)]
-                            data = dhan.get_ltp(both_ids, exchange_segment="NSE_FNO")
-                            fno = data.get("NSE_FNO", {})
-                            ce_ltp = float((fno.get(str(ce_sid), {}) or {}).get("last_price", 0))
-                            pe_ltp = float((fno.get(str(pe_sid), {}) or {}).get("last_price", 0))
-                            if ce_ltp > 0:
-                                atm_ce_data = {"price": round(ce_ltp, 2), "change": 0, "pct": 0}
-                            if pe_ltp > 0:
-                                atm_pe_data = {"price": round(pe_ltp, 2), "change": 0, "pct": 0}
-                            print(f"[TICKER] ATM {atm_strike}: CE={ce_ltp}, PE={pe_ltp}")
-            except Exception as opt_err:
-                print(f"[TICKER] ATM CE/PE fetch failed: {opt_err}")
-
             result = {
                 "status": "ok",
+                "source": "yfinance",
                 "nifty":  {"price": round(nifty_price, 2), "change": round(nifty_chg, 2), "pct": round(nifty_pct, 2)},
                 "sensex": {"price": round(sensex_price, 2), "change": round(sensex_chg, 2), "pct": round(sensex_pct, 2)},
                 "vix":    {"price": round(vix_price, 2), "change": round(vix_chg, 2), "pct": round(vix_pct, 2)},
-                "atmCE":  atm_ce_data,
-                "atmPE":  atm_pe_data,
+                "atmCE":  {"price": 0, "change": 0, "pct": 0},
+                "atmPE":  {"price": 0, "change": 0, "pct": 0},
             }
-            
             _ticker_cache["data"] = result
             _ticker_cache["timestamp"] = time.time()
-            print(f"[TICKER] Data cached: NIFTY={result['nifty']['price']}, SENSEX={result['sensex']['price']}")
+            print(f"[TICKER] yfinance: NIFTY={nifty_price}, SENSEX={sensex_price}")
             return result
         
-        print("[TICKER] yfinance returned no price data")
-        return {"status": "error", "msg": "No price data available"}
-        
-    except Exception as e:
-        print(f"[TICKER] Exception: {type(e).__name__}: {str(e)[:100]}")
-        # Try Dhan as fallback
-        if dhan._is_configured():
-            try:
-                print("[TICKER] Trying Dhan API as fallback...")
-                # Dhan get_ltp uses segment-specific security ID lists
-                # Security IDs: NIFTY=13, SENSEX=1
-                ltp_data = dhan.get_ltp(
-                    security_ids=["13", "1"],  # NIFTY & SENSEX
-                    exchange_segment="IDX_I"
-                )
-                
-                # Extract prices from response
-                nifty_ltp = 0
-                sensex_ltp = 0
-                
-                if isinstance(ltp_data, dict):
-                    # Check for nested structure
-                    nifty_info = ltp_data.get("13", ltp_data.get("NIFTY", {}))
-                    sensex_info = ltp_data.get("1", ltp_data.get("SENSEX", {}))
-                    
-                    if isinstance(nifty_info, dict):
-                        nifty_ltp = float(nifty_info.get("last_price", nifty_info.get("ltp", 0)))
-                    elif isinstance(nifty_info, (int, float)):
-                        nifty_ltp = float(nifty_info)
-                    
-                    if isinstance(sensex_info, dict):
-                        sensex_ltp = float(sensex_info.get("last_price", sensex_info.get("ltp", 0)))
-                    elif isinstance(sensex_info, (int, float)):
-                        sensex_ltp = float(sensex_info)
-                
-                if nifty_ltp > 0:
-                    # Try real ATM CE/PE from Dhan option LTP
-                    atm_ce_fb = {"price": 0, "change": 0, "pct": 0}
-                    atm_pe_fb = {"price": 0, "change": 0, "pct": 0}
-                    try:
-                        ScripMaster.ensure_loaded()
-                        fb_exp = ScripMaster.get_nearest_expiry("NIFTY")
-                        if fb_exp:
-                            atm_s = round(nifty_ltp / 50) * 50
-                            ce_s = ScripMaster.lookup("NIFTY", atm_s, fb_exp, "CE")
-                            pe_s = ScripMaster.lookup("NIFTY", atm_s, fb_exp, "PE")
-                            if ce_s and pe_s:
-                                both = dhan.get_ltp([int(ce_s), int(pe_s)], exchange_segment="NSE_FNO")
-                                fno = both.get("NSE_FNO", {})
-                                ce_p = float((fno.get(str(ce_s), {}) or {}).get("last_price", 0))
-                                pe_p = float((fno.get(str(pe_s), {}) or {}).get("last_price", 0))
-                                if ce_p > 0: atm_ce_fb["price"] = round(ce_p, 2)
-                                if pe_p > 0: atm_pe_fb["price"] = round(pe_p, 2)
-                    except: pass
-
-                    result = {
-                        "status": "ok",
-                        "nifty":  {"price": nifty_ltp, "change": 0, "pct": 0},
-                        "sensex": {"price": sensex_ltp, "change": 0, "pct": 0},
-                        "vix":    {"price": 0, "change": 0, "pct": 0},
-                        "atmCE":  atm_ce_fb,
-                        "atmPE":  atm_pe_fb,
-                    }
-                    _ticker_cache["data"] = result
-                    _ticker_cache["timestamp"] = time.time()
-                    return result
-            except Exception as ex:
-                print(f"[TICKER] Dhan fallback failed: {ex}")
-        
-        return {"status": "error", "msg": str(e)[:100]}
+        print("[TICKER] yfinance also returned no data")
+    except Exception as yf_err:
+        print(f"[TICKER] yfinance fallback failed: {yf_err}")
+    
+    return {"status": "error", "msg": "No price data available from any source"}
 
 
 # ── Expiry Dates ──────────────────────────────────────────────────
