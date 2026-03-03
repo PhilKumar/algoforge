@@ -200,7 +200,12 @@ class LiveStartRequest(BaseModel):
     market_close:     str   = "15:25"
     max_daily_loss:   float = 0
     lots:             int   = 1
-    stoploss_pct:     float = 10.0
+    stoploss_pct:     float = 0.0
+    stoploss_rupees:  float = 0.0
+    sl_type:          str   = "pct"
+    target_profit_pct:  float = 0.0
+    target_profit_rupees: float = 0.0
+    tp_type:          str   = "pct"
 
 class OrderRequest(BaseModel):
     security_id:      str
@@ -219,13 +224,18 @@ class StrategyPayload(BaseModel):
     from_date:        str   = config.DEFAULT_FROM
     to_date:          str   = config.DEFAULT_TO
     initial_capital:  float = 500000.0
-    lots:             int   = 4
-    lot_size:         int   = 25
-    stoploss_pct:     float = 10.0
-    target_profit_pct: float = 20.0
+    lots:             int   = 1
+    lot_size:         int   = 0
+    stoploss_pct:     float = 0.0
+    stoploss_rupees:  float = 0.0
+    sl_type:          str   = "pct"
+    target_profit_pct:  float = 0.0
+    target_profit_rupees: float = 0.0
+    tp_type:          str   = "pct"
     market_open:      str   = "09:15"
     market_close:     str   = "15:25"
     max_trades_per_day: int = 1
+    max_daily_loss:   float = 0.0
     indicators:       List[str]            = []
     entry_conditions: Optional[List[dict]] = None
     exit_conditions:  Optional[List[dict]] = None
@@ -854,6 +864,17 @@ async def api_run_backtest(payload: StrategyPayload):
 
         print(f"[BACKTEST] Data: {len(df_raw)} candles, {df_raw.index[0]} → {df_raw.index[-1]}")
 
+        # Warn if actual data range is shorter than requested
+        data_range_warning = None
+        actual_start = str(df_raw.index[0].date()) if hasattr(df_raw.index[0], 'date') else str(df_raw.index[0])[:10]
+        if actual_start > from_date:
+            data_range_warning = (
+                f"⚠️ Dhan intraday API returned data from {actual_start} only "
+                f"(requested {from_date}). Intraday data is limited to ~2 years. "
+                f"Use daily candles for longer backtests."
+            )
+            print(f"[BACKTEST] {data_range_warning}")
+
         # 2. Build strategy_config
         strategy_config = payload.model_dump()
 
@@ -892,6 +913,11 @@ async def api_run_backtest(payload: StrategyPayload):
                 "lots": payload.lots,
                 "lot_size": payload.lot_size,
                 "stoploss_pct": payload.stoploss_pct,
+                "stoploss_rupees": getattr(payload, 'stoploss_rupees', 0),
+                "sl_type": getattr(payload, 'sl_type', 'pct'),
+                "target_profit_pct": getattr(payload, 'target_profit_pct', 0),
+                "target_profit_rupees": getattr(payload, 'target_profit_rupees', 0),
+                "tp_type": getattr(payload, 'tp_type', 'pct'),
                 "indicators": payload.indicators,
                 "entry_conditions": payload.entry_conditions,
                 "exit_conditions": payload.exit_conditions,
@@ -912,6 +938,9 @@ async def api_run_backtest(payload: StrategyPayload):
             _save_runs(runs)
             results["run_id"] = run_entry["id"]
             print(f"[BACKTEST] Saved as Run #{run_entry['id']}")
+        
+        if data_range_warning:
+            results["data_range_warning"] = data_range_warning
         
         return results
 

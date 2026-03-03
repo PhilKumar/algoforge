@@ -251,6 +251,8 @@
   }
   .btn-sm { padding: 6px 12px; font-size: 13px; }
   .flex-row { display: flex; gap: 10px; align-items: center; }
+  .condition-row { flex-wrap: wrap; }
+  .condition-row select { font-size: 12px; padding: 8px 6px; }
 
   /* ── MODAL ── */
   .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 2000; display: none; align-items: center; justify-content: center; }
@@ -1186,8 +1188,14 @@
           <div><label>To</label><input type="date" id="bt-to-date" value="2026-02-26"></div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px;">
-          <div><label>Strategy SL %</label><input type="number" id="txn-sl" value="10" step="0.1" min="0"></div>
-          <div><label>Target Profit %</label><input type="number" id="target-profit" value="20" step="0.1" min="0"></div>
+          <div>
+            <label>Strategy SL <select id="sl-type" style="display:inline;width:auto;padding:2px 4px;font-size:10px;min-height:0;" onchange="document.getElementById('sl-type-label').textContent=this.value==='pct'?'%':'₹'"><option value="pct">%</option><option value="rupees">₹</option></select></label>
+            <input type="number" id="txn-sl" placeholder="0 = none" step="0.1" min="0">
+          </div>
+          <div>
+            <label>Target Profit <select id="tp-type" style="display:inline;width:auto;padding:2px 4px;font-size:10px;min-height:0;" onchange="document.getElementById('tp-type-label').textContent=this.value==='pct'?'%':'₹'"><option value="pct">%</option><option value="rupees">₹</option></select></label>
+            <input type="number" id="target-profit" placeholder="0 = none" step="0.1" min="0">
+          </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px;">
           <div><label>Open</label><input type="time" id="entry-time-start" value="09:15"></div>
@@ -1983,6 +1991,18 @@ function showPage(id, btn) {
 }
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 
+// Lot size lookup for display (matches backend get_lot_size)
+const INSTRUMENT_LOT_MAP = {
+  '26000': 75,  // NIFTY 50 (65 from Jan 2026, but use 75 as standard)
+  '26009': 30,  // BANK NIFTY (was 25 pre-2026)
+  '26017': 65,  // FINNIFTY (was 40 pre-2026)
+  '1': 20,      // SENSEX (was 10 pre-2026)
+  '26037': 75,  // NIFTY MIDCAP
+};
+function _getLotSizeForInstrument(instCode) {
+  return INSTRUMENT_LOT_MAP[String(instCode)] || 75;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-name-input').value = 'Strategy_' + generateRandomID();
   renderIndicatorFields();
@@ -2579,12 +2599,12 @@ function confirmMoveToNew() {
 //  TOAST
 // ══════════════════════════════════════════════════════════════
 let toastTimer;
-function toast(msg, type='') {
+function toast(msg, type='', duration=4000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + type;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+  toastTimer = setTimeout(() => t.classList.remove('show'), duration);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2745,9 +2765,9 @@ function viewStrategy(id) {
       <div><span style="color: var(--muted); font-size: 11px;">Run Name</span><div style="font-weight: 600;">${s.run_name}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Folder</span><div><span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;">${s.folder || 'Intraday'}</span></div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Instrument</span><div style="font-weight: 600;">${instName}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Lots × Size</span><div style="font-weight: 600;">${s.lots || 4} × ${s.lot_size || 25}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Strategy SL %</span><div style="font-weight: 600;">${s.stoploss_pct || 10}%</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Target Profit %</span><div style="font-weight: 600;">${s.target_profit_pct || 20}%</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Lots × Size</span><div style="font-weight: 600;">${s.lots || 1} × ${s.lot_size || _getLotSizeForInstrument(s.instrument)}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Strategy SL ${s.sl_type === 'rupees' ? '₹' : '%'}</span><div style="font-weight: 600;">${s.sl_type === 'rupees' ? '₹' + (s.stoploss_rupees || 0) : (s.stoploss_pct || 0) + '%'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Target Profit ${s.tp_type === 'rupees' ? '₹' : '%'}</span><div style="font-weight: 600;">${s.tp_type === 'rupees' ? '₹' + (s.target_profit_rupees || 0) : (s.target_profit_pct || 0) + '%'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${s.market_open || '09:15'} — ${s.market_close || '15:25'}</div></div>
     </div>`;
   
@@ -2815,8 +2835,14 @@ function loadStrategy(id) {
     onSegmentChange();
   }
   document.getElementById('instrument-select').value = s.instrument || '';
-  document.getElementById('txn-sl').value = s.stoploss_pct || 10;
-  document.getElementById('target-profit').value = s.target_profit_pct || 20;
+  // Restore SL type and value
+  const slType = s.sl_type || 'pct';
+  document.getElementById('sl-type').value = slType;
+  document.getElementById('txn-sl').value = slType === 'rupees' ? (s.stoploss_rupees || '') : (s.stoploss_pct || '');
+  // Restore TP type and value
+  const tpType = s.tp_type || 'pct';
+  document.getElementById('tp-type').value = tpType;
+  document.getElementById('target-profit').value = tpType === 'rupees' ? (s.target_profit_rupees || '') : (s.target_profit_pct || '');
   document.getElementById('entry-time-start').value = s.market_open || '09:15';
   document.getElementById('sq-time').value = s.market_close || '15:25';
   document.getElementById('max-trades-per-day').value = s.max_trades_per_day || 1;
@@ -2948,12 +2974,12 @@ function loadStrategy(id) {
     </div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
       <div><span style="color: var(--muted);">Instrument:</span> <strong>${instName}</strong></div>
-      <div><span style="color: var(--muted);">Lots:</span> <strong>${s.lots || 4} × ${s.lot_size || 25}</strong></div>
+      <div><span style="color: var(--muted);">Lots:</span> <strong>${s.lots || 1} × ${s.lot_size || _getLotSizeForInstrument(s.instrument)}</strong></div>
       <div><span style="color: var(--muted);">Indicators:</span> <strong>${indCount}</strong></div>
       <div><span style="color: var(--muted);">Legs:</span> <strong>${legCount}</strong></div>
       <div><span style="color: var(--muted);">Entry Rules:</span> <strong>${entryCount}</strong></div>
       <div><span style="color: var(--muted);">Exit Rules:</span> <strong>${exitCount}</strong></div>
-      <div><span style="color: var(--muted);">SL:</span> <strong>${s.stoploss_pct || 10}%</strong></div>
+      <div><span style="color: var(--muted);">SL:</span> <strong>${s.sl_type === 'rupees' ? '₹' + (s.stoploss_rupees || 0) : (s.stoploss_pct || 0) + '%'}</strong></div>
       <div><span style="color: var(--muted);">Saved:</span> <strong>${new Date(s.created_at).toLocaleString('en-IN', {month:'short',day:'numeric'})}</strong></div>
     </div>
   `;
@@ -3133,8 +3159,8 @@ function addConditionRow(type) {
       <option value="1h">1h</option>
       <option value="1d">1d</option>
     </select>
-    <select class="condition-select left-op" style="flex:1" onchange="onLHSChange(this)">${lhsOpts}</select>
-    <select class="operator" style="flex:1">
+    <select class="condition-select left-op" style="flex:2;min-width:140px" onchange="onLHSChange(this)">${lhsOpts}</select>
+    <select class="operator" style="flex:1;min-width:110px">
       <option value="crosses_above">Crosses Above</option>
       <option value="is_above">Is Above</option>
       <option value="crosses_below">Crosses Below</option>
@@ -3144,7 +3170,7 @@ function addConditionRow(type) {
       <option value="==">Equal To</option>
     </select>
     <div class="rhs-wrap" style="flex:1;display:flex;gap:5px;align-items:center;">
-      <select class="condition-select right-op" onchange="toggleNumberInput(this)" style="flex:1;min-width:120px;">${rhsOpts}</select>
+      <select class="condition-select right-op" onchange="toggleNumberInput(this)" style="flex:2;min-width:140px;">${rhsOpts}</select>
       <input type="number" class="right-num" style="display:none;width:100px;padding:8px;font-size:13px;" placeholder="Enter value">
     </div>
     <button type="button" class="btn btn-danger btn-sm" onclick="removeConditionRow('${type}',${rowId})" title="Delete">&#x1F5D1;</button>`;
@@ -3502,8 +3528,13 @@ async function copyEditStrategy(runId) {
       onSegmentChange();
     }
     if (p.instrument) document.getElementById('instrument-select').value = p.instrument;
-    document.getElementById('txn-sl').value = p.stoploss_pct || 10;
-    document.getElementById('target-profit').value = p.target_profit_pct || 20;
+    // Restore SL/TP type and value
+    const slT = p.sl_type || 'pct';
+    document.getElementById('sl-type').value = slT;
+    document.getElementById('txn-sl').value = slT === 'rupees' ? (p.stoploss_rupees || '') : (p.stoploss_pct || '');
+    const tpT = p.tp_type || 'pct';
+    document.getElementById('tp-type').value = tpT;
+    document.getElementById('target-profit').value = tpT === 'rupees' ? (p.target_profit_rupees || '') : (p.target_profit_pct || '');
     document.getElementById('entry-time-start').value = p.market_open || '09:15';
     document.getElementById('sq-time').value = p.market_close || '15:25';
     document.getElementById('max-trades-per-day').value = p.max_trades_per_day || 1;
@@ -3611,8 +3642,12 @@ function buildPayload() {
     to_date: document.getElementById('bt-to-date').value,
     lots: legs.length > 0 ? parseInt(legs[0].lots || 1) : 1,
     lot_size: 0,  // Auto-detected per date in backend (NIFTY: 75 before Jan 2026, 65 after)
-    stoploss_pct: parseFloat(document.getElementById('txn-sl').value || 10),
-    target_profit_pct: parseFloat(document.getElementById('target-profit').value || 20),
+    stoploss_pct: document.getElementById('sl-type').value === 'pct' ? parseFloat(document.getElementById('txn-sl').value || 0) : 0,
+    stoploss_rupees: document.getElementById('sl-type').value === 'rupees' ? parseFloat(document.getElementById('txn-sl').value || 0) : 0,
+    sl_type: document.getElementById('sl-type').value,
+    target_profit_pct: document.getElementById('tp-type').value === 'pct' ? parseFloat(document.getElementById('target-profit').value || 0) : 0,
+    target_profit_rupees: document.getElementById('tp-type').value === 'rupees' ? parseFloat(document.getElementById('target-profit').value || 0) : 0,
+    tp_type: document.getElementById('tp-type').value,
     market_open: document.getElementById('entry-time-start').value,
     market_close: document.getElementById('sq-time').value,
     max_trades_per_day: parseInt(document.getElementById('max-trades-per-day').value || 1),
@@ -3675,6 +3710,9 @@ async function runBacktest() {
       lastBacktestData = data;
       lastBacktestPayload = payload;
       renderResults(data, payload);
+      if (data.data_range_warning) {
+        toast(data.data_range_warning, 'warn', 8000);
+      }
       toast('Backtest Complete! ' + data.stats.total_trades + ' trades', 'success');
       fetchRuns();
     } else if(data.status === 'no_trades') {
@@ -4306,8 +4344,12 @@ async function deployStrategy() {
       exit_conditions: lastBacktestPayload.exit_conditions || [],
       legs: lastBacktestPayload.legs || [],
       lots: lastBacktestPayload.lots || 1,
-      stoploss_pct: lastBacktestPayload.stoploss_pct || 10,
-      target_profit_pct: lastBacktestPayload.target_profit_pct || 20,
+      stoploss_pct: lastBacktestPayload.stoploss_pct || 0,
+      stoploss_rupees: lastBacktestPayload.stoploss_rupees || 0,
+      sl_type: lastBacktestPayload.sl_type || 'pct',
+      target_profit_pct: lastBacktestPayload.target_profit_pct || 0,
+      target_profit_rupees: lastBacktestPayload.target_profit_rupees || 0,
+      tp_type: lastBacktestPayload.tp_type || 'pct',
       market_open: lastBacktestPayload.market_open || '09:15',
       market_close: lastBacktestPayload.market_close || '15:25',
       max_trades_per_day: lastBacktestPayload.max_trades_per_day || 1,

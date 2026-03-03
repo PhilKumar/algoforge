@@ -186,7 +186,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     mkt_open  = _parse_time(sc.get("market_open", "09:15"))
     mkt_close = _parse_time(sc.get("market_close", "15:25"))
     lots      = int(sc.get("lots", 1))
-    sl_pct    = float(sc.get("stoploss_pct", 10))
+    sl_pct    = float(sc.get("stoploss_pct", 0) or 0)
+    sl_rupees = float(sc.get("stoploss_rupees", 0) or 0)
+    tp_pct    = float(sc.get("target_profit_pct", 0) or 0)
+    tp_rupees = float(sc.get("target_profit_rupees", 0) or 0)
     max_tpd   = int(sc.get("max_trades_per_day", config.MAX_TRADES_PER_DAY))
     indicators = sc.get("indicators", []) or []
     legs      = sc.get("legs", []) or []
@@ -233,7 +236,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     ei=0.0; ep=0.0; et=None; slp=0.0; tgtp=0.0; td=0; ld=None
     strike_name=""; trade_qty=0; lot_size=75; atm_prem_ref=0; peak_prem=0.0
 
-    print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} sl={sl_pct}% sqoff={sqoff}")
+    print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}")
     print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
 
     prev_row = None
@@ -273,8 +276,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 peak_prem=max(peak_prem, c)
             sh=False; th=False; trail_hit=False
             if has_opt and lsl>0: sh=(ltxn=="BUY" and cp<=slp) or (ltxn=="SELL" and cp>=slp)
-            elif not has_opt and sl_pct>0: sh=c<=ei*(1-sl_pct/100)
+            elif not has_opt and slp>0: sh=c<=slp
             if has_opt and ltgt>0: th=(ltxn=="BUY" and cp>=tgtp) or (ltxn=="SELL" and cp<=tgtp)
+            elif not has_opt and tgtp>0: th=c>=tgtp
             # Trailing stop loss check
             if has_opt and ltrail>0:
                 if ltxn=="BUY" and cp<=peak_prem*(1-ltrail/100): trail_hit=True
@@ -283,7 +287,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 if c<=peak_prem*(1-ltrail/100): trail_hit=True
 
             if sh:
-                xp=slp if has_opt else ei*(1-sl_pct/100)
+                xp=slp if has_opt else slp
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,xp,lots,lot_size)
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"StopLoss",total_pnl,ot,strike_name,trade_qty,ltxn))
                 in_trade=False; td+=1
@@ -418,7 +422,21 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     atm_prem_ref=atm_prem  # store for delta estimation during trade
                     peak_prem=ep  # initialize peak for trailing SL
                 else:
-                    ep=ei; slp=ei*(1-sl_pct/100); tgtp=0; peak_prem=ei
+                    ep=ei
+                    # Strategy-level SL/TP for index trades (supports % or ₹)
+                    if sl_rupees > 0:
+                        slp = ei - sl_rupees
+                    elif sl_pct > 0:
+                        slp = ei * (1 - sl_pct / 100)
+                    else:
+                        slp = 0
+                    if tp_rupees > 0:
+                        tgtp = ei + tp_rupees
+                    elif tp_pct > 0:
+                        tgtp = ei * (1 + tp_pct / 100)
+                    else:
+                        tgtp = 0
+                    peak_prem = ei
 
         equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)})
         prev_row = row
