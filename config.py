@@ -17,6 +17,12 @@ load_dotenv()
 DHAN_CLIENT_ID    = os.getenv('DHAN_CLIENT_ID', 'YOUR_CLIENT_ID_HERE')
 DHAN_ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN', 'YOUR_ACCESS_TOKEN_HERE')
 
+# ── TOTP Auto-Token Settings ────────────────────────────────
+# Enable TOTP on Dhan Web, save the secret here for auto-generation
+DHAN_PIN          = os.getenv('DHAN_PIN', '')
+DHAN_TOTP_SECRET  = os.getenv('DHAN_TOTP_SECRET', '')
+AUTO_TOKEN_ENABLED = bool(DHAN_PIN and DHAN_TOTP_SECRET)
+
 def get_token_expiry() -> dict:
     """Decode JWT token and return expiry info without external libs"""
     try:

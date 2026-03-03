@@ -3,6 +3,7 @@ engine/indicators.py — Technical Indicators
 Fixed:
   - SuperTrend now uses numpy arrays (no pandas .iloc chained assignment)
   - CPR/Yesterday handle both daily AND intraday DataFrames correctly
+  - Added: SMA, MACD, Bollinger Bands, VWAP, ATR, Stochastic RSI, ADX
 """
 
 import pandas as pd
@@ -13,6 +14,10 @@ def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
+def sma(series: pd.Series, period: int) -> pd.Series:
+    return series.rolling(window=period).mean()
+
+
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta    = series.diff()
     gain     = delta.clip(lower=0)
@@ -21,6 +26,109 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def macd(series: pd.Series, fast: int = 12, slow: int = 26,
+         signal: int = 9) -> pd.DataFrame:
+    """MACD indicator returning line, signal, histogram."""
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return pd.DataFrame({
+        "macd_line": macd_line,
+        "macd_signal": signal_line,
+        "macd_histogram": histogram,
+    }, index=series.index)
+
+
+def bollinger_bands(series: pd.Series, period: int = 20,
+                    std_dev: float = 2.0) -> pd.DataFrame:
+    """Bollinger Bands: upper, middle, lower."""
+    middle = series.rolling(window=period).mean()
+    std = series.rolling(window=period).std()
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    width = (upper - lower) / middle * 100
+    return pd.DataFrame({
+        "bb_upper": upper,
+        "bb_middle": middle,
+        "bb_lower": lower,
+        "bb_width": width,
+    }, index=series.index)
+
+
+def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Average True Range."""
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(span=period, adjust=False).mean()
+
+
+def vwap(df: pd.DataFrame) -> pd.Series:
+    """Volume Weighted Average Price — resets daily if intraday."""
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    if "volume" not in df.columns:
+        return typical  # fallback if no volume
+    cum_tp_vol = (typical * df["volume"]).cumsum()
+    cum_vol = df["volume"].cumsum()
+    return cum_tp_vol / cum_vol
+
+
+def stochastic_rsi(series: pd.Series, rsi_period: int = 14,
+                   stoch_period: int = 14, k_smooth: int = 3,
+                   d_smooth: int = 3) -> pd.DataFrame:
+    """Stochastic RSI."""
+    rsi_val = rsi(series, rsi_period)
+    min_rsi = rsi_val.rolling(window=stoch_period).min()
+    max_rsi = rsi_val.rolling(window=stoch_period).max()
+    stoch_k = 100 * (rsi_val - min_rsi) / (max_rsi - min_rsi)
+    stoch_k = stoch_k.rolling(window=k_smooth).mean()
+    stoch_d = stoch_k.rolling(window=d_smooth).mean()
+    return pd.DataFrame({"stoch_rsi_k": stoch_k, "stoch_rsi_d": stoch_d},
+                        index=series.index)
+
+
+def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Average Directional Index (ADX) with +DI / -DI."""
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+    prev_close = close.shift(1)
+
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    plus_dm = (high - prev_high).clip(lower=0)
+    minus_dm = (prev_low - low).clip(lower=0)
+    # Zero out where the other is larger
+    plus_dm[plus_dm < minus_dm] = 0
+    minus_dm[minus_dm < plus_dm] = 0
+
+    atr_val = tr.ewm(span=period, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(span=period, adjust=False).mean() / atr_val
+    minus_di = 100 * minus_dm.ewm(span=period, adjust=False).mean() / atr_val
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    adx_val = dx.ewm(span=period, adjust=False).mean()
+
+    return pd.DataFrame({
+        "ADX": adx_val,
+        "ADX_plus_di": plus_di,
+        "ADX_minus_di": minus_di,
+    }, index=df.index)
 
 
 def supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 2.7) -> pd.DataFrame:
@@ -214,12 +322,61 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
         if name == "EMA":
             period = int(parts[1])
             df[ind_string] = ema(df["close"], period)
+
+        # Calculate SMA
+        elif name == "SMA":
+            period = int(parts[1])
+            df[ind_string] = sma(df["close"], period)
             
         # Calculate RSI
         elif name == "RSI":
             period = int(parts[1])
             df[ind_string] = rsi(df["close"], period)
-            
+
+        # Calculate MACD
+        elif name == "MACD":
+            fast = int(parts[1]) if len(parts) > 1 else 12
+            slow = int(parts[2]) if len(parts) > 2 else 26
+            sig = int(parts[3]) if len(parts) > 3 else 9
+            macd_df = macd(df["close"], fast, slow, sig)
+            df["MACD_line"] = macd_df["macd_line"]
+            df["MACD_signal"] = macd_df["macd_signal"]
+            df["MACD_histogram"] = macd_df["macd_histogram"]
+
+        # Calculate Bollinger Bands
+        elif name == "BB":
+            period = int(parts[1]) if len(parts) > 1 else 20
+            std = float(parts[2]) if len(parts) > 2 else 2.0
+            bb_df = bollinger_bands(df["close"], period, std)
+            df["BB_upper"] = bb_df["bb_upper"]
+            df["BB_middle"] = bb_df["bb_middle"]
+            df["BB_lower"] = bb_df["bb_lower"]
+            df["BB_width"] = bb_df["bb_width"]
+
+        # Calculate VWAP
+        elif name == "VWAP":
+            df["VWAP"] = vwap(df)
+
+        # Calculate ATR
+        elif name == "ATR":
+            period = int(parts[1]) if len(parts) > 1 else 14
+            df[ind_string] = atr(df, period)
+
+        # Calculate Stochastic RSI
+        elif name == "StochRSI":
+            period = int(parts[1]) if len(parts) > 1 else 14
+            srsi = stochastic_rsi(df["close"], period)
+            df["StochRSI_K"] = srsi["stoch_rsi_k"]
+            df["StochRSI_D"] = srsi["stoch_rsi_d"]
+
+        # Calculate ADX
+        elif name == "ADX":
+            period = int(parts[1]) if len(parts) > 1 else 14
+            adx_df = adx(df, period)
+            df["ADX"] = adx_df["ADX"]
+            df["ADX_plus_di"] = adx_df["ADX_plus_di"]
+            df["ADX_minus_di"] = adx_df["ADX_minus_di"]
+
         # Calculate Supertrend
         elif name == "Supertrend":
             period = int(parts[1])

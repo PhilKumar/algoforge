@@ -569,7 +569,10 @@ class DhanClient:
         )
         if resp.status_code != 200:
             raise Exception(f"Order book failed: {resp.text}")
-        return resp.json().get("data", [])
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        return data.get("data", []) if isinstance(data, dict) else []
 
     def get_trades(self, from_date: str = None, to_date: str = None) -> list:
         """Get all executed trades (trade book) 
@@ -600,10 +603,12 @@ class DhanClient:
                 raise Exception(f"Trade book API returned {resp.status_code}: {resp.text[:200]}")
             
             data = resp.json()
-            print(f"[DHAN] get_trades response keys: {list(data.keys())}")
+            print(f"[DHAN] get_trades response type: {type(data).__name__}")
             
             # Return trades array - handle both possible response formats
-            if "data" in data:
+            if isinstance(data, list):
+                trades = data
+            elif isinstance(data, dict) and "data" in data:
                 trades = data["data"]
             else:
                 trades = data if isinstance(data, list) else []

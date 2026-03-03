@@ -6,9 +6,10 @@ Fixed:
   - Added /logo.jpg route for the frontend
 """
 
-import asyncio, json, os, sys, inspect, time
-from datetime import datetime
+import asyncio, json, os, sys, inspect, time, hashlib, secrets
+from datetime import datetime, timedelta
 from typing import List, Optional
+from collections import defaultdict
 
 import pandas as pd
 import numpy as np
@@ -21,7 +22,7 @@ if _HERE not in sys.path:
 os.chdir(_HERE)
 # ─────────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,41 @@ from broker.dhan     import DhanClient, ScripMaster
 from engine.backtest import run_backtest, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS
 from engine.live     import LiveEngine
 from engine.paper_trading import PaperTradingEngine
+from token_manager   import auto_generate_token, token_renewal_loop
+import fcntl
+
+# ── Auto-generate Dhan token at startup (single-worker guard) ────
+if config.AUTO_TOKEN_ENABLED:
+    _lock_file = os.path.join(_HERE, ".token_lock")
+    try:
+        _lf = open(_lock_file, "w")
+        fcntl.flock(_lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # We got the lock — this worker generates the token
+        print("🔑 [TokenManager] Auto-token enabled — generating fresh Dhan token...")
+        _new_tok = auto_generate_token()
+        if _new_tok:
+            # Write token to a shared file so other workers can read it
+            _tok_file = os.path.join(_HERE, ".current_token")
+            with open(_tok_file, "w") as f:
+                f.write(_new_tok)
+            print("✅ [TokenManager] Token generated successfully")
+        else:
+            print("⚠️  [TokenManager] Auto-token failed, using existing DHAN_ACCESS_TOKEN from .env")
+        fcntl.flock(_lf, fcntl.LOCK_UN)
+        _lf.close()
+    except (IOError, OSError):
+        # Another worker already holds the lock — read their token
+        import time as _t
+        _t.sleep(3)  # wait for the first worker to finish
+        _tok_file = os.path.join(_HERE, ".current_token")
+        if os.path.exists(_tok_file):
+            with open(_tok_file) as f:
+                _shared_token = f.read().strip()
+            if _shared_token:
+                config.DHAN_ACCESS_TOKEN = _shared_token
+                print("✅ [TokenManager] Loaded token from first worker")
+else:
+    print("ℹ️  [TokenManager] Auto-token disabled (set DHAN_PIN + DHAN_TOTP_SECRET in .env to enable)")
 
 # Initialize FastAPI app
 app = FastAPI(title="AlgoForge", version="1.0.0")
@@ -55,6 +91,63 @@ paper_engine = PaperTradingEngine(dhan)
 ws_clients: List[WebSocket] = []
 _live_task  = None   # track the asyncio task
 _paper_task = None   # track paper trading task
+
+
+# ── Authentication ────────────────────────────────────────────────
+AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "202603"))
+SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+_active_sessions: dict = {}  # token -> expiry datetime
+
+def _create_session() -> str:
+    token = secrets.token_hex(32)
+    _active_sessions[token] = datetime.now() + timedelta(hours=24)
+    return token
+
+def _validate_session(token: str) -> bool:
+    if not token:
+        return False
+    exp = _active_sessions.get(token)
+    if not exp:
+        return False
+    if datetime.now() > exp:
+        _active_sessions.pop(token, None)
+        return False
+    return True
+
+def _get_session_token(request: Request) -> str:
+    """Extract session token from cookie or Authorization header"""
+    token = request.cookies.get("algoforge_session", "")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    return token
+
+async def require_auth(request: Request):
+    """Dependency that enforces authentication on protected routes"""
+    # Allow login and health endpoints without auth
+    path = request.url.path
+    if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/login", "/"):
+        return
+    if path.startswith("/static"):
+        return
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ── Rate Limiting ─────────────────────────────────────────────────
+_rate_limits: dict = defaultdict(list)  # endpoint -> [timestamps]
+
+def check_rate_limit(endpoint: str, max_calls: int = 5, window_sec: int = 10):
+    """Simple in-memory rate limiter"""
+    now = time.time()
+    calls = _rate_limits[endpoint]
+    # Purge old entries
+    _rate_limits[endpoint] = [t for t in calls if now - t < window_sec]
+    if len(_rate_limits[endpoint]) >= max_calls:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s.")
+    _rate_limits[endpoint].append(now)
 
 
 # ── Models ────────────────────────────────────────────────────────
@@ -120,7 +213,15 @@ class StrategyPayload(BaseModel):
 
 # ── Serve Frontend ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
-async def serve_frontend():
+async def serve_frontend(request: Request):
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        # Serve login page
+        login_path = os.path.join(_HERE, "login.html")
+        if os.path.exists(login_path):
+            with open(login_path, encoding="utf-8") as f:
+                return HTMLResponse(f.read())
+        return HTMLResponse("<h2>login.html not found</h2>")
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategy.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
@@ -130,8 +231,243 @@ async def serve_frontend():
 @app.get("/logo.jpg")
 async def serve_logo():
     """Serves the main application logo."""
-    # This specifically fixes the 404 error you were seeing in the terminal!
     return FileResponse("logo.jpg")
+
+
+# ── Brute-Force Protection ────────────────────────────────────────
+_login_attempts: dict = defaultdict(list)  # ip -> [timestamps]
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SEC = 300  # 5 minutes
+
+def _check_login_rate(ip: str):
+    now = time.time()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_LOCKOUT_SEC]
+    if len(_login_attempts[ip]) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+
+def _record_failed_login(ip: str):
+    _login_attempts[ip].append(time.time())
+
+def _clear_login_attempts(ip: str):
+    _login_attempts.pop(ip, None)
+
+
+# ── Authentication Endpoints ──────────────────────────────────────
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    _check_login_rate(ip)
+    body = await request.json()
+    password = body.get("password", "")
+    if password == AUTH_PASSWORD:
+        _clear_login_attempts(ip)
+        token = _create_session()
+        resp = JSONResponse({"status": "ok", "message": "Login successful"})
+        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax")
+        return resp
+    _record_failed_login(ip)
+    raise HTTPException(status_code=401, detail="Invalid password")
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    token = _get_session_token(request)
+    valid = _validate_session(token)
+    return {"authenticated": valid}
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    token = _get_session_token(request)
+    _active_sessions.pop(token, None)
+    resp = JSONResponse({"status": "ok"})
+    resp.delete_cookie("algoforge_session")
+    return resp
+
+
+# ── Emergency Stop (Kill Switch) ─────────────────────────────────
+@app.post("/api/emergency-stop")
+async def emergency_stop(request: Request):
+    """Kill switch: stop ALL running strategies immediately"""
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    results = {}
+    stopped_count = 0
+    # Stop paper trading
+    try:
+        if paper_engine.running:
+            paper_engine.stop()
+            results["paper"] = "stopped"
+            stopped_count += 1
+        else:
+            results["paper"] = "not_running"
+    except Exception as e:
+        results["paper"] = f"error: {str(e)}"
+
+    # Stop live trading
+    try:
+        if live_engine.running:
+            live_engine.stop()
+            results["live"] = "stopped"
+            stopped_count += 1
+        else:
+            results["live"] = "not_running"
+    except Exception as e:
+        results["live"] = f"error: {str(e)}"
+
+    # Cancel background tasks
+    global _live_task, _paper_task
+    for name, task_ref in [("live", _live_task), ("paper", _paper_task)]:
+        if task_ref and not task_ref.done():
+            task_ref.cancel()
+            try:
+                await task_ref
+            except asyncio.CancelledError:
+                pass
+    _live_task = None
+    _paper_task = None
+
+    return {"status": "ok", "stopped": stopped_count, "message": f"Emergency stop executed — {stopped_count} engine(s) stopped", "results": results, "timestamp": str(datetime.now())}
+
+
+# ── Dashboard Summary ─────────────────────────────────────────────
+@app.get("/api/dashboard/summary")
+async def dashboard_summary(request: Request):
+    """Aggregated dashboard data for the homepage"""
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Strategies count
+    strats = _load()
+    runs = _load_runs()
+
+    # Active engines
+    paper_running = paper_engine.running
+    live_running = live_engine.running
+    paper_status = paper_engine.get_status() if paper_running else {}
+    live_status = live_engine.get_status() if live_running else {}
+
+    # Today's P&L from engines
+    today_pnl = 0
+    if paper_running:
+        today_pnl += paper_status.get("total_pnl", 0)
+    if live_running:
+        today_pnl += live_status.get("total_pnl", 0)
+
+    # Best/worst backtest runs
+    best_run = None
+    worst_run = None
+    total_backtests = len(runs)
+    if runs:
+        for r in runs:
+            pnl = r.get("total_pnl", 0)
+            if best_run is None or pnl > best_run.get("total_pnl", 0):
+                best_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
+            if worst_run is None or pnl < worst_run.get("total_pnl", 0):
+                worst_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
+
+    return {
+        "strategy_count": len(strats),
+        "backtest_count": total_backtests,
+        "paper_running": paper_running,
+        "live_running": live_running,
+        "paper_strategy": paper_status.get("strategy_name", "") if paper_running else "",
+        "live_strategy": live_status.get("strategy_name", "") if live_running else "",
+        "today_pnl": round(today_pnl, 2),
+        "paper_pnl": round(paper_status.get("total_pnl", 0), 2) if paper_running else 0,
+        "live_pnl": round(live_status.get("total_pnl", 0), 2) if live_running else 0,
+        "paper_trades": paper_status.get("trades_today", 0) if paper_running else 0,
+        "live_trades": live_status.get("trades_today", 0) if live_running else 0,
+        "best_run": best_run,
+        "worst_run": worst_run,
+    }
+
+
+# ── Strategy Validation ──────────────────────────────────────────
+@app.post("/api/validate-strategy")
+async def validate_strategy(request: Request):
+    """Deep validation of strategy before deployment"""
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    body = await request.json()
+    errors = []
+    warnings = []
+
+    # Instrument
+    instrument = body.get("instrument", "")
+    if not instrument:
+        errors.append("No instrument selected")
+
+    # Conditions
+    entry = body.get("entry_conditions", [])
+    exit_conds = body.get("exit_conditions", [])
+    if not entry:
+        errors.append("No entry conditions defined")
+    if not exit_conds:
+        warnings.append("No exit conditions — trades will only close at square-off time or SL/target")
+
+    # Legs validation
+    legs = body.get("legs", [])
+    if legs:
+        for i, leg in enumerate(legs):
+            if not leg.get("lots"):
+                errors.append(f"Leg {i+1}: lot size not specified")
+            sl = leg.get("sl_points", 0)
+            tp = leg.get("tp_points", 0)
+            if sl and tp and tp <= sl:
+                warnings.append(f"Leg {i+1}: target ({tp}) is less than stop-loss ({sl}) — poor risk:reward")
+
+    # Contradictory conditions check
+    for c in entry:
+        lhs = c.get("lhs", "")
+        op = c.get("operator", "")
+        rhs = c.get("rhs", "")
+        # Check if same indicator has contradictory conditions
+        for c2 in entry:
+            if c2 is c:
+                continue
+            if c2.get("lhs") == lhs and c2.get("rhs") == rhs:
+                if (op in ("is_above", "crosses_above") and c2.get("operator") in ("is_below", "crosses_below")):
+                    errors.append(f"Contradictory conditions: {lhs} cannot be both above and below {rhs}")
+
+    # Risk checks
+    sl_pct = body.get("stoploss_pct", 0)
+    tp_pct = body.get("target_profit_pct", 0)
+    if sl_pct and tp_pct and tp_pct < sl_pct:
+        warnings.append(f"Risk:Reward unfavorable — SL {sl_pct}% vs Target {tp_pct}%")
+    if sl_pct == 0:
+        warnings.append("No strategy-level stop-loss set — unlimited downside risk")
+
+    max_trades = body.get("max_trades_per_day", 1)
+    if max_trades > 5:
+        warnings.append(f"High trade frequency ({max_trades}/day) — check for overtrading")
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "summary": {
+            "instrument": instrument,
+            "entry_conditions": len(entry),
+            "exit_conditions": len(exit_conds),
+            "legs": len(legs),
+            "sl_pct": sl_pct,
+            "tp_pct": tp_pct,
+        }
+    }
+
+
+# ── Strategy Versioning ──────────────────────────────────────────
+@app.get("/api/strategies/{sid}/versions")
+async def get_strategy_versions(sid: int):
+    strats = _load()
+    for s in strats:
+        if s.get("id") == sid:
+            return {"versions": s.get("versions", [])}
+    raise HTTPException(status_code=404, detail="Strategy not found")
 
 
 # ── Health ────────────────────────────────────────────────────────
@@ -230,7 +566,8 @@ async def get_broker_trades():
             }
         
         # Fetch trades from Dhan API
-        trades = dhan.get_trades()
+        trades_result = dhan.get_trades()
+        trades = trades_result if isinstance(trades_result, list) else []
         
         return {
             "status": "success",
@@ -720,11 +1057,24 @@ async def paper_status():
 # ── WebSocket ─────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    # Authenticate WebSocket via session cookie
+    token = ws.cookies.get("algoforge_session", "")
+    if not _validate_session(token):
+        await ws.close(code=4001, reason="Unauthorized")
+        return
     await ws.accept()
     ws_clients.append(ws)
     try:
         while True:
-            await ws.send_json({"type": "status", **live_engine.get_status()})
+            paper_st = paper_engine.get_status()
+            live_st = live_engine.get_status()
+            await ws.send_json({
+                "type": "status",
+                "paper": paper_st,
+                "live": live_st,
+                "paper_running": paper_st.get("running", False),
+                "live_running": live_st.get("running", False),
+            })
             await asyncio.sleep(5)
     except (WebSocketDisconnect, Exception):
         if ws in ws_clients:
@@ -734,6 +1084,7 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Orders / Positions / Funds ────────────────────────────────────
 @app.post("/api/orders/place")
 async def place_order(req: OrderRequest):
+    check_rate_limit("place_order", max_calls=3, window_sec=5)  # Max 3 orders per 5s
     try:
         return dhan.place_order(
             security_id=req.security_id, exchange_segment=req.exchange_segment,
@@ -745,13 +1096,19 @@ async def place_order(req: OrderRequest):
 
 @app.get("/api/orders")
 async def get_orders():
-    try: return dhan.get_order_book()
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    try:
+        orders = dhan.get_order_book()
+        return {"status": "success", "data": orders if isinstance(orders, list) else []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:100], "data": []}
 
 @app.get("/api/positions")
 async def get_positions():
-    try: return dhan.get_positions()
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    try:
+        positions = dhan.get_positions()
+        return {"status": "success", "data": positions if isinstance(positions, list) else []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:100], "data": []}
 
 @app.get("/api/funds")
 async def get_funds():
@@ -801,9 +1158,13 @@ async def get_strategies():
 @app.post("/api/strategies")
 async def save_strategy(strategy: dict):
     strats = _load()
-    # Use max ID to avoid duplicates after deletes
     max_id = max([s.get("id", 0) for s in strats], default=0)
-    strategy.update({"id": max_id + 1, "created_at": str(datetime.now())})
+    strategy.update({
+        "id": max_id + 1,
+        "created_at": str(datetime.now()),
+        "version": 1,
+        "versions": [{"version": 1, "saved_at": str(datetime.now()), "changes": "Initial save"}]
+    })
     strats.append(strategy)
     _save(strats)
     return strategy
@@ -818,7 +1179,22 @@ async def update_strategy(sid: int, updates: dict):
     strats = _load()
     for s in strats:
         if s.get("id") == sid:
+            # Track version history
+            ver = s.get("version", 1) + 1
+            versions = s.get("versions", [])
+            versions.append({
+                "version": ver,
+                "saved_at": str(datetime.now()),
+                "changes": updates.get("_change_note", f"Updated to v{ver}")
+            })
+            # Keep only last 20 versions
+            if len(versions) > 20:
+                versions = versions[-20:]
+            updates.pop("_change_note", None)
             s.update(updates)
+            s["version"] = ver
+            s["versions"] = versions
+            s["updated_at"] = str(datetime.now())
             break
     _save(strats)
     return {"updated": sid}
@@ -1059,6 +1435,17 @@ async def get_expiry_dates():
         }
     except Exception as e:
         return {"status": "error", "msg": str(e)}
+
+
+# ── Token renewal background task ────────────────────────────────
+_token_renewal_task = None
+
+@app.on_event("startup")
+async def _start_token_renewal():
+    global _token_renewal_task
+    if config.AUTO_TOKEN_ENABLED:
+        _token_renewal_task = asyncio.create_task(token_renewal_loop())
+        print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
 
 
 # ── Run ───────────────────────────────────────────────────────────
