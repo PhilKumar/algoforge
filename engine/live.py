@@ -535,8 +535,8 @@ class LiveEngine:
         """Fetch live candle data with indicators applied."""
         timeframe = self._get_timeframe()
         valid_intervals = [1, 5, 15, 25, 60]
-        if timeframe not in valid_intervals:
-            timeframe = 5
+        resample_from_1m = timeframe not in valid_intervals
+        fetch_tf = 1 if resample_from_1m else timeframe
 
         instrument = self.strategy.get("instrument", "26000")
         from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -551,8 +551,16 @@ class LiveEngine:
             instrument_type=inst_info.get("dhan_type", "INDEX"),
             from_date=from_date,
             to_date=to_date,
-            candle_type=str(timeframe),
+            candle_type=str(fetch_tf),
         )
+
+        # Resample 1m candles to non-standard timeframe (e.g. 3m, 7m)
+        if resample_from_1m and not df_raw.empty:
+            rule = f"{timeframe}min"
+            df_raw = df_raw.resample(rule).agg({
+                "open": "first", "high": "max", "low": "min",
+                "close": "last", "volume": "sum"
+            }).dropna(subset=["open"])
 
         indicators = self.strategy.get("indicators", [])
         df = compute_dynamic_indicators(df_raw, indicators)
@@ -725,6 +733,10 @@ class LiveEngine:
                 "quantity": quantity,
                 "sl_pct": leg.get("sl_pct", 0),
                 "target_pct": leg.get("target_pct", 0),
+                "sl_points": leg.get("sl_points", 0),
+                "target_points": leg.get("target_points", 0),
+                "sl_rupees": leg.get("sl_rupees", 0),
+                "target_rupees": leg.get("target_rupees", 0),
                 "trail_pct": leg.get("trail_pct", 0),
                 "sqoff_time": leg.get("sqoff_time",
                               self.strategy.get("market_close", "15:20")),
@@ -977,6 +989,42 @@ class LiveEngine:
             else:
                 if current_premium <= pos["entry_premium"] * (1 - target_pct / 100):
                     return "TARGET"
+
+        # SL Points (absolute premium points)
+        sl_points = pos.get("sl_points", 0)
+        if sl_points > 0:
+            ep = pos["entry_premium"]
+            if pos["transaction_type"] == "BUY" and current_premium <= ep - sl_points:
+                return "SL_POINTS"
+            elif pos["transaction_type"] == "SELL" and current_premium >= ep + sl_points:
+                return "SL_POINTS"
+
+        # Target Points (absolute premium points)
+        target_points = pos.get("target_points", 0)
+        if target_points > 0:
+            ep = pos["entry_premium"]
+            if pos["transaction_type"] == "BUY" and current_premium >= ep + target_points:
+                return "TARGET_POINTS"
+            elif pos["transaction_type"] == "SELL" and current_premium <= ep - target_points:
+                return "TARGET_POINTS"
+
+        # SL ₹ Total (leg-level rupee loss)
+        sl_rupees = pos.get("sl_rupees", 0)
+        if sl_rupees > 0:
+            qty = pos["lots"] * pos["lot_size"]
+            direction = 1 if pos["transaction_type"] == "BUY" else -1
+            cur_pnl = (current_premium - pos["entry_premium"]) * direction * qty
+            if cur_pnl <= -sl_rupees:
+                return "SL_RUPEES"
+
+        # Target ₹ Total (leg-level rupee profit)
+        target_rupees = pos.get("target_rupees", 0)
+        if target_rupees > 0:
+            qty = pos["lots"] * pos["lot_size"]
+            direction = 1 if pos["transaction_type"] == "BUY" else -1
+            cur_pnl = (current_premium - pos["entry_premium"]) * direction * qty
+            if cur_pnl >= target_rupees:
+                return "TARGET_RUPEES"
 
         # Signal exit
         if eval_condition_group(row, self.exit_conditions, self._prev_row):

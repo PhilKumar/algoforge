@@ -74,12 +74,19 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def vwap(df: pd.DataFrame) -> pd.Series:
-    """Volume Weighted Average Price — resets daily if intraday."""
+    """Volume Weighted Average Price — resets daily for intraday data."""
     typical = (df["high"] + df["low"] + df["close"]) / 3
     if "volume" not in df.columns:
         return typical  # fallback if no volume
-    cum_tp_vol = (typical * df["volume"]).cumsum()
-    cum_vol = df["volume"].cumsum()
+    tp_vol = typical * df["volume"]
+    # Reset cumsum daily for intraday data
+    if _is_intraday(df):
+        groups = df.index.date
+        cum_tp_vol = tp_vol.groupby(groups).cumsum()
+        cum_vol = df["volume"].groupby(groups).cumsum()
+    else:
+        cum_tp_vol = tp_vol.cumsum()
+        cum_vol = df["volume"].cumsum()
     return cum_tp_vol / cum_vol
 
 
@@ -252,7 +259,7 @@ def yesterday_candle(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def orb(df: pd.DataFrame, window_minutes: int = 15) -> pd.DataFrame:
+def orb(df: pd.DataFrame, window_minutes: int = 15, market_open_str: str = "09:15") -> pd.DataFrame:
     """Opening Range Breakout — computes ORB high/low from the first N minutes of each day."""
     intraday = _is_intraday(df)
     if not intraday:
@@ -269,8 +276,9 @@ def orb(df: pd.DataFrame, window_minutes: int = 15) -> pd.DataFrame:
     
     # Group by date, find high/low of candles within the opening window
     from datetime import time as dtime, timedelta
-    market_open = dtime(9, 15)
-    orb_end = (pd.Timestamp("2000-01-01 09:15") + timedelta(minutes=window_minutes)).time()
+    mo_h, mo_m = map(int, market_open_str.split(":"))
+    market_open = dtime(mo_h, mo_m)
+    orb_end = (pd.Timestamp(f"2000-01-01 {market_open_str}") + timedelta(minutes=window_minutes)).time()
     
     for date, group in result.groupby(result.index.date):
         orb_mask = (group.index.time >= market_open) & (group.index.time < orb_end)

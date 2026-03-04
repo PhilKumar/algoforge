@@ -1264,7 +1264,14 @@
             <option value="Previous_Day">Previous Day Candle</option>
             <option value="ORB">ORB (Opening Range)</option>
             <option value="EMA">EMA</option>
+            <option value="SMA">SMA</option>
             <option value="RSI">RSI</option>
+            <option value="MACD">MACD</option>
+            <option value="BB">Bollinger Bands</option>
+            <option value="VWAP">VWAP</option>
+            <option value="ATR">ATR</option>
+            <option value="StochRSI">Stochastic RSI</option>
+            <option value="ADX">ADX</option>
             <option value="Supertrend">Supertrend</option>
             <option value="CPR">CPR</option>
           </select>
@@ -2885,10 +2892,15 @@ let myIndicators = [];
 function renderIndicatorFields() {
   const name = document.getElementById('new-indicator-name').value;
   const c = document.getElementById('dynamic-indicator-fields');
-  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="25">25 Min</option><option value="60">1 Hour</option></select>`;
-  if (name === 'EMA') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
+  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="25">25 Min</option><option value="60">1 Hour</option></select>`;
+  if (name === 'EMA' || name === 'SMA') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
   else if (name === 'Supertrend') c.innerHTML = `<input type="number" id="ind-period" value="10" style="width:80px"><input type="number" id="ind-multiplier" value="3" step="0.1" style="width:80px">` + tf;
-  else if (name === 'RSI' || name === 'Current_Candle') c.innerHTML = tf;
+  else if (name === 'RSI') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
+  else if (name === 'MACD') c.innerHTML = `<input type="number" id="ind-macd-fast" value="12" style="width:60px" title="Fast"><input type="number" id="ind-macd-slow" value="26" style="width:60px" title="Slow"><input type="number" id="ind-macd-signal" value="9" style="width:60px" title="Signal">` + tf;
+  else if (name === 'BB') c.innerHTML = `<input type="number" id="ind-period" value="20" style="width:80px" title="Period"><input type="number" id="ind-bb-std" value="2" step="0.1" style="width:80px" title="Std Dev">` + tf;
+  else if (name === 'ATR' || name === 'ADX') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
+  else if (name === 'StochRSI') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
+  else if (name === 'VWAP' || name === 'Current_Candle') c.innerHTML = tf;
   else if (name === 'ORB') c.innerHTML = `<div style="display:flex;align-items:center;gap:6px"><label style="font-size:11px;color:var(--muted);white-space:nowrap;">Minutes:</label><input type="number" id="ind-orb-minutes" value="15" style="width:70px" title="ORB window in minutes" min="5" max="60" step="5"></div>` + tf;
   else if (name === 'Previous_Day' || name === 'CPR') c.innerHTML = '';
 }
@@ -2909,8 +2921,12 @@ function addIndicator() {
     const mins = document.getElementById('ind-orb-minutes').value || 15;
     id = `ORB_${mins}min`;
   }
-  else if (name === "EMA") id = `EMA_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
-  else if (name === "RSI") id = `RSI_14_${document.getElementById('ind-tf').value}m`;
+  else if (name === "EMA" || name === "SMA") id = `${name}_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
+  else if (name === "RSI") id = `RSI_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
+  else if (name === "MACD") id = `MACD_${document.getElementById('ind-macd-fast').value}_${document.getElementById('ind-macd-slow').value}_${document.getElementById('ind-macd-signal').value}_${document.getElementById('ind-tf').value}m`;
+  else if (name === "BB") id = `BB_${document.getElementById('ind-period').value}_${document.getElementById('ind-bb-std').value}_${document.getElementById('ind-tf').value}m`;
+  else if (name === "VWAP") id = `VWAP_${document.getElementById('ind-tf').value}m`;
+  else if (name === "ATR" || name === "ADX" || name === "StochRSI") id = `${name}_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
   else if (name === "Supertrend") id = `Supertrend_${document.getElementById('ind-period').value}_${document.getElementById('ind-multiplier').value}_${document.getElementById('ind-tf').value}m`;
   
   if (!myIndicators.includes(id)) {

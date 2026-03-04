@@ -1436,6 +1436,9 @@ async def live_stop(request: Request):
     if not engine:
         return {"status": "not_found", "run_id": run_id}
     
+    # Capture results BEFORE stopping
+    status_before = engine.get_status()
+    
     engine.stop()
     task = _live_tasks.pop(run_id, None)
     if task and not task.done():
@@ -1445,6 +1448,10 @@ async def live_stop(request: Request):
         except asyncio.CancelledError:
             pass
     live_engines.pop(run_id, None)
+    
+    # Persist live run to runs.json (same as paper)
+    _save_live_run_to_history(status_before)
+    
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -1657,6 +1664,52 @@ def _save_paper_run_to_history(status: dict):
         print(f"[PAPER] Saved run #{paper_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[PAPER] Failed to save run to history: {e}")
+
+
+def _save_live_run_to_history(status: dict):
+    """Save a completed live (auto) trading run to runs.json for history."""
+    try:
+        closed = status.get("closed_trades", [])
+        if not closed:
+            print("[LIVE] No trades to save — skipping runs.json")
+            return
+        
+        runs = _load_runs()
+        max_id = max([r.get("id", 0) for r in runs], default=0)
+        
+        total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
+        winners = [t for t in closed if t.get("pnl", 0) > 0]
+        losers  = [t for t in closed if t.get("pnl", 0) <= 0]
+        win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
+        
+        live_run = {
+            "id": max_id + 1,
+            "mode": "live",
+            "run_name": status.get("strategy_name", "Live Run"),
+            "instrument": status.get("instrument", ""),
+            "status": "completed",
+            "started_at": str(datetime.now()),
+            "stopped_at": str(datetime.now()),
+            "trade_count": len(closed),
+            "total_pnl": total_pnl,
+            "stats": {
+                "total_trades": len(closed),
+                "winning_trades": len(winners),
+                "losing_trades": len(losers),
+                "win_rate": win_rate,
+                "total_pnl": total_pnl,
+                "avg_profit": round(sum(t["pnl"] for t in winners) / len(winners), 2) if winners else 0,
+                "avg_loss": round(sum(t["pnl"] for t in losers) / len(losers), 2) if losers else 0,
+            },
+            "trades": closed,
+            "created_at": str(datetime.now()),
+        }
+        
+        runs.append(live_run)
+        _save_runs(runs)
+        print(f"[LIVE] Saved run #{live_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+    except Exception as e:
+        print(f"[LIVE] Failed to save run to history: {e}")
 
 
 @app.get("/api/paper/status")
