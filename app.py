@@ -1447,7 +1447,7 @@ _ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}  # Cache for 30 second
 _prev_close_cache = {"data": {}, "date": None}  # Cache prev close for the day
 
 def _get_prev_close():
-    """Get previous close for indices (cached for the day). Uses yfinance."""
+    """Get previous day close for indices. Cached per day. Uses yfinance (once/day)."""
     from datetime import date
     today = date.today()
     if _prev_close_cache["date"] == str(today) and _prev_close_cache["data"]:
@@ -1459,11 +1459,13 @@ def _get_prev_close():
             hist = yf.Ticker(sym).history(period="5d")
             if len(hist) >= 2:
                 result[key] = float(hist["Close"].iloc[-2])
+                result[f"{key}_ltp"] = float(hist["Close"].iloc[-1])
             elif len(hist) == 1:
                 result[key] = float(hist["Close"].iloc[0])
+                result[f"{key}_ltp"] = float(hist["Close"].iloc[0])
         _prev_close_cache["data"] = result
         _prev_close_cache["date"] = str(today)
-        print(f"[TICKER] Prev close loaded: {result}")
+        print(f"[TICKER] Prev close from yfinance (cached for today): {result}")
         return result
     except Exception as e:
         print(f"[TICKER] Prev close fetch failed: {e}")
@@ -1471,17 +1473,17 @@ def _get_prev_close():
 
 @app.get("/api/ticker")
 async def get_ticker():
-    """Fetch live index prices — Dhan API is primary source, yfinance is fallback"""
+    """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
     global _ticker_cache
     
     # Return cached data if still valid
     if _ticker_cache["data"] and (time.time() - _ticker_cache["timestamp"]) < _ticker_cache["ttl"]:
         return _ticker_cache["data"]
     
-    # ── PRIMARY: Dhan LTP API ─────────────────────────────────
+    # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
     if dhan._is_configured():
         try:
-            print("[TICKER] Fetching from Dhan API (primary)...")
+            print("[TICKER] Fetching from Dhan OHLC API...")
             
             # Resolve ATM option security IDs FIRST (no API call)
             ce_sid, pe_sid, atm_strike = None, None, 0
@@ -1489,12 +1491,11 @@ async def get_ticker():
                 ScripMaster.ensure_loaded()
                 expiry = ScripMaster.get_nearest_expiry("NIFTY")
                 if expiry:
-                    # Use last known NIFTY price or default for ATM calculation
                     last_nifty = 0
                     if _ticker_cache["data"]:
                         last_nifty = _ticker_cache["data"].get("nifty", {}).get("price", 0)
                     if last_nifty <= 0:
-                        last_nifty = 24500  # reasonable default
+                        last_nifty = 24500
                     atm_strike = round(last_nifty / 50) * 50
                     ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
                     pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
@@ -1502,12 +1503,13 @@ async def get_ticker():
             except Exception as e:
                 print(f"[TICKER] ATM lookup error: {e}")
             
-            # SINGLE API call with both IDX_I and NSE_FNO segments
-            segments = {"IDX_I": [13, 51, 25]}
+            # SINGLE Dhan API call: IDX_I + NSE_FNO together
+            # sid 13=NIFTY, 51=SENSEX (IDX_I). VIX from yfinance (Dhan IDX_I has no VIX).
+            segments = {"IDX_I": [13, 51]}
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
             
-            all_data = dhan.get_ltp_multi(segments)
+            all_data = dhan.get_ohlc_multi(segments)
             
             idx = all_data.get("IDX_I", {})
             fno = all_data.get("NSE_FNO", {})
@@ -1515,24 +1517,19 @@ async def get_ticker():
             def _extract_ltp(d, sid):
                 info = d.get(str(sid), {})
                 if isinstance(info, dict):
-                    return float(info.get("last_price", info.get("ltp", 0)))
-                elif isinstance(info, (int, float)):
-                    return float(info)
+                    return float(info.get("last_price", 0))
                 return 0.0
             
             nifty_ltp  = _extract_ltp(idx, 13)
             sensex_ltp = _extract_ltp(idx, 51)
-            vix_ltp    = _extract_ltp(idx, 25)
             
             if nifty_ltp > 0:
-                # Recalculate ATM if needed (NIFTY moved significantly)
+                # ATM check
                 correct_atm = round(nifty_ltp / 50) * 50
                 if correct_atm != atm_strike and ce_sid and pe_sid:
-                    # ATM shifted — option prices from this call are for old strike
-                    # They're still reasonable for display; next refresh will correct
                     print(f"[TICKER] ATM shifted {atm_strike} → {correct_atm}, will correct next cycle")
                 
-                # Extract ATM option prices from the SAME response
+                # ATM CE/PE from same response
                 atm_ce = {"price": 0, "change": 0, "pct": 0}
                 atm_pe = {"price": 0, "change": 0, "pct": 0}
                 if ce_sid:
@@ -1544,18 +1541,19 @@ async def get_ticker():
                 if ce_sid or pe_sid:
                     print(f"[TICKER] ATM {atm_strike}: CE={atm_ce['price']}, PE={atm_pe['price']}")
                 
-                # Compute change from previous close
+                # Index change% from yfinance prev close (cached daily)
+                # Dhan IDX_I doesn't provide net_change or prev close for indices
                 prev = _get_prev_close()
                 def _chg(ltp, key):
                     pc = prev.get(key, 0)
                     if pc > 0:
-                        ch = round(ltp - pc, 2)
-                        pct = round((ch / pc) * 100, 2)
-                        return ch, pct
+                        return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
                     return 0, 0
                 
                 n_chg, n_pct = _chg(nifty_ltp, "nifty")
                 s_chg, s_pct = _chg(sensex_ltp, "sensex")
+                # VIX from yfinance (Dhan IDX_I doesn't have India VIX)
+                vix_ltp = prev.get("vix_ltp", 0)
                 v_chg, v_pct = _chg(vix_ltp, "vix")
                 
                 result = {
@@ -1569,7 +1567,7 @@ async def get_ticker():
                 }
                 _ticker_cache["data"] = result
                 _ticker_cache["timestamp"] = time.time()
-                print(f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}), SENSEX={sensex_ltp}, VIX={vix_ltp}")
+                print(f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}, {n_pct:+.2f}%), SENSEX={sensex_ltp}, VIX={vix_ltp}")
                 return result
             else:
                 print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")

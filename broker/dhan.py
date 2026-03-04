@@ -728,6 +728,47 @@ class DhanClient:
             raise Exception(f"LTP fetch failed: {resp.text}")
         return resp.json().get("data", {})
 
+    def get_ohlc_multi(self, segments: dict) -> dict:
+        """Get OHLC + LTP across multiple exchange segments in ONE API call.
+        Uses /v2/marketfeed/ohlc — returns last_price + ohlc{open,close,high,low}.
+        ohlc.close = previous day's closing price.
+        """
+        payload = {
+            "NSE_EQ": [int(s) for s in segments.get("NSE_EQ", [])],
+            "NSE_FNO": [int(s) for s in segments.get("NSE_FNO", [])],
+            "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
+            "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
+        }
+        resp = requests.post(
+            f"{self.base_url}/v2/marketfeed/ohlc",
+            json=payload,
+            headers=self.headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise Exception(f"OHLC fetch failed: {resp.text}")
+        return resp.json().get("data", {})
+
+    def get_quote_multi(self, segments: dict) -> dict:
+        """Get full market quote (LTP + OHLC + net_change + volume + OI) in ONE call.
+        Uses /v2/marketfeed/quote — includes net_change (absolute change from prev close).
+        """
+        payload = {
+            "NSE_EQ": [int(s) for s in segments.get("NSE_EQ", [])],
+            "NSE_FNO": [int(s) for s in segments.get("NSE_FNO", [])],
+            "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
+            "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
+        }
+        resp = requests.post(
+            f"{self.base_url}/v2/marketfeed/quote",
+            json=payload,
+            headers=self.headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise Exception(f"Quote fetch failed: {resp.text}")
+        return resp.json().get("data", {})
+
     def get_option_ltp(self, underlying: str, strike: int, expiry: str,
                        option_type: str) -> float:
         """
