@@ -11,6 +11,7 @@ Two modes:
 import asyncio
 import math
 import time
+import json as _json
 from datetime import datetime, date as date_type, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -28,6 +29,9 @@ from engine.indicators import compute_dynamic_indicators
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from broker.dhan import DhanClient, ScripMaster
 import config
+
+# ── State File ────────────────────────────────────────────────
+_STATE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "paper_state.json")
 
 
 # Import INSTRUMENT_MAP lazily to avoid circular imports
@@ -87,10 +91,92 @@ class PaperTradingEngine:
         # Logging
         self.event_log = []
         self.price_recordings = []  # Optional: record prices for later analysis
+        
+        # Restore last session (if server restarted while a run was active)
+        self._load_state()
     
     def set_feed(self, feed):
         """Inject a LiveMarketFeed for WebSocket-driven mode."""
         self._feed = feed
+    
+    # ── STATE PERSISTENCE ─────────────────────────────────────
+    def _save_state(self):
+        """Persist current session state to disk so it survives restarts."""
+        try:
+            state = {
+                "session_date": str(self.session_date) if self.session_date else None,
+                "strategy_name": self.strategy.get("run_name", ""),
+                "instrument": self.strategy.get("instrument", ""),
+                "in_trade": self.in_trade,
+                "positions": self.positions,
+                "closed_trades": self.closed_trades,
+                "trades_today": self.trades_today,
+                "daily_pnl": self.daily_pnl,
+                "current_spot": self.current_spot,
+                "current_time": str(self.current_time) if self.current_time else None,
+                "current_candle": self.current_candle,
+                "current_indicators": {k: (v if not isinstance(v, float) or not math.isnan(v) else None) 
+                                        for k, v in self.current_indicators.items()},
+                "event_log": [
+                    {"time": e["time"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(e["time"], datetime) else str(e["time"]),
+                     "type": e["type"], "message": e["message"]}
+                    for e in self.event_log[-100:]
+                ],
+                "saved_at": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            with open(_STATE_FILE, "w") as f:
+                _json.dump(state, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[PAPER] State save failed: {e}")
+    
+    def _load_state(self):
+        """Load last session state from disk (called on __init__)."""
+        try:
+            if not os.path.exists(_STATE_FILE):
+                return
+            with open(_STATE_FILE, "r") as f:
+                state = _json.load(f)
+            
+            # Only restore if the session was from today (stale sessions are ignored)
+            saved_date = state.get("session_date")
+            today = str(date_type.today())
+            if saved_date != today:
+                print(f"[PAPER] Stale state from {saved_date} (today={today}) — ignoring")
+                return
+            
+            # Restore fields
+            self.session_date = date_type.today()
+            self.in_trade = state.get("in_trade", False)
+            self.positions = state.get("positions", [])
+            self.closed_trades = state.get("closed_trades", [])
+            self.trades_today = state.get("trades_today", 0)
+            self.daily_pnl = state.get("daily_pnl", 0.0)
+            self.current_spot = state.get("current_spot", 0.0)
+            self.current_candle = state.get("current_candle", {})
+            self.current_indicators = state.get("current_indicators", {})
+            
+            # Restore strategy name/instrument for display
+            if state.get("strategy_name"):
+                self.strategy["run_name"] = state["strategy_name"]
+            if state.get("instrument"):
+                self.strategy["instrument"] = state["instrument"]
+            
+            # Restore event log (convert time strings back to datetime)
+            raw_log = state.get("event_log", [])
+            for entry in raw_log:
+                try:
+                    t = datetime.strptime(entry["time"], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    t = _now_ist()
+                self.event_log.append({"time": t, "type": entry["type"],
+                                        "message": entry["message"], "data": {}})
+            
+            n_trades = len(self.closed_trades)
+            n_pos = len(self.positions)
+            pnl = sum(t.get("pnl", 0) for t in self.closed_trades)
+            print(f"[PAPER] Restored state: {n_trades} trades, {n_pos} positions, P&L=₹{pnl:,.2f}")
+        except Exception as e:
+            print(f"[PAPER] State load failed: {e}")
         
     def configure(self, strategy: dict, entry_conditions: list, exit_conditions: list):
         """Configure the paper trading strategy"""
@@ -185,6 +271,7 @@ class PaperTradingEngine:
         
         self.log_event("stop", "🛑 Paper Trading Engine Stopped")
         self.log_event("info", f"Trades: {len(self.closed_trades)} | Winners: {win_trades} | Total P&L: ₹{total_pnl:,.2f}")
+        self._save_state()  # Persist final state
     
     # ── WebSocket Event-Driven Mode ───────────────────────────
     async def _run_ws_mode(self, callback=None):
@@ -827,6 +914,7 @@ class PaperTradingEngine:
         
         self.in_trade = True
         self.trades_today += 1
+        self._save_state()  # Persist after trade entry
     
     async def _find_premium_near_strike(self, symbol: str, expiry: str, 
                                          option_type: str, target_prem: float,
@@ -901,6 +989,7 @@ class PaperTradingEngine:
             self.strat_tp_val = 0
             total_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
             self.log_event("info", f"✅ All legs closed. Trade P&L: ₹{total_pnl:,.2f}")
+        self._save_state()  # Persist after trade close
     
     def _calculate_strike(self, leg: dict, spot: float, strike_step: int) -> int:
         """Calculate strike price based on strike_type"""

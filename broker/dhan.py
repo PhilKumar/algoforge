@@ -707,6 +707,27 @@ class DhanClient:
             raise Exception(f"LTP fetch failed: {resp.text}")
         return resp.json().get("data", {})
 
+    def get_ltp_multi(self, segments: dict) -> dict:
+        """Get LTP across multiple exchange segments in ONE API call.
+        segments: {"IDX_I": [13, 51, 25], "NSE_FNO": [54880, 54881]}
+        Returns raw data dict with all segments.
+        """
+        payload = {
+            "NSE_EQ": [int(s) for s in segments.get("NSE_EQ", [])],
+            "NSE_FNO": [int(s) for s in segments.get("NSE_FNO", [])],
+            "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
+            "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
+        }
+        resp = requests.post(
+            f"{self.base_url}/v2/marketfeed/ltp",
+            json=payload,
+            headers=self.headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise Exception(f"LTP fetch failed: {resp.text}")
+        return resp.json().get("data", {})
+
     def get_option_ltp(self, underlying: str, strike: int, expiry: str,
                        option_type: str) -> float:
         """

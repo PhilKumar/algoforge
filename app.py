@@ -1444,6 +1444,30 @@ async def export_paper_trades_csv():
 
 # Ticker caching
 _ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}  # Cache for 30 seconds
+_prev_close_cache = {"data": {}, "date": None}  # Cache prev close for the day
+
+def _get_prev_close():
+    """Get previous close for indices (cached for the day). Uses yfinance."""
+    from datetime import date
+    today = date.today()
+    if _prev_close_cache["date"] == str(today) and _prev_close_cache["data"]:
+        return _prev_close_cache["data"]
+    try:
+        import yfinance as yf
+        result = {}
+        for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex"), ("^INDIAVIX", "vix")]:
+            hist = yf.Ticker(sym).history(period="5d")
+            if len(hist) >= 2:
+                result[key] = float(hist["Close"].iloc[-2])
+            elif len(hist) == 1:
+                result[key] = float(hist["Close"].iloc[0])
+        _prev_close_cache["data"] = result
+        _prev_close_cache["date"] = str(today)
+        print(f"[TICKER] Prev close loaded: {result}")
+        return result
+    except Exception as e:
+        print(f"[TICKER] Prev close fetch failed: {e}")
+        return {}
 
 @app.get("/api/ticker")
 async def get_ticker():
@@ -1458,13 +1482,35 @@ async def get_ticker():
     if dhan._is_configured():
         try:
             print("[TICKER] Fetching from Dhan API (primary)...")
-            # Security IDs: NIFTY 50=13, SENSEX=51, INDIA VIX=25
-            idx_data = dhan.get_ltp(
-                security_ids=[13, 51, 25],
-                exchange_segment="IDX_I"
-            )
             
-            idx = idx_data.get("IDX_I", idx_data) if isinstance(idx_data, dict) else {}
+            # Resolve ATM option security IDs FIRST (no API call)
+            ce_sid, pe_sid, atm_strike = None, None, 0
+            try:
+                ScripMaster.ensure_loaded()
+                expiry = ScripMaster.get_nearest_expiry("NIFTY")
+                if expiry:
+                    # Use last known NIFTY price or default for ATM calculation
+                    last_nifty = 0
+                    if _ticker_cache["data"]:
+                        last_nifty = _ticker_cache["data"].get("nifty", {}).get("price", 0)
+                    if last_nifty <= 0:
+                        last_nifty = 24500  # reasonable default
+                    atm_strike = round(last_nifty / 50) * 50
+                    ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
+                    pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
+                    print(f"[TICKER] ATM strike={atm_strike}, CE_sid={ce_sid}, PE_sid={pe_sid}, expiry={expiry}")
+            except Exception as e:
+                print(f"[TICKER] ATM lookup error: {e}")
+            
+            # SINGLE API call with both IDX_I and NSE_FNO segments
+            segments = {"IDX_I": [13, 51, 25]}
+            if ce_sid and pe_sid:
+                segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
+            
+            all_data = dhan.get_ltp_multi(segments)
+            
+            idx = all_data.get("IDX_I", {})
+            fno = all_data.get("NSE_FNO", {})
             
             def _extract_ltp(d, sid):
                 info = d.get(str(sid), {})
@@ -1479,39 +1525,51 @@ async def get_ticker():
             vix_ltp    = _extract_ltp(idx, 25)
             
             if nifty_ltp > 0:
-                # ATM CE/PE options
+                # Recalculate ATM if needed (NIFTY moved significantly)
+                correct_atm = round(nifty_ltp / 50) * 50
+                if correct_atm != atm_strike and ce_sid and pe_sid:
+                    # ATM shifted — option prices from this call are for old strike
+                    # They're still reasonable for display; next refresh will correct
+                    print(f"[TICKER] ATM shifted {atm_strike} → {correct_atm}, will correct next cycle")
+                
+                # Extract ATM option prices from the SAME response
                 atm_ce = {"price": 0, "change": 0, "pct": 0}
                 atm_pe = {"price": 0, "change": 0, "pct": 0}
-                try:
-                    ScripMaster.ensure_loaded()
-                    expiry = ScripMaster.get_nearest_expiry("NIFTY")
-                    if expiry:
-                        atm_strike = round(nifty_ltp / 50) * 50
-                        ce_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "CE")
-                        pe_sid = ScripMaster.lookup("NIFTY", atm_strike, expiry, "PE")
-                        if ce_sid and pe_sid:
-                            opt_data = dhan.get_ltp([int(ce_sid), int(pe_sid)], exchange_segment="NSE_FNO")
-                            fno = opt_data.get("NSE_FNO", opt_data) if isinstance(opt_data, dict) else {}
-                            ce_p = _extract_ltp(fno, ce_sid)
-                            pe_p = _extract_ltp(fno, pe_sid)
-                            if ce_p > 0: atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
-                            if pe_p > 0: atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
-                            print(f"[TICKER] ATM {atm_strike}: CE={ce_p}, PE={pe_p}")
-                except Exception as opt_err:
-                    print(f"[TICKER] ATM CE/PE fetch failed: {opt_err}")
+                if ce_sid:
+                    ce_p = _extract_ltp(fno, ce_sid)
+                    if ce_p > 0: atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
+                if pe_sid:
+                    pe_p = _extract_ltp(fno, pe_sid)
+                    if pe_p > 0: atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
+                if ce_sid or pe_sid:
+                    print(f"[TICKER] ATM {atm_strike}: CE={atm_ce['price']}, PE={atm_pe['price']}")
+                
+                # Compute change from previous close
+                prev = _get_prev_close()
+                def _chg(ltp, key):
+                    pc = prev.get(key, 0)
+                    if pc > 0:
+                        ch = round(ltp - pc, 2)
+                        pct = round((ch / pc) * 100, 2)
+                        return ch, pct
+                    return 0, 0
+                
+                n_chg, n_pct = _chg(nifty_ltp, "nifty")
+                s_chg, s_pct = _chg(sensex_ltp, "sensex")
+                v_chg, v_pct = _chg(vix_ltp, "vix")
                 
                 result = {
                     "status": "ok",
                     "source": "dhan",
-                    "nifty":  {"price": round(nifty_ltp, 2), "change": 0, "pct": 0},
-                    "sensex": {"price": round(sensex_ltp, 2), "change": 0, "pct": 0},
-                    "vix":    {"price": round(vix_ltp, 2), "change": 0, "pct": 0},
+                    "nifty":  {"price": round(nifty_ltp, 2), "change": n_chg, "pct": n_pct},
+                    "sensex": {"price": round(sensex_ltp, 2), "change": s_chg, "pct": s_pct},
+                    "vix":    {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
                     "atmCE":  atm_ce,
                     "atmPE":  atm_pe,
                 }
                 _ticker_cache["data"] = result
                 _ticker_cache["timestamp"] = time.time()
-                print(f"[TICKER] Dhan: NIFTY={nifty_ltp}, SENSEX={sensex_ltp}, VIX={vix_ltp}")
+                print(f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}), SENSEX={sensex_ltp}, VIX={vix_ltp}")
                 return result
             else:
                 print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")
