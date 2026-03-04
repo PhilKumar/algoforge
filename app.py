@@ -307,7 +307,9 @@ async def auth_login(request: Request):
         _clear_login_attempts(ip)
         token = _create_session()
         resp = JSONResponse({"status": "ok", "message": "Login successful"})
-        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax", secure=True)
+        # secure=True only when behind HTTPS; current setup is HTTP-only
+        is_https = request.headers.get("x-forwarded-proto") == "https"
+        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax", secure=is_https)
         return resp
     _record_failed_login(ip)
     raise HTTPException(status_code=401, detail="Invalid password")
