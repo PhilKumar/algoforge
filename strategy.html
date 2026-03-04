@@ -1058,9 +1058,9 @@
         <div class="stat-label">Broker Status</div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
           <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
-          <span id="broker-text" style="font-weight: 600; font-size: 14px;">Not Connected</span>
+          <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
         </div>
-        <button onclick="toggleBroker()" class="btn" style="margin-top: 10px; font-size: 11px; padding: 6px 16px; width: 100%;">Toggle Connection</button>
+        <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="margin-top: 10px; font-size: 11px; padding: 6px 16px; width: 100%;">Connect</button>
       </div>
     </div>
 
@@ -2549,70 +2549,71 @@ function toast(msg, type='', duration=4000) {
 let isBrokerConnected = false;
 let brokerCheckInterval = null;
 
+function updateBrokerUI(status, text, dotColor, btnLabel) {
+  isBrokerConnected = status;
+  document.getElementById('broker-dot').style.backgroundColor = dotColor;
+  document.getElementById('broker-text').textContent = text;
+  const btn = document.getElementById('broker-toggle-btn');
+  if (btn) btn.textContent = btnLabel;
+}
+
+async function checkBrokerStatus(silent) {
+  try {
+    const res = await fetch('/api/broker/check', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'connected') {
+      updateBrokerUI(true, 'Dhan Connected ✅', '#22c55e', 'Disconnect');
+      startBrokerHealthCheck();
+      if (!silent) toast('✅ Broker Connected!', 'success');
+      return true;
+    } else if (data.status === 'not_configured') {
+      updateBrokerUI(false, 'Not Configured', 'orange', 'Connect');
+      if (!silent) toast('⚠️ ' + (data.message || 'Broker not configured'), 'warn');
+    } else {
+      updateBrokerUI(false, 'Connection Failed', 'red', 'Reconnect');
+      if (!silent) toast('❌ ' + (data.message || 'Connection failed'), 'danger');
+    }
+  } catch (err) {
+    updateBrokerUI(false, 'Network Error', 'red', 'Retry');
+    if (!silent) toast('❌ Network error: ' + err.message, 'danger');
+  }
+  return false;
+}
+
 async function toggleBroker() {
-  const btn = event.target;
-  const originalText = btn.textContent;
+  const btn = document.getElementById('broker-toggle-btn');
+  if (!btn) return;
   btn.disabled = true;
   btn.textContent = '⏳ Checking...';
   
-  try {
-    const res = await fetch('/api/broker/connect', { method: 'POST' });
-    const data = await res.json();
-    
-    if (data.status === 'connected') {
-      isBrokerConnected = true;
-      document.getElementById('broker-dot').style.backgroundColor = '#22c55e';
-      document.getElementById('broker-text').textContent = 'Live Broker: Connected ✅';
-      toast('✅ Broker Connected!', 'success');
-      
-      // Start periodic health check every 30 seconds
-      startBrokerHealthCheck();
-    } else if (data.status === 'not_configured') {
-      isBrokerConnected = false;
-      document.getElementById('broker-dot').style.backgroundColor = 'orange';
-      document.getElementById('broker-text').textContent = 'Live Broker: Not Configured';
-      toast('⚠️ ' + (data.message || 'Broker not configured'), 'warn');
-    } else {
-      isBrokerConnected = false;
-      document.getElementById('broker-dot').style.backgroundColor = 'red';
-      document.getElementById('broker-text').textContent = 'Live Broker: Connection Failed';
-      toast('❌ ' + (data.message || 'Connection failed'), 'danger');
-    }
-  } catch (err) {
-    isBrokerConnected = false;
-    document.getElementById('broker-dot').style.backgroundColor = 'red';
-    document.getElementById('broker-text').textContent = 'Live Broker: Network Error';
-    toast('❌ Network error: ' + err.message, 'danger');
-    console.error('Broker connection error:', err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
+  if (isBrokerConnected) {
+    // Disconnect
+    stopBrokerHealthCheck();
+    updateBrokerUI(false, 'Disconnected', 'grey', 'Connect');
+    toast('Broker disconnected', 'info');
+  } else {
+    // Connect — check real status
+    await checkBrokerStatus(false);
   }
+  btn.disabled = false;
 }
 
 function startBrokerHealthCheck() {
-  if (brokerCheckInterval) return; // Already running
-  
+  if (brokerCheckInterval) return;
   brokerCheckInterval = setInterval(async () => {
     try {
       const res = await fetch('/api/broker/check', { method: 'POST' });
       const data = await res.json();
-      
       if (data.status !== 'connected') {
-        // Connection lost
-        isBrokerConnected = false;
-        document.getElementById('broker-dot').style.backgroundColor = 'orange';
-        document.getElementById('broker-text').textContent = 'Live Broker: Connection Lost';
+        updateBrokerUI(false, 'Connection Lost', 'orange', 'Reconnect');
         toast('⚠️ Broker connection lost', 'warn');
         stopBrokerHealthCheck();
       }
     } catch (err) {
-      // Network error during health check
-      isBrokerConnected = false;
-      document.getElementById('broker-dot').style.backgroundColor = 'grey';
+      updateBrokerUI(false, 'Connection Lost', 'grey', 'Reconnect');
       stopBrokerHealthCheck();
     }
-  }, 30000); // Check every 30 seconds
+  }, 30000);
 }
 
 function stopBrokerHealthCheck() {
@@ -2621,6 +2622,9 @@ function stopBrokerHealthCheck() {
     brokerCheckInterval = null;
   }
 }
+
+// Auto-detect broker status on page load
+checkBrokerStatus(true);
 // (Copy & Edit removed — use Load from Dashboard instead)
 
 // ══════════════════════════════════════════════════════════════
