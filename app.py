@@ -661,24 +661,30 @@ async def get_broker_trades():
         }
 
 
-def _backfill_trade_history(from_date: str = "2024-01-01"):
-    """Fetch historical trades from Dhan and backfill trade_history.json for missing dates."""
+def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
+    """Fetch historical trades from Dhan and backfill trade_history.json.
+    
+    Args:
+        from_date: Start date in YYYY-MM-DD format.
+        force: If True, overwrite existing dates with fresh data from Dhan.
+    """
     try:
-        history = _load_trade_history()
+        history = _load_trade_history() if not force else {}
         today_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # Find the latest date we already have (skip today since it's always fresh)
         existing_dates = set(history.keys())
         
-        # Fetch from Dhan in chunks (the API is paginated)
+        # Dhan API returns 20 trades per page, paginate through all
+        DHAN_PAGE_SIZE = 20
+        MAX_PAGES = 500  # Safety limit (up to 10,000 trades)
         all_trades = []
         page = 0
-        while True:
+        while page < MAX_PAGES:
             trades = dhan.get_trade_history(from_date, today_str, page)
             if not trades:
                 break
             all_trades.extend(trades)
-            if len(trades) < 500:  # Less than a full page = last page
+            print(f"[BACKFILL] Page {page}: {len(trades)} trades (total so far: {len(all_trades)})")
+            if len(trades) < DHAN_PAGE_SIZE:  # Last page
                 break
             page += 1
         
@@ -686,35 +692,54 @@ def _backfill_trade_history(from_date: str = "2024-01-01"):
             print(f"[BACKFILL] No historical trades returned from Dhan for {from_date} to {today_str}")
             return 0
         
-        print(f"[BACKFILL] Fetched {len(all_trades)} total historical trades from Dhan")
+        print(f"[BACKFILL] Fetched {len(all_trades)} total historical trades from Dhan ({page + 1} pages)")
+        
+        # De-duplicate by orderId + transactionType to avoid double-counting
+        seen = set()
+        unique_trades = []
+        for t in all_trades:
+            uid = f"{t.get('orderId', '')}_{t.get('transactionType', '')}_{t.get('tradedPrice', '')}"
+            if uid not in seen:
+                seen.add(uid)
+                unique_trades.append(t)
+        if len(unique_trades) < len(all_trades):
+            print(f"[BACKFILL] De-duplicated: {len(all_trades)} → {len(unique_trades)} unique trades")
+        all_trades = unique_trades
         
         # Group trades by date using exchangeTime
         trades_by_date = {}
         for t in all_trades:
             raw_time = t.get("exchangeTime") or t.get("createTime") or t.get("updateTime") or ""
             date_str = str(raw_time)[:10]
-            if not date_str or len(date_str) < 10 or date_str == today_str:
-                continue  # Skip today (handled by live auto-save) and invalid dates
-            if date_str in existing_dates:
-                continue  # Already have this date
+            if not date_str or len(date_str) < 10:
+                continue  # Skip invalid dates
+            # Skip today only if not forcing — today is handled by live auto-save
+            if date_str == today_str and not force:
+                continue
+            # When not forcing, skip dates we already have
+            if not force and date_str in existing_dates:
+                continue
             if date_str not in trades_by_date:
                 trades_by_date[date_str] = []
             trades_by_date[date_str].append(t)
         
-        # Compute P&L for each new date
+        # Compute P&L for each date
         new_dates = 0
         for date_str, day_trades in sorted(trades_by_date.items()):
             groups = {}
             for t in day_trades:
                 key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
                 if key not in groups:
-                    groups[key] = {"buys": [], "sells": [], "symbol": t.get("tradingSymbol") or t.get("customSymbol") or key}
+                    # Prefer customSymbol (readable) over tradingSymbol (often empty for options)
+                    sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
+                    groups[key] = {"buys": [], "sells": [], "symbol": sym}
                 if t.get("transactionType") == "BUY":
                     groups[key]["buys"].append(t)
                 elif t.get("transactionType") == "SELL":
                     groups[key]["sells"].append(t)
             
             total_pnl = 0
+            total_charges = 0
             trade_count = 0
             wins = 0
             details = []
@@ -723,20 +748,35 @@ def _backfill_trade_history(from_date: str = "2024-01-01"):
                 sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
                 buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
                 sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
+                # Sum charges from all legs (buys + sells)
+                leg_charges = 0
+                for t in g["buys"] + g["sells"]:
+                    for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax", "exchangeTransactionCharges", "stampDuty"):
+                        leg_charges += float(t.get(key_c, 0) or 0)
                 matched = min(buy_qty, sell_qty)
                 if matched > 0 and buy_qty > 0 and sell_qty > 0:
                     buy_avg = buy_val / buy_qty
                     sell_avg = sell_val / sell_qty
                     pnl = round((sell_avg - buy_avg) * matched, 2)
                     total_pnl += pnl
+                    total_charges += leg_charges
                     trade_count += 1
                     if pnl > 0:
                         wins += 1
-                    details.append({"symbol": g["symbol"], "pnl": pnl, "qty": int(matched)})
+                    details.append({
+                        "symbol": g["symbol"],
+                        "pnl": pnl,
+                        "qty": int(matched),
+                        "buy_avg": round(buy_avg, 2),
+                        "sell_avg": round(sell_avg, 2),
+                        "charges": round(leg_charges, 2),
+                    })
             
             if trade_count > 0:
                 history[date_str] = {
                     "pnl": round(total_pnl, 2),
+                    "net_pnl": round(total_pnl - total_charges, 2),
+                    "charges": round(total_charges, 2),
                     "trades": trade_count,
                     "wins": wins,
                     "mode": "real",
@@ -746,7 +786,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01"):
         
         if new_dates > 0:
             _save_trade_history(history)
-            print(f"[BACKFILL] Added {new_dates} new dates to trade_history.json")
+            print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in trade_history.json")
         else:
             print(f"[BACKFILL] No new dates to add (all existing)")
         
@@ -759,11 +799,15 @@ def _backfill_trade_history(from_date: str = "2024-01-01"):
 
 
 @app.get("/api/portfolio/backfill")
-async def portfolio_backfill():
-    """Manually trigger historical trade backfill from Dhan."""
+async def portfolio_backfill(force: bool = False):
+    """Manually trigger historical trade backfill from Dhan.
+    
+    Args:
+        force: If true, re-fetch ALL trades and overwrite existing data.
+    """
     try:
-        count = _backfill_trade_history("2024-01-01")
-        return {"status": "success", "new_dates": count}
+        count = _backfill_trade_history("2024-01-01", force=force)
+        return {"status": "success", "new_dates": count, "force": force}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -778,8 +822,10 @@ async def get_portfolio_history():
         real_history = _load_trade_history()
         for date_str, entry in real_history.items():
             if date_str not in daily:
-                daily[date_str] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                daily[date_str] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
             daily[date_str]["real_pnl"] = entry.get("pnl", 0)
+            daily[date_str]["real_net_pnl"] = entry.get("net_pnl", entry.get("pnl", 0))
+            daily[date_str]["real_charges"] = entry.get("charges", 0)
             daily[date_str]["real_trades"] = entry.get("trades", 0)
             daily[date_str]["real_wins"] = entry.get("wins", 0)
         
@@ -815,14 +861,14 @@ async def get_portfolio_history():
                 
                 for d, data in paper_by_date.items():
                     if d not in daily:
-                        daily[d] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                        daily[d] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
                     daily[d]["paper_pnl"] += round(data["pnl"], 2)
                     daily[d]["paper_trades"] += data["count"]
                     daily[d]["paper_wins"] += data["wins"]
             elif run_date:
                 # No individual trades, use run-level P&L
                 if run_date not in daily:
-                    daily[run_date] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                    daily[run_date] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
                 daily[run_date]["paper_pnl"] += r.get("total_pnl", 0)
                 daily[run_date]["paper_trades"] += r.get("trade_count", 0)
                 stats = r.get("stats", {})
@@ -835,16 +881,20 @@ async def get_portfolio_history():
             ym = date_str[:7]
             y = date_str[:4]
             if ym not in monthly:
-                monthly[ym] = {"real_pnl": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+                monthly[ym] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
             monthly[ym]["real_pnl"] += d["real_pnl"]
+            monthly[ym]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
+            monthly[ym]["real_charges"] += d.get("real_charges", 0)
             monthly[ym]["paper_pnl"] += d["paper_pnl"]
             monthly[ym]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
             monthly[ym]["trades"] += d["real_trades"] + d["paper_trades"]
             monthly[ym]["wins"] += d["real_wins"] + d["paper_wins"]
             
             if y not in yearly:
-                yearly[y] = {"real_pnl": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+                yearly[y] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
             yearly[y]["real_pnl"] += d["real_pnl"]
+            yearly[y]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
+            yearly[y]["real_charges"] += d.get("real_charges", 0)
             yearly[y]["paper_pnl"] += d["paper_pnl"]
             yearly[y]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
             yearly[y]["trades"] += d["real_trades"] + d["paper_trades"]
@@ -852,10 +902,10 @@ async def get_portfolio_history():
         
         # Round all values
         for m in monthly.values():
-            for k in ["real_pnl", "paper_pnl", "total_pnl"]:
+            for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
                 m[k] = round(m[k], 2)
         for y in yearly.values():
-            for k in ["real_pnl", "paper_pnl", "total_pnl"]:
+            for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
                 y[k] = round(y[k], 2)
         
         return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}
@@ -1756,7 +1806,8 @@ def _persist_daily_trades(trades: list):
     for t in trades:
         key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
         if key not in groups:
-            groups[key] = {"buys": [], "sells": [], "symbol": t.get("tradingSymbol", key)}
+            sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
+            groups[key] = {"buys": [], "sells": [], "symbol": sym}
         if t.get("transactionType") == "BUY":
             groups[key]["buys"].append(t)
         elif t.get("transactionType") == "SELL":
@@ -2160,15 +2211,18 @@ async def _start_token_renewal():
     if _market_feed:
         print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
     
-    # Auto-backfill trade history from Dhan on first startup if empty
+    # Auto-backfill trade history from Dhan on startup
     try:
         history = _load_trade_history()
-        if len(history) <= 1:  # Only today or empty
-            print("📊 [BACKFILL] Auto-backfilling trade history from Dhan...")
-            count = _backfill_trade_history("2024-01-01")
-            print(f"📊 [BACKFILL] Done — added {count} days of historical trades")
+        if len(history) <= 2:  # Empty or very few entries — do a full force fetch
+            print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
+            count = _backfill_trade_history("2024-01-01", force=True)
+            print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
         else:
-            print(f"📊 [TRADE_HISTORY] Loaded {len(history)} days of trade data")
+            # Incremental: just add any new missing dates
+            count = _backfill_trade_history("2024-01-01", force=False)
+            loaded = _load_trade_history()
+            print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
     except Exception as e:
         print(f"📊 [BACKFILL] Startup backfill failed: {e}")
 

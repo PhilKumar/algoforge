@@ -1827,8 +1827,10 @@
         <button onclick="changeMonthlyMonth(1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">▶</button>
       </div>
     </div>
-    <div id="portfolio-monthly-summary" style="display: flex; gap: 16px; margin-bottom: 14px; padding: 10px; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 12px;"></div>
+    <div id="portfolio-monthly-summary" style="margin-bottom: 14px; padding: 14px; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 12px;"></div>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px;" id="portfolio-monthly-grid"></div>
+    <!-- Trades for month: day-by-day table -->
+    <div id="portfolio-monthly-trades" style="margin-top: 18px;"></div>
   </div>
 
   <!-- Today's Trades -->
@@ -5058,31 +5060,55 @@ function renderMonthlyDailyGrid() {
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
-  let totalPnl = 0, totalTrades = 0, totalWins = 0, tradingDays = 0;
+  let totalPnl = 0, totalNetPnl = 0, totalCharges = 0, totalTrades = 0, totalWins = 0, tradingDays = 0, profitDays = 0;
   
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
     const entry = daily[dateStr];
     if (entry) {
       const pnl = (entry.real_pnl || 0) + (entry.paper_pnl || 0);
+      const netPnl = (entry.real_net_pnl || entry.real_pnl || 0) + (entry.paper_pnl || 0);
+      const charges = entry.real_charges || 0;
       const trades = (entry.real_trades || 0) + (entry.paper_trades || 0);
       const wins = (entry.real_wins || 0) + (entry.paper_wins || 0);
-      dayEntries.push({ day: d, dateStr, pnl, trades, wins, real: entry.real_pnl || 0, paper: entry.paper_pnl || 0 });
+      dayEntries.push({ day: d, dateStr, pnl, netPnl, charges, trades, wins, real: entry.real_pnl || 0, paper: entry.paper_pnl || 0 });
       totalPnl += pnl;
+      totalNetPnl += netPnl;
+      totalCharges += charges;
       totalTrades += trades;
       totalWins += wins;
       tradingDays++;
+      if (pnl > 0) profitDays++;
     }
   }
   
-  // Summary bar
+  // Summary bar — matching Dhan style: Overall P&L, Net P&L, Total Trades, Charges
   const isProfit = totalPnl >= 0;
-  const winRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(0) : '0';
+  const isNetProfit = totalNetPnl >= 0;
   summaryEl.innerHTML = tradingDays > 0 ? `
-    <span><span style="color: var(--muted);">Month Total:</span> <span style="font-weight: 700; color: ${isProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${totalPnl.toFixed(0)}</span></span>
-    <span style="color: var(--muted);">${tradingDays} trading days</span>
-    <span style="color: var(--muted);">${totalTrades} trades</span>
-    <span style="color: var(--muted);">Win: ${winRate}%</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+      <div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Overall P&L</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${isProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalPnl.toFixed(2)}</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net P&L</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${isNetProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalNetPnl.toFixed(2)}</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTrades}</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Charges</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">₹ ${totalCharges.toFixed(2)}</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Profitable Days</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--success); font-family: 'JetBrains Mono';">${profitDays}/${tradingDays}</div>
+      </div>
+    </div>
+    <div style="margin-top: 8px; font-size: 10px; color: var(--muted);">Charges include GST, STT, SEBI Fees, Exchange Transaction Charges, Stamp Duty and other charges.</div>
   ` : `<span style="color: var(--muted);">No trades this month</span>`;
   
   // Daily boxes
@@ -5095,15 +5121,50 @@ function renderMonthlyDailyGrid() {
   dayEntries.forEach(e => {
     const isWin = e.pnl >= 0;
     const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
+    const chargesInfo = e.charges > 0 ? `\nCharges: ₹${e.charges.toFixed(2)}\nNet: ₹${e.netPnl.toFixed(2)}` : '';
     html += `
-      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: ₹${e.pnl.toFixed(0)} (${e.trades} trades)">
+      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Overall ₹${e.pnl.toFixed(2)}${chargesInfo} (${e.trades} trades)">
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
         <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.pnl.toFixed(0)}</div>
-        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.trades}T</div>
+        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.trades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
       </div>
     `;
   });
   grid.innerHTML = html;
+  
+  // ── Trades for month: day-by-day breakdown table (like Dhan) ──
+  const tradesTableEl = document.getElementById('portfolio-monthly-trades');
+  if (dayEntries.length > 0) {
+    let thtml = `<h4 style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: var(--text);">Trades for month</h4>
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border); color: var(--muted);">
+          <th style="padding: 10px 8px; text-align: left;">Date</th>
+          <th style="padding: 10px 8px; text-align: center;">No. of Trades</th>
+          <th style="padding: 10px 8px; text-align: right;">Overall P&L</th>
+          <th style="padding: 10px 8px; text-align: right;">Net P&L</th>
+          <th style="padding: 10px 8px; text-align: right;">Charges</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    dayEntries.forEach(e => {
+      const isWin = e.pnl >= 0;
+      const isNetWin = e.netPnl >= 0;
+      const dateObj = new Date(e.dateStr);
+      const dateLabel = MONTH_NAMES_SHORT[dateObj.getMonth()] + ' ' + e.day + ', ' + dateObj.getFullYear();
+      thtml += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3);">
+        <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
+        <td style="padding: 10px 8px; text-align: center;">${e.trades}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.pnl.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netPnl.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
+      </tr>`;
+    });
+    thtml += `</tbody></table>`;
+    tradesTableEl.innerHTML = thtml;
+  } else {
+    tradesTableEl.innerHTML = '';
+  }
 }
 
 // ── Year-to-Date: Monthly table (Jan–Dec) per year from 2024 ──
