@@ -1203,8 +1203,11 @@ async def paper_start(payload: StrategyPayload):
 
 @app.post("/api/paper/stop")
 async def paper_stop():
-    """Stop paper trading"""
+    """Stop paper trading and persist results to runs.json"""
     global _paper_task
+    
+    # Capture results BEFORE stopping (stop() may close positions)
+    status_before = paper_engine.get_status()
     
     paper_engine.stop()
     
@@ -1216,13 +1219,82 @@ async def paper_stop():
             pass
     
     _paper_task = None
+    
+    # Save paper run to runs.json so it persists across restarts
+    _save_paper_run_to_history(status_before)
+    
     return {"status": "stopped"}
+
+
+def _save_paper_run_to_history(status: dict):
+    """Save a completed paper trading run to runs.json for history."""
+    try:
+        closed = status.get("closed_trades", [])
+        if not closed:
+            print("[PAPER] No trades to save — skipping runs.json")
+            return
+        
+        runs = _load_runs()
+        max_id = max([r.get("id", 0) for r in runs], default=0)
+        
+        total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
+        winners = [t for t in closed if t.get("pnl", 0) > 0]
+        losers  = [t for t in closed if t.get("pnl", 0) <= 0]
+        win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
+        
+        paper_run = {
+            "id": max_id + 1,
+            "mode": "paper",
+            "run_name": status.get("strategy_name", "Paper Run"),
+            "instrument": status.get("instrument", ""),
+            "status": "completed",
+            "started_at": str(datetime.now()),
+            "stopped_at": str(datetime.now()),
+            "trade_count": len(closed),
+            "total_pnl": total_pnl,
+            "stats": {
+                "total_trades": len(closed),
+                "winning_trades": len(winners),
+                "losing_trades": len(losers),
+                "win_rate": win_rate,
+                "total_pnl": total_pnl,
+                "avg_profit": round(sum(t["pnl"] for t in winners) / len(winners), 2) if winners else 0,
+                "avg_loss": round(sum(t["pnl"] for t in losers) / len(losers), 2) if losers else 0,
+            },
+            "trades": closed,
+            "created_at": str(datetime.now()),
+        }
+        
+        runs.append(paper_run)
+        _save_runs(runs)
+        print(f"[PAPER] Saved run #{paper_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+    except Exception as e:
+        print(f"[PAPER] Failed to save run to history: {e}")
 
 
 @app.get("/api/paper/status")
 async def paper_status():
-    """Get current paper trading status"""
-    return paper_engine.get_status()
+    """Get current paper trading status — if engine stopped, return last saved run."""
+    status = paper_engine.get_status()
+    
+    # If engine not running and has no trades, check if there's a last saved paper run
+    if not status.get("running") and not status.get("closed_trades"):
+        try:
+            runs = _load_runs()
+            paper_runs = [r for r in runs if r.get("mode") == "paper"]
+            if paper_runs:
+                last = paper_runs[-1]
+                trades = last.get("trades", [])
+                status["strategy_name"] = last.get("run_name", "Last Paper Run")
+                status["instrument"] = last.get("instrument", "")
+                status["closed_trades"] = trades
+                status["trades_today"] = len(trades)
+                status["total_pnl"] = last.get("total_pnl", 0)
+                status["_from_history"] = True
+        except Exception:
+            pass
+    
+    return status
 
 
 # ── WebSocket ─────────────────────────────────────────────────────
