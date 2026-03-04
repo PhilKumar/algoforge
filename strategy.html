@@ -1913,10 +1913,18 @@
     </div>
   </div>
 
-  <!-- Monthly P&L Chart -->
+  <!-- Monthly P&L Chart (Daily breakdown for current month) -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">📊 Monthly Profit & Loss</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;" id="portfolio-monthly-grid"></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <h3 style="font-size: 16px; font-weight: 700; margin: 0;">📊 Monthly Profit & Loss</h3>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button onclick="changeMonthlyMonth(-1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">◀</button>
+        <span id="portfolio-monthly-label" style="font-size: 13px; font-weight: 600; min-width: 100px; text-align: center;"></span>
+        <button onclick="changeMonthlyMonth(1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">▶</button>
+      </div>
+    </div>
+    <div id="portfolio-monthly-summary" style="display: flex; gap: 16px; margin-bottom: 14px; padding: 10px; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 12px;"></div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px;" id="portfolio-monthly-grid"></div>
   </div>
 
   <!-- Today's Trades -->
@@ -1942,10 +1950,10 @@
     </div>
   </div>
 
-  <!-- Year-to-Date Performance -->
+  <!-- Year-to-Date Performance (Monthly grid per year) -->
   <div class="card" style="padding: 20px;">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">📅 Year-to-Date Performance</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;" id="portfolio-yearly-grid"></div>
+    <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
   </div>
 </div>
 
@@ -4965,70 +4973,12 @@ async function loadPortfolioData() {
     document.getElementById('portfolio-total-trades').textContent = totalTrades;
     document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
     
-    // Render monthly P&L from combined real + paper trade history
-    const monthlyGrid = document.getElementById('portfolio-monthly-grid');
-    monthlyGrid.innerHTML = '';
-    const histMonthly = portfolioHistory.monthly || {};
-    const sortedMonths = Object.keys(histMonthly).sort().reverse();
-    
-    if (sortedMonths.length === 0) {
-      monthlyGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No trade history available. Execute trades to see monthly P&L.</div>';
-    } else {
-      sortedMonths.forEach(month => {
-        const m = histMonthly[month];
-        const realPnl = m.real_pnl || 0;
-        const paperPnl = m.paper_pnl || 0;
-        const totalPnl = m.total_pnl || (realPnl + paperPnl);
-        const isProfit = totalPnl >= 0;
-        const trades = m.trades || 0;
-        const wins = m.wins || 0;
-        const winRate = trades > 0 ? ((wins / trades) * 100).toFixed(0) : '0';
-        monthlyGrid.innerHTML += `
-          <div style="padding: 12px; background: ${isProfit ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isProfit ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-radius: 8px; text-align: center;">
-            <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">${month}</div>
-            <div style="font-size: 16px; font-weight: 700; color: ${isProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${totalPnl.toFixed(0)}</div>
-            <div style="display: flex; justify-content: center; gap: 8px; margin-top: 6px; font-size: 10px; color: var(--muted);">
-              ${realPnl !== 0 ? `<span title="Real trades">R: <span style="color: ${realPnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${realPnl.toFixed(0)}</span></span>` : ''}
-              ${paperPnl !== 0 ? `<span title="Paper trades">P: <span style="color: ${paperPnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${paperPnl.toFixed(0)}</span></span>` : ''}
-            </div>
-            <div style="font-size: 10px; color: var(--muted); margin-top: 3px;">${trades} trades · ${winRate}% win</div>
-          </div>
-        `;
-      });
-    }
-    
-    // Render yearly P&L from combined real + paper trade history
-    const yearlyGrid = document.getElementById('portfolio-yearly-grid');
-    yearlyGrid.innerHTML = '';
-    const histYearly = portfolioHistory.yearly || {};
-    const sortedYears = Object.keys(histYearly).sort().reverse();
-    
-    if (sortedYears.length === 0) {
-      yearlyGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No yearly data available yet.</div>';
-    } else {
-      sortedYears.forEach(year => {
-        const y = histYearly[year];
-        const realPnl = y.real_pnl || 0;
-        const paperPnl = y.paper_pnl || 0;
-        const totalPnl = y.total_pnl || (realPnl + paperPnl);
-        const isProfit = totalPnl >= 0;
-        const trades = y.trades || 0;
-        const wins = y.wins || 0;
-        const winRate = trades > 0 ? ((wins / trades) * 100).toFixed(1) : '0.0';
-        
-        yearlyGrid.innerHTML += `
-          <div style="padding: 12px; background: var(--card2); border: 1px solid var(--border); border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--text);">${year}</div>
-            <div style="font-size: 12px; margin-bottom: 4px;"><span style="color: var(--muted);">P&L:</span> <span style="color: ${isProfit ? 'var(--success)' : 'var(--danger)'}; font-weight: 600; font-family: 'JetBrains Mono';">₹${totalPnl.toFixed(0)}</span></div>
-            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 11px;">
-              ${realPnl !== 0 ? `<span style="color: var(--muted);">Real: <span style="color: ${realPnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${realPnl.toFixed(0)}</span></span>` : ''}
-              ${paperPnl !== 0 ? `<span style="color: var(--muted);">Paper: <span style="color: ${paperPnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${paperPnl.toFixed(0)}</span></span>` : ''}
-            </div>
-            <div style="font-size: 11px; color: var(--muted);">Win Rate: ${winRate}% · ${trades} trades</div>
-          </div>
-        `;
-      });
-    }
+    // ── Store portfolio history globally for month navigation ──
+    window._portfolioDaily = portfolioHistory.daily || {};
+    window._portfolioMonthly = portfolioHistory.monthly || {};
+    window._currentMonthlyView = new Date().toISOString().slice(0, 7); // YYYY-MM
+    renderMonthlyDailyGrid();
+    renderYearlyMonthlyTable();
     
     // Render today's trades (from Dhan or paper trading)
     const tradesBody = document.getElementById('portfolio-trades-body');
@@ -5081,6 +5031,129 @@ async function loadPortfolioData() {
     });
     toast('Failed to load portfolio data. Check broker connection.', 'danger');
   }
+}
+
+// ── Monthly P&L: Daily boxes for selected month ──
+const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function changeMonthlyMonth(delta) {
+  const [y, m] = window._currentMonthlyView.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  window._currentMonthlyView = d.toISOString().slice(0, 7);
+  renderMonthlyDailyGrid();
+}
+
+function renderMonthlyDailyGrid() {
+  const ym = window._currentMonthlyView;
+  const [year, month] = ym.split('-').map(Number);
+  const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
+  
+  document.getElementById('portfolio-monthly-label').textContent = monthName;
+  const grid = document.getElementById('portfolio-monthly-grid');
+  const summaryEl = document.getElementById('portfolio-monthly-summary');
+  
+  const daily = window._portfolioDaily || {};
+  
+  // Get all days in this month that have data
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dayEntries = [];
+  let totalPnl = 0, totalTrades = 0, totalWins = 0, tradingDays = 0;
+  
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = ym + '-' + String(d).padStart(2, '0');
+    const entry = daily[dateStr];
+    if (entry) {
+      const pnl = (entry.real_pnl || 0) + (entry.paper_pnl || 0);
+      const trades = (entry.real_trades || 0) + (entry.paper_trades || 0);
+      const wins = (entry.real_wins || 0) + (entry.paper_wins || 0);
+      dayEntries.push({ day: d, dateStr, pnl, trades, wins, real: entry.real_pnl || 0, paper: entry.paper_pnl || 0 });
+      totalPnl += pnl;
+      totalTrades += trades;
+      totalWins += wins;
+      tradingDays++;
+    }
+  }
+  
+  // Summary bar
+  const isProfit = totalPnl >= 0;
+  const winRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(0) : '0';
+  summaryEl.innerHTML = tradingDays > 0 ? `
+    <span><span style="color: var(--muted);">Month Total:</span> <span style="font-weight: 700; color: ${isProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${totalPnl.toFixed(0)}</span></span>
+    <span style="color: var(--muted);">${tradingDays} trading days</span>
+    <span style="color: var(--muted);">${totalTrades} trades</span>
+    <span style="color: var(--muted);">Win: ${winRate}%</span>
+  ` : `<span style="color: var(--muted);">No trades this month</span>`;
+  
+  // Daily boxes
+  if (dayEntries.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No trade data for ' + monthName + '</div>';
+    return;
+  }
+  
+  let html = '';
+  dayEntries.forEach(e => {
+    const isWin = e.pnl >= 0;
+    const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
+    html += `
+      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: ₹${e.pnl.toFixed(0)} (${e.trades} trades)">
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
+        <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.pnl.toFixed(0)}</div>
+        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.trades}T</div>
+      </div>
+    `;
+  });
+  grid.innerHTML = html;
+}
+
+// ── Year-to-Date: Monthly table (Jan–Dec) per year from 2024 ──
+function renderYearlyMonthlyTable() {
+  const container = document.getElementById('portfolio-yearly-grid');
+  const monthly = window._portfolioMonthly || {};
+  
+  const currentYear = new Date().getFullYear();
+  const startYear = 2024;
+  const years = [];
+  for (let y = currentYear; y >= startYear; y--) years.push(y);
+  
+  // Build table
+  let html = `<table style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: 700px;">
+    <thead>
+      <tr style="border-bottom: 2px solid var(--border);">
+        <th style="padding: 8px 6px; text-align: left; color: var(--muted); font-size: 11px; font-weight: 600;">Year</th>`;
+  MONTH_NAMES_SHORT.forEach(m => {
+    html += `<th style="padding: 8px 4px; text-align: center; color: var(--muted); font-size: 11px; font-weight: 600;">${m}</th>`;
+  });
+  html += `<th style="padding: 8px 6px; text-align: center; color: var(--accent); font-size: 11px; font-weight: 700;">Total</th></tr></thead><tbody>`;
+  
+  years.forEach(year => {
+    let yearTotal = 0;
+    html += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3);">
+      <td style="padding: 10px 6px; font-weight: 700; color: var(--text);">${year}</td>`;
+    
+    for (let m = 1; m <= 12; m++) {
+      const key = year + '-' + String(m).padStart(2, '0');
+      const data = monthly[key];
+      if (data) {
+        const pnl = data.total_pnl || ((data.real_pnl || 0) + (data.paper_pnl || 0));
+        yearTotal += pnl;
+        const isWin = pnl >= 0;
+        const trades = data.trades || 0;
+        html += `<td style="padding: 10px 4px; text-align: center;" title="${key}: ${trades} trades">
+          <div style="font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono'; font-size: 11px;">₹${pnl.toFixed(0)}</div>
+          <div style="font-size: 9px; color: var(--muted);">${trades}T</div>
+        </td>`;
+      } else {
+        html += `<td style="padding: 10px 4px; text-align: center; color: var(--muted); font-size: 11px;">—</td>`;
+      }
+    }
+    
+    const isYearWin = yearTotal >= 0;
+    html += `<td style="padding: 10px 6px; text-align: center; font-weight: 700; color: ${yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)'}; font-family: 'JetBrains Mono'; font-size: 12px; background: rgba(0,0,0,0.1); border-radius: 4px;">₹${yearTotal.toFixed(0)}</td>`;
+    html += `</tr>`;
+  });
+  
+  html += `</tbody></table>`;
+  container.innerHTML = html;
 }
 
 // ══════════════════════════════════════════════════════════════
