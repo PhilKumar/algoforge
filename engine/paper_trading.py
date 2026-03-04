@@ -31,7 +31,8 @@ from broker.dhan import DhanClient, ScripMaster
 import config
 
 # ── State File ────────────────────────────────────────────────
-_STATE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "paper_state.json")
+_STATE_DIR = os.path.dirname(os.path.dirname(__file__))
+_DEFAULT_STATE_FILE = os.path.join(_STATE_DIR, "paper_state.json")
 
 
 # Import INSTRUMENT_MAP lazily to avoid circular imports
@@ -49,10 +50,18 @@ class PaperTradingEngine:
     - Can optionally save price data for historical backtesting later
     """
     
-    def __init__(self, dhan: DhanClient = None):
+    def __init__(self, dhan: DhanClient = None, run_id: str = None):
         self.dhan = dhan or DhanClient()
         self.running = False
         self.session_date = None
+        self.run_id = run_id  # Unique ID for multi-engine support
+        
+        # Per-instance state file
+        if run_id:
+            safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
+            self._state_file = os.path.join(_STATE_DIR, f"paper_state_{safe_id}.json")
+        else:
+            self._state_file = _DEFAULT_STATE_FILE
         
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None          # LiveMarketFeed instance
@@ -124,7 +133,7 @@ class PaperTradingEngine:
                 ],
                 "saved_at": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
             }
-            with open(_STATE_FILE, "w") as f:
+            with open(self._state_file, "w") as f:
                 _json.dump(state, f, indent=2, default=str)
         except Exception as e:
             print(f"[PAPER] State save failed: {e}")
@@ -132,9 +141,9 @@ class PaperTradingEngine:
     def _load_state(self):
         """Load last session state from disk (called on __init__)."""
         try:
-            if not os.path.exists(_STATE_FILE):
+            if not os.path.exists(self._state_file):
                 return
-            with open(_STATE_FILE, "r") as f:
+            with open(self._state_file, "r") as f:
                 state = _json.load(f)
             
             # Only restore if the session was from today (stale sessions are ignored)
@@ -1074,6 +1083,8 @@ class PaperTradingEngine:
         
         return {
             "running": self.running,
+            "run_id": self.run_id or "",
+            "mode": "paper",
             "in_trade": self.in_trade,
             "current_spot": self.current_spot,
             "current_time": str(self.current_time) if self.current_time else None,

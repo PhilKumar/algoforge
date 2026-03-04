@@ -8,7 +8,7 @@ Fixed:
 
 import asyncio, json, os, sys, inspect, time, hashlib, secrets
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 from collections import defaultdict
 
 import pandas as pd
@@ -86,15 +86,18 @@ if os.path.exists("static"):
 
 # Initialize custom client ONCE and pass to engine
 dhan        = DhanClient()
-live_engine = LiveEngine(dhan)
-paper_engine = PaperTradingEngine(dhan)
+
+# ── Multi-Engine Registries (keyed by run_id) ────────────────
+# Allows running multiple strategies simultaneously
+live_engines: Dict[str, LiveEngine] = {}       # run_id → engine instance
+paper_engines: Dict[str, PaperTradingEngine] = {}  # run_id → engine instance
+_live_tasks: Dict[str, asyncio.Task] = {}      # run_id → asyncio task
+_paper_tasks: Dict[str, asyncio.Task] = {}     # run_id → asyncio task
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 
 ws_clients: List[WebSocket] = []
-_live_task  = None   # track the asyncio task
-_paper_task = None   # track paper trading task
 
 
 # ── Authentication ────────────────────────────────────────────────
@@ -334,39 +337,43 @@ async def emergency_stop(request: Request):
 
     results = {}
     stopped_count = 0
-    # Stop paper trading
-    try:
-        if paper_engine.running:
-            paper_engine.stop()
-            results["paper"] = "stopped"
-            stopped_count += 1
-        else:
-            results["paper"] = "not_running"
-    except Exception as e:
-        results["paper"] = f"error: {str(e)}"
+    # Stop all paper engines
+    for run_id, engine in list(paper_engines.items()):
+        try:
+            if engine.running:
+                engine.stop()
+                results[f"paper:{run_id}"] = "stopped"
+                stopped_count += 1
+            else:
+                results[f"paper:{run_id}"] = "not_running"
+        except Exception as e:
+            results[f"paper:{run_id}"] = f"error: {str(e)}"
 
-    # Stop live trading
-    try:
-        if live_engine.running:
-            live_engine.stop()
-            results["live"] = "stopped"
-            stopped_count += 1
-        else:
-            results["live"] = "not_running"
-    except Exception as e:
-        results["live"] = f"error: {str(e)}"
+    # Stop all live engines
+    for run_id, engine in list(live_engines.items()):
+        try:
+            if engine.running:
+                engine.stop()
+                results[f"live:{run_id}"] = "stopped"
+                stopped_count += 1
+            else:
+                results[f"live:{run_id}"] = "not_running"
+        except Exception as e:
+            results[f"live:{run_id}"] = f"error: {str(e)}"
 
-    # Cancel background tasks
-    global _live_task, _paper_task
-    for name, task_ref in [("live", _live_task), ("paper", _paper_task)]:
-        if task_ref and not task_ref.done():
-            task_ref.cancel()
-            try:
-                await task_ref
-            except asyncio.CancelledError:
-                pass
-    _live_task = None
-    _paper_task = None
+    # Cancel all background tasks
+    for name, tasks_dict in [("live", _live_tasks), ("paper", _paper_tasks)]:
+        for run_id, task_ref in list(tasks_dict.items()):
+            if task_ref and not task_ref.done():
+                task_ref.cancel()
+                try:
+                    await task_ref
+                except asyncio.CancelledError:
+                    pass
+    _live_tasks.clear()
+    _paper_tasks.clear()
+    live_engines.clear()
+    paper_engines.clear()
 
     return {"status": "ok", "stopped": stopped_count, "message": f"Emergency stop executed — {stopped_count} engine(s) stopped", "results": results, "timestamp": str(datetime.now())}
 
@@ -384,10 +391,10 @@ async def dashboard_summary(request: Request):
     runs = _load_runs()
 
     # Active engines
-    paper_running = paper_engine.running
-    live_running = live_engine.running
-    paper_status = paper_engine.get_status() if paper_running else {}
-    live_status = live_engine.get_status() if live_running else {}
+    paper_running = any(e.running for e in paper_engines.values())
+    live_running = any(e.running for e in live_engines.values())
+    paper_statuses = [e.get_status() for e in paper_engines.values() if e.running]
+    live_statuses = [e.get_status() for e in live_engines.values() if e.running]
 
     # Today's P&L from engines (+ history for idle engines)
     paper_pnl_val = 0
@@ -395,9 +402,9 @@ async def dashboard_summary(request: Request):
     live_pnl_val = 0
     live_trades_val = 0
     
-    if paper_running:
-        paper_pnl_val = paper_status.get("total_pnl", 0)
-        paper_trades_val = paper_status.get("trades_today", 0)
+    if paper_statuses:
+        paper_pnl_val = sum(s.get("total_pnl", 0) for s in paper_statuses)
+        paper_trades_val = sum(s.get("trades_today", 0) for s in paper_statuses)
     else:
         # Show last paper run P&L from today (from runs.json)
         from datetime import date as _date
@@ -410,9 +417,9 @@ async def dashboard_summary(request: Request):
                     paper_trades_val = r.get("trade_count", len(r.get("trades", [])))
                 break
     
-    if live_running:
-        live_pnl_val = live_status.get("total_pnl", 0)
-        live_trades_val = live_status.get("trades_today", 0)
+    if live_statuses:
+        live_pnl_val = sum(s.get("total_pnl", 0) for s in live_statuses)
+        live_trades_val = sum(s.get("trades_today", 0) for s in live_statuses)
     
     today_pnl = paper_pnl_val + live_pnl_val
 
@@ -433,8 +440,8 @@ async def dashboard_summary(request: Request):
         "backtest_count": total_backtests,
         "paper_running": paper_running,
         "live_running": live_running,
-        "paper_strategy": paper_status.get("strategy_name", "") if paper_running else "",
-        "live_strategy": live_status.get("strategy_name", "") if live_running else "",
+        "paper_strategy": ", ".join(s.get("strategy_name", "") for s in paper_statuses) if paper_statuses else "",
+        "live_strategy": ", ".join(s.get("strategy_name", "") for s in live_statuses) if live_statuses else "",
         "today_pnl": round(today_pnl, 2),
         "paper_pnl": round(paper_pnl_val, 2),
         "live_pnl": round(live_pnl_val, 2),
@@ -539,7 +546,7 @@ async def health():
         "time":            str(datetime.now()),
         "dhan_configured": (config.DHAN_CLIENT_ID  != "YOUR_CLIENT_ID_HERE" and
                             config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"),
-        "live_running":    live_engine.running,
+        "live_running":    any(e.running for e in live_engines.values()),
     }
 
 @app.get("/api/token-status")
@@ -652,6 +659,113 @@ async def get_broker_trades():
             "message": f"Failed to fetch trades: {error_msg[:100]}",
             "trades": []
         }
+
+
+def _backfill_trade_history(from_date: str = "2024-01-01"):
+    """Fetch historical trades from Dhan and backfill trade_history.json for missing dates."""
+    try:
+        history = _load_trade_history()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        
+        # Find the latest date we already have (skip today since it's always fresh)
+        existing_dates = set(history.keys())
+        
+        # Fetch from Dhan in chunks (the API is paginated)
+        all_trades = []
+        page = 0
+        while True:
+            trades = dhan.get_trade_history(from_date, today_str, page)
+            if not trades:
+                break
+            all_trades.extend(trades)
+            if len(trades) < 500:  # Less than a full page = last page
+                break
+            page += 1
+        
+        if not all_trades:
+            print(f"[BACKFILL] No historical trades returned from Dhan for {from_date} to {today_str}")
+            return 0
+        
+        print(f"[BACKFILL] Fetched {len(all_trades)} total historical trades from Dhan")
+        
+        # Group trades by date using exchangeTime
+        trades_by_date = {}
+        for t in all_trades:
+            raw_time = t.get("exchangeTime") or t.get("createTime") or t.get("updateTime") or ""
+            date_str = str(raw_time)[:10]
+            if not date_str or len(date_str) < 10 or date_str == today_str:
+                continue  # Skip today (handled by live auto-save) and invalid dates
+            if date_str in existing_dates:
+                continue  # Already have this date
+            if date_str not in trades_by_date:
+                trades_by_date[date_str] = []
+            trades_by_date[date_str].append(t)
+        
+        # Compute P&L for each new date
+        new_dates = 0
+        for date_str, day_trades in sorted(trades_by_date.items()):
+            groups = {}
+            for t in day_trades:
+                key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
+                if key not in groups:
+                    groups[key] = {"buys": [], "sells": [], "symbol": t.get("tradingSymbol") or t.get("customSymbol") or key}
+                if t.get("transactionType") == "BUY":
+                    groups[key]["buys"].append(t)
+                elif t.get("transactionType") == "SELL":
+                    groups[key]["sells"].append(t)
+            
+            total_pnl = 0
+            trade_count = 0
+            wins = 0
+            details = []
+            for g in groups.values():
+                buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
+                sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
+                buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
+                sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
+                matched = min(buy_qty, sell_qty)
+                if matched > 0 and buy_qty > 0 and sell_qty > 0:
+                    buy_avg = buy_val / buy_qty
+                    sell_avg = sell_val / sell_qty
+                    pnl = round((sell_avg - buy_avg) * matched, 2)
+                    total_pnl += pnl
+                    trade_count += 1
+                    if pnl > 0:
+                        wins += 1
+                    details.append({"symbol": g["symbol"], "pnl": pnl, "qty": int(matched)})
+            
+            if trade_count > 0:
+                history[date_str] = {
+                    "pnl": round(total_pnl, 2),
+                    "trades": trade_count,
+                    "wins": wins,
+                    "mode": "real",
+                    "details": details,
+                }
+                new_dates += 1
+        
+        if new_dates > 0:
+            _save_trade_history(history)
+            print(f"[BACKFILL] Added {new_dates} new dates to trade_history.json")
+        else:
+            print(f"[BACKFILL] No new dates to add (all existing)")
+        
+        return new_dates
+    except Exception as e:
+        print(f"[BACKFILL] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
+@app.get("/api/portfolio/backfill")
+async def portfolio_backfill():
+    """Manually trigger historical trade backfill from Dhan."""
+    try:
+        count = _backfill_trade_history("2024-01-01")
+        return {"status": "success", "new_dates": count}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/portfolio/history")
@@ -1146,11 +1260,7 @@ async def api_run_backtest(payload: StrategyPayload):
 @app.post("/api/live/start")
 async def live_start(req: LiveStartRequest):
     """Start live auto-trading with full strategy configuration."""
-    global _live_task
-    if live_engine.running:
-        return {"status": "already_running"}
-
-    # Build strategy dict from the request (same structure as paper engine)
+    # Build strategy dict from the request
     strategy_dict = {}
     if req.strategy_config:
         strategy_dict = dict(req.strategy_config)
@@ -1177,7 +1287,16 @@ async def live_start(req: LiveStartRequest):
 
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
 
-    live_engine.configure(
+    # Generate run_id from strategy name
+    run_id = strategy_dict.get("run_name", "live") or "live"
+    
+    # Check if this specific strategy is already running
+    if run_id in live_engines and live_engines[run_id].running:
+        return {"status": "already_running", "run_id": run_id}
+
+    # Create a new engine instance for this strategy
+    engine = LiveEngine(dhan, run_id=run_id)
+    engine.configure(
         strategy=strategy_dict,
         entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
@@ -1190,52 +1309,91 @@ async def live_start(req: LiveStartRequest):
         _market_feed.subscribe_index(instrument)
         if not _market_feed.is_running:
             _market_feed.start()
-        live_engine.set_feed(_market_feed)
+        engine.set_feed(_market_feed)
 
     # Set running IMMEDIATELY so UI never sees a stale "stopped" state
-    live_engine.running = True
-    live_engine.event_log = []
-    live_engine.positions = []
-    live_engine.closed_trades = []
-    live_engine.in_trade = False
-    live_engine.trades_today = 0
+    engine.running = True
+    engine.event_log = []
+    engine.positions = []
+    engine.closed_trades = []
+    engine.in_trade = False
+    engine.trades_today = 0
 
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
             try:
-                await ws.send_json({"source": "live", **event})
+                await ws.send_json({"source": "live", "run_id": run_id, **event})
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
 
-    _live_task = asyncio.create_task(live_engine.start(callback=broadcast))
-    return {"status": "started", "message": "Auto trading started with REAL orders"}
+    # Store engine and start task
+    live_engines[run_id] = engine
+    _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    return {"status": "started", "run_id": run_id, "message": "Auto trading started with REAL orders"}
 
 
 @app.post("/api/live/stop")
-async def live_stop():
-    global _live_task
-    live_engine.stop()
-    if _live_task and not _live_task.done():
-        _live_task.cancel()
+async def live_stop(request: Request):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    run_id = body.get("run_id", "")
+    
+    # If no run_id, stop the first (or only) running engine
+    if not run_id:
+        running = [rid for rid, e in live_engines.items() if e.running]
+        if running:
+            run_id = running[0]
+        else:
+            return {"status": "not_running"}
+    
+    engine = live_engines.get(run_id)
+    if not engine:
+        return {"status": "not_found", "run_id": run_id}
+    
+    engine.stop()
+    task = _live_tasks.pop(run_id, None)
+    if task and not task.done():
+        task.cancel()
         try:
-            await _live_task
+            await task
         except asyncio.CancelledError:
             pass
-    _live_task = None
-    return {"status": "stopped"}
+    live_engines.pop(run_id, None)
+    return {"status": "stopped", "run_id": run_id}
 
 
 @app.get("/api/live/status")
-async def live_status():
-    return live_engine.get_status()
+async def live_status(run_id: str = ""):
+    """Get live engine status. If run_id empty, returns first running engine."""
+    if run_id and run_id in live_engines:
+        return live_engines[run_id].get_status()
+    # Return first running engine's status
+    for rid, engine in live_engines.items():
+        if engine.running:
+            return engine.get_status()
+    # Nothing running — return idle status
+    return {"running": False, "run_id": "", "mode": "auto", "in_trade": False,
+            "positions": [], "closed_trades": [], "total_pnl": 0, "trades_today": 0,
+            "strategy_name": "", "instrument": "", "current_candle": {},
+            "current_indicators": {}, "event_log": []}
 
 
 @app.get("/api/live/trades/csv")
-async def export_live_trades_csv():
+async def export_live_trades_csv(run_id: str = ""):
     """Export live auto-trading trades to CSV"""
     import io, csv as csv_mod
-    if not live_engine or not live_engine.closed_trades:
+    engine = live_engines.get(run_id) if run_id else None
+    if not engine:
+        # Find first engine with trades
+        for e in live_engines.values():
+            if e.closed_trades:
+                engine = e
+                break
+    if not engine or not engine.closed_trades:
         raise HTTPException(status_code=404, detail="No live trades available")
     output = io.StringIO()
     fields = ["id","leg_num","transaction_type","option_type","strike","entry_time",
@@ -1243,7 +1401,7 @@ async def export_live_trades_csv():
               "exit_reason","entry_order_id","exit_order_id"]
     writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
     writer.writeheader()
-    for t in live_engine.closed_trades:
+    for t in engine.closed_trades:
         row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
         writer.writerow(row)
     output.seek(0)
@@ -1258,10 +1416,6 @@ async def export_live_trades_csv():
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload):
     """Start paper trading with real live market data"""
-    global _paper_task
-    
-    if paper_engine.running:
-        return {"status": "already_running"}
     
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
@@ -1287,7 +1441,16 @@ async def paper_start(payload: StrategyPayload):
         "combined_sqoff_time": payload.combined_sqoff_time,
     }
     
-    paper_engine.configure(
+    # Generate run_id from strategy name
+    run_id = strategy_dict.get("run_name", "paper") or "paper"
+    
+    # Check if this specific strategy is already running
+    if run_id in paper_engines and paper_engines[run_id].running:
+        return {"status": "already_running", "run_id": run_id}
+    
+    # Create a new engine instance for this strategy
+    engine = PaperTradingEngine(dhan, run_id=run_id)
+    engine.configure(
         strategy=strategy_dict,
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS
@@ -1299,54 +1462,73 @@ async def paper_start(payload: StrategyPayload):
         _market_feed.subscribe_index(instrument)
         if not _market_feed.is_running:
             _market_feed.start()
-        paper_engine.set_feed(_market_feed)
+        engine.set_feed(_market_feed)
     
     # Set running IMMEDIATELY so UI never sees a stale "stopped" state
-    paper_engine.running = True
-    paper_engine.event_log = []
-    paper_engine.positions = []
-    paper_engine.closed_trades = []
-    paper_engine.in_trade = False
-    paper_engine.trades_today = 0
+    engine.running = True
+    engine.event_log = []
+    engine.positions = []
+    engine.closed_trades = []
+    engine.in_trade = False
+    engine.trades_today = 0
     
     # Broadcast updates to WebSocket clients
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
             try:
-                await ws.send_json({"source": "paper", **event})
+                await ws.send_json({"source": "paper", "run_id": run_id, **event})
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
     
-    # Start paper trading engine
-    _paper_task = asyncio.create_task(paper_engine.start(callback=broadcast))
+    # Store engine and start task
+    paper_engines[run_id] = engine
+    _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
     
-    return {"status": "started", "message": "Paper trading started with LIVE market data"}
+    return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
 
 @app.post("/api/paper/stop")
-async def paper_stop():
+async def paper_stop(request: Request):
     """Stop paper trading and persist results to runs.json"""
-    global _paper_task
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    run_id = body.get("run_id", "")
+    
+    # If no run_id, stop the first (or only) running engine
+    if not run_id:
+        running = [rid for rid, e in paper_engines.items() if e.running]
+        if running:
+            run_id = running[0]
+        else:
+            return {"status": "not_running"}
+    
+    engine = paper_engines.get(run_id)
+    if not engine:
+        return {"status": "not_found", "run_id": run_id}
     
     # Capture results BEFORE stopping (stop() may close positions)
-    status_before = paper_engine.get_status()
+    status_before = engine.get_status()
     
-    paper_engine.stop()
+    engine.stop()
     
-    if _paper_task and not _paper_task.done():
-        _paper_task.cancel()
+    task = _paper_tasks.pop(run_id, None)
+    if task and not task.done():
+        task.cancel()
         try:
-            await _paper_task
+            await task
         except asyncio.CancelledError:
             pass
     
-    _paper_task = None
+    paper_engines.pop(run_id, None)
     
     # Save paper run to runs.json so it persists across restarts
     _save_paper_run_to_history(status_before)
     
-    return {"status": "stopped"}
+    return {"status": "stopped", "run_id": run_id}
 
 
 def _save_paper_run_to_history(status: dict):
@@ -1396,28 +1578,83 @@ def _save_paper_run_to_history(status: dict):
 
 
 @app.get("/api/paper/status")
-async def paper_status():
-    """Get current paper trading status — if engine stopped, return last saved run."""
-    status = paper_engine.get_status()
+async def paper_status(run_id: str = ""):
+    """Get paper trading status. If run_id empty, returns first running engine."""
+    if run_id and run_id in paper_engines:
+        return paper_engines[run_id].get_status()
     
-    # If engine not running and has no trades, check if there's a last saved paper run
-    if not status.get("running") and not status.get("closed_trades"):
+    # Return first running engine's status
+    for rid, engine in paper_engines.items():
+        if engine.running:
+            return engine.get_status()
+    
+    # No running engines — check for last saved paper run from history
+    status = {"running": False, "run_id": "", "mode": "paper", "in_trade": False,
+              "positions": [], "closed_trades": [], "total_pnl": 0, "trades_today": 0,
+              "strategy_name": "", "instrument": "", "current_candle": {},
+              "current_indicators": {}, "event_log": []}
+    try:
+        runs = _load_runs()
+        paper_runs = [r for r in runs if r.get("mode") == "paper"]
+        if paper_runs:
+            last = paper_runs[-1]
+            trades = last.get("trades", [])
+            status["strategy_name"] = last.get("run_name", "Last Paper Run")
+            status["instrument"] = last.get("instrument", "")
+            status["closed_trades"] = trades
+            status["trades_today"] = len(trades)
+            status["total_pnl"] = last.get("total_pnl", 0)
+            status["_from_history"] = True
+    except Exception:
+        pass
+    
+    return status
+
+
+# ── Combined Engines Status (Multi-Strategy Monitor) ─────────────
+@app.get("/api/engines/all")
+async def engines_all():
+    """Return status of ALL running engines (paper + live) for multi-strategy Live page."""
+    engines = []
+    
+    # Add all paper engines
+    for run_id, engine in paper_engines.items():
+        if engine.running:
+            st = engine.get_status()
+            st["run_id"] = run_id
+            st["mode"] = "paper"
+            engines.append(st)
+    
+    # Add all live engines
+    for run_id, engine in live_engines.items():
+        if engine.running:
+            st = engine.get_status()
+            st["run_id"] = run_id
+            st["mode"] = "auto"
+            engines.append(st)
+    
+    # If nothing running, show last paper run from history
+    if not engines:
         try:
             runs = _load_runs()
             paper_runs = [r for r in runs if r.get("mode") == "paper"]
             if paper_runs:
                 last = paper_runs[-1]
                 trades = last.get("trades", [])
-                status["strategy_name"] = last.get("run_name", "Last Paper Run")
-                status["instrument"] = last.get("instrument", "")
-                status["closed_trades"] = trades
-                status["trades_today"] = len(trades)
-                status["total_pnl"] = last.get("total_pnl", 0)
-                status["_from_history"] = True
+                engines.append({
+                    "running": False, "run_id": "", "mode": "paper",
+                    "in_trade": False, "positions": [], "closed_trades": trades,
+                    "total_pnl": last.get("total_pnl", 0),
+                    "trades_today": len(trades),
+                    "strategy_name": last.get("run_name", "Last Paper Run"),
+                    "instrument": last.get("instrument", ""),
+                    "current_candle": {}, "current_indicators": {},
+                    "event_log": [], "_from_history": True,
+                })
         except Exception:
             pass
     
-    return status
+    return {"engines": engines, "count": len(engines)}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────
@@ -1432,14 +1669,14 @@ async def websocket_endpoint(ws: WebSocket):
     ws_clients.append(ws)
     try:
         while True:
-            paper_st = paper_engine.get_status()
-            live_st = live_engine.get_status()
+            paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
+            live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
             await ws.send_json({
                 "type": "status",
-                "paper": paper_st,
-                "live": live_st,
-                "paper_running": paper_st.get("running", False),
-                "live_running": live_st.get("running", False),
+                "paper_engines": paper_sts,
+                "live_engines": live_sts,
+                "paper_running": any(s.get("running") for s in paper_sts.values()),
+                "live_running": any(s.get("running") for s in live_sts.values()),
             })
             await asyncio.sleep(5)
     except (WebSocketDisconnect, Exception):
@@ -1689,16 +1926,23 @@ async def export_run_csv(rid: int):
     )
 
 @app.get("/api/paper/trades/csv")
-async def export_paper_trades_csv():
+async def export_paper_trades_csv(run_id: str = ""):
     """Export paper trading trades to CSV"""
     import io, csv
-    if not paper_engine or not paper_engine.closed_trades:
+    engine = paper_engines.get(run_id) if run_id else None
+    if not engine:
+        # Find first engine with trades
+        for e in paper_engines.values():
+            if e.closed_trades:
+                engine = e
+                break
+    if not engine or not engine.closed_trades:
         raise HTTPException(status_code=404, detail="No paper trades available")
     output = io.StringIO()
     fields = ["id","leg_num","transaction_type","option_type","strike","entry_time","exit_time","entry_premium","exit_premium","lots","lot_size","pnl","exit_reason"]
     writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
     writer.writeheader()
-    for t in paper_engine.closed_trades:
+    for t in engine.closed_trades:
         row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
         writer.writerow(row)
     output.seek(0)
@@ -1915,6 +2159,18 @@ async def _start_token_renewal():
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
     if _market_feed:
         print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
+    
+    # Auto-backfill trade history from Dhan on first startup if empty
+    try:
+        history = _load_trade_history()
+        if len(history) <= 1:  # Only today or empty
+            print("📊 [BACKFILL] Auto-backfilling trade history from Dhan...")
+            count = _backfill_trade_history("2024-01-01")
+            print(f"📊 [BACKFILL] Done — added {count} days of historical trades")
+        else:
+            print(f"📊 [TRADE_HISTORY] Loaded {len(history)} days of trade data")
+    except Exception as e:
+        print(f"📊 [BACKFILL] Startup backfill failed: {e}")
 
 
 @app.on_event("shutdown")

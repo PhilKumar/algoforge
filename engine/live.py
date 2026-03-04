@@ -44,11 +44,12 @@ class LiveEngine:
     - Tracks positions, P&L and order status
     """
 
-    def __init__(self, dhan: DhanClient = None):
+    def __init__(self, dhan: DhanClient = None, run_id: str = None):
         self.dhan = dhan or DhanClient()
         self.running = False
         self.session_date = None
         self.mode = "auto"  # "auto" for real orders
+        self.run_id = run_id  # Unique ID for multi-engine support
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None          # LiveMarketFeed instance
@@ -1076,6 +1077,7 @@ class LiveEngine:
 
         return {
             "running": self.running,
+            "run_id": self.run_id or "",
             "mode": self.mode,
             "in_trade": self.in_trade,
             "current_spot": self.current_spot,

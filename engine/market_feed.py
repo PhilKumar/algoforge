@@ -73,8 +73,8 @@ class CandleAggregator:
         # Completed candles
         self.candles: List[dict] = []
 
-        # Callback: fired when a candle closes (with full DataFrame + latest)
-        self.on_candle_close: Optional[Callable] = None
+        # Callbacks: fired when a candle closes (with full DataFrame + latest)
+        self.on_candle_close: List[Callable] = []
 
     def _get_slot(self, ts: datetime) -> datetime:
         """Get the candle slot start time for a given timestamp."""
@@ -124,13 +124,14 @@ class CandleAggregator:
         if len(self.candles) > self.max_candles:
             self.candles = self.candles[-self.max_candles:]
 
-        # Fire callback
+        # Fire all callbacks
         if self.on_candle_close:
-            try:
-                df = self.to_dataframe()
-                self.on_candle_close(df, candle)
-            except Exception as e:
-                print(f"[FEED] Candle close callback error: {e}")
+            df = self.to_dataframe()
+            for cb in self.on_candle_close:
+                try:
+                    cb(df, candle)
+                except Exception as e:
+                    print(f"[FEED] Candle close callback error: {e}")
 
     def force_close(self):
         """Force-close the current forming candle (e.g. at EOD)."""
@@ -305,8 +306,19 @@ class LiveMarketFeed:
         sec_id_int = int(info[0])
         label = self._index_sec_ids.get(sec_id_int, f"IDX_{instrument_id}")
 
+        # Use composite key so same instrument with same timeframe shares aggregator
+        agg_key = f"{label}_{timeframe}m"
+
+        if agg_key in self._aggregators:
+            # Aggregator exists — just add the callback
+            agg = self._aggregators[agg_key]
+            if callback not in agg.on_candle_close:
+                agg.on_candle_close.append(callback)
+            print(f"[FEED] Added callback to existing aggregator: {agg_key}")
+            return
+
         agg = CandleAggregator(timeframe_minutes=timeframe, max_candles=500)
-        agg.on_candle_close = callback
+        agg.on_candle_close = [callback]
 
         # Pre-seed with historical candles if provided
         if history_df is not None and not history_df.empty:
@@ -322,8 +334,21 @@ class LiveMarketFeed:
             if agg.candles:
                 agg.candles = agg.candles[-agg.max_candles:]
 
-        self._aggregators[label] = agg
-        print(f"[FEED] Candle aggregator set: {label} @ {timeframe}m")
+        self._aggregators[agg_key] = agg
+        print(f"[FEED] Candle aggregator set: {agg_key}")
+
+    def remove_candle_callback(self, instrument_id: str, timeframe: int, callback: Callable):
+        """Remove a specific callback from a candle aggregator."""
+        info = self.INDEX_MAP.get(instrument_id)
+        if not info:
+            return
+        sec_id_int = int(info[0])
+        label = self._index_sec_ids.get(sec_id_int, f"IDX_{instrument_id}")
+        agg_key = f"{label}_{timeframe}m"
+        agg = self._aggregators.get(agg_key)
+        if agg and callback in agg.on_candle_close:
+            agg.on_candle_close.remove(callback)
+            print(f"[FEED] Removed callback from aggregator: {agg_key}")
 
     # ── LTP Access ────────────────────────────────────────────
 
@@ -448,10 +473,13 @@ class LiveMarketFeed:
             }
 
         # Feed into candle aggregators (for index instruments)
+        # Aggregator keys are "{label}_{timeframe}m" — feed all matching this label
         label = self._index_sec_ids.get(sec_id)
-        if label and label in self._aggregators:
+        if label:
             vol = int(data.get("volume", 0))
-            self._aggregators[label].feed_tick(price=ltp, volume=vol, ts=now)
+            for agg_key, agg in self._aggregators.items():
+                if agg_key.startswith(label + "_"):
+                    agg.feed_tick(price=ltp, volume=vol, ts=now)
 
         # Fire tick callbacks
         for cb in self._tick_callbacks:

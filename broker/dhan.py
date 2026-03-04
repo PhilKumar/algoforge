@@ -630,6 +630,42 @@ class DhanClient:
         except requests.exceptions.ConnectionError:
             raise Exception("Connection error - unable to reach Dhan servers")
 
+    def get_trade_history(self, from_date: str, to_date: str, page: int = 0) -> list:
+        """Get historical trade book for a date range.
+        
+        Uses Dhan Statement API: GET /v2/trades/{from-date}/{to-date}/{page}
+        Returns paginated results - pass page=0 as default.
+        
+        Args:
+            from_date: Start date in YYYY-MM-DD format
+            to_date: End date in YYYY-MM-DD format  
+            page: Page number (0-indexed)
+        """
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not configured")
+        
+        try:
+            resp = requests.get(
+                f"{self.base_url}/v2/trades/{from_date}/{to_date}/{page}",
+                headers=self.headers,
+                timeout=15,
+            )
+            
+            print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
+            
+            if resp.status_code != 200:
+                print(f"[DHAN] Trade history error: {resp.text[:200]}")
+                return []
+            
+            data = resp.json()
+            trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
+            print(f"[DHAN] ✅ Retrieved {len(trades)} historical trades")
+            return trades
+                
+        except Exception as e:
+            print(f"[DHAN] Trade history error: {e}")
+            return []
+
     def cancel_order(self, order_id: str) -> dict:
         resp = requests.delete(
             f"{self.base_url}/v2/orders/{order_id}",
