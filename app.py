@@ -741,6 +741,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
             total_pnl = 0
             total_charges = 0
             trade_count = 0
+            trade_legs = len(day_trades)  # Total individual trade legs (matches Dhan's count)
             wins = 0
             details = []
             for g in groups.values():
@@ -778,6 +779,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     "net_pnl": round(total_pnl - total_charges, 2),
                     "charges": round(total_charges, 2),
                     "trades": trade_count,
+                    "trade_legs": trade_legs,
                     "wins": wins,
                     "mode": "real",
                     "details": details,
@@ -822,11 +824,12 @@ async def get_portfolio_history():
         real_history = _load_trade_history()
         for date_str, entry in real_history.items():
             if date_str not in daily:
-                daily[date_str] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                daily[date_str] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "real_trade_legs": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
             daily[date_str]["real_pnl"] = entry.get("pnl", 0)
             daily[date_str]["real_net_pnl"] = entry.get("net_pnl", entry.get("pnl", 0))
             daily[date_str]["real_charges"] = entry.get("charges", 0)
             daily[date_str]["real_trades"] = entry.get("trades", 0)
+            daily[date_str]["real_trade_legs"] = entry.get("trade_legs", entry.get("trades", 0))
             daily[date_str]["real_wins"] = entry.get("wins", 0)
         
         # 2) Paper runs from runs.json

@@ -5060,7 +5060,7 @@ function renderMonthlyDailyGrid() {
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
-  let totalPnl = 0, totalNetPnl = 0, totalCharges = 0, totalTrades = 0, totalWins = 0, tradingDays = 0, profitDays = 0;
+  let totalPnl = 0, totalNetPnl = 0, totalCharges = 0, totalTrades = 0, totalTradeLegs = 0, totalWins = 0, tradingDays = 0, profitDays = 0;
   
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
@@ -5070,12 +5070,14 @@ function renderMonthlyDailyGrid() {
       const netPnl = (entry.real_net_pnl || entry.real_pnl || 0) + (entry.paper_pnl || 0);
       const charges = entry.real_charges || 0;
       const trades = (entry.real_trades || 0) + (entry.paper_trades || 0);
+      const tradeLegs = (entry.real_trade_legs || entry.real_trades || 0) + (entry.paper_trades || 0);
       const wins = (entry.real_wins || 0) + (entry.paper_wins || 0);
-      dayEntries.push({ day: d, dateStr, pnl, netPnl, charges, trades, wins, real: entry.real_pnl || 0, paper: entry.paper_pnl || 0 });
+      dayEntries.push({ day: d, dateStr, pnl, netPnl, charges, trades, tradeLegs, wins, real: entry.real_pnl || 0, paper: entry.paper_pnl || 0 });
       totalPnl += pnl;
       totalNetPnl += netPnl;
       totalCharges += charges;
       totalTrades += trades;
+      totalTradeLegs += tradeLegs;
       totalWins += wins;
       tradingDays++;
       if (pnl > 0) profitDays++;
@@ -5097,7 +5099,7 @@ function renderMonthlyDailyGrid() {
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTrades}</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTradeLegs}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Charges</div>
@@ -5154,7 +5156,7 @@ function renderMonthlyDailyGrid() {
       const dateLabel = MONTH_NAMES_SHORT[dateObj.getMonth()] + ' ' + e.day + ', ' + dateObj.getFullYear();
       thtml += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
-        <td style="padding: 10px 8px; text-align: center;">${e.trades}</td>
+        <td style="padding: 10px 8px; text-align: center;">${e.tradeLegs}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.pnl.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netPnl.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
