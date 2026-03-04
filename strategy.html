@@ -253,6 +253,19 @@
   .flex-row { display: flex; gap: 10px; align-items: center; }
   .condition-row { flex-wrap: wrap; }
   .condition-row select { font-size: 12px; padding: 8px 6px; }
+  .condition-connector {
+    display: flex; justify-content: center; align-items: center; margin: 2px 0;
+  }
+  .condition-connector select {
+    background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.3);
+    color: var(--accent); font-weight: 700; font-size: 11px; text-align: center;
+    padding: 3px 16px; border-radius: 10px; cursor: pointer; letter-spacing: 1px;
+  }
+  .condition-connector .logic-label {
+    background: rgba(0,200,150,0.08); border: 1px solid rgba(0,200,150,0.2);
+    color: var(--accent); font-weight: 600; font-size: 11px; text-align: center;
+    padding: 3px 16px; border-radius: 10px; letter-spacing: 1px;
+  }
 
   /* ── MODAL ── */
   .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 2000; display: none; align-items: center; justify-content: center; }
@@ -1189,11 +1202,19 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px;">
           <div>
-            <label>Strategy SL <select id="sl-type" style="display:inline;width:auto;padding:2px 4px;font-size:10px;min-height:0;" onchange="document.getElementById('sl-type-label').textContent=this.value==='pct'?'%':'₹'"><option value="pct">%</option><option value="rupees">₹</option></select></label>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Strategy SL
+              <select id="sl-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;" onchange="document.getElementById('sl-type-label').textContent=this.value==='pct'?'%':'₹'">
+                <option value="pct">%</option><option value="rupees">₹</option>
+              </select>
+            </label>
             <input type="number" id="txn-sl" placeholder="0 = none" step="0.1" min="0">
           </div>
           <div>
-            <label>Target Profit <select id="tp-type" style="display:inline;width:auto;padding:2px 4px;font-size:10px;min-height:0;" onchange="document.getElementById('tp-type-label').textContent=this.value==='pct'?'%':'₹'"><option value="pct">%</option><option value="rupees">₹</option></select></label>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Target Profit
+              <select id="tp-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;" onchange="document.getElementById('tp-type-label').textContent=this.value==='pct'?'%':'₹'">
+                <option value="pct">%</option><option value="rupees">₹</option>
+              </select>
+            </label>
             <input type="number" id="target-profit" placeholder="0 = none" step="0.1" min="0">
           </div>
         </div>
@@ -1993,14 +2014,14 @@ function generateRandomID() { return Math.floor(100000 + Math.random() * 900000)
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {
-  '26000': 75,  // NIFTY 50 (65 from Jan 2026, but use 75 as standard)
-  '26009': 30,  // BANK NIFTY (was 25 pre-2026)
-  '26017': 65,  // FINNIFTY (was 40 pre-2026)
-  '1': 20,      // SENSEX (was 10 pre-2026)
+  '26000': 65,  // NIFTY 50 (65 from Jan 2026)
+  '26009': 30,  // BANK NIFTY (30 from Jan 2026)
+  '26017': 65,  // FINNIFTY (65 from Jan 2026)
+  '1': 20,      // SENSEX (20 from Jan 2026)
   '26037': 75,  // NIFTY MIDCAP
 };
 function _getLotSizeForInstrument(instCode) {
-  return INSTRUMENT_LOT_MAP[String(instCode)] || 75;
+  return INSTRUMENT_LOT_MAP[String(instCode)] || 65;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2901,7 +2922,16 @@ function loadStrategy(id) {
         row.querySelector('.right-num').style.display = 'block';
         row.querySelector('.right-num').value = cond.right_number_value || '';
       }
-      if (i > 0 && row.querySelector('.logic-op')) row.querySelector('.logic-op').value = cond.logic || 'AND';
+      if (i > 0) {
+        const connector = row.previousElementSibling;
+        if (connector && connector.classList.contains('condition-connector')) {
+          const logicSel = connector.querySelector('.logic-op');
+          if (logicSel) {
+            logicSel.value = cond.logic || 'AND';
+            logicSel.dispatchEvent(new Event('change'));
+          }
+        }
+      }
     });
   } else { addConditionRow('entry'); }
 
@@ -2922,7 +2952,16 @@ function loadStrategy(id) {
         row.querySelector('.right-num').style.display = 'block';
         row.querySelector('.right-num').value = cond.right_number_value || '';
       }
-      if (i > 0 && row.querySelector('.logic-op')) row.querySelector('.logic-op').value = cond.logic || 'AND';
+      if (i > 0) {
+        const connector = row.previousElementSibling;
+        if (connector && connector.classList.contains('condition-connector')) {
+          const logicSel = connector.querySelector('.logic-op');
+          if (logicSel) {
+            logicSel.value = cond.logic || 'AND';
+            logicSel.dispatchEvent(new Event('change'));
+          }
+        }
+      }
     });
   } else { addConditionRow('exit'); }
 
@@ -3144,12 +3183,21 @@ function addConditionRow(type) {
   }
   const rowId = conditionCounters[type]++;
   const isFirst = container.children.length === 0;
+  
+  // If not first row, insert a centered AND/OR connector between rows
+  if (!isFirst) {
+    const connector = document.createElement('div');
+    connector.className = 'condition-connector';
+    connector.id = `${type}-connector-${rowId}`;
+    connector.innerHTML = `<select class="logic-op" onchange="this.style.background=this.value==='OR'?'rgba(245,158,11,0.12)':'rgba(0,200,150,0.12)';this.style.borderColor=this.value==='OR'?'rgba(245,158,11,0.3)':'rgba(0,200,150,0.3)';this.style.color=this.value==='OR'?'var(--warn)':'var(--accent)'"><option value="AND">AND</option><option value="OR">OR</option></select>`;
+    container.appendChild(connector);
+  }
+  
   const row = document.createElement('div');
   row.className = 'flex-row condition-row'; row.id = `${type}-row-${rowId}`;
-  const logicHTML = isFirst ? `<span style="width:70px;font-weight:600;color:var(--muted);text-align:center;">If</span>` : `<select class="logic-op" style="width:70px"><option value="AND">AND</option><option value="OR">OR</option></select>`;
   let lhsOpts = buildLHSOptions();
   let rhsOpts = buildRHSOptions(null);
-  row.innerHTML = `${logicHTML}
+  row.innerHTML = `
     <select class="condition-tf" style="width:55px;font-size:10px;padding:6px 4px;" title="Timeframe for this condition">
       <option value="" selected>TF</option>
       <option value="1m">1m</option>
@@ -3280,11 +3328,19 @@ function updateDayLabel(cb) {
 
 function removeConditionRow(type, id) {
   const r = document.getElementById(`${type}-row-${id}`);
+  const c = document.getElementById(`${type}-connector-${id}`);
+  if(c) c.remove();
   if(r) r.remove();
-  // Reset counter if all conditions are deleted
+  // If first row was deleted, remove the connector of the new first row
   const container = document.getElementById(`${type}-conditions-container`);
-  if (container && container.children.length === 0) {
-    conditionCounters[type] = 0;
+  if (container) {
+    const firstChild = container.firstElementChild;
+    if (firstChild && firstChild.classList.contains('condition-connector')) {
+      firstChild.remove(); // remove orphaned connector at top
+    }
+    if (container.children.length === 0) {
+      conditionCounters[type] = 0;
+    }
   }
 }
 function toggleNumberInput(sel) {
@@ -3340,7 +3396,17 @@ function gatherConditions(type) {
   rows.forEach((row, i) => {
     const lhs = row.querySelector('.left-op').value;
     const op = row.querySelector('.operator').value;
-    const logic = i === 0 ? "IF" : (row.querySelector('.logic-op') ? row.querySelector('.logic-op').value : "AND");
+    // Logic connector: for first row it's "IF", otherwise look in the preceding connector div
+    let logic = "IF";
+    if (i > 0) {
+      const prevEl = row.previousElementSibling;
+      if (prevEl && prevEl.classList.contains('condition-connector')) {
+        const logicSel = prevEl.querySelector('.logic-op');
+        logic = logicSel ? logicSel.value : "AND";
+      } else {
+        logic = "AND";
+      }
+    }
     const tfSel = row.querySelector('.condition-tf');
     const timeframe = tfSel ? tfSel.value : '';
     if (lhs === 'Time_Of_Day') {
@@ -3641,7 +3707,7 @@ function buildPayload() {
     from_date: document.getElementById('bt-from-date').value,
     to_date: document.getElementById('bt-to-date').value,
     lots: legs.length > 0 ? parseInt(legs[0].lots || 1) : 1,
-    lot_size: 0,  // Auto-detected per date in backend (NIFTY: 75 before Jan 2026, 65 after)
+    lot_size: 0,  // Auto-detected per date in backend (NIFTY: 65 from Jan 2026, 75 before)
     stoploss_pct: document.getElementById('sl-type').value === 'pct' ? parseFloat(document.getElementById('txn-sl').value || 0) : 0,
     stoploss_rupees: document.getElementById('sl-type').value === 'rupees' ? parseFloat(document.getElementById('txn-sl').value || 0) : 0,
     sl_type: document.getElementById('sl-type').value,

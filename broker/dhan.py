@@ -262,10 +262,10 @@ class ScripMaster:
         lot = cls._lot_cache.get(f"{symbol}_{expiry}", 0)
         if lot > 0:
             return lot
-        # Fallback defaults
-        defaults = {"NIFTY": 75, "BANKNIFTY": 15, "FINNIFTY": 25,
-                    "MIDCPNIFTY": 50, "SENSEX": 10}
-        return defaults.get(symbol, 75)
+        # Fallback defaults (current as of Jan 2026)
+        defaults = {"NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 65,
+                    "MIDCPNIFTY": 50, "SENSEX": 20}
+        return defaults.get(symbol, 65)
 
     @classmethod
     def instrument_to_symbol(cls, instrument_id: str) -> str:

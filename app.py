@@ -735,12 +735,14 @@ INSTRUMENT_MAP = {
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
+INTRADAY_MAX_DAYS = 700  # Dhan intraday API returns ~2 years max; use 700 days as threshold
+
 def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5") -> pd.DataFrame:
     """
-    Fetches intraday OHLCV candles from Dhan API at specified interval.
-    For date ranges > 30 days, automatically chunks into 30-day windows
-    and concatenates the results. This gives us proper intraday data
-    with exact timestamps for entry/exit.
+    Fetches OHLCV candles from Dhan API at specified interval.
+    - For date ranges ≤ ~2 years: fetches intraday candles in 28-day chunks.
+    - For date ranges > ~2 years: automatically falls back to DAILY candles
+      (Dhan historical API supports 10+ years of daily data).
     """
     inst_info = INSTRUMENT_MAP.get(instrument)
     if not inst_info:
@@ -751,11 +753,39 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
     to_dt   = dt.strptime(to_date, "%Y-%m-%d")
     day_span = (to_dt - from_dt).days
     
-    CHUNK_DAYS = 28  # Dhan intraday API limit ~30 days, use 28 for safety
+    # Auto-detect: if range > ~2 years, use daily candles (Dhan intraday limit)
+    use_daily = day_span > INTRADAY_MAX_DAYS
+    effective_interval = "D" if use_daily else str(candle_interval)
+    
+    if use_daily:
+        print(f"[DATA] ⚠️  Date range is {day_span} days (>{INTRADAY_MAX_DAYS}d). "
+              f"Auto-switching to DAILY candles for full coverage.")
     
     print(f"[DATA] Instrument={instrument} ({inst_info['name']}), DhanID={inst_info['dhan_id']}, "
-          f"Segment={inst_info['dhan_seg']}, Interval={candle_interval}m, From={from_date}, To={to_date}, Span={day_span}d")
+          f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else candle_interval + 'm'}, "
+          f"From={from_date}, To={to_date}, Span={day_span}d")
     
+    if use_daily:
+        # Daily candles — single request, no chunking needed
+        try:
+            df = dhan.get_historical_data(
+                security_id=inst_info["dhan_id"],
+                exchange_segment=inst_info["dhan_seg"],
+                instrument_type=inst_info["dhan_type"],
+                from_date=from_date,
+                to_date=to_date,
+                candle_type="D",
+            )
+            if df is not None and not df.empty:
+                df = df[~df.index.duplicated(keep='first')]
+                print(f"[DATA] ✅ Total: {len(df)} daily candles, {df.index[0]} → {df.index[-1]}")
+                return df
+        except Exception as e:
+            raise Exception(f"Daily data fetch failed: {str(e)}")
+        raise Exception(f"No daily data from Dhan for {inst_info['name']}.")
+    
+    # Intraday candles — chunk into 28-day windows
+    CHUNK_DAYS = 28
     all_dfs = []
     chunk_start = from_dt
     chunk_num = 0
@@ -777,7 +807,7 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
                 instrument_type=inst_info["dhan_type"],
                 from_date=cs,
                 to_date=ce,
-                candle_type=str(candle_interval),  # Use dynamic interval
+                candle_type=effective_interval,
             )
             if df_chunk is not None and not df_chunk.empty:
                 all_dfs.append(df_chunk)
@@ -864,16 +894,27 @@ async def api_run_backtest(payload: StrategyPayload):
 
         print(f"[BACKTEST] Data: {len(df_raw)} candles, {df_raw.index[0]} → {df_raw.index[-1]}")
 
-        # Warn if actual data range is shorter than requested
+        # Warn if actual data range is shorter than requested, or if using daily candles
         data_range_warning = None
-        actual_start = str(df_raw.index[0].date()) if hasattr(df_raw.index[0], 'date') else str(df_raw.index[0])[:10]
-        if actual_start > from_date:
+        from datetime import datetime as _dtw
+        _from_dt = _dtw.strptime(from_date, "%Y-%m-%d")
+        _to_dt = _dtw.strptime(to_date, "%Y-%m-%d")
+        _day_span = (_to_dt - _from_dt).days
+        if _day_span > INTRADAY_MAX_DAYS:
             data_range_warning = (
-                f"⚠️ Dhan intraday API returned data from {actual_start} only "
-                f"(requested {from_date}). Intraday data is limited to ~2 years. "
-                f"Use daily candles for longer backtests."
+                f"📊 Date range is {_day_span} days — automatically using DAILY candles "
+                f"for full {from_date} → {to_date} coverage. "
+                f"(Dhan intraday API is limited to ~2 years. Daily candles go back 10+ years.)"
             )
             print(f"[BACKTEST] {data_range_warning}")
+        else:
+            actual_start = str(df_raw.index[0].date()) if hasattr(df_raw.index[0], 'date') else str(df_raw.index[0])[:10]
+            if actual_start > from_date:
+                data_range_warning = (
+                    f"⚠️ Data starts from {actual_start} (requested {from_date}). "
+                    f"Some data may not be available for the requested period."
+                )
+                print(f"[BACKTEST] {data_range_warning}")
 
         # 2. Build strategy_config
         strategy_config = payload.model_dump()
