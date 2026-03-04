@@ -630,6 +630,13 @@ async def get_broker_trades():
         trades_result = dhan.get_trades()
         trades = trades_result if isinstance(trades_result, list) else []
         
+        # Auto-persist daily trade summary for portfolio history
+        if trades:
+            try:
+                _persist_daily_trades(trades)
+            except Exception as pe:
+                print(f"[TRADE_HISTORY] Persist error: {pe}")
+        
         return {
             "status": "success",
             "broker": "Dhan",
@@ -645,6 +652,102 @@ async def get_broker_trades():
             "message": f"Failed to fetch trades: {error_msg[:100]}",
             "trades": []
         }
+
+
+@app.get("/api/portfolio/history")
+async def get_portfolio_history():
+    """Return combined historical P&L from real trades + paper runs for monthly/yearly charts."""
+    try:
+        daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
+        
+        # 1) Real trade history from trade_history.json
+        real_history = _load_trade_history()
+        for date_str, entry in real_history.items():
+            if date_str not in daily:
+                daily[date_str] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+            daily[date_str]["real_pnl"] = entry.get("pnl", 0)
+            daily[date_str]["real_trades"] = entry.get("trades", 0)
+            daily[date_str]["real_wins"] = entry.get("wins", 0)
+        
+        # 2) Paper runs from runs.json
+        runs = _load_runs()
+        for r in runs:
+            if r.get("mode") != "paper":
+                continue
+            # Extract date from the paper run
+            run_date = None
+            started = r.get("started_at", r.get("created_at", ""))
+            if started:
+                run_date = str(started)[:10]  # YYYY-MM-DD
+            
+            # Also extract per-trade dates for more granular breakdown
+            trades = r.get("trades", [])
+            if trades:
+                # Group paper trades by exit_time date
+                paper_by_date = {}
+                for t in trades:
+                    t_date = str(t.get("exit_time", t.get("entry_time", "")))[:10]
+                    if not t_date or len(t_date) < 10:
+                        t_date = run_date or ""
+                    if not t_date:
+                        continue
+                    if t_date not in paper_by_date:
+                        paper_by_date[t_date] = {"pnl": 0, "count": 0, "wins": 0}
+                    pnl = t.get("pnl", 0)
+                    paper_by_date[t_date]["pnl"] += pnl
+                    paper_by_date[t_date]["count"] += 1
+                    if pnl > 0:
+                        paper_by_date[t_date]["wins"] += 1
+                
+                for d, data in paper_by_date.items():
+                    if d not in daily:
+                        daily[d] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                    daily[d]["paper_pnl"] += round(data["pnl"], 2)
+                    daily[d]["paper_trades"] += data["count"]
+                    daily[d]["paper_wins"] += data["wins"]
+            elif run_date:
+                # No individual trades, use run-level P&L
+                if run_date not in daily:
+                    daily[run_date] = {"real_pnl": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                daily[run_date]["paper_pnl"] += r.get("total_pnl", 0)
+                daily[run_date]["paper_trades"] += r.get("trade_count", 0)
+                stats = r.get("stats", {})
+                daily[run_date]["paper_wins"] += stats.get("winning_trades", 0)
+        
+        # Build monthly and yearly aggregates
+        monthly = {}
+        yearly = {}
+        for date_str, d in daily.items():
+            ym = date_str[:7]
+            y = date_str[:4]
+            if ym not in monthly:
+                monthly[ym] = {"real_pnl": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+            monthly[ym]["real_pnl"] += d["real_pnl"]
+            monthly[ym]["paper_pnl"] += d["paper_pnl"]
+            monthly[ym]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
+            monthly[ym]["trades"] += d["real_trades"] + d["paper_trades"]
+            monthly[ym]["wins"] += d["real_wins"] + d["paper_wins"]
+            
+            if y not in yearly:
+                yearly[y] = {"real_pnl": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+            yearly[y]["real_pnl"] += d["real_pnl"]
+            yearly[y]["paper_pnl"] += d["paper_pnl"]
+            yearly[y]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
+            yearly[y]["trades"] += d["real_trades"] + d["paper_trades"]
+            yearly[y]["wins"] += d["real_wins"] + d["paper_wins"]
+        
+        # Round all values
+        for m in monthly.values():
+            for k in ["real_pnl", "paper_pnl", "total_pnl"]:
+                m[k] = round(m[k], 2)
+        for y in yearly.values():
+            for k in ["real_pnl", "paper_pnl", "total_pnl"]:
+                y[k] = round(y[k], 2)
+        
+        return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}
+    except Exception as e:
+        print(f"[PORTFOLIO] History error: {e}")
+        return {"status": "error", "message": str(e), "daily": {}, "monthly": {}, "yearly": {}}
 
 
 @app.post("/api/broker/connect")
@@ -1387,6 +1490,80 @@ async def cancel_order(order_id: str):
 # ── Strategy CRUD ─────────────────────────────────────────────────
 STRAT_FILE = "strategies.json"
 RUNS_FILE  = "runs.json"
+TRADE_HISTORY_FILE = "trade_history.json"
+
+
+def _load_trade_history():
+    if os.path.exists(TRADE_HISTORY_FILE):
+        try:
+            with open(TRADE_HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+
+def _save_trade_history(d):
+    with open(TRADE_HISTORY_FILE, 'w') as f:
+        json.dump(d, f, indent=2)
+
+
+def _persist_daily_trades(trades: list):
+    """Auto-save today's real Dhan trade P&L summary to trade_history.json."""
+    if not trades:
+        return
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # Pair BUY/SELL per securityId to compute real P&L
+    groups = {}
+    for t in trades:
+        key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
+        if key not in groups:
+            groups[key] = {"buys": [], "sells": [], "symbol": t.get("tradingSymbol", key)}
+        if t.get("transactionType") == "BUY":
+            groups[key]["buys"].append(t)
+        elif t.get("transactionType") == "SELL":
+            groups[key]["sells"].append(t)
+    
+    total_pnl = 0
+    trade_count = 0
+    wins = 0
+    trade_details = []
+    for g in groups.values():
+        buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
+        sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
+        buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
+        sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
+        matched = min(buy_qty, sell_qty)
+        if matched > 0 and buy_qty > 0 and sell_qty > 0:
+            buy_avg = buy_val / buy_qty
+            sell_avg = sell_val / sell_qty
+            pnl = round((sell_avg - buy_avg) * matched, 2)
+            total_pnl += pnl
+            trade_count += 1
+            if pnl > 0:
+                wins += 1
+            trade_details.append({
+                "symbol": g["symbol"],
+                "pnl": pnl,
+                "qty": int(matched),
+                "buy_avg": round(buy_avg, 2),
+                "sell_avg": round(sell_avg, 2),
+            })
+    
+    if trade_count == 0:
+        return
+    
+    history = _load_trade_history()
+    history[today_str] = {
+        "pnl": round(total_pnl, 2),
+        "trades": trade_count,
+        "wins": wins,
+        "mode": "real",
+        "details": trade_details,
+    }
+    _save_trade_history(history)
+    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades, P&L=₹{total_pnl:.2f}")
 
 def _load(): 
     if os.path.exists(STRAT_FILE):
