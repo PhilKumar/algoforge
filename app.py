@@ -389,12 +389,32 @@ async def dashboard_summary(request: Request):
     paper_status = paper_engine.get_status() if paper_running else {}
     live_status = live_engine.get_status() if live_running else {}
 
-    # Today's P&L from engines
-    today_pnl = 0
+    # Today's P&L from engines (+ history for idle engines)
+    paper_pnl_val = 0
+    paper_trades_val = 0
+    live_pnl_val = 0
+    live_trades_val = 0
+    
     if paper_running:
-        today_pnl += paper_status.get("total_pnl", 0)
+        paper_pnl_val = paper_status.get("total_pnl", 0)
+        paper_trades_val = paper_status.get("trades_today", 0)
+    else:
+        # Show last paper run P&L from today (from runs.json)
+        from datetime import date as _date
+        today_str = str(_date.today())
+        for r in reversed(runs):
+            if r.get("mode") == "paper":
+                created = r.get("created_at", "")
+                if created.startswith(today_str):
+                    paper_pnl_val = r.get("total_pnl", 0)
+                    paper_trades_val = r.get("trade_count", len(r.get("trades", [])))
+                break
+    
     if live_running:
-        today_pnl += live_status.get("total_pnl", 0)
+        live_pnl_val = live_status.get("total_pnl", 0)
+        live_trades_val = live_status.get("trades_today", 0)
+    
+    today_pnl = paper_pnl_val + live_pnl_val
 
     # Best/worst backtest runs
     best_run = None
@@ -416,10 +436,10 @@ async def dashboard_summary(request: Request):
         "paper_strategy": paper_status.get("strategy_name", "") if paper_running else "",
         "live_strategy": live_status.get("strategy_name", "") if live_running else "",
         "today_pnl": round(today_pnl, 2),
-        "paper_pnl": round(paper_status.get("total_pnl", 0), 2) if paper_running else 0,
-        "live_pnl": round(live_status.get("total_pnl", 0), 2) if live_running else 0,
-        "paper_trades": paper_status.get("trades_today", 0) if paper_running else 0,
-        "live_trades": live_status.get("trades_today", 0) if live_running else 0,
+        "paper_pnl": round(paper_pnl_val, 2),
+        "live_pnl": round(live_pnl_val, 2),
+        "paper_trades": paper_trades_val,
+        "live_trades": live_trades_val,
         "best_run": best_run,
         "worst_run": worst_run,
     }

@@ -1028,10 +1028,21 @@
   <!-- Dashboard Summary Cards Row -->
   <div style="max-width: 1100px; margin: 0 auto 20px auto;">
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px;">
-      <div class="stat-box">
-        <div class="stat-label">Today's P&L</div>
-        <div class="stat-value" id="dash-today-pnl" style="color: var(--muted);">₹0.00</div>
-        <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-pnl-detail">Paper + Auto combined</div>
+      <div class="stat-box" style="padding: 14px 16px;">
+        <div class="stat-label" style="margin-bottom: 8px;">Today's P&L</div>
+        <div style="display: flex; gap: 16px; align-items: flex-end;">
+          <div style="flex: 1;">
+            <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">📝 PAPER</div>
+            <div id="dash-paper-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+            <div id="dash-paper-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
+          </div>
+          <div style="width: 1px; height: 36px; background: var(--border); flex-shrink: 0;"></div>
+          <div style="flex: 1;">
+            <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">🤖 REAL</div>
+            <div id="dash-real-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+            <div id="dash-real-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
+          </div>
+        </div>
       </div>
       <div class="stat-box">
         <div class="stat-label">Active Strategies</div>
@@ -5113,16 +5124,19 @@ async function loadDashboardSummary() {
     if (!res.ok) return;
     const d = await res.json();
     
-    // Summary cards
-    const pnlEl = document.getElementById('dash-today-pnl');
-    const totalPnl = (d.paper_pnl || 0) + (d.live_pnl || 0);
-    pnlEl.textContent = '₹' + totalPnl.toFixed(2);
-    pnlEl.style.color = totalPnl >= 0 ? 'var(--success)' : 'var(--danger)';
+    // Summary cards — Split Paper / Real P&L
+    const paperPnl = d.paper_pnl || 0;
+    const realPnl = d.live_pnl || 0;
     
-    const detailParts = [];
-    if (d.paper_pnl) detailParts.push('Paper: ₹' + d.paper_pnl.toFixed(2));
-    if (d.live_pnl) detailParts.push('Auto: ₹' + d.live_pnl.toFixed(2));
-    document.getElementById('dash-pnl-detail').textContent = detailParts.length ? detailParts.join(' | ') : 'No active P&L';
+    const ppEl = document.getElementById('dash-paper-pnl-card');
+    ppEl.textContent = '₹' + paperPnl.toFixed(2);
+    ppEl.style.color = paperPnl > 0 ? 'var(--success)' : paperPnl < 0 ? 'var(--danger)' : 'var(--muted)';
+    document.getElementById('dash-paper-pnl-trades').textContent = (d.paper_trades || 0) + ' trades' + (d.paper_running ? ' · Running' : '');
+    
+    const rpEl = document.getElementById('dash-real-pnl-card');
+    rpEl.textContent = '₹' + realPnl.toFixed(2);
+    rpEl.style.color = realPnl > 0 ? 'var(--success)' : realPnl < 0 ? 'var(--danger)' : 'var(--muted)';
+    document.getElementById('dash-real-pnl-trades').textContent = (d.live_trades || 0) + ' trades' + (d.live_running ? ' · Running' : '');
     
     // Active count
     const activeCount = (d.paper_running ? 1 : 0) + (d.live_running ? 1 : 0);
