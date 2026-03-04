@@ -1030,8 +1030,10 @@ class LiveEngine:
         if eval_condition_group(row, self.exit_conditions, self._prev_row):
             return "EXIT_SIGNAL"
 
-        # Square-off time
-        sqoff = pos.get("sqoff_time", "15:20")
+        # Square-off time — check strategy-level combined_sqoff_time first
+        sqoff = self.strategy.get("combined_sqoff_time", "15:20")
+        if not sqoff:
+            sqoff = pos.get("sqoff_time", "15:20")
         if isinstance(sqoff, str):
             h, m = map(int, sqoff.split(":"))
             sqoff = time(h, m)
@@ -1086,7 +1088,7 @@ class LiveEngine:
         names = {
             "26000": "NIFTY 50", "26009": "BANK NIFTY",
             "1": "SENSEX", "26017": "NIFTY FIN SVC",
-            "26037": "FINNIFTY", "26041": "MIDCPNIFTY",
+            "26037": "NIFTY MIDCAP",
         }
         return names.get(self.strategy.get("instrument", "26000"), "Unknown")
 

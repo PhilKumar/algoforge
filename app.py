@@ -101,7 +101,7 @@ ws_clients: List[WebSocket] = []
 
 
 # ── Authentication ────────────────────────────────────────────────
-AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "202603"))
+AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "887599"))
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_FILE = os.path.join(_HERE, ".sessions.json")
 
@@ -167,6 +167,8 @@ async def require_auth(request: Request):
     if not _validate_session(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+# Wire auth as global dependency — all routes require login unless whitelisted above
+app.router.dependencies.append(Depends(require_auth))
 
 # ── Rate Limiting ─────────────────────────────────────────────────
 _rate_limits: dict = defaultdict(list)  # endpoint -> [timestamps]
@@ -305,7 +307,7 @@ async def auth_login(request: Request):
         _clear_login_attempts(ip)
         token = _create_session()
         resp = JSONResponse({"status": "ok", "message": "Login successful"})
-        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax")
+        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax", secure=True)
         return resp
     _record_failed_login(ip)
     raise HTTPException(status_code=401, detail="Invalid password")

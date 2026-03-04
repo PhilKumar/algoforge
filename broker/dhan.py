@@ -28,10 +28,9 @@ SCRIP_CACHE_DIR  = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".sc
 UNDERLYING_MAP = {
     "26000": "NIFTY",
     "26009": "BANKNIFTY",
-    "26037": "FINNIFTY",
-    "26041": "MIDCPNIFTY",
+    "26017": "FINNIFTY",
+    "26037": "MIDCPNIFTY",
     "1":     "SENSEX",
-    "26017": "NIFTY FIN SERVICE",
 }
 
 
