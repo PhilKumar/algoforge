@@ -630,11 +630,15 @@ class DhanClient:
         except requests.exceptions.ConnectionError:
             raise Exception("Connection error - unable to reach Dhan servers")
 
-    def get_trade_history(self, from_date: str, to_date: str, page: int = 0) -> list:
+    # Sentinel returned by get_trade_history on rate-limit (distinct from empty [])
+    RATE_LIMITED = "__RATE_LIMITED__"
+
+    def get_trade_history(self, from_date: str, to_date: str, page: int = 0) -> list | str:
         """Get historical trade book for a date range.
         
         Uses Dhan Statement API: GET /v2/trades/{from-date}/{to-date}/{page}
         Returns paginated results - pass page=0 as default.
+        Returns RATE_LIMITED sentinel string if rate-limited (caller should retry).
         
         Args:
             from_date: Start date in YYYY-MM-DD format
@@ -653,11 +657,20 @@ class DhanClient:
             
             print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
             
+            if resp.status_code == 429:
+                print(f"[DHAN] Rate limited on page {page}")
+                return self.RATE_LIMITED
+            
             if resp.status_code != 200:
                 print(f"[DHAN] Trade history error: {resp.text[:200]}")
                 return []
             
             data = resp.json()
+            # Detect rate-limit error returned as 200 with error JSON
+            if isinstance(data, dict) and data.get("errorCode") == "DH-904":
+                print(f"[DHAN] Rate limited (DH-904) on page {page}")
+                return self.RATE_LIMITED
+            
             trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
             print(f"[DHAN] ✅ Retrieved {len(trades)} historical trades")
             return trades

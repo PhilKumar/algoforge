@@ -5042,7 +5042,10 @@ const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep'
 function changeMonthlyMonth(delta) {
   const [y, m] = window._currentMonthlyView.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
-  window._currentMonthlyView = d.toISOString().slice(0, 7);
+  // Use local date parts to avoid UTC timezone shift (IST → UTC can shift date back)
+  const ny = d.getFullYear();
+  const nm = String(d.getMonth() + 1).padStart(2, '0');
+  window._currentMonthlyView = `${ny}-${nm}`;
   renderMonthlyDailyGrid();
 }
 

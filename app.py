@@ -668,6 +668,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
         from_date: Start date in YYYY-MM-DD format.
         force: If True, overwrite existing dates with fresh data from Dhan.
     """
+    import time as _time
     try:
         history = _load_trade_history() if not force else {}
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -676,17 +677,45 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
         # Dhan API returns 20 trades per page, paginate through all
         DHAN_PAGE_SIZE = 20
         MAX_PAGES = 500  # Safety limit (up to 10,000 trades)
+        RATE_LIMIT_RETRIES = 3
+        PAGE_DELAY = 0.3  # seconds between pages to avoid rate-limit
         all_trades = []
         page = 0
+        consecutive_empty = 0
         while page < MAX_PAGES:
-            trades = dhan.get_trade_history(from_date, today_str, page)
+            result = dhan.get_trade_history(from_date, today_str, page)
+            
+            # Handle rate-limit: retry with exponential backoff
+            if result == dhan.RATE_LIMITED:
+                retried = False
+                for attempt in range(1, RATE_LIMIT_RETRIES + 1):
+                    wait = 2 ** attempt  # 2, 4, 8 seconds
+                    print(f"[BACKFILL] Rate limited on page {page}, retry {attempt}/{RATE_LIMIT_RETRIES} after {wait}s")
+                    _time.sleep(wait)
+                    result = dhan.get_trade_history(from_date, today_str, page)
+                    if result != dhan.RATE_LIMITED:
+                        retried = True
+                        break
+                if not retried and result == dhan.RATE_LIMITED:
+                    print(f"[BACKFILL] Rate limit persists after {RATE_LIMIT_RETRIES} retries on page {page}, stopping")
+                    break
+            
+            trades = result if isinstance(result, list) else []
             if not trades:
-                break
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    break  # 3 consecutive empty pages = truly done
+                page += 1
+                _time.sleep(PAGE_DELAY)
+                continue
+            
+            consecutive_empty = 0
             all_trades.extend(trades)
             print(f"[BACKFILL] Page {page}: {len(trades)} trades (total so far: {len(all_trades)})")
             if len(trades) < DHAN_PAGE_SIZE:  # Last page
                 break
             page += 1
+            _time.sleep(PAGE_DELAY)  # Throttle to avoid Dhan rate-limit
         
         if not all_trades:
             print(f"[BACKFILL] No historical trades returned from Dhan for {from_date} to {today_str}")
