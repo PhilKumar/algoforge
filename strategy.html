@@ -183,8 +183,9 @@
   }
   @media (max-width: 1200px) { .builder-grid { grid-template-columns: 220px 1fr; } }
   .settings-col label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 500; }
-  .settings-col input, .settings-col select { padding: 10px 11px; font-size: 14px; }
+  .settings-col input, .settings-col select { padding: 10px 11px; font-size: 14px; max-width: 100%; min-width: 0; }
   .settings-col .input-group { margin-bottom: 10px; }
+  .settings-col div[style*="grid"] > div { overflow: hidden; min-width: 0; }
   .unit-grp { display: flex; gap: 10px; background: var(--card); padding: 5px; border-radius: 6px; border: 1px solid var(--border); flex-wrap: wrap; }
   .ut { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; transition: 0.2s; font-family: 'Outfit', sans-serif; font-size: 15px; }
   .ut:hover { color: var(--text); background: rgba(255,255,255,0.03); }
@@ -1196,14 +1197,14 @@
             <option value="26037">NIFTY MIDCAP</option>
           </select>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
           <div><label>From</label><input type="date" id="bt-from-date" value="2024-01-01"></div>
           <div><label>To</label><input type="date" id="bt-to-date" value="2026-02-26"></div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
           <div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Strategy SL
-              <select id="sl-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;" onchange="document.getElementById('sl-type-label').textContent=this.value==='pct'?'%':'₹'">
+              <select id="sl-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;">
                 <option value="pct">%</option><option value="rupees">₹</option>
               </select>
             </label>
@@ -1211,14 +1212,14 @@
           </div>
           <div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Target Profit
-              <select id="tp-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;" onchange="document.getElementById('tp-type-label').textContent=this.value==='pct'?'%':'₹'">
+              <select id="tp-type" style="display:inline-block;width:auto;padding:2px 8px;font-size:11px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;">
                 <option value="pct">%</option><option value="rupees">₹</option>
               </select>
             </label>
             <input type="number" id="target-profit" placeholder="0 = none" step="0.1" min="0">
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
           <div><label>Open</label><input type="time" id="entry-time-start" value="09:15"></div>
           <div><label>Close</label><input type="time" id="sq-time" value="15:25"></div>
         </div>
@@ -1421,12 +1422,12 @@
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
         <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; background: var(--purple); border: 1px solid rgba(139,92,246,0.45); color: #ffffff; font-weight: 700;" title="Deploy this strategy to live/paper trading">🚀 Deploy</button>
         <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd;" title="Copy this strategy to editor for modification">📋 Copy & Edit</button>
-        <button class="btn" onclick="scrollToStrategy()" style="font-size: 11px; padding: 6px 14px; background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); color: #c4b5fd;" title="View strategy details">📄 View Strategy</button>
+        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); color: #c4b5fd;" title="View strategy details">📄 View Strategy</button>
       </div>
     </div>
 
     <!-- Strategy Display Section -->
-    <div id="strategy-display-section" class="card-glass" style="padding: 16px; margin-bottom: 16px; border-left: 3px solid var(--accent2);"></div>
+    <div id="strategy-display-section" style="display:none;"></div>
 
     <!-- Equity Curve -->
     <div class="card-glass" style="padding: 20px; margin-bottom: 16px;">
@@ -1849,8 +1850,8 @@
       <button class="leg-remove" onclick="closeViewModal()" style="font-size: 22px;">&times;</button>
     </div>
     <div id="view-modal-content" style="font-size: 13px; line-height: 1.7;"></div>
-    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
-      <button class="btn" onclick="loadStrategyFromView()" style="background: var(--accent); font-size: 12px;">Load into Builder</button>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;" id="view-modal-actions">
+      <button class="btn" onclick="loadStrategyFromView()" style="background: var(--accent); font-size: 12px;" id="view-modal-load-btn">Load into Builder</button>
       <button class="modal-close" onclick="closeViewModal()">Close</button>
     </div>
   </div>
@@ -2219,7 +2220,7 @@ async function fetchRuns() {
     let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
-        <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Win%</th><th style="padding: 10px;">Date</th><th style="padding: 10px;">Actions</th>
+        <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Win%</th><th style="padding: 10px;">Date</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
       </tr></thead><tbody>`;
     
     runs.reverse().forEach(r => {
@@ -2235,10 +2236,12 @@ async function fetchRuns() {
         <td style="padding: 10px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
         <td style="padding: 10px; font-weight: 600; color: ${winRate >= 50 ? 'var(--success)' : 'var(--danger)'};">${winRate}%</td>
         <td style="padding: 10px; font-size: 12px; color: var(--muted);">${(r.created_at || '').substring(0, 16)}</td>
-        <td style="padding: 10px;">
-          <button class="btn btn-sm" onclick="viewRun(${r.id})" style="background: var(--accent2); font-size: 11px; padding: 5px 10px; margin-right: 3px;">View</button>
-          <button class="btn btn-sm" onclick="copyEditRun(${r.id})" style="background: var(--purple); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Copy&Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
+        <td style="padding: 10px; width: 200px; min-width: 200px; white-space: nowrap; text-align: center;">
+          <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
+            <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="background: var(--accent2); font-size: 11px; padding: 5px 10px;">View</button>
+            <button class="btn btn-sm" onclick="copyEditRun(${r.id})" style="background: var(--purple); font-size: 11px; padding: 5px 10px;">Copy&Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
+          </div>
         </td>
       </tr>`;
     });
@@ -2250,114 +2253,15 @@ async function fetchRuns() {
 
 let currentViewingRunId = null;
 
-function scrollToStrategy() {
-  if (!lastBacktestData) {
-    toast('No strategy data available', 'danger');
-    return;
-  }
-  renderStrategyDetailsInline(lastBacktestData, true);
-}
-
-function renderStrategyDetailsInline(data, forceOpen) {
-  const section = document.getElementById('strategy-display-section');
-  if (!section) return;
-
-  const wasOpen = section.getAttribute('data-open') === 'true';
-  const isOpen = forceOpen ? true : !wasOpen;
-  section.setAttribute('data-open', isOpen ? 'true' : 'false');
-
-  const strikeLabels = {
-    atm: 'ATM (At The Money)',
-    strike_price: 'Strike Price',
-    spot_price: 'Spot ± Offset',
-    otm: 'OTM Offset',
-    itm: 'ITM Offset',
-    premium_near: 'Premium Near',
-    premium_above: 'Premium Above',
-    premium_below: 'Premium Below'
-  };
-
-  const expiryLabels = {
-    current_week: 'Current Week',
-    next_week: 'Next Week',
-    current_month: 'Current Month',
-    next_month: 'Next Month'
-  };
-
-  const formatStrike = (leg) => {
-    const st = leg.strike_type || 'atm';
-    const label = strikeLabels[st] || st;
-    if (st === 'atm') return label;
-    const val = leg.strike_value || 0;
-    const unit = st.includes('premium') ? '₹' : 'pts';
-    return `${label}: ${val}${unit}`;
-  };
-
-  const formatStops = (leg) => {
-    const parts = [];
-    if (leg.sl_pct) parts.push(`SL ${leg.sl_pct}%`);
-    if (leg.sl_points) parts.push(`SL ${leg.sl_points} pts`);
-    if (leg.sl_rupees) parts.push(`SL ₹${leg.sl_rupees}`);
-    if (leg.target_pct) parts.push(`Target ${leg.target_pct}%`);
-    if (leg.target_points) parts.push(`Target ${leg.target_points} pts`);
-    if (leg.target_rupees) parts.push(`Target ₹${leg.target_rupees}`);
-    if (leg.trail_pct) parts.push(`Trail ${leg.trail_pct}%`);
-    return parts.length ? parts.join(' • ') : 'No SL/Target configured';
-  };
-
-  const toChip = (text, type = 'info') => {
-    const styles = {
-      info: 'background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.25); color: var(--text);',
-      success: 'background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.28); color: var(--text);',
-      danger: 'background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.28); color: var(--text);',
-    };
-    return `<span style="display:inline-flex; align-items:center; gap:4px; padding:6px 10px; border-radius:999px; font-size:12px; margin:0 6px 6px 0; white-space:nowrap; ${styles[type] || styles.info}">${text}</span>`;
-  };
-
-  const bodyStyle = isOpen ? '' : 'display:none;';
-  const chevron = isOpen ? '▾' : '▸';
-
-  let html = `<div style="border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
-    <div onclick="renderStrategyDetailsInline(lastBacktestData, false)" style="padding: 12px 16px; background: rgba(0,150,200,0.08); cursor: pointer; display:flex; align-items:center; justify-content: space-between;">
-      <div style="font-weight: 700; color: var(--accent2);">${chevron} Strategy Configuration</div>
-      <div style="font-size: 11px; color: var(--muted);">Click to ${isOpen ? 'collapse' : 'expand'}</div>
-    </div>
-    <div style="padding: 16px; ${bodyStyle}">
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 16px;">
-        <div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase;">Quant Run Type</span><br><strong>${data.run_name ? 'Historic' : 'Live'}</strong></div>
-        <div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase;">Start Date</span><br><strong>${data.from_date || '-'}</strong></div>
-        <div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase;">End Date</span><br><strong>${data.to_date || '-'}</strong></div>
-      </div>
-      <div style="background: rgba(0,200,150,0.05); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-        <h4 style="margin-top: 0; margin-bottom: 10px; color: var(--accent2);">Instrument Details</h4>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-          <div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase;">Group Type</span><br><strong>Single</strong></div>
-          <div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase;">Instruments</span><br><strong style="font-size: 14px;">${getInstrumentName(data.instrument) || data.instrument || '-'}</strong></div>
-        </div>
-      </div>
-      ${data.indicators && data.indicators.length ? `<div style="margin-bottom: 16px;"><h4 style="margin-top: 0; margin-bottom: 10px; color: var(--accent2);">Indicators</h4><div style="display:flex; flex-wrap:wrap;">${data.indicators.map(ind => {let parts = ind.split('_'); let name = parts[0]; let period = parts[parts.length-1]; return toChip(`${name} ${period}`, 'info');}).join('')}</div></div>` : ''}
-      ${data.entry_conditions && data.entry_conditions.length ? `<div style="margin-bottom: 16px;"><h4 style="margin-top: 0; margin-bottom: 10px; color: var(--success);">✓ Entry Conditions</h4><div style="display:flex; flex-wrap:wrap;">${data.entry_conditions.map(cond => {let condStr = cond.left + ' ' + cond.operator + ' ' + (cond.right === 'number' ? cond.right_number_value : cond.right); return toChip(condStr, 'success');}).join('')}</div></div>` : ''}
-      ${data.exit_conditions && data.exit_conditions.length ? `<div style="margin-bottom: 16px;"><h4 style="margin-top: 0; margin-bottom: 10px; color: var(--danger);">✗ Exit Conditions</h4><div style="display:flex; flex-wrap:wrap;">${data.exit_conditions.map(cond => {let condStr = cond.left + ' ' + cond.operator + ' ' + (cond.right === 'number' ? cond.right_number_value : cond.right); return toChip(condStr, 'danger');}).join('')}</div></div>` : ''}
-      ${data.legs && data.legs.length ? `<div style="margin-bottom: 16px;"><h4 style="margin-top: 0; margin-bottom: 10px; color: var(--accent);">🏪 Legs (Buy/Sell)</h4>${data.legs.map(leg => {let bgColor = leg.transaction_type === 'BUY' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'; let borderColor = leg.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'; return `<div style="padding: 12px; background: ${bgColor}; border-left: 3px solid ${borderColor}; margin-bottom: 8px; border-radius: 4px;">
-        <div style="font-weight: 700; margin-bottom: 6px;">${leg.transaction_type || 'BUY'} ${leg.option_type || 'CE'}</div>
-        <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">${formatStrike(leg)} • Expiry: ${expiryLabels[leg.expiry] || leg.expiry || '-'}</div>
-        <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Lots: ${leg.lots || '-'} • SqOff: ${leg.sqoff_time || '-'}</div>
-        <div style="font-size: 12px; color: var(--muted);">${formatStops(leg)}</div>
-      </div>`;}).join('')}</div>` : ''}
-      <div style="background: rgba(0,200,150,0.05); padding: 12px; border-radius: 8px;">
-        <h4 style="margin-top: 0; margin-bottom: 10px; color: var(--accent2);">Advanced Options</h4>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 12px;">
-          <div><span style="color: var(--muted);">Adjustment / Reentry / Reacquire</span><br><strong>Next Minute</strong></div>
-          <div><span style="color: var(--muted);">Duration</span><br><strong>${data.market_open || '09:15'} - ${data.market_close || '15:25'}</strong></div>
-        </div>
-      </div>
-    </div>
-  </div>`;
-
-  section.innerHTML = html;
-  if (forceOpen) {
-    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+async function viewRunModal(id) {
+  try {
+    const res = await fetch('/api/runs/' + id);
+    const data = await res.json();
+    lastBacktestData = data;
+    currentViewingRunId = id;
+    lastBacktestPayload = data;
+    viewRunDetails(data);
+  } catch(e) { toast('Error loading run', 'danger'); }
 }
 
 async function viewRun(id) {
@@ -2770,29 +2674,28 @@ async function fetchStrategies() {
   } catch (err) { console.error("Failed to fetch strategies", err); }
 }
 
-function viewStrategy(id) {
-  const s = savedStrategiesCache.find(x => x.id === id);
-  if (!s) return;
-  viewingStrategyId = id;
-  
-  const instName = s.instrument === '26000' ? 'NIFTY 50' : (s.instrument === '26009' ? 'BANK NIFTY' : s.instrument);
-  const legs = s.legs || [];
-  const entryConds = s.entry_conditions || [];
-  const exitConds = s.exit_conditions || [];
-  const inds = s.indicators || [];
-  
+function showDetailsModal(data, title) {
+  const instName = getInstrumentName(data.instrument) || data.instrument || '-';
+  const legs = data.legs || [];
+  const entryConds = data.entry_conditions || [];
+  const exitConds = data.exit_conditions || [];
+  const inds = data.indicators || [];
+
+  const chipStyle = "display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-family:'JetBrains Mono', monospace;margin:0 6px 6px 0;white-space:nowrap;";
+
+  const condRightVal = (c) => c.right === 'number' ? c.right_number_value : c.right === 'days' ? (c.right_days || []).join(', ') : c.right === 'time' ? (c.right_time || '') : c.right;
+
   let html = `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-      <div><span style="color: var(--muted); font-size: 11px;">Run Name</span><div style="font-weight: 600;">${s.run_name}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Folder</span><div><span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;">${s.folder || 'Intraday'}</span></div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Run Name</span><div style="font-weight: 600;">${data.run_name || '-'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Folder</span><div><span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;">${data.folder || 'Intraday'}</span></div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Instrument</span><div style="font-weight: 600;">${instName}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Lots × Size</span><div style="font-weight: 600;">${s.lots || 1} × ${s.lot_size || _getLotSizeForInstrument(s.instrument)}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Strategy SL ${s.sl_type === 'rupees' ? '₹' : '%'}</span><div style="font-weight: 600;">${s.sl_type === 'rupees' ? '₹' + (s.stoploss_rupees || 0) : (s.stoploss_pct || 0) + '%'}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Target Profit ${s.tp_type === 'rupees' ? '₹' : '%'}</span><div style="font-weight: 600;">${s.tp_type === 'rupees' ? '₹' + (s.target_profit_rupees || 0) : (s.target_profit_pct || 0) + '%'}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${s.market_open || '09:15'} — ${s.market_close || '15:25'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Lots × Size</span><div style="font-weight: 600;">${data.lots || 1} × ${data.lot_size || _getLotSizeForInstrument(data.instrument)}</div></div>
+      ${data.from_date ? `<div><span style="color: var(--muted); font-size: 11px;">Period</span><div style="font-weight: 600;">${data.from_date} → ${data.to_date || '-'}</div></div>` : ''}
+      <div><span style="color: var(--muted); font-size: 11px;">Strategy SL</span><div style="font-weight: 600;">${data.sl_type === 'rupees' ? '₹' + (data.stoploss_rupees || 0) : (data.stoploss_pct || 0) + '%'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Target Profit</span><div style="font-weight: 600;">${data.tp_type === 'rupees' ? '₹' + (data.target_profit_rupees || 0) : (data.target_profit_pct || 0) + '%'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${data.market_open || '09:15'} — ${data.market_close || '15:25'}</div></div>
     </div>`;
-  
-  const chipStyle = "display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-family:'JetBrains Mono', monospace;margin:0 6px 6px 0;white-space:nowrap;";
 
   // Indicators
   if (inds.length > 0) {
@@ -2800,27 +2703,27 @@ function viewStrategy(id) {
     inds.forEach(i => { html += `<span style="${chipStyle} background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.22);">${i}</span>`; });
     html += `</div></div>`;
   }
-  
+
   // Entry conditions
   if (entryConds.length > 0) {
-    html += `<div style="margin-bottom: 14px;"><span style="color: var(--accent); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Entry Conditions (${entryConds.length})</span><div style="display:flex;flex-wrap:wrap;">`;
+    html += `<div style="margin-bottom: 14px;"><span style="color: var(--accent); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Entry Conditions (${entryConds.length})</span><div style="display:flex;flex-wrap:wrap;align-items:center;">`;
     entryConds.forEach((c, i) => {
-      const logic = i === 0 ? 'IF' : c.logic;
-      html += `<span style="${chipStyle} background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--accent);">${c.operator}</span> ${c.right}${c.right === 'number' ? ' ('+c.right_number_value+')' : ''}</span>`;
+      const logic = i === 0 ? 'IF' : (c.logic || 'AND');
+      html += `<span style="${chipStyle} background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--accent);">${c.operator}</span> ${condRightVal(c)}</span>`;
     });
     html += `</div></div>`;
   }
-  
+
   // Exit conditions
   if (exitConds.length > 0) {
-    html += `<div style="margin-bottom: 14px;"><span style="color: var(--warn); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Exit Conditions (${exitConds.length})</span><div style="display:flex;flex-wrap:wrap;">`;
+    html += `<div style="margin-bottom: 14px;"><span style="color: var(--warn); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Exit Conditions (${exitConds.length})</span><div style="display:flex;flex-wrap:wrap;align-items:center;">`;
     exitConds.forEach((c, i) => {
-      const logic = i === 0 ? 'IF' : c.logic;
-      html += `<span style="${chipStyle} background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--warn);">${c.operator}</span> ${c.right}${c.right === 'number' ? ' ('+c.right_number_value+')' : ''}</span>`;
+      const logic = i === 0 ? 'IF' : (c.logic || 'AND');
+      html += `<span style="${chipStyle} background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--warn);">${c.operator}</span> ${condRightVal(c)}</span>`;
     });
     html += `</div></div>`;
   }
-  
+
   // Legs
   if (legs.length > 0) {
     html += `<div><span style="color: var(--muted); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Legs (${legs.length})</span>`;
@@ -2836,10 +2739,25 @@ function viewStrategy(id) {
     });
     html += `</div>`;
   }
-  
-  document.getElementById('view-modal-title').textContent = s.run_name;
+
+  document.getElementById('view-modal-title').textContent = title || data.run_name || 'Strategy Details';
+  // Show/hide Load into Builder based on whether it's a saved strategy
+  const loadBtn = document.getElementById('view-modal-load-btn');
+  if (loadBtn) loadBtn.style.display = viewingStrategyId ? '' : 'none';
   document.getElementById('view-modal-content').innerHTML = html;
   document.getElementById('view-strategy-modal').classList.add('open');
+}
+
+function viewStrategy(id) {
+  const s = savedStrategiesCache.find(x => x.id === id);
+  if (!s) return;
+  viewingStrategyId = id;
+  showDetailsModal(s, s.run_name);
+}
+
+function viewRunDetails(data) {
+  viewingStrategyId = null;
+  showDetailsModal(data, data.run_name);
 }
 
 function closeViewModal() { document.getElementById('view-strategy-modal').classList.remove('open'); }
@@ -3063,7 +2981,7 @@ function addIndicator() {
     id = `ORB_${mins}min`;
   }
   else if (name === "EMA") id = `EMA_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
-  else if (name === "RSI") id = `RSI_14`;
+  else if (name === "RSI") id = `RSI_14_${document.getElementById('ind-tf').value}m`;
   else if (name === "Supertrend") id = `Supertrend_${document.getElementById('ind-period').value}_${document.getElementById('ind-multiplier').value}_${document.getElementById('ind-tf').value}m`;
   
   if (!myIndicators.includes(id)) {
@@ -3071,9 +2989,7 @@ function addIndicator() {
     const badge = document.createElement('span');
     badge.id = `badge-${id}`;
     badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:var(--accent2);color:white;border-radius:4px;font-weight:600;font-size:12px;";
-    // Clean display name: RSI_14 → RSI, EMA_20_5m → EMA 20
-    let displayId = id.replace(/_\d+m$/,'').replace(/_\d+$/,'').replace(/_/,' ');
-    if (displayId === 'RSI') displayId = 'RSI';  // clean
+    let displayId = id.replace(/_/g, ' ');
     badge.innerHTML = `${displayId} <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${id}')">&times;</span>`;
     document.getElementById('active-indicators-list').appendChild(badge);
     syncConditionDropdowns();
@@ -3198,15 +3114,6 @@ function addConditionRow(type) {
   let lhsOpts = buildLHSOptions();
   let rhsOpts = buildRHSOptions(null);
   row.innerHTML = `
-    <select class="condition-tf" style="width:55px;font-size:10px;padding:6px 4px;" title="Timeframe for this condition">
-      <option value="" selected>TF</option>
-      <option value="1m">1m</option>
-      <option value="5m">5m</option>
-      <option value="15m">15m</option>
-      <option value="30m">30m</option>
-      <option value="1h">1h</option>
-      <option value="1d">1d</option>
-    </select>
     <select class="condition-select left-op" style="flex:2;min-width:140px" onchange="onLHSChange(this)">${lhsOpts}</select>
     <select class="operator" style="flex:1;min-width:110px">
       <option value="crosses_above">Crosses Above</option>
@@ -3407,18 +3314,16 @@ function gatherConditions(type) {
         logic = "AND";
       }
     }
-    const tfSel = row.querySelector('.condition-tf');
-    const timeframe = tfSel ? tfSel.value : '';
     if (lhs === 'Time_Of_Day') {
       const ti = row.querySelector('.time-rhs');
-      arr.push({ logic, left: "Time_Of_Day", operator: op, right: "time", right_time: ti ? ti.value : "11:00", timeframe });
+      arr.push({ logic, left: "Time_Of_Day", operator: op, right: "time", right_time: ti ? ti.value : "11:00" });
     } else if (lhs === 'Day_Of_Week') {
       const checks = row.querySelectorAll('.day-opt input:checked');
-      arr.push({ logic, left: "Day_Of_Week", operator: op, right: "days", right_days: Array.from(checks).map(c => c.value), timeframe });
+      arr.push({ logic, left: "Day_Of_Week", operator: op, right: "days", right_days: Array.from(checks).map(c => c.value) });
     } else {
       const rs = row.querySelector('.right-op');
       const nm = row.querySelector('.right-num');
-      arr.push({ logic, left: lhs, operator: op, right: rs ? rs.value : "number", right_number_value: nm ? nm.value : "", timeframe });
+      arr.push({ logic, left: lhs, operator: op, right: rs ? rs.value : "number", right_number_value: nm ? nm.value : "" });
     }
   });
   return arr;
@@ -3517,6 +3422,21 @@ function gatherLegs() {
 // ══════════════════════════════════════════════════════════════
 
 // Copy a specific run into the Strategy Builder for editing
+
+// Generate a clean copy name: "Foo" → "Foo_copy", "Foo_copy" → "Foo_copy_2", "Foo_copy_3" → "Foo_copy_4"
+function generateCopyName(name) {
+  // Strip trailing _edited chains first (legacy cleanup)
+  name = name.replace(/(_edited)+$/i, '');
+  // Check if already a copy name: "Base_copy" or "Base_copy_N"
+  const copyMatch = name.match(/^(.+?)_copy(?:_(\d+))?$/);
+  if (copyMatch) {
+    const base = copyMatch[1];
+    const num = parseInt(copyMatch[2] || '1', 10);
+    return base + '_copy_' + (num + 1);
+  }
+  return name + '_copy';
+}
+
 async function copyEditRun(runId) {
   try {
     const res = await fetch('/api/runs/' + runId);
@@ -3588,7 +3508,7 @@ async function copyEditStrategy(runId) {
     document.getElementById('nav-builder').classList.add('active');
     
     // Basic fields
-    document.getElementById('run-name-input').value = (p.run_name || 'Strategy') + '_edited';
+    document.getElementById('run-name-input').value = generateCopyName(p.run_name || 'Strategy');
     if (p.segment) { 
       document.getElementById('segment-select').value = p.segment;
       onSegmentChange();
@@ -3617,7 +3537,7 @@ async function copyEditStrategy(runId) {
         const badge = document.createElement('span');
         badge.id = `badge-${indId}`;
         badge.style = "display:inline-flex;gap:6px;align-items:center;padding:4px 8px;background:var(--accent2);color:white;border-radius:3px;font-weight:500;font-size:11px;";
-        let dn = indId.replace(/_\d+m$/,'').replace(/_\d+$/,'').replace(/_/,' ');
+        let dn = indId.replace(/_/g, ' ');
         badge.innerHTML = `${dn} <span style="cursor:pointer;opacity:0.7;" onclick="removeIndicator('${indId}')">[×]</span>`;
         document.getElementById('active-indicators-list').appendChild(badge);
       });
@@ -3659,6 +3579,17 @@ async function copyEditStrategy(runId) {
             }
           }
         }
+        // Restore AND/OR logic connector
+        if (i > 0) {
+          const connector = row.previousElementSibling;
+          if (connector && connector.classList.contains('condition-connector')) {
+            const logicSel = connector.querySelector('.logic-op');
+            if (logicSel) {
+              logicSel.value = cond.logic || 'AND';
+              logicSel.dispatchEvent(new Event('change'));
+            }
+          }
+        }
       });
     }
     
@@ -3675,17 +3606,67 @@ async function copyEditStrategy(runId) {
         const opSelect = row.querySelector('.operator');
         if (opSelect) opSelect.value = cond.operator || 'is_below';
         
-        const rhsSelect = row.querySelector('.right-op');
-        if (rhsSelect) rhsSelect.value = cond.right || 'current_close';
-        if (cond.right === 'number') {
-          const numInput = row.querySelector('.right-num');
-          if (numInput) {
-            numInput.value = cond.right_number_value || '';
-            numInput.style.display = 'block';
+        if (cond.left === 'Time_Of_Day') {
+          const ti = row.querySelector('.time-rhs');
+          if (ti) ti.value = cond.right_time || '11:00';
+        } else if (cond.left === 'Day_Of_Week') {
+          const days = cond.right_days || [];
+          row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
+        } else {
+          const rhsSelect = row.querySelector('.right-op');
+          if (rhsSelect) rhsSelect.value = cond.right || 'current_close';
+          if (cond.right === 'number') {
+            const numInput = row.querySelector('.right-num');
+            if (numInput) {
+              numInput.value = cond.right_number_value || '';
+              numInput.style.display = 'block';
+            }
+          }
+        }
+        // Restore AND/OR logic connector
+        if (i > 0) {
+          const connector = row.previousElementSibling;
+          if (connector && connector.classList.contains('condition-connector')) {
+            const logicSel = connector.querySelector('.logic-op');
+            if (logicSel) {
+              logicSel.value = cond.logic || 'AND';
+              logicSel.dispatchEvent(new Event('change'));
+            }
           }
         }
       });
     }
+    
+    // Restore legs
+    legs = []; legCounter = 0;
+    document.getElementById('legs-container').innerHTML = '';
+    document.getElementById('legs-empty').style.display = 'block';
+    document.getElementById('combined-pnl-bar').style.display = 'none';
+    if (p.legs && p.legs.length > 0) {
+      p.legs.forEach(leg => {
+        addLeg(leg.transaction_type || 'BUY', leg.option_type || 'CE');
+        const id = legCounter - 1;
+        const setVal = (elId, val) => { const el = document.getElementById(elId); if (el && val !== undefined && val !== null) el.value = val; };
+        setVal(`leg-${id}-expiry`, leg.expiry);
+        setVal(`leg-${id}-strike-type`, leg.strike_type);
+        if (leg.strike_type && leg.strike_type !== 'atm') toggleStrikeFields(id);
+        setVal(`leg-${id}-strike-value`, leg.strike_value);
+        setVal(`leg-${id}-lots`, leg.lots);
+        setVal(`leg-${id}-sl-pct`, leg.sl_pct || '');
+        setVal(`leg-${id}-target-pct`, leg.target_pct || '');
+        setVal(`leg-${id}-sl-points`, leg.sl_points || '');
+        setVal(`leg-${id}-target-points`, leg.target_points || '');
+        setVal(`leg-${id}-sl-rupees`, leg.sl_rupees || '');
+        setVal(`leg-${id}-target-rupees`, leg.target_rupees || '');
+        setVal(`leg-${id}-trail-pct`, leg.trail_pct || '');
+        setVal(`leg-${id}-sqoff-time`, leg.sqoff_time || '15:20');
+      });
+    }
+    
+    // Restore combined P&L if present
+    if (p.combined_sl_rupees) document.getElementById('combined-sl-rupees').value = p.combined_sl_rupees;
+    if (p.combined_target_rupees) document.getElementById('combined-target-rupees').value = p.combined_target_rupees;
+    if (p.combined_sqoff_time) document.getElementById('combined-sqoff-time').value = p.combined_sqoff_time;
     
     toast('✅ Strategy loaded for editing!', 'success');
   } catch(err) {
@@ -3834,7 +3815,8 @@ function renderResults(data, payload) {
   document.getElementById('results-empty').style.display = 'none';
   document.getElementById('results-content').style.display = 'block';
   
-  renderStrategyDetailsInline(data, false);
+  // Strategy details now shown via modal popup (View Strategy button)
+  document.getElementById('strategy-display-section').innerHTML = '';
   
   document.getElementById('res-header-pnl').textContent = fmt(s.total_pnl);
   document.getElementById('res-header-pnl').style.color = s.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';

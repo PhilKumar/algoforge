@@ -7,7 +7,7 @@ User=ec2-user
 WorkingDirectory=/home/ec2-user/algoforge
 Environment="PATH=/home/ec2-user/algoforge/venv/bin"
 EnvironmentFile=/home/ec2-user/algoforge/.env
-ExecStart=/home/ec2-user/algoforge/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart=/home/ec2-user/algoforge/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 

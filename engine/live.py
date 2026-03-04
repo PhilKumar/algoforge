@@ -1,14 +1,23 @@
 """
 engine/live.py — Live Auto-Trading Engine
 Places REAL orders via Dhan API.
-Polls market data, evaluates conditions, manages option positions,
-and places entry/exit/SL orders to the broker.
-"""
+Two modes:
+  1. WebSocket mode (fast): LiveMarketFeed pushes ticks → candles aggregate
+     → conditions evaluated on candle close → ~1-2 second latency
+  2. REST polling mode (fallback): polls Dhan REST API every N seconds
+     → conditions evaluated per poll → ~30-90 second latency"""
 
 import asyncio
 import time as time_module
-from datetime import datetime, time, date as date_type, timedelta
+from datetime import datetime, time, date as date_type, timedelta, timezone
 from typing import List, Dict, Any, Optional
+
+# IST timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def _now_ist() -> datetime:
+    """Return current time in IST (naive datetime)."""
+    return datetime.now(IST).replace(tzinfo=None)
 import pandas as pd
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -41,6 +50,14 @@ class LiveEngine:
         self.session_date = None
         self.mode = "auto"  # "auto" for real orders
 
+        # WebSocket feed (injected from app.py — if available, use event-driven mode)
+        self._feed = None          # LiveMarketFeed instance
+        self._ws_mode = False      # True when using WebSocket
+        self._option_sec_id = None # subscribed option security_id for LTP
+        self._candle_event = None  # asyncio.Event set on each candle close
+        self._latest_candle_df = None  # DataFrame from candle close callback
+        self._latest_candle = None     # Last closed candle dict
+
         # Strategy + execution config
         self.strategy: dict = {}
         self.deploy_config: dict = {}
@@ -55,6 +72,15 @@ class LiveEngine:
         self.daily_pnl = 0.0
         self.max_daily_loss = 0.0
 
+        # Strategy-level SL/TP (₹ amounts)
+        self.strat_sl_val = 0.0
+        self.strat_tp_val = 0.0
+        self.trade_entry_prem = 0.0
+        self._sl_pct = 0.0
+        self._sl_rupees = 0.0
+        self._tp_pct = 0.0
+        self._tp_rupees = 0.0
+
         # Market data
         self.current_spot = 0.0
         self.current_time: Optional[datetime] = None
@@ -66,6 +92,10 @@ class LiveEngine:
         # Logging
         self.event_log: List[dict] = []
 
+    def set_feed(self, feed):
+        """Inject a LiveMarketFeed for WebSocket-driven mode."""
+        self._feed = feed
+
     # ── Configuration ─────────────────────────────────────────
     def configure(self, strategy: dict, entry_conditions: list,
                   exit_conditions: list, deploy_config: dict = None):
@@ -75,15 +105,26 @@ class LiveEngine:
         self.exit_conditions = exit_conditions
         self.deploy_config = deploy_config or strategy.get("deploy_config", {})
         self.max_daily_loss = float(strategy.get("max_daily_loss", 0) or 0)
+
+        # Pre-compute strategy-level SL/TP values
+        self._sl_pct = float(strategy.get("stoploss_pct", 0) or 0)
+        self._sl_rupees = float(strategy.get("stoploss_rupees", 0) or 0)
+        self._tp_pct = float(strategy.get("target_profit_pct", 0) or 0)
+        self._tp_rupees = float(strategy.get("target_profit_rupees", 0) or 0)
+
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         self.log_event("info", f"Mode: {'Auto Trading (REAL ORDERS)' if self.deploy_config.get('order_type') == 'auto' else 'Paper Testing'}")
         self.log_event("info", f"Product: {self.deploy_config.get('product_type', 'MIS')}")
         self.log_event("info", f"Entry order: {self.deploy_config.get('entry_order', 'MARKET')}")
+        if self._sl_rupees > 0 or self._sl_pct > 0:
+            self.log_event("info", f"Strategy SL: ₹{self._sl_rupees:,.0f}" if self._sl_rupees > 0 else f"Strategy SL: {self._sl_pct}%")
+        if self._tp_rupees > 0 or self._tp_pct > 0:
+            self.log_event("info", f"Strategy TP: ₹{self._tp_rupees:,.0f}" if self._tp_rupees > 0 else f"Strategy TP: {self._tp_pct}%")
 
     # ── Logging ───────────────────────────────────────────────
     def log_event(self, event_type: str, message: str, data: dict = None):
         event = {
-            "time": datetime.now(),
+            "time": _now_ist(),
             "type": event_type,
             "message": message,
             "data": data or {}
@@ -130,17 +171,23 @@ class LiveEngine:
         except Exception as e:
             self.log_event("error", f"Scrip master load error: {e}")
 
-        poll_interval = self.strategy.get("poll_interval", config.POLL_INTERVAL_SEC)
+        # ── Choose mode: WebSocket (fast) or REST polling (fallback) ──
+        self._ws_mode = self._feed is not None and self._feed.is_running
 
-        while self.running:
-            try:
-                await self._tick(callback)
-            except Exception as e:
-                self.log_event("error", f"Tick error: {str(e)}")
-                import traceback
-                traceback.print_exc()
-
-            await asyncio.sleep(poll_interval)
+        if self._ws_mode:
+            self.log_event("info", "⚡ Mode: WebSocket (event-driven, ~1-2s latency)")
+            await self._run_ws_mode(callback)
+        else:
+            self.log_event("info", "🔄 Mode: REST polling (fallback)")
+            poll_interval = self.strategy.get("poll_interval", config.POLL_INTERVAL_SEC)
+            while self.running:
+                try:
+                    await self._tick(callback)
+                except Exception as e:
+                    self.log_event("error", f"Tick error: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                await asyncio.sleep(poll_interval)
 
     def stop(self):
         """Stop the live trading engine."""
@@ -163,10 +210,237 @@ class LiveEngine:
             f"Session: {len(self.closed_trades)} trades | "
             f"Winners: {win_count} | P&L: ₹{total_pnl:,.2f}")
 
+    # ── WebSocket Event-Driven Mode ───────────────────────────
+    async def _run_ws_mode(self, callback=None):
+        """
+        WebSocket-driven loop — same logic as paper_trading._run_ws_mode()
+        but places REAL orders on entry/exit.
+        """
+        from engine.indicators import compute_dynamic_indicators
+
+        instrument = self.strategy.get("instrument", "26000")
+        timeframe = self._get_timeframe()
+
+        # Set up candle-close event (asyncio-safe from thread)
+        loop = asyncio.get_event_loop()
+        self._candle_event = asyncio.Event()
+
+        def _on_candle_close(df, candle):
+            """Called from WebSocket thread when a candle closes."""
+            self._latest_candle_df = df
+            self._latest_candle = candle
+            loop.call_soon_threadsafe(self._candle_event.set)
+
+        # Bootstrap history for indicator warm-up
+        history_df = self._feed.bootstrap_history(instrument, timeframe, days=7)
+        indicators = self.strategy.get("indicators", [])
+
+        self._feed.set_candle_config(
+            instrument_id=instrument,
+            timeframe=timeframe,
+            callback=_on_candle_close,
+            history_df=history_df,
+        )
+
+        self.log_event("info", f"📊 Candle aggregation: {timeframe}m ({len(history_df)} historical candles)")
+
+        # ── Immediately populate UI data from bootstrap history ──
+        if not history_df.empty:
+            try:
+                df_init = compute_dynamic_indicators(history_df.copy(), indicators)
+                if not df_init.empty:
+                    self.candle_buffer = df_init
+                    self.current_spot = float(df_init.iloc[-1].get("close", 0))
+                    self._update_ui_data(df_init.iloc[-1])
+                    self.log_event("info", f"📈 Initial UI data: spot={self.current_spot:.2f}")
+            except Exception as e:
+                self.log_event("warning", f"Bootstrap UI init failed: {e}")
+
+        # Main event loop
+        while self.running:
+            try:
+                now = _now_ist()
+                self.current_time = now
+
+                # New day reset
+                if now.date() != self.session_date:
+                    self.trades_today = 0
+                    self.daily_pnl = 0.0
+                    self.session_date = now.date()
+                    self.log_event("info", f"📅 New trading day: {self.session_date}")
+
+                # Market hours check
+                market_open_str = self.strategy.get("market_open", "09:15")
+                market_close_str = self.strategy.get("market_close", "15:25")
+                if isinstance(market_open_str, str):
+                    h, m = map(int, market_open_str.split(":"))
+                    market_open = time(h, m)
+                else:
+                    market_open = market_open_str
+                if isinstance(market_close_str, str):
+                    h, m = map(int, market_close_str.split(":"))
+                    market_close = time(h, m)
+                else:
+                    market_close = market_close_str
+
+                if not (market_open <= now.time() <= market_close):
+                    await asyncio.sleep(5)
+                    if callback:
+                        await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+                    continue
+
+                # Update current spot from feed cache
+                from engine.market_feed import LiveMarketFeed
+                idx_info = LiveMarketFeed.INDEX_MAP.get(instrument)
+                if idx_info:
+                    spot = self._feed.get_ltp(int(idx_info[0]))
+                    if spot > 0:
+                        self.current_spot = spot
+                        # Keep UI candle fresh between closes
+                        if self.current_candle:
+                            self.current_candle['close'] = spot
+                            self.current_candle['updated_at'] = _now_ist().strftime('%Y-%m-%d %I:%M:%S %p')
+                            if spot > self.current_candle.get('high', 0):
+                                self.current_candle['high'] = spot
+                            if spot < self.current_candle.get('low', float('inf')):
+                                self.current_candle['low'] = spot
+
+                # ── Monitor positions every 1 second ──
+                if self.in_trade:
+                    for pos in list(self.positions):
+                        if pos.get("status") == "closed":
+                            continue
+                        # Get LTP from feed cache (instant)
+                        current_premium = self._get_premium_from_feed(pos)
+                        # REST fallback every ~5s if WS has no data yet
+                        if current_premium <= 0:
+                            rest_counter = pos.get("_rest_counter", 0) + 1
+                            pos["_rest_counter"] = rest_counter
+                            if rest_counter % 5 == 1:
+                                try:
+                                    current_premium = self.dhan.get_option_ltp(
+                                        pos.get("underlying", ""),
+                                        int(pos["strike"]),
+                                        pos["expiry"], pos["option_type"]
+                                    ) or 0.0
+                                except Exception:
+                                    current_premium = 0.0
+                        if current_premium > 0:
+                            pos["current_premium"] = current_premium
+                            direction = 1 if pos["transaction_type"] == "BUY" else -1
+                            pos["unrealized_pnl"] = round(
+                                (current_premium - pos["entry_premium"]) *
+                                direction * pos["lots"] * pos["lot_size"], 2
+                            )
+
+                        # Check exit conditions
+                        latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                        if latest_row is not None:
+                            exit_reason = self._check_exit_conditions(pos, latest_row, pos["current_premium"])
+                            if exit_reason:
+                                await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
+
+                # ── Wait for candle close event ──
+                try:
+                    await asyncio.wait_for(self._candle_event.wait(), timeout=1.0)
+                    self._candle_event.clear()
+                except asyncio.TimeoutError:
+                    if callback:
+                        await self._emit(callback, self.get_status())
+                    continue
+
+                # ── Candle closed — evaluate conditions ──
+                candle_df = self._latest_candle_df
+                latest_candle = self._latest_candle
+
+                if candle_df is None or candle_df.empty:
+                    continue
+
+                df_with_indicators = compute_dynamic_indicators(candle_df, indicators)
+                self.candle_buffer = df_with_indicators
+
+                if df_with_indicators.empty:
+                    continue
+
+                latest_row = df_with_indicators.iloc[-1]
+                self.current_spot = float(latest_row.get("close", self.current_spot))
+
+                self._update_ui_data(latest_row)
+
+                candle_time = latest_candle.get("timestamp", now)
+                latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
+                self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
+
+                # Check entry
+                max_trades = self.strategy.get("max_trades_per_day", 1)
+                daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+
+                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
+                    prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
+                    entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                    if entry_sig:
+                        self.log_event("signal", f"⚡ ENTRY SIGNAL (latency: {latency:.1f}s)")
+                        await self._enter_trade(latest_row, callback)
+
+                self._prev_row = latest_row
+
+                if callback:
+                    await self._emit(callback, self.get_status())
+
+            except Exception as e:
+                self.log_event("error", f"WS mode error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                await asyncio.sleep(1)
+
+    def _get_premium_from_feed(self, pos: dict) -> float:
+        """Get option premium from WebSocket feed's LTP cache (instant)."""
+        if not self._feed:
+            return 0.0
+        sec_id = pos.get("ws_sec_id")
+        if sec_id:
+            ltp = self._feed.get_ltp(sec_id)
+            if ltp > 0:
+                return ltp
+        return 0.0
+
+    def _update_ui_data(self, row):
+        """Store latest candle + indicator values for the live monitor UI."""
+        try:
+            self.current_candle = {
+                "open": round(float(row.get("open", 0)), 2),
+                "high": round(float(row.get("high", 0)), 2),
+                "low": round(float(row.get("low", 0)), 2),
+                "close": round(float(row.get("close", 0)), 2),
+                "volume": int(row.get("volume", 0)),
+                "updated_at": _now_ist().strftime("%Y-%m-%d %I:%M:%S %p"),
+            }
+            ohlcv_cols = {
+                "open", "high", "low", "close", "volume", "oi", "timestamp",
+                "date", "datetime", "time_of_day",
+                "current_open", "current_high", "current_low", "current_close",
+                "yesterday_open", "yesterday_high", "yesterday_low", "yesterday_close",
+                "cpr_type", "pivot", "bc", "tc", "cpr_range", "cpr_width_pct",
+                "cpr_is_narrow", "supertrend_dir",
+            }
+            self.current_indicators = {}
+            for col in self.candle_buffer.columns:
+                if col in ohlcv_cols:
+                    continue
+                try:
+                    val = row[col]
+                    if pd.isna(val):
+                        continue
+                    self.current_indicators[col] = round(float(val), 2)
+                except (TypeError, ValueError):
+                    pass
+        except Exception:
+            pass
+
     # ── Tick ──────────────────────────────────────────────────
     async def _tick(self, callback=None):
         """Single tick — fetch data, evaluate conditions, manage trades."""
-        now = datetime.now()
+        now = _now_ist()
         self.current_time = now
         cur_time = now.time()
 
@@ -264,8 +538,8 @@ class LiveEngine:
             timeframe = 5
 
         instrument = self.strategy.get("instrument", "26000")
-        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        to_date = datetime.now().strftime("%Y-%m-%d")
+        from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
+        to_date = _now_ist().strftime("%Y-%m-%d")
 
         inst_map = _get_instrument_map()
         inst_info = inst_map.get(instrument, {})
@@ -292,7 +566,7 @@ class LiveEngine:
                 "close": round(float(last.get("close", 0)), 2),
                 "volume": int(last.get("volume", 0)),
                 "openInterest": int(last.get("oi", 0)),
-                "updated_at": datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
+                "updated_at": _now_ist().strftime("%Y-%m-%d %I:%M:%S %p"),
             }
             ohlcv_cols = {
                 "open", "high", "low", "close", "volume", "oi", "timestamp",
@@ -319,6 +593,12 @@ class LiveEngine:
     # ── Option Premium ────────────────────────────────────────
     async def _get_current_premium(self, pos: dict) -> float:
         """Fetch current premium for an option position from Dhan LTP API."""
+        # Try WebSocket feed first (instant, no API call)
+        if self._ws_mode and self._feed:
+            ws_ltp = self._get_premium_from_feed(pos)
+            if ws_ltp > 0:
+                return ws_ltp
+
         try:
             ltp = self.dhan.get_option_ltp(
                 underlying=pos["underlying"],
@@ -429,6 +709,7 @@ class LiveEngine:
             position = {
                 "id": len(self.positions) + len(self.closed_trades) + 1,
                 "leg_num": i + 1,
+                "symbol": f"{underlying} {strike} {opt_type}",
                 "underlying": underlying,
                 "transaction_type": txn_type,
                 "option_type": opt_type,
@@ -454,7 +735,16 @@ class LiveEngine:
                 "trading_symbol": trading_symbol,
                 "symbol": trading_symbol,  # For UI display
                 "status": "open",
+                "ws_sec_id": None,  # Will be set if WebSocket mode
             }
+
+            # Subscribe option to WebSocket feed for instant LTP tracking
+            if self._ws_mode and self._feed:
+                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
+                if ws_sec_id:
+                    position["ws_sec_id"] = ws_sec_id
+                    self._option_sec_id = ws_sec_id
+                    self.log_event("info", f"⚡ Option subscribed to WebSocket: sec_id={ws_sec_id}")
 
             # Place SL order to broker if configured
             if place_leg_sl and leg.get("sl_pct", 0) > 0:
@@ -466,6 +756,32 @@ class LiveEngine:
         if entered_positions:
             self.in_trade = True
             self.trades_today += 1
+
+            # Compute strategy-level SL/TP based on first leg entry
+            pos0 = entered_positions[0]
+            ep0 = pos0["entry_premium"]
+            qty0 = pos0["lots"] * pos0["lot_size"]
+            self.trade_entry_prem = ep0
+
+            if self._sl_rupees > 0:
+                self.strat_sl_val = self._sl_rupees
+            elif self._sl_pct > 0:
+                self.strat_sl_val = ep0 * qty0 * self._sl_pct / 100
+            else:
+                self.strat_sl_val = 0
+
+            if self._tp_rupees > 0:
+                self.strat_tp_val = self._tp_rupees
+            elif self._tp_pct > 0:
+                self.strat_tp_val = ep0 * qty0 * self._tp_pct / 100
+            else:
+                self.strat_tp_val = 0
+
+            if self.strat_sl_val > 0:
+                self.log_event("info", f"🛡️ Strategy SL: ₹{self.strat_sl_val:,.0f}")
+            if self.strat_tp_val > 0:
+                self.log_event("info", f"🎯 Strategy TP: ₹{self.strat_tp_val:,.0f}")
+
             self.log_event("info",
                 f"📊 Trade #{self.trades_today}: {len(entered_positions)} legs opened")
         else:
@@ -588,6 +904,8 @@ class LiveEngine:
         # Check if all legs closed
         if not self.positions:
             self.in_trade = False
+            self.strat_sl_val = 0
+            self.strat_tp_val = 0
             trade_pnl = sum(
                 t["pnl"] for t in self.closed_trades
                 if t.get("exit_time") == self.current_time
@@ -611,6 +929,20 @@ class LiveEngine:
                 pos.get("peak_premium", pos["entry_premium"]),
                 current_premium
             )
+
+        # ── Strategy-level SL/TP (₹ amounts) — checked FIRST ──
+        if self.strat_sl_val > 0 or self.strat_tp_val > 0:
+            ep = pos["entry_premium"]
+            qty = pos["lots"] * pos["lot_size"]
+            direction = 1 if pos["transaction_type"] == "BUY" else -1
+            cur_pnl = (current_premium - ep) * direction * qty
+
+            if self.strat_sl_val > 0 and cur_pnl <= -self.strat_sl_val:
+                self.log_event("exit", f"Strategy SL hit: PnL ₹{cur_pnl:,.0f} <= -₹{self.strat_sl_val:,.0f}")
+                return "STRATEGY_SL"
+            if self.strat_tp_val > 0 and cur_pnl >= self.strat_tp_val:
+                self.log_event("exit", f"Strategy TP hit: PnL ₹{cur_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
+                return "STRATEGY_TP"
 
         # Trailing stop loss
         trail_pct = pos.get("trail_pct", 0)

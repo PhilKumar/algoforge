@@ -33,6 +33,7 @@ from broker.dhan     import DhanClient, ScripMaster
 from engine.backtest import run_backtest, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS
 from engine.live     import LiveEngine
 from engine.paper_trading import PaperTradingEngine
+from engine.market_feed import get_market_feed, shutdown_feed, LiveMarketFeed, HAS_DHAN_FEED
 from token_manager   import auto_generate_token, token_renewal_loop
 import fcntl
 
@@ -87,6 +88,9 @@ if os.path.exists("static"):
 dhan        = DhanClient()
 live_engine = LiveEngine(dhan)
 paper_engine = PaperTradingEngine(dhan)
+
+# Global WebSocket market feed (singleton — shared by paper + live engines)
+_market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 
 ws_clients: List[WebSocket] = []
 _live_task  = None   # track the asyncio task
@@ -735,7 +739,7 @@ INSTRUMENT_MAP = {
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
-INTRADAY_MAX_DAYS = 700  # Dhan intraday API returns ~2 years max; use 700 days as threshold
+INTRADAY_MAX_DAYS = 750  # Dhan intraday API returns ~2 years max; 750 days threshold (~2y + margin)
 
 def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5") -> pd.DataFrame:
     """
@@ -785,7 +789,11 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
         raise Exception(f"No daily data from Dhan for {inst_info['name']}.")
     
     # Intraday candles — chunk into 28-day windows
+    # Dhan rate limit: ~10 requests/second. We add delay + retry on 429.
+    import time as _time
     CHUNK_DAYS = 28
+    RATE_LIMIT_DELAY = 0.5   # seconds between API calls
+    MAX_RETRIES = 3           # retry on 429 rate-limit errors
     all_dfs = []
     chunk_start = from_dt
     chunk_num = 0
@@ -800,24 +808,39 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
         
         print(f"[DATA] Chunk {chunk_num}: {cs} → {ce}")
         
-        try:
-            df_chunk = dhan.get_historical_data(
-                security_id=inst_info["dhan_id"],
-                exchange_segment=inst_info["dhan_seg"],
-                instrument_type=inst_info["dhan_type"],
-                from_date=cs,
-                to_date=ce,
-                candle_type=effective_interval,
-            )
-            if df_chunk is not None and not df_chunk.empty:
-                all_dfs.append(df_chunk)
-                print(f"[DATA]   → {len(df_chunk)} candles")
-            else:
-                print(f"[DATA]   → 0 candles (empty or None)")
-        except Exception as e:
-            last_error = str(e)
-            print(f"[DATA]   → Error: {last_error}")
-            # Continue to next chunk — don't fail the entire backtest
+        success = False
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                df_chunk = dhan.get_historical_data(
+                    security_id=inst_info["dhan_id"],
+                    exchange_segment=inst_info["dhan_seg"],
+                    instrument_type=inst_info["dhan_type"],
+                    from_date=cs,
+                    to_date=ce,
+                    candle_type=effective_interval,
+                )
+                if df_chunk is not None and not df_chunk.empty:
+                    all_dfs.append(df_chunk)
+                    print(f"[DATA]   → {len(df_chunk)} candles")
+                else:
+                    print(f"[DATA]   → 0 candles (empty or None)")
+                success = True
+                break
+            except Exception as e:
+                last_error = str(e)
+                if "429" in str(e) or "Rate_Limit" in str(e) or "DH-904" in str(e):
+                    wait = RATE_LIMIT_DELAY * (2 ** attempt)  # exponential backoff: 1s, 2s, 4s
+                    print(f"[DATA]   → Rate limited (attempt {attempt}/{MAX_RETRIES}), waiting {wait:.1f}s...")
+                    _time.sleep(wait)
+                else:
+                    print(f"[DATA]   → Error: {last_error}")
+                    break  # non-rate-limit error, skip this chunk
+        
+        if not success and attempt == MAX_RETRIES:
+            print(f"[DATA]   → Failed after {MAX_RETRIES} retries")
+        
+        # Throttle between chunks to avoid rate limiting
+        _time.sleep(RATE_LIMIT_DELAY)
         
         chunk_start = chunk_end + timedelta(days=1)
     
@@ -963,6 +986,9 @@ async def api_run_backtest(payload: StrategyPayload):
                 "entry_conditions": payload.entry_conditions,
                 "exit_conditions": payload.exit_conditions,
                 "legs": payload.legs,
+                "market_open": getattr(payload, 'market_open', '09:15') or '09:15',
+                "market_close": getattr(payload, 'market_close', '15:25') or '15:25',
+                "max_trades_per_day": getattr(payload, 'max_trades_per_day', 1),
                 "stats": results["stats"],
                 "monthly": results.get("monthly", []),
                 "day_of_week": results.get("day_of_week", []),
@@ -1018,6 +1044,11 @@ async def live_start(req: LiveStartRequest):
             "max_daily_loss": float(req.max_daily_loss or 0),
             "lots": req.lots,
             "stoploss_pct": req.stoploss_pct,
+            "stoploss_rupees": req.stoploss_rupees,
+            "sl_type": req.sl_type,
+            "target_profit_pct": req.target_profit_pct,
+            "target_profit_rupees": req.target_profit_rupees,
+            "tp_type": req.tp_type,
             "poll_interval": 10,
         }
 
@@ -1029,6 +1060,22 @@ async def live_start(req: LiveStartRequest):
         exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
         deploy_config=deploy_config,
     )
+
+    # Inject WebSocket feed if available — starts WS + subscribes index
+    if _market_feed and HAS_DHAN_FEED:
+        instrument = strategy_dict.get("instrument", "26000")
+        _market_feed.subscribe_index(instrument)
+        if not _market_feed.is_running:
+            _market_feed.start()
+        live_engine.set_feed(_market_feed)
+
+    # Set running IMMEDIATELY so UI never sees a stale "stopped" state
+    live_engine.running = True
+    live_engine.event_log = []
+    live_engine.positions = []
+    live_engine.closed_trades = []
+    live_engine.in_trade = False
+    live_engine.trades_today = 0
 
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
@@ -1093,7 +1140,7 @@ async def paper_start(payload: StrategyPayload):
     if paper_engine.running:
         return {"status": "already_running"}
     
-    # Configure strategy
+    # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
         "run_name": payload.run_name,
         "instrument": payload.instrument,
@@ -1104,6 +1151,17 @@ async def paper_start(payload: StrategyPayload):
         "legs": payload.legs or [],
         "deploy_config": payload.deploy_config or {},
         "poll_interval": 10,  # Check every 10 seconds
+        # Strategy-level SL/TP
+        "lots": payload.lots,
+        "lot_size": payload.lot_size,
+        "stoploss_pct": payload.stoploss_pct,
+        "stoploss_rupees": payload.stoploss_rupees,
+        "sl_type": payload.sl_type,
+        "target_profit_pct": payload.target_profit_pct,
+        "target_profit_rupees": payload.target_profit_rupees,
+        "tp_type": payload.tp_type,
+        "max_daily_loss": payload.max_daily_loss,
+        "combined_sqoff_time": payload.combined_sqoff_time,
     }
     
     paper_engine.configure(
@@ -1111,6 +1169,22 @@ async def paper_start(payload: StrategyPayload):
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS
     )
+    
+    # Inject WebSocket feed if available — starts WS + subscribes index
+    if _market_feed and HAS_DHAN_FEED:
+        instrument = strategy_dict.get("instrument", "26000")
+        _market_feed.subscribe_index(instrument)
+        if not _market_feed.is_running:
+            _market_feed.start()
+        paper_engine.set_feed(_market_feed)
+    
+    # Set running IMMEDIATELY so UI never sees a stale "stopped" state
+    paper_engine.running = True
+    paper_engine.event_log = []
+    paper_engine.positions = []
+    paper_engine.closed_trades = []
+    paper_engine.in_trade = False
+    paper_engine.trades_today = 0
     
     # Broadcast updates to WebSocket clients
     async def broadcast(event: dict):
@@ -1514,6 +1588,30 @@ async def _start_token_renewal():
     if config.AUTO_TOKEN_ENABLED:
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
+    if _market_feed:
+        print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
+
+
+@app.on_event("shutdown")
+async def _shutdown_cleanup():
+    """Clean up WebSocket feed on shutdown."""
+    shutdown_feed()
+    print("🛑 [MarketFeed] WebSocket feed shut down")
+
+
+# ── Feed Status ───────────────────────────────────────────────────
+@app.get("/api/feed/status")
+async def feed_status():
+    """Get WebSocket market feed status."""
+    if not _market_feed:
+        return {"status": "unavailable", "reason": "dhanhq MarketFeed not installed"}
+    return {
+        "status": "running" if _market_feed.is_running else "stopped",
+        "has_dhan_feed": HAS_DHAN_FEED,
+        "subscriptions": len(_market_feed._subscriptions),
+        "ltp_cache_size": len(_market_feed._ltp_cache),
+        "aggregators": list(_market_feed._aggregators.keys()),
+    }
 
 
 # ── Run ───────────────────────────────────────────────────────────

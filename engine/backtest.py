@@ -8,6 +8,7 @@ engine/backtest.py — AlgoForge Backtest Engine v3
 """
 import pandas as pd
 import numpy as np
+import math
 from datetime import datetime, time, date
 from typing import List
 import sys, os
@@ -15,12 +16,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from engine.indicators import compute_dynamic_indicators
 import config
 
+def _dte_weekly(d):
+    """Estimate calendar days to next Thursday (weekly expiry) for premium calc."""
+    wd = d.weekday()  # Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+    if wd <= 3:       # Mon-Thu: this Thursday
+        dte = 3 - wd
+    else:              # Fri-Sun: next Thursday
+        dte = 3 + 7 - wd
+    return max(0.5, dte)  # at least 0.5 to avoid edge cases on expiry day
+
 # ── Lot Size Lookup (accurate) ────────────────────────────────────
 LOT_SIZES = {
-    "NIFTY":     [(date(2026, 1, 1), 65), (date(2000, 1, 1), 75)],
-    "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2000, 1, 1), 25)],
-    "FINNIFTY":  [(date(2026, 1, 1), 65), (date(2000, 1, 1), 40)],
-    "SENSEX":    [(date(2026, 1, 1), 20), (date(2000, 1, 1), 10)],
+    "NIFTY":     [(date(2026, 1, 1), 65), (date(2024, 11, 20), 75), (date(2000, 1, 1), 50)],
+    "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2024, 11, 20), 30), (date(2000, 1, 1), 25)],
+    "FINNIFTY":  [(date(2026, 1, 1), 65), (date(2024, 11, 20), 65), (date(2000, 1, 1), 40)],
+    "SENSEX":    [(date(2026, 1, 1), 20), (date(2024, 11, 20), 20), (date(2000, 1, 1), 10)],
 }
 
 def get_lot_size(instrument, trade_date):
@@ -154,14 +164,29 @@ DEFAULT_EXIT_CONDITIONS = [{"left":"current_close","operator":"is_below","right"
 
 # ── Option Helpers ─────────────────────────────────────────────────
 def _est_prem(ci, ei, ep, ot, atm_prem=None):
-    """Estimate current option premium given index move. Uses dynamic delta."""
+    """Estimate current option premium given index move.
+    Uses improved delta model: d = 1 - 1/(1 + r^2.5) where r = ep/atm_prem.
+    This gives higher delta for ITM options, matching real weekly option behavior.
+    """
     if atm_prem and atm_prem > 0 and ep > 0:
-        # Dynamic delta: ITM options have higher delta
-        d = min(0.95, ep / (ep + atm_prem))
+        r = ep / atm_prem
+        d = min(0.95, 1.0 - 1.0 / (1.0 + r ** 2.5))
     else:
         d = 0.5  # fallback ATM delta
     if ot == "PE": d = -d
     return max(0.05, ep + (ci - ei) * d)
+
+def _est_prem_gaussian(atm_prem, moneyness):
+    """Estimate extrinsic value using Gaussian decay (matches weekly option reality).
+    Returns estimated total premium for given moneyness relative to ATM.
+    moneyness > 0 = ITM, moneyness < 0 = OTM.
+    """
+    m_ratio = abs(moneyness) / max(atm_prem, 1)
+    extrinsic = atm_prem * math.exp(-1.0 * m_ratio * m_ratio)
+    if moneyness > 0:  # ITM
+        return max(1, moneyness + extrinsic)
+    else:  # OTM
+        return max(0.5, extrinsic)
 
 def _opt_pnl(ep, xp, lots, ls, txn):
     d = xp - ep; 
@@ -186,6 +211,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     mkt_open  = _parse_time(sc.get("market_open", "09:15"))
     mkt_close = _parse_time(sc.get("market_close", "15:25"))
     lots      = int(sc.get("lots", 1))
+    user_lot_size = int(sc.get("lot_size", 0) or 0)
     sl_pct    = float(sc.get("stoploss_pct", 0) or 0)
     sl_rupees = float(sc.get("stoploss_rupees", 0) or 0)
     tp_pct    = float(sc.get("target_profit_pct", 0) or 0)
@@ -236,7 +262,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     ei=0.0; ep=0.0; et=None; slp=0.0; tgtp=0.0; td=0; ld=None
     strike_name=""; trade_qty=0; lot_size=75; atm_prem_ref=0; peak_prem=0.0
 
-    print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}")
+    print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} user_lot_size={user_lot_size} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}")
     print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
 
     prev_row = None
@@ -251,8 +277,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp if has_opt else o,pnl,"EOD",total_pnl,ot,strike_name,trade_qty,ltxn))
                 in_trade=False
             td=0; ld=cd
-            # Update lot size for this date
-            lot_size = get_lot_size(instrument, cd)
+            # Update lot size for this date — use user-configured if set, else historical
+            lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
             trade_qty = lots * lot_size
 
         if not is_daily:
@@ -267,26 +293,71 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
         if in_trade:
             c=float(row["close"])
+            h=float(row.get("high", c))
+            l=float(row.get("low", c))
             cp=_est_prem(c,ei,ep,ot,atm_prem_ref) if has_opt else c
+            # OHLC-based worst-case premium for SL detection
+            if has_opt:
+                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref)
+                cp_at_l = _est_prem(l, ei, ep, ot, atm_prem_ref)
+                if ltxn=="BUY":
+                    cp_worst = min(cp, cp_at_h, cp_at_l)  # worst for BUY holder
+                    cp_best  = max(cp, cp_at_h, cp_at_l)  # best for BUY holder
+                else:
+                    cp_worst = max(cp, cp_at_h, cp_at_l)  # worst for SELL holder
+                    cp_best  = min(cp, cp_at_h, cp_at_l)  # best for SELL holder
+            else:
+                cp_worst = l  # worst for long index
+                cp_best  = h  # best for long index
             # Update peak premium for trailing SL
             if has_opt:
                 if ltxn=="BUY": peak_prem=max(peak_prem, cp)
                 else: peak_prem=min(peak_prem, cp)
             else:
                 peak_prem=max(peak_prem, c)
-            sh=False; th=False; trail_hit=False
-            if has_opt and lsl>0: sh=(ltxn=="BUY" and cp<=slp) or (ltxn=="SELL" and cp>=slp)
-            elif not has_opt and slp>0: sh=c<=slp
+            sh=False; th=False; trail_hit=False; strat_sl_hit=False; strat_tp_hit=False
+            # Leg-level SL uses worst-case (OHLC), TP uses close
+            if has_opt and lsl>0: sh=(ltxn=="BUY" and cp_worst<=slp) or (ltxn=="SELL" and cp_worst>=slp)
+            elif not has_opt and slp>0: sh=l<=slp
             if has_opt and ltgt>0: th=(ltxn=="BUY" and cp>=tgtp) or (ltxn=="SELL" and cp<=tgtp)
             elif not has_opt and tgtp>0: th=c>=tgtp
             # Trailing stop loss check
             if has_opt and ltrail>0:
-                if ltxn=="BUY" and cp<=peak_prem*(1-ltrail/100): trail_hit=True
-                elif ltxn=="SELL" and cp>=peak_prem*(1+ltrail/100): trail_hit=True
+                if ltxn=="BUY" and cp_worst<=peak_prem*(1-ltrail/100): trail_hit=True
+                elif ltxn=="SELL" and cp_worst>=peak_prem*(1+ltrail/100): trail_hit=True
             elif not has_opt and ltrail>0:
-                if c<=peak_prem*(1-ltrail/100): trail_hit=True
+                if l<=peak_prem*(1-ltrail/100): trail_hit=True
+            # Strategy-level SL/TP (₹ or %) — SL uses worst-case OHLC, TP uses best-case OHLC
+            if has_opt and (sl_rupees>0 or sl_pct>0 or tp_rupees>0 or tp_pct>0):
+                cur_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn)
+                worst_pnl = _opt_pnl(ep, cp_worst, lots, lot_size, ltxn)
+                best_pnl = _opt_pnl(ep, cp_best, lots, lot_size, ltxn)
+                strat_sl_val = sl_rupees if sl_rupees>0 else (ep*lots*lot_size*sl_pct/100) if sl_pct>0 else 0
+                strat_tp_val = tp_rupees if tp_rupees>0 else (ep*lots*lot_size*tp_pct/100) if tp_pct>0 else 0
+                if strat_sl_val>0 and worst_pnl <= -strat_sl_val: strat_sl_hit=True
+                if strat_tp_val>0 and best_pnl >= strat_tp_val: strat_tp_hit=True
 
-            if sh:
+            if strat_sl_hit:
+                # Cap SL exit at exact SL level (matching Quantman: max loss = SL%)
+                qty = lots * lot_size
+                if ltxn=="BUY":
+                    capped_xp = round(ep - strat_sl_val / qty, 2)
+                else:
+                    capped_xp = round(ep + strat_sl_val / qty, 2)
+                pnl = -round(strat_sl_val, 2)
+                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategySL",total_pnl,ot,strike_name,trade_qty,ltxn))
+                in_trade=False; td+=1
+            elif strat_tp_hit:
+                # Cap TP exit at exact TP level (bracket order fills at TP price)
+                qty = lots * lot_size
+                if ltxn=="BUY":
+                    capped_xp = round(ep + strat_tp_val / qty, 2)
+                else:
+                    capped_xp = round(ep - strat_tp_val / qty, 2)
+                pnl = round(strat_tp_val, 2)
+                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategyTP",total_pnl,ot,strike_name,trade_qty,ltxn))
+                in_trade=False; td+=1
+            elif sh:
                 xp=slp if has_opt else slp
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,xp,lots,lot_size)
                 total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"StopLoss",total_pnl,ot,strike_name,trade_qty,ltxn))
@@ -311,8 +382,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if not is_daily and ct<ENTRY_EARLIEST: equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)}); continue
 
             if eval_condition_group(row, entry_conditions, prev_row):
-                in_trade=True; ei=float(row["close"]); et=ts
-                lot_size = get_lot_size(instrument, cd)
+                in_trade=True; ei=float(row["open"]); et=ts  # Use candle OPEN (matches Quantman entry timing)
+                lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
                 trade_qty = lots * lot_size
                 atm = round(ei / strike_step) * strike_step
                 # Determine correct instrument label
@@ -328,13 +399,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     inst_label = "NIFTY"
                 strike_name = f"{inst_label} {int(atm)} {ot}" if has_opt else inst_label
                 if has_opt:
-                    # Improved ATM premium estimation using volatility-based model
-                    # Base IV: 15-20% for low VIX, 25-35% for high VIX
-                    spot_pct = 0.006 if "BANK" in inst_label else 0.005  # BANKNIFTY slightly higher
-                    vix_factor = min(2.0, 1.0 + (df.get('vix', pd.Series([15]*len(df))).iloc[-1] - 15) / 100) if 'vix' in df.columns else 1.0
-                    atm_prem = round(ei * spot_pct * vix_factor, 2)
+                    # DTE-aware ATM premium estimation (matches real weekly option premiums)
+                    dte = _dte_weekly(cd)
+                    base_pct = 0.009 if "BANK" in inst_label else 0.007
+                    atm_prem = round(ei * base_pct * math.sqrt(max(0.5, dte) / 3.0), 2)
                     
-                    print(f"[BT] Entry @ {et}: Spot={ei:.2f}, ATM={atm}, ATM_Premium_Est={atm_prem}")
+                    print(f"[BT] Entry @ {et}: Spot={ei:.2f}, ATM={atm}, ATM_Premium_Est={atm_prem}, DTE={dte}")
                     
                     # Determine entry premium based on strike selection
                     if strike_type in ("premium_near","premium_above","premium_below") and strike_value>0:
@@ -349,49 +419,34 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                             test_strike = atm + (offset * strike_step)
                             moneyness = (ei - test_strike) if ot == "CE" else (test_strike - ei)
                             
-                            # Estimate premium for this strike (simplified Black-Scholes approximation)
-                            if moneyness > 0:  # ITM
-                                intrinsic = moneyness
-                                extrinsic = atm_prem * 0.5 * (1 - abs(moneyness) / (ei * 0.2))
-                                test_prem = max(1, intrinsic + extrinsic)
-                            else:  # OTM
-                                distance_pct = abs(moneyness) / ei
-                                test_prem = atm_prem * max(0.05, (1 - distance_pct * 5))
+                            # Use Gaussian extrinsic decay (matches real weekly option pricing)
+                            test_prem = _est_prem_gaussian(atm_prem, moneyness)
                             
                             diff = abs(test_prem - target_prem)
                             if diff < best_diff:
                                 best_diff = diff
                                 best_strike = test_strike
-                                ep = round(test_prem, 2)
                         
                         strike_used = int(best_strike)
+                        # For premium_near, use target premium as entry (closest to real execution)
+                        ep = round(target_prem, 2)
                         strike_name = f"{inst_label} {strike_used} {ot}"
-                        print(f"[BT]   Premium_Near {target_prem}: Selected {strike_used} with est premium {ep}")
+                        print(f"[BT]   Premium_Near {target_prem}: Selected {strike_used}, entry_premium={ep}")
                     elif strike_type == "strike_price" and strike_value>0:
                         strike_used = int(round(strike_value / strike_step) * strike_step)
                         moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
-                        
-                        if moneyness > 0:  # ITM
-                            intrinsic = moneyness
-                            extrinsic = atm_prem * 0.5 * (1 - abs(moneyness) / (ei * 0.2))
-                            ep = max(1, round(intrinsic + extrinsic, 2))
-                        else:  # OTM
-                            distance_pct = abs(moneyness) / ei
-                            ep = max(1, round(atm_prem * max(0.05, (1 - distance_pct * 5)), 2))
-                        
+                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
                         strike_name = f"{inst_label} {int(strike_used)} {ot}"
                         print(f"[BT]   Strike_Price: {strike_used}, Est Premium={ep}")
                     elif strike_type in ("otm","itm") and strike_value>0:
                         offset = int(round(strike_value / strike_step) * strike_step)
                         if strike_type=="otm":
                             strike_used = atm + offset if ot=="CE" else atm - offset
-                            distance_pct = offset / ei
-                            ep = max(1, round(atm_prem * max(0.05, (1 - distance_pct * 5)), 2))
+                            moneyness = -offset  # OTM
                         else:
                             strike_used = atm - offset if ot=="CE" else atm + offset
-                            intrinsic = offset
-                            extrinsic = atm_prem * 0.5
-                            ep = max(1, round(intrinsic + extrinsic, 2))
+                            moneyness = offset   # ITM
+                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
                         strike_name = f"{inst_label} {int(strike_used)} {ot}"
                         print(f"[BT]   {strike_type.upper()}: {strike_used}, Est Premium={ep}")
                     elif strike_type == "spot_price" and strike_value != 0:
@@ -399,16 +454,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         offset = int(round(strike_value / strike_step) * strike_step)
                         strike_used = int(ei + offset) if strike_value > 0 else int(ei - abs(offset))
                         strike_used = int(round(strike_used / strike_step) * strike_step)  # round to nearest strike
-                        
                         moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
-                        if moneyness > 0:  # ITM
-                            intrinsic = moneyness
-                            extrinsic = atm_prem * 0.5 * (1 - abs(moneyness) / (ei * 0.2))
-                            ep = max(1, round(intrinsic + extrinsic, 2))
-                        else:  # OTM
-                            distance_pct = abs(moneyness) / ei
-                            ep = max(1, round(atm_prem * max(0.05, (1 - distance_pct * 5)), 2))
-                        
+                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
                         strike_name = f"{inst_label} {int(strike_used)} {ot}"
                         print(f"[BT]   Spot±Offset: {strike_used}, Est Premium={ep}")
                     else:
@@ -421,6 +468,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     tgtp=round(ep*(1+ltgt/100),2) if ltgt>0 else 0
                     atm_prem_ref=atm_prem  # store for delta estimation during trade
                     peak_prem=ep  # initialize peak for trailing SL
+                    # Also apply strategy-level SL/TP as absolute ₹ limits on total P&L
+                    # These are checked per-candle below (strategy_sl_rupees / strategy_tp_rupees)
                 else:
                     ep=ei
                     # Strategy-level SL/TP for index trades (supports % or ₹)
