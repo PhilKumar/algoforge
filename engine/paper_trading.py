@@ -893,13 +893,14 @@ class PaperTradingEngine:
             strike_type = leg.get("strike_type", "atm")
             strike_value = leg.get("strike_value", 0)
             
-            # Calculate strike — handle premium_near by scanning real LTP
-            if strike_type == "premium_near" and expiry:
-                strike = await self._find_premium_near_strike(
+            # Calculate strike — handle premium-based types by scanning real LTP
+            if strike_type in ("premium_near", "premium_above", "premium_below") and expiry:
+                mode = strike_type.split("_")[1]  # "near", "above", "below"
+                strike = await self._find_premium_strike(
                     symbol, expiry, option_type, float(strike_value), 
-                    self.current_spot, strike_step
+                    self.current_spot, strike_step, mode=mode
                 )
-                self.log_event("info", f"🎯 premium_near target=₹{strike_value} → strike={strike}")
+                self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
             else:
                 strike = self._calculate_strike(leg, self.current_spot, strike_step)
             
@@ -994,38 +995,70 @@ class PaperTradingEngine:
         self.trades_today += 1
         self._save_state()  # Persist after trade entry
     
-    async def _find_premium_near_strike(self, symbol: str, expiry: str, 
-                                         option_type: str, target_prem: float,
-                                         spot: float, strike_step: int) -> int:
+    async def _find_premium_strike(self, symbol: str, expiry: str,
+                                    option_type: str, target_prem: float,
+                                    spot: float, strike_step: int,
+                                    mode: str = "near") -> int:
         """
-        Find the strike with premium closest to target using real Dhan LTP.
-        Scans strikes around ATM to find the best match.
+        Find the strike whose premium matches the target based on mode:
+          near  -> closest premium to target (either side)
+          above -> cheapest premium that is >= target (min premium constraint)
+          below -> most expensive premium that is <= target (max premium constraint)
+        Scans ±15 strikes around ATM using real Dhan LTP.
         """
         atm = round(spot / strike_step) * strike_step
-        best_strike = atm
-        best_diff = float('inf')
-        
-        # Scan ±10 strikes around ATM
-        for offset in range(-10, 11):
+        candidates = []  # list of (strike, ltp)
+
+        for offset in range(-15, 16):
             strike = int(atm + offset * strike_step)
             if strike <= 0:
                 continue
             try:
                 ltp = self.dhan.get_option_ltp(symbol, strike, expiry, option_type)
-                if ltp > 0:
-                    diff = abs(ltp - target_prem)
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_strike = strike
-                    # Early exit if we found a very close match
-                    if diff < target_prem * 0.05:
-                        break
-                # Small delay to avoid rate limits
-                await asyncio.sleep(0.1)
+                if ltp and ltp > 0:
+                    candidates.append((strike, ltp))
+                await asyncio.sleep(0.05)
             except Exception:
                 continue
-        
-        return best_strike
+
+        if not candidates:
+            return int(atm)
+
+        if mode == "above":
+            # Must have premium >= target; pick the one closest to target from above
+            valid = [(s, p) for s, p in candidates if p >= target_prem]
+            if valid:
+                best = min(valid, key=lambda x: x[1])  # cheapest that still meets min
+                self.log_event("info", f"🔍 premium_above: scanned {len(candidates)} strikes, {len(valid)} qualify ≥₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
+                return best[0]
+            # No strike meets the min premium — pick closest to target
+            self.log_event("warning", f"⚠️ premium_above: no strike with premium ≥₹{target_prem}, using closest")
+            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
+            return best[0]
+
+        elif mode == "below":
+            # Must have premium <= target; pick the most expensive one that stays below max
+            valid = [(s, p) for s, p in candidates if p <= target_prem]
+            if valid:
+                best = max(valid, key=lambda x: x[1])  # most expensive under limit
+                self.log_event("info", f"🔍 premium_below: scanned {len(candidates)} strikes, {len(valid)} qualify ≤₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
+                return best[0]
+            self.log_event("warning", f"⚠️ premium_below: no strike with premium ≤₹{target_prem}, using closest")
+            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
+            return best[0]
+
+        else:  # near
+            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
+            self.log_event("info", f"🔍 premium_near: scanned {len(candidates)} strikes, selected strike={best[0]} (premium ₹{best[1]:.2f}, target ₹{target_prem})")
+            return best[0]
+
+    async def _find_premium_near_strike(self, symbol: str, expiry: str,
+                                         option_type: str, target_prem: float,
+                                         spot: float, strike_step: int) -> int:
+        """Backward compat wrapper — delegates to _find_premium_strike."""
+        return await self._find_premium_strike(
+            symbol, expiry, option_type, target_prem, spot, strike_step, mode="near"
+        )
     
     def _close_position(self, position: dict, reason: str, exit_premium: float):
         """Close a position and calculate P&L. Cap at SL/TP level for strategy exits."""
