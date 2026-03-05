@@ -88,7 +88,8 @@ class LiveEngine:
         self.candle_buffer = pd.DataFrame()
         self.current_candle: dict = {}
         self.current_indicators: dict = {}
-        self._prev_row = None  # For crossover detection
+        self._prev_row = None
+        self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle  # For crossover detection
 
         # Logging
         self.event_log: List[dict] = []
@@ -377,11 +378,17 @@ class LiveEngine:
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
                 if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
-                    prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
-                    entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
-                    if entry_sig:
-                        self.log_event("signal", f"⚡ ENTRY SIGNAL (latency: {latency:.1f}s)")
+                    # Execute pending signal from previous candle (enter on THIS candle's open)
+                    if self._entry_signal_pending:
+                        self._entry_signal_pending = False
+                        self.log_event("entry", f"🚀 Executing pending entry (next candle open)")
                         await self._enter_trade(latest_row, callback)
+                    else:
+                        prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
+                        entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                        if entry_sig:
+                            self._entry_signal_pending = True
+                            self.log_event("signal", f"⚡ ENTRY SIGNAL — will enter on NEXT candle open")
 
                 self._prev_row = latest_row
 
@@ -520,9 +527,16 @@ class LiveEngine:
         if daily_loss_hit and not self.in_trade:
             pass  # Skip — daily loss limit hit
         elif self.trades_today < max_trades and not self.in_trade:
-            entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
-            if entry_sig:
+            # Execute pending signal from previous tick (enter on THIS candle)
+            if self._entry_signal_pending:
+                self._entry_signal_pending = False
+                self.log_event("entry", f"🚀 Executing pending entry (next candle open)")
                 await self._enter_trade(latest_row, callback)
+            else:
+                entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                if entry_sig:
+                    self._entry_signal_pending = True
+                    self.log_event("signal", f"⚡ ENTRY SIGNAL — will enter on NEXT candle open")
 
         self._prev_row = latest_row
 

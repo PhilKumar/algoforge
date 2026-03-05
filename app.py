@@ -155,20 +155,19 @@ def _get_session_token(request: Request) -> str:
             token = auth[7:]
     return token
 
-async def require_auth(request: Request):
-    """Dependency that enforces authentication on protected routes"""
-    # Allow login and health endpoints without auth
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
+    # Allow login, health, static, and WebSocket without auth
     if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/login", "/"):
-        return
-    if path.startswith("/static"):
-        return
+        return await call_next(request)
+    if path.startswith("/static") or path.startswith("/ws"):
+        return await call_next(request)
     token = _get_session_token(request)
     if not _validate_session(token):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-# Wire auth as global dependency — all routes require login unless whitelisted above
-app.router.dependencies.append(Depends(require_auth))
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 # ── Rate Limiting ─────────────────────────────────────────────────
 _rate_limits: dict = defaultdict(list)  # endpoint -> [timestamps]

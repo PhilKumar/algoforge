@@ -96,6 +96,7 @@ class PaperTradingEngine:
         self.current_indicators = {}  # Latest indicator values for UI
         self.current_candle = {}      # Latest OHLCV candle for UI
         self._prev_row = None         # Previous candle row for crossover detection
+        self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle
         
         # Logging
         self.event_log = []
@@ -454,12 +455,17 @@ class PaperTradingEngine:
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
                 
                 if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
-                    prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
-                    entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
-                    
-                    if entry_triggered:
-                        self.log_event("signal", f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} (candle close + {latency:.1f}s)")
+                    # Execute pending signal from previous candle (enter on THIS candle's open)
+                    if self._entry_signal_pending:
+                        self._entry_signal_pending = False
+                        self.log_event("entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (next candle open)")
                         await self._enter_trade(latest_row)
+                    else:
+                        prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
+                        entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                        if entry_triggered:
+                            self._entry_signal_pending = True
+                            self.log_event("signal", f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open")
                 
                 # Store previous row for crossover detection
                 self._prev_row = latest_row
@@ -602,11 +608,17 @@ class PaperTradingEngine:
         if daily_loss_hit and not self.in_trade:
             pass  # Skip entry — daily loss limit reached
         elif self.trades_today < max_trades and not self.in_trade:
-            prev_row = df.iloc[-2] if len(df) >= 2 else None
-            entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
-            
-            if entry_triggered:
+            # Execute pending signal from previous tick (enter on THIS candle)
+            if self._entry_signal_pending:
+                self._entry_signal_pending = False
+                self.log_event("entry", f"🚀 Executing pending entry (next candle open)")
                 await self._enter_trade(latest_row)
+            else:
+                prev_row = df.iloc[-2] if len(df) >= 2 else None
+                entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                if entry_triggered:
+                    self._entry_signal_pending = True
+                    self.log_event("signal", f"⚡ ENTRY SIGNAL — will enter on NEXT candle open")
         
         # Store previous row for crossover detection in exit conditions
         self._prev_row = latest_row
