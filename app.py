@@ -1376,9 +1376,20 @@ async def live_start(req: LiveStartRequest):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "live") or "live"
     
-    # Check if this specific strategy is already running
-    if run_id in live_engines and live_engines[run_id].running:
-        return {"status": "already_running", "run_id": run_id}
+    # If an engine with same run_id exists, save its results before replacing
+    old_engine = live_engines.get(run_id)
+    if old_engine:
+        try:
+            old_status = old_engine.get_status()
+            if old_engine.running:
+                old_engine.stop()
+                task = _live_tasks.pop(run_id, None)
+                if task and not task.done():
+                    task.cancel()
+            _save_live_run_to_history(old_status)
+        except Exception as e:
+            print(f"[LIVE] Failed to save old engine {run_id}: {e}")
+        live_engines.pop(run_id, None)
 
     # Create a new engine instance for this strategy
     engine = LiveEngine(dhan, run_id=run_id)
@@ -1537,9 +1548,20 @@ async def paper_start(payload: StrategyPayload):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
     
-    # Check if this specific strategy is already running
-    if run_id in paper_engines and paper_engines[run_id].running:
-        return {"status": "already_running", "run_id": run_id}
+    # If an engine with same run_id exists, save its results before replacing
+    old_engine = paper_engines.get(run_id)
+    if old_engine:
+        try:
+            old_status = old_engine.get_status()
+            if old_engine.running:
+                old_engine.stop()
+                task = _paper_tasks.pop(run_id, None)
+                if task and not task.done():
+                    task.cancel()
+            _save_paper_run_to_history(old_status)
+        except Exception as e:
+            print(f"[PAPER] Failed to save old engine {run_id}: {e}")
+        paper_engines.pop(run_id, None)
     
     # Create a new engine instance for this strategy
     engine = PaperTradingEngine(dhan, run_id=run_id)
@@ -1628,9 +1650,6 @@ def _save_paper_run_to_history(status: dict):
     """Save a completed paper trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
-        if not closed:
-            print("[PAPER] No trades to save — skipping runs.json")
-            return
         
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
@@ -1661,6 +1680,12 @@ def _save_paper_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
+            # Strategy details for View modal
+            **{k: v for k, v in (status.get("strategy") or {}).items()
+               if k in ("indicators", "entry_conditions", "exit_conditions", "legs",
+                        "lots", "lot_size", "stoploss_pct", "stoploss_rupees", "sl_type",
+                        "target_profit_pct", "target_profit_rupees", "tp_type",
+                        "market_open", "market_close", "folder", "max_trades_per_day")},
         }
         
         runs.append(paper_run)
@@ -1674,9 +1699,6 @@ def _save_live_run_to_history(status: dict):
     """Save a completed live (auto) trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
-        if not closed:
-            print("[LIVE] No trades to save — skipping runs.json")
-            return
         
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
@@ -1707,6 +1729,12 @@ def _save_live_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
+            # Strategy details for View modal
+            **{k: v for k, v in (status.get("strategy") or {}).items()
+               if k in ("indicators", "entry_conditions", "exit_conditions", "legs",
+                        "lots", "lot_size", "stoploss_pct", "stoploss_rupees", "sl_type",
+                        "target_profit_pct", "target_profit_rupees", "tp_type",
+                        "market_open", "market_close", "folder", "max_trades_per_day")},
         }
         
         runs.append(live_run)
@@ -2321,7 +2349,27 @@ async def _start_token_renewal():
 
 @app.on_event("shutdown")
 async def _shutdown_cleanup():
-    """Clean up WebSocket feed on shutdown."""
+    """Save all running engine results and clean up."""
+    # Save all running paper engines
+    for run_id, engine in list(paper_engines.items()):
+        try:
+            status = engine.get_status()
+            if engine.running:
+                engine.stop()
+            _save_paper_run_to_history(status)
+            print(f"🛑 [Shutdown] Saved paper engine: {run_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save paper engine {run_id}: {e}")
+    # Save all running live engines
+    for run_id, engine in list(live_engines.items()):
+        try:
+            status = engine.get_status()
+            if engine.running:
+                engine.stop()
+            _save_live_run_to_history(status)
+            print(f"🛑 [Shutdown] Saved live engine: {run_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")
     shutdown_feed()
     print("🛑 [MarketFeed] WebSocket feed shut down")
 
