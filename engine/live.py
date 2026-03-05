@@ -347,6 +347,16 @@ class LiveEngine:
                     await asyncio.wait_for(self._candle_event.wait(), timeout=1.0)
                     self._candle_event.clear()
                 except asyncio.TimeoutError:
+                    # No new candle — but execute pending entry immediately
+                    if self._entry_signal_pending and not self.in_trade:
+                        max_trades = self.strategy.get("max_trades_per_day", 1)
+                        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+                        if self.trades_today < max_trades and not daily_loss_hit:
+                            self._entry_signal_pending = False
+                            latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                            if latest_row is not None:
+                                self.log_event("entry", f"🚀 Executing pending entry at {_now_ist().strftime('%H:%M:%S')} (next candle open)")
+                                await self._enter_trade(latest_row, callback)
                     if callback:
                         await self._emit(callback, self.get_status())
                     continue
@@ -1153,7 +1163,7 @@ class LiveEngine:
             "total_pnl": round(total_pnl, 2),
             "strategy_name": self.strategy.get("run_name", "Live Strategy"),
             "instrument": self.strategy.get("instrument", ""),
-            "strategy": self.strategy,
+            "strategy": {**self.strategy, "entry_conditions": self.entry_conditions, "exit_conditions": self.exit_conditions},
             "current_candle": self.current_candle,
             "current_indicators": self.current_indicators,
             "event_log": [
