@@ -2108,7 +2108,7 @@ function customConfirm(message, options = {}) {
     const okBtn = document.getElementById('confirm-ok-btn');
     const cancelBtn = document.getElementById('confirm-cancel-btn');
     
-    titleEl.textContent = options.title || 'Confirm';
+    titleEl.innerHTML = options.title || 'Confirm';
     msgEl.innerHTML = message;
     iconEl.innerHTML = options.icon || ICO.warn(28);
     okBtn.textContent = options.okText || 'Confirm';
