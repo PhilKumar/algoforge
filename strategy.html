@@ -168,6 +168,38 @@
   .stat-value { font-size: 26px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; position: relative; z-index: 1; }
   .stat-value-lg { font-size: 34px; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; position: relative; z-index: 1; }
   .trade-row-hover:hover { background: rgba(255,255,255,0.03) !important; }
+
+  /* Analytics inner panels */
+  .analytics-inner {
+    background: linear-gradient(160deg, rgba(22,30,46,0.85), rgba(14,20,32,0.8));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);
+  }
+  /* Trade log table container */
+  .trade-log-wrap {
+    max-height: 600px; overflow-y: auto;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    background: linear-gradient(160deg, rgba(20,28,42,0.8), rgba(12,18,30,0.75));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .trade-log-wrap thead tr {
+    border-bottom: 2px solid rgba(0,200,150,0.15);
+    color: rgba(255,255,255,0.5);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600;
+  }
+  /* DOW / Yearly analysis rows */
+  .analysis-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .analysis-bar-wrap {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.2);
+  }
   .card-compact { padding: 16px; margin-bottom: 12px; }
   nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
   h1, h2, h3 { font-family: 'Syne', sans-serif; }
@@ -492,7 +524,32 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   }
   [data-theme="light"] .stat-box::after { background: linear-gradient(180deg, rgba(255,255,255,0.8) 0%, transparent 60%); }
+  [data-theme="light"] .stat-box::before { background: linear-gradient(90deg, transparent, rgba(0,0,0,0.04), rgba(0,200,150,0.08), rgba(0,0,0,0.04), transparent); }
   [data-theme="light"] .stat-label { color: rgba(0,0,0,0.45); }
+  [data-theme="light"] .card-glass::before { background: linear-gradient(90deg, transparent, rgba(0,0,0,0.03), rgba(0,200,150,0.06), rgba(0,0,0,0.03), transparent); }
+  [data-theme="light"] .card-glass::after { background: linear-gradient(180deg, rgba(255,255,255,0.4) 0%, transparent 50%); }
+  [data-theme="light"] .analytics-inner {
+    background: rgba(245,247,250,0.95);
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  [data-theme="light"] .trade-log-wrap {
+    background: rgba(248,250,252,0.95);
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  [data-theme="light"] .trade-log-wrap thead tr {
+    border-bottom: 2px solid rgba(0,200,150,0.15);
+    color: rgba(0,0,0,0.4);
+  }
+  [data-theme="light"] .trade-row-hover:hover { background: rgba(0,0,0,0.02) !important; }
+  [data-theme="light"] .analysis-row {
+    background: rgba(0,0,0,0.02);
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+  [data-theme="light"] .analysis-bar-wrap {
+    box-shadow: inset 0 1px 0 rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.06);
+  }
   [data-theme="light"] input, [data-theme="light"] select {
     background: rgba(255,255,255,0.8);
     border: 1px solid rgba(0,0,0,0.1);
@@ -1549,11 +1606,11 @@
     <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
       <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transactions Analytics</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        <div style="background: linear-gradient(160deg, rgba(22,30,46,0.85), rgba(14,20,32,0.8)); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);">
+        <div class="analytics-inner">
           <h4 style="font-size: 13px; color: var(--accent); margin-bottom: 10px; font-weight: 600;">Day Of Week</h4>
           <div id="dow-analysis" style="font-size: 12px;"></div>
         </div>
-        <div style="background: linear-gradient(160deg, rgba(22,30,46,0.85), rgba(14,20,32,0.8)); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);">
+        <div class="analytics-inner">
           <h4 style="font-size: 13px; color: var(--accent); margin-bottom: 10px; font-weight: 600;">Yearly Breakdown</h4>
           <div id="year-analysis" style="font-size: 12px;"></div>
         </div>
@@ -1581,9 +1638,9 @@
           <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
         </div>
       </div>
-      <div style="max-height: 600px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: linear-gradient(160deg, rgba(20,28,42,0.8), rgba(12,18,30,0.75)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);">
+      <div class="trade-log-wrap">
         <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
-          <thead><tr style="border-bottom: 2px solid rgba(0,200,150,0.15); color: rgba(255,255,255,0.5); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600;"><th style="padding: 12px 14px;">Case</th><th style="padding: 12px 14px;">T.Id</th><th style="padding: 12px 14px;">Instrument</th><th style="padding: 12px 14px;">Qty</th><th style="padding: 12px 14px;">Entry</th><th style="padding: 12px 14px;">Exit</th><th style="padding: 12px 14px;">Profit</th><th style="padding: 12px 14px;">Cumulative Profit</th></tr></thead>
+          <thead><tr><th style="padding: 12px 14px;">Case</th><th style="padding: 12px 14px;">T.Id</th><th style="padding: 12px 14px;">Instrument</th><th style="padding: 12px 14px;">Qty</th><th style="padding: 12px 14px;">Entry</th><th style="padding: 12px 14px;">Exit</th><th style="padding: 12px 14px;">Profit</th><th style="padding: 12px 14px;">Cumulative Profit</th></tr></thead>
           <tbody id="trade-log-body"></tbody>
         </table>
       </div>
@@ -2301,7 +2358,7 @@ function _buildRunsTable(runs) {
     const _fmtRT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
     const rEntryTime = _fmtRT(r.first_entry_time || r.created_at);
     const rExitTime = _fmtRT(r.last_exit_time);
-    html += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.2);" data-run-mode="${_normalizeMode(r.mode)}">
+    html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}">
       <td style="padding: 10px; color: var(--muted);">${r.id}</td>
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
@@ -2389,7 +2446,7 @@ function _renderPortfolioPaperRuns(runs) {
     const _fmtPT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
     const pEntryTime = _fmtPT(r.first_entry_time || r.created_at);
     const pExitTime = _fmtPT(r.last_exit_time);
-    html += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.2);">
+    html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 8px 6px; color: var(--muted); font-size: 11px;">#${r.id}</td>
       <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
       <td style="padding: 8px 6px;">${instName || '-'}</td>
@@ -2843,7 +2900,7 @@ async function fetchStrategies() {
         const dateStr = new Date(s.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         const instName = s.instrument === '26000' ? 'NIFTY' : (s.instrument === '26009' ? 'BNIFTY' : s.instrument);
         const legCount = (s.legs || []).length;
-        html += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3); font-size: 13px;">
+        html += `<tr style="border-bottom: 1px solid var(--border); font-size: 13px;">
           <td style="padding: 10px 0; color: var(--muted); width: 6%">${s.id}</td>
           <td style="padding: 10px 0; font-weight: 600; color: var(--accent); cursor: pointer; width: 28%" onclick="viewStrategy(${s.id})">${s.run_name}</td>
           <td style="padding: 10px 0; width: 16%"><span style="background: var(--card2); padding: 3px 8px; border-radius: 3px; font-size: 12px; display: block">${instName}</span></td>
@@ -3426,11 +3483,11 @@ function onLHSChange(lhsSelect) {
     rhsWrap.innerHTML = `<div class="day-picker" style="flex:1;position:relative;">
       <div class="day-picker-toggle" onclick="toggleDayDropdown(this)" style="padding:6px 10px;background:var(--card2);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;color:var(--muted);">Can select multiple days \u25BE</div>
       <div class="day-picker-dd" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);margin-top:4px;padding:4px 0;">
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,0.04);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Monday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Monday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,0.04);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Tuesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Tuesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,0.04);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Wednesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Wednesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,0.04);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Thursday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Thursday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,0.04);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Friday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Friday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Monday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Monday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Tuesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Tuesday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Wednesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Wednesday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Thursday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Thursday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Friday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Friday</label>
         <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Saturday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Saturday</label>
       </div>
     </div>`;
@@ -4081,7 +4138,7 @@ function renderTradePage() {
   tbody.innerHTML='';
   sl.forEach(t => {
     const w=t.pnl>=0, sk=t.strike||'NIFTY', qty=t.qty||'-', txn=t.txn_type||'BUY', rid='td-'+t.id;
-    tbody.innerHTML += '<tr onclick="toggleTD(\''+rid+'\')" style="border-bottom:1px solid rgba(37,42,56,0.3);cursor:pointer;" onmouseover="this.style.background=\'rgba(0,200,150,0.03)\'" onmouseout="this.style.background=\'transparent\'">'
+    tbody.innerHTML += '<tr onclick="toggleTD(\''+rid+'\')" style="border-bottom:1px solid var(--border);cursor:pointer;" onmouseover="this.style.background=\'rgba(0,200,150,0.03)\'" onmouseout="this.style.background=\'transparent\'">'
       +'<td style="padding:8px;color:var(--muted);width:30px;">\u21D5 1</td>'
       +'<td style="padding:8px;font-weight:600;">'+t.id+'</td>'
       +'<td style="padding:8px;"><strong>'+sk+'</strong></td>'
@@ -4122,9 +4179,9 @@ function renderDOW(dowData) {
     const total = d.hits + d.miss || 1;
     const hitPct = (d.hits / total * 100).toFixed(0);
     const missPct = (d.miss / total * 100).toFixed(0);
-    container.innerHTML += `<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);">
+    container.innerHTML += `<div class="analysis-row">
       <span style="width: 75px; font-size: 11px; color: var(--muted);">${day}</span>
-      <div style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.2);">
+      <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
         <div style="width: ${hitPct}%; background: linear-gradient(180deg, rgba(34,197,94,1), rgba(21,128,61,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #03150a;">Hit ${d.hits}</div>
         <div style="width: ${missPct}%; background: linear-gradient(180deg, rgba(239,68,68,1), rgba(153,27,27,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff;">Miss ${d.miss}</div>
       </div>
@@ -4141,9 +4198,9 @@ function renderYearly(yearData) {
     const total = y.hits + y.miss || 1;
     const hitPct = (y.hits / total * 100).toFixed(0);
     const missPct = (y.miss / total * 100).toFixed(0);
-    container.innerHTML += `<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);">
+    container.innerHTML += `<div class="analysis-row">
       <span style="width: 40px; font-size: 11px; font-weight: 600;">${y.year}</span>
-      <div style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.2);">
+      <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
         <div style="width: ${hitPct}%; background: linear-gradient(180deg, rgba(34,197,94,1), rgba(21,128,61,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #03150a;">Hit ${y.hits}</div>
         <div style="width: ${missPct}%; background: linear-gradient(180deg, rgba(239,68,68,1), rgba(153,27,27,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff;">Miss ${y.miss}</div>
       </div>
@@ -4176,7 +4233,7 @@ function renderHeatmap(trades) {
     html += `<div style="font-size: 10px; font-weight: 600; display: flex; align-items: center;">${year}</div>`;
     for (let m = 1; m <= 12; m++) {
       const val = grid[year][m] || 0;
-      const bg = val > 0 ? `rgba(34,197,94,${Math.min(0.7, Math.abs(val) / 100000)})` : (val < 0 ? `rgba(239,68,68,${Math.min(0.7, Math.abs(val) / 100000)})` : 'rgba(255,255,255,0.02)');
+      const bg = val > 0 ? `rgba(34,197,94,${Math.min(0.7, Math.abs(val) / 100000)})` : (val < 0 ? `rgba(239,68,68,${Math.min(0.7, Math.abs(val) / 100000)})` : 'var(--glass-lo)');
       html += `<div style="background: ${bg}; border-radius: 2px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-family: 'JetBrains Mono', monospace;" title="${year}-${String(m).padStart(2,'0')}: ₹${Math.round(val).toLocaleString('en-IN')}">${val !== 0 ? (val > 0 ? '+' : '') + (Math.abs(val) > 999 ? Math.round(val/1000) + 'k' : Math.round(val)) : ''}</div>`;
     }
     html += '</div>';
@@ -4231,26 +4288,38 @@ function renderEquityChart(equityData) {
   const range = maxVal - minVal || 1;
   const startVal = values[0];
   
+  // Theme-aware colors
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const gridCol = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
+  const frameCol = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)';
+  const labelCol = isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.3)';
+  const dashCol = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)';
+
   // Background
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-  bgGrad.addColorStop(0, 'rgba(16,24,38,0.75)');
-  bgGrad.addColorStop(1, 'rgba(8,12,20,0.8)');
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, w, h);
+  if (!isLight) {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, 'rgba(16,24,38,0.75)');
+    bgGrad.addColorStop(1, 'rgba(8,12,20,0.8)');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillRect(0, 0, w, h);
+  }
 
   // Rounded frame
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.strokeStyle = frameCol;
   ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
   
   // Grid lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.strokeStyle = gridCol;
   ctx.lineWidth = 0.5;
   for (let i = 0; i <= 5; i++) {
     const y = padding.top + (plotH / 5) * i;
     ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(w - padding.right, y); ctx.stroke();
     const val = maxVal - (range / 5) * i;
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillStyle = labelCol;
     ctx.font = '10px JetBrains Mono';
     ctx.textAlign = 'right';
     ctx.fillText('₹' + Math.round(val).toLocaleString('en-IN'), padding.left - 8, y + 3);
@@ -4258,7 +4327,7 @@ function renderEquityChart(equityData) {
   
   // Starting capital line
   const startY = padding.top + ((maxVal - startVal) / range) * plotH;
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.strokeStyle = dashCol;
   ctx.setLineDash([4, 4]);
   ctx.beginPath(); ctx.moveTo(padding.left, startY); ctx.lineTo(w - padding.right, startY); ctx.stroke();
   ctx.setLineDash([]);
@@ -5497,7 +5566,7 @@ function renderMonthlyDailyGrid() {
       const isNetWin = e.netPnl >= 0;
       const dateObj = new Date(e.dateStr);
       const dateLabel = MONTH_NAMES_SHORT[dateObj.getMonth()] + ' ' + e.day + ', ' + dateObj.getFullYear();
-      thtml += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3);">
+      thtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
         <td style="padding: 10px 8px; text-align: center;">${e.tradeLegs}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.pnl.toFixed(2)}</td>
@@ -5534,7 +5603,7 @@ function renderYearlyMonthlyTable() {
   
   years.forEach(year => {
     let yearTotal = 0;
-    html += `<tr style="border-bottom: 1px solid rgba(37,42,56,0.3);">
+    html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 10px 6px; font-weight: 700; color: var(--text);">${year}</td>`;
     
     for (let m = 1; m <= 12; m++) {
