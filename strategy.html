@@ -525,6 +525,7 @@
     --btn-color: #92400e !important;
     --btn-border: rgba(245,158,11,0.5) !important;
   }
+  [data-theme="light"] .premium-notice-text { color: #78350f !important; }
 
   /* Theme toggle is now integrated into topbar */
 
@@ -1195,11 +1196,11 @@
 <!-- ═══ STRATEGY BUILDER ═══ -->
 <div id="builder-page" class="page-section">
   <!-- Warning Banner -->
-  <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+  <div id="premium-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
     <div style="font-size: 24px;">⚠️</div>
     <div style="flex: 1;">
       <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Premium Estimation Notice</div>
-      <div style="font-size: 11px; color: rgba(255,255,255,0.8); line-height: 1.5;">
+      <div class="premium-notice-text" style="font-size: 11px; color: rgba(255,255,255,0.8); line-height: 1.5;">
         This backtest uses <strong>estimated option premiums</strong> based on spot price + volatility models, not real historical option chain data. 
         Premium "Near 500₹" finds the strike whose <em>estimated</em> premium is closest to 500₹. 
         For real option pricing, use live/paper trading mode or paid historical option data providers.
