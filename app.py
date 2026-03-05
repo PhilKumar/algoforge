@@ -1980,10 +1980,15 @@ def _save_trade_history(d):
 
 
 def _persist_daily_trades(trades: list):
-    """Auto-save today's real Dhan trade P&L summary to trade_history.json."""
+    """Auto-save today's real Dhan trade P&L summary to trade_history.json.
+    
+    Only overwrites existing entry if the new data has MORE trade legs
+    (i.e., more complete data from later in the day).
+    """
     if not trades:
         return
     today_str = datetime.now().strftime("%Y-%m-%d")
+    trade_legs = len(trades)  # Total individual order legs
     
     # Pair BUY/SELL per securityId to compute real P&L
     groups = {}
@@ -2036,17 +2041,35 @@ def _persist_daily_trades(trades: list):
         return
     
     history = _load_trade_history()
+    
+    # Only overwrite if new data has more trade legs (more complete)
+    existing = history.get(today_str, {})
+    existing_legs = existing.get("trade_legs", existing.get("trades", 0))
+    if existing_legs > trade_legs:
+        print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
+        return
+    
+    # Preserve charges from historical API if current has none
+    if total_charges == 0 and existing.get("charges", 0) > 0:
+        total_charges = existing["charges"]
+        # Also preserve per-trade charges
+        old_details_map = {d["symbol"]: d.get("charges", 0) for d in existing.get("details", [])}
+        for detail in trade_details:
+            if detail["charges"] == 0 and detail["symbol"] in old_details_map:
+                detail["charges"] = old_details_map[detail["symbol"]]
+    
     history[today_str] = {
         "pnl": round(total_pnl, 2),
         "net_pnl": round(total_pnl - total_charges, 2),
         "charges": round(total_charges, 2),
         "trades": trade_count,
+        "trade_legs": trade_legs,
         "wins": wins,
         "mode": "real",
         "details": trade_details,
     }
     _save_trade_history(history)
-    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades, P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}")
+    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}")
 
 def _load(): 
     if os.path.exists(STRAT_FILE):
@@ -2404,6 +2427,122 @@ async def get_expiry_dates():
         return {"status": "error", "msg": str(e)}
 
 
+def _refresh_recent_charges(history: dict):
+    """Re-fetch today & yesterday from Dhan historical API to fill in charges.
+    
+    The live get_trades() endpoint doesn't return charge fields (stt, sebiTax etc).
+    Once those trades appear in get_trade_history(), we can update charges.
+    """
+    import time as _time
+    try:
+        today = datetime.now()
+        yesterday = today - timedelta(days=1)
+        # Check last 3 days (in case of weekends)
+        dates_to_check = []
+        for delta in range(3):
+            d = (today - timedelta(days=delta)).strftime("%Y-%m-%d")
+            entry = history.get(d, {})
+            # Only re-fetch if entry exists but has 0 charges
+            if entry and entry.get("charges", 0) == 0 and entry.get("trades", 0) > 0:
+                dates_to_check.append(d)
+        
+        if not dates_to_check:
+            return
+        
+        from_date = min(dates_to_check)
+        to_date = max(dates_to_check)
+        print(f"📊 [CHARGES] Refreshing charges for {dates_to_check}...")
+        
+        result = dhan.get_trade_history(from_date, to_date, 0)
+        if not isinstance(result, list) or not result:
+            print(f"📊 [CHARGES] No historical data available yet for {from_date} to {to_date}")
+            return
+        
+        # Paginate to get all trades
+        all_trades = list(result)
+        page = 1
+        while len(result) >= 20:  # Dhan page size
+            _time.sleep(0.3)
+            result = dhan.get_trade_history(from_date, to_date, page)
+            if not isinstance(result, list) or not result:
+                break
+            all_trades.extend(result)
+            page += 1
+        
+        # Group by date
+        trades_by_date = {}
+        for t in all_trades:
+            raw_time = t.get("exchangeTime") or t.get("createTime") or ""
+            d = str(raw_time)[:10]
+            if d in dates_to_check:
+                if d not in trades_by_date:
+                    trades_by_date[d] = []
+                trades_by_date[d].append(t)
+        
+        updated = 0
+        for date_str, day_trades in trades_by_date.items():
+            groups = {}
+            for t in day_trades:
+                key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
+                if key not in groups:
+                    sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
+                    groups[key] = {"buys": [], "sells": [], "symbol": sym}
+                if t.get("transactionType") == "BUY":
+                    groups[key]["buys"].append(t)
+                elif t.get("transactionType") == "SELL":
+                    groups[key]["sells"].append(t)
+            
+            total_pnl = 0
+            total_charges = 0
+            trade_count = 0
+            wins = 0
+            details = []
+            for g in groups.values():
+                buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
+                sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
+                buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
+                sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
+                leg_charges = 0
+                for t in g["buys"] + g["sells"]:
+                    for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax", "exchangeTransactionCharges", "stampDuty"):
+                        leg_charges += float(t.get(key_c, 0) or 0)
+                matched = min(buy_qty, sell_qty)
+                if matched > 0 and buy_qty > 0 and sell_qty > 0:
+                    buy_avg = buy_val / buy_qty
+                    sell_avg = sell_val / sell_qty
+                    pnl = round((sell_avg - buy_avg) * matched, 2)
+                    total_pnl += pnl
+                    total_charges += leg_charges
+                    trade_count += 1
+                    if pnl > 0:
+                        wins += 1
+                    details.append({
+                        "symbol": g["symbol"], "pnl": pnl, "qty": int(matched),
+                        "buy_avg": round(buy_avg, 2), "sell_avg": round(sell_avg, 2),
+                        "charges": round(leg_charges, 2),
+                    })
+            
+            if trade_count > 0 and total_charges > 0:
+                history[date_str] = {
+                    "pnl": round(total_pnl, 2),
+                    "net_pnl": round(total_pnl - total_charges, 2),
+                    "charges": round(total_charges, 2),
+                    "trades": trade_count,
+                    "trade_legs": len(day_trades),
+                    "wins": wins,
+                    "mode": "real",
+                    "details": details,
+                }
+                updated += 1
+                print(f"📊 [CHARGES] Updated {date_str}: charges=₹{total_charges:.2f}, P&L=₹{total_pnl:.2f} ({trade_count} trades, {len(day_trades)} legs)")
+        
+        if updated > 0:
+            _save_trade_history(history)
+            print(f"📊 [CHARGES] Refreshed charges for {updated} dates")
+    except Exception as e:
+        print(f"📊 [CHARGES] Refresh failed: {e}")
+
+
 # ── Token renewal background task ────────────────────────────────
 _token_renewal_task = None
 
@@ -2428,6 +2567,9 @@ async def _start_token_renewal():
             count = _backfill_trade_history("2024-01-01", force=False)
             loaded = _load_trade_history()
             print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
+            
+            # Also try to update today & yesterday with charges from historical API
+            _refresh_recent_charges(loaded)
     except Exception as e:
         print(f"📊 [BACKFILL] Startup backfill failed: {e}")
 
