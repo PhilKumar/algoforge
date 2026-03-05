@@ -1964,8 +1964,11 @@ def _load_runs():
     return []
 
 def _save_runs(d):
-    with open(RUNS_FILE, 'w') as f:
-        json.dump(d, f, indent=2)
+    # Use atomic write (tmp + rename) so a crash mid-write won't corrupt the file
+    tmp = RUNS_FILE + ".tmp"
+    with open(tmp, 'w') as f:
+        json.dump(d, f, indent=2, default=str)
+    os.replace(tmp, RUNS_FILE)
 
 @app.get("/api/strategies")
 async def get_strategies():
