@@ -4655,6 +4655,19 @@ async function stopEngine(runId, mode) {
   } catch(e) { toast('Error stopping trade', 'danger'); }
 }
 
+function viewRunningStrategy(runId, mode) {
+  // Find the engine data from the cache
+  const eng = _liveEngines.find(e => (e.run_id || '') === runId) || _liveEngines[_selectedLiveTab];
+  if (!eng) { toast('Engine data not found', 'danger'); return; }
+  const strat = eng.strategy || {};
+  if (!strat.run_name && !strat.indicators) {
+    toast('Strategy details not available yet — try again in a moment', 'warn');
+    return;
+  }
+  viewingStrategyId = null;
+  showDetailsModal(strat, (strat.run_name || 'Running Strategy') + ' (Live)');
+}
+
 // Backward compat — old stop button handler
 async function stopPaperTrade() {
   const eng = _liveEngines[_selectedLiveTab];
@@ -4836,6 +4849,7 @@ function renderLivePanel(d, idx) {
       ${badgeHtml}
     </div>
     <div style="display:flex;gap:8px;">
+      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">👁 Strategy</button>` : ''}
       ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">⏹ Stop</button>` : ''}
       <button class="btn" onclick="downloadPaperCSV()" style="background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">⬇ CSV</button>
     </div>

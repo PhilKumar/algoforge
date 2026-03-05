@@ -1154,6 +1154,7 @@ class PaperTradingEngine:
             "total_pnl": round(total_pnl, 2),
             "strategy_name": self.strategy.get("run_name", "Paper Strategy"),
             "instrument": self.strategy.get("instrument", ""),
+            "strategy": self.strategy,
             "current_candle": self.current_candle,
             "current_indicators": self.current_indicators,
             "event_log": [
