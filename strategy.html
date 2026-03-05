@@ -1441,6 +1441,12 @@
           <div><label>Combined Target (₹)</label><input type="number" id="combined-target-rupees" placeholder="e.g. 10000"></div>
           <div><label>Sq Off Time</label><input type="time" id="combined-sqoff-time" value="15:20"></div>
         </div>
+        <!-- Advanced: Fee & Trailing SL -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; padding: 10px; background: rgba(0,200,150,0.03); border: 1px solid var(--border); border-radius: 8px;">
+          <div><label style="font-size:11px;color:var(--muted);">Fee/Charges %</label><input type="number" id="fee-pct" value="0" min="0" max="5" step="0.01" placeholder="0 = realistic" title="0 = use realistic F&O charges (STT+brokerage+GST), or set custom %"></div>
+          <div><label style="font-size:11px;color:var(--muted);">Trailing SL %</label><input type="number" id="trailing-sl-pct" value="0" min="0" max="100" step="0.5" placeholder="0 = off" title="Exit when total strategy P&L drops this % from its peak (0 = disabled)"></div>
+          <div><label style="font-size:11px;color:var(--muted);">Initial Capital</label><input type="number" id="initial-capital" value="500000" min="10000" step="50000" title="Starting capital for ROI calculation"></div>
+        </div>
         <div id="legs-container"></div>
         <div id="legs-empty" style="text-align: center; padding: 20px; color: var(--muted); font-size: 13px;">No legs added yet. Click the buttons above to add option legs.</div>
       </div>
@@ -1600,6 +1606,15 @@
       <div class="stat-box"><div class="stat-label">Loss Streak</div><div id="res-loss-streak" class="stat-value">0</div></div>
       <div class="stat-box"><div class="stat-label">MAX Profit</div><div id="res-max-profit" class="stat-value" style="color: var(--success);">₹0</div></div>
       <div class="stat-box"><div class="stat-label">Max Loss</div><div id="res-max-loss" class="stat-value" style="color: var(--danger);">₹0</div></div>
+    </div>
+    <!-- Advanced Stats: Sharpe, Calmar, Expectancy, Avg Duration, ROI, Fees -->
+    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px;">
+      <div class="stat-box"><div class="stat-label">Sharpe Ratio</div><div id="res-sharpe" class="stat-value" style="color: var(--accent);">0</div></div>
+      <div class="stat-box"><div class="stat-label">Calmar Ratio</div><div id="res-calmar" class="stat-value" style="color: var(--accent2);">0</div></div>
+      <div class="stat-box"><div class="stat-label">Expectancy</div><div id="res-expectancy" class="stat-value">₹0</div></div>
+      <div class="stat-box"><div class="stat-label">Avg Duration</div><div id="res-avg-duration" class="stat-value">-</div></div>
+      <div class="stat-box"><div class="stat-label">ROI %</div><div id="res-roi" class="stat-value" style="color: var(--success);">0%</div></div>
+      <div class="stat-box"><div class="stat-label">Total Fees</div><div id="res-total-fees" class="stat-value" style="color: var(--warn);">₹0</div></div>
     </div>
 
     <!-- Transactions Analytics — Glossy -->
@@ -3180,6 +3195,9 @@ function loadStrategy(id) {
   if (s.combined_sl_rupees) document.getElementById('combined-sl-rupees').value = s.combined_sl_rupees;
   if (s.combined_target_rupees) document.getElementById('combined-target-rupees').value = s.combined_target_rupees;
   if (s.combined_sqoff_time) document.getElementById('combined-sqoff-time').value = s.combined_sqoff_time;
+  if (s.fee_pct !== undefined) document.getElementById('fee-pct').value = s.fee_pct;
+  if (s.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = s.trailing_sl_pct;
+  if (s.initial_capital) document.getElementById('initial-capital').value = s.initial_capital;
 
   // Switch to builder page
   document.getElementById('nav-builder').click();
@@ -3943,6 +3961,9 @@ async function copyEditStrategy(runId) {
     if (p.combined_sl_rupees) document.getElementById('combined-sl-rupees').value = p.combined_sl_rupees;
     if (p.combined_target_rupees) document.getElementById('combined-target-rupees').value = p.combined_target_rupees;
     if (p.combined_sqoff_time) document.getElementById('combined-sqoff-time').value = p.combined_sqoff_time;
+    if (p.fee_pct !== undefined) document.getElementById('fee-pct').value = p.fee_pct;
+    if (p.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = p.trailing_sl_pct;
+    if (p.initial_capital) document.getElementById('initial-capital').value = p.initial_capital;
     
     toast('Strategy loaded for editing!', 'success');
   } catch(err) {
@@ -3982,6 +4003,9 @@ function buildPayload() {
     combined_sl_rupees: parseFloat(document.getElementById('combined-sl-rupees').value) || 0,
     combined_target_rupees: parseFloat(document.getElementById('combined-target-rupees').value) || 0,
     combined_sqoff_time: document.getElementById('combined-sqoff-time').value,
+    fee_pct: parseFloat(document.getElementById('fee-pct').value) || 0,
+    trailing_sl_pct: parseFloat(document.getElementById('trailing-sl-pct').value) || 0,
+    initial_capital: parseFloat(document.getElementById('initial-capital').value) || 500000,
   };
 }
 
@@ -4113,6 +4137,19 @@ function renderResults(data, payload) {
   document.getElementById('res-loss-streak').textContent = s.loss_streak||0;
   document.getElementById('res-max-profit').textContent = fmt(s.max_profit||0);
   document.getElementById('res-max-loss').textContent = fmt(s.max_loss||0);
+  // Advanced stats
+  document.getElementById('res-sharpe').textContent = (s.sharpe_ratio||0).toFixed(2);
+  const sr = s.sharpe_ratio||0;
+  document.getElementById('res-sharpe').style.color = sr>=1.5?'var(--success)':(sr>=0.5?'var(--warn)':'var(--danger)');
+  document.getElementById('res-calmar').textContent = (s.calmar_ratio||0).toFixed(2);
+  const cr = s.calmar_ratio||0;
+  document.getElementById('res-calmar').style.color = cr>=2?'var(--success)':(cr>=1?'var(--warn)':'var(--danger)');
+  document.getElementById('res-expectancy').textContent = fmt(s.expectancy||0);
+  document.getElementById('res-expectancy').style.color = (s.expectancy||0)>=0?'var(--success)':'var(--danger)';
+  document.getElementById('res-avg-duration').textContent = s.avg_duration||'-';
+  document.getElementById('res-roi').textContent = (s.roi_pct||0).toFixed(2) + '%';
+  document.getElementById('res-roi').style.color = (s.roi_pct||0)>=0?'var(--success)':'var(--danger)';
+  document.getElementById('res-total-fees').textContent = fmt(s.total_fees||0);
   renderEquityChart(data.equity);
   renderDOW(data.day_of_week||[]);
   renderYearly(data.yearly||[]);

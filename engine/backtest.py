@@ -196,11 +196,46 @@ def _opt_pnl(ep, xp, lots, ls, txn):
 def _idx_pnl(e, x, lots, ls):
     return (x - e) * lots * ls
 
-def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=None):
+# ── Fee / Charges Model (Indian F&O) ──────────────────────────────
+def _calc_fees(turnover, pnl, fee_pct=0):
+    """Calculate total transaction costs for an F&O trade.
+    If fee_pct > 0, use simple percentage model.
+    Otherwise apply realistic Indian F&O charges:
+      STT: 0.0125% sell-side (options), Brokerage: flat ₹40/order,
+      Exchange txn: 0.053%, GST 18% on (brokerage+exchange), SEBI: ₹10/cr, Stamp: 0.003%
+    Returns fee amount (always positive).
+    """
+    if fee_pct > 0:
+        return abs(turnover) * fee_pct / 100.0
+    # Realistic charges (per-leg, simplified for backtest)
+    brokerage = 40  # flat per order (entry + exit = ₹80 total, but we call once per trade)
+    stt = abs(turnover) * 0.0125 / 100  # sell-side STT on options
+    exchange_txn = abs(turnover) * 0.053 / 100
+    gst = (brokerage + exchange_txn) * 0.18
+    sebi = abs(turnover) * 10 / 1e7  # ₹10 per crore
+    stamp = abs(turnover) * 0.003 / 100
+    return brokerage + stt + exchange_txn + gst + sebi + stamp
+
+def _trade_duration_str(et, xt):
+    """Return human-readable duration between entry and exit."""
+    try:
+        t1 = pd.Timestamp(str(et))
+        t2 = pd.Timestamp(str(xt))
+        delta = t2 - t1
+        mins = int(delta.total_seconds() / 60)
+        if mins < 60:
+            return f"{mins}m"
+        h, m = divmod(mins, 60)
+        return f"{h}h {m}m"
+    except:
+        return "-"
+
+def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=None, fees=0):
     return {"id":id_,"entry_time":str(et)[:16],"exit_time":str(xt)[:16],
             "entry_price":round(ep,2),"exit_price":round(xp,2),
             "pnl":round(pnl,2),"exit_reason":reason,"cumulative":round(cum,2),
-            "option_type":ot,"strike":strike or "","qty":qty,"txn_type":txn or ""}
+            "option_type":ot,"strike":strike or "","qty":qty,"txn_type":txn or "",
+            "fees":round(fees,2),"duration":_trade_duration_str(et, xt)}
 
 # ── Backtest Runner ────────────────────────────────────────────────
 def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_config=None):
@@ -216,6 +251,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     sl_rupees = float(sc.get("stoploss_rupees", 0) or 0)
     tp_pct    = float(sc.get("target_profit_pct", 0) or 0)
     tp_rupees = float(sc.get("target_profit_rupees", 0) or 0)
+    fee_pct   = float(sc.get("fee_pct", 0) or 0)
+    initial_capital = float(sc.get("initial_capital", 500000) or 500000)
+    trailing_sl_pct = float(sc.get("trailing_sl_pct", 0) or 0)
     max_tpd   = int(sc.get("max_trades_per_day", config.MAX_TRADES_PER_DAY))
     indicators = sc.get("indicators", []) or []
     legs      = sc.get("legs", []) or []
@@ -258,9 +296,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     # P&L starts from 0, not from initial capital
     total_pnl = 0.0
+    peak_total_pnl = 0.0  # for strategy-level trailing SL
     trades=[]; equity=[]; in_trade=False
     ei=0.0; ep=0.0; et=None; slp=0.0; tgtp=0.0; td=0; ld=None
     strike_name=""; trade_qty=0; lot_size=75; atm_prem_ref=0; peak_prem=0.0
+    total_fees = 0.0
 
     print(f"[BT] open={mkt_open} close={mkt_close} lots={lots} user_lot_size={user_lot_size} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}")
     print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
@@ -274,7 +314,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 o=float(row["open"])
                 xp=_est_prem(o,ei,ep,ot,atm_prem_ref) if has_opt else o
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,o,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp if has_opt else o,pnl,"EOD",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei; _xp_=xp if has_opt else o
+                fee=_calc_fees((_ep_+_xp_)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,_xp_,pnl,"EOD",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False
             td=0; ld=cd
             # Update lot size for this date — use user-configured if set, else historical
@@ -286,7 +329,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 c=float(row["close"])
                 xp=_est_prem(c,ei,ep,ot,atm_prem_ref) if has_opt else c
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp if has_opt else c,pnl,"EOD",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei; _xp_=xp if has_opt else c
+                fee=_calc_fees((_ep_+_xp_)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,_xp_,pnl,"EOD",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             if ct<mkt_open or ct>=mkt_close:
                 equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)}); continue
@@ -315,18 +361,24 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 else: peak_prem=min(peak_prem, cp)
             else:
                 peak_prem=max(peak_prem, c)
-            sh=False; th=False; trail_hit=False; strat_sl_hit=False; strat_tp_hit=False
+            sh=False; th=False; trail_hit=False; strat_sl_hit=False; strat_tp_hit=False; strat_trail_hit=False
             # Leg-level SL uses worst-case (OHLC), TP uses close
             if has_opt and lsl>0: sh=(ltxn=="BUY" and cp_worst<=slp) or (ltxn=="SELL" and cp_worst>=slp)
             elif not has_opt and slp>0: sh=l<=slp
             if has_opt and ltgt>0: th=(ltxn=="BUY" and cp>=tgtp) or (ltxn=="SELL" and cp<=tgtp)
             elif not has_opt and tgtp>0: th=c>=tgtp
-            # Trailing stop loss check
+            # Trailing stop loss check (leg-level)
             if has_opt and ltrail>0:
                 if ltxn=="BUY" and cp_worst<=peak_prem*(1-ltrail/100): trail_hit=True
                 elif ltxn=="SELL" and cp_worst>=peak_prem*(1+ltrail/100): trail_hit=True
             elif not has_opt and ltrail>0:
                 if l<=peak_prem*(1-ltrail/100): trail_hit=True
+            # Strategy-level trailing SL on total portfolio P&L
+            if trailing_sl_pct > 0 and peak_total_pnl > 0:
+                cur_trade_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
+                hypothetical_total = total_pnl + cur_trade_pnl
+                if peak_total_pnl - hypothetical_total > peak_total_pnl * trailing_sl_pct / 100:
+                    strat_trail_hit = True
             # Strategy-level SL/TP (₹ or %) — SL uses worst-case OHLC, TP uses best-case OHLC
             if has_opt and (sl_rupees>0 or sl_pct>0 or tp_rupees>0 or tp_pct>0):
                 cur_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn)
@@ -345,7 +397,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 else:
                     capped_xp = round(ep + strat_sl_val / qty, 2)
                 pnl = -round(strat_sl_val, 2)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategySL",total_pnl,ot,strike_name,trade_qty,ltxn))
+                fee=_calc_fees((ep+capped_xp)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategySL",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             elif strat_tp_hit:
                 # Cap TP exit at exact TP level (bracket order fills at TP price)
@@ -355,26 +409,47 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 else:
                     capped_xp = round(ep - strat_tp_val / qty, 2)
                 pnl = round(strat_tp_val, 2)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategyTP",total_pnl,ot,strike_name,trade_qty,ltxn))
+                fee=_calc_fees((ep+capped_xp)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,ep,capped_xp,pnl,"StrategyTP",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
+                in_trade=False; td+=1
+            elif strat_trail_hit:
+                pnl=_opt_pnl(ep,cp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
+                _ep_=ep if has_opt else ei; _xp_=cp if has_opt else c
+                fee=_calc_fees((_ep_+_xp_)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,_xp_,pnl,"StratTrailSL",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             elif sh:
                 xp=slp if has_opt else slp
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,xp,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"StopLoss",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei
+                fee=_calc_fees((_ep_+xp)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,xp,pnl,"StopLoss",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             elif trail_hit:
                 trail_xp=peak_prem*(1-ltrail/100) if (has_opt and ltxn=="BUY") or not has_opt else peak_prem*(1+ltrail/100)
                 pnl=_opt_pnl(ep,trail_xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,trail_xp,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,trail_xp,pnl,"TrailingSL",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei
+                fee=_calc_fees((_ep_+trail_xp)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,trail_xp,pnl,"TrailingSL",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             elif th:
                 xp=tgtp if has_opt else c
                 pnl=_opt_pnl(ep,xp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,xp,pnl,"Target",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei; _xp_=xp if has_opt else c
+                fee=_calc_fees((_ep_+_xp_)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,_xp_,pnl,"Target",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
             elif eval_condition_group(row, exit_conditions, prev_row):
                 pnl=_opt_pnl(ep,cp,lots,lot_size,ltxn) if has_opt else _idx_pnl(ei,c,lots,lot_size)
-                total_pnl+=pnl; trades.append(_mk(len(trades)+1,et,ts,ep if has_opt else ei,cp if has_opt else c,pnl,"Signal",total_pnl,ot,strike_name,trade_qty,ltxn))
+                _ep_=ep if has_opt else ei; _xp_=cp if has_opt else c
+                fee=_calc_fees((_ep_+_xp_)*trade_qty, pnl, fee_pct); pnl-=fee; total_fees+=fee
+                total_pnl+=pnl; peak_total_pnl=max(peak_total_pnl,total_pnl)
+                trades.append(_mk(len(trades)+1,et,ts,_ep_,_xp_,pnl,"Signal",total_pnl,ot,strike_name,trade_qty,ltxn,fee))
                 in_trade=False; td+=1
         else:
             if td>=max_tpd: equity.append({"time":str(ts)[:16],"equity":round(total_pnl,2)}); continue
@@ -518,15 +593,68 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         if p>0: cw+=1;cl=0;wst=max(wst,cw)
         else: cl+=1;cw=0;lst=max(lst,cl)
 
+    # ── Advanced Stats ──────────────────────────────────────
+    # ROI (Return on Capital)
+    roi_pct = round(sum(pnls) / initial_capital * 100, 2) if initial_capital > 0 else 0
+
+    # Average trade duration
+    durations_min = []
+    for t in trades:
+        try:
+            t1 = pd.Timestamp(t["entry_time"])
+            t2 = pd.Timestamp(t["exit_time"])
+            durations_min.append((t2 - t1).total_seconds() / 60)
+        except:
+            pass
+    avg_duration_min = round(float(np.mean(durations_min)), 1) if durations_min else 0
+    if avg_duration_min < 60:
+        avg_duration_str = f"{int(avg_duration_min)}m"
+    else:
+        h, m = divmod(int(avg_duration_min), 60)
+        avg_duration_str = f"{h}h {m}m"
+
+    # Sharpe Ratio (annualized, assuming 252 trading days)
+    pnl_arr = np.array(pnls)
+    if len(pnl_arr) > 1 and np.std(pnl_arr) > 0:
+        sharpe_ratio = round(float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(252)), 2)
+    else:
+        sharpe_ratio = 0.0
+
+    # Calmar Ratio (annualized return / max drawdown)
+    # Estimate trading period in years from first to last trade
+    try:
+        first_dt = pd.Timestamp(trades[0]["entry_time"])
+        last_dt = pd.Timestamp(trades[-1]["exit_time"])
+        years = max(0.01, (last_dt - first_dt).days / 365.25)
+        ann_return = sum(pnls) / years
+        calmar_ratio = round(ann_return / mddv, 2) if mddv > 0 else 999.0
+    except:
+        calmar_ratio = 0.0
+
+    # Expectancy (average ₹ per trade, weighted by win/loss rate)
+    wr = len(ws) / len(pnls) if pnls else 0
+    lr = 1.0 - wr
+    avg_w = float(np.mean(ws)) if ws else 0
+    avg_l = abs(float(np.mean(ls))) if ls else 0
+    expectancy = round(wr * avg_w - lr * avg_l, 2)
+
     stats={"total_trades":len(trades),"winning_trades":len(ws),"losing_trades":len(ls),
         "win_rate":round(len(ws)/len(pnls)*100,2),"total_pnl":round(sum(pnls),2),
         "avg_profit":round(float(np.mean(ws)) if ws else 0,2),"avg_loss":round(float(np.mean(ls)) if ls else 0,2),
         "max_drawdown":round(mdd,2),"max_drawdown_val":round(mddv,2),"max_drawdown_days":max_dd_days,
-        "roi_pct":0,
+        "roi_pct": roi_pct,
         "profit_factor":round(sum(ws)/abs(sum(ls)) if ls and abs(sum(ls))>0 else 999.0,2),
         "max_profit":round(max(pnls),2),"max_loss":round(min(pnls),2),
         "win_streak":wst,"loss_streak":lst,
-        "risk_per_trade":round(float(np.std(pnls)),2) if len(pnls)>1 else 0}
+        "risk_per_trade":round(float(np.std(pnls)),2) if len(pnls)>1 else 0,
+        "sharpe_ratio": sharpe_ratio,
+        "calmar_ratio": calmar_ratio,
+        "expectancy": expectancy,
+        "avg_duration": avg_duration_str,
+        "avg_duration_min": avg_duration_min,
+        "total_fees": round(total_fees, 2),
+        "initial_capital": initial_capital,
+        "net_pnl_after_fees": round(sum(pnls), 2)}
 
     monthly={}
     for t in trades: k=str(t["entry_time"])[:7]; monthly[k]=monthly.get(k,0)+t["pnl"]

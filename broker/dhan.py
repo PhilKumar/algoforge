@@ -10,12 +10,38 @@ import pandas as pd
 import csv
 import io
 import json
+import asyncio
+import time as _time
 from datetime import datetime, timedelta, date as date_type
 from typing import Optional, Dict, List
 from pathlib import Path
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
+
+
+# ══════════════════════════════════════════════════════════════
+#  TTL Response Cache (for LTP, positions, funds)
+# ══════════════════════════════════════════════════════════════
+class _TTLCache:
+    """Simple in-memory cache with per-key TTL expiry."""
+    def __init__(self):
+        self._store: Dict[str, tuple] = {}  # key -> (value, expire_timestamp)
+
+    def get(self, key: str):
+        entry = self._store.get(key)
+        if entry and _time.time() < entry[1]:
+            return entry[0]
+        self._store.pop(key, None)
+        return None
+
+    def set(self, key: str, value, ttl_sec: float = 5.0):
+        self._store[key] = (value, _time.time() + ttl_sec)
+
+    def clear(self):
+        self._store.clear()
+
+_api_cache = _TTLCache()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -890,3 +916,98 @@ class DhanClient:
             return resp.json()
         except:
             return {"orderStatus": "UNKNOWN"}
+
+    # ──────────────────────────────────────────────────────────
+    # Order Verification (#7) — poll until filled or timeout
+    # ──────────────────────────────────────────────────────────
+    def verify_order_fill(self, order_id: str, max_wait_sec: int = 15, poll_interval: float = 1.5) -> dict:
+        """Poll order status until filled, rejected, or timeout.
+        Returns dict with: order_id, status, filled_qty, avg_price, message.
+        """
+        import time as _t
+        start = _t.time()
+        last_status = {}
+        while _t.time() - start < max_wait_sec:
+            status = self.get_order_status(order_id)
+            last_status = status
+            os = status.get("orderStatus", status.get("status", "UNKNOWN")).upper()
+            # Terminal states
+            if os in ("TRADED", "FILLED", "COMPLETE"):
+                return {
+                    "order_id": order_id, "status": "FILLED",
+                    "filled_qty": status.get("filledQty", status.get("tradedQuantity", status.get("quantity", 0))),
+                    "avg_price": status.get("averagePrice", status.get("price", 0)),
+                    "message": "Order filled successfully"
+                }
+            if os in ("REJECTED", "CANCELLED"):
+                return {
+                    "order_id": order_id, "status": os,
+                    "filled_qty": 0, "avg_price": 0,
+                    "message": status.get("rejectionReason", status.get("omsErrorDescription", f"Order {os}"))
+                }
+            _t.sleep(poll_interval)
+        # Timeout
+        return {
+            "order_id": order_id, "status": "TIMEOUT",
+            "filled_qty": last_status.get("filledQty", 0),
+            "avg_price": last_status.get("averagePrice", 0),
+            "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}"
+        }
+
+    # ──────────────────────────────────────────────────────────
+    # Cached versions of frequent API calls (#12)
+    # ──────────────────────────────────────────────────────────
+    def get_positions_cached(self, ttl: float = 5.0) -> list:
+        """Get positions with TTL cache (avoid hammering API)."""
+        cached = _api_cache.get("positions")
+        if cached is not None:
+            return cached
+        result = self.get_positions()
+        _api_cache.set("positions", result, ttl)
+        return result
+
+    def get_funds_cached(self, ttl: float = 10.0) -> dict:
+        """Get funds with TTL cache."""
+        cached = _api_cache.get("funds")
+        if cached is not None:
+            return cached
+        result = self.get_funds()
+        _api_cache.set("funds", result, ttl)
+        return result
+
+    def get_ltp_cached(self, security_ids: list, exchange_segment: str = "NSE_EQ", ttl: float = 3.0) -> dict:
+        """Get LTP with TTL cache."""
+        key = f"ltp:{exchange_segment}:{','.join(str(s) for s in security_ids)}"
+        cached = _api_cache.get(key)
+        if cached is not None:
+            return cached
+        result = self.get_ltp(security_ids, exchange_segment)
+        _api_cache.set(key, result, ttl)
+        return result
+
+    # ──────────────────────────────────────────────────────────
+    # Async wrappers (#6) — non-blocking in FastAPI handlers
+    # ──────────────────────────────────────────────────────────
+    async def async_get_historical_data(self, *a, **kw) -> pd.DataFrame:
+        return await asyncio.to_thread(self.get_historical_data, *a, **kw)
+
+    async def async_place_order(self, *a, **kw) -> dict:
+        return await asyncio.to_thread(self.place_order, *a, **kw)
+
+    async def async_place_option_order(self, *a, **kw) -> dict:
+        return await asyncio.to_thread(self.place_option_order, *a, **kw)
+
+    async def async_get_positions(self) -> list:
+        return await asyncio.to_thread(self.get_positions_cached)
+
+    async def async_get_funds(self) -> dict:
+        return await asyncio.to_thread(self.get_funds_cached)
+
+    async def async_get_ltp(self, security_ids: list, exchange_segment: str = "NSE_EQ") -> dict:
+        return await asyncio.to_thread(self.get_ltp_cached, security_ids, exchange_segment)
+
+    async def async_get_order_book(self) -> list:
+        return await asyncio.to_thread(self.get_order_book)
+
+    async def async_verify_order_fill(self, order_id: str, max_wait_sec: int = 15) -> dict:
+        return await asyncio.to_thread(self.verify_order_fill, order_id, max_wait_sec)

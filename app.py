@@ -7,7 +7,7 @@ Fixed:
 """
 
 import asyncio, json, os, sys, inspect, time, hashlib, secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
 from collections import defaultdict
 
@@ -119,12 +119,19 @@ def _load_sessions() -> dict:
     return {}
 
 def _save_sessions(sessions: dict):
-    """Persist sessions to shared file."""
+    """Persist sessions to shared file (atomic write via tmp + os.replace)."""
+    import tempfile
     try:
-        with open(_SESSION_FILE, "w") as f:
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(_SESSION_FILE), suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
             f.write(json.dumps(sessions))
+        os.replace(tmp_path, _SESSION_FILE)
     except Exception:
-        pass
+        # Remove tmp file if os.replace failed
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 def _create_session() -> str:
     sessions = _load_sessions()
@@ -170,17 +177,18 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 # ── Rate Limiting ─────────────────────────────────────────────────
-_rate_limits: dict = defaultdict(list)  # endpoint -> [timestamps]
+_rate_limits: dict = defaultdict(list)  # "endpoint:ip" -> [timestamps]
 
-def check_rate_limit(endpoint: str, max_calls: int = 5, window_sec: int = 10):
-    """Simple in-memory rate limiter"""
+def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 5, window_sec: int = 10):
+    """Per-IP rate limiter — each IP gets its own bucket per endpoint"""
     now = time.time()
-    calls = _rate_limits[endpoint]
+    key = f"{endpoint}:{client_ip}"
+    calls = _rate_limits[key]
     # Purge old entries
-    _rate_limits[endpoint] = [t for t in calls if now - t < window_sec]
-    if len(_rate_limits[endpoint]) >= max_calls:
+    _rate_limits[key] = [t for t in calls if now - t < window_sec]
+    if len(_rate_limits[key]) >= max_calls:
         raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s.")
-    _rate_limits[endpoint].append(now)
+    _rate_limits[key].append(now)
 
 
 # ── Models ────────────────────────────────────────────────────────
@@ -252,6 +260,9 @@ class StrategyPayload(BaseModel):
     combined_sl_rupees:     float = 0
     combined_target_rupees: float = 0
     combined_sqoff_time:    str   = "15:20"
+    fee_pct:                float = 0.0
+    trailing_sl_pct:        float = 0.0
+    initial_capital:        float = 500000.0
 
 
 # ── Serve Frontend ────────────────────────────────────────────────
@@ -516,6 +527,28 @@ async def validate_strategy(request: Request):
     if max_trades > 5:
         warnings.append(f"High trade frequency ({max_trades}/day) — check for overtrading")
 
+    # Lot size / capital validation (#13)
+    from engine.backtest import get_lot_size, LOT_SIZES
+    lots = int(body.get("lots", 1) or 1)
+    user_lot_size = int(body.get("lot_size", 0) or 0)
+    initial_capital = float(body.get("initial_capital", 500000) or 500000)
+    if instrument:
+        inst_name = "NIFTY"
+        if "26009" in str(instrument) or "BANK" in str(instrument).upper():
+            inst_name = "BANKNIFTY"
+        elif "26017" in str(instrument) or "FIN" in str(instrument).upper():
+            inst_name = "FINNIFTY"
+        current_lot = get_lot_size(instrument, date.today())
+        if user_lot_size > 0 and user_lot_size != current_lot:
+            warnings.append(f"Custom lot size ({user_lot_size}) differs from current {inst_name} lot ({current_lot})")
+        effective_lot = user_lot_size if user_lot_size > 0 else current_lot
+        total_qty = lots * effective_lot
+        # Estimate margin: rough NIFTY option margin ~₹1.5L per lot
+        est_margin_per_lot = 150000 if "BANK" in inst_name else 100000
+        est_margin = lots * est_margin_per_lot
+        if est_margin > initial_capital * 0.8:
+            warnings.append(f"Estimated margin ₹{est_margin:,.0f} for {lots} lot(s) may exceed 80% of capital ₹{initial_capital:,.0f}")
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,
@@ -529,6 +562,39 @@ async def validate_strategy(request: Request):
             "tp_pct": tp_pct,
         }
     }
+
+
+# ── Portfolio Summary API (#8) ────────────────────────────────────
+@app.get("/api/portfolio/summary")
+async def portfolio_summary(request: Request):
+    """Aggregated portfolio: balance + positions + unrealized P&L in one call"""
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    result = {"funds": None, "positions": [], "unrealized_pnl": 0, "total_value": 0, "errors": []}
+    # Funds
+    try:
+        funds = await asyncio.to_thread(dhan.get_funds)
+        result["funds"] = funds
+        if isinstance(funds, dict):
+            result["total_value"] = float(funds.get("availabelBalance", funds.get("available_balance", 0)))
+    except Exception as e:
+        result["errors"].append(f"Funds: {str(e)}")
+
+    # Positions + unrealized P&L
+    try:
+        positions = await asyncio.to_thread(dhan.get_positions)
+        result["positions"] = positions
+        unrealized = 0
+        for pos in (positions if isinstance(positions, list) else []):
+            unrealized += float(pos.get("unrealizedProfit", pos.get("dayProfit", 0)))
+        result["unrealized_pnl"] = round(unrealized, 2)
+        result["total_value"] = round(result["total_value"] + unrealized, 2)
+    except Exception as e:
+        result["errors"].append(f"Positions: {str(e)}")
+
+    return result
 
 
 # ── Strategy Versioning ──────────────────────────────────────────
@@ -1853,8 +1919,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 # ── Orders / Positions / Funds ────────────────────────────────────
 @app.post("/api/orders/place")
-async def place_order(req: OrderRequest):
-    check_rate_limit("place_order", max_calls=3, window_sec=5)  # Max 3 orders per 5s
+async def place_order(req: OrderRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
     try:
         return dhan.place_order(
             security_id=req.security_id, exchange_segment=req.exchange_segment,
