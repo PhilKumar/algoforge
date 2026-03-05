@@ -202,7 +202,7 @@
   /* ── GLOSSY 3D BUTTONS (darker, realistic) ── */
   .btn {
     background: var(--btn-bg, linear-gradient(180deg, #2f72d8 0%, #2458ab 100%));
-    color: #fff;
+    color: var(--btn-color, #fff);
     border: 1px solid var(--btn-border, rgba(14, 43, 94, 0.85));
     padding: 11px 24px;
     border-radius: 999px;
@@ -1298,8 +1298,8 @@
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
         <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">▶ Run Backtest</button>
-        <button class="btn" onclick="openDeployModal()" style="flex: 1; background: var(--purple); border: 1px solid rgba(139,92,246,0.45); color: #fff; font-size: 13px; font-weight: 700;">🚀 Deploy</button>
-        <button class="btn" onclick="saveStrategy()" style="flex: 1; background: var(--card2); border: 1px solid var(--border); font-size: 13px; color: var(--text);">💾 Save</button>
+        <button class="btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: var(--purple); --btn-border: rgba(139,92,246,0.45); --btn-color: #fff; font-size: 13px; font-weight: 700;">🚀 Deploy</button>
+        <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: var(--card2); --btn-border: var(--border); font-size: 13px; --btn-color: var(--text);">💾 Save</button>
       </div>
     </div>
 
@@ -1353,7 +1353,7 @@
               </div>
             </div>
             <div style="margin-top: 10px; text-align: center;">
-              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; background: rgba(245,158,11,0.12); color: var(--warn); border: 1px solid rgba(245,158,11,0.25); width: 100%;">View in Live Monitor →</button>
+              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; --btn-bg: rgba(245,158,11,0.12); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.25); width: 100%;">View in Live Monitor →</button>
             </div>
           </div>
 
@@ -1379,7 +1379,7 @@
               </div>
             </div>
             <div style="margin-top: 10px; text-align: center;">
-              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; background: rgba(139,92,246,0.12); color: var(--accent2); border: 1px solid rgba(139,92,246,0.25); width: 100%;">View in Live Monitor →</button>
+              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; --btn-bg: rgba(139,92,246,0.12); --btn-color: var(--accent2); --btn-border: rgba(139,92,246,0.25); width: 100%;">View in Live Monitor →</button>
             </div>
           </div>
 
@@ -1397,10 +1397,10 @@
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0; font-size: 16px;">📊 All Runs</h3>
       <div id="runs-filter-bar" style="display: flex; gap: 6px;">
-        <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; background: var(--accent); color: #000;">All</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; background: rgba(59,130,246,0.15); color: rgb(96,165,250); border: 1px solid rgba(59,130,246,0.3);">Backtest</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; background: rgba(245,158,11,0.15); color: rgb(251,191,36); border: 1px solid rgba(245,158,11,0.3);">Paper</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; background: rgba(139,92,246,0.15); color: rgb(167,139,250); border: 1px solid rgba(139,92,246,0.3);">Live</button>
+        <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: var(--accent); --btn-color: #000; --btn-border: rgba(0,200,150,0.5);">All</button>
+        <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
+        <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
+        <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
       </div>
     </div>
     <div id="runs-list-results"></div>
@@ -1446,9 +1446,9 @@
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;">✓ Completed</span></div>
       <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
-        <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; background: var(--purple); border: 1px solid rgba(139,92,246,0.45); color: #ffffff; font-weight: 700;" title="Deploy this strategy to live/paper trading">🚀 Deploy</button>
-        <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd;" title="Copy this strategy to editor for modification">📋 Copy & Edit</button>
-        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); color: #c4b5fd;" title="View strategy details">📄 View Strategy</button>
+        <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: var(--purple); --btn-border: rgba(139,92,246,0.45); --btn-color: #ffffff; font-weight: 700;" title="Deploy this strategy to live/paper trading">🚀 Deploy</button>
+        <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">📋 Copy & Edit</button>
+        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(139,92,246,0.15); --btn-border: rgba(139,92,246,0.3); --btn-color: #c4b5fd;" title="View strategy details">📄 View Strategy</button>
       </div>
     </div>
 
@@ -1513,7 +1513,7 @@
         <h3 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">📋 Transaction Order Details</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span id="trade-count-display" style="background: rgba(0,200,150,0.1); border: 1px solid rgba(0,200,150,0.2); padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent);"></span>
-          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; background: linear-gradient(135deg, var(--success), rgba(34,197,94,0.7)); color: #000; font-weight: 600; border-radius: 6px;">⬇ Download CSV</button>
+          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(135deg, var(--success), rgba(34,197,94,0.7)); --btn-color: #000; font-weight: 600; border-radius: 6px;">⬇ Download CSV</button>
         </div>
       </div>
       <div style="max-height: 600px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: linear-gradient(160deg, rgba(20,28,42,0.8), rgba(12,18,30,0.75)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);">
@@ -1749,7 +1749,7 @@
     </div>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-      <button class="btn" onclick="deployStrategy()" style="padding: 10px 30px; background: var(--purple);">Deploy Strategy in Live</button>
+      <button class="btn" onclick="deployStrategy()" style="padding: 10px 30px; --btn-bg: var(--purple);">Deploy Strategy in Live</button>
     </div>
   </div>
 </div>
@@ -1781,7 +1781,7 @@
     </div>
     <div id="view-modal-content" style="font-size: 13px; line-height: 1.7;"></div>
     <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;" id="view-modal-actions">
-      <button class="btn" onclick="loadStrategyFromView()" style="background: var(--accent); font-size: 12px;" id="view-modal-load-btn">Load into Builder</button>
+      <button class="btn" onclick="loadStrategyFromView()" style="--btn-bg: var(--accent); font-size: 12px;" id="view-modal-load-btn">Load into Builder</button>
       <button class="modal-close" onclick="closeViewModal()">Close</button>
     </div>
   </div>
@@ -1800,7 +1800,7 @@
       <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px;">Or create a new folder:</label>
       <div class="flex-row">
         <input type="text" id="move-new-folder" placeholder="New folder name..." style="flex: 1; padding: 8px; font-size: 12px;">
-        <button class="btn" onclick="confirmMoveToNew()" style="font-size: 11px; padding: 8px 12px; background: var(--accent);">Create & Move</button>
+        <button class="btn" onclick="confirmMoveToNew()" style="font-size: 11px; padding: 8px 12px; --btn-bg: var(--accent);">Create & Move</button>
       </div>
     </div>
   </div>
@@ -2202,21 +2202,21 @@ function _buildRunsTable(runs) {
 function filterRuns(mode, btn) {
   _currentRunFilter = mode;
   // Update active button styles
+  const _setV = (el, bg, clr, bdr) => { el.style.setProperty('--btn-bg', bg); el.style.setProperty('--btn-color', clr); el.style.setProperty('--btn-border', bdr); };
   document.querySelectorAll('.runs-filter-btn').forEach(b => {
     b.classList.remove('active');
-    b.style.background = '';
     const f = b.getAttribute('data-filter');
-    if (f === 'all') { b.style.background = 'rgba(255,255,255,0.08)'; b.style.color = 'var(--muted)'; }
-    else if (f === 'backtest') { b.style.background = 'rgba(59,130,246,0.15)'; b.style.color = 'rgb(96,165,250)'; }
-    else if (f === 'paper') { b.style.background = 'rgba(245,158,11,0.15)'; b.style.color = 'rgb(251,191,36)'; }
-    else if (f === 'live') { b.style.background = 'rgba(139,92,246,0.15)'; b.style.color = 'rgb(167,139,250)'; }
+    if (f === 'all') _setV(b, 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)', 'var(--muted)', 'rgba(255,255,255,0.1)');
+    else if (f === 'backtest') _setV(b, 'linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.5)');
+    else if (f === 'paper') _setV(b, 'linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.5)');
+    else if (f === 'live') _setV(b, 'linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.5)');
   });
   if (btn) {
     btn.classList.add('active');
-    if (mode === 'all') { btn.style.background = 'var(--accent)'; btn.style.color = '#000'; }
-    else if (mode === 'backtest') { btn.style.background = 'rgb(59,130,246)'; btn.style.color = '#fff'; }
-    else if (mode === 'paper') { btn.style.background = 'rgb(245,158,11)'; btn.style.color = '#000'; }
-    else if (mode === 'live') { btn.style.background = 'rgb(139,92,246)'; btn.style.color = '#fff'; }
+    if (mode === 'all') _setV(btn, 'var(--accent)', '#000', 'rgba(0,200,150,0.5)');
+    else if (mode === 'backtest') _setV(btn, 'linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)', '#fff', 'rgba(59,130,246,0.7)');
+    else if (mode === 'paper') _setV(btn, 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)', '#000', 'rgba(245,158,11,0.7)');
+    else if (mode === 'live') _setV(btn, 'linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%)', '#fff', 'rgba(139,92,246,0.7)');
   }
   _renderFilteredRuns();
 }
@@ -2726,8 +2726,8 @@ async function fetchStrategies() {
           <td style="padding: 10px 0; color: var(--muted); font-size: 12px; width: 20%">${dateStr}</td>
           <td style="padding: 10px 0; width: 20%;">
             <button class="btn btn-sm" onclick="viewStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px; margin-right: 3px;">View</button>
-            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="background: var(--accent); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
-            <button class="btn btn-sm" onclick="moveStrategyFolder(${s.id})" style="background: var(--card2); border: 1px solid var(--border); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Move</button>
+            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: var(--accent); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
+            <button class="btn btn-sm" onclick="moveStrategyFolder(${s.id})" style="--btn-bg: var(--card2); --btn-border: var(--border); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Move</button>
             <button class="btn btn-danger btn-sm" onclick="deleteStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
           </td></tr>`;
       });
@@ -3957,7 +3957,7 @@ function renderTradePage() {
   let R='<div style="display:flex;gap:3px;">';
   R+='<button onclick="goTP('+(pg-1)+')" class="btn" style="font-size:11px;padding:5px 10px;" '+(pg<=1?'disabled':'')+'>\u2039</button>';
   let pS=Math.max(1,pg-3),pE=Math.min(tp,pS+6);pS=Math.max(1,pE-6);
-  for(let p=pS;p<=pE;p++) R+='<button onclick="goTP('+p+')" class="btn" style="font-size:11px;padding:5px 10px;'+(p===pg?'background:var(--accent);color:#000;font-weight:700;':'')+'">'+p+'</button>';
+  for(let p=pS;p<=pE;p++) R+='<button onclick="goTP('+p+')" class="btn" style="font-size:11px;padding:5px 10px;'+(p===pg?'--btn-bg: var(--accent);--btn-color: #000;font-weight:700;':'')+'">'+p+'</button>';
   if(pE<tp) R+='<span style="padding:5px;color:var(--muted);">...</span><button onclick="goTP('+tp+')" class="btn" style="font-size:11px;padding:5px 10px;">'+tp+'</button>';
   R+='<button onclick="goTP('+(pg+1)+')" class="btn" style="font-size:11px;padding:5px 10px;" '+(pg>=tp?'disabled':'')+'>\u203A</button></div>';
   pd.innerHTML=L+R;
@@ -4761,7 +4761,7 @@ function renderLiveTabs() {
 
   // Refresh button
   html += `<div style="margin-left:auto;padding:8px 12px;display:flex;align-items:center;">
-    <button class="btn" onclick="loadLiveMonitor()" style="background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);font-size:11px;padding:4px 12px;">🔄</button>
+    <button class="btn" onclick="loadLiveMonitor()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:4px 12px;">🔄</button>
   </div>`;
 
   bar.innerHTML = html;
@@ -4887,9 +4887,9 @@ function renderLivePanel(d, idx) {
       ${badgeHtml}
     </div>
     <div style="display:flex;gap:8px;">
-      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">👁 Strategy</button>` : ''}
-      ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">⏹ Stop</button>` : ''}
-      <button class="btn" onclick="downloadPaperCSV()" style="background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">⬇ CSV</button>
+      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">👁 Strategy</button>` : ''}
+      ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">⏹ Stop</button>` : ''}
+      <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">⬇ CSV</button>
     </div>
   </div>
 

@@ -1933,6 +1933,7 @@ def _persist_daily_trades(trades: list):
     total_pnl = 0
     trade_count = 0
     wins = 0
+    total_charges = 0
     trade_details = []
     for g in groups.values():
         buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
@@ -1948,12 +1949,20 @@ def _persist_daily_trades(trades: list):
             trade_count += 1
             if pnl > 0:
                 wins += 1
+            # Sum charges from all legs (buys + sells)
+            leg_charges = 0
+            for t in g["buys"] + g["sells"]:
+                for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax",
+                              "exchangeTransactionCharges", "stampDuty"):
+                    leg_charges += float(t.get(key_c, 0) or 0)
+            total_charges += leg_charges
             trade_details.append({
                 "symbol": g["symbol"],
                 "pnl": pnl,
                 "qty": int(matched),
                 "buy_avg": round(buy_avg, 2),
                 "sell_avg": round(sell_avg, 2),
+                "charges": round(leg_charges, 2),
             })
     
     if trade_count == 0:
@@ -1962,13 +1971,15 @@ def _persist_daily_trades(trades: list):
     history = _load_trade_history()
     history[today_str] = {
         "pnl": round(total_pnl, 2),
+        "net_pnl": round(total_pnl - total_charges, 2),
+        "charges": round(total_charges, 2),
         "trades": trade_count,
         "wins": wins,
         "mode": "real",
         "details": trade_details,
     }
     _save_trade_history(history)
-    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades, P&L=₹{total_pnl:.2f}")
+    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades, P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}")
 
 def _load(): 
     if os.path.exists(STRAT_FILE):
