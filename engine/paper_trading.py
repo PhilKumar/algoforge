@@ -1006,10 +1006,12 @@ class PaperTradingEngine:
           near  -> closest premium to target (either side)
           above -> cheapest premium that is >= target (min premium constraint)
           below -> most expensive premium that is <= target (max premium constraint)
-        Scans ±15 strikes around ATM using real Dhan LTP.
+        Scans ±15 strikes. Uses live LTP where available; falls back to
+        estimated premium so that all 31 strikes always have a value (avoids
+        skipping near-target strikes just because Dhan returns no LTP for them).
         """
         atm = round(spot / strike_step) * strike_step
-        candidates = []  # list of (strike, ltp)
+        candidates = []  # list of (strike, premium, source)
 
         for offset in range(-15, 16):
             strike = int(atm + offset * strike_step)
@@ -1018,40 +1020,43 @@ class PaperTradingEngine:
             try:
                 ltp = self.dhan.get_option_ltp(symbol, strike, expiry, option_type)
                 if ltp and ltp > 0:
-                    candidates.append((strike, ltp))
-                await asyncio.sleep(0.05)
+                    candidates.append((strike, ltp, "live"))
+                else:
+                    est = await self._estimate_premium(strike, spot, option_type, strike_step)
+                    candidates.append((strike, est, "est"))
+                await asyncio.sleep(0.02)
             except Exception:
-                continue
+                est = await self._estimate_premium(strike, spot, option_type, strike_step)
+                candidates.append((strike, est, "est"))
 
         if not candidates:
             return int(atm)
 
+        live_count = sum(1 for _, _, src in candidates if src == "live")
+
         if mode == "above":
-            # Must have premium >= target; pick the one closest to target from above
-            valid = [(s, p) for s, p in candidates if p >= target_prem]
+            valid = [(s, p) for s, p, _ in candidates if p >= target_prem]
             if valid:
                 best = min(valid, key=lambda x: x[1])  # cheapest that still meets min
-                self.log_event("info", f"🔍 premium_above: scanned {len(candidates)} strikes, {len(valid)} qualify ≥₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
+                self.log_event("info", f"🔍 premium_above: {len(candidates)} strikes ({live_count} live), {len(valid)} qualify ≥₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
                 return best[0]
-            # No strike meets the min premium — pick closest to target
             self.log_event("warning", f"⚠️ premium_above: no strike with premium ≥₹{target_prem}, using closest")
-            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
+            best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
             return best[0]
 
         elif mode == "below":
-            # Must have premium <= target; pick the most expensive one that stays below max
-            valid = [(s, p) for s, p in candidates if p <= target_prem]
+            valid = [(s, p) for s, p, _ in candidates if p <= target_prem]
             if valid:
                 best = max(valid, key=lambda x: x[1])  # most expensive under limit
-                self.log_event("info", f"🔍 premium_below: scanned {len(candidates)} strikes, {len(valid)} qualify ≤₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
+                self.log_event("info", f"🔍 premium_below: {len(candidates)} strikes ({live_count} live), {len(valid)} qualify ≤₹{target_prem}, selected strike={best[0]} (premium ₹{best[1]:.2f})")
                 return best[0]
             self.log_event("warning", f"⚠️ premium_below: no strike with premium ≤₹{target_prem}, using closest")
-            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
+            best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
             return best[0]
 
         else:  # near
-            best = min(candidates, key=lambda x: abs(x[1] - target_prem))
-            self.log_event("info", f"🔍 premium_near: scanned {len(candidates)} strikes, selected strike={best[0]} (premium ₹{best[1]:.2f}, target ₹{target_prem})")
+            best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
+            self.log_event("info", f"🔍 premium_near: {len(candidates)} strikes ({live_count} live), selected strike={best[0]} (premium ₹{best[1]:.2f}, target ₹{target_prem})")
             return best[0]
 
     async def _find_premium_near_strike(self, symbol: str, expiry: str,
