@@ -896,9 +896,10 @@ class PaperTradingEngine:
             strike_value = leg.get("strike_value", 0)
             
             # Calculate strike — handle premium-based types by scanning real LTP
+            scanned_premium = 0.0
             if strike_type in ("premium_near", "premium_above", "premium_below") and expiry:
                 mode = strike_type.split("_")[1]  # "near", "above", "below"
-                strike = await self._find_premium_strike(
+                strike, scanned_premium = await self._find_premium_strike(
                     symbol, expiry, option_type, float(strike_value), 
                     self.current_spot, strike_step, mode=mode
                 )
@@ -906,9 +907,9 @@ class PaperTradingEngine:
             else:
                 strike = self._calculate_strike(leg, self.current_spot, strike_step)
             
-            # Get REAL premium from Dhan LTP
-            entry_premium = 0.0
-            if expiry:
+            # Get entry premium — reuse from scan if available, else fetch fresh
+            entry_premium = scanned_premium if scanned_premium > 0 else 0.0
+            if entry_premium <= 0 and expiry:
                 try:
                     entry_premium = self.dhan.get_option_ltp(symbol, int(strike), expiry, option_type)
                 except Exception as e:
@@ -1052,7 +1053,7 @@ class PaperTradingEngine:
                 candidates.append((s, est, "est"))
 
         if not candidates:
-            return int(atm)
+            return int(atm), 0.0
 
         live_count = sum(1 for _, _, src in candidates if src == "live")
         self.log_event("info", f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates)-live_count} estimated)")
@@ -1062,33 +1063,34 @@ class PaperTradingEngine:
             if valid:
                 best = min(valid, key=lambda x: x[1])  # cheapest that still meets min
                 self.log_event("info", f"   {len(valid)} qualify ≥₹{target_prem} → selected strike={best[0]} (premium ₹{best[1]:.2f})")
-                return best[0]
+                return best[0], best[1]
             self.log_event("warning", f"⚠️ premium_above: no strike with premium ≥₹{target_prem}, using closest")
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
-            return best[0]
+            return best[0], best[1]
 
         elif mode == "below":
             valid = [(s, p) for s, p, _ in candidates if p <= target_prem]
             if valid:
                 best = max(valid, key=lambda x: x[1])  # most expensive under limit
                 self.log_event("info", f"   {len(valid)} qualify ≤₹{target_prem} → selected strike={best[0]} (premium ₹{best[1]:.2f})")
-                return best[0]
+                return best[0], best[1]
             self.log_event("warning", f"⚠️ premium_below: no strike with premium ≤₹{target_prem}, using closest")
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
-            return best[0]
+            return best[0], best[1]
 
         else:  # near
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
             self.log_event("info", f"   selected strike={best[0]} (premium ₹{best[1]:.2f}, target ₹{target_prem})")
-            return best[0]
+            return best[0], best[1]
 
     async def _find_premium_near_strike(self, symbol: str, expiry: str,
                                          option_type: str, target_prem: float,
                                          spot: float, strike_step: int) -> int:
         """Backward compat wrapper — delegates to _find_premium_strike."""
-        return await self._find_premium_strike(
+        strike, _ = await self._find_premium_strike(
             symbol, expiry, option_type, target_prem, spot, strike_step, mode="near"
         )
+        return strike
     
     def _close_position(self, position: dict, reason: str, exit_premium: float):
         """Close a position and calculate P&L. Cap at SL/TP level for strategy exits."""

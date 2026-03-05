@@ -699,9 +699,10 @@ class LiveEngine:
             quantity = lots * lot_size
 
             # For premium-based strike types, scan real LTP to find correct strike
+            scanned_premium = 0.0
             if strike_type in ("premium_near", "premium_above", "premium_below") and expiry and float(strike_value or 0) > 0:
                 mode = strike_type.split("_")[1]  # "near", "above", "below"
-                strike = await self._find_premium_strike(
+                strike, scanned_premium = await self._find_premium_strike(
                     underlying, expiry, opt_type, float(strike_value),
                     self.current_spot, strike_step, mode=mode
                 )
@@ -746,10 +747,11 @@ class LiveEngine:
                     return
                 continue
 
-            # Get fill price (use LTP as estimate — real fill comes from order book)
-            entry_premium = self.dhan.get_option_ltp(
-                underlying, strike, expiry, opt_type
-            ) or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+            # Get fill price — reuse scanned LTP if available, else fresh fetch
+            entry_premium = scanned_premium if scanned_premium > 0 else (
+                self.dhan.get_option_ltp(underlying, strike, expiry, opt_type)
+                or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+            )
 
             position = {
                 "id": len(self.positions) + len(self.closed_trades) + 1,
@@ -1157,7 +1159,7 @@ class LiveEngine:
                 candidates.append((s, est, "est"))
 
         if not candidates:
-            return int(atm)
+            return int(atm), 0.0
 
         live_count = sum(1 for _, _, src in candidates if src == "live")
         self.log_event("info", f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates)-live_count} estimated)")
@@ -1167,23 +1169,23 @@ class LiveEngine:
             if valid:
                 best = min(valid, key=lambda x: x[1])
                 self.log_event("info", f"   {len(valid)} qualify ≥₹{target_prem} → selected {best[0]} (₹{best[1]:.2f})")
-                return best[0]
+                return best[0], best[1]
             self.log_event("warning", f"⚠️ premium_above: no strike ≥₹{target_prem}, using closest")
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
-            return best[0]
+            return best[0], best[1]
         elif mode == "below":
             valid = [(s, p) for s, p, _ in candidates if p <= target_prem]
             if valid:
                 best = max(valid, key=lambda x: x[1])
                 self.log_event("info", f"   {len(valid)} qualify ≤₹{target_prem} → selected {best[0]} (₹{best[1]:.2f})")
-                return best[0]
+                return best[0], best[1]
             self.log_event("warning", f"⚠️ premium_below: no strike ≤₹{target_prem}, using closest")
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
-            return best[0]
+            return best[0], best[1]
         else:  # near
             best = min([(s, p) for s, p, _ in candidates], key=lambda x: abs(x[1] - target_prem))
             self.log_event("info", f"   selected {best[0]} (₹{best[1]:.2f}, target ₹{target_prem})")
-            return best[0]
+            return best[0], best[1]
 
     def _estimate_premium(self, strike: int, spot: float,
                            option_type: str, strike_step: int) -> float:
