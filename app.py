@@ -1290,6 +1290,7 @@ async def api_run_backtest(payload: StrategyPayload):
             max_id = max([r.get("id", 0) for r in runs], default=0)
             run_entry = {
                 "id": max_id + 1,
+                "mode": "backtest",
                 "run_name": payload.run_name,
                 "folder": payload.folder,
                 "segment": payload.segment,
