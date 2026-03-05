@@ -491,32 +491,39 @@
 
   /* ── LIGHT THEME: Buttons ── */
   [data-theme="light"] .btn {
-    background: var(--btn-bg, linear-gradient(180deg, rgba(37,99,235,0.18) 0%, rgba(37,99,235,0.30) 100%));
-    color: var(--btn-color, #2563eb);
-    border: 1px solid var(--btn-border, rgba(37,99,235,0.35));
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+    background: var(--btn-bg, linear-gradient(180deg, rgba(37,99,235,0.22) 0%, rgba(37,99,235,0.38) 100%));
+    color: var(--btn-color, #1d4ed8);
+    border: 1.5px solid var(--btn-border, rgba(37,99,235,0.45));
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.5);
     text-shadow: none;
   }
   [data-theme="light"] .btn::before {
-    background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0.1));
+    background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.12));
   }
   [data-theme="light"] .btn:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
   }
   [data-theme="light"] .btn-submit {
-    --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.35) 100%);
-    --btn-color: #059669;
-    --btn-border: rgba(16,185,129,0.4);
+    --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(16,185,129,0.42) 100%);
+    --btn-color: #047857;
+    --btn-border: rgba(16,185,129,0.5);
   }
   [data-theme="light"] .btn-danger {
-    --btn-bg: linear-gradient(180deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.28) 100%);
-    --btn-color: #dc2626;
-    --btn-border: rgba(239,68,68,0.35);
+    --btn-bg: linear-gradient(180deg, rgba(239,68,68,0.2) 0%, rgba(239,68,68,0.36) 100%);
+    --btn-color: #b91c1c;
+    --btn-border: rgba(239,68,68,0.45);
   }
   [data-theme="light"] .btn-secondary {
-    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.15) 0%, rgba(139,92,246,0.28) 100%);
-    --btn-color: #7c3aed;
-    --btn-border: rgba(139,92,246,0.35);
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.2) 0%, rgba(139,92,246,0.36) 100%);
+    --btn-color: #6d28d9;
+    --btn-border: rgba(139,92,246,0.45);
+  }
+  /* Light theme: orange/amber readable */
+  [data-theme="light"] { --warn: #b45309; }
+  [data-theme="light"] .runs-filter-btn[data-filter="paper"] {
+    --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.22) 0%, rgba(180,120,8,0.38) 100%) !important;
+    --btn-color: #92400e !important;
+    --btn-border: rgba(245,158,11,0.5) !important;
   }
 
   /* Theme toggle is now integrated into topbar */
