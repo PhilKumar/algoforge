@@ -4841,9 +4841,40 @@ function renderLivePanel(d, idx) {
   }
 
   // Build full panel
+  // Entry/Exit conditions from strategy config
+  const strat = d.strategy || {};
+  const entryConds = strat.entry_conditions || [];
+  const exitConds = strat.exit_conditions || [];
+  const legs = strat.legs || [];
+  const chipS = "display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-family:'JetBrains Mono',monospace;margin:0 4px 4px 0;white-space:nowrap;";
+  const condVal = (c) => c.right === 'number' ? c.right_number_value : c.right === 'days' ? (c.right_days || []).join(',') : c.right === 'time' ? (c.right_time || '') : c.right;
+
+  let conditionsHtml = '';
+  if (entryConds.length || exitConds.length || legs.length) {
+    let entryChips = entryConds.map((c, i) => {
+      const logic = i === 0 ? 'IF' : (c.logic || 'AND');
+      return `<span style="${chipS}background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.24);"><span style="color:var(--muted);">${logic}</span> ${c.left} <span style="color:var(--accent);">${c.operator}</span> ${condVal(c)}</span>`;
+    }).join('');
+    let exitChips = exitConds.map((c, i) => {
+      const logic = i === 0 ? 'IF' : (c.logic || 'AND');
+      return `<span style="${chipS}background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);"><span style="color:var(--muted);">${logic}</span> ${c.left} <span style="color:var(--warn);">${c.operator}</span> ${condVal(c)}</span>`;
+    }).join('');
+    let legsChips = legs.map(l => {
+      const lc = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--accent2)');
+      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${l.transaction_type} ${l.option_type}</span> ${l.strike_type||'ATM'}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
+    }).join('');
+
+    conditionsHtml = `
+    <div style="padding:10px 28px;background:rgba(0,0,0,0.15);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
+      ${entryChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">ENTRY</span>${entryChips}</div>` : ''}
+      ${exitChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">EXIT</span>${exitChips}</div>` : ''}
+      ${legsChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">LEGS</span>${legsChips}</div>` : ''}
+    </div>`;
+  }
+
   container.innerHTML = `
   <!-- Header bar -->
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:1px solid var(--border);">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:${conditionsHtml ? 'none' : '1px solid var(--border)'};">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="font-size:18px;font-weight:700;color:var(--text);">${name}</div>
       ${badgeHtml}
@@ -4854,6 +4885,8 @@ function renderLivePanel(d, idx) {
       <button class="btn" onclick="downloadPaperCSV()" style="background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">⬇ CSV</button>
     </div>
   </div>
+
+  ${conditionsHtml}
 
   <!-- 4 stat cards -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:20px 28px 8px;">
