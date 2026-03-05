@@ -917,7 +917,11 @@
   .nav-tab .tab-icon {
     font-size: 16px;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
   }
+  .ico { display: inline-flex; align-items: center; vertical-align: middle; }
+  .ico svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .nav-tab .tab-label {
     letter-spacing: -0.2px;
   }
@@ -986,7 +990,7 @@
 
 <!-- EMERGENCY KILL SWITCH (hidden by default, shown when engines active) -->
 <button class="kill-switch hidden" id="kill-switch-btn" onclick="emergencyStop()">
-  🛑 <span>KILL ALL</span>
+  <span style="color:#ef4444;">⊘</span> <span>KILL ALL</span>
 </button>
 
 <!-- ═══ HEADER: Top Bar ═══ -->
@@ -1037,8 +1041,8 @@
       <span id="clock-time" style="font-weight: 700; color: var(--accent);">--:--:--</span>
     </div>
     <div class="topbar-actions">
-      <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme">🌙</button>
-      <button class="topbar-icon-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())" title="Logout">🔓</button>
+      <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></button>
+      <button class="topbar-icon-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
     </div>
   </div>
 </div>
@@ -1060,19 +1064,19 @@
 <div class="nav-bar">
   <div class="nav-tabs">
     <button id="nav-dashboard" class="nav-tab active" onclick="showPage('dashboard-page', this)">
-      <span class="tab-icon">📊</span>
+      <span class="tab-icon" id="ico-dashboard"></span>
       <span class="tab-label">Dashboard</span>
     </button>
     <button id="nav-portfolio" class="nav-tab" onclick="showPage('portfolio-page', this)">
-      <span class="tab-icon">💼</span>
+      <span class="tab-icon" id="ico-portfolio"></span>
       <span class="tab-label">Portfolio</span>
     </button>
     <button id="nav-builder" class="nav-tab" onclick="showPage('builder-page', this)">
-      <span class="tab-icon">🔧</span>
+      <span class="tab-icon" id="ico-builder"></span>
       <span class="tab-label">Strategy Builder</span>
     </button>
     <button id="nav-results" class="nav-tab" onclick="showPage('results-page', this)">
-      <span class="tab-icon">📈</span>
+      <span class="tab-icon" id="ico-results"></span>
       <span class="tab-label">Results</span>
     </button>
     <button id="nav-live" class="nav-tab" onclick="showPage('live-page', this); startLiveMonitor();">
@@ -1093,13 +1097,13 @@
         <div class="stat-label" style="margin-bottom: 8px;">Today's P&L</div>
         <div style="display: flex; gap: 16px; align-items: flex-end;">
           <div style="flex: 1;">
-            <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">📝 PAPER</div>
+            <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
             <div id="dash-paper-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
             <div id="dash-paper-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
           </div>
           <div style="width: 1px; height: 36px; background: var(--border); flex-shrink: 0;"></div>
           <div style="flex: 1;">
-            <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">🤖 REAL</div>
+            <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">REAL</div>
             <div id="dash-real-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
             <div id="dash-real-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
           </div>
@@ -1128,13 +1132,13 @@
     <!-- Active Trading Status -->
     <div id="dash-active-engines" class="card-glass" style="padding: 16px; margin-bottom: 16px; display: none;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-        <h3 style="font-size: 14px; margin: 0;">🔥 Active Trading</h3>
+        <h3 style="font-size: 14px; margin: 0;" id="h-active-trading">Active Trading</h3>
         <button class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 11px; padding: 5px 14px;">Open Live Monitor →</button>
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div id="dash-paper-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">📝 Paper Trade</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Trade</span>
             <span id="dash-paper-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
           <div style="font-size: 13px; font-weight: 600;" id="dash-paper-name">—</div>
@@ -1145,7 +1149,7 @@
         </div>
         <div id="dash-auto-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">🤖 Auto Trade</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Auto Trade</span>
             <span id="dash-auto-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
           <div style="font-size: 13px; font-weight: 600;" id="dash-auto-name">—</div>
@@ -1160,12 +1164,12 @@
     <!-- Best / Worst Backtest -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
       <div class="card" style="padding: 16px; border-left: 3px solid var(--success); cursor: pointer;" id="dash-best-run" onclick="if(this.dataset.rid) viewRun(+this.dataset.rid)">
-        <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">🏆 Best Backtest</div>
+        <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Best Backtest</div>
         <div style="font-size: 18px; font-weight: 700; color: var(--success); font-family: 'JetBrains Mono';" id="dash-best-pnl">—</div>
         <div style="font-size: 12px; color: var(--text); margin-top: 4px;" id="dash-best-name">No backtests yet</div>
       </div>
       <div class="card" style="padding: 16px; border-left: 3px solid var(--danger); cursor: pointer;" id="dash-worst-run" onclick="if(this.dataset.rid) viewRun(+this.dataset.rid)">
-        <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">📉 Worst Backtest</div>
+        <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Worst Backtest</div>
         <div style="font-size: 18px; font-weight: 700; color: var(--danger); font-family: 'JetBrains Mono';" id="dash-worst-pnl">—</div>
         <div style="font-size: 12px; color: var(--text); margin-top: 4px;" id="dash-worst-name">No backtests yet</div>
       </div>
@@ -1174,22 +1178,22 @@
 
   <!-- Strategy Templates -->
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <h3 style="margin-bottom: 12px; font-size: 16px;">🧩 Strategy Templates</h3>
+    <h3 style="margin-bottom: 12px; font-size: 16px;">Strategy Templates</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;" id="template-grid">
       <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('supertrend_cpr')">
-        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">📈 Supertrend + CPR Narrow</div>
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">Supertrend + CPR Narrow</div>
         <div style="font-size:11px; color:var(--muted); line-height:1.4;">Buy when Supertrend is bullish & CPR is narrow. Sells on Supertrend bearish flip. NIFTY 5m.</div>
       </div>
       <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('orb_breakout')">
-        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔥 ORB Breakout</div>
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">ORB Breakout</div>
         <div style="font-size:11px; color:var(--muted); line-height:1.4;">Opening Range Breakout (15m). Enters on high break after 9:30. ATM CE option with 20% SL.</div>
       </div>
       <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('ema_crossover')">
-        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔀 EMA Crossover</div>
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">EMA Crossover</div>
         <div style="font-size:11px; color:var(--muted); line-height:1.4;">EMA 9 crosses above EMA 21. Classic momentum strategy on NIFTY 5m candles.</div>
       </div>
       <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="loadTemplate('rsi_reversal')">
-        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">🔄 RSI Reversal</div>
+        <div style="font-weight:700; color:var(--accent); font-size:13px; margin-bottom:4px;">RSI Reversal</div>
         <div style="font-size:11px; color:var(--muted); line-height:1.4;">RSI dips below 30 then crosses above. Mean-reversion play on BANKNIFTY 15m.</div>
       </div>
     </div>
@@ -1200,7 +1204,7 @@
     <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
   </div>
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <h3 style="margin-bottom: 16px; font-size: 16px;">📊 All Runs</h3>
+    <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
     <div id="runs-list"></div>
     <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
   </div>
@@ -1217,7 +1221,7 @@
 <div id="builder-page" class="page-section">
   <!-- Warning Banner -->
   <div id="premium-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
-    <div style="font-size: 24px;">⚠️</div>
+    <div style="font-size: 24px; color: var(--warn);"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span></div>
     <div style="flex: 1;">
       <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Premium Estimation Notice</div>
       <div class="premium-notice-text" style="font-size: 11px; color: rgba(255,255,255,0.8); line-height: 1.5;">
@@ -1233,7 +1237,7 @@
     <!-- ═══ COL 1: Compact Settings ═══ -->
     <div class="settings-col">
       <div class="card card-compact">
-        <h3 style="margin-bottom: 10px; font-size: 14px;">⚙ Settings</h3>
+        <h3 style="margin-bottom: 10px; font-size: 14px;">Settings</h3>
         <div class="input-group">
           <label>Run Name</label>
           <input type="text" id="run-name-input">
@@ -1307,7 +1311,7 @@
 
       <!-- Loaded Strategy -->
       <div class="card card-compact" style="margin-top: 6px;">
-        <h3 style="margin-bottom: 6px; font-size: 12px;">📋 Loaded Strategy</h3>
+        <h3 style="margin-bottom: 6px; font-size: 12px;">Loaded Strategy</h3>
         <div id="loaded-strategy-info" style="color: var(--muted); font-size: 11px; line-height: 1.5;">
           <p>No strategy loaded.</p>
         </div>
@@ -1317,7 +1321,7 @@
     <!-- ═══ COL 2: Indicators + Conditions ═══ -->
     <div>
       <div class="card" style="padding: 16px; margin-bottom: 12px;">
-        <h3 style="margin-bottom: 10px; font-size: 15px;">📊 Indicators</h3>
+        <h3 style="margin-bottom: 10px; font-size: 15px;">Indicators</h3>
         <div id="active-indicators-list" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; min-height: 24px;"></div>
         <div class="flex-row">
           <select id="new-indicator-name" onchange="renderIndicatorFields()" style="width: 170px;">
@@ -1342,7 +1346,7 @@
       </div>
 
       <div class="card" style="padding: 16px;">
-        <h3 style="margin-bottom: 12px; font-size: 15px;">📝 Entry / Exit Conditions</h3>
+        <h3 style="margin-bottom: 12px; font-size: 15px;">Entry / Exit Conditions</h3>
         <div style="margin-bottom: 18px;">
           <label style="font-weight: 600; color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Entry Conditions</label>
           <div id="entry-conditions-container" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
@@ -1358,16 +1362,16 @@
 
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
-        <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">▶ Run Backtest</button>
-        <button class="btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">🚀 Deploy</button>
-        <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">💾 Save</button>
+        <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">Run Backtest</button>
+        <button class="btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
+        <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">Save</button>
       </div>
     </div>
 
     <!-- ═══ COL 3: Leg Builder (full size) ═══ -->
     <div>
       <div class="card" style="padding: 16px;">
-        <h3 style="margin-bottom: 5px; font-size: 15px;">🦿 Leg Builder</h3>
+        <h3 style="margin-bottom: 5px; font-size: 15px;">Leg Builder</h3>
         <p style="color: var(--muted); font-size: 11px; margin-bottom: 12px;">Add option legs to execute when entry conditions are satisfied. Each leg exits independently.</p>
         <div class="add-leg-row">
           <button class="add-leg-btn buy-ce" onclick="addLeg('BUY','CE')">+ Buy CE</button>
@@ -1387,7 +1391,7 @@
       <!-- Live Status Preview (below legs) -->
       <div id="builder-live-preview" class="card-glass" style="padding: 16px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-          <h3 style="font-size: 14px; font-weight: 700; color: var(--text); margin: 0;">📡 Trading Status</h3>
+          <h3 style="font-size: 14px; font-weight: 700; color: var(--text); margin: 0;">Trading Status</h3>
           <span style="font-size: 10px; color: var(--muted);">Auto-refreshes every 5s</span>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -1396,7 +1400,7 @@
           <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 10px; padding: 14px; position: relative; overflow: hidden;">
             <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--warn), rgba(245,158,11,0.3));"></div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 12px; font-weight: 700; color: var(--warn);">📝 Paper Trade</span>
+              <span style="font-size: 12px; font-weight: 700; color: var(--warn);">Paper Trade</span>
               <span id="bp-paper-badge" style="padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; background: rgba(239,68,68,0.15); color: #f87171; letter-spacing: 0.5px;">STOPPED</span>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
@@ -1422,7 +1426,7 @@
           <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 10px; padding: 14px; position: relative; overflow: hidden;">
             <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent2), rgba(139,92,246,0.3));"></div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 12px; font-weight: 700; color: var(--accent2);">🤖 Auto Trade</span>
+              <span style="font-size: 12px; font-weight: 700; color: var(--accent2);">Auto Trade</span>
               <span id="bp-auto-badge" style="padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; background: rgba(239,68,68,0.15); color: #f87171; letter-spacing: 0.5px;">STOPPED</span>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
@@ -1456,7 +1460,7 @@
   <!-- All Runs Panel -->
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-      <h3 style="margin: 0; font-size: 16px;">📊 All Runs</h3>
+      <h3 style="margin: 0; font-size: 16px;">All Runs</h3>
       <div id="runs-filter-bar" style="display: flex; gap: 6px;">
         <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(0,200,150,0.5);">All</button>
         <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
@@ -1471,7 +1475,7 @@
   <!-- Backtest Comparison Panel -->
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-      <h3 style="margin: 0; font-size: 16px;">🔀 Compare Backtests</h3>
+      <h3 style="margin: 0; font-size: 16px;">Compare Backtests</h3>
       <div style="display: flex; gap: 8px; align-items: center;">
         <select id="compare-run-a" style="width: 180px; font-size: 12px; padding: 6px 8px;">
           <option value="">Select Run A</option>
@@ -1504,12 +1508,12 @@
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Run Type</span><br><span style="font-weight: 600; font-size: 14px;">Historic</span></div>
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">From</span><br><span id="res-from" style="font-weight: 600; font-size: 14px;">-</span></div>
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">To</span><br><span id="res-to" style="font-weight: 600; font-size: 14px;">-</span></div>
-      <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;">✓ Completed</span></div>
+      <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;"><span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span> Completed</span></div>
       <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
-        <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">🚀 Deploy</button>
-        <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">📋 Copy & Edit</button>
-        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(139,92,246,0.15); --btn-border: rgba(139,92,246,0.3); --btn-color: #c4b5fd;" title="View strategy details">📄 View Strategy</button>
+        <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
+        <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">Copy & Edit</button>
+        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(139,92,246,0.15); --btn-border: rgba(139,92,246,0.3); --btn-color: #c4b5fd;" title="View strategy details">View Strategy</button>
       </div>
     </div>
 
@@ -1518,7 +1522,7 @@
 
     <!-- Equity Curve -->
     <div class="card-glass" style="padding: 20px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">📈 Equity Curve</h3>
+      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Equity Curve</h3>
       <canvas id="equity-chart" style="width: 100%; height: 300px;"></canvas>
     </div>
 
@@ -1543,7 +1547,7 @@
 
     <!-- Transactions Analytics — Glossy -->
     <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">📊 Transactions Analytics</h3>
+      <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transactions Analytics</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
         <div style="background: linear-gradient(160deg, rgba(22,30,46,0.85), rgba(14,20,32,0.8)); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);">
           <h4 style="font-size: 13px; color: var(--accent); margin-bottom: 10px; font-weight: 600;">Day Of Week</h4>
@@ -1559,11 +1563,11 @@
     <!-- Monthly P&L + Heatmap — Glossy -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
       <div class="card-glass" style="padding: 22px;">
-        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">📅 Monthly P&L</h3>
+        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Monthly P&L</h3>
         <div id="monthly-pnl-grid" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
       </div>
       <div class="card-glass" style="padding: 22px;">
-        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">🔥 Profit / Loss Heatmap</h3>
+        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Profit / Loss Heatmap</h3>
         <div id="pnl-heatmap" style="font-size: 11px;"></div>
       </div>
     </div>
@@ -1571,10 +1575,10 @@
     <!-- Trade Log — Glossy -->
     <div class="card-glass" style="padding: 22px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">📋 Transaction Order Details</h3>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transaction Order Details</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span id="trade-count-display" style="background: rgba(0,200,150,0.1); border: 1px solid rgba(0,200,150,0.2); padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent);"></span>
-          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">⬇ Download CSV</button>
+          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
         </div>
       </div>
       <div style="max-height: 600px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: linear-gradient(160deg, rgba(20,28,42,0.8), rgba(12,18,30,0.75)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);">
@@ -1602,14 +1606,14 @@
         <label>Indicator Type</label>
         <div style="position: relative;">
           <input type="text" value="CPR (Central Pivot Range)" readonly style="padding-left: 32px;">
-          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px;">🔍</span>
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px;"><span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span></span>
         </div>
       </div>
       <div>
         <label>Name</label>
         <div style="position: relative;">
           <input type="text" id="cpr-name" value="cpr1" style="padding-left: 32px;">
-          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px;">✏️</span>
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px;"><span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span></span>
         </div>
       </div>
     </div>
@@ -1700,8 +1704,8 @@
     <div style="margin-bottom: 20px;">
       <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;">Order Type</label>
       <div style="display: flex; border-radius: 8px; overflow: hidden; border: 2px solid var(--border); background: var(--bg);">
-        <button type="button" id="deploy-paper-btn" data-active="1" onclick="setDeployType('paper')" style="flex: 1; padding: 12px; border: none; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease; background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(245,158,11,0.1)); color: var(--warn); border-right: 1px solid var(--border); box-shadow: inset 0 0 20px rgba(245,158,11,0.08);">📝 Paper Testing</button>
-        <button type="button" id="deploy-auto-btn" data-active="0" onclick="setDeployType('auto')" style="flex: 1; padding: 12px; border: none; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease; background: transparent; color: var(--muted);">🤖 Auto Trading</button>
+        <button type="button" id="deploy-paper-btn" data-active="1" onclick="setDeployType('paper')" style="flex: 1; padding: 12px; border: none; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease; background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(245,158,11,0.1)); color: var(--warn); border-right: 1px solid var(--border); box-shadow: inset 0 0 20px rgba(245,158,11,0.08);">Paper Testing</button>
+        <button type="button" id="deploy-auto-btn" data-active="0" onclick="setDeployType('auto')" style="flex: 1; padding: 12px; border: none; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.25s ease; background: transparent; color: var(--muted);">Auto Trading</button>
       </div>
     </div>
 
@@ -1826,7 +1830,7 @@
   <!-- Container for strategy panels (generated by JS) -->
   <div id="live-panels-container">
     <div style="text-align:center; padding:60px 28px; color:var(--muted);">
-      <div style="font-size:40px; margin-bottom:12px;">📡</div>
+      <div style="font-size:40px; margin-bottom:12px;"><span class="ico" style="color:var(--accent2);"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12L12 2l10 10"/><path d="M12 2v20"/><circle cx="12" cy="12" r="4"/></svg></span></div>
       <div style="font-size:16px; font-weight:600; margin-bottom:6px;">No Active Strategies</div>
       <div style="font-size:13px;">Deploy a strategy with Paper Trade or Auto Trade to see live monitoring here.</div>
     </div>
@@ -1852,7 +1856,7 @@
 <div class="modal-overlay" id="move-folder-modal" onclick="if(event.target===this)closeMoveModal()">
   <div class="modal" style="width: 400px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
-      <h3 style="margin: 0;">📁 Move to Folder</h3>
+      <h3 style="margin: 0;">Move to Folder</h3>
       <button class="leg-remove" onclick="closeMoveModal()" style="font-size: 22px;">&times;</button>
     </div>
     <p id="move-strategy-name" style="color: var(--muted); font-size: 12px; margin-bottom: 14px;"></p>
@@ -1896,7 +1900,7 @@
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-      <h3 style="font-size: 16px; font-weight: 700; margin: 0;">📊 Monthly Profit & Loss</h3>
+      <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Monthly Profit & Loss</h3>
       <div style="display: flex; align-items: center; gap: 8px;">
         <button onclick="changeMonthlyMonth(-1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">◀</button>
         <span id="portfolio-monthly-label" style="font-size: 13px; font-weight: 600; min-width: 100px; text-align: center;"></span>
@@ -1911,7 +1915,7 @@
 
   <!-- Today's Trades -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">📈 Today's Trades</h3>
+    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Today's Trades</h3>
     <div style="overflow-x: auto;">
       <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
         <thead>
@@ -1934,13 +1938,13 @@
 
   <!-- Year-to-Date Performance (Monthly grid per year) -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">📅 Year-to-Date Performance</h3>
+    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Year-to-Date Performance</h3>
     <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
   </div>
 
   <!-- Paper Trading Runs -->
   <div class="card" style="padding: 20px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">📝 Paper Trading Runs</h3>
+    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Paper Trading Runs</h3>
     <div id="portfolio-paper-runs"></div>
     <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper trading runs yet. Start paper trading from the Live page.</div>
   </div>
@@ -1949,7 +1953,7 @@
 <!-- ═══ CUSTOM CONFIRM MODAL ═══ -->
 <div class="modal-overlay" id="confirm-modal" style="z-index:3000;">
   <div class="confirm-box">
-    <div class="confirm-icon" id="confirm-icon">⚠️</div>
+    <div class="confirm-icon" id="confirm-icon"></div>
     <div class="confirm-title" id="confirm-title">Confirm</div>
     <div class="confirm-message" id="confirm-message">Are you sure?</div>
     <div class="confirm-actions">
@@ -1960,6 +1964,66 @@
 </div>
 
 <script>
+// ══════════════════════════════════════════════════════════════
+//  SVG ICON SYSTEM — Modern trading platform icons
+// ══════════════════════════════════════════════════════════════
+const ICO = {
+  // s = size in px (default 16)
+  _s: (path, s=16, extra='') => `<span class="ico"><svg width="${s}" height="${s}" viewBox="0 0 24 24"${extra}>${path}</svg></span>`,
+  grid:     (s) => ICO._s('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>', s),
+  briefcase:(s) => ICO._s('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="12.01"/>', s),
+  wrench:   (s) => ICO._s('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94L6.73 20.2a2 2 0 0 1-2.83-2.83l6.73-6.73a6 6 0 0 1 7.94-7.94L14.7 6.3z"/>', s),
+  chart:    (s) => ICO._s('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>', s),
+  pulse:    (s) => ICO._s('<path d="M3 12h4l3-9 4 18 3-9h4"/>', s),
+  bolt:     (s) => ICO._s('<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" stroke="none"/>', s),
+  memo:     (s) => ICO._s('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>', s),
+  bot:      (s) => ICO._s('<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><circle cx="8" cy="16" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="1" fill="currentColor" stroke="none"/>', s),
+  flame:    (s) => ICO._s('<path d="M12 2c.5 4-3 6-3 10a5 5 0 1 0 10 0c0-5-5-6-5-10a5 5 0 0 0-2 0z" fill="currentColor" stroke="none" opacity="0.85"/>', s),
+  trophy:   (s) => ICO._s('<path d="M6 9H3V5a1 1 0 0 1 1-1h2"/><path d="M18 9h3V5a1 1 0 0 0-1-1h-2"/><path d="M6 4h12v6a6 6 0 0 1-12 0V4z"/><path d="M9 20h6"/><path d="M12 16v4"/>', s),
+  loss:     (s) => ICO._s('<polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>', s),
+  puzzle:   (s) => ICO._s('<path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.5 2.5 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.611a2.404 2.404 0 0 1-1.705.706 2.404 2.404 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.404 2.404 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.404 2.404 0 0 1 12 2c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02z"/>', s),
+  runs:     (s) => ICO._s('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/>', s),
+  gear:     (s) => ICO._s('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1.08 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/>', s),
+  clip:     (s) => ICO._s('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>', s),
+  indicators:(s) => ICO._s('<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>', s),
+  rocket:   (s) => ICO._s('<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>', s),
+  save:     (s) => ICO._s('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', s),
+  leg:      (s) => ICO._s('<path d="M8 3v6.5a2 2 0 0 1-2 2H3"/><path d="M16 3v6.5a2 2 0 0 0 2 2h3"/><line x1="8" y1="9.5" x2="8" y2="21"/><line x1="16" y1="9.5" x2="16" y2="21"/><line x1="6" y1="21" x2="18" y2="21"/>', s),
+  antenna:  (s) => ICO._s('<path d="M2 12L12 2l10 10"/><path d="M12 2v20"/><circle cx="12" cy="12" r="4"/>', s),
+  moon:     (s) => ICO._s('<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>', s),
+  sun:      (s) => ICO._s('<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>', s),
+  logout:   (s) => ICO._s('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>', s),
+  stop:     (s) => ICO._s('<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" opacity="0.15"/><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>', s),
+  download: (s) => ICO._s('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>', s),
+  eye:      (s) => ICO._s('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>', s),
+  folder:   (s) => ICO._s('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>', s),
+  search:   (s) => ICO._s('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>', s),
+  edit:     (s) => ICO._s('<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>', s),
+  shuffle:  (s) => ICO._s('<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>', s),
+  refresh:  (s) => ICO._s('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>', s),
+  calendar: (s) => ICO._s('<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>', s),
+  heatmap:  (s) => ICO._s('<rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor" opacity="0.8" stroke="none"/><rect x="14" y="3" width="7" height="7" rx="1" fill="currentColor" opacity="0.3" stroke="none"/><rect x="3" y="14" width="7" height="7" rx="1" fill="currentColor" opacity="0.5" stroke="none"/><rect x="14" y="14" width="7" height="7" rx="1" fill="currentColor" opacity="0.15" stroke="none"/>', s),
+  play:     (s) => ICO._s('<polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none"/>', s),
+  pause:    (s) => ICO._s('<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/>', s),
+  warn:     (s) => ICO._s('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', s),
+  alert:    (s) => ICO._s('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>', s),
+  hour:     (s) => ICO._s('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', s),
+  doc:      (s) => ICO._s('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>', s),
+  money:    (s) => ICO._s('<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', s),
+  ban:      (s) => ICO._s('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', s),
+  siren:    (s) => ICO._s('<path d="M12 2v4"/><path d="M5 5l2.83 2.83"/><path d="M19 5l-2.83 2.83"/><path d="M4 12H2"/><path d="M22 12h-2"/><rect x="4" y="14" width="16" height="6" rx="2"/><circle cx="12" cy="12" r="4"/>', s),
+  trend:    (s) => ICO._s('<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>', s),
+  cross:    (s) => ICO._s('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', s),
+  check:    (s) => ICO._s('<polyline points="20 6 9 17 4 12"/>', s),
+  trash:    (s) => ICO._s('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', s),
+};
+
+// Inject nav tab icons
+(function initNavIcons() {
+  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16)};
+  Object.keys(map).forEach(k => { const el = document.getElementById('ico-' + k); if (el) el.innerHTML = map[k]; });
+})();
+
 // ══════════════════════════════════════════════════════════════
 //  CUSTOM CONFIRM DIALOG (replaces native browser confirm)
 // ══════════════════════════════════════════════════════════════
@@ -1974,7 +2038,7 @@ function customConfirm(message, options = {}) {
     
     titleEl.textContent = options.title || 'Confirm';
     msgEl.innerHTML = message;
-    iconEl.textContent = options.icon || '⚠️';
+    iconEl.innerHTML = options.icon || ICO.warn(28);
     okBtn.textContent = options.okText || 'Confirm';
     cancelBtn.textContent = options.cancelText || 'Cancel';
     
@@ -2400,7 +2464,7 @@ async function viewRun(id) {
 }
 
 async function deleteRun(id) {
-  const ok = await customConfirm('Are you sure you want to delete this run?', { title: 'Delete Run', icon: '🗑️', okText: 'Delete', danger: true });
+  const ok = await customConfirm('Are you sure you want to delete this run?', { title: 'Delete Run', icon: ICO.trash(28), okText: 'Delete', danger: true });
   if (!ok) return;
   await fetch('/api/runs/' + id, { method: 'DELETE' });
   toast('Run deleted', 'success');
@@ -2606,7 +2670,7 @@ function moveStrategyFolder(id) {
   [...folders].sort().forEach(f => {
     const isActive = f === currentFolder;
     container.innerHTML += `<button onclick="confirmMoveTo('${f}')" style="width: 100%; padding: 10px 14px; text-align: left; background: ${isActive ? 'rgba(0,200,150,0.1)' : 'var(--card2)'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; color: ${isActive ? 'var(--accent)' : 'var(--text)'}; cursor: pointer; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: ${isActive ? '700' : '500'}; transition: 0.15s;">
-      ${isActive ? '✓ ' : ''}${f}${isActive ? ' (current)' : ''}
+      ${isActive ? '• ' : ''}${f}${isActive ? ' (current)' : ''}
     </button>`;
   });
   
@@ -2626,7 +2690,7 @@ function confirmMoveTo(folder) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ folder: folder })
   }).then(() => {
-    toast(`Moved to "${folder}" ✓`, 'success');
+    toast(`Moved to "${folder}"`, 'success');
     closeMoveModal();
     fetchStrategies();
   }).catch(() => {
@@ -2671,20 +2735,20 @@ async function checkBrokerStatus(silent) {
     const res = await fetch('/api/broker/check', { method: 'POST' });
     const data = await res.json();
     if (data.status === 'connected') {
-      updateBrokerUI(true, 'Dhan Connected ✅', '#22c55e', 'Disconnect');
+      updateBrokerUI(true, 'Dhan Connected', '#22c55e', 'Disconnect');
       startBrokerHealthCheck();
-      if (!silent) toast('✅ Broker Connected!', 'success');
+      if (!silent) toast('Broker Connected!', 'success');
       return true;
     } else if (data.status === 'not_configured') {
       updateBrokerUI(false, 'Not Configured', 'orange', 'Connect');
-      if (!silent) toast('⚠️ ' + (data.message || 'Broker not configured'), 'warn');
+      if (!silent) toast((data.message || 'Broker not configured'), 'warn');
     } else {
       updateBrokerUI(false, 'Connection Failed', 'red', 'Reconnect');
-      if (!silent) toast('❌ ' + (data.message || 'Connection failed'), 'danger');
+      if (!silent) toast((data.message || 'Connection failed'), 'danger');
     }
   } catch (err) {
     updateBrokerUI(false, 'Network Error', 'red', 'Retry');
-    if (!silent) toast('❌ Network error: ' + err.message, 'danger');
+    if (!silent) toast('Network error: ' + err.message, 'danger');
   }
   return false;
 }
@@ -2693,7 +2757,7 @@ async function toggleBroker() {
   const btn = document.getElementById('broker-toggle-btn');
   if (!btn) return;
   btn.disabled = true;
-  btn.textContent = '⏳ Checking...';
+  btn.textContent = 'Checking...';
   
   if (isBrokerConnected) {
     // Disconnect
@@ -2715,7 +2779,7 @@ function startBrokerHealthCheck() {
       const data = await res.json();
       if (data.status !== 'connected') {
         updateBrokerUI(false, 'Connection Lost', 'orange', 'Reconnect');
-        toast('⚠️ Broker connection lost', 'warn');
+        toast('Broker connection lost', 'warn');
         stopBrokerHealthCheck();
       }
     } catch (err) {
@@ -3089,7 +3153,7 @@ function loadStrategy(id) {
   toast(`Loaded strategy: ${s.run_name}`, 'success');
 }
 async function deleteStrategy(id) {
-  const ok = await customConfirm('Are you sure you want to delete this saved strategy?', { title: 'Delete Strategy', icon: '🗑️', okText: 'Delete', danger: true });
+  const ok = await customConfirm('Are you sure you want to delete this saved strategy?', { title: 'Delete Strategy', icon: ICO.trash(28), okText: 'Delete', danger: true });
   if (!ok) return;
   try { const res = await fetch(`/api/strategies/${id}`, { method: 'DELETE' }); if(res.ok) { toast('Strategy deleted', 'warn'); fetchStrategies(); } }
   catch(err) { toast('Error deleting', 'danger'); }
@@ -3244,7 +3308,7 @@ function addConditionRow(type) {
   
   // Validate: Don't allow adding conditions without indicators or Current Candle
   if (myIndicators.length === 0) {
-    toast('⚠️ Please add indicators first before creating conditions!', 'warn');
+    toast('Please add indicators first before creating conditions!', 'warn');
     return;
   }
   
@@ -3823,7 +3887,7 @@ async function copyEditStrategy(runId) {
     if (p.combined_target_rupees) document.getElementById('combined-target-rupees').value = p.combined_target_rupees;
     if (p.combined_sqoff_time) document.getElementById('combined-sqoff-time').value = p.combined_sqoff_time;
     
-    toast('✅ Strategy loaded for editing!', 'success');
+    toast('Strategy loaded for editing!', 'success');
   } catch(err) {
     console.error('Copy error:', err);
     toast('Error: ' + err.message, 'danger');
@@ -3872,7 +3936,7 @@ async function saveStrategy() {
   if(!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
   try {
     const res = await fetch('/api/strategies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (res.ok) { toast('Strategy Saved! 💾', 'success'); fetchStrategies(); }
+    if (res.ok) { toast('Strategy Saved!', 'success'); fetchStrategies(); }
     else toast('Failed to save.', 'danger');
   } catch (err) { toast('Error connecting to backend.', 'danger'); }
 }
@@ -4124,7 +4188,7 @@ function downloadCSV() {
   // If viewing a saved run, use server-side CSV endpoint (includes all fields)
   if (currentViewingRunId) {
     window.open(`/api/runs/${currentViewingRunId}/csv`, '_blank');
-    toast('CSV Downloaded ✓', 'success');
+    toast('CSV Downloaded', 'success');
     return;
   }
   // Fallback: client-side CSV for fresh backtest results
@@ -4139,7 +4203,7 @@ function downloadCSV() {
   const name = (lastBacktestPayload && lastBacktestPayload.run_name) || 'backtest_trades';
   a.href = url; a.download = name.replace(/\s+/g, '_') + '_trades.csv'; a.click();
   URL.revokeObjectURL(url);
-  toast('CSV Downloaded ✓', 'success');
+  toast('CSV Downloaded', 'success');
 }
 
 function renderEquityChart(equityData) {
@@ -4273,7 +4337,7 @@ async function startPaperTrading() {
   if (_ps) _ps.style.display = 'block';
   if (_ll) _ll.innerHTML = '';
   
-  logPaper('🚀 Starting Paper Trading Engine with LIVE market data...', 'var(--accent)');
+  logPaper('Starting Paper Trading Engine with LIVE market data...', 'var(--accent)');
   
   try {
     const res = await fetch('/api/paper/start', {
@@ -4285,10 +4349,10 @@ async function startPaperTrading() {
     const data = await res.json();
     
     if (data.status === 'started') {
-      logPaper('✅ Paper Trading Engine Started!', 'var(--success)');
-      logPaper(`📋 Strategy: ${payload.run_name || 'Unnamed'}`, 'var(--muted)');
-      logPaper(`📊 Instrument: ${getInstrumentName(payload.instrument)}`, 'var(--muted)');
-      logPaper(`🔍 Monitoring for entry signals...`, 'var(--warn)');
+      logPaper('Paper Trading Engine Started!', 'var(--success)');
+      logPaper(`Strategy: ${payload.run_name || 'Unnamed'}`, 'var(--muted)');
+      logPaper(`Instrument: ${getInstrumentName(payload.instrument)}`, 'var(--muted)');
+      logPaper(`Monitoring for entry signals...`, 'var(--warn)');
       
       // Start polling for status updates
       paperStatusInterval = setInterval(updatePaperStatus, 2000);
@@ -4299,10 +4363,10 @@ async function startPaperTrading() {
         startLiveMonitor();
       }, 800);
     } else {
-      logPaper(`⚠️ ${data.message || 'Failed to start'}`, 'var(--danger)');
+      logPaper(`${data.message || 'Failed to start'}`, 'var(--danger)');
     }
   } catch (err) {
-    logPaper(`❌ Error: ${err.message}`, 'var(--danger)');
+    logPaper(`Error: ${err.message}`, 'var(--danger)');
   }
 }
 
@@ -4314,13 +4378,13 @@ async function stopPaperTrading() {
     const res = await fetch('/api/paper/stop', { method: 'POST' });
     const data = await res.json();
     
-    logPaper('🛑 Paper Trading Engine Stopped', 'var(--danger)');
+    logPaper('Paper Trading Engine Stopped', 'var(--danger)');
     
     // Get final status
     setTimeout(updatePaperStatus, 500);
     
   } catch (err) {
-    logPaper(`❌ Error stopping: ${err.message}`, 'var(--danger)');
+    logPaper(`Error stopping: ${err.message}`, 'var(--danger)');
   }
   
   const _stb2 = document.getElementById('stop-paper-btn');
@@ -4397,7 +4461,7 @@ function renderPaperPositions(positions, closedTrades) {
   
   // Open positions
   if (positions.length > 0) {
-    html += '<div style=\"margin-bottom: 10px; font-weight: 600; font-size: 11px; color: var(--accent);\">📊 Open Positions</div>';
+    html += '<div style=\"margin-bottom: 10px; font-weight: 600; font-size: 11px; color: var(--accent);\">' + ICO.chart(13) + ' Open Positions</div>';
     positions.forEach(pos => {
       const pnlColor = pos.unrealized_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
       html += `<div style=\"background: rgba(0,150,200,0.08); padding: 8px; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid var(--accent2);\">
@@ -4415,7 +4479,7 @@ function renderPaperPositions(positions, closedTrades) {
   // Recent closed trades
   if (closedTrades.length > 0) {
     const recent = closedTrades.slice(-3);
-    html += '<div style=\"margin: 12px 0 6px; font-weight: 600; font-size: 11px; color: var(--muted);\">📋 Recent Trades</div>';
+    html += '<div style=\"margin: 12px 0 6px; font-weight: 600; font-size: 11px; color: var(--muted);\">' + ICO.clip(13) + ' Recent Trades</div>';
     recent.forEach(trade => {
       const pnlColor = trade.pnl >= 0 ? 'var(--success)' : 'var(--danger)';
       html += `<div style=\"background: rgba(0,0,0,0.2); padding: 6px; border-radius: 4px; margin-bottom: 4px; font-size: 10px;\">
@@ -4458,7 +4522,7 @@ function openDeployModal() {
   valBox.style.display = 'block';
   valBox.style.background = 'rgba(59,130,246,0.08)';
   valBox.style.border = '1px solid rgba(59,130,246,0.2)';
-  valBox.innerHTML = '<span style="color:var(--accent2);">⏳ Validating strategy...</span>';
+  valBox.innerHTML = '<span style="color:var(--accent2);">Validating strategy...</span>';
   
   const payload = buildPayload();
   fetch('/api/validate-strategy', {
@@ -4470,16 +4534,16 @@ function openDeployModal() {
     if (data.errors && data.errors.length > 0) {
       valBox.style.background = 'rgba(239,68,68,0.08)';
       valBox.style.border = '1px solid rgba(239,68,68,0.3)';
-      html += data.errors.map(e => `<div style="color:var(--danger);">✗ ${e}</div>`).join('');
+      html += data.errors.map(e => `<div style="color:var(--danger);">${ICO.cross(13)} ${e}</div>`).join('');
     }
     if (data.warnings && data.warnings.length > 0) {
       if (!html) { valBox.style.background = 'rgba(245,158,11,0.08)'; valBox.style.border = '1px solid rgba(245,158,11,0.3)'; }
-      html += data.warnings.map(w => `<div style="color:var(--warn);">⚠ ${w}</div>`).join('');
+      html += data.warnings.map(w => `<div style="color:var(--warn);">${ICO.warn(13)} ${w}</div>`).join('');
     }
     if (!html) {
       valBox.style.background = 'rgba(34,197,94,0.08)';
       valBox.style.border = '1px solid rgba(34,197,94,0.3)';
-      html = '<span style="color:var(--success);">✓ Strategy looks good — ready to deploy!</span>';
+      html = '<span style="color:var(--success);">' + ICO.check(13) + ' Strategy looks good — ready to deploy!</span>';
     }
     valBox.innerHTML = html;
   }).catch(() => {
@@ -4578,7 +4642,7 @@ async function deployStrategy() {
       });
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
-        toast('📝 Strategy deployed in Paper Testing mode', 'success');
+        toast('Strategy deployed in Paper Testing mode', 'success');
         _activeRunMode = 'paper';
       } else {
         toast(data.message || data.detail || 'Paper deploy failed', 'danger');
@@ -4587,7 +4651,7 @@ async function deployStrategy() {
       }
     } else {
       // Auto trading — confirm with user (REAL MONEY!)
-      const confirmed = await customConfirm('This will place <strong style="color:var(--danger)">REAL orders</strong> with <strong>real money</strong> on your Dhan account.<br><br>Are you sure you want to proceed?', { title: '⚠️ AUTO TRADING', icon: '🚨', okText: 'Start Auto Trading', danger: true });
+      const confirmed = await customConfirm('This will place <strong style="color:var(--danger)">REAL orders</strong> with <strong>real money</strong> on your Dhan account.<br><br>Are you sure you want to proceed?', { title: 'AUTO TRADING', icon: ICO.siren(28), okText: 'Start Auto Trading', danger: true });
       if (!confirmed) {
         return;
       }
@@ -4613,7 +4677,7 @@ async function deployStrategy() {
       });
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
-        toast('🚀 Strategy deployed for Auto Trading (REAL ORDERS)', 'success');
+        toast('Strategy deployed for Auto Trading (REAL ORDERS)', 'success');
         _activeRunMode = 'auto';
       } else {
         toast(data.message || data.detail || 'Auto deploy failed', 'danger');
@@ -4727,7 +4791,7 @@ function downloadPaperCSV() {
 
 async function stopEngine(runId, mode) {
   const label = mode === 'auto' ? 'auto trading' : 'paper trade';
-  const ok = await customConfirm(`Stop <strong>${label}</strong> run "<strong>${runId}</strong>"?<br><br>Open positions will remain as-is.`, { title: 'Stop Trading', icon: '⏹️', okText: 'Stop', danger: true });
+  const ok = await customConfirm(`Stop <strong>${label}</strong> run "<strong>${runId}</strong>"?<br><br>Open positions will remain as-is.`, { title: 'Stop Trading', icon: ICO.pause(28), okText: 'Stop', danger: true });
   if (!ok) return;
   try {
     const endpoint = mode === 'auto' ? '/api/live/stop' : '/api/paper/stop';
@@ -4785,7 +4849,7 @@ async function loadLiveMonitor() {
     } else {
       document.getElementById('live-panels-container').innerHTML =
         '<div style="text-align:center;padding:60px 28px;color:var(--muted);">' +
-        '<div style="font-size:40px;margin-bottom:12px;">📡</div>' +
+        '<div style="margin-bottom:12px;">' + ICO.antenna(40) + '</div>' +
         '<div style="font-size:16px;font-weight:600;margin-bottom:6px;">No Active Strategies</div>' +
         '<div style="font-size:13px;">Deploy a strategy with Paper Trade or Auto Trade to see live monitoring here.</div></div>';
     }
@@ -4820,7 +4884,7 @@ function renderLiveTabs() {
   _liveEngines.forEach((eng, idx) => {
     const active = idx === _selectedLiveTab;
     const name = eng.strategy_name || eng.run_id || 'Strategy';
-    const mode = eng.mode === 'auto' ? '🤖' : '📝';
+    const mode = eng.mode === 'auto' ? ICO.bot(13) : ICO.memo(13);
     const pnl = round2(eng.total_pnl || 0);
     const running = eng.running;
     const inTrade = eng.in_trade;
@@ -4844,7 +4908,7 @@ function renderLiveTabs() {
 
   // Refresh button
   html += `<div style="margin-left:auto;padding:8px 12px;display:flex;align-items:center;">
-    <button class="btn" onclick="loadLiveMonitor()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:4px 12px;">🔄</button>
+    <button class="btn" onclick="loadLiveMonitor()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:4px 12px;">${ICO.refresh(14)}</button>
   </div>`;
 
   bar.innerHTML = html;
@@ -4871,7 +4935,7 @@ function renderLivePanel(d, idx) {
     statusText = 'Idle'; statusColor = 'var(--muted)';
   }
 
-  const modeLabel = mode === 'auto' ? '🤖 Auto' : '📝 Paper';
+  const modeLabel = mode === 'auto' ? ICO.bot(16) + ' Auto' : ICO.memo(16) + ' Paper';
   const modeColor = mode === 'auto' ? 'var(--accent2)' : 'var(--accent)';
   const closedPnl = round2(d.total_pnl || 0);
   const pnlColor = closedPnl >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -4970,9 +5034,9 @@ function renderLivePanel(d, idx) {
       ${badgeHtml}
     </div>
     <div style="display:flex;gap:8px;">
-      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">👁 Strategy</button>` : ''}
-      ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">⏹ Stop</button>` : ''}
-      <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">⬇ CSV</button>
+      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>` : ''}
+      ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.pause(14)} Stop</button>` : ''}
+      <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
     </div>
   </div>
 
@@ -5507,7 +5571,7 @@ function toggleTheme() {
   const current = html.getAttribute('data-theme');
   const next = current === 'light' ? 'dark' : 'light';
   html.setAttribute('data-theme', next);
-  document.getElementById('theme-toggle').textContent = next === 'light' ? '☀️' : '🌙';
+  document.getElementById('theme-toggle').innerHTML = next === 'light' ? ICO.sun(18) : ICO.moon(18);
   try { localStorage.setItem('algoforge_theme', next); } catch(e) {}
 }
 (function initTheme() {
@@ -5516,7 +5580,7 @@ function toggleTheme() {
     if (saved === 'light') {
       document.documentElement.setAttribute('data-theme', 'light');
       const btn = document.getElementById('theme-toggle');
-      if (btn) btn.textContent = '☀️';
+      if (btn) btn.innerHTML = ICO.sun(18);
     }
   } catch(e) {}
 })();
@@ -5527,13 +5591,13 @@ function toggleTheme() {
 async function emergencyStop() {
   const confirmed = await customConfirm(
     'This will <strong style="color:var(--danger)">immediately stop ALL</strong> running strategies (paper + auto).<br><br>Any open positions will NOT be squared off automatically.',
-    { title: '🛑 EMERGENCY STOP', icon: '🚨', okText: 'KILL ALL', danger: true }
+    { title: ICO.stop(20) + ' EMERGENCY STOP', icon: ICO.siren(28), okText: 'KILL ALL', danger: true }
   );
   if (!confirmed) return;
   try {
     const res = await fetch('/api/emergency-stop', { method: 'POST' });
     const data = await res.json();
-    toast('🛑 ' + (data.message || 'All engines stopped'), data.stopped > 0 ? 'warn' : 'success');
+    toast((data.message || 'All engines stopped'), data.stopped > 0 ? 'warn' : 'success');
     updateKillSwitchVisibility();
   } catch(e) {
     toast('Failed to execute emergency stop', 'danger');
@@ -5761,7 +5825,7 @@ function sendTradeNotification(trade) {
   if (_notifPermission !== 'granted' && Notification.permission !== 'granted') return;
   try {
     const pnl = trade.pnl || trade.profit || 0;
-    const icon = pnl >= 0 ? '💰' : '📉';
+    const icon = pnl >= 0 ? '▲' : '▼';
     const title = `${icon} AlgoForge Trade`;
     const body = `${trade.instrument || trade.symbol || 'Trade'}: ${trade.action || trade.type || ''} ₹${Math.abs(pnl).toFixed(2)}`;
     new Notification(title, { body, icon: 'logo.jpg', tag: 'algoforge-trade-' + Date.now() });
@@ -5792,21 +5856,21 @@ deployStrategy = async function() {
     const valData = await valRes.json();
     
     if (valData.errors && valData.errors.length > 0) {
-      const errList = valData.errors.map(e => `<span style="color:var(--danger)">✗</span> ${e}`).join('<br>');
+      const errList = valData.errors.map(e => `${ICO.cross(13)} ${e}`).join('<br>');
       toast('Strategy has errors — fix before deploying', 'danger');
       await customConfirm(
         `<div style="text-align:left;font-size:12px;line-height:1.8;">${errList}</div>`,
-        { title: '❌ Strategy Validation Failed', icon: '🚫', okText: 'OK', cancelText: 'Close' }
+        { title: ICO.cross(20) + ' Strategy Validation Failed', icon: ICO.ban(28), okText: 'OK', cancelText: 'Close' }
       );
       return;
     }
     
     // Show warnings but allow proceeding
     if (valData.warnings && valData.warnings.length > 0) {
-      const warnList = valData.warnings.map(w => `<span style="color:var(--warn)">⚠</span> ${w}`).join('<br>');
+      const warnList = valData.warnings.map(w => `${ICO.warn(13)} ${w}`).join('<br>');
       const proceed = await customConfirm(
         `<div style="text-align:left;font-size:12px;line-height:1.8;">${warnList}</div><br><span style="font-size:12px;color:var(--muted);">Do you want to proceed anyway?</span>`,
-        { title: '⚠️ Strategy Warnings', icon: '⚠️', okText: 'Deploy Anyway', cancelText: 'Go Back' }
+        { title: ICO.warn(20) + ' Strategy Warnings', icon: ICO.warn(28), okText: 'Deploy Anyway', cancelText: 'Go Back' }
       );
       if (!proceed) return;
     }
