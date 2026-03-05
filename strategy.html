@@ -4832,11 +4832,12 @@ function renderLivePanel(d, idx) {
   const closed = (d.closed_trades || []).slice().reverse();
   let closedHtml;
   if (!closed.length) {
-    closedHtml = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">No completed trades yet</td></tr>';
+    closedHtml = '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">No completed trades yet</td></tr>';
   } else {
     closedHtml = closed.map(t => {
       const pnl = round2(t.pnl || 0);
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;">${t.symbol||t.trading_symbol||'—'}</td><td style="padding:8px 12px;text-align:right;color:${t.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${t.transaction_type||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.entry_premium||t.entry_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.exit_premium||t.exit_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${t.lots||t.quantity||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${t.exit_reason||t.reason||'—'}</td></tr>`;
+      const fmtTime = (ts) => { if (!ts) return '—'; const ss = String(ts); const m = ss.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : ss.slice(-8); };
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;">${t.symbol||t.trading_symbol||'—'}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${fmtTime(t.entry_time)}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${fmtTime(t.exit_time)}</td><td style="padding:8px 12px;text-align:right;color:${t.transaction_type==='BUY'?'var(--success)':'var(--danger)'}">${t.transaction_type||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.entry_premium||t.entry_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.exit_premium||t.exit_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${t.lots||t.quantity||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${t.exit_reason||t.reason||'—'}</td></tr>`;
     }).join('');
   }
 
@@ -4944,7 +4945,7 @@ function renderLivePanel(d, idx) {
       <span style="font-weight:700;font-size:13px;">Completed Trades</span>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
+      <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
       <tbody>${closedHtml}</tbody>
     </table>
   </div>`;
