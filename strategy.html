@@ -2959,10 +2959,21 @@ function loadStrategy(id) {
       const lhsSelect = row.querySelector('.left-op');
       if (lhsSelect) onLHSChange(lhsSelect);
       if (row.querySelector('.operator')) row.querySelector('.operator').value = cond.operator || 'is_above';
-      if (row.querySelector('.right-op')) row.querySelector('.right-op').value = cond.right || 'current_close';
-      if (cond.right === 'number' && row.querySelector('.right-num')) {
-        row.querySelector('.right-num').style.display = 'block';
-        row.querySelector('.right-num').value = cond.right_number_value || '';
+      // Restore Time Of Day / Day Of Week / standard RHS
+      if (cond.left === 'Time_Of_Day') {
+        const ti = row.querySelector('.time-rhs');
+        if (ti) ti.value = cond.right_time || '11:00';
+      } else if (cond.left === 'Day_Of_Week') {
+        const days = cond.right_days || [];
+        row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
+        const label = row.querySelector('.day-picker-toggle');
+        if (label && days.length > 0) label.textContent = days.map(d => d.substring(0,3)).join(', ') + ' \u25BE';
+      } else {
+        if (row.querySelector('.right-op')) row.querySelector('.right-op').value = cond.right || 'current_close';
+        if (cond.right === 'number' && row.querySelector('.right-num')) {
+          row.querySelector('.right-num').style.display = 'block';
+          row.querySelector('.right-num').value = cond.right_number_value || '';
+        }
       }
       if (i > 0) {
         const connector = row.previousElementSibling;
@@ -2989,10 +3000,21 @@ function loadStrategy(id) {
       const lhsSelect = row.querySelector('.left-op');
       if (lhsSelect) onLHSChange(lhsSelect);
       if (row.querySelector('.operator')) row.querySelector('.operator').value = cond.operator || 'is_above';
-      if (row.querySelector('.right-op')) row.querySelector('.right-op').value = cond.right || 'current_close';
-      if (cond.right === 'number' && row.querySelector('.right-num')) {
-        row.querySelector('.right-num').style.display = 'block';
-        row.querySelector('.right-num').value = cond.right_number_value || '';
+      // Restore Time Of Day / Day Of Week / standard RHS
+      if (cond.left === 'Time_Of_Day') {
+        const ti = row.querySelector('.time-rhs');
+        if (ti) ti.value = cond.right_time || '11:00';
+      } else if (cond.left === 'Day_Of_Week') {
+        const days = cond.right_days || [];
+        row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
+        const label = row.querySelector('.day-picker-toggle');
+        if (label && days.length > 0) label.textContent = days.map(d => d.substring(0,3)).join(', ') + ' \u25BE';
+      } else {
+        if (row.querySelector('.right-op')) row.querySelector('.right-op').value = cond.right || 'current_close';
+        if (cond.right === 'number' && row.querySelector('.right-num')) {
+          row.querySelector('.right-num').style.display = 'block';
+          row.querySelector('.right-num').value = cond.right_number_value || '';
+        }
       }
       if (i > 0) {
         const connector = row.previousElementSibling;
