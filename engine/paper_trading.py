@@ -273,7 +273,9 @@ class PaperTradingEngine:
         if self.positions:
             self.log_event("warning", f"Force closing {len(self.positions)} open positions")
             for pos in self.positions:
-                self._close_position(pos, "ENGINE_STOP", self.current_spot)
+                # Use last known option LTP, NOT the spot price
+                exit_px = pos.get("current_premium") or pos.get("entry_premium", 0)
+                self._close_position(pos, "ENGINE_STOP", exit_px)
         
         # Final summary
         total_pnl = sum(t["pnl"] for t in self.closed_trades)
