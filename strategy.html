@@ -2790,7 +2790,7 @@ function showDetailsModal(data, title) {
       const color = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--purple)');
       html += `<div style="padding: 6px 10px; background: rgba(0,0,0,0.15); border-left: 3px solid ${color}; border-radius: 4px; margin-bottom: 5px; font-size: 12px;">
         <span style="font-weight: 700; color: ${color};">${l.transaction_type} ${l.option_type}</span>
-        <span style="color: var(--muted); margin-left: 8px;">Strike: ${l.strike_type || 'ATM'}</span>
+        <span style="color: var(--muted); margin-left: 8px;">Strike: ${(()=>{const sv=l.strike_value||'';const st=l.strike_type||'atm';return st==='atm'?'ATM':st==='premium_above'?`Premium Above ₹${sv}`:st==='premium_below'?`Premium Below ₹${sv}`:st==='premium_near'?`Premium ~₹${sv}`:st==='otm'?`OTM +${sv}`:st==='itm'?`ITM -${sv}`:st==='strike_price'?`Strike ${sv}`:st==='spot_price'?`Spot ± ${sv}`:st.toUpperCase()})()}</span>
         <span style="color: var(--muted); margin-left: 8px;">Lots: ${l.lots || 1}</span>
         ${l.sl_pct ? `<span style="color:var(--danger);margin-left:8px;">SL:${l.sl_pct}%</span>` : ''}
         ${l.target_pct ? `<span style="color:var(--success);margin-left:8px;">TP:${l.target_pct}%</span>` : ''}
@@ -4861,7 +4861,9 @@ function renderLivePanel(d, idx) {
     }).join('');
     let legsChips = legs.map(l => {
       const lc = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--accent2)');
-      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${l.transaction_type} ${l.option_type}</span> ${l.strike_type||'ATM'}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
+      const _sv = l.strike_value || ''; const _st = l.strike_type || 'atm';
+      const _stLabel = _st==='atm'?'ATM':_st==='premium_above'?`Prem≥${_sv}`:_st==='premium_below'?`Prem≤${_sv}`:_st==='premium_near'?`Prem~${_sv}`:_st==='otm'?`OTM+${_sv}`:_st==='itm'?`ITM-${_sv}`:_st==='strike_price'?`@${_sv}`:_st==='spot_price'?`Spot±${_sv}`:_st.toUpperCase();
+      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${l.transaction_type} ${l.option_type}</span> ${_stLabel}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
     }).join('');
 
     conditionsHtml = `
