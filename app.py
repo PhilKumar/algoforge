@@ -2051,8 +2051,15 @@ async def update_strategy(sid: int, updates: dict):
 @app.get("/api/runs")
 async def get_runs():
     runs = _load_runs()
-    # Return summary without full trade lists for dashboard listing
-    return [{ k: v for k, v in r.items() if k not in ("trades", "equity") } for r in runs]
+    result = []
+    for r in runs:
+        summary = {k: v for k, v in r.items() if k not in ("trades", "equity")}
+        trades = r.get("trades") or []
+        if trades:
+            summary["first_entry_time"] = str(trades[0].get("entry_time") or "")
+            summary["last_exit_time"] = str(trades[-1].get("exit_time") or "")
+        result.append(summary)
+    return result
 
 @app.get("/api/runs/{rid}")
 async def get_run(rid: int):
