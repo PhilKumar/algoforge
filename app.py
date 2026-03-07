@@ -2687,6 +2687,18 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq):
     return await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
 
 
+@app.get("/api/option-ltp")
+async def get_option_ltp(underlying: str, strike: int, expiry: str, option_type: str):
+    """Get live LTP for a specific option contract."""
+    if not dhan._is_configured():
+        return {"status": "error", "message": "Broker not configured"}
+    try:
+        ltp = dhan.get_option_ltp(underlying, strike, expiry, option_type)
+        return {"status": "ok", "ltp": ltp}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/paper/trades/csv")
 async def export_paper_trades_csv(run_id: str = ""):
     """Export paper trading trades to CSV"""
