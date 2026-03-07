@@ -14,7 +14,8 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from broker.dhan import ScripMaster
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -34,23 +35,23 @@ class ScalpTrade:
         trade_id: int,
         underlying: str,
         strike: int,
-        option_type: str,      # CE or PE
+        option_type: str,  # CE or PE
         expiry: str,
-        transaction_type: str, # BUY or SELL
+        transaction_type: str,  # BUY or SELL
         lots: int,
         lot_size: int,
         entry_premium: float,
         # Exit rules (all optional — at least one should be set)
-        target_premium: float = 0.0,    # absolute option price to exit at
-        sl_premium: float = 0.0,        # absolute SL option price
-        target_pct: float = 0.0,        # % gain target on entry premium
-        sl_pct: float = 0.0,            # % loss SL on entry premium
-        target_rupees: float = 0.0,     # fixed ₹ profit target (across all lots)
-        sl_rupees: float = 0.0,         # fixed ₹ loss SL
-        sqoff_time: str = "15:20",      # HH:MM auto square-off
+        target_premium: float = 0.0,  # absolute option price to exit at
+        sl_premium: float = 0.0,  # absolute SL option price
+        target_pct: float = 0.0,  # % gain target on entry premium
+        sl_pct: float = 0.0,  # % loss SL on entry premium
+        target_rupees: float = 0.0,  # fixed ₹ profit target (across all lots)
+        sl_rupees: float = 0.0,  # fixed ₹ loss SL
+        sqoff_time: str = "15:20",  # HH:MM auto square-off
         order_id: str = "",
         entry_time: Optional[datetime] = None,
-        mode: str = "live",   # "live" or "paper"
+        mode: str = "live",  # "live" or "paper"
     ):
         self.trade_id = trade_id
         self.mode = mode
@@ -173,7 +174,7 @@ class ScalpEngine:
 
     def __init__(self, dhan_client, market_feed=None):
         self.dhan = dhan_client
-        self.feed = market_feed        # LiveMarketFeed instance or None
+        self.feed = market_feed  # LiveMarketFeed instance or None
 
         self.open_trades: Dict[int, ScalpTrade] = {}
         self.closed_trades: list = []
@@ -192,24 +193,32 @@ class ScalpEngine:
         """Load closed trades from scalp_trades.json on startup."""
         if os.path.exists(_SCALP_FILE):
             try:
-                with open(_SCALP_FILE, 'r') as f:
+                with open(_SCALP_FILE, "r") as f:
                     data = json.load(f)
                 self.closed_trades = data if isinstance(data, list) else []
                 # Restore trade counter from highest trade_id
                 if self.closed_trades:
                     max_id = max(t.get("trade_id", 0) for t in self.closed_trades)
                     self._trade_counter = max_id
-                print(f"[SCALP] Loaded {len(self.closed_trades)} closed trades from disk (counter={self._trade_counter})")
+                print(
+                    f"[SCALP] Loaded {len(self.closed_trades)} closed trades from disk (counter={self._trade_counter})"
+                )
             except Exception as e:
                 print(f"[SCALP] Failed to load trades: {e}")
                 self.closed_trades = []
 
     def _save_trades(self):
-        """Persist closed trades to scalp_trades.json (atomic write)."""
+        """Persist closed trades to scalp_trades.json (fire-and-forget, non-blocking)."""
+        data = list(self.closed_trades)  # snapshot
+        asyncio.get_event_loop().run_in_executor(None, self._save_trades_sync, data)
+
+    @staticmethod
+    def _save_trades_sync(data: list):
+        """Synchronous disk write — runs in thread pool, never blocks the event loop."""
         try:
             tmp = _SCALP_FILE + ".tmp"
-            with open(tmp, 'w') as f:
-                json.dump(self.closed_trades, f, indent=2, default=str)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2, default=str)
             os.replace(tmp, _SCALP_FILE)
         except Exception as e:
             print(f"[SCALP] Failed to save trades: {e}")
@@ -245,7 +254,7 @@ class ScalpEngine:
         sqoff_time: str = "15:20",
         product_type: str = "MIS",
         order_type: str = "MARKET",
-        mode: str = "live",   # "live" or "paper"
+        mode: str = "live",  # "live" or "paper"
     ) -> Dict[str, Any]:
         """Place a broker order (or simulate in paper mode) and register the scalp trade."""
         quantity = lots * lot_size
@@ -257,9 +266,7 @@ class ScalpEngine:
             entry_premium = 0.0
             for _attempt in range(3):
                 try:
-                    ltp = await asyncio.to_thread(
-                        self.dhan.get_option_ltp, underlying, strike, expiry, option_type
-                    )
+                    ltp = await asyncio.to_thread(self.dhan.get_option_ltp, underlying, strike, expiry, option_type)
                     if ltp and ltp > 0:
                         entry_premium = float(ltp)
                         break
@@ -268,9 +275,10 @@ class ScalpEngine:
                 if _attempt < 2:
                     await asyncio.sleep(0.3)  # brief pause between retries
         else:
-            # Place real broker order
+            # Place real broker order — fire immediately via thread pool
             try:
-                result = self.dhan.place_option_order(
+                result = await asyncio.to_thread(
+                    self.dhan.place_option_order,
                     underlying=underlying,
                     strike_price=strike,
                     option_type=option_type,
@@ -285,23 +293,8 @@ class ScalpEngine:
             except Exception as e:
                 return {"status": "error", "message": str(e)}
 
-            # Get ACTUAL fill price from Dhan (not LTP)
-            entry_premium = 0.0
-            if order_id:
-                try:
-                    fill = await asyncio.to_thread(
-                        self.dhan.verify_order_fill, order_id, 15, 1.5
-                    )
-                    if fill.get("status") == "FILLED" and fill.get("avg_price"):
-                        entry_premium = float(fill["avg_price"])
-                        self._log("info", f"📌 Entry fill verified: ₹{entry_premium:.2f} (orderId={order_id})")
-                    else:
-                        self._log("warn", f"⚠️ Entry fill not confirmed: {fill.get('message', '')}. Falling back to LTP.")
-                except Exception as e:
-                    self._log("error", f"Fill verification error: {e}")
-            # Fallback to LTP if verify_order_fill didn't return a price
-            if not entry_premium:
-                entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
+            # Use LTP as immediate estimated entry price — don't block on fill verify
+            entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
 
         self._trade_counter += 1
         trade = ScalpTrade(
@@ -336,15 +329,37 @@ class ScalpEngine:
                 pass
 
         mode_label = "[PAPER] " if mode == "paper" else ""
-        self._log("entry",
+        self._log(
+            "entry",
             f"{mode_label}✅ SCALP ENTER: {transaction_type} {underlying} {strike}{option_type} "
             f"@ ₹{entry_premium:.2f} | orderId={order_id} "
-            f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}")
+            f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+        )
 
         if not self._running:
             self.start()
 
+        # Fire-and-forget: verify fill price in background, update trade when confirmed
+        if order_id and order_id != "PAPER":
+            asyncio.create_task(self._verify_fill_bg(self._trade_counter, order_id))
+
         return {"status": "ok", "trade_id": self._trade_counter, "trade": trade.to_dict()}
+
+    async def _verify_fill_bg(self, trade_id: int, order_id: str):
+        """Background task: verify broker fill price and update trade entry price."""
+        try:
+            fill = await asyncio.to_thread(self.dhan.verify_order_fill, order_id, 15, 1.5)
+            trade = self.open_trades.get(trade_id)
+            if not trade:
+                return  # already closed
+            if fill.get("status") == "FILLED" and fill.get("avg_price"):
+                actual = float(fill["avg_price"])
+                trade.entry_premium = actual
+                self._log("info", f"📌 Entry fill verified: ₹{actual:.2f} (orderId={order_id})")
+            else:
+                self._log("warn", f"⚠️ Entry fill not confirmed for trade {trade_id}: {fill.get('message', '')}")
+        except Exception as e:
+            self._log("error", f"Fill verification error for trade {trade_id}: {e}")
 
     async def exit_trade(self, trade_id: int, reason: str = "manual") -> Dict[str, Any]:
         """Manually exit an open scalp trade."""
@@ -394,10 +409,10 @@ class ScalpEngine:
                         # Backfill entry price if it was 0 at entry time
                         if trade.entry_premium == 0:
                             trade.entry_premium = current_prem
-                            if not trade.target_premium and hasattr(trade, '_target_pct') and trade._target_pct > 0:
+                            if not trade.target_premium and hasattr(trade, "_target_pct") and trade._target_pct > 0:
                                 mult = 1 if trade.transaction_type == "BUY" else -1
                                 trade.target_premium = round(current_prem * (1 + mult * trade._target_pct / 100), 2)
-                            if not trade.sl_premium and hasattr(trade, '_sl_pct') and trade._sl_pct > 0:
+                            if not trade.sl_premium and hasattr(trade, "_sl_pct") and trade._sl_pct > 0:
                                 mult = -1 if trade.transaction_type == "BUY" else 1
                                 trade.sl_premium = round(current_prem * (1 + mult * trade._sl_pct / 100), 2)
                             self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
@@ -479,9 +494,7 @@ class ScalpEngine:
             except Exception:
                 pass
         try:
-            return self.dhan.get_option_ltp(
-                trade.underlying, trade.strike, trade.expiry, trade.option_type
-            )
+            return self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
         except Exception:
             return 0.0
 
@@ -512,9 +525,7 @@ class ScalpEngine:
         exit_prem = 0.0
         if exit_order_id and exit_order_id != "PAPER":
             try:
-                fill = await asyncio.to_thread(
-                    self.dhan.verify_order_fill, exit_order_id, 15, 1.5
-                )
+                fill = await asyncio.to_thread(self.dhan.verify_order_fill, exit_order_id, 15, 1.5)
                 if fill.get("status") == "FILLED" and fill.get("avg_price"):
                     exit_prem = float(fill["avg_price"])
                     self._log("info", f"📌 Exit fill verified: ₹{exit_prem:.2f} (orderId={exit_order_id})")

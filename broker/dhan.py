@@ -5,17 +5,20 @@ Handles: historical data, order placement, order status, positions,
 Docs: https://dhanhq.co/docs/latest/
 """
 
-import requests
-import pandas as pd
-import csv
-import io
-import json
 import asyncio
+import csv
+import json
+import os
+import sys
 import time as _time
-from datetime import datetime, timedelta, date as date_type
-from typing import Optional, Dict, List
+from datetime import datetime, timedelta
 from pathlib import Path
-import sys, os
+from typing import Dict, Optional
+
+import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
 
@@ -25,6 +28,7 @@ import config
 # ══════════════════════════════════════════════════════════════
 class _TTLCache:
     """Simple in-memory cache with per-key TTL expiry."""
+
     def __init__(self):
         self._store: Dict[str, tuple] = {}  # key -> (value, expire_timestamp)
 
@@ -41,17 +45,33 @@ class _TTLCache:
     def clear(self):
         self._store.clear()
 
+
 _api_cache = _TTLCache()
+
+
+# ══════════════════════════════════════════════════════════════
+#  Persistent HTTP Session (keeps TCP+TLS warm to Dhan servers)
+# ══════════════════════════════════════════════════════════════
+_http_session = requests.Session()
+_adapter = HTTPAdapter(
+    pool_connections=4,  # 4 parallel connection pools
+    pool_maxsize=10,  # 10 connections per pool
+    max_retries=0,  # we handle retries ourselves
+)
+_http_session.mount("https://", _adapter)
+_http_session.mount("http://", _adapter)
 
 
 # ══════════════════════════════════════════════════════════════
 #  Exponential Backoff + Circuit Breaker
 # ══════════════════════════════════════════════════════════════
 import logging as _log
+
 _dhan_log = _log.getLogger("algoforge.dhan")
 
 # Retryable HTTP status codes (rate-limit / transient server errors)
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
 
 def _request_with_retry(
     method: str,
@@ -70,18 +90,17 @@ def _request_with_retry(
     last_exc = None
     for attempt in range(max_retries):
         try:
-            resp = requests.request(method, url, headers=headers, json=json, timeout=timeout)
+            resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
             # Retryable status — treat as transient
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
             _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt+1}/{max_retries})")
-        except (requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout) as e:
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             last_exc = e
             _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt+1}/{max_retries}): {e}")
         if attempt < max_retries - 1:
-            delay = base_delay * (2 ** attempt)  # 1s, 2s, 4s …
+            delay = base_delay * (2**attempt)  # 1s, 2s, 4s …
             _time.sleep(delay)
     raise last_exc
 
@@ -91,14 +110,15 @@ class _CircuitBreaker:
     Simple circuit breaker: opens after `failure_threshold` consecutive
     failures; resets after `recovery_timeout` seconds.
     """
+
     CLOSED = "closed"
-    OPEN   = "open"
+    OPEN = "open"
 
     def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
         self._threshold = failure_threshold
-        self._timeout   = recovery_timeout
-        self._failures  = 0
-        self._state     = self.CLOSED
+        self._timeout = recovery_timeout
+        self._failures = 0
+        self._state = self.CLOSED
         self._opened_at = 0.0
 
     def call_allowed(self) -> bool:
@@ -111,16 +131,14 @@ class _CircuitBreaker:
 
     def record_success(self):
         self._failures = 0
-        self._state    = self.CLOSED
+        self._state = self.CLOSED
 
     def record_failure(self):
         self._failures += 1
         if self._failures >= self._threshold:
             if self._state != self.OPEN:
-                _dhan_log.error(
-                    f"[DHAN] Circuit breaker OPEN after {self._failures} consecutive failures"
-                )
-            self._state     = self.OPEN
+                _dhan_log.error(f"[DHAN] Circuit breaker OPEN after {self._failures} consecutive failures")
+            self._state = self.OPEN
             self._opened_at = _time.time()
 
     @property
@@ -135,7 +153,7 @@ _circuit_breaker = _CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
 #  SCRIP MASTER — Option Security ID Lookup
 # ══════════════════════════════════════════════════════════════
 SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
-SCRIP_CACHE_DIR  = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".scrip_cache")
+SCRIP_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".scrip_cache")
 
 # Map frontend instrument ID → underlying symbol name in scrip master
 UNDERLYING_MAP = {
@@ -143,7 +161,7 @@ UNDERLYING_MAP = {
     "26009": "BANKNIFTY",
     "26017": "FINNIFTY",
     "26037": "MIDCPNIFTY",
-    "1":     "SENSEX",
+    "1": "SENSEX",
 }
 
 
@@ -154,9 +172,9 @@ class ScripMaster:
     and caches the result to a local JSON file (~2-5MB).
     """
 
-    _options_cache: Dict[str, str] = {}   # key -> security_id
-    _expiry_cache: Dict[str, list] = {}   # symbol -> [expiry_dates]
-    _lot_cache: Dict[str, int] = {}       # key -> lot_size
+    _options_cache: Dict[str, str] = {}  # key -> security_id
+    _expiry_cache: Dict[str, list] = {}  # symbol -> [expiry_dates]
+    _lot_cache: Dict[str, int] = {}  # key -> lot_size
     _loaded_date: Optional[str] = None
     _loading = False
 
@@ -197,7 +215,7 @@ class ScripMaster:
         os.makedirs(SCRIP_CACHE_DIR, exist_ok=True)
 
         try:
-            resp = requests.get(SCRIP_MASTER_URL, stream=True, timeout=180)
+            resp = _http_session.get(SCRIP_MASTER_URL, stream=True, timeout=180)
             resp.raise_for_status()
         except Exception as e:
             print(f"[SCRIP] ❌ Download failed: {e}")
@@ -209,8 +227,10 @@ class ScripMaster:
         lots = {}
         # Map trading symbol prefix → canonical name used as key
         supported_prefixes = {
-            "NIFTY": "NIFTY", "BANKNIFTY": "BANKNIFTY",
-            "FINNIFTY": "FINNIFTY", "MIDCPNIFTY": "MIDCPNIFTY",
+            "NIFTY": "NIFTY",
+            "BANKNIFTY": "BANKNIFTY",
+            "FINNIFTY": "FINNIFTY",
+            "MIDCPNIFTY": "MIDCPNIFTY",
             "SENSEX": "SENSEX",
         }
         count = 0
@@ -231,14 +251,14 @@ class ScripMaster:
             header = next(csv.reader([header_line]))
             col_map = {name.strip(): i for i, name in enumerate(header)}
 
-            idx_sec   = col_map.get("SEM_SMST_SECURITY_ID", -1)
-            idx_inst  = col_map.get("SEM_INSTRUMENT_NAME", -1)
-            idx_stk   = col_map.get("SEM_STRIKE_PRICE", -1)
-            idx_exp   = col_map.get("SEM_EXPIRY_DATE", -1)
-            idx_opt   = col_map.get("SEM_OPTION_TYPE", -1)
-            idx_exch  = col_map.get("SEM_EXM_EXCH_ID", -1)
-            idx_lot   = col_map.get("SEM_LOT_UNITS", -1)
-            idx_tsym  = col_map.get("SEM_TRADING_SYMBOL", -1)
+            idx_sec = col_map.get("SEM_SMST_SECURITY_ID", -1)
+            idx_inst = col_map.get("SEM_INSTRUMENT_NAME", -1)
+            idx_stk = col_map.get("SEM_STRIKE_PRICE", -1)
+            idx_exp = col_map.get("SEM_EXPIRY_DATE", -1)
+            idx_opt = col_map.get("SEM_OPTION_TYPE", -1)
+            idx_exch = col_map.get("SEM_EXM_EXCH_ID", -1)
+            idx_lot = col_map.get("SEM_LOT_UNITS", -1)
+            idx_tsym = col_map.get("SEM_TRADING_SYMBOL", -1)
 
             max_idx = max(idx_sec, idx_inst, idx_stk, idx_exp, idx_opt, idx_tsym)
 
@@ -247,7 +267,7 @@ class ScripMaster:
                     continue
                 try:
                     row = next(csv.reader([line_text]))
-                except:
+                except Exception:  # nosec B112 — skip malformed CSV rows
                     continue
                 if len(row) <= max_idx:
                     continue
@@ -375,8 +395,7 @@ class ScripMaster:
         if lot > 0:
             return lot
         # Fallback defaults (current as of Jan 2026)
-        defaults = {"NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 65,
-                    "MIDCPNIFTY": 50, "SENSEX": 20}
+        defaults = {"NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 65, "MIDCPNIFTY": 50, "SENSEX": 20}
         return defaults.get(symbol, 65)
 
     @classmethod
@@ -387,10 +406,10 @@ class ScripMaster:
 
 class DhanClient:
     def __init__(self, client_id: str = None, access_token: str = None):
-        self.client_id    = client_id or config.DHAN_CLIENT_ID
+        self.client_id = client_id or config.DHAN_CLIENT_ID
         self._fixed_token = access_token  # None means "use config dynamically"
-        self.base_url     = config.DHAN_BASE_URL
-        self.data_url     = config.DHAN_DATA_URL
+        self.base_url = config.DHAN_BASE_URL
+        self.data_url = config.DHAN_DATA_URL
 
     @property
     def access_token(self) -> str:
@@ -402,16 +421,18 @@ class DhanClient:
         """Build headers dynamically so token changes are always picked up."""
         return {
             "access-token": self.access_token,
-            "client-id":    self.client_id,
+            "client-id": self.client_id,
             "Content-Type": "application/json",
-            "Accept":       "application/json",
+            "Accept": "application/json",
         }
 
     def _is_configured(self) -> bool:
-        return (self.client_id != "YOUR_CLIENT_ID_HERE" and
-                self.access_token != "YOUR_ACCESS_TOKEN_HERE" and
-                self.access_token != "PASTE_YOUR_NEW_TOKEN_HERE" and
-                len(self.access_token) > 20)
+        return (
+            self.client_id != "YOUR_CLIENT_ID_HERE"
+            and self.access_token != "YOUR_ACCESS_TOKEN_HERE"
+            and self.access_token != "PASTE_YOUR_NEW_TOKEN_HERE"
+            and len(self.access_token) > 20
+        )
 
     # ──────────────────────────────────────────────────────────
     # Historical Data
@@ -419,28 +440,26 @@ class DhanClient:
     def get_historical_data(
         self,
         security_id: str,
-        exchange_segment: str,   # IDX_I, NSE_EQ, BSE_EQ, NSE_FNO
-        instrument_type: str,    # INDEX, EQUITY, FUTIDX, OPTIDX
-        expiry_code: int = 0,    # 0=current week, 1=next week, 2=next month
+        exchange_segment: str,  # IDX_I, NSE_EQ, BSE_EQ, NSE_FNO
+        instrument_type: str,  # INDEX, EQUITY, FUTIDX, OPTIDX
+        expiry_code: int = 0,  # 0=current week, 1=next week, 2=next month
         from_date: str = None,
         to_date: str = None,
         candle_type: str = "1",  # Supported: 1, 5, 15, 25, 60 (minutes), D (daily) - NO 3 or 30!
     ) -> pd.DataFrame:
         """
         Fetch OHLCV candles from Dhan Charts API v2
-        
+
         Supported candle intervals:
         - Intraday: 1, 5, 15, 25, 60 minutes
         - Daily: D
-        
+
         Note: 3-minute and 30-minute candles are NOT supported by Dhan API!
         """
 
         if not self._is_configured():
-            raise ConnectionError(
-                "Dhan credentials not set. Edit config.py with your client_id and access_token."
-            )
-        
+            raise ConnectionError("Dhan credentials not set. Edit config.py with your client_id and access_token.")
+
         # Validate candle_type
         valid_intervals = ["1", "5", "15", "25", "60", "D"]
         if candle_type not in valid_intervals:
@@ -453,36 +472,40 @@ class DhanClient:
         if not to_date:
             to_date = datetime.now().strftime("%Y-%m-%d")
 
-        print(f"[DHAN] Fetching: secId={security_id}, seg={exchange_segment}, "
-              f"type={instrument_type}, candle={candle_type}, {from_date} → {to_date}")
+        print(
+            f"[DHAN] Fetching: secId={security_id}, seg={exchange_segment}, "
+            f"type={instrument_type}, candle={candle_type}, {from_date} → {to_date}"
+        )
 
         if candle_type == "D":
             # ── Daily / Historical candles ──
             endpoint = f"{self.data_url}/charts/historical"
             payload = {
-                "securityId":       str(security_id),
-                "exchangeSegment":  exchange_segment,
-                "instrument":       instrument_type,
-                "expiryCode":       expiry_code,
-                "fromDate":         from_date,
-                "toDate":           to_date,
+                "securityId": str(security_id),
+                "exchangeSegment": exchange_segment,
+                "instrument": instrument_type,
+                "expiryCode": expiry_code,
+                "fromDate": from_date,
+                "toDate": to_date,
             }
         else:
             # ── Intraday candles (1m, 5m, 15m, 25m, 60m) ──
             endpoint = f"{self.data_url}/charts/intraday"
             payload = {
-                "securityId":       str(security_id),
-                "exchangeSegment":  exchange_segment,
-                "instrument":       instrument_type,
-                "interval":         str(candle_type),
-                "fromDate":         from_date,
-                "toDate":           to_date,
+                "securityId": str(security_id),
+                "exchangeSegment": exchange_segment,
+                "instrument": instrument_type,
+                "interval": str(candle_type),
+                "fromDate": from_date,
+                "toDate": to_date,
             }
 
         import logging as _log
+
         _dlog = _log.getLogger("algoforge.dhan")
-        _safe = {k: v for k, v in payload.items()
-                 if k not in ("access-token", "accessToken", "token", "password", "secret")}
+        _safe = {
+            k: v for k, v in payload.items() if k not in ("access-token", "accessToken", "token", "password", "secret")
+        }
         _dlog.debug(f"[DHAN] POST {endpoint} payload_keys={list(_safe.keys())}")
 
         if not _circuit_breaker.call_allowed():
@@ -500,7 +523,7 @@ class DhanClient:
         _circuit_breaker.record_success()
 
         data = resp.json()
-        
+
         # Dhan v2 returns data directly as arrays (not wrapped in "data" key always)
         # Handle both formats
         if "open" in data:
@@ -514,22 +537,24 @@ class DhanClient:
         timestamps = ohlcv.get("start_Time", ohlcv.get("timestamp", ohlcv.get("start_time", [])))
         if not timestamps:
             raise Exception(f"No timestamp field found in response. Keys: {list(ohlcv.keys())}")
-        
+
         # Auto-detect epoch format (seconds vs milliseconds)
         first_ts = timestamps[0] if timestamps else 0
         unit = "ms" if first_ts > 1e12 else "s"
-        
-        df = pd.DataFrame({
-            "timestamp": pd.to_datetime(timestamps, unit=unit) + pd.Timedelta(hours=5, minutes=30),
-            "open":   [float(x) for x in ohlcv["open"]],
-            "high":   [float(x) for x in ohlcv["high"]],
-            "low":    [float(x) for x in ohlcv["low"]],
-            "close":  [float(x) for x in ohlcv["close"]],
-            "volume": [int(x) for x in ohlcv.get("volume", [0]*len(ohlcv["open"]))],
-        })
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(timestamps, unit=unit) + pd.Timedelta(hours=5, minutes=30),
+                "open": [float(x) for x in ohlcv["open"]],
+                "high": [float(x) for x in ohlcv["high"]],
+                "low": [float(x) for x in ohlcv["low"]],
+                "close": [float(x) for x in ohlcv["close"]],
+                "volume": [int(x) for x in ohlcv.get("volume", [0] * len(ohlcv["open"]))],
+            }
+        )
         df.set_index("timestamp", inplace=True)
         df.sort_index(inplace=True)
-        
+
         print(f"[DHAN] ✅ Got {len(df)} candles: {df.index[0]} → {df.index[-1]}")
         return df
 
@@ -562,7 +587,7 @@ class DhanClient:
         self,
         security_id: str,
         exchange_segment: str,
-        transaction_type: str,   # BUY or SELL
+        transaction_type: str,  # BUY or SELL
         quantity: int,
         order_type: str = "MARKET",
         product_type: str = "INTRADAY",
@@ -576,25 +601,30 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not set. Edit config.py first.")
 
         payload = {
-            "dhanClientId":    self.client_id,
+            "dhanClientId": self.client_id,
             "transactionType": transaction_type,
             "exchangeSegment": exchange_segment,
-            "productType":     product_type,
-            "orderType":       order_type,
-            "validity":        validity,
-            "securityId":      security_id,
-            "quantity":        quantity,
-            "price":           price,
-            "triggerPrice":    trigger_price,
-            "correlationId":   tag,
+            "productType": product_type,
+            "orderType": order_type,
+            "validity": validity,
+            "securityId": security_id,
+            "quantity": quantity,
+            "price": price,
+            "triggerPrice": trigger_price,
+            "correlationId": tag,
         }
 
         if not _circuit_breaker.call_allowed():
-            raise Exception(f"Dhan API circuit breaker is OPEN — broker unavailable, retrying in {_circuit_breaker._timeout:.0f}s")
+            raise Exception(
+                f"Dhan API circuit breaker is OPEN — broker unavailable, retrying in {_circuit_breaker._timeout:.0f}s"
+            )
         try:
             resp = _request_with_retry(
-                "POST", f"{self.base_url}/v2/orders",
-                headers=self.headers, json=payload, timeout=10,
+                "POST",
+                f"{self.base_url}/v2/orders",
+                headers=self.headers,
+                json=payload,
+                timeout=10,
             )
         except Exception as e:
             _circuit_breaker.record_failure()
@@ -607,11 +637,11 @@ class DhanClient:
 
     def place_option_order(
         self,
-        underlying: str,           # "NIFTY", "BANKNIFTY", etc.
+        underlying: str,  # "NIFTY", "BANKNIFTY", etc.
         strike_price: int,
-        option_type: str,          # CE or PE
-        expiry: str,               # "2026-02-20"
-        transaction_type: str,     # BUY or SELL
+        option_type: str,  # CE or PE
+        expiry: str,  # "2026-02-20"
+        transaction_type: str,  # BUY or SELL
         quantity: int,
         order_type: str = "MARKET",
         product_type: str = "INTRADAY",
@@ -632,9 +662,11 @@ class DhanClient:
                 f"expiry {expiry}. Scrip master may not be loaded or contract doesn't exist."
             )
 
-        print(f"[DHAN] Option order: {transaction_type} {underlying} "
-              f"{strike_price}{option_type} exp={expiry} qty={quantity} "
-              f"type={order_type} product={product_type} secId={security_id}")
+        print(
+            f"[DHAN] Option order: {transaction_type} {underlying} "
+            f"{strike_price}{option_type} exp={expiry} qty={quantity} "
+            f"type={order_type} product={product_type} secId={security_id}"
+        )
 
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
 
@@ -656,12 +688,12 @@ class DhanClient:
         strike_price: int,
         option_type: str,
         expiry: str,
-        transaction_type: str,     # opposite of entry: BUY→SELL, SELL→BUY
+        transaction_type: str,  # opposite of entry: BUY→SELL, SELL→BUY
         quantity: int,
         trigger_price: float,
         price: float = 0,
         product_type: str = "INTRADAY",
-        order_type: str = "SL",    # SL or SL-M
+        order_type: str = "SL",  # SL or SL-M
         tag: str = "AlgoForge_SL",
     ) -> dict:
         """
@@ -679,8 +711,10 @@ class DhanClient:
         if order_type == "SL-M":
             price = 0
 
-        print(f"[DHAN] SL Order: {transaction_type} {underlying} {strike_price}{option_type} "
-              f"trigger=₹{trigger_price} price=₹{price} type={order_type}")
+        print(
+            f"[DHAN] SL Order: {transaction_type} {underlying} {strike_price}{option_type} "
+            f"trigger=₹{trigger_price} price=₹{price} type={order_type}"
+        )
 
         return self.place_order(
             security_id=security_id,
@@ -696,7 +730,7 @@ class DhanClient:
 
     def get_order_book(self) -> list:
         """Get all orders for the day"""
-        resp = requests.get(
+        resp = _http_session.get(
             f"{self.base_url}/v2/orders",
             headers=self.headers,
             timeout=10,
@@ -709,36 +743,36 @@ class DhanClient:
         return data.get("data", []) if isinstance(data, dict) else []
 
     def get_trades(self, from_date: str = None, to_date: str = None) -> list:
-        """Get all executed trades (trade book) 
-        
+        """Get all executed trades (trade book)
+
         Note: Dhan API may only support current day trades by default.
-        For historical trades across multiple days, you may need to call this 
+        For historical trades across multiple days, you may need to call this
         endpoint multiple times or check Dhan's reports/statements API.
         """
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not configured")
-        
+
         try:
             # Dhan /v2/trades endpoint gets today's trades by default
             # For historical data, we might need additional parameters
-            resp = requests.get(
+            resp = _http_session.get(
                 f"{self.base_url}/v2/trades",
                 headers=self.headers,
                 timeout=10,
             )
-            
+
             print(f"[DHAN] get_trades status: {resp.status_code}")
-            
+
             if resp.status_code == 401:
                 raise Exception("Unauthorized - Invalid access token or client ID")
             elif resp.status_code == 403:
                 raise Exception("Forbidden - Access token may have expired")
             elif resp.status_code != 200:
                 raise Exception(f"Trade book API returned {resp.status_code}: {resp.text[:200]}")
-            
+
             data = resp.json()
             print(f"[DHAN] get_trades response type: {type(data).__name__}")
-            
+
             # Return trades array - handle both possible response formats
             if isinstance(data, list):
                 trades = data
@@ -746,10 +780,10 @@ class DhanClient:
                 trades = data["data"]
             else:
                 trades = data if isinstance(data, list) else []
-            
+
             print(f"[DHAN] ✅ Retrieved {len(trades)} trades")
             return trades
-                
+
         except requests.exceptions.Timeout:
             raise Exception("Connection timeout - please check your internet")
         except requests.exceptions.ConnectionError:
@@ -760,52 +794,52 @@ class DhanClient:
 
     def get_trade_history(self, from_date: str, to_date: str, page: int = 0) -> list | str:
         """Get historical trade book for a date range.
-        
+
         Uses Dhan Statement API: GET /v2/trades/{from-date}/{to-date}/{page}
         Returns paginated results - pass page=0 as default.
         Returns RATE_LIMITED sentinel string if rate-limited (caller should retry).
-        
+
         Args:
             from_date: Start date in YYYY-MM-DD format
-            to_date: End date in YYYY-MM-DD format  
+            to_date: End date in YYYY-MM-DD format
             page: Page number (0-indexed)
         """
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not configured")
-        
+
         try:
-            resp = requests.get(
+            resp = _http_session.get(
                 f"{self.base_url}/v2/trades/{from_date}/{to_date}/{page}",
                 headers=self.headers,
                 timeout=15,
             )
-            
+
             print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
-            
+
             if resp.status_code == 429:
                 print(f"[DHAN] Rate limited on page {page}")
                 return self.RATE_LIMITED
-            
+
             if resp.status_code != 200:
                 print(f"[DHAN] Trade history error: {resp.text[:200]}")
                 return []
-            
+
             data = resp.json()
             # Detect rate-limit error returned as 200 with error JSON
             if isinstance(data, dict) and data.get("errorCode") == "DH-904":
                 print(f"[DHAN] Rate limited (DH-904) on page {page}")
                 return self.RATE_LIMITED
-            
+
             trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
             print(f"[DHAN] ✅ Retrieved {len(trades)} historical trades")
             return trades
-                
+
         except Exception as e:
             print(f"[DHAN] Trade history error: {e}")
             return []
 
     def cancel_order(self, order_id: str) -> dict:
-        resp = requests.delete(
+        resp = _http_session.delete(
             f"{self.base_url}/v2/orders/{order_id}",
             headers=self.headers,
             timeout=10,
@@ -814,7 +848,7 @@ class DhanClient:
 
     def get_positions(self) -> list:
         """Get current open positions"""
-        resp = requests.get(
+        resp = _http_session.get(
             f"{self.base_url}/v2/positions",
             headers=self.headers,
             timeout=10,
@@ -827,26 +861,26 @@ class DhanClient:
         """Get available margin/funds"""
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not configured")
-        
+
         try:
-            resp = requests.get(
+            resp = _http_session.get(
                 f"{self.base_url}/v2/fundlimit",
                 headers=self.headers,
                 timeout=10,
             )
-            
+
             print(f"[DHAN] get_funds status: {resp.status_code}")
-            
+
             if resp.status_code == 401:
                 raise Exception("Unauthorized - Invalid access token or client ID")
             elif resp.status_code == 403:
                 raise Exception("Forbidden - Access token may have expired")
             elif resp.status_code != 200:
                 raise Exception(f"API returned {resp.status_code}: {resp.text[:200]}")
-            
+
             data = resp.json()
             print(f"[DHAN] get_funds response keys: {list(data.keys())}")
-            
+
             # Dhan API returns different formats - handle both
             if "data" in data:
                 return data["data"]
@@ -855,7 +889,7 @@ class DhanClient:
             else:
                 print(f"[DHAN] Unexpected response format: {data}")
                 return data
-                
+
         except requests.exceptions.Timeout:
             raise Exception("Connection timeout - please check your internet")
         except requests.exceptions.ConnectionError:
@@ -871,7 +905,7 @@ class DhanClient:
             "BSE_FNO": int_ids if exchange_segment == "BSE_FNO" else [],
             "IDX_I": int_ids if exchange_segment == "IDX_I" else [],
         }
-        resp = requests.post(
+        resp = _http_session.post(
             f"{self.base_url}/v2/marketfeed/ltp",
             json=payload,
             headers=self.headers,
@@ -892,7 +926,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = requests.post(
+        resp = _http_session.post(
             f"{self.base_url}/v2/marketfeed/ltp",
             json=payload,
             headers=self.headers,
@@ -913,7 +947,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = requests.post(
+        resp = _http_session.post(
             f"{self.base_url}/v2/marketfeed/ohlc",
             json=payload,
             headers=self.headers,
@@ -933,7 +967,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = requests.post(
+        resp = _http_session.post(
             f"{self.base_url}/v2/marketfeed/quote",
             json=payload,
             headers=self.headers,
@@ -943,8 +977,7 @@ class DhanClient:
             raise Exception(f"Quote fetch failed: {resp.text}")
         return resp.json().get("data", {})
 
-    def get_option_ltp(self, underlying: str, strike: int, expiry: str,
-                       option_type: str) -> float:
+    def get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:
         """
         Get LTP for a specific option contract.
         Returns the last traded price, or 0 if not found.
@@ -979,9 +1012,14 @@ class DhanClient:
             print(f"[DHAN] Option LTP fetch failed: {e}")
             return 0.0
 
-    def modify_order(self, order_id: str, order_type: str = None,
-                     quantity: int = None, price: float = None,
-                     trigger_price: float = None) -> dict:
+    def modify_order(
+        self,
+        order_id: str,
+        order_type: str = None,
+        quantity: int = None,
+        price: float = None,
+        trigger_price: float = None,
+    ) -> dict:
         """Modify an existing order"""
         payload = {"dhanClientId": self.client_id, "orderId": order_id}
         if order_type:
@@ -993,7 +1031,7 @@ class DhanClient:
         if trigger_price is not None:
             payload["triggerPrice"] = trigger_price
 
-        resp = requests.put(
+        resp = _http_session.put(
             f"{self.base_url}/v2/orders/{order_id}",
             json=payload,
             headers=self.headers,
@@ -1006,7 +1044,7 @@ class DhanClient:
     def get_order_status(self, order_id: str) -> dict:
         """Get status of a specific order"""
         try:
-            resp = requests.get(
+            resp = _http_session.get(
                 f"{self.base_url}/v2/orders/{order_id}",
                 headers=self.headers,
                 timeout=10,
@@ -1025,6 +1063,7 @@ class DhanClient:
         Returns dict with: order_id, status, filled_qty, avg_price, message.
         """
         import time as _t
+
         start = _t.time()
         last_status = {}
         while _t.time() - start < max_wait_sec:
@@ -1034,24 +1073,28 @@ class DhanClient:
             # Terminal states
             if os in ("TRADED", "FILLED", "COMPLETE"):
                 return {
-                    "order_id": order_id, "status": "FILLED",
+                    "order_id": order_id,
+                    "status": "FILLED",
                     "filled_qty": status.get("filledQty", status.get("tradedQuantity", status.get("quantity", 0))),
                     "avg_price": status.get("averagePrice", status.get("price", 0)),
-                    "message": "Order filled successfully"
+                    "message": "Order filled successfully",
                 }
             if os in ("REJECTED", "CANCELLED"):
                 return {
-                    "order_id": order_id, "status": os,
-                    "filled_qty": 0, "avg_price": 0,
-                    "message": status.get("rejectionReason", status.get("omsErrorDescription", f"Order {os}"))
+                    "order_id": order_id,
+                    "status": os,
+                    "filled_qty": 0,
+                    "avg_price": 0,
+                    "message": status.get("rejectionReason", status.get("omsErrorDescription", f"Order {os}")),
                 }
             _t.sleep(poll_interval)
         # Timeout
         return {
-            "order_id": order_id, "status": "TIMEOUT",
+            "order_id": order_id,
+            "status": "TIMEOUT",
             "filled_qty": last_status.get("filledQty", 0),
             "avg_price": last_status.get("averagePrice", 0),
-            "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}"
+            "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}",
         }
 
     # ──────────────────────────────────────────────────────────
