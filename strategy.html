@@ -1218,6 +1218,59 @@
     table { min-width: 600px; }
     div[style*="overflow-x: auto"] { -webkit-overflow-scrolling: touch; }
 
+    /* -- Runs table: compact on mobile -- */
+    #runs-list table,
+    #runs-list-results table,
+    #portfolio-paper-runs table {
+      font-size: 11px !important;
+      min-width: 700px;
+    }
+    #runs-list table th,
+    #runs-list-results table th,
+    #runs-list table td,
+    #runs-list-results table td {
+      padding: 8px 6px !important;
+    }
+    #runs-list table td:last-child,
+    #runs-list-results table td:last-child,
+    #runs-list table th:last-child,
+    #runs-list-results table th:last-child {
+      min-width: 140px !important;
+      width: 140px !important;
+    }
+
+    /* -- Live page: mobile layout -- */
+    #live-panels-container div[style*="repeat(4,1fr)"] {
+      grid-template-columns: 1fr 1fr !important;
+      padding: 12px !important;
+      gap: 10px !important;
+    }
+    #live-panels-container div[style*="grid-template-columns:1fr 1fr"][style*="gap:16px"] {
+      grid-template-columns: 1fr !important;
+      padding: 12px !important;
+    }
+    #live-panels-container div[style*="padding:14px 28px"],
+    #live-panels-container div[style*="padding:10px 28px"],
+    #live-panels-container div[style*="padding:20px 28px"],
+    #live-panels-container div[style*="padding:8px 28px"] {
+      padding-left: 12px !important;
+      padding-right: 12px !important;
+    }
+    #live-panels-container div[style*="margin:0 28px"] {
+      margin-left: 8px !important;
+      margin-right: 8px !important;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    /* Live header: wrap on mobile */
+    #live-panels-container > div:first-child {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #live-panels-container > div:first-child > div:last-child {
+      flex-wrap: wrap;
+    }
+
     /* -- Modals: full-width on mobile -- */
     .modal {
       width: 95vw !important;
@@ -1232,6 +1285,15 @@
     }
     .modal-grid { grid-template-columns: 1fr !important; }
     .modal h3 { font-size: 16px; }
+
+    /* Deploy modal: stack label + control vertically */
+    #deploy-modal .modal div[style*="display: flex"][style*="gap: 20px"][style*="margin-bottom"] {
+      flex-direction: column !important;
+      gap: 6px !important;
+    }
+    #deploy-modal .modal label[style*="width: 130px"] {
+      width: 100% !important;
+    }
 
     /* -- Buttons: adequate touch targets -- */
     .btn { min-height: 44px; }
@@ -1534,12 +1596,12 @@
   </div>
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <h3 style="margin-bottom: 15px;">Saved Strategies</h3>
-    <div id="saved-strategies-grouped"></div>
+    <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
   </div>
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
-    <div id="runs-list"></div>
+    <div id="runs-list" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
   </div>
   <div class="card" style="max-width: 1000px; margin: 0 auto;">
@@ -1811,7 +1873,7 @@
         <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5);">Scalp</button>
       </div>
     </div>
-    <div id="runs-list-results"></div>
+    <div id="runs-list-results" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
   </div>
 
@@ -2292,7 +2354,7 @@
     <div id="portfolio-monthly-summary" style="margin-bottom: 14px; padding: 14px; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 12px;"></div>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px;" id="portfolio-monthly-grid"></div>
     <!-- Trades for month: day-by-day table -->
-    <div id="portfolio-monthly-trades" style="margin-top: 18px;"></div>
+    <div id="portfolio-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
   </div>
 
   </div><!-- end dual-column grid -->
@@ -2329,7 +2391,7 @@
   <!-- Paper Trading Runs -->
   <div class="card" style="padding: 20px;">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Paper Trading Runs</h3>
-    <div id="portfolio-paper-runs"></div>
+    <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper trading runs yet. Start paper trading from the Live page.</div>
   </div>
 </div>
@@ -6080,10 +6142,12 @@ function renderLivePanel(d, idx) {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
       <span style="font-weight:700;font-size:13px;">Completed Trades</span>
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
       <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
       <tbody>${closedHtml}</tbody>
     </table>
+    </div>
   </div>`;
 }
 
