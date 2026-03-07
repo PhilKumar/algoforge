@@ -171,6 +171,8 @@
   .trade-log-wrap {
     max-height: 560px;
     overflow-y: auto;
+    overflow-x: auto; /* mobile horizontal scroll */
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: rgba(10,15,28,0.80);
@@ -1096,6 +1098,178 @@
     border-color: var(--border-acc);
     transform: translateY(-1px);
   }
+
+  /* ═══ MOBILE RESPONSIVE — Comprehensive ═══ */
+
+  /* Viewport meta handled in <head>; add if missing */
+  /* Touch target minimum: 44px */
+  @media (max-width: 767px) {
+    /* -- Global -- */
+    body { padding: 0 !important; }
+    .page-section { padding: 12px !important; }
+
+    /* -- Topbar: stack brand + clock, hide ticker -- */
+    .app-topbar {
+      flex-wrap: wrap;
+      padding: 8px 12px !important;
+      gap: 6px;
+    }
+    .topbar-ticker { display: none !important; }
+    .topbar-right { width: 100%; justify-content: space-between; }
+    .topbar-clock { font-size: 11px; }
+    .topbar-brand-text { font-size: 14px; }
+    .topbar-brand-sub { display: none; }
+    .topbar-brand img { height: 30px; }
+
+    /* -- Expiry strip: horizontal scroll, no wrap -- */
+    .expiry-bar {
+      flex-wrap: nowrap !important;
+      overflow-x: auto;
+      justify-content: flex-start !important;
+      gap: 6px !important;
+      padding: 6px 10px !important;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .expiry-bar::-webkit-scrollbar { display: none; }
+    .expiry-chip { flex-shrink: 0; font-size: 11px !important; padding: 4px 10px !important; white-space: nowrap; }
+
+    /* -- Nav tabs: horizontal scroll with hidden scrollbar -- */
+    .nav-bar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .nav-bar::-webkit-scrollbar { display: none; }
+    .nav-tabs { flex-wrap: nowrap !important; justify-content: flex-start !important; min-width: max-content; }
+    .nav-tab { padding: 10px 12px !important; font-size: 12px !important; gap: 4px !important; flex-shrink: 0; white-space: nowrap; }
+    .nav-tab .tab-label { display: none; }
+    .nav-tab .tab-icon { font-size: 18px; }
+    .nav-tab .live-dot { margin: 0; }
+
+    /* -- Dashboard: 2-col stat boxes on mobile -- */
+    #dashboard-page > div > div[style*="repeat(4"] {
+      grid-template-columns: 1fr 1fr !important;
+    }
+    /* Active engines: stack */
+    #dash-active-engines > div:last-child,
+    div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 14px"] {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* -- Builder grid: single column -- */
+    .builder-grid { grid-template-columns: 1fr !important; }
+    /* Builder inline 2-col and 3-col grids */
+    .builder-grid div[style*="grid-template-columns: 1fr 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+    /* Leg buttons: wrap */
+    .add-leg-row { flex-wrap: wrap; }
+    .add-leg-btn { flex: 1 1 auto; min-width: 45%; text-align: center; }
+    /* Combined PnL bar */
+    .combined-pnl-bar { flex-direction: column !important; }
+    .combined-pnl-bar > div { width: 100%; }
+
+    /* -- Results: stat grids 2-col on mobile -- */
+    #results-content div[style*="repeat(6, 1fr)"] {
+      grid-template-columns: repeat(2, 1fr) !important;
+    }
+    /* Transaction analytics: stack */
+    #results-content div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 20px"],
+    #results-content > div[style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+    /* Results run summary header: wrap */
+    #results-content > .card-glass:first-child {
+      gap: 12px !important;
+    }
+    #results-content > .card-glass:first-child > div[style*="margin-left: auto"] {
+      margin-left: 0 !important;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+    /* Compare bar: stack selects vertically */
+    #results-page .card > div[style*="justify-content: space-between"] > div[style*="display: flex"] {
+      flex-wrap: wrap;
+    }
+    #results-page select[style*="width: 180px"] {
+      width: 100% !important;
+    }
+
+    /* -- Portfolio: single column -- */
+    #portfolio-page > div[style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* -- Scalp page: stack form + event log -- */
+    #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+    /* Scalp form inner 2-col keeps 2-col (it's compact) */
+    /* BUY/SELL: full-width touch targets */
+    #scalp-page .btn[onclick*="submitScalpEntry"] {
+      min-height: 48px;
+      font-size: 15px !important;
+    }
+    /* Engine status bar: wrap nicely */
+    #scalp-page > .card-glass:first-child {
+      flex-direction: column;
+      align-items: flex-start !important;
+      gap: 10px !important;
+    }
+
+    /* -- Tables: horizontal scroll wrapper -- */
+    table { min-width: 600px; }
+    div[style*="overflow-x: auto"] { -webkit-overflow-scrolling: touch; }
+
+    /* -- Modals: full-width on mobile -- */
+    .modal {
+      width: 95vw !important;
+      max-width: 95vw !important;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 18px !important;
+    }
+    .confirm-box {
+      width: 92vw !important;
+      max-width: 92vw !important;
+    }
+    .modal-grid { grid-template-columns: 1fr !important; }
+    .modal h3 { font-size: 16px; }
+
+    /* -- Buttons: adequate touch targets -- */
+    .btn { min-height: 44px; }
+    .btn-sm { min-height: 38px; padding: 8px 14px !important; }
+
+    /* -- Kill switch: bottom-center on mobile -- */
+    .kill-switch {
+      right: 50% !important;
+      transform: translateX(50%);
+      bottom: 16px !important;
+    }
+
+    /* -- Cards: tighter padding -- */
+    .card, .card-glass { padding: 14px !important; border-radius: 10px; }
+    .card-compact { padding: 12px !important; }
+
+    /* -- Premium notice: stack -- */
+    #premium-notice { flex-direction: column; text-align: center; }
+  }
+
+  /* Small phones (< 400px) */
+  @media (max-width: 400px) {
+    .nav-tab { padding: 8px 10px !important; }
+    .stat-value, .stat-value-lg { font-size: 15px !important; }
+    .stat-label { font-size: 9px !important; }
+    .expiry-chip { font-size: 10px !important; }
+    #scalp-page div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+
+  /* Tablet (768px - 1024px) */
+  @media (min-width: 768px) and (max-width: 1024px) {
+    .builder-grid { grid-template-columns: 1fr 1fr !important; }
+    #results-content div[style*="repeat(6, 1fr)"] {
+      grid-template-columns: repeat(3, 1fr) !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1370,10 +1544,12 @@
   </div>
   <div class="card" style="max-width: 1000px; margin: 0 auto;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">Recent Transactions</h3>
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
     <table style="width: 100%; text-align: left; border-collapse: collapse;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; font-weight: 600;"><th style="padding: 12px 0;">Time</th><th style="padding: 12px 0;">Strategy Run</th><th style="padding: 12px 0;">Instrument</th><th style="padding: 12px 0;">Action</th><th style="padding: 12px 0;">Price</th></tr></thead>
       <tbody id="transactions-body"><tr><td colspan="5" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr></tbody>
     </table>
+    </div>
   </div>
 </div>
 
