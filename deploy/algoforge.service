@@ -1,5 +1,12 @@
+# ═══════════════════════════════════════════════════════════════
+#  AlgoForge — systemd template unit for blue-green deploys
+#  Install as: /etc/systemd/system/algoforge@.service
+#  Usage:      systemctl start algoforge@8000
+#              systemctl start algoforge@8001
+#  The %i expands to the port number after the @ sign.
+# ═══════════════════════════════════════════════════════════════
 [Unit]
-Description=AlgoForge FastAPI Backend
+Description=AlgoForge FastAPI Backend (port %i)
 After=network.target
 
 [Service]
@@ -7,8 +14,8 @@ User=ec2-user
 WorkingDirectory=/home/ec2-user/algoforge
 Environment="PATH=/home/ec2-user/algoforge/venv/bin"
 EnvironmentFile=/home/ec2-user/algoforge/.env
-ExecStart=/home/ec2-user/algoforge/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
-Restart=always
+ExecStart=/home/ec2-user/algoforge/venv/bin/uvicorn app:app --host 0.0.0.0 --port %i --workers 1
+Restart=on-failure
 RestartSec=5
 
 [Install]
