@@ -144,6 +144,25 @@ AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "8875
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_FILE = os.path.join(_HERE, ".sessions.json")
 
+_redis_client = None
+_redis_checked = False
+
+
+def _get_redis():
+    global _redis_client, _redis_checked
+    if _redis_checked:
+        return _redis_client
+    _redis_checked = True
+    try:
+        import redis as _redis_lib
+
+        r = _redis_lib.Redis(host="localhost", port=6379, db=0, decode_responses=True, socket_timeout=1)
+        r.ping()
+        _redis_client = r
+    except Exception:
+        _redis_client = None
+    return _redis_client
+
 
 def _load_sessions() -> dict:
     """Load sessions from shared file (works across workers)."""
