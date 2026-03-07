@@ -41,6 +41,14 @@ from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, r
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
+
+try:
+    from scalp import ScalpEngine as _ScalpEngineClass
+
+    _HAS_SCALP = True
+except ImportError:
+    _HAS_SCALP = False
+    _ScalpEngineClass = None
 from token_manager import auto_generate_token, token_renewal_loop
 
 # ── Auto-generate Dhan token at startup (single-worker guard) ────
@@ -115,6 +123,7 @@ _paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
+_scalp_engine: Optional["_ScalpEngineClass"] = None
 
 ws_clients: List[WebSocket] = []
 
@@ -2531,6 +2540,108 @@ async def delete_scalp_trade(tid: int):
     trades = _load_scalp_trades()
     _save_scalp_trades([t for t in trades if t.get("trade_id") != tid])
     return {"deleted": tid}
+
+
+# ── Scalp Engine (live session, in-memory) ───────────────────────
+
+
+def _get_scalp_engine():
+    global _scalp_engine
+    if not _HAS_SCALP:
+        raise HTTPException(status_code=503, detail="scalp.py not available")
+    if _scalp_engine is None:
+        _scalp_engine = _ScalpEngineClass(dhan, _market_feed)
+    return _scalp_engine
+
+
+@app.get("/api/scalp/status")
+async def get_scalp_status():
+    eng = _get_scalp_engine()
+    status = eng.get_status()
+    # Merge in closed trades from file (persist across restarts)
+    file_trades = _load_scalp_trades()
+    status["file_trades"] = list(reversed(file_trades[-50:]))
+    return status
+
+
+@app.post("/api/scalp/start")
+async def start_scalp_engine():
+    eng = _get_scalp_engine()
+    eng.start()
+    return {"status": "started"}
+
+
+@app.post("/api/scalp/stop")
+async def stop_scalp_engine():
+    eng = _get_scalp_engine()
+    eng.stop()
+    return {"status": "stopped"}
+
+
+class ScalpEntryReq(BaseModel):
+    underlying: str
+    strike: int
+    option_type: str
+    expiry: str
+    transaction_type: str = "BUY"
+    lots: int = 1
+    lot_size: int = 75
+    target_premium: float = 0.0
+    sl_premium: float = 0.0
+    target_pct: float = 0.0
+    sl_pct: float = 0.0
+    target_rupees: float = 0.0
+    sl_rupees: float = 0.0
+    sqoff_time: str = "15:20"
+    mode: str = "live"
+
+
+@app.post("/api/scalp/entry")
+async def scalp_entry(req: ScalpEntryReq):
+    eng = _get_scalp_engine()
+    result = await eng.enter_trade(
+        underlying=req.underlying,
+        strike=req.strike,
+        option_type=req.option_type,
+        expiry=req.expiry,
+        transaction_type=req.transaction_type,
+        lots=req.lots,
+        lot_size=req.lot_size,
+        target_premium=req.target_premium,
+        sl_premium=req.sl_premium,
+        target_pct=req.target_pct,
+        sl_pct=req.sl_pct,
+        target_rupees=req.target_rupees,
+        sl_rupees=req.sl_rupees,
+        sqoff_time=req.sqoff_time,
+        mode=req.mode,
+    )
+    return result
+
+
+@app.post("/api/scalp/exit/{trade_id}")
+async def scalp_exit(trade_id: int):
+    eng = _get_scalp_engine()
+    result = await eng.exit_trade(trade_id, reason="manual")
+    if result.get("status") == "ok":
+        trades = _load_scalp_trades()
+        trades.append(result["trade"])
+        _save_scalp_trades(trades)
+    return result
+
+
+class ScalpTargetsReq(BaseModel):
+    target_premium: Optional[float] = None
+    sl_premium: Optional[float] = None
+    target_rupees: Optional[float] = None
+    sl_rupees: Optional[float] = None
+    sqoff_time: Optional[str] = None
+
+
+@app.put("/api/scalp/trades/{trade_id}/targets")
+async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq):
+    eng = _get_scalp_engine()
+    return await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
 
 
 @app.get("/api/paper/trades/csv")

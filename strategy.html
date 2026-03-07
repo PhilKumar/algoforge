@@ -1235,6 +1235,10 @@
       <span class="live-dot" id="live-tab-dot"></span>
       <span class="tab-label">Live</span>
     </button>
+    <button id="nav-scalp" class="nav-tab" onclick="showPage('scalp-page', this); initScalpPage();" style="--accent-tab: #06b6d4;">
+      <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
+      <span class="tab-label">Scalp</span>
+    </button>
   </div>
 </div>
 
@@ -2118,6 +2122,177 @@
   </div>
 </div>
 
+<!-- ═══ SCALP PAGE ═══ -->
+<div id="scalp-page" class="page-section" style="max-width: 1100px; margin: 0 auto;">
+
+  <!-- Engine Status Bar -->
+  <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+      <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
+      <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>
+      <span id="scalp-status-label" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Idle</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 11px; color: var(--muted);">Session P&L:</span>
+      <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+      <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+
+    <!-- Entry Form -->
+    <div class="card" style="padding: 20px;">
+      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--accent);" id="scalp-form-title">⚡ New Scalp Entry</h3>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
+          <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
+            <option value="NIFTY">NIFTY</option>
+            <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="MIDCAPNIFTY">MIDCAPNIFTY</option>
+            <option value="SENSEX">SENSEX</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
+          <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
+          <input type="number" id="scalp-strike" placeholder="24500" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
+          <select id="scalp-option-type" style="font-size: 13px; padding: 8px 10px;">
+            <option value="CE">CE — Call</option>
+            <option value="PE">PE — Put</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Direction</label>
+          <select id="scalp-txn-type" style="font-size: 13px; padding: 8px 10px;">
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots</label>
+          <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lot Size</label>
+          <input type="number" id="scalp-lot-size" value="75" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Sq-Off Time</label>
+          <input type="text" id="scalp-sqoff" value="15:20" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+        </div>
+      </div>
+
+      <!-- Exit Rules -->
+      <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
+            <input type="number" id="scalp-target-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
+            <input type="number" id="scalp-sl-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
+            <input type="number" id="scalp-target-prem" value="0" step="0.5" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
+            <input type="number" id="scalp-sl-prem" value="0" step="0.5" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode + Submit -->
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <select id="scalp-mode" style="font-size: 12px; padding: 7px 10px; flex: 1;">
+          <option value="live">🔴 Live</option>
+          <option value="paper">📄 Paper</option>
+        </select>
+        <button class="btn" onclick="submitScalpEntry()" style="flex: 2; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.30) 0%, rgba(4,130,155,0.50) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.6); padding: 9px 16px; font-size: 13px;">⚡ Execute Scalp</button>
+      </div>
+      <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="card" style="padding: 20px; display: flex; flex-direction: column;">
+      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 12px;">Event Log</h3>
+      <div id="scalp-event-log" style="flex: 1; max-height: 360px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent;">
+        <div style="color: var(--muted); text-align: center; padding: 20px;">No events yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Positions -->
+  <div class="card" style="padding: 20px; margin-bottom: 16px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+      <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
+      <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+            <th style="padding: 8px 10px; text-align: left;">Symbol</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Target</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">SL</th>
+            <th style="padding: 8px 10px; text-align: center;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="scalp-active-body">
+          <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Closed Trades (session + file) -->
+  <div class="card" style="padding: 20px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+      <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Trade History</h3>
+      <span id="scalp-total-pnl-label" style="font-size: 13px; font-weight: 700; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Total: ₹0.00</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+            <th style="padding: 8px 10px; text-align: left;">#</th>
+            <th style="padding: 8px 10px; text-align: left;">Symbol</th>
+            <th style="padding: 8px 6px; text-align: center;">Dir</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
+            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Lots</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
+            <th style="padding: 8px 6px; text-align: center;">Reason</th>
+            <th style="padding: 8px 6px; text-align: center;">Mode</th>
+            <th style="padding: 8px 6px; text-align: center;">Del</th>
+          </tr>
+        </thead>
+        <tbody id="scalp-history-body">
+          <tr><td colspan="10" style="text-align: center; padding: 20px; color: var(--muted);">No trades yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
 <!-- ═══ CUSTOM CONFIRM MODAL ═══ -->
 <div class="modal-overlay" id="confirm-modal" style="z-index:3000;">
   <div class="confirm-box">
@@ -2244,6 +2419,8 @@ function showPage(id, btn) {
   if (btn) btn.classList.add('active');
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
+  // Stop scalp polling when leaving scalp page
+  if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   // Start/stop builder preview polling
   if (id === 'builder-page') startBuilderPreview(); else stopBuilderPreview();
   // Reload dashboard data when switching to dashboard
@@ -2747,6 +2924,247 @@ async function deleteScalpTrade(tid) {
   await fetch('/api/scalp/trades/' + tid, { method: 'DELETE' });
   toast('Scalp trade deleted', 'success');
   _renderFilteredRuns();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SCALP PAGE
+// ══════════════════════════════════════════════════════════════
+let _scalpPollTimer = null;
+const _LOT_SIZES = { NIFTY: 75, BANKNIFTY: 35, MIDCAPNIFTY: 120, SENSEX: 20 };
+
+function initScalpPage() {
+  loadScalpExpiries();
+  refreshScalpStatus();
+  if (!_scalpPollTimer) {
+    _scalpPollTimer = setInterval(refreshScalpStatus, 3000);
+  }
+}
+
+async function loadScalpExpiries() {
+  try {
+    const underlying = document.getElementById('scalp-underlying').value;
+    // Update lot size default
+    const ls = document.getElementById('scalp-lot-size');
+    if (ls) ls.value = _LOT_SIZES[underlying] || 75;
+    // Fetch expiry dates
+    const res = await fetch('/api/expiry-dates?underlying=' + underlying);
+    const data = await res.json();
+    const sel = document.getElementById('scalp-expiry');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const dates = data.expiry_dates || data.dates || [];
+    dates.slice(0, 8).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* silent */ }
+}
+
+async function startScalpEngine() {
+  try {
+    await fetch('/api/scalp/start', { method: 'POST' });
+    toast('Scalp engine started', 'success');
+    refreshScalpStatus();
+  } catch(e) { toast('Failed to start engine', 'error'); }
+}
+
+async function stopScalpEngine() {
+  try {
+    await fetch('/api/scalp/stop', { method: 'POST' });
+    toast('Scalp engine stopped', 'success');
+    refreshScalpStatus();
+  } catch(e) { toast('Failed to stop engine', 'error'); }
+}
+
+async function submitScalpEntry() {
+  const statusEl = document.getElementById('scalp-entry-status');
+  statusEl.textContent = 'Placing order...';
+  statusEl.style.color = 'var(--warn)';
+  try {
+    const payload = {
+      underlying: document.getElementById('scalp-underlying').value,
+      strike: parseInt(document.getElementById('scalp-strike').value),
+      option_type: document.getElementById('scalp-option-type').value,
+      expiry: document.getElementById('scalp-expiry').value,
+      transaction_type: document.getElementById('scalp-txn-type').value,
+      lots: parseInt(document.getElementById('scalp-lots').value),
+      lot_size: parseInt(document.getElementById('scalp-lot-size').value),
+      target_rupees: parseFloat(document.getElementById('scalp-target-rs').value) || 0,
+      sl_rupees: parseFloat(document.getElementById('scalp-sl-rs').value) || 0,
+      target_premium: parseFloat(document.getElementById('scalp-target-prem').value) || 0,
+      sl_premium: parseFloat(document.getElementById('scalp-sl-prem').value) || 0,
+      sqoff_time: document.getElementById('scalp-sqoff').value || '15:20',
+      mode: document.getElementById('scalp-mode').value,
+    };
+    if (!payload.strike || payload.strike <= 0) {
+      statusEl.textContent = 'Strike price required';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
+    const res = await fetch('/api/scalp/entry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      statusEl.textContent = `✅ Trade #${data.trade_id} entered @ ₹${(data.trade?.entry_premium || 0).toFixed(2)}`;
+      statusEl.style.color = 'var(--success)';
+      refreshScalpStatus();
+    } else {
+      statusEl.textContent = '❌ ' + (data.message || data.detail || 'Entry failed');
+      statusEl.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    statusEl.textContent = '❌ Error: ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function exitScalpTrade(tradeId) {
+  const ok = await customConfirm('Exit this scalp position at market price?', { title: 'Exit Trade', okText: 'Exit Now', danger: true });
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/scalp/exit/' + tradeId, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      const pnl = data.trade?.pnl || 0;
+      toast(`Exited trade #${tradeId} | P&L: ₹${pnl.toFixed(2)}`, pnl >= 0 ? 'success' : 'error');
+      refreshScalpStatus();
+    } else {
+      toast(data.message || 'Exit failed', 'error');
+    }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function deleteScalpHistoryTrade(tid) {
+  const ok = await customConfirm('Delete this closed scalp trade?', { title: 'Delete Trade', icon: ICO.trash(28), okText: 'Delete', danger: true });
+  if (!ok) return;
+  await fetch('/api/scalp/trades/' + tid, { method: 'DELETE' });
+  toast('Deleted', 'success');
+  refreshScalpStatus();
+}
+
+async function refreshScalpStatus() {
+  try {
+    const res = await fetch('/api/scalp/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    _renderScalpStatus(data);
+  } catch(e) { /* offline */ }
+}
+
+function _renderScalpStatus(data) {
+  const dot = document.getElementById('scalp-status-dot');
+  const label = document.getElementById('scalp-status-label');
+  const engDot = document.getElementById('scalp-engine-dot');
+
+  if (data.running) {
+    if (dot) { dot.style.background = '#34d399'; dot.style.animation = 'livePulse 2s infinite'; }
+    if (label) label.textContent = 'Running';
+    if (engDot) engDot.style.color = '#34d399';
+  } else {
+    if (dot) { dot.style.background = 'var(--muted)'; dot.style.animation = 'none'; }
+    if (label) label.textContent = 'Idle';
+    if (engDot) engDot.style.color = '#06b6d4';
+  }
+
+  // Session P&L
+  const sessionPnl = document.getElementById('scalp-session-pnl');
+  if (sessionPnl) {
+    const pnl = data.total_pnl || 0;
+    sessionPnl.textContent = '₹' + pnl.toFixed(2);
+    sessionPnl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+  }
+
+  // Active positions
+  const tbody = document.getElementById('scalp-active-body');
+  if (tbody) {
+    const open = data.open_trades || [];
+    document.getElementById('scalp-open-count').textContent = open.length + ' open';
+    if (!open.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
+    } else {
+      tbody.innerHTML = open.map(t => {
+        const pnl = t.pnl || 0;
+        const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+        const targetStr = t.target_rupees ? `₹${t.target_rupees}` : t.target_premium ? `@${t.target_premium}` : '—';
+        const slStr = t.sl_rupees ? `₹${t.sl_rupees}` : t.sl_premium ? `@${t.sl_premium}` : '—';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+          <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
+          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${(t.entry_premium||0).toFixed(2)}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${(t.current_premium||0).toFixed(2)}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--green);font-size:11px;">${targetStr}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--red);font-size:11px;">${slStr}</td>
+          <td style="padding:8px 10px;text-align:center;">
+            <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 10px;font-size:10px;">Exit</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  // Event log
+  const logEl = document.getElementById('scalp-event-log');
+  if (logEl) {
+    const events = data.event_log || [];
+    if (!events.length) {
+      logEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No events yet</div>';
+    } else {
+      const colors = { entry: 'var(--green)', exit: 'var(--green)', stop: 'var(--danger)', error: 'var(--danger)', info: 'var(--accent)' };
+      logEl.innerHTML = events.map(e =>
+        `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+          <span style="color:var(--muted);margin-right:6px;">${e.time}</span>
+          <span style="color:${colors[e.type]||'var(--text-dim)'};">${e.message}</span>
+        </div>`
+      ).join('');
+    }
+  }
+
+  // Closed trades history (file trades)
+  const histBody = document.getElementById('scalp-history-body');
+  if (histBody) {
+    const allClosed = [...(data.closed_trades || []), ...(data.file_trades || [])];
+    // Deduplicate by trade_id
+    const seen = new Set();
+    const closed = allClosed.filter(t => { if (seen.has(t.trade_id)) return false; seen.add(t.trade_id); return true; })
+      .sort((a, b) => (b.trade_id || 0) - (a.trade_id || 0));
+
+    let totalPnl = 0;
+    if (!closed.length) {
+      histBody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
+    } else {
+      histBody.innerHTML = closed.map(t => {
+        const pnl = t.pnl || 0;
+        totalPnl += pnl;
+        const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+        const modeBadge = t.mode === 'paper'
+          ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.15);color:rgb(251,191,36);border:1px solid rgba(245,158,11,0.3);">PAPER</span>`
+          : `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.15);color:rgb(167,139,250);border:1px solid rgba(139,92,246,0.3);">LIVE</span>`;
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
+          <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
+          <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
+          <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
+          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
+          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.exit_premium||0).toFixed(2)}</td>
+          <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${t.lots||1}</td>
+          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
+          <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${(t.exit_reason||'').replace(/_/g,' ')}</td>
+          <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
+          <td style="padding:7px 6px;text-align:center;">
+            <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+    const totalEl = document.getElementById('scalp-total-pnl-label');
+    if (totalEl) {
+      totalEl.textContent = 'Total: ' + (totalPnl >= 0 ? '+' : '') + '₹' + totalPnl.toFixed(2);
+      totalEl.style.color = totalPnl > 0 ? 'var(--green)' : totalPnl < 0 ? 'var(--red)' : 'var(--muted)';
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
