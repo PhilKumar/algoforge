@@ -1529,6 +1529,7 @@
         <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
         <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
         <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
+        <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5);">Scalp</button>
       </div>
     </div>
     <div id="runs-list-results"></div>
@@ -2349,6 +2350,7 @@ function _getModeBadge(mode) {
   const m = (mode || 'backtest').toLowerCase();
   if (m === 'paper') return '<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.3px; background:rgba(245,158,11,0.15); color:rgb(251,191,36); border:1px solid rgba(245,158,11,0.3);">PAPER</span>';
   if (m === 'live' || m === 'auto' || m === 'real') return '<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.3px; background:rgba(139,92,246,0.15); color:rgb(167,139,250); border:1px solid rgba(139,92,246,0.3);">LIVE</span>';
+  if (m === 'scalp') return '<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.3px; background:rgba(6,182,212,0.15); color:rgb(34,211,238); border:1px solid rgba(6,182,212,0.3);">SCALP</span>';
   return '<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.3px; background:rgba(59,130,246,0.15); color:rgb(96,165,250); border:1px solid rgba(59,130,246,0.3);">BACKTEST</span>';
 }
 
@@ -2356,6 +2358,7 @@ function _normalizeMode(mode) {
   const m = (mode || 'backtest').toLowerCase();
   if (m === 'live' || m === 'auto' || m === 'real') return 'live';
   if (m === 'paper') return 'paper';
+  if (m === 'scalp') return 'scalp';
   return 'backtest';
 }
 
@@ -2407,6 +2410,7 @@ function filterRuns(mode, btn) {
     else if (f === 'backtest') _setV(b, 'linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.5)');
     else if (f === 'paper') _setV(b, 'linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.5)');
     else if (f === 'live') _setV(b, 'linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.5)');
+    else if (f === 'scalp') _setV(b, 'linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%)', 'rgb(34,211,238)', 'rgba(6,182,212,0.5)');
   });
   if (btn) {
     btn.classList.add('active');
@@ -2414,6 +2418,7 @@ function filterRuns(mode, btn) {
     else if (mode === 'backtest') _setV(btn, 'linear-gradient(180deg, rgba(59,130,246,0.35) 0%, rgba(40,90,180,0.55) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.7)');
     else if (mode === 'paper') _setV(btn, 'linear-gradient(180deg, rgba(245,158,11,0.35) 0%, rgba(180,120,8,0.55) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.7)');
     else if (mode === 'live') _setV(btn, 'linear-gradient(180deg, rgba(139,92,246,0.35) 0%, rgba(100,60,200,0.55) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.7)');
+    else if (mode === 'scalp') _setV(btn, 'linear-gradient(180deg, rgba(6,182,212,0.35) 0%, rgba(4,130,155,0.55) 100%)', 'rgb(34,211,238)', 'rgba(6,182,212,0.7)');
   }
   _renderFilteredRuns();
 }
@@ -2421,6 +2426,12 @@ function filterRuns(mode, btn) {
 function _renderFilteredRuns() {
   const containerResults = document.getElementById('runs-list-results');
   const emptyResults = document.getElementById('runs-empty-results');
+
+  // Scalp trades come from a separate endpoint
+  if (_currentRunFilter === 'scalp') {
+    _renderScalpRuns(containerResults, emptyResults);
+    return;
+  }
   
   let filtered = _allRunsCache;
   if (_currentRunFilter !== 'all') {
@@ -2433,6 +2444,55 @@ function _renderFilteredRuns() {
   } else {
     if (emptyResults) emptyResults.style.display = 'none';
     if (containerResults) containerResults.innerHTML = _buildRunsTable(filtered);
+  }
+}
+
+async function _renderScalpRuns(container, emptyEl) {
+  try {
+    const res = await fetch('/api/scalp/trades');
+    const trades = await res.json();
+    if (!trades.length) {
+      if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = 'No scalp trades found.'; }
+      if (container) container.innerHTML = '';
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    const reversed = trades.slice().reverse();
+    let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
+      <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
+        <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
+        <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
+      </tr></thead><tbody>`;
+    reversed.forEach(t => {
+      const pnl = t.pnl || 0;
+      const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+      const fmtTime = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : s.slice(-8); };
+      const name = t.symbol || (t.underlying + ' ' + t.strike + t.option_type) || 'Unnamed';
+      const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
+      const runName = name + (entryDate ? ' ' + entryDate : '');
+      html += `<tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
+        <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
+        <td style="padding: 10px; font-weight: 600; color: var(--accent);">${runName}</td>
+        <td style="padding: 10px;">${t.underlying || '—'}</td>
+        <td style="padding: 10px; font-size: 12px;">${t.exit_reason || '—'}</td>
+        <td style="padding: 10px; font-weight: 600;">1</td>
+        <td style="padding: 10px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(pnl)}</td>
+        <td style="padding: 10px; font-family: 'JetBrains Mono'; font-size: 12px; color: var(--muted);">${fmtTime(t.entry_time)}</td>
+        <td style="padding: 10px; font-family: 'JetBrains Mono'; font-size: 12px; color: var(--muted);">${fmtTime(t.exit_time)}</td>
+        <td style="padding: 10px; width: 200px; min-width: 200px; white-space: nowrap; text-align: center;">
+          <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
+            <button class="btn btn-sm" onclick="viewScalpTrade(${t.trade_id})" style="font-size: 11px; padding: 5px 10px;">View</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteScalpTrade(${t.trade_id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    if (container) container.innerHTML = html;
+  } catch(e) {
+    console.error('Failed to load scalp trades:', e);
+    if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = 'Error loading scalp trades.'; }
   }
 }
 
@@ -2541,6 +2601,28 @@ async function deleteRun(id) {
   await fetch('/api/runs/' + id, { method: 'DELETE' });
   toast('Run deleted', 'success');
   fetchRuns();
+}
+
+function viewScalpTrade(tid) {
+  fetch('/api/scalp/trades').then(r => r.json()).then(trades => {
+    const t = trades.find(x => x.trade_id === tid);
+    if (!t) { toast('Trade not found', 'danger'); return; }
+    const pnl = (t.pnl || 0).toFixed(2);
+    const pnlColor = t.pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+    const html = `<div style="line-height:1.8;font-size:13px;"><b>Symbol:</b> ${t.symbol || ''}<br><b>Type:</b> ${t.transaction_type} ${t.option_type}<br><b>Strike:</b> ${t.strike}<br><b>Entry:</b> ₹${(t.entry_premium||0).toFixed(2)} at ${t.entry_time||'—'}<br><b>Exit:</b> ₹${(t.exit_premium||0).toFixed(2)} at ${t.exit_time||'—'}<br><b>Lots:</b> ${t.lots||1} × ${t.lot_size||1} = ${t.quantity||''}<br><b>P&L:</b> <span style="color:${pnlColor};font-weight:700;">₹${pnl}</span><br><b>Exit Reason:</b> ${t.exit_reason||'—'}<br><b>Mode:</b> ${t.mode||'scalp'}</div>`;
+    document.getElementById('view-modal-title').innerHTML = 'Scalp Trade S' + tid;
+    document.getElementById('view-modal-content').innerHTML = html;
+    document.getElementById('view-modal-load-btn').style.display = 'none';
+    document.getElementById('view-strategy-modal').style.display = 'flex';
+  }).catch(() => toast('Error loading trade', 'danger'));
+}
+
+async function deleteScalpTrade(tid) {
+  const ok = await customConfirm('Delete this scalp trade?', { title: 'Delete Scalp Trade', icon: ICO.trash(28), okText: 'Delete', danger: true });
+  if (!ok) return;
+  await fetch('/api/scalp/trades/' + tid, { method: 'DELETE' });
+  toast('Scalp trade deleted', 'success');
+  _renderFilteredRuns();
 }
 
 // ══════════════════════════════════════════════════════════════

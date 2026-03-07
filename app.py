@@ -2204,6 +2204,37 @@ async def export_run_csv(rid: int):
         headers={"Content-Disposition": f"attachment; filename={name}_trades.csv"}
     )
 
+# ── Scalp Trades CRUD (scalp_trades.json) ──────────────────────────
+_SCALP_FILE = os.path.join(_HERE, "scalp_trades.json")
+
+def _load_scalp_trades():
+    if os.path.exists(_SCALP_FILE):
+        try:
+            with open(_SCALP_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def _save_scalp_trades(trades):
+    tmp = _SCALP_FILE + ".tmp"
+    with open(tmp, 'w') as f:
+        json.dump(trades, f, indent=2, default=str)
+    os.replace(tmp, _SCALP_FILE)
+
+@app.get("/api/scalp/trades")
+async def get_scalp_trades():
+    """Return all closed scalp trades from scalp_trades.json."""
+    return _load_scalp_trades()
+
+@app.delete("/api/scalp/trades/{tid}")
+async def delete_scalp_trade(tid: int):
+    """Delete a single scalp trade by trade_id."""
+    trades = _load_scalp_trades()
+    _save_scalp_trades([t for t in trades if t.get("trade_id") != tid])
+    return {"deleted": tid}
+
+
 @app.get("/api/paper/trades/csv")
 async def export_paper_trades_csv(run_id: str = ""):
     """Export paper trading trades to CSV"""
