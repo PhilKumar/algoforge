@@ -2800,8 +2800,8 @@ async def get_ticker():
                 print(f"[TICKER] ATM lookup error: {e}")
 
             # SINGLE Dhan API call: IDX_I + NSE_FNO together
-            # sid 13=NIFTY, 51=SENSEX (IDX_I). VIX from yfinance (Dhan IDX_I has no VIX).
-            segments = {"IDX_I": [13, 51]}
+            # sid 13=NIFTY, 25=BANKNIFTY, 49=MIDCPNIFTY, 51=SENSEX (IDX_I). VIX from yfinance.
+            segments = {"IDX_I": [13, 25, 49, 51]}
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
 
@@ -2817,6 +2817,8 @@ async def get_ticker():
                 return 0.0
 
             nifty_ltp = _extract_ltp(idx, 13)
+            banknifty_ltp = _extract_ltp(idx, 25)
+            midcpnifty_ltp = _extract_ltp(idx, 49)
             sensex_ltp = _extract_ltp(idx, 51)
 
             if nifty_ltp > 0:
@@ -2855,10 +2857,15 @@ async def get_ticker():
                 vix_ltp = prev.get("vix_ltp", 0)
                 v_chg, v_pct = _chg(vix_ltp, "vix")
 
+                bn_chg, bn_pct = _chg(banknifty_ltp, "banknifty")
+                mc_chg, mc_pct = _chg(midcpnifty_ltp, "midcpnifty")
+
                 result = {
                     "status": "ok",
                     "source": "dhan",
                     "nifty": {"price": round(nifty_ltp, 2), "change": n_chg, "pct": n_pct},
+                    "banknifty": {"price": round(banknifty_ltp, 2), "change": bn_chg, "pct": bn_pct},
+                    "midcpnifty": {"price": round(midcpnifty_ltp, 2), "change": mc_chg, "pct": mc_pct},
                     "sensex": {"price": round(sensex_ltp, 2), "change": s_chg, "pct": s_pct},
                     "vix": {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
                     "atmCE": atm_ce,

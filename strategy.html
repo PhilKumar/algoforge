@@ -2462,7 +2462,7 @@
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
-          <select id="scalp-option-type" style="font-size: 13px; padding: 8px 10px;">
+          <select id="scalp-option-type" style="font-size: 13px; padding: 8px 10px;" onchange="updateScalpStrike()">
             <option value="CE">CE — Call</option>
             <option value="PE">PE — Put</option>
           </select>
@@ -3246,11 +3246,15 @@ function initScalpPage() {
   }
 }
 
+// Spot price cache from /api/ticker (keyed by underlying)
+var _scalpSpotCache = {};
+
 function stepScalpStrike(dir) {
   const underlying = document.getElementById('scalp-underlying').value;
   const step = _STRIKE_STEPS[underlying] || 50;
   const inp = document.getElementById('scalp-strike');
   const cur = parseInt(inp.value) || 0;
+  if (cur === 0) return;  // Don't step from 0 — wait for auto-populate
   inp.value = cur + dir * step;
 }
 
@@ -3259,6 +3263,28 @@ function _scalpITMStrike(spotPrice, underlying, optionType) {
   const atm = Math.round(spotPrice / step) * step;
   // ITM-4: 4 strikes in-the-money
   return optionType === 'CE' ? atm - 4 * step : atm + 4 * step;
+}
+
+function updateScalpStrike() {
+  const underlying = document.getElementById('scalp-underlying').value;
+  const optType = document.getElementById('scalp-option-type').value;
+  const spot = _scalpSpotCache[underlying] || 0;
+  if (spot > 0) {
+    document.getElementById('scalp-strike').value = _scalpITMStrike(spot, underlying, optType);
+  }
+}
+
+async function _fetchScalpSpotPrices() {
+  try {
+    const r = await fetch('/api/ticker');
+    const d = await r.json();
+    if (d.status === 'ok') {
+      if (d.nifty) _scalpSpotCache['NIFTY'] = d.nifty.price;
+      if (d.banknifty) _scalpSpotCache['BANKNIFTY'] = d.banknifty.price;
+      if (d.midcpnifty) _scalpSpotCache['MIDCPNIFTY'] = d.midcpnifty.price;
+      if (d.sensex) _scalpSpotCache['SENSEX'] = d.sensex.price;
+    }
+  } catch(e) { /* silent */ }
 }
 
 async function loadScalpExpiries() {
@@ -3284,13 +3310,9 @@ async function loadScalpExpiries() {
       opt.textContent = `${dayName} ${label}`;
       sel.appendChild(opt);
     });
-    // Set ITM-4 default strike from live spot
-    const optType = document.getElementById('scalp-option-type').value;
-    const spotEl = document.getElementById('ticker-nifty');
-    const spot = spotEl ? parseFloat(spotEl.textContent.replace(/[^0-9.]/g, '')) : 0;
-    if (spot > 0) {
-      document.getElementById('scalp-strike').value = _scalpITMStrike(spot, underlying, optType);
-    }
+    // Set ITM-4 default strike from live spot per underlying
+    await _fetchScalpSpotPrices();
+    updateScalpStrike();
   } catch(e) { /* silent */ }
 }
 

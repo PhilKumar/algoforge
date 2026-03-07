@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"head -50 /home/ec2-user/algoforge/scalp.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''router\\\\|APIRouter\\\\|app\\\\.\\\\|FastAPI\\\\|@app\\\\|@router'' /home/ec2-user/algoforge/scalp.py | head -20\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''scalp\\\\|ScalpEngine\\\\|scalp_engine'' /home/ec2-user/algoforge/app.py | head -20\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''scalp\\\\|/api/scalp'' /home/ec2-user/algoforge/app.py | head -40\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"wc -l /home/ec2-user/algoforge/app.py && grep -n ''scalp\\\\|/api/scalp'' /home/ec2-user/algoforge/app.py | tail -30\")",
+      "Bash(md5 /Users/philipkumar/Documents/New_Algo/app.py)",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"md5sum /home/ec2-user/algoforge/app.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"head -50 /home/ec2-user/algoforge/scalp_trades.json 2>/dev/null || echo ''File empty or not readable''\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''def.*scalp\\\\|scalp.*def\\\\|POST.*scalp\\\\|PUT.*scalp\\\\|scalp.*start\\\\|scalp.*entry\\\\|ScalpEngine\\\\|scalp_engine'' /home/ec2-user/algoforge/app.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"wc -l /home/ec2-user/algoforge/app.py && tail -100 /home/ec2-user/algoforge/app.py | head -50\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''@app\\\\.'' /home/ec2-user/algoforge/app.py | tail -40\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"sed -n ''2230,2260p'' /home/ec2-user/algoforge/app.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"ls /home/ec2-user/algoforge/ && tail -100 /home/ec2-user/algoforge/scalp.py | head -50\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''scalp\\\\|ScalpEngine\\\\|_scalp_engine\\\\|ScalpTrade'' /home/ec2-user/algoforge/app.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"grep -n ''class\\\\|def\\\\|__main__\\\\|if __name__\\\\|asyncio.run\\\\|app\\\\.\\\\|APIRouter\\\\|FastAPI\\\\|router'' /home/ec2-user/algoforge/scalp.py | head -50\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"sed -n ''162,330p'' /home/ec2-user/algoforge/scalp.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"sed -n ''438,510p'' /home/ec2-user/algoforge/scalp.py\")",
+      "Bash(ssh -i ~/.ssh/algocrypto ec2-user@65.1.213.207 \"sed -n ''131,162p'' /home/ec2-user/algoforge/scalp.py\")"
+    ]
+  }
+}
