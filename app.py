@@ -9,6 +9,7 @@ Fixed:
 import asyncio
 import inspect
 import json
+import logging
 import os
 import secrets
 import sys
@@ -16,6 +17,16 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
+
+_logger = logging.getLogger(__name__)
+
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator as _PFI
+
+    _PROMETHEUS_ENABLED = True
+except ImportError:
+    _PFI = None
+    _PROMETHEUS_ENABLED = False
 
 import pandas as pd
 
