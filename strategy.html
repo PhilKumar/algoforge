@@ -2472,12 +2472,13 @@
           </select>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots</label>
-          <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(×<span id="scalp-lot-size-label">65</span>)</span></label>
+          <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
+          <input type="hidden" id="scalp-lot-size" value="65">
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lot Size <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(auto)</span></label>
-          <input type="number" id="scalp-lot-size" value="65" readonly style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; opacity: 0.55; cursor: not-allowed; -moz-appearance: textfield; appearance: textfield;">
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
+          <div id="scalp-margin" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--warn); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Sq-Off Time</label>
@@ -3269,13 +3270,14 @@ function stepScalpStrike(dir) {
 }
 
 let _ltpAbort = null;
+var _scalpCurrentLTP = 0;
 async function fetchScalpLTP() {
   const el = document.getElementById('scalp-live-ltp');
   const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
   const underlying = document.getElementById('scalp-underlying').value;
   const optType = document.getElementById('scalp-option-type').value;
   const expiry = document.getElementById('scalp-expiry').value;
-  if (!strike || !expiry) { el.textContent = '—'; el.style.color = 'var(--muted)'; return; }
+  if (!strike || !expiry) { el.textContent = '—'; el.style.color = 'var(--muted)'; _scalpCurrentLTP = 0; updateScalpMargin(); return; }
   el.textContent = '…';
   el.style.color = 'var(--muted)';
   if (_ltpAbort) _ltpAbort.abort();
@@ -3286,12 +3288,29 @@ async function fetchScalpLTP() {
     if (d.status === 'ok' && d.ltp > 0) {
       el.textContent = '₹' + d.ltp.toFixed(2);
       el.style.color = '#34d399';
+      _scalpCurrentLTP = d.ltp;
     } else {
       el.textContent = '—';
       el.style.color = 'var(--muted)';
+      _scalpCurrentLTP = 0;
     }
   } catch(e) {
-    if (e.name !== 'AbortError') { el.textContent = '—'; el.style.color = 'var(--muted)'; }
+    if (e.name !== 'AbortError') { el.textContent = '—'; el.style.color = 'var(--muted)'; _scalpCurrentLTP = 0; }
+  }
+  updateScalpMargin();
+}
+
+function updateScalpMargin() {
+  const el = document.getElementById('scalp-margin');
+  const lots = parseInt(document.getElementById('scalp-lots').value) || 0;
+  const lotSize = parseInt(document.getElementById('scalp-lot-size').value) || 0;
+  if (_scalpCurrentLTP > 0 && lots > 0 && lotSize > 0) {
+    const margin = _scalpCurrentLTP * lots * lotSize;
+    el.textContent = '₹' + margin.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    el.style.color = 'var(--warn)';
+  } else {
+    el.textContent = '—';
+    el.style.color = 'var(--muted)';
   }
 }
 
@@ -3330,7 +3349,10 @@ async function loadScalpExpiries() {
     const underlying = document.getElementById('scalp-underlying').value;
     // Update lot size (read-only, auto)
     const ls = document.getElementById('scalp-lot-size');
-    if (ls) ls.value = _LOT_SIZES[underlying] || 65;
+    const lsLabel = document.getElementById('scalp-lot-size-label');
+    const lotVal = _LOT_SIZES[underlying] || 65;
+    if (ls) ls.value = lotVal;
+    if (lsLabel) lsLabel.textContent = lotVal;
     // Fetch actual expiry dates from scrip master
     const res = await fetch(`/api/expiry-list/${underlying}`);
     const data = await res.json();
