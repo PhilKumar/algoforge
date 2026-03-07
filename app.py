@@ -163,6 +163,17 @@ def _get_session_token(request: Request) -> str:
     return token
 
 @app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Attach a unique request-id to every request for log tracing."""
+    import uuid
+    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
@@ -177,18 +188,41 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 # ── Rate Limiting ─────────────────────────────────────────────────
-_rate_limits: dict = defaultdict(list)  # "endpoint:ip" -> [timestamps]
+_rate_limits: dict = defaultdict(list)  # "endpoint:ip" -> [timestamps] (fallback)
+_RL_PREFIX = "algoforge:rl:"
 
 def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 5, window_sec: int = 10):
-    """Per-IP rate limiter — each IP gets its own bucket per endpoint"""
+    """Per-IP rate limiter — Redis sliding window when available, in-memory fallback."""
+    key = f"{_RL_PREFIX}{endpoint}:{client_ip}"
+    r = _get_redis()
+    if r is not None:
+        try:
+            now_ms = int(time.time() * 1000)
+            pipe = r.pipeline()
+            pipe.zremrangebyscore(key, 0, now_ms - window_sec * 1000)
+            pipe.zcard(key)
+            pipe.zadd(key, {str(now_ms): now_ms})
+            pipe.expire(key, window_sec + 1)
+            _, count, *_ = pipe.execute()
+            if count >= max_calls:
+                raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s.")
+            return
+        except HTTPException:
+            raise
+        except Exception as e:
+            _logger.warning(f"[Redis] check_rate_limit failed, using in-memory: {e}")
+    # In-memory fallback (bounded to 50k keys)
     now = time.time()
-    key = f"{endpoint}:{client_ip}"
-    calls = _rate_limits[key]
-    # Purge old entries
-    _rate_limits[key] = [t for t in calls if now - t < window_sec]
-    if len(_rate_limits[key]) >= max_calls:
+    mem_key = f"{endpoint}:{client_ip}"
+    calls = _rate_limits[mem_key]
+    _rate_limits[mem_key] = [t for t in calls if now - t < window_sec]
+    if len(_rate_limits[mem_key]) >= max_calls:
         raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s.")
-    _rate_limits[key].append(now)
+    _rate_limits[mem_key].append(now)
+    if len(_rate_limits) > 50_000:
+        stale = [k for k, v in _rate_limits.items() if not v or now - v[-1] > window_sec]
+        for k in stale[:5_000]:
+            del _rate_limits[k]
 
 
 # ── Models ────────────────────────────────────────────────────────
@@ -289,20 +323,51 @@ async def serve_logo():
 
 
 # ── Brute-Force Protection ────────────────────────────────────────
-_login_attempts: dict = defaultdict(list)  # ip -> [timestamps]
+_login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_LOCKOUT_SEC = 300  # 5 minutes
+_LOGIN_RL_PREFIX = "algoforge:login:"
 
 def _check_login_rate(ip: str):
+    r = _get_redis()
+    if r is not None:
+        try:
+            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            count = int(r.get(key) or 0)
+            if count >= _LOGIN_MAX_ATTEMPTS:
+                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+            return
+        except HTTPException:
+            raise
+        except Exception as e:
+            _logger.warning(f"[Redis] _check_login_rate failed, using in-memory: {e}")
     now = time.time()
     _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_LOCKOUT_SEC]
     if len(_login_attempts[ip]) >= _LOGIN_MAX_ATTEMPTS:
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
 
 def _record_failed_login(ip: str):
+    r = _get_redis()
+    if r is not None:
+        try:
+            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            pipe = r.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, _LOGIN_LOCKOUT_SEC)
+            pipe.execute()
+            return
+        except Exception as e:
+            _logger.warning(f"[Redis] _record_failed_login failed, using in-memory: {e}")
     _login_attempts[ip].append(time.time())
 
 def _clear_login_attempts(ip: str):
+    r = _get_redis()
+    if r is not None:
+        try:
+            r.delete(f"{_LOGIN_RL_PREFIX}{ip}")
+            return
+        except Exception:
+            pass
     _login_attempts.pop(ip, None)
 
 
@@ -2577,15 +2642,33 @@ def _refresh_recent_charges(history: dict):
 # ── Token renewal background task ────────────────────────────────
 _token_renewal_task = None
 
+async def _prefetch_scrip_master():
+    """Download/refresh Scrip Master cache in background — non-blocking."""
+    try:
+        loaded = await asyncio.to_thread(ScripMaster.ensure_loaded)
+        if loaded:
+            _logger.info(f"[SCRIP] Background prefetch complete ({len(ScripMaster._options_cache)} contracts)")
+        else:
+            _logger.warning("[SCRIP] Background prefetch returned False — will retry on first order")
+    except Exception as e:
+        _logger.warning(f"[SCRIP] Background prefetch failed: {e}")
+
+
 @app.on_event("startup")
 async def _start_token_renewal():
     global _token_renewal_task
+    # ── Prometheus instrumentation ─────────────────────────────
+    if _PROMETHEUS_ENABLED:
+        _PFI(app).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+        _logger.info("[Prometheus] Metrics exposed at /metrics")
     if config.AUTO_TOKEN_ENABLED:
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
     if _market_feed:
         print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
-    
+    # ── Pre-cache Scrip Master in background (non-blocking) ────
+    asyncio.create_task(_prefetch_scrip_master())
+
     # Auto-backfill trade history from Dhan on startup
     try:
         history = _load_trade_history()

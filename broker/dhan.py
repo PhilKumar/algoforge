@@ -45,6 +45,93 @@ _api_cache = _TTLCache()
 
 
 # ══════════════════════════════════════════════════════════════
+#  Exponential Backoff + Circuit Breaker
+# ══════════════════════════════════════════════════════════════
+import logging as _log
+_dhan_log = _log.getLogger("algoforge.dhan")
+
+# Retryable HTTP status codes (rate-limit / transient server errors)
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
+def _request_with_retry(
+    method: str,
+    url: str,
+    *,
+    headers: dict,
+    json: dict = None,
+    timeout: int = 30,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> "requests.Response":
+    """
+    Execute an HTTP request with exponential backoff on transient failures.
+    Raises the last exception if all retries are exhausted.
+    """
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.request(method, url, headers=headers, json=json, timeout=timeout)
+            if resp.status_code not in _RETRYABLE_STATUSES:
+                return resp
+            # Retryable status — treat as transient
+            last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
+            _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt+1}/{max_retries})")
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            last_exc = e
+            _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt+1}/{max_retries}): {e}")
+        if attempt < max_retries - 1:
+            delay = base_delay * (2 ** attempt)  # 1s, 2s, 4s …
+            _time.sleep(delay)
+    raise last_exc
+
+
+class _CircuitBreaker:
+    """
+    Simple circuit breaker: opens after `failure_threshold` consecutive
+    failures; resets after `recovery_timeout` seconds.
+    """
+    CLOSED = "closed"
+    OPEN   = "open"
+
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+        self._threshold = failure_threshold
+        self._timeout   = recovery_timeout
+        self._failures  = 0
+        self._state     = self.CLOSED
+        self._opened_at = 0.0
+
+    def call_allowed(self) -> bool:
+        if self._state == self.CLOSED:
+            return True
+        # Half-open: allow one probe after timeout
+        if _time.time() - self._opened_at >= self._timeout:
+            return True
+        return False
+
+    def record_success(self):
+        self._failures = 0
+        self._state    = self.CLOSED
+
+    def record_failure(self):
+        self._failures += 1
+        if self._failures >= self._threshold:
+            if self._state != self.OPEN:
+                _dhan_log.error(
+                    f"[DHAN] Circuit breaker OPEN after {self._failures} consecutive failures"
+                )
+            self._state     = self.OPEN
+            self._opened_at = _time.time()
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+
+_circuit_breaker = _CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
+
+
+# ══════════════════════════════════════════════════════════════
 #  SCRIP MASTER — Option Security ID Lookup
 # ══════════════════════════════════════════════════════════════
 SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
@@ -392,17 +479,25 @@ class DhanClient:
                 "toDate":           to_date,
             }
 
-        print(f"[DHAN] POST {endpoint}")
-        print(f"[DHAN] Payload: {payload}")
+        import logging as _log
+        _dlog = _log.getLogger("algoforge.dhan")
+        _safe = {k: v for k, v in payload.items()
+                 if k not in ("access-token", "accessToken", "token", "password", "secret")}
+        _dlog.debug(f"[DHAN] POST {endpoint} payload_keys={list(_safe.keys())}")
 
-        resp = requests.post(endpoint, json=payload, headers=self.headers, timeout=30)
-        
-        print(f"[DHAN] Response: {resp.status_code}")
-        
+        if not _circuit_breaker.call_allowed():
+            raise Exception("Dhan API circuit breaker is OPEN — skipping candle fetch")
+        try:
+            resp = _request_with_retry("POST", endpoint, headers=self.headers, json=payload, timeout=30)
+        except Exception as e:
+            _circuit_breaker.record_failure()
+            raise
         if resp.status_code != 200:
             error_text = resp.text[:500]
-            print(f"[DHAN] Error body: {error_text}")
+            _circuit_breaker.record_failure()
+            _dhan_log.warning(f"[DHAN] POST {endpoint} status={resp.status_code} err={error_text}")
             raise Exception(f"Dhan API error {resp.status_code}: {error_text}")
+        _circuit_breaker.record_success()
 
         data = resp.json()
         
@@ -494,15 +589,20 @@ class DhanClient:
             "correlationId":   tag,
         }
 
-        resp = requests.post(
-            f"{self.base_url}/v2/orders",
-            json=payload,
-            headers=self.headers,
-            timeout=10,
-        )
+        if not _circuit_breaker.call_allowed():
+            raise Exception(f"Dhan API circuit breaker is OPEN — broker unavailable, retrying in {_circuit_breaker._timeout:.0f}s")
+        try:
+            resp = _request_with_retry(
+                "POST", f"{self.base_url}/v2/orders",
+                headers=self.headers, json=payload, timeout=10,
+            )
+        except Exception as e:
+            _circuit_breaker.record_failure()
+            raise
         if resp.status_code not in (200, 201):
+            _circuit_breaker.record_failure()
             raise Exception(f"Order placement failed {resp.status_code}: {resp.text}")
-
+        _circuit_breaker.record_success()
         return resp.json()
 
     def place_option_order(
