@@ -407,6 +407,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
 
     prev_row = None
+    prev_prev_row = None
     for ts, row in df.iterrows():
         ct = ts.time()
         cd = ts.date()
@@ -498,7 +499,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     cp_worst = max(cp, cp_at_h, cp_at_l)  # worst for SELL holder
                     cp_best = min(cp, cp_at_h, cp_at_l)  # best for SELL holder
             else:
-                cp_worst = l  # worst for long index
+                cp_worst = lo  # worst for long index
                 cp_best = h  # best for long index
             # Update peak premium for trailing SL
             if has_opt:
@@ -737,10 +738,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 )
                 in_trade = False
                 td += 1
-            elif eval_condition_group(row, exit_conditions, prev_row):
-                pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
+            elif prev_row is not None and eval_condition_group(prev_row, exit_conditions, prev_prev_row):
+                xo = float(row["open"])
+                xp = _est_prem(xo, ei, ep, ot, atm_prem_ref) if has_opt else xo
+                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, xo, lots, lot_size)
                 _ep_ = ep if has_opt else ei
-                _xp_ = cp if has_opt else c
+                _xp_ = xp if has_opt else xo
                 fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
                 pnl -= fee
                 total_fees += fee
@@ -774,7 +777,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
                 continue
 
-            if eval_condition_group(row, entry_conditions, prev_row):
+            if prev_row is not None and eval_condition_group(prev_row, entry_conditions, prev_prev_row):
                 in_trade = True
                 ei = float(row["open"])
                 et = ts  # Use candle OPEN (matches Quantman entry timing)
@@ -883,7 +886,39 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     peak_prem = ei
 
         equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+        prev_prev_row = prev_row
         prev_row = row
+
+    # Force-close any open trade at end of data
+    if in_trade and prev_row is not None:
+        c = float(prev_row["close"])
+        xp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
+        pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
+        _ep_ = ep if has_opt else ei
+        _xp_ = xp if has_opt else c
+        fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
+        pnl -= fee
+        total_fees += fee
+        total_pnl += pnl
+        peak_total_pnl = max(peak_total_pnl, total_pnl)
+        trades.append(
+            _mk(
+                len(trades) + 1,
+                et,
+                prev_row.name,
+                _ep_,
+                _xp_,
+                pnl,
+                "EOD/Data",
+                total_pnl,
+                ot,
+                strike_name,
+                trade_qty,
+                ltxn,
+                fee,
+            )
+        )
+        in_trade = False
 
     if not trades:
         return {
@@ -913,8 +948,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         pk = max(pk, v)
         ddv = pk - v
         mddv = max(mddv, ddv)
-        if pk > 0:
-            mdd = max(mdd, ddv / pk * 100)
+        if pk != 0:
+            mdd = max(mdd, ddv / abs(pk) * 100)
         # Track drawdown days
         if ddv > 0:
             if not in_dd:
