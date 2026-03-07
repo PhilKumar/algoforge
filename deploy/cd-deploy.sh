@@ -17,7 +17,7 @@ GREEN_PORT=8001
 PORT_FILE="$HOME/.${APP}-active-port"
 UPSTREAM_CONF="/etc/nginx/conf.d/${APP}-upstream.conf"
 
-HEALTH_PATH="/health"
+HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=30          # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 
