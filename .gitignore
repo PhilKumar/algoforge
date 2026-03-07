@@ -59,3 +59,9 @@ phillip_aws_accessKeys.csv
 server.log
 *.csv
 *.log
+
+# Runtime / temp files
+.sessions.json
+live_state_*.json
+*.tmp
+*.log
