@@ -9,32 +9,32 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #050608; 
+    --bg: #050608;
     --card: rgba(22, 26, 35, 0.6);
     --card2: rgba(28, 32, 48, 0.8);
     --border: rgba(37, 42, 56, 0.5);
-    --text: #e8eaf0; 
-    --muted: #6b7394; 
-    --accent: #00c896; 
+    --text: #e8eaf0;
+    --muted: #6b7394;
+    --accent: #00c896;
     --accent2: #3b82f6;
-    --warn: #f59e0b; 
-    --danger: #ef4444; 
+    --warn: #f59e0b;
+    --danger: #ef4444;
     --success: #22c55e;
     --purple: #a855f7;
     --glass-hi: rgba(255,255,255,0.22);
     --glass-mid: rgba(255,255,255,0.12);
     --glass-lo: rgba(255,255,255,0.05);
   }
-  body { 
-    font-family: 'Outfit', sans-serif; 
+  body {
+    font-family: 'Outfit', sans-serif;
     background: #060810;
-    background-image: 
+    background-image:
       radial-gradient(ellipse 800px 600px at 20% 30%, rgba(0,200,150,0.06) 0%, transparent 70%),
       radial-gradient(ellipse 600px 500px at 80% 70%, rgba(59,130,246,0.04) 0%, transparent 70%),
       radial-gradient(ellipse 900px 400px at 50% 0%, rgba(0,200,150,0.03) 0%, transparent 60%);
     background-attachment: fixed;
-    color: var(--text); font-size: 16px; min-height: 100vh; 
-    padding: 16px 20px; 
+    color: var(--text); font-size: 16px; min-height: 100vh;
+    padding: 16px 20px;
     max-width: 1400px;
     margin: 0 auto;
   }
@@ -58,12 +58,12 @@
     z-index: -1;
   }
   /* ── Base Card ── */
-  .card { 
+  .card {
     background: linear-gradient(160deg, rgba(22,30,42,0.85), rgba(16,22,34,0.8));
-    border: 1px solid rgba(255,255,255,0.07); 
+    border: 1px solid rgba(255,255,255,0.07);
     border-top: 1px solid rgba(255,255,255,0.12);
-    border-radius: 16px; padding: 24px; margin-bottom: 16px; 
-    backdrop-filter: blur(30px) saturate(1.3); 
+    border-radius: 16px; padding: 24px; margin-bottom: 16px;
+    backdrop-filter: blur(30px) saturate(1.3);
     -webkit-backdrop-filter: blur(30px) saturate(1.3);
     box-shadow: 0 0 1px rgba(255,255,255,0.06), 0 0 25px rgba(0,200,150,0.02), 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
     position: relative;
@@ -82,9 +82,9 @@
      Key: lighter base + visible glow borders + ambient shine
      ═══════════════════════════════════════════════════ */
   .card-glass {
-    background: linear-gradient(160deg, 
-      rgba(25,35,50,0.85) 0%, 
-      rgba(18,25,38,0.75) 40%, 
+    background: linear-gradient(160deg,
+      rgba(25,35,50,0.85) 0%,
+      rgba(18,25,38,0.75) 40%,
       rgba(15,22,35,0.8) 70%,
       rgba(12,20,32,0.85) 100%);
     border: 1px solid rgba(255,255,255,0.08);
@@ -124,8 +124,8 @@
 
   /* ── Stat Box (smaller glass panels) ── */
   .stat-box {
-    background: linear-gradient(160deg, 
-      rgba(25,35,50,0.9) 0%, 
+    background: linear-gradient(160deg,
+      rgba(25,35,50,0.9) 0%,
       rgba(18,25,40,0.8) 50%,
       rgba(14,22,36,0.85) 100%);
     border: 1px solid rgba(255,255,255,0.07);
@@ -159,10 +159,10 @@
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), rgba(0,200,150,0.15), rgba(255,255,255,0.12), transparent);
     pointer-events: none;
   }
-  .stat-box:hover { 
-    transform: translateY(-2px); 
+  .stat-box:hover {
+    transform: translateY(-2px);
     border-color: rgba(0,200,150,0.15);
-    box-shadow: 0 0 1px rgba(255,255,255,0.12), 0 0 40px rgba(0,200,150,0.06), 0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12); 
+    box-shadow: 0 0 1px rgba(255,255,255,0.12), 0 0 40px rgba(0,200,150,0.06), 0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12);
   }
   .stat-label { font-size: 12px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }
   .stat-value { font-size: 26px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; position: relative; z-index: 1; }
@@ -205,7 +205,7 @@
   h1, h2, h3 { font-family: 'Syne', sans-serif; }
   h2 { font-size: 26px; letter-spacing: -0.5px; }
   h3 { font-size: 17px; letter-spacing: -0.3px; }
-  
+
   /* ── BUILDER 3-COL LAYOUT ── */
   .builder-grid {
     display: grid;
@@ -1045,6 +1045,50 @@
 </head>
 <body>
 
+<!-- BACKFILL PROGRESS BANNER (hidden until status confirmed running) -->
+<style>
+  #backfill-banner {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 9999;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    padding: 10px 20px;
+    align-items: center;
+    gap: 14px;
+  }
+  #backfill-banner.visible { display: flex; }
+  #backfill-bar-track {
+    flex: 1;
+    height: 4px;
+    background: #334155;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #backfill-bar-fill {
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, #6366f1, #38bdf8);
+    border-radius: 2px;
+    animation: backfill-slide 1.6s ease-in-out infinite;
+  }
+  @keyframes backfill-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  #backfill-msg {
+    font-size: 12px;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+</style>
+<div id="backfill-banner">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+  <span id="backfill-msg">Backfilling historical data...</span>
+  <div id="backfill-bar-track"><div id="backfill-bar-fill"></div></div>
+</div>
+
 <!-- EMERGENCY KILL SWITCH (hidden by default, shown when engines active) -->
 <button class="kill-switch hidden" id="kill-switch-btn" onclick="emergencyStop()">
   <span style="color:#ef4444;">⊘</span> <span>KILL ALL</span>
@@ -1282,15 +1326,15 @@
     <div style="flex: 1;">
       <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Premium Estimation Notice</div>
       <div class="premium-notice-text" style="font-size: 11px; color: rgba(255,255,255,0.8); line-height: 1.5;">
-        This backtest uses <strong>estimated option premiums</strong> based on spot price + volatility models, not real historical option chain data. 
-        Premium "Near 500₹" finds the strike whose <em>estimated</em> premium is closest to 500₹. 
+        This backtest uses <strong>estimated option premiums</strong> based on spot price + volatility models, not real historical option chain data.
+        Premium "Near 500₹" finds the strike whose <em>estimated</em> premium is closest to 500₹.
         For real option pricing, use live/paper trading mode or paid historical option data providers.
       </div>
     </div>
   </div>
-  
+
   <div class="builder-grid">
-    
+
     <!-- ═══ COL 1: Compact Settings ═══ -->
     <div class="settings-col">
       <div class="card card-compact">
@@ -1374,7 +1418,7 @@
         </div>
       </div>
     </div>
-    
+
     <!-- ═══ COL 2: Indicators + Conditions ═══ -->
     <div>
       <div class="card" style="padding: 16px; margin-bottom: 12px;">
@@ -1535,7 +1579,7 @@
     <div id="runs-list-results"></div>
     <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
   </div>
-  
+
   <!-- Backtest Comparison Panel -->
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
@@ -2108,18 +2152,18 @@ function customConfirm(message, options = {}) {
     const iconEl = document.getElementById('confirm-icon');
     const okBtn = document.getElementById('confirm-ok-btn');
     const cancelBtn = document.getElementById('confirm-cancel-btn');
-    
+
     titleEl.innerHTML = options.title || 'Confirm';
     msgEl.innerHTML = message;
     iconEl.innerHTML = options.icon || ICO.warn(28);
     okBtn.textContent = options.okText || 'Confirm';
     cancelBtn.textContent = options.cancelText || 'Cancel';
-    
+
     // Style the OK button based on type
     okBtn.className = options.danger ? 'btn-confirm-danger' : 'btn-confirm-ok';
-    
+
     modal.classList.add('open');
-    
+
     function cleanup() {
       modal.classList.remove('open');
       okBtn.removeEventListener('click', onOk);
@@ -2129,11 +2173,11 @@ function customConfirm(message, options = {}) {
     function onOk() { cleanup(); resolve(true); }
     function onCancel() { cleanup(); resolve(false); }
     function onBackdrop(e) { if (e.target === modal) { cleanup(); resolve(false); } }
-    
+
     okBtn.addEventListener('click', onOk);
     cancelBtn.addEventListener('click', onCancel);
     modal.addEventListener('click', onBackdrop);
-    
+
     // Focus the cancel button for safety
     cancelBtn.focus();
   });
@@ -2169,6 +2213,35 @@ const INSTRUMENT_LOT_MAP = {
 function _getLotSizeForInstrument(instCode) {
   return INSTRUMENT_LOT_MAP[String(instCode)] || 65;
 }
+
+// ── Backfill status polling ───────────────────────────────────────
+(function pollBackfill() {
+  const banner = document.getElementById('backfill-banner');
+  const msg    = document.getElementById('backfill-msg');
+  let   timer  = null;
+
+  function check() {
+    fetch('/api/backfill/status')
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'running') {
+          banner.classList.add('visible');
+          msg.textContent = data.message || 'Backfilling historical data...';
+          timer = setTimeout(check, 2500);
+        } else if (data.status === 'done') {
+          msg.textContent = data.message || 'Trade history up to date.';
+          setTimeout(() => banner.classList.remove('visible'), 2000);
+        } else if (data.status === 'error') {
+          msg.textContent = 'Backfill error: ' + (data.message || 'unknown');
+          setTimeout(() => banner.classList.remove('visible'), 5000);
+        }
+        // status === 'idle' → backfill hasn't started yet (cold start race); check again
+        else { timer = setTimeout(check, 1500); }
+      })
+      .catch(() => { /* server not ready yet — retry */ timer = setTimeout(check, 3000); });
+  }
+  check();
+})();
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-name-input').value = 'Strategy_' + generateRandomID();
@@ -2369,7 +2442,7 @@ function _buildRunsTable(runs) {
       <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
       <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
-  
+
   runs.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = getInstrumentName(r.instrument);
@@ -2432,12 +2505,12 @@ function _renderFilteredRuns() {
     _renderScalpRuns(containerResults, emptyResults);
     return;
   }
-  
+
   let filtered = _allRunsCache;
   if (_currentRunFilter !== 'all') {
     filtered = _allRunsCache.filter(r => _normalizeMode(r.mode) === _currentRunFilter);
   }
-  
+
   if (!filtered.length) {
     if (emptyResults) { emptyResults.style.display = 'block'; emptyResults.textContent = _currentRunFilter === 'all' ? 'No runs yet.' : 'No ' + _currentRunFilter + ' runs found.'; }
     if (containerResults) containerResults.innerHTML = '';
@@ -2500,7 +2573,7 @@ function _renderPortfolioPaperRuns(runs) {
   const container = document.getElementById('portfolio-paper-runs');
   const empty = document.getElementById('portfolio-paper-runs-empty');
   const paperRuns = runs.filter(r => _normalizeMode(r.mode) === 'paper');
-  
+
   if (!container) return;
   if (!paperRuns.length) {
     if (empty) empty.style.display = 'block';
@@ -2508,13 +2581,13 @@ function _renderPortfolioPaperRuns(runs) {
     return;
   }
   if (empty) empty.style.display = 'none';
-  
+
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
       <th style="padding: 8px 6px;">Run</th><th style="padding: 8px 6px;">Name</th><th style="padding: 8px 6px;">Instrument</th>
       <th style="padding: 8px 6px;">Trades</th><th style="padding: 8px 6px;">P&L</th><th style="padding: 8px 6px;">Entry Time</th><th style="padding: 8px 6px;">Exit Time</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
-  
+
   paperRuns.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = getInstrumentName(r.instrument);
@@ -2543,25 +2616,25 @@ async function fetchRuns() {
     const res = await fetch('/api/runs');
     const runs = await res.json();
     _allRunsCache = runs.slice().reverse();
-    
+
     const container = document.getElementById('runs-list');
     const empty = document.getElementById('runs-empty');
-    
-    if (!_allRunsCache.length) { 
+
+    if (!_allRunsCache.length) {
       if (empty) { empty.style.display = 'block'; }
       if (container) { container.innerHTML = ''; }
       _renderFilteredRuns();
       _renderPortfolioPaperRuns([]);
-      return; 
+      return;
     }
     if (empty) empty.style.display = 'none';
-    
+
     // Dashboard: show all runs
     if (container) container.innerHTML = _buildRunsTable(_allRunsCache);
-    
+
     // Results page: apply current filter
     _renderFilteredRuns();
-    
+
     // Portfolio page: show paper runs
     _renderPortfolioPaperRuns(_allRunsCache);
   } catch(e) { console.error('fetchRuns error:', e); }
@@ -2673,16 +2746,16 @@ function setTickerValue(priceId, chgId, data) {
   const priceEl = document.getElementById(priceId);
   const chgEl = document.getElementById(chgId);
   if (!priceEl || !data) return;
-  
+
   const price = parseFloat(data.price);
   if (isNaN(price) || price <= 0) {
     console.warn(`Invalid price for ${priceId}:`, data.price);
     return;
   }
-  
+
   priceEl.textContent = price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   priceEl.style.color = 'var(--text)';
-  
+
   if (chgEl && data.change !== undefined && data.pct !== undefined) {
     const isUp = data.change >= 0;
     const dir = isUp ? 'UP' : 'DN';
@@ -2795,7 +2868,7 @@ function onSegmentChange() {
   const seg = document.getElementById('segment-select').value;
   const inst = document.getElementById('instrument-select');
   const list = seg === 'indices' ? INDICES_LIST : STOCKS_LIST;
-  
+
   inst.innerHTML = '<option value="" disabled selected>Select...</option>';
   list.forEach(item => {
     inst.innerHTML += `<option value="${item.value}">${item.label}</option>`;
@@ -2812,13 +2885,13 @@ function moveStrategyFolder(id) {
   if (!s) return;
   movingStrategyId = id;
   const currentFolder = s.folder || 'Intraday';
-  
+
   document.getElementById('move-strategy-name').textContent = `Moving "${s.run_name}" (current: ${currentFolder})`;
-  
+
   // Collect all existing folders
   const folders = new Set(['Scalping', 'Intraday', 'Swing', 'Positional', 'Experimental', 'Hedging']);
   savedStrategiesCache.forEach(st => { if (st.folder) folders.add(st.folder); });
-  
+
   const container = document.getElementById('move-folder-options');
   container.innerHTML = '';
   [...folders].sort().forEach(f => {
@@ -2827,7 +2900,7 @@ function moveStrategyFolder(id) {
       ${isActive ? '• ' : ''}${f}${isActive ? ' (current)' : ''}
     </button>`;
   });
-  
+
   document.getElementById('move-new-folder').value = '';
   document.getElementById('move-folder-modal').classList.add('open');
 }
@@ -2838,7 +2911,7 @@ function confirmMoveTo(folder) {
   if (!movingStrategyId) return;
   const s = savedStrategiesCache.find(x => x.id === movingStrategyId);
   if (s && s.folder === folder) { closeMoveModal(); return; }
-  
+
   fetch(`/api/strategies/${movingStrategyId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -2912,7 +2985,7 @@ async function toggleBroker() {
   if (!btn) return;
   btn.disabled = true;
   btn.textContent = 'Checking...';
-  
+
   if (isBrokerConnected) {
     // Disconnect
     stopBrokerHealthCheck();
@@ -2968,10 +3041,10 @@ async function fetchStrategies() {
     savedStrategiesCache = strats;
     const container = document.getElementById('saved-strategies-grouped');
     const emptyMsg = document.getElementById('saved-strategies-empty');
-    
+
     if (strats.length === 0) { container.innerHTML = ''; emptyMsg.style.display = 'block'; return; }
     emptyMsg.style.display = 'none';
-    
+
     // Group by folder
     const groups = {};
     strats.forEach(s => {
@@ -2979,7 +3052,7 @@ async function fetchStrategies() {
       if (!groups[folder]) groups[folder] = [];
       groups[folder].push(s);
     });
-    
+
     let html = '';
     Object.keys(groups).sort().forEach(folder => {
       const items = groups[folder].reverse();
@@ -3130,7 +3203,7 @@ function loadStrategy(id) {
   document.getElementById('max-daily-loss').value = s.max_daily_loss || 0;
   if (s.from_date) document.getElementById('bt-from-date').value = s.from_date;
   if (s.to_date) document.getElementById('bt-to-date').value = s.to_date;
-  
+
   // Restore folder
   if (s.folder) {
     const folderSel = document.getElementById('folder-select');
@@ -3283,7 +3356,7 @@ function loadStrategy(id) {
 
   // Switch to builder page
   document.getElementById('nav-builder').click();
-  
+
   // Update the Loaded Strategy panel on right side
   const panel = document.getElementById('loaded-strategy-info');
   const instName = s.instrument === '26000' ? 'NIFTY 50' : (s.instrument === '26009' ? 'BANK NIFTY' : s.instrument);
@@ -3337,14 +3410,14 @@ function renderIndicatorFields() {
 }
 function addIndicator() {
   const name = document.getElementById('new-indicator-name').value;
-  
+
   // CPR opens a configuration modal instead of adding directly
   if (name === "CPR") {
     if (myIndicators.some(i => i.startsWith('CPR'))) { toast('CPR already added!', 'warn'); return; }
     document.getElementById('cpr-modal').classList.add('open');
     return;
   }
-  
+
   let id = "";
   if (name === "Current_Candle") id = `Current_Candle_${document.getElementById('ind-tf').value}m`;
   else if (name === "Previous_Day") id = "Previous_Day";
@@ -3359,7 +3432,7 @@ function addIndicator() {
   else if (name === "VWAP") id = `VWAP_${document.getElementById('ind-tf').value}m`;
   else if (name === "ATR" || name === "ADX" || name === "StochRSI") id = `${name}_${document.getElementById('ind-period').value}_${document.getElementById('ind-tf').value}m`;
   else if (name === "Supertrend") id = `Supertrend_${document.getElementById('ind-period').value}_${document.getElementById('ind-multiplier').value}_${document.getElementById('ind-tf').value}m`;
-  
+
   if (!myIndicators.includes(id)) {
     myIndicators.push(id);
     const badge = document.createElement('span');
@@ -3379,19 +3452,19 @@ function closeCPRModal() { document.getElementById('cpr-modal').classList.remove
 function confirmAddCPR() {
   const narrowPct = parseFloat(document.getElementById('cpr-narrow-pct').value) || 0.2;
   const moderatePct = parseFloat(document.getElementById('cpr-moderate-pct').value) || 0.5;
-  
+
   // Encode config into the indicator string: CPR_0.2_0.5
   const indId = `CPR_${narrowPct}_${moderatePct}`;
-  
+
   if (!myIndicators.some(i => i.startsWith('CPR'))) {
     myIndicators.push(indId);
-    
+
     const badge = document.createElement('span');
     badge.id = `badge-${indId}`;
     badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:linear-gradient(135deg, var(--accent2), var(--purple));color:white;border-radius:4px;font-weight:600;font-size:12px;";
     badge.innerHTML = `CPR (N:${narrowPct}% M:${moderatePct}%) <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${indId}')">&times;</span>`;
     document.getElementById('active-indicators-list').appendChild(badge);
-    
+
     syncConditionDropdowns();
     closeCPRModal();
     toast(`Added CPR indicator (Narrow ≤${narrowPct}%, Moderate ≤${moderatePct}%)`, 'success');
@@ -3462,20 +3535,20 @@ let conditionCounters = { entry: 0, exit: 0 };
 
 function addConditionRow(type) {
   const container = document.getElementById(`${type}-conditions-container`);
-  
+
   // Validate: Don't allow adding conditions without indicators or Current Candle
   if (myIndicators.length === 0) {
     toast('Please add indicators first before creating conditions!', 'warn');
     return;
   }
-  
+
   // Reset counter if container is empty (all conditions were deleted)
   if (container.children.length === 0) {
     conditionCounters[type] = 0;
   }
   const rowId = conditionCounters[type]++;
   const isFirst = container.children.length === 0;
-  
+
   // If not first row, insert a centered AND/OR connector between rows
   if (!isFirst) {
     const connector = document.createElement('div');
@@ -3484,7 +3557,7 @@ function addConditionRow(type) {
     connector.innerHTML = `<select class="logic-op" onchange="this.style.background=this.value==='OR'?'rgba(245,158,11,0.12)':'rgba(0,200,150,0.12)';this.style.borderColor=this.value==='OR'?'rgba(245,158,11,0.3)':'rgba(0,200,150,0.3)';this.style.color=this.value==='OR'?'var(--warn)':'var(--accent)'"><option value="AND">AND</option><option value="OR">OR</option></select>`;
     container.appendChild(connector);
   }
-  
+
   const row = document.createElement('div');
   row.className = 'flex-row condition-row'; row.id = `${type}-row-${rowId}`;
   let lhsOpts = buildLHSOptions();
@@ -3529,43 +3602,43 @@ function buildRHSOptions(lhsValue) {
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
   const isBool = BOOLEAN_FIELDS.includes(lhsValue);
   let html = '';
-  
+
   // For boolean fields, show true/false first
   if (isBool) {
     html += '<option value="true">true</option><option value="false">false</option>';
   }
-  
+
   // Add Current Candle columns FIRST (default selection)
-  html += `<optgroup label="\u2500\u2500 Current Candle \u2500\u2500">`; 
-  CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); 
+  html += `<optgroup label="\u2500\u2500 Current Candle \u2500\u2500">`;
+  CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += '</optgroup>';
-  
+
   // Add other indicator options
-  if (hasPrevDay) { 
-    html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`; 
-    PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); 
-    html += '</optgroup>'; 
+  if (hasPrevDay) {
+    html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`;
+    PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
+    html += '</optgroup>';
   }
-  if (hasORB) { 
-    html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; 
-    ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); 
-    html += '</optgroup>'; 
+  if (hasORB) {
+    html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`;
+    ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
+    html += '</optgroup>';
   }
-  if (hasCPR) { 
-    html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; 
-    CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); 
-    html += '</optgroup>'; 
+  if (hasCPR) {
+    html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`;
+    CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
+    html += '</optgroup>';
   }
-  
+
   // Add custom indicators
-  myIndicators.forEach(ind => { 
-    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB')) 
-      html += `<option value="${ind}">${ind}</option>`; 
+  myIndicators.forEach(ind => {
+    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB'))
+      html += `<option value="${ind}">${ind}</option>`;
   });
-  
+
   // Add "Number" option at the END (not default)
   html += '<option value="number">─── Number (custom value) ───</option>';
-  
+
   return html;
 }
 
@@ -3632,21 +3705,21 @@ function toggleNumberInput(sel) {
     console.error('toggleNumberInput: Could not find .condition-row parent');
     return;
   }
-  
+
   const rhsWrap = row.querySelector('.rhs-wrap');
   if (!rhsWrap) {
     console.error('toggleNumberInput: Could not find .rhs-wrap');
     return;
   }
-  
+
   const inp = rhsWrap.querySelector('.right-num');
   if (!inp) {
     console.error('toggleNumberInput: Could not find .right-num input');
     return;
   }
-  
+
   console.log('toggleNumberInput called, selected value:', sel.value);
-  
+
   if (sel.value === 'number') {
     inp.style.display = 'block';
     inp.style.width = '100px';
@@ -3828,7 +3901,7 @@ async function copyEditRun(runId) {
 
 async function copyEditStrategy(runId) {
   let p = lastBacktestPayload;
-  
+
   // If a specific runId was given, fetch that run
   if (!p && runId) {
     try {
@@ -3841,7 +3914,7 @@ async function copyEditStrategy(runId) {
       return;
     }
   }
-  
+
   // If no payload available, try to fetch from current run
   if (!p && currentViewingRunId) {
     try {
@@ -3852,7 +3925,7 @@ async function copyEditStrategy(runId) {
       return;
     }
   }
-  
+
   // If still no payload, try to load the most recent run
   if (!p) {
     try {
@@ -3867,9 +3940,9 @@ async function copyEditStrategy(runId) {
       }
     } catch(e) {}
   }
-  
+
   if (!p) { toast('No backtest data to copy. Run a backtest first!', 'warn'); return; }
-  
+
   try {
     // Switch to builder page
     const builderPage = document.getElementById('builder-page');
@@ -3877,15 +3950,15 @@ async function copyEditStrategy(runId) {
       toast('Strategy builder page not found', 'danger');
       return;
     }
-    
+
     document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active-page'));
     document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
     builderPage.classList.add('active-page');
     document.getElementById('nav-builder').classList.add('active');
-    
+
     // Basic fields
     document.getElementById('run-name-input').value = generateCopyName(p.run_name || 'Strategy');
-    if (p.segment) { 
+    if (p.segment) {
       document.getElementById('segment-select').value = p.segment;
       onSegmentChange();
     }
@@ -3903,7 +3976,7 @@ async function copyEditStrategy(runId) {
     document.getElementById('max-daily-loss').value = p.max_daily_loss || 0;
     if (p.from_date) document.getElementById('bt-from-date').value = p.from_date;
     if (p.to_date) document.getElementById('bt-to-date').value = p.to_date;
-    
+
     // Restore indicators
     myIndicators = [];
     document.getElementById('active-indicators-list').innerHTML = '';
@@ -3919,12 +3992,12 @@ async function copyEditStrategy(runId) {
       });
     }
     syncConditionDropdowns();
-    
+
     // Reset and restore conditions
     document.getElementById('entry-conditions-container').innerHTML = '';
     document.getElementById('exit-conditions-container').innerHTML = '';
     conditionCounters = { entry: 0, exit: 0 };
-    
+
     if (p.entry_conditions && p.entry_conditions.length > 0) {
       p.entry_conditions.forEach((cond, i) => {
         addConditionRow('entry');
@@ -3937,7 +4010,7 @@ async function copyEditStrategy(runId) {
         }
         const opSelect = row.querySelector('.operator');
         if (opSelect) opSelect.value = cond.operator || 'is_above';
-        
+
         if (cond.left === 'Time_Of_Day') {
           const ti = row.querySelector('.time-rhs');
           if (ti) ti.value = cond.right_time || '11:00';
@@ -3968,7 +4041,7 @@ async function copyEditStrategy(runId) {
         }
       });
     }
-    
+
     if (p.exit_conditions && p.exit_conditions.length > 0) {
       p.exit_conditions.forEach((cond, i) => {
         addConditionRow('exit');
@@ -3981,7 +4054,7 @@ async function copyEditStrategy(runId) {
         }
         const opSelect = row.querySelector('.operator');
         if (opSelect) opSelect.value = cond.operator || 'is_below';
-        
+
         if (cond.left === 'Time_Of_Day') {
           const ti = row.querySelector('.time-rhs');
           if (ti) ti.value = cond.right_time || '11:00';
@@ -4012,7 +4085,7 @@ async function copyEditStrategy(runId) {
         }
       });
     }
-    
+
     // Restore legs
     legs = []; legCounter = 0;
     document.getElementById('legs-container').innerHTML = '';
@@ -4038,7 +4111,7 @@ async function copyEditStrategy(runId) {
         setVal(`leg-${id}-sqoff-time`, leg.sqoff_time || '15:20');
       });
     }
-    
+
     // Restore combined P&L if present
     if (p.combined_sl_rupees) document.getElementById('combined-sl-rupees').value = p.combined_sl_rupees;
     if (p.combined_target_rupees) document.getElementById('combined-target-rupees').value = p.combined_target_rupees;
@@ -4046,7 +4119,7 @@ async function copyEditStrategy(runId) {
     if (p.fee_pct !== undefined) document.getElementById('fee-pct').value = p.fee_pct;
     if (p.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = p.trailing_sl_pct;
     if (p.initial_capital) document.getElementById('initial-capital').value = p.initial_capital;
-    
+
     toast('Strategy loaded for editing!', 'success');
   } catch(err) {
     console.error('Copy error:', err);
@@ -4058,7 +4131,7 @@ function buildPayload() {
   const folderSel = document.getElementById('folder-select').value;
   const folderCustom = document.getElementById('folder-custom').value.trim();
   const folder = (folderSel === '__custom__' && folderCustom) ? folderCustom : folderSel;
-  
+
   return {
     run_name: document.getElementById('run-name-input').value,
     folder: folder,
@@ -4110,7 +4183,7 @@ let lastBacktestPayload = null;
 async function runBacktest() {
   const payload = buildPayload();
   if(!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
-  
+
   // Switch to results page immediately with loading
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
@@ -4118,7 +4191,7 @@ async function runBacktest() {
   document.getElementById('nav-results').classList.add('active');
   document.getElementById('results-empty').style.display = 'block';
   document.getElementById('results-content').style.display = 'none';
-  
+
   let countdown = 10;
   const emptyDiv = document.getElementById('results-empty');
   emptyDiv.innerHTML = '<div style="text-align:center;"><div style="font-size:48px;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace;" id="bt-cd">' + countdown + '</div><div style="color:var(--muted);margin-top:8px;">Fetching 5-min candles & running backtest...</div><div style="margin-top:12px;"><div style="width:200px;height:4px;background:var(--card2);border-radius:2px;margin:0 auto;overflow:hidden;"><div id="bt-pr" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 1s linear;"></div></div></div></div>';
@@ -4196,10 +4269,10 @@ function renderResults(data, payload) {
   const s = data.stats;
   document.getElementById('results-empty').style.display = 'none';
   document.getElementById('results-content').style.display = 'block';
-  
+
   // Strategy details now shown via modal popup (View Strategy button)
   document.getElementById('strategy-display-section').innerHTML = '';
-  
+
   document.getElementById('res-header-pnl').textContent = fmt(s.total_pnl);
   document.getElementById('res-header-pnl').style.color = s.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
   document.getElementById('res-from').textContent = payload ? (payload.from_date||'') : '-';
@@ -4386,7 +4459,7 @@ function renderEquityChart(equityData) {
   const canvas = document.getElementById('equity-chart');
   if (!canvas || !equityData || equityData.length < 2) return;
   const ctx = canvas.getContext('2d');
-  
+
   // Wait a frame for DOM to be visible, then render
   requestAnimationFrame(() => {
     const parentW = canvas.parentElement.clientWidth - 40;
@@ -4400,13 +4473,13 @@ function renderEquityChart(equityData) {
   const padding = { top: 20, right: 20, bottom: 30, left: 70 };
   const plotW = w - padding.left - padding.right;
   const plotH = h - padding.top - padding.bottom;
-  
+
   const values = equityData.map(e => e.equity);
   const minVal = Math.min(...values) * 0.998;
   const maxVal = Math.max(...values) * 1.002;
   const range = maxVal - minVal || 1;
   const startVal = values[0];
-  
+
   // Theme-aware colors
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
   const gridCol = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
@@ -4430,7 +4503,7 @@ function renderEquityChart(equityData) {
   ctx.strokeStyle = frameCol;
   ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-  
+
   // Grid lines
   ctx.strokeStyle = gridCol;
   ctx.lineWidth = 0.5;
@@ -4443,14 +4516,14 @@ function renderEquityChart(equityData) {
     ctx.textAlign = 'right';
     ctx.fillText('₹' + Math.round(val).toLocaleString('en-IN'), padding.left - 8, y + 3);
   }
-  
+
   // Starting capital line
   const startY = padding.top + ((maxVal - startVal) / range) * plotH;
   ctx.strokeStyle = dashCol;
   ctx.setLineDash([4, 4]);
   ctx.beginPath(); ctx.moveTo(padding.left, startY); ctx.lineTo(w - padding.right, startY); ctx.stroke();
   ctx.setLineDash([]);
-  
+
   // Equity line with glow
   ctx.beginPath();
   ctx.strokeStyle = 'rgba(0,200,150,1)';
@@ -4464,7 +4537,7 @@ function renderEquityChart(equityData) {
   });
   ctx.stroke();
   ctx.shadowBlur = 0;
-  
+
   // Fill gradient
   const lastX = padding.left + plotW;
   const lastY = padding.top + ((maxVal - values[values.length - 1]) / range) * plotH;
@@ -4510,11 +4583,11 @@ let paperStatusInterval = null;
 async function startPaperTrading() {
   const payload = buildPayload();
   if (!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
-  if (!payload.entry_conditions || payload.entry_conditions.length === 0) { 
-    toast('Add at least one entry condition', 'warn'); 
-    return; 
+  if (!payload.entry_conditions || payload.entry_conditions.length === 0) {
+    toast('Add at least one entry condition', 'warn');
+    return;
   }
-  
+
   // UI updates (elements may not exist if panel was replaced by preview)
   const _spb = document.getElementById('start-paper-btn');
   const _stb = document.getElementById('stop-paper-btn');
@@ -4524,24 +4597,24 @@ async function startPaperTrading() {
   if (_stb) _stb.style.display = 'block';
   if (_ps) _ps.style.display = 'block';
   if (_ll) _ll.innerHTML = '';
-  
+
   logPaper('Starting Paper Trading Engine with LIVE market data...', 'var(--accent)');
-  
+
   try {
     const res = await fetch('/api/paper/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    
+
     const data = await res.json();
-    
+
     if (data.status === 'started') {
       logPaper('Paper Trading Engine Started!', 'var(--success)');
       logPaper(`Strategy: ${payload.run_name || 'Unnamed'}`, 'var(--muted)');
       logPaper(`Instrument: ${getInstrumentName(payload.instrument)}`, 'var(--muted)');
       logPaper(`Monitoring for entry signals...`, 'var(--warn)');
-      
+
       // Start polling for status updates
       paperStatusInterval = setInterval(updatePaperStatus, 2000);
 
@@ -4561,20 +4634,20 @@ async function startPaperTrading() {
 async function stopPaperTrading() {
   clearInterval(paperStatusInterval);
   paperStatusInterval = null;
-  
+
   try {
     const res = await fetch('/api/paper/stop', { method: 'POST' });
     const data = await res.json();
-    
+
     logPaper('Paper Trading Engine Stopped', 'var(--danger)');
-    
+
     // Get final status
     setTimeout(updatePaperStatus, 500);
-    
+
   } catch (err) {
     logPaper(`Error stopping: ${err.message}`, 'var(--danger)');
   }
-  
+
   const _stb2 = document.getElementById('stop-paper-btn');
   const _spb2 = document.getElementById('start-paper-btn');
   if (_stb2) _stb2.style.display = 'none';
@@ -4585,11 +4658,11 @@ async function updatePaperStatus() {
   try {
     const res = await fetch('/api/paper/status');
     const status = await res.json();
-    
+
     // Update UI elements
     const statusBadge = status.in_trade ? 'IN TRADE' : (status.running ? 'SCANNING' : 'STOPPED');
     updatePaperStatusBadge(statusBadge);
-    
+
     const _ppnl = document.getElementById('paper-pnl');
     if (_ppnl) {
       _ppnl.textContent = `₹${status.total_pnl.toFixed(2)}`;
@@ -4597,14 +4670,14 @@ async function updatePaperStatus() {
     }
     const _ptrades = document.getElementById('paper-trades');
     if (_ptrades) _ptrades.textContent = status.trades_today;
-    
+
     // Update log with new events
     if (status.event_log && status.event_log.length > 0) {
       const logBox = document.getElementById('live-log');
       if (logBox) {
         const currentHtml = logBox.innerHTML;
         const lastEvent = status.event_log[status.event_log.length - 1];
-        
+
         // Only add if it's a new event (simple check)
         if (!currentHtml.includes(lastEvent.message.substring(0, 20))) {
           const color = {
@@ -4614,15 +4687,15 @@ async function updatePaperStatus() {
             'signal': 'var(--accent)',
             'info': 'var(--muted)'
           }[lastEvent.type] || 'var(--text)';
-          
+
           logPaper(lastEvent.message, color);
         }
       }
     }
-    
+
     // Render positions
     renderPaperPositions(status.positions || [], status.closed_trades || []);
-    
+
   } catch (err) {
     console.error('Failed to fetch paper status:', err);
   }
@@ -4632,7 +4705,7 @@ function updatePaperStatusBadge(text) {
   const badge = document.getElementById('paper-status');
   if (!badge) return;
   badge.textContent = text;
-  
+
   const colors = {
     'SCANNING': 'var(--warn)',
     'IN TRADE': 'var(--success)',
@@ -4644,9 +4717,9 @@ function updatePaperStatusBadge(text) {
 function renderPaperPositions(positions, closedTrades) {
   const panel = document.getElementById('paper-legs-panel');
   if (!panel) return;
-  
+
   let html = '';
-  
+
   // Open positions
   if (positions.length > 0) {
     html += '<div style=\"margin-bottom: 10px; font-weight: 600; font-size: 11px; color: var(--accent);\">' + ICO.chart(13) + ' Open Positions</div>';
@@ -4663,7 +4736,7 @@ function renderPaperPositions(positions, closedTrades) {
       </div>`;
     });
   }
-  
+
   // Recent closed trades
   if (closedTrades.length > 0) {
     const recent = closedTrades.slice(-3);
@@ -4679,7 +4752,7 @@ function renderPaperPositions(positions, closedTrades) {
       </div>`;
     });
   }
-  
+
   panel.innerHTML = html || '<div style=\"text-align: center; color: var(--muted); font-size: 11px; padding: 10px;\">No positions yet</div>';
 }
 
@@ -4704,14 +4777,14 @@ function openDeployModal() {
   if (!runName) runName = 'Strategy_' + generateRandomID();
   document.getElementById('deploy-run-name').value = runName;
   document.getElementById('deploy-modal').classList.add('open');
-  
+
   // Run validation when modal opens
   const valBox = document.getElementById('deploy-validation-box');
   valBox.style.display = 'block';
   valBox.style.background = 'rgba(59,130,246,0.08)';
   valBox.style.border = '1px solid rgba(59,130,246,0.2)';
   valBox.innerHTML = '<span style="color:var(--accent2);">Validating strategy...</span>';
-  
+
   const payload = buildPayload();
   fetch('/api/validate-strategy', {
     method: 'POST',
@@ -4746,7 +4819,7 @@ function closeDeployModal() {
 function setDeployType(type) {
   const paperBtn = document.getElementById('deploy-paper-btn');
   const autoBtn = document.getElementById('deploy-auto-btn');
-  
+
   if (type === 'paper') {
     paperBtn.style.background = 'linear-gradient(135deg, rgba(245,158,11,0.25), rgba(245,158,11,0.1))';
     paperBtn.style.color = 'var(--warn)';
@@ -4784,11 +4857,11 @@ async function deployStrategy() {
     place_leg_sl: document.querySelector('input[name="deploy-leg-sl"]:checked').value,
     sqoff_on_fail: document.querySelector('input[name="deploy-sqoff-fail"]:checked').value,
   };
-  
+
   let payload = buildPayload();
   payload.run_name = deployRunName;
   payload.deploy_config = deployConfig;
-  
+
   // If deployed from Results page and builder form is empty, use last backtest data
   if (!payload.instrument && lastBacktestPayload) {
     payload = Object.assign(payload, {
@@ -4811,16 +4884,16 @@ async function deployStrategy() {
       max_daily_loss: lastBacktestPayload.max_daily_loss || 0,
     });
   }
-  
+
   console.log("Deploy config:", deployConfig);
   console.log("Full deploy payload:", payload);
-  
+
   if (!payload.instrument) {
     toast('No instrument selected. Open a strategy or run a backtest first.', 'warn');
     closeDeployModal();
     return;
   }
-  
+
   try {
     if (isPaper) {
       const res = await fetch('/api/paper/start', {
@@ -5318,7 +5391,7 @@ async function loadPortfolioData() {
     if (results[2].status === 'fulfilled') paperData = results[2].value;
     if (results[3].status === 'fulfilled') ordersData = results[3].value;
     if (results[4].status === 'fulfilled') positionsData = results[4].value;
-    
+
     let portfolioHistory = { monthly: {}, yearly: {} };
     if (results[5].status === 'fulfilled' && results[5].value.status === 'success') {
       portfolioHistory = results[5].value;
@@ -5346,35 +5419,35 @@ async function loadPortfolioData() {
     let yearlyPnL = {};
     const today = new Date();
     const todayDateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
-    
+
     // Helper function to parse various date formats from Dhan
     const parseTradeDate = (trade) => {
       // Try different date field names that Dhan API might use
-      const rawDate = trade.tradeDate || trade.createTime || trade.updateTime || 
+      const rawDate = trade.tradeDate || trade.createTime || trade.updateTime ||
                       trade.exchangeTime || trade.transactionTime || trade.orderTimestamp || '';
-      
+
       if (!rawDate) return null;
-      
+
       // Handle epoch timestamps (seconds or milliseconds)
       if (typeof rawDate === 'number') {
         const timestamp = rawDate > 1e12 ? rawDate : rawDate * 1000; // Convert seconds to ms if needed
         return new Date(timestamp);
       }
-      
+
       // Handle string dates
       const dateStr = String(rawDate);
-      
+
       // Try ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
       if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
         return new Date(dateStr);
       }
-      
+
       // Try DD-MM-YYYY format (common in Indian systems)
       if (dateStr.match(/^\d{2}-\d{2}-\d{4}/)) {
         const [day, month, year] = dateStr.split('-');
         return new Date(`${year}-${month}-${day}`);
       }
-      
+
       // Fallback: try to parse as-is
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
@@ -5389,7 +5462,7 @@ async function loadPortfolioData() {
         if (t.transactionType === 'BUY') groups[key].buys.push(t);
         else if (t.transactionType === 'SELL') groups[key].sells.push(t);
       });
-      
+
       let totalPnL = 0;
       const pnlByGroup = [];
       Object.values(groups).forEach(g => {
@@ -5425,12 +5498,12 @@ async function loadPortfolioData() {
       const { totalPnL: dayPnL, pnlByGroup } = calcPnLFromTrades(dayTrades);
       const yearMonth = dateStr.slice(0, 7);
       const year = dateStr.slice(0, 4);
-      
+
       monthlyPnL[yearMonth] = (monthlyPnL[yearMonth] || 0) + dayPnL;
       if (year && /^\d{4}$/.test(year)) {
         yearlyPnL[year] = (yearlyPnL[year] || 0) + dayPnL;
       }
-      
+
       // Count paired instrument groups as trades
       pnlByGroup.forEach(g => {
         totalTrades++;
@@ -5449,18 +5522,18 @@ async function loadPortfolioData() {
     const todayDhanTrades = dhanTrades.filter(t => {
       const tradeDate = parseTradeDate(t);
       if (!tradeDate) return false;
-      
+
       // Compare dates (ignore time component)
       const tradeDateStr = tradeDate.toISOString().split('T')[0];
       return tradeDateStr === todayDateStr;
     });
-    
+
     console.log(`[Portfolio] Today (${todayDateStr}): ${todayDhanTrades.length} trades`);
-    
+
     // Calculate today's P&L from Dhan trades by pairing BUY/SELL
     let todayPnL = 0;
     let todayTradesDisplay = [];
-    
+
     if (todayDhanTrades.length > 0) {
       const { totalPnL, pnlByGroup } = calcPnLFromTrades(todayDhanTrades);
       todayPnL = totalPnL;
@@ -5475,7 +5548,7 @@ async function loadPortfolioData() {
         createTime: todayDhanTrades.find(t => t.tradingSymbol === g.symbol)?.createTime || ''
       }));
       console.log(`[Portfolio] Today's P&L from Dhan trades (paired): ₹${todayPnL.toFixed(2)} (${pnlByGroup.length} instruments)`);
-      
+
       // Add unrealized P&L from open Dhan positions
       const openPositions = Array.isArray(positionsData.data) ? positionsData.data : [];
       if (openPositions.length > 0) {
@@ -5496,21 +5569,21 @@ async function loadPortfolioData() {
     }
 
     const availableBal = Number(brokerData.available_balance || brokerData.funds?.availabelBalance || 0);
-    
+
     // Update the UI
     document.getElementById('portfolio-balance').textContent = '₹' + availableBal.toFixed(2);
     document.getElementById('portfolio-today-pnl').textContent = '₹' + todayPnL.toFixed(2);
     document.getElementById('portfolio-today-pnl').style.color = todayPnL >= 0 ? 'var(--success)' : 'var(--danger)';
     document.getElementById('portfolio-total-trades').textContent = totalTrades;
     document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
-    
+
     // ── Store portfolio history globally for month navigation ──
     window._portfolioDaily = portfolioHistory.daily || {};
     window._portfolioMonthly = portfolioHistory.monthly || {};
     window._currentMonthlyView = new Date().toISOString().slice(0, 7); // YYYY-MM
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
-    
+
     // Render today's trades (from Dhan or paper trading)
     const tradesBody = document.getElementById('portfolio-trades-body');
     if (todayTradesDisplay.length === 0) {
@@ -5521,7 +5594,7 @@ async function loadPortfolioData() {
         // Handle paired Dhan trades, raw Dhan trades, and paper trades
         const pnl = Number(t.pnl || t.realizedProfit || 0);
         const isWin = pnl >= 0;
-        
+
         // Parse time from trade
         let tradeTime = '-';
         const tradeDate = parseTradeDate(t);
@@ -5531,16 +5604,16 @@ async function loadPortfolioData() {
           const timeStr = String(t.exit_time || t.entry_time || t.createTime || '-');
           tradeTime = timeStr.slice(11, 16) || '-';
         }
-        
+
         const symbol = t.tradingSymbol || t.symbol || t.securityId || '-';
         const txnType = t.transactionType === 'PAIR' ? 'BUY→SELL' : (t.transactionType || t.transaction_type || '-');
         const optionType = t.option_type ? ' ' + t.option_type : '';
-        
+
         // Prices: prefer paired format (buyAvgPrice/sellAvgPrice)
         const buyPrice = Number(t.buyAvgPrice || t.buyPrice || t.entry_price || t.tradedPrice || 0);
         const sellPrice = Number(t.sellAvgPrice || t.sellPrice || t.exit_price || 0);
         const qty = t.tradedQuantity || t.quantity || t.qty || t.lots || '-';
-        
+
         tradesBody.innerHTML += `
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 10px 0;">${tradeTime}</td>
@@ -5581,19 +5654,19 @@ function renderMonthlyDailyGrid() {
   const ym = window._currentMonthlyView;
   const [year, month] = ym.split('-').map(Number);
   const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
-  
+
   document.getElementById('portfolio-monthly-label').textContent = monthName;
   const grid = document.getElementById('portfolio-monthly-grid');
   const summaryEl = document.getElementById('portfolio-monthly-summary');
-  
+
   const daily = window._portfolioDaily || {};
-  
+
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
   let totalPnl = 0, totalNetPnl = 0, totalCharges = 0, totalTrades = 0, totalTradeLegs = 0, totalWins = 0, tradingDays = 0, profitDays = 0;
   let totalRealPnl = 0, totalPaperPnl = 0;
-  
+
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
     const entry = daily[dateStr];
@@ -5621,7 +5694,7 @@ function renderMonthlyDailyGrid() {
       if (pnl > 0) profitDays++;
     }
   }
-  
+
   // Summary bar — matching Dhan style with Real/Paper split
   const isProfit = totalPnl >= 0;
   const isNetProfit = totalNetPnl >= 0;
@@ -5656,13 +5729,13 @@ function renderMonthlyDailyGrid() {
     </div>
     <div style="margin-top: 8px; font-size: 10px; color: var(--muted);">Charges include GST, STT, SEBI Fees, Exchange Transaction Charges, Stamp Duty and other charges.</div>
   ` : `<span style="color: var(--muted);">No trades this month</span>`;
-  
+
   // Daily boxes
   if (dayEntries.length === 0) {
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No trade data for ' + monthName + '</div>';
     return;
   }
-  
+
   let html = '';
   dayEntries.forEach(e => {
     const isWin = e.pnl >= 0;
@@ -5679,7 +5752,7 @@ function renderMonthlyDailyGrid() {
     `;
   });
   grid.innerHTML = html;
-  
+
   // ── Trades for month: day-by-day breakdown table (like Dhan) ──
   const tradesTableEl = document.getElementById('portfolio-monthly-trades');
   if (dayEntries.length > 0) {
@@ -5722,12 +5795,12 @@ function renderMonthlyDailyGrid() {
 function renderYearlyMonthlyTable() {
   const container = document.getElementById('portfolio-yearly-grid');
   const monthly = window._portfolioMonthly || {};
-  
+
   const currentYear = new Date().getFullYear();
   const startYear = 2024;
   const years = [];
   for (let y = currentYear; y >= startYear; y--) years.push(y);
-  
+
   // Build table
   let html = `<table style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: 700px;">
     <thead>
@@ -5737,12 +5810,12 @@ function renderYearlyMonthlyTable() {
     html += `<th style="padding: 8px 4px; text-align: center; color: var(--muted); font-size: 11px; font-weight: 600;">${m}</th>`;
   });
   html += `<th style="padding: 8px 6px; text-align: center; color: var(--accent); font-size: 11px; font-weight: 700;">Total</th></tr></thead><tbody>`;
-  
+
   years.forEach(year => {
     let yearTotal = 0;
     html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 10px 6px; font-weight: 700; color: var(--text);">${year}</td>`;
-    
+
     for (let m = 1; m <= 12; m++) {
       const key = year + '-' + String(m).padStart(2, '0');
       const data = monthly[key];
@@ -5759,12 +5832,12 @@ function renderYearlyMonthlyTable() {
         html += `<td style="padding: 10px 4px; text-align: center; color: var(--muted); font-size: 11px;">—</td>`;
       }
     }
-    
+
     const isYearWin = yearTotal >= 0;
     html += `<td style="padding: 10px 6px; text-align: center; font-weight: 700; color: ${yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)'}; font-family: 'JetBrains Mono'; font-size: 12px; background: rgba(0,0,0,0.1); border-radius: 4px;">₹${yearTotal.toFixed(0)}</td>`;
     html += `</tr>`;
   });
-  
+
   html += `</tbody></table>`;
   container.innerHTML = html;
 }
@@ -5833,36 +5906,36 @@ async function loadDashboardSummary() {
     const res = await fetch('/api/dashboard/summary');
     if (!res.ok) return;
     const d = await res.json();
-    
+
     // Summary cards — Split Paper / Real P&L
     const paperPnl = d.paper_pnl || 0;
     const realPnl = d.live_pnl || 0;
-    
+
     const ppEl = document.getElementById('dash-paper-pnl-card');
     ppEl.textContent = '₹' + paperPnl.toFixed(2);
     ppEl.style.color = paperPnl > 0 ? 'var(--success)' : paperPnl < 0 ? 'var(--danger)' : 'var(--muted)';
     document.getElementById('dash-paper-pnl-trades').textContent = (d.paper_trades || 0) + ' trades' + (d.paper_running ? ' · Running' : '');
-    
+
     const rpEl = document.getElementById('dash-real-pnl-card');
     rpEl.textContent = '₹' + realPnl.toFixed(2);
     rpEl.style.color = realPnl > 0 ? 'var(--success)' : realPnl < 0 ? 'var(--danger)' : 'var(--muted)';
     document.getElementById('dash-real-pnl-trades').textContent = (d.live_trades || 0) + ' trades' + (d.live_running ? ' · Running' : '');
-    
+
     // Active count
     const activeCount = (d.paper_running ? 1 : 0) + (d.live_running ? 1 : 0);
     document.getElementById('dash-active-count').textContent = activeCount;
-    document.getElementById('dash-active-detail').textContent = activeCount > 0 
+    document.getElementById('dash-active-detail').textContent = activeCount > 0
       ? [d.paper_running && 'Paper', d.live_running && 'Auto'].filter(Boolean).join(' + ') + ' running'
       : 'No strategies running';
-    
+
     document.getElementById('dash-strategies-count').textContent = d.strategy_count || 0;
     document.getElementById('dash-backtests-count').textContent = (d.backtest_count || 0) + ' backtests';
-    
+
     // Active engines panel
     const enginesPanel = document.getElementById('dash-active-engines');
     if (d.paper_running || d.live_running) {
       enginesPanel.style.display = 'block';
-      
+
       if (d.paper_running) {
         document.getElementById('dash-paper-card').style.display = 'block';
         document.getElementById('dash-paper-name').textContent = d.paper_strategy || 'Paper Strategy';
@@ -5872,7 +5945,7 @@ async function loadDashboardSummary() {
       } else {
         document.getElementById('dash-paper-card').style.display = 'none';
       }
-      
+
       if (d.live_running) {
         document.getElementById('dash-auto-card').style.display = 'block';
         document.getElementById('dash-auto-name').textContent = d.live_strategy || 'Auto Strategy';
@@ -5885,7 +5958,7 @@ async function loadDashboardSummary() {
     } else {
       enginesPanel.style.display = 'none';
     }
-    
+
     // Best / Worst run
     if (d.best_run) {
       document.getElementById('dash-best-pnl').textContent = '₹' + (d.best_run.pnl || 0).toLocaleString('en-IN');
@@ -5931,15 +6004,15 @@ function compareBacktests() {
   const idB = document.getElementById('compare-run-b').value;
   if (!idA || !idB) { toast('Select both Run A and Run B to compare', 'warn'); return; }
   if (idA === idB) { toast('Select two different runs to compare', 'warn'); return; }
-  
+
   fetch('/api/runs').then(r => r.json()).then(runs => {
     const runA = runs.find(r => String(r.id) === String(idA));
     const runB = runs.find(r => String(r.id) === String(idB));
     if (!runA || !runB) { toast('Could not find selected runs', 'danger'); return; }
-    
+
     const grid = document.getElementById('comparison-grid');
     grid.innerHTML = '';
-    
+
     [runA, runB].forEach((run, idx) => {
       const s = run.stats || {};
       const pnl = s.total_profit || s.net_profit || 0;
@@ -5962,7 +6035,7 @@ function compareBacktests() {
       `;
       grid.appendChild(card);
     });
-    
+
     document.getElementById('comparison-result').style.display = 'block';
     document.getElementById('comparison-empty').style.display = 'none';
   }).catch(e => toast('Failed to load runs for comparison', 'danger'));
@@ -6049,7 +6122,7 @@ deployStrategy = async function() {
   const isPaper = document.getElementById('deploy-paper-btn').dataset.active === '1';
   const deployRunName = document.getElementById('deploy-run-name').value.trim();
   if (!deployRunName) { toast('Enter a run name', 'warn'); return; }
-  
+
   // Validate strategy first
   try {
     const payload = buildPayload();
@@ -6060,7 +6133,7 @@ deployStrategy = async function() {
       body: JSON.stringify(payload)
     });
     const valData = await valRes.json();
-    
+
     if (valData.errors && valData.errors.length > 0) {
       const errList = valData.errors.map(e => `${ICO.cross(13)} ${e}`).join('<br>');
       toast('Strategy has errors — fix before deploying', 'danger');
@@ -6070,7 +6143,7 @@ deployStrategy = async function() {
       );
       return;
     }
-    
+
     // Show warnings but allow proceeding
     if (valData.warnings && valData.warnings.length > 0) {
       const warnList = valData.warnings.map(w => `${ICO.warn(13)} ${w}`).join('<br>');
@@ -6083,7 +6156,7 @@ deployStrategy = async function() {
   } catch(e) {
     console.warn('Validation check failed, proceeding anyway:', e);
   }
-  
+
   // Call original deploy logic
   return _originalDeployStrategy();
 };

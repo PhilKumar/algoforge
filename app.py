@@ -6,13 +6,18 @@ Fixed:
   - Added /logo.jpg route for the frontend
 """
 
-import asyncio, json, os, sys, inspect, time, hashlib, secrets
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional
+import asyncio
+import inspect
+import json
+import os
+import secrets
+import sys
+import time
 from collections import defaultdict
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional
 
 import pandas as pd
-import numpy as np
 
 # ── Guaranteed path fix ───────────────────────────────────────────
 # inspect.getfile() works even when uvicorn reload corrupts __file__
@@ -22,20 +27,21 @@ if _HERE not in sys.path:
 os.chdir(_HERE)
 # ─────────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Response, Depends
+import fcntl
+
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from broker.dhan     import DhanClient, ScripMaster
-from engine.backtest import run_backtest, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS
-from engine.live     import LiveEngine
+from broker.dhan import DhanClient, ScripMaster
+from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, run_backtest
+from engine.live import LiveEngine
+from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
-from engine.market_feed import get_market_feed, shutdown_feed, LiveMarketFeed, HAS_DHAN_FEED
-from token_manager   import auto_generate_token, token_renewal_loop
-import fcntl
+from token_manager import auto_generate_token, token_renewal_loop
 
 # ── Auto-generate Dhan token at startup (single-worker guard) ────
 if config.AUTO_TOKEN_ENABLED:
@@ -59,6 +65,7 @@ if config.AUTO_TOKEN_ENABLED:
     except (IOError, OSError):
         # Another worker already holds the lock — read their token
         import time as _t
+
         _t.sleep(3)  # wait for the first worker to finish
         _tok_file = os.path.join(_HERE, ".current_token")
         if os.path.exists(_tok_file):
@@ -72,27 +79,39 @@ else:
 
 # Initialize FastAPI app
 app = FastAPI(title="AlgoForge", version="1.0.0")
-app.add_middleware(CORSMiddleware,
-                   allow_origins=["https://philipalgo.github.io",
-                                  "http://philipalgoforge.local",
-                                  "http://65.1.213.207",
-                                  "http://127.0.0.1:8000",
-                                  "http://localhost:8000"],
-                   allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://philipalgo.github.io",
+        "http://philipalgoforge.local",
+        "http://65.1.213.207",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Initialize custom client ONCE and pass to engine
-dhan        = DhanClient()
+dhan = DhanClient()
 
 # ── Multi-Engine Registries (keyed by run_id) ────────────────
 # Allows running multiple strategies simultaneously
-live_engines: Dict[str, LiveEngine] = {}       # run_id → engine instance
+live_engines: Dict[str, LiveEngine] = {}  # run_id → engine instance
 paper_engines: Dict[str, PaperTradingEngine] = {}  # run_id → engine instance
-_live_tasks: Dict[str, asyncio.Task] = {}      # run_id → asyncio task
-_paper_tasks: Dict[str, asyncio.Task] = {}     # run_id → asyncio task
+_live_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
+
+# Backfill status — read by /api/backfill/status
+_backfill_state: Dict[str, object] = {
+    "status": "idle",  # idle | running | done | error
+    "message": "",
+    "new_dates": 0,
+}
+_paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
@@ -104,6 +123,7 @@ ws_clients: List[WebSocket] = []
 AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "887599"))
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_FILE = os.path.join(_HERE, ".sessions.json")
+
 
 def _load_sessions() -> dict:
     """Load sessions from shared file (works across workers)."""
@@ -118,9 +138,11 @@ def _load_sessions() -> dict:
         pass
     return {}
 
+
 def _save_sessions(sessions: dict):
     """Persist sessions to shared file (atomic write via tmp + os.replace)."""
     import tempfile
+
     try:
         fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(_SESSION_FILE), suffix=".tmp")
         with os.fdopen(fd, "w") as f:
@@ -133,12 +155,14 @@ def _save_sessions(sessions: dict):
         except Exception:
             pass
 
+
 def _create_session() -> str:
     sessions = _load_sessions()
     token = secrets.token_hex(32)
     sessions[token] = (datetime.now() + timedelta(hours=24)).isoformat()
     _save_sessions(sessions)
     return token
+
 
 def _validate_session(token: str) -> bool:
     if not token:
@@ -153,6 +177,7 @@ def _validate_session(token: str) -> bool:
         return False
     return True
 
+
 def _get_session_token(request: Request) -> str:
     """Extract session token from cookie or Authorization header"""
     token = request.cookies.get("algoforge_session", "")
@@ -162,10 +187,12 @@ def _get_session_token(request: Request) -> str:
             token = auth[7:]
     return token
 
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """Attach a unique request-id to every request for log tracing."""
     import uuid
+
     rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = rid
     response = await call_next(request)
@@ -187,9 +214,11 @@ async def auth_middleware(request: Request, call_next):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
 
+
 # ── Rate Limiting ─────────────────────────────────────────────────
 _rate_limits: dict = defaultdict(list)  # "endpoint:ip" -> [timestamps] (fallback)
 _RL_PREFIX = "algoforge:rl:"
+
 
 def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 5, window_sec: int = 10):
     """Per-IP rate limiter — Redis sliding window when available, in-memory fallback."""
@@ -205,7 +234,9 @@ def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 
             pipe.expire(key, window_sec + 1)
             _, count, *_ = pipe.execute()
             if count >= max_calls:
-                raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s.")
+                raise HTTPException(
+                    status_code=429, detail=f"Rate limit exceeded. Max {max_calls} calls per {window_sec}s."
+                )
             return
         except HTTPException:
             raise
@@ -227,76 +258,79 @@ def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 
 
 # ── Models ────────────────────────────────────────────────────────
 class BacktestRequest(BaseModel):
-    from_date:        str   = config.DEFAULT_FROM
-    to_date:          str   = config.DEFAULT_TO
-    symbol:           str   = "NIFTY"
-    initial_capital:  float = config.DEFAULT_CAPITAL
+    from_date: str = config.DEFAULT_FROM
+    to_date: str = config.DEFAULT_TO
+    symbol: str = "NIFTY"
+    initial_capital: float = config.DEFAULT_CAPITAL
     entry_conditions: Optional[List[dict]] = None
-    exit_conditions:  Optional[List[dict]] = None
-    strategy_config:  Optional[dict]       = None
+    exit_conditions: Optional[List[dict]] = None
+    strategy_config: Optional[dict] = None
+
 
 class LiveStartRequest(BaseModel):
     entry_conditions: Optional[List[dict]] = None
-    exit_conditions:  Optional[List[dict]] = None
-    strategy_config:  Optional[dict]       = None
+    exit_conditions: Optional[List[dict]] = None
+    strategy_config: Optional[dict] = None
     # Full strategy fields (used when deploying from modal)
-    run_name:         str   = ""
-    instrument:       str   = ""
-    indicators:       List[str]            = []
-    legs:             Optional[List[dict]] = None
-    deploy_config:    Optional[dict]       = None
+    run_name: str = ""
+    instrument: str = ""
+    indicators: List[str] = []
+    legs: Optional[List[dict]] = None
+    deploy_config: Optional[dict] = None
     max_trades_per_day: int = 1
-    market_open:      str   = "09:15"
-    market_close:     str   = "15:25"
-    max_daily_loss:   float = 0
-    lots:             int   = 1
-    stoploss_pct:     float = 0.0
-    stoploss_rupees:  float = 0.0
-    sl_type:          str   = "pct"
-    target_profit_pct:  float = 0.0
+    market_open: str = "09:15"
+    market_close: str = "15:25"
+    max_daily_loss: float = 0
+    lots: int = 1
+    stoploss_pct: float = 0.0
+    stoploss_rupees: float = 0.0
+    sl_type: str = "pct"
+    target_profit_pct: float = 0.0
     target_profit_rupees: float = 0.0
-    tp_type:          str   = "pct"
+    tp_type: str = "pct"
+
 
 class OrderRequest(BaseModel):
-    security_id:      str
-    exchange_segment: str   = "NSE_EQ"
+    security_id: str
+    exchange_segment: str = "NSE_EQ"
     transaction_type: str
-    quantity:         int
-    order_type:       str   = "MARKET"
-    product_type:     str   = "INTRADAY"
-    price:            float = 0
-    
+    quantity: int
+    order_type: str = "MARKET"
+    product_type: str = "INTRADAY"
+    price: float = 0
+
+
 class StrategyPayload(BaseModel):
-    run_name:         str   = ""
-    folder:           str   = "Intraday"
-    segment:          str   = "indices"
-    instrument:       str   = "26000"
-    from_date:        str   = config.DEFAULT_FROM
-    to_date:          str   = config.DEFAULT_TO
-    initial_capital:  float = 500000.0
-    lots:             int   = 1
-    lot_size:         int   = 0
-    stoploss_pct:     float = 0.0
-    stoploss_rupees:  float = 0.0
-    sl_type:          str   = "pct"
-    target_profit_pct:  float = 0.0
+    run_name: str = ""
+    folder: str = "Intraday"
+    segment: str = "indices"
+    instrument: str = "26000"
+    from_date: str = config.DEFAULT_FROM
+    to_date: str = config.DEFAULT_TO
+    initial_capital: float = 500000.0
+    lots: int = 1
+    lot_size: int = 0
+    stoploss_pct: float = 0.0
+    stoploss_rupees: float = 0.0
+    sl_type: str = "pct"
+    target_profit_pct: float = 0.0
     target_profit_rupees: float = 0.0
-    tp_type:          str   = "pct"
-    market_open:      str   = "09:15"
-    market_close:     str   = "15:25"
+    tp_type: str = "pct"
+    market_open: str = "09:15"
+    market_close: str = "15:25"
     max_trades_per_day: int = 1
-    max_daily_loss:   float = 0.0
-    indicators:       List[str]            = []
+    max_daily_loss: float = 0.0
+    indicators: List[str] = []
     entry_conditions: Optional[List[dict]] = None
-    exit_conditions:  Optional[List[dict]] = None
-    legs:             Optional[List[dict]] = None
-    deploy_config:    Optional[dict]       = None
-    combined_sl_rupees:     float = 0
+    exit_conditions: Optional[List[dict]] = None
+    legs: Optional[List[dict]] = None
+    deploy_config: Optional[dict] = None
+    combined_sl_rupees: float = 0
     combined_target_rupees: float = 0
-    combined_sqoff_time:    str   = "15:20"
-    fee_pct:                float = 0.0
-    trailing_sl_pct:        float = 0.0
-    initial_capital:        float = 500000.0
+    combined_sqoff_time: str = "15:20"
+    fee_pct: float = 0.0
+    trailing_sl_pct: float = 0.0
+    initial_capital: float = 500000.0
 
 
 # ── Serve Frontend ────────────────────────────────────────────────
@@ -316,6 +350,7 @@ async def serve_frontend(request: Request):
             return HTMLResponse(f.read())
     return HTMLResponse("<h2>strategy.html not found. Place it beside app.py</h2>")
 
+
 @app.get("/logo.jpg")
 async def serve_logo():
     """Serves the main application logo."""
@@ -327,6 +362,7 @@ _login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_LOCKOUT_SEC = 300  # 5 minutes
 _LOGIN_RL_PREFIX = "algoforge:login:"
+
 
 def _check_login_rate(ip: str):
     r = _get_redis()
@@ -346,6 +382,7 @@ def _check_login_rate(ip: str):
     if len(_login_attempts[ip]) >= _LOGIN_MAX_ATTEMPTS:
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
 
+
 def _record_failed_login(ip: str):
     r = _get_redis()
     if r is not None:
@@ -359,6 +396,7 @@ def _record_failed_login(ip: str):
         except Exception as e:
             _logger.warning(f"[Redis] _record_failed_login failed, using in-memory: {e}")
     _login_attempts[ip].append(time.time())
+
 
 def _clear_login_attempts(ip: str):
     r = _get_redis()
@@ -389,11 +427,13 @@ async def auth_login(request: Request):
     _record_failed_login(ip)
     raise HTTPException(status_code=401, detail="Invalid password")
 
+
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
     token = _get_session_token(request)
     valid = _validate_session(token)
     return {"authenticated": valid}
+
 
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
@@ -454,7 +494,13 @@ async def emergency_stop(request: Request):
     live_engines.clear()
     paper_engines.clear()
 
-    return {"status": "ok", "stopped": stopped_count, "message": f"Emergency stop executed — {stopped_count} engine(s) stopped", "results": results, "timestamp": str(datetime.now())}
+    return {
+        "status": "ok",
+        "stopped": stopped_count,
+        "message": f"Emergency stop executed — {stopped_count} engine(s) stopped",
+        "results": results,
+        "timestamp": str(datetime.now()),
+    }
 
 
 # ── Dashboard Summary ─────────────────────────────────────────────
@@ -480,13 +526,14 @@ async def dashboard_summary(request: Request):
     paper_trades_val = 0
     live_pnl_val = 0
     live_trades_val = 0
-    
+
     if paper_statuses:
         paper_pnl_val = sum(s.get("total_pnl", 0) for s in paper_statuses)
         paper_trades_val = sum(s.get("trades_today", 0) for s in paper_statuses)
     else:
         # Show last paper run P&L from today (from runs.json)
         from datetime import date as _date
+
         today_str = str(_date.today())
         for r in reversed(runs):
             if r.get("mode") == "paper":
@@ -495,11 +542,11 @@ async def dashboard_summary(request: Request):
                     paper_pnl_val = r.get("total_pnl", 0)
                     paper_trades_val = r.get("trade_count", len(r.get("trades", [])))
                 break
-    
+
     if live_statuses:
         live_pnl_val = sum(s.get("total_pnl", 0) for s in live_statuses)
         live_trades_val = sum(s.get("trades_today", 0) for s in live_statuses)
-    
+
     today_pnl = paper_pnl_val + live_pnl_val
 
     # Best/worst backtest runs
@@ -577,7 +624,7 @@ async def validate_strategy(request: Request):
             if c2 is c:
                 continue
             if c2.get("lhs") == lhs and c2.get("rhs") == rhs:
-                if (op in ("is_above", "crosses_above") and c2.get("operator") in ("is_below", "crosses_below")):
+                if op in ("is_above", "crosses_above") and c2.get("operator") in ("is_below", "crosses_below"):
                     errors.append(f"Contradictory conditions: {lhs} cannot be both above and below {rhs}")
 
     # Risk checks
@@ -593,7 +640,8 @@ async def validate_strategy(request: Request):
         warnings.append(f"High trade frequency ({max_trades}/day) — check for overtrading")
 
     # Lot size / capital validation (#13)
-    from engine.backtest import get_lot_size, LOT_SIZES
+    from engine.backtest import get_lot_size
+
     lots = int(body.get("lots", 1) or 1)
     user_lot_size = int(body.get("lot_size", 0) or 0)
     initial_capital = float(body.get("initial_capital", 500000) or 500000)
@@ -612,7 +660,9 @@ async def validate_strategy(request: Request):
         est_margin_per_lot = 150000 if "BANK" in inst_name else 100000
         est_margin = lots * est_margin_per_lot
         if est_margin > initial_capital * 0.8:
-            warnings.append(f"Estimated margin ₹{est_margin:,.0f} for {lots} lot(s) may exceed 80% of capital ₹{initial_capital:,.0f}")
+            warnings.append(
+                f"Estimated margin ₹{est_margin:,.0f} for {lots} lot(s) may exceed 80% of capital ₹{initial_capital:,.0f}"
+            )
 
     return {
         "valid": len(errors) == 0,
@@ -625,7 +675,7 @@ async def validate_strategy(request: Request):
             "legs": len(legs),
             "sl_pct": sl_pct,
             "tp_pct": tp_pct,
-        }
+        },
     }
 
 
@@ -652,7 +702,7 @@ async def portfolio_summary(request: Request):
         positions = await asyncio.to_thread(dhan.get_positions)
         result["positions"] = positions
         unrealized = 0
-        for pos in (positions if isinstance(positions, list) else []):
+        for pos in positions if isinstance(positions, list) else []:
             unrealized += float(pos.get("unrealizedProfit", pos.get("dayProfit", 0)))
         result["unrealized_pnl"] = round(unrealized, 2)
         result["total_value"] = round(result["total_value"] + unrealized, 2)
@@ -676,12 +726,14 @@ async def get_strategy_versions(sid: int):
 @app.get("/api/health")
 async def health():
     return {
-        "status":          "ok",
-        "time":            str(datetime.now()),
-        "dhan_configured": (config.DHAN_CLIENT_ID  != "YOUR_CLIENT_ID_HERE" and
-                            config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"),
-        "live_running":    any(e.running for e in live_engines.values()),
+        "status": "ok",
+        "time": str(datetime.now()),
+        "dhan_configured": (
+            config.DHAN_CLIENT_ID != "YOUR_CLIENT_ID_HERE" and config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"
+        ),
+        "live_running": any(e.running for e in live_engines.values()),
     }
+
 
 @app.get("/api/token-status")
 async def token_status():
@@ -695,22 +747,19 @@ async def check_broker():
     """Check if broker connection is active and valid"""
     try:
         # Check if credentials are configured (not default placeholders)
-        if (config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or 
-            config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE"):
+        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please update .env file."
+                "message": "Dhan API credentials not configured. Please update .env file.",
             }
-        
+
         # Test connection by fetching account funds
         funds = dhan.get_funds()
-        
+
         if funds and isinstance(funds, dict):
             # Valid response - connection is working
-            available_balance = (
-                float(funds.get("availabelBalance", 0) or 0)
-            )
+            available_balance = float(funds.get("availabelBalance", 0) or 0)
             return {
                 "status": "connected",
                 "broker": "Dhan",
@@ -720,38 +769,18 @@ async def check_broker():
             }
         else:
             # No data returned
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Invalid response from broker API"
-            }
-            
+            return {"status": "error", "broker": "Dhan", "message": "Invalid response from broker API"}
+
     except Exception as e:
         error_msg = str(e)
         if "401" in error_msg or "Unauthorized" in error_msg:
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Invalid API credentials (401 Unauthorized)"
-            }
+            return {"status": "error", "broker": "Dhan", "message": "Invalid API credentials (401 Unauthorized)"}
         elif "403" in error_msg or "Forbidden" in error_msg:
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Access forbidden - check API permissions (403)"
-            }
+            return {"status": "error", "broker": "Dhan", "message": "Access forbidden - check API permissions (403)"}
         elif "timeout" in error_msg.lower():
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Connection timeout - network issue"
-            }
+            return {"status": "error", "broker": "Dhan", "message": "Connection timeout - network issue"}
         else:
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": f"Connection error: {error_msg[:100]}"
-            }
+            return {"status": "error", "broker": "Dhan", "message": f"Connection error: {error_msg[:100]}"}
 
 
 @app.get("/api/broker/trades")
@@ -759,55 +788,46 @@ async def get_broker_trades():
     """Fetch executed trades from Dhan broker account"""
     try:
         # Check if credentials are configured
-        if (config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or 
-            config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE"):
-            return {
-                "status": "not_configured",
-                "message": "Dhan API credentials not configured",
-                "trades": []
-            }
-        
+        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+            return {"status": "not_configured", "message": "Dhan API credentials not configured", "trades": []}
+
         # Fetch trades from Dhan API
         trades_result = dhan.get_trades()
         trades = trades_result if isinstance(trades_result, list) else []
-        
+
         # Auto-persist daily trade summary for portfolio history
         if trades:
             try:
                 _persist_daily_trades(trades)
             except Exception as pe:
                 print(f"[TRADE_HISTORY] Persist error: {pe}")
-        
-        return {
-            "status": "success",
-            "broker": "Dhan",
-            "count": len(trades),
-            "trades": trades
-        }
-            
+
+        return {"status": "success", "broker": "Dhan", "count": len(trades), "trades": trades}
+
     except Exception as e:
         error_msg = str(e)
         return {
             "status": "error",
             "broker": "Dhan",
             "message": f"Failed to fetch trades: {error_msg[:100]}",
-            "trades": []
+            "trades": [],
         }
 
 
 def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
     """Fetch historical trades from Dhan and backfill trade_history.json.
-    
+
     Args:
         from_date: Start date in YYYY-MM-DD format.
         force: If True, overwrite existing dates with fresh data from Dhan.
     """
     import time as _time
+
     try:
         history = _load_trade_history() if not force else {}
         today_str = datetime.now().strftime("%Y-%m-%d")
         existing_dates = set(history.keys())
-        
+
         # Dhan API returns 20 trades per page, paginate through all
         DHAN_PAGE_SIZE = 20
         MAX_PAGES = 500  # Safety limit (up to 10,000 trades)
@@ -818,12 +838,12 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
         consecutive_empty = 0
         while page < MAX_PAGES:
             result = dhan.get_trade_history(from_date, today_str, page)
-            
+
             # Handle rate-limit: retry with exponential backoff
             if result == dhan.RATE_LIMITED:
                 retried = False
                 for attempt in range(1, RATE_LIMIT_RETRIES + 1):
-                    wait = 2 ** attempt  # 2, 4, 8 seconds
+                    wait = 2**attempt  # 2, 4, 8 seconds
                     print(f"[BACKFILL] Rate limited on page {page}, retry {attempt}/{RATE_LIMIT_RETRIES} after {wait}s")
                     _time.sleep(wait)
                     result = dhan.get_trade_history(from_date, today_str, page)
@@ -833,7 +853,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                 if not retried and result == dhan.RATE_LIMITED:
                     print(f"[BACKFILL] Rate limit persists after {RATE_LIMIT_RETRIES} retries on page {page}, stopping")
                     break
-            
+
             trades = result if isinstance(result, list) else []
             if not trades:
                 consecutive_empty += 1
@@ -842,7 +862,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                 page += 1
                 _time.sleep(PAGE_DELAY)
                 continue
-            
+
             consecutive_empty = 0
             all_trades.extend(trades)
             print(f"[BACKFILL] Page {page}: {len(trades)} trades (total so far: {len(all_trades)})")
@@ -850,13 +870,13 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                 break
             page += 1
             _time.sleep(PAGE_DELAY)  # Throttle to avoid Dhan rate-limit
-        
+
         if not all_trades:
             print(f"[BACKFILL] No historical trades returned from Dhan for {from_date} to {today_str}")
             return 0
-        
+
         print(f"[BACKFILL] Fetched {len(all_trades)} total historical trades from Dhan ({page + 1} pages)")
-        
+
         # De-duplicate by orderId + transactionType to avoid double-counting
         seen = set()
         unique_trades = []
@@ -868,7 +888,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
         if len(unique_trades) < len(all_trades):
             print(f"[BACKFILL] De-duplicated: {len(all_trades)} → {len(unique_trades)} unique trades")
         all_trades = unique_trades
-        
+
         # Group trades by date using exchangeTime
         trades_by_date = {}
         for t in all_trades:
@@ -885,7 +905,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
             if date_str not in trades_by_date:
                 trades_by_date[date_str] = []
             trades_by_date[date_str].append(t)
-        
+
         # Compute P&L for each date
         new_dates = 0
         for date_str, day_trades in sorted(trades_by_date.items()):
@@ -900,7 +920,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     groups[key]["buys"].append(t)
                 elif t.get("transactionType") == "SELL":
                     groups[key]["sells"].append(t)
-            
+
             total_pnl = 0
             total_charges = 0
             trade_count = 0
@@ -915,7 +935,14 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                 # Sum charges from all legs (buys + sells)
                 leg_charges = 0
                 for t in g["buys"] + g["sells"]:
-                    for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax", "exchangeTransactionCharges", "stampDuty"):
+                    for key_c in (
+                        "sebiTax",
+                        "stt",
+                        "brokerageCharges",
+                        "serviceTax",
+                        "exchangeTransactionCharges",
+                        "stampDuty",
+                    ):
                         leg_charges += float(t.get(key_c, 0) or 0)
                 matched = min(buy_qty, sell_qty)
                 if matched > 0 and buy_qty > 0 and sell_qty > 0:
@@ -927,15 +954,17 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     trade_count += 1
                     if pnl > 0:
                         wins += 1
-                    details.append({
-                        "symbol": g["symbol"],
-                        "pnl": pnl,
-                        "qty": int(matched),
-                        "buy_avg": round(buy_avg, 2),
-                        "sell_avg": round(sell_avg, 2),
-                        "charges": round(leg_charges, 2),
-                    })
-            
+                    details.append(
+                        {
+                            "symbol": g["symbol"],
+                            "pnl": pnl,
+                            "qty": int(matched),
+                            "buy_avg": round(buy_avg, 2),
+                            "sell_avg": round(sell_avg, 2),
+                            "charges": round(leg_charges, 2),
+                        }
+                    )
+
             if trade_count > 0:
                 history[date_str] = {
                     "pnl": round(total_pnl, 2),
@@ -948,17 +977,18 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     "details": details,
                 }
                 new_dates += 1
-        
+
         if new_dates > 0:
             _save_trade_history(history)
             print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in trade_history.json")
         else:
-            print(f"[BACKFILL] No new dates to add (all existing)")
-        
+            print("[BACKFILL] No new dates to add (all existing)")
+
         return new_dates
     except Exception as e:
         print(f"[BACKFILL] Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 0
 
@@ -966,7 +996,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
 @app.get("/api/portfolio/backfill")
 async def portfolio_backfill(force: bool = False):
     """Manually trigger historical trade backfill from Dhan.
-    
+
     Args:
         force: If true, re-fetch ALL trades and overwrite existing data.
     """
@@ -977,24 +1007,40 @@ async def portfolio_backfill(force: bool = False):
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/api/backfill/status")
+async def backfill_status():
+    """Return current background backfill state (polled by frontend)."""
+    return _backfill_state
+
+
 @app.get("/api/portfolio/history")
 async def get_portfolio_history():
     """Return combined historical P&L from real trades + paper runs for monthly/yearly charts."""
     try:
         daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
-        
+
         # 1) Real trade history from trade_history.json
         real_history = _load_trade_history()
         for date_str, entry in real_history.items():
             if date_str not in daily:
-                daily[date_str] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "real_trade_legs": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                daily[date_str] = {
+                    "real_pnl": 0,
+                    "real_net_pnl": 0,
+                    "real_charges": 0,
+                    "paper_pnl": 0,
+                    "real_trades": 0,
+                    "real_trade_legs": 0,
+                    "paper_trades": 0,
+                    "real_wins": 0,
+                    "paper_wins": 0,
+                }
             daily[date_str]["real_pnl"] = entry.get("pnl", 0)
             daily[date_str]["real_net_pnl"] = entry.get("net_pnl", entry.get("pnl", 0))
             daily[date_str]["real_charges"] = entry.get("charges", 0)
             daily[date_str]["real_trades"] = entry.get("trades", 0)
             daily[date_str]["real_trade_legs"] = entry.get("trade_legs", entry.get("trades", 0))
             daily[date_str]["real_wins"] = entry.get("wins", 0)
-        
+
         # 2) Paper runs from runs.json
         runs = _load_runs()
         for r in runs:
@@ -1005,7 +1051,7 @@ async def get_portfolio_history():
             started = r.get("started_at", r.get("created_at", ""))
             if started:
                 run_date = str(started)[:10]  # YYYY-MM-DD
-            
+
             # Also extract per-trade dates for more granular breakdown
             trades = r.get("trades", [])
             if trades:
@@ -1024,22 +1070,40 @@ async def get_portfolio_history():
                     paper_by_date[t_date]["count"] += 1
                     if pnl > 0:
                         paper_by_date[t_date]["wins"] += 1
-                
+
                 for d, data in paper_by_date.items():
                     if d not in daily:
-                        daily[d] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                        daily[d] = {
+                            "real_pnl": 0,
+                            "real_net_pnl": 0,
+                            "real_charges": 0,
+                            "paper_pnl": 0,
+                            "real_trades": 0,
+                            "paper_trades": 0,
+                            "real_wins": 0,
+                            "paper_wins": 0,
+                        }
                     daily[d]["paper_pnl"] += round(data["pnl"], 2)
                     daily[d]["paper_trades"] += data["count"]
                     daily[d]["paper_wins"] += data["wins"]
             elif run_date:
                 # No individual trades, use run-level P&L
                 if run_date not in daily:
-                    daily[run_date] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "real_trades": 0, "paper_trades": 0, "real_wins": 0, "paper_wins": 0}
+                    daily[run_date] = {
+                        "real_pnl": 0,
+                        "real_net_pnl": 0,
+                        "real_charges": 0,
+                        "paper_pnl": 0,
+                        "real_trades": 0,
+                        "paper_trades": 0,
+                        "real_wins": 0,
+                        "paper_wins": 0,
+                    }
                 daily[run_date]["paper_pnl"] += r.get("total_pnl", 0)
                 daily[run_date]["paper_trades"] += r.get("trade_count", 0)
                 stats = r.get("stats", {})
                 daily[run_date]["paper_wins"] += stats.get("winning_trades", 0)
-        
+
         # Build monthly and yearly aggregates
         monthly = {}
         yearly = {}
@@ -1047,7 +1111,15 @@ async def get_portfolio_history():
             ym = date_str[:7]
             y = date_str[:4]
             if ym not in monthly:
-                monthly[ym] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+                monthly[ym] = {
+                    "real_pnl": 0,
+                    "real_net_pnl": 0,
+                    "real_charges": 0,
+                    "paper_pnl": 0,
+                    "total_pnl": 0,
+                    "trades": 0,
+                    "wins": 0,
+                }
             monthly[ym]["real_pnl"] += d["real_pnl"]
             monthly[ym]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
             monthly[ym]["real_charges"] += d.get("real_charges", 0)
@@ -1055,9 +1127,17 @@ async def get_portfolio_history():
             monthly[ym]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
             monthly[ym]["trades"] += d["real_trades"] + d["paper_trades"]
             monthly[ym]["wins"] += d["real_wins"] + d["paper_wins"]
-            
+
             if y not in yearly:
-                yearly[y] = {"real_pnl": 0, "real_net_pnl": 0, "real_charges": 0, "paper_pnl": 0, "total_pnl": 0, "trades": 0, "wins": 0}
+                yearly[y] = {
+                    "real_pnl": 0,
+                    "real_net_pnl": 0,
+                    "real_charges": 0,
+                    "paper_pnl": 0,
+                    "total_pnl": 0,
+                    "trades": 0,
+                    "wins": 0,
+                }
             yearly[y]["real_pnl"] += d["real_pnl"]
             yearly[y]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
             yearly[y]["real_charges"] += d.get("real_charges", 0)
@@ -1065,7 +1145,7 @@ async def get_portfolio_history():
             yearly[y]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
             yearly[y]["trades"] += d["real_trades"] + d["paper_trades"]
             yearly[y]["wins"] += d["real_wins"] + d["paper_wins"]
-        
+
         # Round all values
         for m in monthly.values():
             for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
@@ -1073,7 +1153,7 @@ async def get_portfolio_history():
         for y in yearly.values():
             for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
                 y[k] = round(y[k], 2)
-        
+
         return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}
     except Exception as e:
         print(f"[PORTFOLIO] History error: {e}")
@@ -1085,17 +1165,16 @@ async def connect_broker():
     """Establish and validate broker connection"""
     try:
         # Check if credentials are configured (not default placeholders)
-        if (config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or 
-            config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE"):
+        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please add them to .env file."
+                "message": "Dhan API credentials not configured. Please add them to .env file.",
             }
-        
+
         # Test connection by attempting to fetch account funds
         funds = dhan.get_funds()
-        
+
         if funds and isinstance(funds, dict):
             # Successfully connected and validated
             return {
@@ -1103,50 +1182,38 @@ async def connect_broker():
                 "broker": "Dhan",
                 "message": "Successfully connected to Dhan broker",
                 "available_balance": funds.get("availabelBalance", 0),
-                "client_id": config.DHAN_CLIENT_ID
+                "client_id": config.DHAN_CLIENT_ID,
             }
         else:
             # Connection made but no valid data
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Broker returned empty or invalid response"
-            }
-            
+            return {"status": "error", "broker": "Dhan", "message": "Broker returned empty or invalid response"}
+
     except Exception as e:
         error_msg = str(e)
-        
+
         # Provide specific error messages based on error type
         if "401" in error_msg or "Unauthorized" in error_msg:
             return {
                 "status": "error",
                 "broker": "Dhan",
-                "message": "Invalid API credentials. Please check your Client ID and Access Token."
+                "message": "Invalid API credentials. Please check your Client ID and Access Token.",
             }
         elif "403" in error_msg or "Forbidden" in error_msg:
             return {
                 "status": "error",
                 "broker": "Dhan",
-                "message": "Access forbidden. Your API token may have expired or lacks permissions."
+                "message": "Access forbidden. Your API token may have expired or lacks permissions.",
             }
         elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
             return {
                 "status": "error",
                 "broker": "Dhan",
-                "message": "Connection timeout. Please check your internet connection."
+                "message": "Connection timeout. Please check your internet connection.",
             }
         elif "connection" in error_msg.lower():
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": "Network error. Unable to reach Dhan API servers."
-            }
+            return {"status": "error", "broker": "Dhan", "message": "Network error. Unable to reach Dhan API servers."}
         else:
-            return {
-                "status": "error",
-                "broker": "Dhan",
-                "message": f"Connection failed: {error_msg[:100]}"
-            }
+            return {"status": "error", "broker": "Dhan", "message": f"Connection failed: {error_msg[:100]}"}
 
 
 # ── Instrument Mapping ────────────────────────────────────────────
@@ -1155,46 +1222,54 @@ async def connect_broker():
 # Use Dhan's scrip master CSV to find correct security IDs
 INSTRUMENT_MAP = {
     # Indices — Dhan security IDs (from Dhan scrip master)
-    "26000": {"name": "NIFTY 50",      "dhan_id": "13",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
-    "26009": {"name": "BANK NIFTY",    "dhan_id": "25",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
-    "1":     {"name": "SENSEX",        "dhan_id": "51",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},  # BSE SENSEX: Try ID 51 for BSE
-    "26017": {"name": "NIFTY FIN SVC", "dhan_id": "27",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
-    "26037": {"name": "NIFTY MIDCAP",  "dhan_id": "49",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
-    "26074": {"name": "NIFTY NEXT 50", "dhan_id": "26",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
-    "26013": {"name": "NIFTY IT",      "dhan_id": "30",   "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "26000": {"name": "NIFTY 50", "dhan_id": "13", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "26009": {"name": "BANK NIFTY", "dhan_id": "25", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "1": {
+        "name": "SENSEX",
+        "dhan_id": "51",
+        "dhan_seg": "IDX_I",
+        "dhan_type": "INDEX",
+    },  # BSE SENSEX: Try ID 51 for BSE
+    "26017": {"name": "NIFTY FIN SVC", "dhan_id": "27", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "26037": {"name": "NIFTY MIDCAP", "dhan_id": "49", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "26074": {"name": "NIFTY NEXT 50", "dhan_id": "26", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
+    "26013": {"name": "NIFTY IT", "dhan_id": "30", "dhan_seg": "IDX_I", "dhan_type": "INDEX"},
     # Stocks — Dhan NSE security IDs
-    "RELIANCE":   {"name": "Reliance",      "dhan_id": "2885",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "TCS":        {"name": "TCS",           "dhan_id": "11536", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "HDFCBANK":   {"name": "HDFC Bank",     "dhan_id": "1333",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "INFY":       {"name": "Infosys",       "dhan_id": "1594",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "ICICIBANK":  {"name": "ICICI Bank",    "dhan_id": "4963",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "HINDUNILVR": {"name": "HUL",           "dhan_id": "1394",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "ITC":        {"name": "ITC",           "dhan_id": "1660",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "SBIN":       {"name": "SBI",           "dhan_id": "3045",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "RELIANCE": {"name": "Reliance", "dhan_id": "2885", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "TCS": {"name": "TCS", "dhan_id": "11536", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "HDFCBANK": {"name": "HDFC Bank", "dhan_id": "1333", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "INFY": {"name": "Infosys", "dhan_id": "1594", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "ICICIBANK": {"name": "ICICI Bank", "dhan_id": "4963", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "HINDUNILVR": {"name": "HUL", "dhan_id": "1394", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "ITC": {"name": "ITC", "dhan_id": "1660", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "SBIN": {"name": "SBI", "dhan_id": "3045", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
     "BHARTIARTL": {"name": "Bharti Airtel", "dhan_id": "10604", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "BAJFINANCE": {"name": "Bajaj Finance", "dhan_id": "317",   "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "KOTAKBANK":  {"name": "Kotak Bank",    "dhan_id": "1922",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "LT":         {"name": "L&T",           "dhan_id": "11483", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "HCLTECH":    {"name": "HCL Tech",      "dhan_id": "7229",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "ASIANPAINT": {"name": "Asian Paints",  "dhan_id": "236",   "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "AXISBANK":   {"name": "Axis Bank",     "dhan_id": "5900",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "MARUTI":     {"name": "Maruti",        "dhan_id": "10999", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "SUNPHARMA":  {"name": "Sun Pharma",    "dhan_id": "3351",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "TITAN":      {"name": "Titan",         "dhan_id": "3506",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "ULTRACEMCO": {"name": "UltraTech",     "dhan_id": "11532", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "BAJFINANCE": {"name": "Bajaj Finance", "dhan_id": "317", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "KOTAKBANK": {"name": "Kotak Bank", "dhan_id": "1922", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "LT": {"name": "L&T", "dhan_id": "11483", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "HCLTECH": {"name": "HCL Tech", "dhan_id": "7229", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "ASIANPAINT": {"name": "Asian Paints", "dhan_id": "236", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "AXISBANK": {"name": "Axis Bank", "dhan_id": "5900", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "MARUTI": {"name": "Maruti", "dhan_id": "10999", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "SUNPHARMA": {"name": "Sun Pharma", "dhan_id": "3351", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "TITAN": {"name": "Titan", "dhan_id": "3506", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "ULTRACEMCO": {"name": "UltraTech", "dhan_id": "11532", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
     "BAJAJFINSV": {"name": "Bajaj Finserv", "dhan_id": "16675", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "WIPRO":      {"name": "Wipro",         "dhan_id": "3787",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "NESTLEIND":  {"name": "Nestle",        "dhan_id": "17963", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "TATAMOTORS": {"name": "Tata Motors",   "dhan_id": "3456",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "M_M":        {"name": "M&M",           "dhan_id": "2031",  "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
-    "POWERGRID":  {"name": "Power Grid",    "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "WIPRO": {"name": "Wipro", "dhan_id": "3787", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "NESTLEIND": {"name": "Nestle", "dhan_id": "17963", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "TATAMOTORS": {"name": "Tata Motors", "dhan_id": "3456", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "M_M": {"name": "M&M", "dhan_id": "2031", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "POWERGRID": {"name": "Power Grid", "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
 }
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
 INTRADAY_MAX_DAYS = 750  # Dhan intraday API returns ~2 years max; 750 days threshold (~2y + margin)
 
-def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5") -> pd.DataFrame:
+
+def _fetch_data(
+    instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5"
+) -> pd.DataFrame:
     """
     Fetches OHLCV candles from Dhan API at specified interval.
     - For date ranges ≤ ~2 years: fetches intraday candles in 28-day chunks.
@@ -1204,24 +1279,30 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
     inst_info = INSTRUMENT_MAP.get(instrument)
     if not inst_info:
         raise Exception(f"Unknown instrument: {instrument}. Not found in instrument map.")
-    
-    from datetime import datetime as dt, timedelta
+
+    from datetime import datetime as dt
+    from datetime import timedelta
+
     from_dt = dt.strptime(from_date, "%Y-%m-%d")
-    to_dt   = dt.strptime(to_date, "%Y-%m-%d")
+    to_dt = dt.strptime(to_date, "%Y-%m-%d")
     day_span = (to_dt - from_dt).days
-    
+
     # Auto-detect: if range > ~2 years, use daily candles (Dhan intraday limit)
     use_daily = day_span > INTRADAY_MAX_DAYS
     effective_interval = "D" if use_daily else str(candle_interval)
-    
+
     if use_daily:
-        print(f"[DATA] ⚠️  Date range is {day_span} days (>{INTRADAY_MAX_DAYS}d). "
-              f"Auto-switching to DAILY candles for full coverage.")
-    
-    print(f"[DATA] Instrument={instrument} ({inst_info['name']}), DhanID={inst_info['dhan_id']}, "
-          f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else candle_interval + 'm'}, "
-          f"From={from_date}, To={to_date}, Span={day_span}d")
-    
+        print(
+            f"[DATA] ⚠️  Date range is {day_span} days (>{INTRADAY_MAX_DAYS}d). "
+            f"Auto-switching to DAILY candles for full coverage."
+        )
+
+    print(
+        f"[DATA] Instrument={instrument} ({inst_info['name']}), DhanID={inst_info['dhan_id']}, "
+        f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else candle_interval + 'm'}, "
+        f"From={from_date}, To={to_date}, Span={day_span}d"
+    )
+
     if use_daily:
         # Daily candles — single request, no chunking needed
         try:
@@ -1234,33 +1315,34 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
                 candle_type="D",
             )
             if df is not None and not df.empty:
-                df = df[~df.index.duplicated(keep='first')]
+                df = df[~df.index.duplicated(keep="first")]
                 print(f"[DATA] ✅ Total: {len(df)} daily candles, {df.index[0]} → {df.index[-1]}")
                 return df
         except Exception as e:
             raise Exception(f"Daily data fetch failed: {str(e)}")
         raise Exception(f"No daily data from Dhan for {inst_info['name']}.")
-    
+
     # Intraday candles — chunk into 28-day windows
     # Dhan rate limit: ~10 requests/second. We add delay + retry on 429.
     import time as _time
+
     CHUNK_DAYS = 28
-    RATE_LIMIT_DELAY = 0.5   # seconds between API calls
-    MAX_RETRIES = 3           # retry on 429 rate-limit errors
+    RATE_LIMIT_DELAY = 0.5  # seconds between API calls
+    MAX_RETRIES = 3  # retry on 429 rate-limit errors
     all_dfs = []
     chunk_start = from_dt
     chunk_num = 0
     last_error = None
-    
+
     while chunk_start < to_dt:
         chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS), to_dt)
         chunk_num += 1
-        
+
         cs = chunk_start.strftime("%Y-%m-%d")
         ce = chunk_end.strftime("%Y-%m-%d")
-        
+
         print(f"[DATA] Chunk {chunk_num}: {cs} → {ce}")
-        
+
         success = False
         for attempt in range(1, MAX_RETRIES + 1):
             try:
@@ -1276,39 +1358,41 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
                     all_dfs.append(df_chunk)
                     print(f"[DATA]   → {len(df_chunk)} candles")
                 else:
-                    print(f"[DATA]   → 0 candles (empty or None)")
+                    print("[DATA]   → 0 candles (empty or None)")
                 success = True
                 break
             except Exception as e:
                 last_error = str(e)
                 if "429" in str(e) or "Rate_Limit" in str(e) or "DH-904" in str(e):
-                    wait = RATE_LIMIT_DELAY * (2 ** attempt)  # exponential backoff: 1s, 2s, 4s
+                    wait = RATE_LIMIT_DELAY * (2**attempt)  # exponential backoff: 1s, 2s, 4s
                     print(f"[DATA]   → Rate limited (attempt {attempt}/{MAX_RETRIES}), waiting {wait:.1f}s...")
                     _time.sleep(wait)
                 else:
                     print(f"[DATA]   → Error: {last_error}")
                     break  # non-rate-limit error, skip this chunk
-        
+
         if not success and attempt == MAX_RETRIES:
             print(f"[DATA]   → Failed after {MAX_RETRIES} retries")
-        
+
         # Throttle between chunks to avoid rate limiting
         _time.sleep(RATE_LIMIT_DELAY)
-        
+
         chunk_start = chunk_end + timedelta(days=1)
-    
+
     if not all_dfs:
         error_detail = f"No intraday data from Dhan for {inst_info['name']}. Check API subscription and date range."
         if last_error:
             error_detail += f" Last error: {last_error}"
         raise Exception(error_detail)
-    
+
     df = pd.concat(all_dfs).sort_index()
     # Remove duplicates (overlapping chunk boundaries)
-    df = df[~df.index.duplicated(keep='first')]
-    
-    print(f"[DATA] ✅ Total: {len(df)} {candle_interval}-min candles across {chunk_num} chunks, "
-          f"{df.index[0]} → {df.index[-1]}")
+    df = df[~df.index.duplicated(keep="first")]
+
+    print(
+        f"[DATA] ✅ Total: {len(df)} {candle_interval}-min candles across {chunk_num} chunks, "
+        f"{df.index[0]} → {df.index[-1]}"
+    )
     return df
 
 
@@ -1317,8 +1401,8 @@ def _fetch_data(instrument: str, from_date: str, to_date: str, segment: str = "i
 async def api_run_backtest(payload: StrategyPayload):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
-        to_date   = payload.to_date   or config.DEFAULT_TO
-        
+        to_date = payload.to_date or config.DEFAULT_TO
+
         # Extract timeframe from indicators (e.g., Supertrend_10_3_3m → 3)
         # Validate against supported Dhan intervals: 1, 5, 15, 25, 60, D
         candle_interval = "5"  # default
@@ -1336,7 +1420,7 @@ async def api_run_backtest(payload: StrategyPayload):
                                 print(f"[BACKTEST] Unsupported timeframe {candidate}m, using 5m")
                                 candle_interval = "5"
                             break
-        
+
         print(f"\n{'='*60}")
         print(f"[BACKTEST] Run: {payload.run_name}")
         print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
@@ -1345,7 +1429,7 @@ async def api_run_backtest(payload: StrategyPayload):
         print(f"[BACKTEST] Entry conditions: {payload.entry_conditions}")
         print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
         print(f"[BACKTEST] Legs: {payload.legs}")
-        print(f"[BACKTEST] ⚠️  Using ESTIMATED option premiums (not historical data)")
+        print("[BACKTEST] ⚠️  Using ESTIMATED option premiums (not historical data)")
         print(f"{'='*60}")
 
         # 1. Fetch data with segment-aware routing + fallback
@@ -1373,6 +1457,7 @@ async def api_run_backtest(payload: StrategyPayload):
         # Warn if actual data range is shorter than requested, or if using daily candles
         data_range_warning = None
         from datetime import datetime as _dtw
+
         _from_dt = _dtw.strptime(from_date, "%Y-%m-%d")
         _to_dt = _dtw.strptime(to_date, "%Y-%m-%d")
         _day_span = (_to_dt - _from_dt).days
@@ -1384,7 +1469,9 @@ async def api_run_backtest(payload: StrategyPayload):
             )
             print(f"[BACKTEST] {data_range_warning}")
         else:
-            actual_start = str(df_raw.index[0].date()) if hasattr(df_raw.index[0], 'date') else str(df_raw.index[0])[:10]
+            actual_start = (
+                str(df_raw.index[0].date()) if hasattr(df_raw.index[0], "date") else str(df_raw.index[0])[:10]
+            )
             if actual_start > from_date:
                 data_range_warning = (
                     f"⚠️ Data starts from {actual_start} (requested {from_date}). "
@@ -1396,24 +1483,26 @@ async def api_run_backtest(payload: StrategyPayload):
         strategy_config = payload.model_dump()
 
         # 3. Run backtest
-        print(f"[BACKTEST] Running backtest engine...")
+        print("[BACKTEST] Running backtest engine...")
         try:
             results = run_backtest(
                 df_raw=df_raw,
                 entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-                exit_conditions=payload.exit_conditions   or DEFAULT_EXIT_CONDITIONS,
+                exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 strategy_config=strategy_config,
             )
         except Exception as bt_err:
             error_msg = f"Backtest execution failed: {str(bt_err)}"
             print(f"[BACKTEST] {error_msg}")
             import traceback
+
             traceback.print_exc()
             return {"status": "error", "message": error_msg}
 
-        print(f"[BACKTEST] Result: {results.get('status')}, "
-              f"Trades: {results.get('stats', {}).get('total_trades', 0)}")
-        
+        print(
+            f"[BACKTEST] Result: {results.get('status')}, " f"Trades: {results.get('stats', {}).get('total_trades', 0)}"
+        )
+
         # Save the run
         if results.get("status") == "success":
             runs = _load_runs()
@@ -1431,18 +1520,18 @@ async def api_run_backtest(payload: StrategyPayload):
                 "lots": payload.lots,
                 "lot_size": payload.lot_size,
                 "stoploss_pct": payload.stoploss_pct,
-                "stoploss_rupees": getattr(payload, 'stoploss_rupees', 0),
-                "sl_type": getattr(payload, 'sl_type', 'pct'),
-                "target_profit_pct": getattr(payload, 'target_profit_pct', 0),
-                "target_profit_rupees": getattr(payload, 'target_profit_rupees', 0),
-                "tp_type": getattr(payload, 'tp_type', 'pct'),
+                "stoploss_rupees": getattr(payload, "stoploss_rupees", 0),
+                "sl_type": getattr(payload, "sl_type", "pct"),
+                "target_profit_pct": getattr(payload, "target_profit_pct", 0),
+                "target_profit_rupees": getattr(payload, "target_profit_rupees", 0),
+                "tp_type": getattr(payload, "tp_type", "pct"),
                 "indicators": payload.indicators,
                 "entry_conditions": payload.entry_conditions,
                 "exit_conditions": payload.exit_conditions,
                 "legs": payload.legs,
-                "market_open": getattr(payload, 'market_open', '09:15') or '09:15',
-                "market_close": getattr(payload, 'market_close', '15:25') or '15:25',
-                "max_trades_per_day": getattr(payload, 'max_trades_per_day', 1),
+                "market_open": getattr(payload, "market_open", "09:15") or "09:15",
+                "market_close": getattr(payload, "market_close", "15:25") or "15:25",
+                "max_trades_per_day": getattr(payload, "max_trades_per_day", 1),
                 "stats": results["stats"],
                 "monthly": results.get("monthly", []),
                 "day_of_week": results.get("day_of_week", []),
@@ -1459,14 +1548,15 @@ async def api_run_backtest(payload: StrategyPayload):
             _save_runs(runs)
             results["run_id"] = run_entry["id"]
             print(f"[BACKTEST] Saved as Run #{run_entry['id']}")
-        
+
         if data_range_warning:
             results["data_range_warning"] = data_range_warning
-        
+
         return results
 
     except Exception as e:
         import traceback
+
         error_msg = f"Backtest failed: {str(e)}"
         print(f"[BACKTEST] FATAL ERROR: {error_msg}")
         traceback.print_exc()
@@ -1506,7 +1596,7 @@ async def live_start(req: LiveStartRequest):
 
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "live") or "live"
-    
+
     # If an engine with same run_id exists, save its results before replacing
     old_engine = live_engines.get(run_id)
     if old_engine:
@@ -1569,7 +1659,7 @@ async def live_stop(request: Request):
     except Exception:
         pass
     run_id = body.get("run_id", "")
-    
+
     # If no run_id, stop the first (or only) running engine
     if not run_id:
         running = [rid for rid, e in live_engines.items() if e.running]
@@ -1577,14 +1667,14 @@ async def live_stop(request: Request):
             run_id = running[0]
         else:
             return {"status": "not_running"}
-    
+
     engine = live_engines.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
-    
+
     # Capture results BEFORE stopping
     status_before = engine.get_status()
-    
+
     engine.stop()
     task = _live_tasks.pop(run_id, None)
     if task and not task.done():
@@ -1594,10 +1684,10 @@ async def live_stop(request: Request):
         except asyncio.CancelledError:
             pass
     live_engines.pop(run_id, None)
-    
+
     # Persist live run to runs.json (same as paper)
     _save_live_run_to_history(status_before)
-    
+
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -1611,16 +1701,29 @@ async def live_status(run_id: str = ""):
         if engine.running:
             return engine.get_status()
     # Nothing running — return idle status
-    return {"running": False, "run_id": "", "mode": "auto", "in_trade": False,
-            "positions": [], "closed_trades": [], "total_pnl": 0, "trades_today": 0,
-            "strategy_name": "", "instrument": "", "current_candle": {},
-            "current_indicators": {}, "event_log": []}
+    return {
+        "running": False,
+        "run_id": "",
+        "mode": "auto",
+        "in_trade": False,
+        "positions": [],
+        "closed_trades": [],
+        "total_pnl": 0,
+        "trades_today": 0,
+        "strategy_name": "",
+        "instrument": "",
+        "current_candle": {},
+        "current_indicators": {},
+        "event_log": [],
+    }
 
 
 @app.get("/api/live/trades/csv")
 async def export_live_trades_csv(run_id: str = ""):
     """Export live auto-trading trades to CSV"""
-    import io, csv as csv_mod
+    import csv as csv_mod
+    import io
+
     engine = live_engines.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
@@ -1631,19 +1734,33 @@ async def export_live_trades_csv(run_id: str = ""):
     if not engine or not engine.closed_trades:
         raise HTTPException(status_code=404, detail="No live trades available")
     output = io.StringIO()
-    fields = ["id","leg_num","transaction_type","option_type","strike","entry_time",
-              "exit_time","entry_premium","exit_premium","lots","lot_size","pnl",
-              "exit_reason","entry_order_id","exit_order_id"]
-    writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    fields = [
+        "id",
+        "leg_num",
+        "transaction_type",
+        "option_type",
+        "strike",
+        "entry_time",
+        "exit_time",
+        "entry_premium",
+        "exit_premium",
+        "lots",
+        "lot_size",
+        "pnl",
+        "exit_reason",
+        "entry_order_id",
+        "exit_order_id",
+    ]
+    writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
     for t in engine.closed_trades:
-        row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
+        row = {k: (str(v) if k in ("entry_time", "exit_time") else v) for k, v in t.items() if k in fields}
         writer.writerow(row)
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=live_trades_{datetime.now().strftime('%Y%m%d')}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=live_trades_{datetime.now().strftime('%Y%m%d')}.csv"},
     )
 
 
@@ -1651,7 +1768,7 @@ async def export_live_trades_csv(run_id: str = ""):
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload):
     """Start paper trading with real live market data"""
-    
+
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
         "run_name": payload.run_name,
@@ -1675,10 +1792,10 @@ async def paper_start(payload: StrategyPayload):
         "max_daily_loss": payload.max_daily_loss,
         "combined_sqoff_time": payload.combined_sqoff_time,
     }
-    
+
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
-    
+
     # If an engine with same run_id exists, save its results before replacing
     old_engine = paper_engines.get(run_id)
     if old_engine:
@@ -1693,15 +1810,15 @@ async def paper_start(payload: StrategyPayload):
         except Exception as e:
             print(f"[PAPER] Failed to save old engine {run_id}: {e}")
         paper_engines.pop(run_id, None)
-    
+
     # Create a new engine instance for this strategy
     engine = PaperTradingEngine(dhan, run_id=run_id)
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-        exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS
+        exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
     )
-    
+
     # Inject WebSocket feed if available — starts WS + subscribes index
     if _market_feed and HAS_DHAN_FEED:
         instrument = strategy_dict.get("instrument", "26000")
@@ -1709,7 +1826,7 @@ async def paper_start(payload: StrategyPayload):
         if not _market_feed.is_running:
             _market_feed.start()
         engine.set_feed(_market_feed)
-    
+
     # Set running IMMEDIATELY so UI never sees a stale "stopped" state
     engine.running = True
     engine.event_log = []
@@ -1717,7 +1834,7 @@ async def paper_start(payload: StrategyPayload):
     engine.closed_trades = []
     engine.in_trade = False
     engine.trades_today = 0
-    
+
     # Broadcast updates to WebSocket clients
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
@@ -1726,11 +1843,11 @@ async def paper_start(payload: StrategyPayload):
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
-    
+
     # Store engine and start task
     paper_engines[run_id] = engine
     _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
-    
+
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
 
@@ -1743,7 +1860,7 @@ async def paper_stop(request: Request):
     except Exception:
         pass
     run_id = body.get("run_id", "")
-    
+
     # If no run_id, stop the first (or only) running engine
     if not run_id:
         running = [rid for rid, e in paper_engines.items() if e.running]
@@ -1751,16 +1868,16 @@ async def paper_stop(request: Request):
             run_id = running[0]
         else:
             return {"status": "not_running"}
-    
+
     engine = paper_engines.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
-    
+
     # Capture results BEFORE stopping (stop() may close positions)
     status_before = engine.get_status()
-    
+
     engine.stop()
-    
+
     task = _paper_tasks.pop(run_id, None)
     if task and not task.done():
         task.cancel()
@@ -1768,12 +1885,12 @@ async def paper_stop(request: Request):
             await task
         except asyncio.CancelledError:
             pass
-    
+
     paper_engines.pop(run_id, None)
-    
+
     # Save paper run to runs.json so it persists across restarts
     _save_paper_run_to_history(status_before)
-    
+
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -1781,15 +1898,15 @@ def _save_paper_run_to_history(status: dict):
     """Save a completed paper trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
-        
+
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
-        
+
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
-        losers  = [t for t in closed if t.get("pnl", 0) <= 0]
+        losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
-        
+
         paper_run = {
             "id": max_id + 1,
             "mode": "paper",
@@ -1812,13 +1929,31 @@ def _save_paper_run_to_history(status: dict):
             "trades": closed,
             "created_at": str(datetime.now()),
             # Strategy details for View modal
-            **{k: v for k, v in (status.get("strategy") or {}).items()
-               if k in ("indicators", "entry_conditions", "exit_conditions", "legs",
-                        "lots", "lot_size", "stoploss_pct", "stoploss_rupees", "sl_type",
-                        "target_profit_pct", "target_profit_rupees", "tp_type",
-                        "market_open", "market_close", "folder", "max_trades_per_day")},
+            **{
+                k: v
+                for k, v in (status.get("strategy") or {}).items()
+                if k
+                in (
+                    "indicators",
+                    "entry_conditions",
+                    "exit_conditions",
+                    "legs",
+                    "lots",
+                    "lot_size",
+                    "stoploss_pct",
+                    "stoploss_rupees",
+                    "sl_type",
+                    "target_profit_pct",
+                    "target_profit_rupees",
+                    "tp_type",
+                    "market_open",
+                    "market_close",
+                    "folder",
+                    "max_trades_per_day",
+                )
+            },
         }
-        
+
         runs.append(paper_run)
         _save_runs(runs)
         print(f"[PAPER] Saved run #{paper_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
@@ -1830,15 +1965,15 @@ def _save_live_run_to_history(status: dict):
     """Save a completed live (auto) trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
-        
+
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
-        
+
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
-        losers  = [t for t in closed if t.get("pnl", 0) <= 0]
+        losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
-        
+
         live_run = {
             "id": max_id + 1,
             "mode": "live",
@@ -1861,13 +1996,31 @@ def _save_live_run_to_history(status: dict):
             "trades": closed,
             "created_at": str(datetime.now()),
             # Strategy details for View modal
-            **{k: v for k, v in (status.get("strategy") or {}).items()
-               if k in ("indicators", "entry_conditions", "exit_conditions", "legs",
-                        "lots", "lot_size", "stoploss_pct", "stoploss_rupees", "sl_type",
-                        "target_profit_pct", "target_profit_rupees", "tp_type",
-                        "market_open", "market_close", "folder", "max_trades_per_day")},
+            **{
+                k: v
+                for k, v in (status.get("strategy") or {}).items()
+                if k
+                in (
+                    "indicators",
+                    "entry_conditions",
+                    "exit_conditions",
+                    "legs",
+                    "lots",
+                    "lot_size",
+                    "stoploss_pct",
+                    "stoploss_rupees",
+                    "sl_type",
+                    "target_profit_pct",
+                    "target_profit_rupees",
+                    "tp_type",
+                    "market_open",
+                    "market_close",
+                    "folder",
+                    "max_trades_per_day",
+                )
+            },
         }
-        
+
         runs.append(live_run)
         _save_runs(runs)
         print(f"[LIVE] Saved run #{live_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
@@ -1880,17 +2033,28 @@ async def paper_status(run_id: str = ""):
     """Get paper trading status. If run_id empty, returns first running engine."""
     if run_id and run_id in paper_engines:
         return paper_engines[run_id].get_status()
-    
+
     # Return first running engine's status
     for rid, engine in paper_engines.items():
         if engine.running:
             return engine.get_status()
-    
+
     # No running engines — check for last saved paper run from history
-    status = {"running": False, "run_id": "", "mode": "paper", "in_trade": False,
-              "positions": [], "closed_trades": [], "total_pnl": 0, "trades_today": 0,
-              "strategy_name": "", "instrument": "", "current_candle": {},
-              "current_indicators": {}, "event_log": []}
+    status = {
+        "running": False,
+        "run_id": "",
+        "mode": "paper",
+        "in_trade": False,
+        "positions": [],
+        "closed_trades": [],
+        "total_pnl": 0,
+        "trades_today": 0,
+        "strategy_name": "",
+        "instrument": "",
+        "current_candle": {},
+        "current_indicators": {},
+        "event_log": [],
+    }
     try:
         runs = _load_runs()
         paper_runs = [r for r in runs if r.get("mode") == "paper"]
@@ -1905,7 +2069,7 @@ async def paper_status(run_id: str = ""):
             status["_from_history"] = True
     except Exception:
         pass
-    
+
     return status
 
 
@@ -1914,7 +2078,7 @@ async def paper_status(run_id: str = ""):
 async def engines_all():
     """Return status of ALL running engines (paper + live) for multi-strategy Live page."""
     engines = []
-    
+
     # Add all paper engines
     for run_id, engine in paper_engines.items():
         if engine.running:
@@ -1922,7 +2086,7 @@ async def engines_all():
             st["run_id"] = run_id
             st["mode"] = "paper"
             engines.append(st)
-    
+
     # Add all live engines
     for run_id, engine in live_engines.items():
         if engine.running:
@@ -1930,7 +2094,7 @@ async def engines_all():
             st["run_id"] = run_id
             st["mode"] = "auto"
             engines.append(st)
-    
+
     # If nothing running, show last paper run from history
     if not engines:
         try:
@@ -1939,19 +2103,27 @@ async def engines_all():
             if paper_runs:
                 last = paper_runs[-1]
                 trades = last.get("trades", [])
-                engines.append({
-                    "running": False, "run_id": "", "mode": "paper",
-                    "in_trade": False, "positions": [], "closed_trades": trades,
-                    "total_pnl": last.get("total_pnl", 0),
-                    "trades_today": len(trades),
-                    "strategy_name": last.get("run_name", "Last Paper Run"),
-                    "instrument": last.get("instrument", ""),
-                    "current_candle": {}, "current_indicators": {},
-                    "event_log": [], "_from_history": True,
-                })
+                engines.append(
+                    {
+                        "running": False,
+                        "run_id": "",
+                        "mode": "paper",
+                        "in_trade": False,
+                        "positions": [],
+                        "closed_trades": trades,
+                        "total_pnl": last.get("total_pnl", 0),
+                        "trades_today": len(trades),
+                        "strategy_name": last.get("run_name", "Last Paper Run"),
+                        "instrument": last.get("instrument", ""),
+                        "current_candle": {},
+                        "current_indicators": {},
+                        "event_log": [],
+                        "_from_history": True,
+                    }
+                )
         except Exception:
             pass
-    
+
     return {"engines": engines, "count": len(engines)}
 
 
@@ -1969,13 +2141,15 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
             live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
-            await ws.send_json({
-                "type": "status",
-                "paper_engines": paper_sts,
-                "live_engines": live_sts,
-                "paper_running": any(s.get("running") for s in paper_sts.values()),
-                "live_running": any(s.get("running") for s in live_sts.values()),
-            })
+            await ws.send_json(
+                {
+                    "type": "status",
+                    "paper_engines": paper_sts,
+                    "live_engines": live_sts,
+                    "paper_running": any(s.get("running") for s in paper_sts.values()),
+                    "live_running": any(s.get("running") for s in live_sts.values()),
+                }
+            )
             await asyncio.sleep(5)
     except (WebSocketDisconnect, Exception):
         if ws in ws_clients:
@@ -1989,12 +2163,17 @@ async def place_order(req: OrderRequest, request: Request):
     check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
     try:
         return dhan.place_order(
-            security_id=req.security_id, exchange_segment=req.exchange_segment,
-            transaction_type=req.transaction_type, quantity=req.quantity,
-            order_type=req.order_type, product_type=req.product_type, price=req.price,
+            security_id=req.security_id,
+            exchange_segment=req.exchange_segment,
+            transaction_type=req.transaction_type,
+            quantity=req.quantity,
+            order_type=req.order_type,
+            product_type=req.product_type,
+            price=req.price,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/orders")
 async def get_orders():
@@ -2004,6 +2183,7 @@ async def get_orders():
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
+
 @app.get("/api/positions")
 async def get_positions():
     try:
@@ -2012,27 +2192,33 @@ async def get_positions():
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
+
 @app.get("/api/funds")
 async def get_funds():
-    try: return dhan.get_funds()
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    try:
+        return dhan.get_funds()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/api/orders/{order_id}")
 async def cancel_order(order_id: str):
-    try: return dhan.cancel_order(order_id)
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    try:
+        return dhan.cancel_order(order_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Strategy CRUD ─────────────────────────────────────────────────
 STRAT_FILE = "strategies.json"
-RUNS_FILE  = "runs.json"
+RUNS_FILE = "runs.json"
 TRADE_HISTORY_FILE = "trade_history.json"
 
 
 def _load_trade_history():
     if os.path.exists(TRADE_HISTORY_FILE):
         try:
-            with open(TRADE_HISTORY_FILE, 'r') as f:
+            with open(TRADE_HISTORY_FILE, "r") as f:
                 return json.load(f)
         except:
             return {}
@@ -2040,13 +2226,13 @@ def _load_trade_history():
 
 
 def _save_trade_history(d):
-    with open(TRADE_HISTORY_FILE, 'w') as f:
+    with open(TRADE_HISTORY_FILE, "w") as f:
         json.dump(d, f, indent=2)
 
 
 def _persist_daily_trades(trades: list):
     """Auto-save today's real Dhan trade P&L summary to trade_history.json.
-    
+
     Only overwrites existing entry if the new data has MORE trade legs
     (i.e., more complete data from later in the day).
     """
@@ -2054,7 +2240,7 @@ def _persist_daily_trades(trades: list):
         return
     today_str = datetime.now().strftime("%Y-%m-%d")
     trade_legs = len(trades)  # Total individual order legs
-    
+
     # Pair BUY/SELL per securityId to compute real P&L
     groups = {}
     for t in trades:
@@ -2066,7 +2252,7 @@ def _persist_daily_trades(trades: list):
             groups[key]["buys"].append(t)
         elif t.get("transactionType") == "SELL":
             groups[key]["sells"].append(t)
-    
+
     total_pnl = 0
     trade_count = 0
     wins = 0
@@ -2089,31 +2275,39 @@ def _persist_daily_trades(trades: list):
             # Sum charges from all legs (buys + sells)
             leg_charges = 0
             for t in g["buys"] + g["sells"]:
-                for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax",
-                              "exchangeTransactionCharges", "stampDuty"):
+                for key_c in (
+                    "sebiTax",
+                    "stt",
+                    "brokerageCharges",
+                    "serviceTax",
+                    "exchangeTransactionCharges",
+                    "stampDuty",
+                ):
                     leg_charges += float(t.get(key_c, 0) or 0)
             total_charges += leg_charges
-            trade_details.append({
-                "symbol": g["symbol"],
-                "pnl": pnl,
-                "qty": int(matched),
-                "buy_avg": round(buy_avg, 2),
-                "sell_avg": round(sell_avg, 2),
-                "charges": round(leg_charges, 2),
-            })
-    
+            trade_details.append(
+                {
+                    "symbol": g["symbol"],
+                    "pnl": pnl,
+                    "qty": int(matched),
+                    "buy_avg": round(buy_avg, 2),
+                    "sell_avg": round(sell_avg, 2),
+                    "charges": round(leg_charges, 2),
+                }
+            )
+
     if trade_count == 0:
         return
-    
+
     history = _load_trade_history()
-    
+
     # Only overwrite if new data has more trade legs (more complete)
     existing = history.get(today_str, {})
     existing_legs = existing.get("trade_legs", existing.get("trades", 0))
     if existing_legs > trade_legs:
         print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
         return
-    
+
     # Preserve charges from historical API if current has none
     if total_charges == 0 and existing.get("charges", 0) > 0:
         total_charges = existing["charges"]
@@ -2122,7 +2316,7 @@ def _persist_daily_trades(trades: list):
         for detail in trade_details:
             if detail["charges"] == 0 and detail["symbol"] in old_details_map:
                 detail["charges"] = old_details_map[detail["symbol"]]
-    
+
     history[today_str] = {
         "pnl": round(total_pnl, 2),
         "net_pnl": round(total_pnl - total_charges, 2),
@@ -2134,59 +2328,71 @@ def _persist_daily_trades(trades: list):
         "details": trade_details,
     }
     _save_trade_history(history)
-    print(f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}")
+    print(
+        f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}"
+    )
 
-def _load(): 
+
+def _load():
     if os.path.exists(STRAT_FILE):
         try:
-            with open(STRAT_FILE, 'r') as f:
+            with open(STRAT_FILE, "r") as f:
                 return json.load(f)
         except:
             return []
     return []
 
+
 def _save(d):
-    with open(STRAT_FILE, 'w') as f:
+    with open(STRAT_FILE, "w") as f:
         json.dump(d, f, indent=2)
+
 
 def _load_runs():
     if os.path.exists(RUNS_FILE):
         try:
-            with open(RUNS_FILE, 'r') as f:
+            with open(RUNS_FILE, "r") as f:
                 return json.load(f)
         except:
             return []
     return []
 
+
 def _save_runs(d):
     # Use atomic write (tmp + rename) so a crash mid-write won't corrupt the file
     tmp = RUNS_FILE + ".tmp"
-    with open(tmp, 'w') as f:
+    with open(tmp, "w") as f:
         json.dump(d, f, indent=2, default=str)
     os.replace(tmp, RUNS_FILE)
+
 
 @app.get("/api/strategies")
 async def get_strategies():
     return _load()
 
+
 @app.post("/api/strategies")
 async def save_strategy(strategy: dict):
     strats = _load()
     max_id = max([s.get("id", 0) for s in strats], default=0)
-    strategy.update({
-        "id": max_id + 1,
-        "created_at": str(datetime.now()),
-        "version": 1,
-        "versions": [{"version": 1, "saved_at": str(datetime.now()), "changes": "Initial save"}]
-    })
+    strategy.update(
+        {
+            "id": max_id + 1,
+            "created_at": str(datetime.now()),
+            "version": 1,
+            "versions": [{"version": 1, "saved_at": str(datetime.now()), "changes": "Initial save"}],
+        }
+    )
     strats.append(strategy)
     _save(strats)
     return strategy
+
 
 @app.delete("/api/strategies/{sid}")
 async def delete_strategy(sid: int):
     _save([s for s in _load() if s.get("id") != sid])
     return {"deleted": sid}
+
 
 @app.put("/api/strategies/{sid}")
 async def update_strategy(sid: int, updates: dict):
@@ -2196,11 +2402,13 @@ async def update_strategy(sid: int, updates: dict):
             # Track version history
             ver = s.get("version", 1) + 1
             versions = s.get("versions", [])
-            versions.append({
-                "version": ver,
-                "saved_at": str(datetime.now()),
-                "changes": updates.get("_change_note", f"Updated to v{ver}")
-            })
+            versions.append(
+                {
+                    "version": ver,
+                    "saved_at": str(datetime.now()),
+                    "changes": updates.get("_change_note", f"Updated to v{ver}"),
+                }
+            )
             # Keep only last 20 versions
             if len(versions) > 20:
                 versions = versions[-20:]
@@ -2212,6 +2420,7 @@ async def update_strategy(sid: int, updates: dict):
             break
     _save(strats)
     return {"updated": sid}
+
 
 # ── Backtest Runs CRUD ────────────────────────────────────────────
 @app.get("/api/runs")
@@ -2227,6 +2436,7 @@ async def get_runs():
         result.append(summary)
     return result
 
+
 @app.get("/api/runs/{rid}")
 async def get_run(rid: int):
     runs = _load_runs()
@@ -2235,29 +2445,47 @@ async def get_run(rid: int):
             return r
     raise HTTPException(status_code=404, detail="Run not found")
 
+
 @app.delete("/api/runs/{rid}")
 async def delete_run(rid: int):
     runs = _load_runs()
     _save_runs([r for r in runs if r.get("id") != rid])
     return {"deleted": rid}
 
+
 @app.get("/api/runs/{rid}/csv")
 async def export_run_csv(rid: int):
     """Export backtest trades to CSV"""
-    import io, csv
+    import csv
+    import io
+
     runs = _load_runs()
     run = None
     for r in runs:
         if r.get("id") == rid:
-            run = r; break
+            run = r
+            break
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     trades = run.get("trades", [])
     if not trades:
         raise HTTPException(status_code=404, detail="No trades in this run")
     output = io.StringIO()
-    fields = ["id","entry_time","exit_time","entry_price","exit_price","pnl","cumulative","exit_reason","option_type","strike","qty","txn_type"]
-    writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    fields = [
+        "id",
+        "entry_time",
+        "exit_time",
+        "entry_price",
+        "exit_price",
+        "pnl",
+        "cumulative",
+        "exit_reason",
+        "option_type",
+        "strike",
+        "qty",
+        "txn_type",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
     for t in trades:
         writer.writerow(t)
@@ -2266,31 +2494,36 @@ async def export_run_csv(rid: int):
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={name}_trades.csv"}
+        headers={"Content-Disposition": f"attachment; filename={name}_trades.csv"},
     )
+
 
 # ── Scalp Trades CRUD (scalp_trades.json) ──────────────────────────
 _SCALP_FILE = os.path.join(_HERE, "scalp_trades.json")
 
+
 def _load_scalp_trades():
     if os.path.exists(_SCALP_FILE):
         try:
-            with open(_SCALP_FILE, 'r') as f:
+            with open(_SCALP_FILE, "r") as f:
                 return json.load(f)
         except Exception:
             return []
     return []
 
+
 def _save_scalp_trades(trades):
     tmp = _SCALP_FILE + ".tmp"
-    with open(tmp, 'w') as f:
+    with open(tmp, "w") as f:
         json.dump(trades, f, indent=2, default=str)
     os.replace(tmp, _SCALP_FILE)
+
 
 @app.get("/api/scalp/trades")
 async def get_scalp_trades():
     """Return all closed scalp trades from scalp_trades.json."""
     return _load_scalp_trades()
+
 
 @app.delete("/api/scalp/trades/{tid}")
 async def delete_scalp_trade(tid: int):
@@ -2303,7 +2536,9 @@ async def delete_scalp_trade(tid: int):
 @app.get("/api/paper/trades/csv")
 async def export_paper_trades_csv(run_id: str = ""):
     """Export paper trading trades to CSV"""
-    import io, csv
+    import csv
+    import io
+
     engine = paper_engines.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
@@ -2314,18 +2549,33 @@ async def export_paper_trades_csv(run_id: str = ""):
     if not engine or not engine.closed_trades:
         raise HTTPException(status_code=404, detail="No paper trades available")
     output = io.StringIO()
-    fields = ["id","leg_num","transaction_type","option_type","strike","entry_time","exit_time","entry_premium","exit_premium","lots","lot_size","pnl","exit_reason"]
-    writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    fields = [
+        "id",
+        "leg_num",
+        "transaction_type",
+        "option_type",
+        "strike",
+        "entry_time",
+        "exit_time",
+        "entry_premium",
+        "exit_premium",
+        "lots",
+        "lot_size",
+        "pnl",
+        "exit_reason",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
     for t in engine.closed_trades:
-        row = {k: (str(v) if k in ('entry_time','exit_time') else v) for k, v in t.items() if k in fields}
+        row = {k: (str(v) if k in ("entry_time", "exit_time") else v) for k, v in t.items() if k in fields}
         writer.writerow(row)
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=paper_trades_{datetime.now().strftime('%Y%m%d')}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=paper_trades_{datetime.now().strftime('%Y%m%d')}.csv"},
     )
+
 
 # ── Live Ticker (Dhan LTP) ───────────────────────────────────────
 
@@ -2334,14 +2584,17 @@ async def export_paper_trades_csv(run_id: str = ""):
 _ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}  # Cache for 30 seconds
 _prev_close_cache = {"data": {}, "date": None}  # Cache prev close for the day
 
+
 def _get_prev_close():
     """Get previous day close for indices. Cached per day. Uses yfinance (once/day)."""
     from datetime import date
+
     today = date.today()
     if _prev_close_cache["date"] == str(today) and _prev_close_cache["data"]:
         return _prev_close_cache["data"]
     try:
         import yfinance as yf
+
         result = {}
         for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex"), ("^INDIAVIX", "vix")]:
             hist = yf.Ticker(sym).history(period="5d")
@@ -2359,20 +2612,21 @@ def _get_prev_close():
         print(f"[TICKER] Prev close fetch failed: {e}")
         return {}
 
+
 @app.get("/api/ticker")
 async def get_ticker():
     """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
     global _ticker_cache
-    
+
     # Return cached data if still valid
     if _ticker_cache["data"] and (time.time() - _ticker_cache["timestamp"]) < _ticker_cache["ttl"]:
         return _ticker_cache["data"]
-    
+
     # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
     if dhan._is_configured():
         try:
             print("[TICKER] Fetching from Dhan OHLC API...")
-            
+
             # Resolve ATM option security IDs FIRST (no API call)
             ce_sid, pe_sid, atm_strike = None, None, 0
             try:
@@ -2390,83 +2644,89 @@ async def get_ticker():
                     print(f"[TICKER] ATM strike={atm_strike}, CE_sid={ce_sid}, PE_sid={pe_sid}, expiry={expiry}")
             except Exception as e:
                 print(f"[TICKER] ATM lookup error: {e}")
-            
+
             # SINGLE Dhan API call: IDX_I + NSE_FNO together
             # sid 13=NIFTY, 51=SENSEX (IDX_I). VIX from yfinance (Dhan IDX_I has no VIX).
             segments = {"IDX_I": [13, 51]}
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
-            
+
             all_data = dhan.get_ohlc_multi(segments)
-            
+
             idx = all_data.get("IDX_I", {})
             fno = all_data.get("NSE_FNO", {})
-            
+
             def _extract_ltp(d, sid):
                 info = d.get(str(sid), {})
                 if isinstance(info, dict):
                     return float(info.get("last_price", 0))
                 return 0.0
-            
-            nifty_ltp  = _extract_ltp(idx, 13)
+
+            nifty_ltp = _extract_ltp(idx, 13)
             sensex_ltp = _extract_ltp(idx, 51)
-            
+
             if nifty_ltp > 0:
                 # ATM check
                 correct_atm = round(nifty_ltp / 50) * 50
                 if correct_atm != atm_strike and ce_sid and pe_sid:
                     print(f"[TICKER] ATM shifted {atm_strike} → {correct_atm}, will correct next cycle")
-                
+
                 # ATM CE/PE from same response
                 atm_ce = {"price": 0, "change": 0, "pct": 0}
                 atm_pe = {"price": 0, "change": 0, "pct": 0}
                 if ce_sid:
                     ce_p = _extract_ltp(fno, ce_sid)
-                    if ce_p > 0: atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
+                    if ce_p > 0:
+                        atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
                 if pe_sid:
                     pe_p = _extract_ltp(fno, pe_sid)
-                    if pe_p > 0: atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
+                    if pe_p > 0:
+                        atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
                 if ce_sid or pe_sid:
                     print(f"[TICKER] ATM {atm_strike}: CE={atm_ce['price']}, PE={atm_pe['price']}")
-                
+
                 # Index change% from yfinance prev close (cached daily)
                 # Dhan IDX_I doesn't provide net_change or prev close for indices
                 prev = _get_prev_close()
+
                 def _chg(ltp, key):
                     pc = prev.get(key, 0)
                     if pc > 0:
                         return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
                     return 0, 0
-                
+
                 n_chg, n_pct = _chg(nifty_ltp, "nifty")
                 s_chg, s_pct = _chg(sensex_ltp, "sensex")
                 # VIX from yfinance (Dhan IDX_I doesn't have India VIX)
                 vix_ltp = prev.get("vix_ltp", 0)
                 v_chg, v_pct = _chg(vix_ltp, "vix")
-                
+
                 result = {
                     "status": "ok",
                     "source": "dhan",
-                    "nifty":  {"price": round(nifty_ltp, 2), "change": n_chg, "pct": n_pct},
+                    "nifty": {"price": round(nifty_ltp, 2), "change": n_chg, "pct": n_pct},
                     "sensex": {"price": round(sensex_ltp, 2), "change": s_chg, "pct": s_pct},
-                    "vix":    {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
-                    "atmCE":  atm_ce,
-                    "atmPE":  atm_pe,
+                    "vix": {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
+                    "atmCE": atm_ce,
+                    "atmPE": atm_pe,
                 }
                 _ticker_cache["data"] = result
                 _ticker_cache["timestamp"] = time.time()
-                print(f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}, {n_pct:+.2f}%), SENSEX={sensex_ltp}, VIX={vix_ltp}")
+                print(
+                    f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}, {n_pct:+.2f}%), SENSEX={sensex_ltp}, VIX={vix_ltp}"
+                )
                 return result
             else:
                 print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")
         except Exception as e:
             print(f"[TICKER] Dhan API failed: {type(e).__name__}: {str(e)[:100]}, trying yfinance...")
-    
+
     # ── FALLBACK: yfinance ────────────────────────────────────
     try:
         import yfinance as yf
+
         print("[TICKER] Fetching from yfinance (fallback)...")
-        
+
         def _last_close_and_change(symbol: str):
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="2d")
@@ -2486,21 +2746,25 @@ async def get_ticker():
             result = {
                 "status": "ok",
                 "source": "yfinance",
-                "nifty":  {"price": round(nifty_price, 2), "change": round(nifty_chg, 2), "pct": round(nifty_pct, 2)},
-                "sensex": {"price": round(sensex_price, 2), "change": round(sensex_chg, 2), "pct": round(sensex_pct, 2)},
-                "vix":    {"price": round(vix_price, 2), "change": round(vix_chg, 2), "pct": round(vix_pct, 2)},
-                "atmCE":  {"price": 0, "change": 0, "pct": 0},
-                "atmPE":  {"price": 0, "change": 0, "pct": 0},
+                "nifty": {"price": round(nifty_price, 2), "change": round(nifty_chg, 2), "pct": round(nifty_pct, 2)},
+                "sensex": {
+                    "price": round(sensex_price, 2),
+                    "change": round(sensex_chg, 2),
+                    "pct": round(sensex_pct, 2),
+                },
+                "vix": {"price": round(vix_price, 2), "change": round(vix_chg, 2), "pct": round(vix_pct, 2)},
+                "atmCE": {"price": 0, "change": 0, "pct": 0},
+                "atmPE": {"price": 0, "change": 0, "pct": 0},
             }
             _ticker_cache["data"] = result
             _ticker_cache["timestamp"] = time.time()
             print(f"[TICKER] yfinance: NIFTY={nifty_price}, SENSEX={sensex_price}")
             return result
-        
+
         print("[TICKER] yfinance also returned no data")
     except Exception as yf_err:
         print(f"[TICKER] yfinance fallback failed: {yf_err}")
-    
+
     return {"status": "error", "msg": "No price data available from any source"}
 
 
@@ -2525,11 +2789,12 @@ async def get_expiry_dates():
 
 def _refresh_recent_charges(history: dict):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
-    
+
     The live get_trades() endpoint doesn't return charge fields (stt, sebiTax etc).
     Once those trades appear in get_trade_history(), we can update charges.
     """
     import time as _time
+
     try:
         today = datetime.now()
         yesterday = today - timedelta(days=1)
@@ -2541,19 +2806,19 @@ def _refresh_recent_charges(history: dict):
             # Only re-fetch if entry exists but has 0 charges
             if entry and entry.get("charges", 0) == 0 and entry.get("trades", 0) > 0:
                 dates_to_check.append(d)
-        
+
         if not dates_to_check:
             return
-        
+
         from_date = min(dates_to_check)
         to_date = max(dates_to_check)
         print(f"📊 [CHARGES] Refreshing charges for {dates_to_check}...")
-        
+
         result = dhan.get_trade_history(from_date, to_date, 0)
         if not isinstance(result, list) or not result:
             print(f"📊 [CHARGES] No historical data available yet for {from_date} to {to_date}")
             return
-        
+
         # Paginate to get all trades
         all_trades = list(result)
         page = 1
@@ -2564,7 +2829,7 @@ def _refresh_recent_charges(history: dict):
                 break
             all_trades.extend(result)
             page += 1
-        
+
         # Group by date
         trades_by_date = {}
         for t in all_trades:
@@ -2574,7 +2839,7 @@ def _refresh_recent_charges(history: dict):
                 if d not in trades_by_date:
                     trades_by_date[d] = []
                 trades_by_date[d].append(t)
-        
+
         updated = 0
         for date_str, day_trades in trades_by_date.items():
             groups = {}
@@ -2587,7 +2852,7 @@ def _refresh_recent_charges(history: dict):
                     groups[key]["buys"].append(t)
                 elif t.get("transactionType") == "SELL":
                     groups[key]["sells"].append(t)
-            
+
             total_pnl = 0
             total_charges = 0
             trade_count = 0
@@ -2600,7 +2865,14 @@ def _refresh_recent_charges(history: dict):
                 sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
                 leg_charges = 0
                 for t in g["buys"] + g["sells"]:
-                    for key_c in ("sebiTax", "stt", "brokerageCharges", "serviceTax", "exchangeTransactionCharges", "stampDuty"):
+                    for key_c in (
+                        "sebiTax",
+                        "stt",
+                        "brokerageCharges",
+                        "serviceTax",
+                        "exchangeTransactionCharges",
+                        "stampDuty",
+                    ):
                         leg_charges += float(t.get(key_c, 0) or 0)
                 matched = min(buy_qty, sell_qty)
                 if matched > 0 and buy_qty > 0 and sell_qty > 0:
@@ -2612,12 +2884,17 @@ def _refresh_recent_charges(history: dict):
                     trade_count += 1
                     if pnl > 0:
                         wins += 1
-                    details.append({
-                        "symbol": g["symbol"], "pnl": pnl, "qty": int(matched),
-                        "buy_avg": round(buy_avg, 2), "sell_avg": round(sell_avg, 2),
-                        "charges": round(leg_charges, 2),
-                    })
-            
+                    details.append(
+                        {
+                            "symbol": g["symbol"],
+                            "pnl": pnl,
+                            "qty": int(matched),
+                            "buy_avg": round(buy_avg, 2),
+                            "sell_avg": round(sell_avg, 2),
+                            "charges": round(leg_charges, 2),
+                        }
+                    )
+
             if trade_count > 0 and total_charges > 0:
                 history[date_str] = {
                     "pnl": round(total_pnl, 2),
@@ -2630,8 +2907,10 @@ def _refresh_recent_charges(history: dict):
                     "details": details,
                 }
                 updated += 1
-                print(f"📊 [CHARGES] Updated {date_str}: charges=₹{total_charges:.2f}, P&L=₹{total_pnl:.2f} ({trade_count} trades, {len(day_trades)} legs)")
-        
+                print(
+                    f"📊 [CHARGES] Updated {date_str}: charges=₹{total_charges:.2f}, P&L=₹{total_pnl:.2f} ({trade_count} trades, {len(day_trades)} legs)"
+                )
+
         if updated > 0:
             _save_trade_history(history)
             print(f"📊 [CHARGES] Refreshed charges for {updated} dates")
@@ -2641,6 +2920,7 @@ def _refresh_recent_charges(history: dict):
 
 # ── Token renewal background task ────────────────────────────────
 _token_renewal_task = None
+
 
 async def _prefetch_scrip_master():
     """Download/refresh Scrip Master cache in background — non-blocking."""
@@ -2652,6 +2932,31 @@ async def _prefetch_scrip_master():
             _logger.warning("[SCRIP] Background prefetch returned False — will retry on first order")
     except Exception as e:
         _logger.warning(f"[SCRIP] Background prefetch failed: {e}")
+
+
+async def _backfill_in_background():
+    """Run the blocking backfill in a thread so the event loop stays free."""
+    global _backfill_state
+    _backfill_state["status"] = "running"
+    _backfill_state["message"] = "Fetching historical trades from Dhan..."
+    loop = asyncio.get_event_loop()
+    try:
+        history = _load_trade_history()
+        force = len(history) <= 2
+        if force:
+            _backfill_state["message"] = "First-run: full backfill in progress..."
+            print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
+        count = await loop.run_in_executor(None, lambda: _backfill_trade_history("2024-01-01", force=force))
+        if not force:
+            loaded = _load_trade_history()
+            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded))
+            print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
+        else:
+            print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
+        _backfill_state.update({"status": "done", "message": "Trade history up to date.", "new_dates": count})
+    except Exception as e:
+        print(f"📊 [BACKFILL] Startup backfill failed: {e}")
+        _backfill_state.update({"status": "error", "message": str(e)})
 
 
 @app.on_event("startup")
@@ -2669,23 +2974,8 @@ async def _start_token_renewal():
     # ── Pre-cache Scrip Master in background (non-blocking) ────
     asyncio.create_task(_prefetch_scrip_master())
 
-    # Auto-backfill trade history from Dhan on startup
-    try:
-        history = _load_trade_history()
-        if len(history) <= 2:  # Empty or very few entries — do a full force fetch
-            print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
-            count = _backfill_trade_history("2024-01-01", force=True)
-            print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
-        else:
-            # Incremental: just add any new missing dates
-            count = _backfill_trade_history("2024-01-01", force=False)
-            loaded = _load_trade_history()
-            print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
-            
-            # Also try to update today & yesterday with charges from historical API
-            _refresh_recent_charges(loaded)
-    except Exception as e:
-        print(f"📊 [BACKFILL] Startup backfill failed: {e}")
+    # Auto-backfill trade history — runs in a thread so startup returns instantly
+    asyncio.create_task(_backfill_in_background())
 
 
 @app.on_event("shutdown")
@@ -2733,9 +3023,9 @@ async def feed_status():
 # ── Run ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+
     print("=" * 60)
     print("  AlgoForge — Starting Backend")
     print(f"  Open: http://{config.APP_HOST}:{config.APP_PORT}")
     print("=" * 60)
-    uvicorn.run("app:app", host=config.APP_HOST, port=config.APP_PORT,
-                reload=False, log_level="info")
+    uvicorn.run("app:app", host=config.APP_HOST, port=config.APP_PORT, reload=False, log_level="info")
