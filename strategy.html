@@ -1198,11 +1198,11 @@
       width: 100% !important;
     }
 
-    /* -- Portfolio: single column for all 2-col grids -- */
-    #portfolio-page div[style*="grid-template-columns: 1fr 1fr"] {
+    /* -- Portfolio: single column for outer grids -- */
+    #portfolio-dual-grid {
       grid-template-columns: 1fr !important;
     }
-    #portfolio-page div[style*="repeat(auto-fit"] {
+    #portfolio-page > div[style*="repeat(auto-fit"] {
       grid-template-columns: 1fr !important;
     }
 
@@ -2321,7 +2321,7 @@
   </div>
 
   <!-- Paper Trade P&L + Monthly P&L side-by-side -->
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; align-items: start;">
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; align-items: start;" id="portfolio-dual-grid">
 
   <!-- Paper Trade P&L Summary -->
   <div class="card" style="padding: 20px;">
@@ -2660,9 +2660,9 @@ function customConfirm(message, options = {}) {
     const okBtn = document.getElementById('confirm-ok-btn');
     const cancelBtn = document.getElementById('confirm-cancel-btn');
 
-    titleEl.innerHTML = options.title || 'Confirm';
-    msgEl.innerHTML = message;
-    iconEl.innerHTML = options.icon || ICO.warn(28);
+    titleEl.textContent = options.title || 'Confirm';  // safe — no innerHTML
+    msgEl.textContent = message;                         // safe — strategy names can't XSS
+    iconEl.innerHTML = options.icon || ICO.warn(28);   // internal SVG generator only — ok
     okBtn.textContent = options.okText || 'Confirm';
     cancelBtn.textContent = options.cancelText || 'Cancel';
 
@@ -5555,8 +5555,14 @@ function logPaper(msg, color) {
   const box = document.getElementById('live-log');
   if (!box) return; // Panel removed — logging handled by live monitor
   const time = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const clr = color || 'var(--text)';
-  box.innerHTML += `<div style="color:${clr}">[${time}] ${msg}</div>`;
+  // Use DOM creation — innerHTML += re-parses the entire container on each tick
+  // and allows server-provided msg to inject HTML.
+  const line = document.createElement('div');
+  line.style.color = color || 'var(--text)';   // style.color: CSS property, not HTML
+  line.textContent = '[' + time + '] ' + msg;  // textContent: server event strings can't XSS
+  box.appendChild(line);
+  // Cap log at 500 lines to prevent memory bloat during long sessions
+  while (box.children.length > 500) box.removeChild(box.firstChild);
   box.scrollTop = box.scrollHeight;
 }
 
