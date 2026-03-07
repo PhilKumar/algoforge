@@ -1,14 +1,16 @@
 import re
 
-with open('strategy.html', 'r', encoding='utf-8') as f:
+with open("strategy.html", "r", encoding="utf-8") as f:
     content = f.read()
 
 orig = len(content)
 changes = []
 
 # ── 1. Fix .btn base: use CSS custom property for color ───────────────────
-old_btn = '  .btn {\n    background: var(--btn-bg, linear-gradient(180deg, #2f72d8 0%, #2458ab 100%));\n    color: #fff;'
-new_btn = '  .btn {\n    background: var(--btn-bg, linear-gradient(180deg, #2f72d8 0%, #2458ab 100%));\n    color: var(--btn-color, #fff);'
+old_btn = (
+    "  .btn {\n    background: var(--btn-bg, linear-gradient(180deg, #2f72d8 0%, #2458ab 100%));\n    color: #fff;"
+)
+new_btn = "  .btn {\n    background: var(--btn-bg, linear-gradient(180deg, #2f72d8 0%, #2458ab 100%));\n    color: var(--btn-color, #fff);"
 if old_btn in content:
     content = content.replace(old_btn, new_btn, 1)
     changes.append("btn base color -> var OK")
@@ -86,54 +88,57 @@ else:
 # ── 4. Convert all inline background: and color: on .btn elements to vars ─
 # Match: <button ... class="btn..." ... style="... background: X; ..." ...>
 # Convert background: X to --btn-bg: X
-btn_bg_re = re.compile(
-    r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)\bbackground:\s*([^;"]+);'
-)
+btn_bg_re = re.compile(r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)\bbackground:\s*([^;"]+);')
+
+
 def fix_bg(m):
     prefix = m.group(1)
     val = m.group(2).strip()
-    if '--btn-bg' in prefix:
+    if "--btn-bg" in prefix:
         return m.group(0)
-    return f'{prefix}--btn-bg: {val};'
+    return f"{prefix}--btn-bg: {val};"
+
 
 prev = content
 content, n = btn_bg_re.subn(fix_bg, content)
 changes.append(f"bg->--btn-bg: {n} fixes")
 
 # Now convert color: overrides (skip --btn-color: and already done)
-btn_clr_re = re.compile(
-    r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)(?<!-)(?<!-)\bcolor:\s*([^;"]+);'
-)
+btn_clr_re = re.compile(r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)(?<!-)(?<!-)\bcolor:\s*([^;"]+);')
+
+
 def fix_clr(m):
     prefix = m.group(1)
     val = m.group(2).strip()
-    if '--btn-color' in prefix or '--btn-border' in prefix:
+    if "--btn-color" in prefix or "--btn-border" in prefix:
         return m.group(0)
     # Only convert standalone color: not --XX-color:
-    return f'{prefix}--btn-color: {val};'
+    return f"{prefix}--btn-color: {val};"
+
 
 content, n2 = btn_clr_re.subn(fix_clr, content)
 changes.append(f"color->--btn-color: {n2} fixes")
 
 # ── 5. Fix inline border: overrides on buttons to use --btn-border ────────
-btn_bdr_re = re.compile(
-    r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)\bborder:\s*([^;"]+);'
-)
+btn_bdr_re = re.compile(r'(<button\b[^>]*?class="btn[^"]*?"[^>]*?style="[^"]*?)\bborder:\s*([^;"]+);')
+
+
 def fix_bdr(m):
     prefix = m.group(1)
     val = m.group(2).strip()
-    if '--btn-border' in prefix:
+    if "--btn-border" in prefix:
         return m.group(0)
     # Extract color from "1px solid <color>"
-    bdr_m = re.match(r'[\d.]+px\s+\w+\s+(.*)', val)
+    bdr_m = re.match(r"[\d.]+px\s+\w+\s+(.*)", val)
     if bdr_m:
-        return f'{prefix}--btn-border: {bdr_m.group(1).strip()};'
+        return f"{prefix}--btn-border: {bdr_m.group(1).strip()};"
     return m.group(0)
+
 
 content, n3 = btn_bdr_re.subn(fix_bdr, content)
 changes.append(f"border->--btn-border: {n3} fixes")
 
-with open('strategy.html', 'w', encoding='utf-8') as f:
+with open("strategy.html", "w", encoding="utf-8") as f:
     f.write(content)
 
 for c in changes:

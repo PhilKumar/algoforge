@@ -44,7 +44,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import config
 from broker.dhan import DhanClient, ScripMaster
@@ -140,7 +140,13 @@ ws_clients: List[WebSocket] = []
 
 
 # ── Authentication ────────────────────────────────────────────────
-AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN", os.getenv("ALGOFORGE_PASSWORD", "887599"))
+AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD")
+if not AUTH_PASSWORD:
+    raise RuntimeError(
+        "[FATAL] ALGOFORGE_PIN environment variable is not set. "
+        "The server refuses to start without an explicit PIN. "
+        "Set it in your .env file: ALGOFORGE_PIN=<your-pin>"
+    )
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_FILE = os.path.join(_HERE, ".sessions.json")
 
@@ -300,7 +306,7 @@ class BacktestRequest(BaseModel):
     from_date: str = config.DEFAULT_FROM
     to_date: str = config.DEFAULT_TO
     symbol: str = "NIFTY"
-    initial_capital: float = config.DEFAULT_CAPITAL
+    initial_capital: float = Field(default=config.DEFAULT_CAPITAL, gt=0)
     entry_conditions: Optional[List[dict]] = None
     exit_conditions: Optional[List[dict]] = None
     strategy_config: Optional[dict] = None
@@ -316,16 +322,16 @@ class LiveStartRequest(BaseModel):
     indicators: List[str] = []
     legs: Optional[List[dict]] = None
     deploy_config: Optional[dict] = None
-    max_trades_per_day: int = 1
+    max_trades_per_day: int = Field(default=1, ge=1, le=100)
     market_open: str = "09:15"
     market_close: str = "15:25"
-    max_daily_loss: float = 0
-    lots: int = 1
-    stoploss_pct: float = 0.0
-    stoploss_rupees: float = 0.0
+    max_daily_loss: float = Field(default=0, ge=0)
+    lots: int = Field(default=1, ge=1, le=500)
+    stoploss_pct: float = Field(default=0.0, ge=0)
+    stoploss_rupees: float = Field(default=0.0, ge=0)
     sl_type: str = "pct"
-    target_profit_pct: float = 0.0
-    target_profit_rupees: float = 0.0
+    target_profit_pct: float = Field(default=0.0, ge=0)
+    target_profit_rupees: float = Field(default=0.0, ge=0)
     tp_type: str = "pct"
 
 
@@ -333,10 +339,10 @@ class OrderRequest(BaseModel):
     security_id: str
     exchange_segment: str = "NSE_EQ"
     transaction_type: str
-    quantity: int
+    quantity: int = Field(ge=1, le=100_000)
     order_type: str = "MARKET"
     product_type: str = "INTRADAY"
-    price: float = 0
+    price: float = Field(default=0, ge=0)
 
 
 class StrategyPayload(BaseModel):
@@ -346,19 +352,19 @@ class StrategyPayload(BaseModel):
     instrument: str = "26000"
     from_date: str = config.DEFAULT_FROM
     to_date: str = config.DEFAULT_TO
-    initial_capital: float = 500000.0
-    lots: int = 1
-    lot_size: int = 0
-    stoploss_pct: float = 0.0
-    stoploss_rupees: float = 0.0
+    initial_capital: float = Field(default=500000.0, gt=0)
+    lots: int = Field(default=1, ge=1, le=500)
+    lot_size: int = Field(default=0, ge=0)
+    stoploss_pct: float = Field(default=0.0, ge=0)
+    stoploss_rupees: float = Field(default=0.0, ge=0)
     sl_type: str = "pct"
-    target_profit_pct: float = 0.0
-    target_profit_rupees: float = 0.0
+    target_profit_pct: float = Field(default=0.0, ge=0)
+    target_profit_rupees: float = Field(default=0.0, ge=0)
     tp_type: str = "pct"
     market_open: str = "09:15"
     market_close: str = "15:25"
-    max_trades_per_day: int = 1
-    max_daily_loss: float = 0.0
+    max_trades_per_day: int = Field(default=1, ge=1, le=100)
+    max_daily_loss: float = Field(default=0.0, ge=0)
     indicators: List[str] = []
     entry_conditions: Optional[List[dict]] = None
     exit_conditions: Optional[List[dict]] = None
@@ -2383,8 +2389,13 @@ def _load():
 
 
 def _save(d):
-    with open(STRAT_FILE, "w") as f:
+    # Atomic write (tmp + rename) so a crash mid-write won't corrupt the file
+    tmp = STRAT_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
         json.dump(d, f, indent=2)
+        fcntl.flock(f, fcntl.LOCK_UN)
+    os.replace(tmp, STRAT_FILE)
 
 
 def _load_runs():
@@ -2398,10 +2409,12 @@ def _load_runs():
 
 
 def _save_runs(d):
-    # Use atomic write (tmp + rename) so a crash mid-write won't corrupt the file
+    # Atomic write with exclusive lock so concurrent workers don't interleave
     tmp = RUNS_FILE + ".tmp"
     with open(tmp, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
         json.dump(d, f, indent=2, default=str)
+        fcntl.flock(f, fcntl.LOCK_UN)
     os.replace(tmp, RUNS_FILE)
 
 

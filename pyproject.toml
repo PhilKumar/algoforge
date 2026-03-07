@@ -1,5 +1,5 @@
 [tool.bandit]
-exclude_dirs = ["tests", ".venv", "venv"]
+exclude_dirs = ["tests", ".venv", "venv", "scripts"]
 skips = ["B101", "B311", "B110", "B105"]
 # B101=assert, B311=random (not crypto)
 # B110=try-except-pass (intentional silent fallbacks in trading code)
@@ -19,3 +19,7 @@ ignore = [
   "F821",  # undefined-name (forward refs resolved at runtime: _logger, _get_redis, etc.)
   "E722",  # bare-except (intentional in WebSocket/async error boundaries)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"engine/backtest.py" = ["E701", "E702"]  # pre-existing compact one-liner style
+"scripts/*.py" = ["E701", "E702", "E741", "F401", "F811"]  # debug scripts
