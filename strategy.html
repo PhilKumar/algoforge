@@ -1696,7 +1696,7 @@
           <div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Strategy SL
               <select id="sl-type" style="display:inline-block;width:auto;min-width:42px;padding:2px 4px 2px 8px;font-size:12px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;">
-                <option value="pct">%</option><option value="rupees">₹</option>
+                <option value="rupees">₹</option><option value="pct">%</option>
               </select>
             </label>
             <input type="number" id="txn-sl" placeholder="0 = none" step="0.1" min="0">
@@ -1704,7 +1704,7 @@
           <div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">Target Profit
               <select id="tp-type" style="display:inline-block;width:auto;min-width:42px;padding:2px 4px 2px 8px;font-size:12px;min-height:0;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--accent);font-weight:600;">
-                <option value="pct">%</option><option value="rupees">₹</option>
+                <option value="rupees">₹</option><option value="pct">%</option>
               </select>
             </label>
             <input type="number" id="target-profit" placeholder="0 = none" step="0.1" min="0">
@@ -4075,11 +4075,11 @@ function loadStrategy(id) {
   }
   document.getElementById('instrument-select').value = s.instrument || '';
   // Restore SL type and value
-  const slType = s.sl_type || 'pct';
+  const slType = s.sl_type || 'rupees';
   document.getElementById('sl-type').value = slType;
   document.getElementById('txn-sl').value = slType === 'rupees' ? (s.stoploss_rupees || '') : (s.stoploss_pct || '');
   // Restore TP type and value
-  const tpType = s.tp_type || 'pct';
+  const tpType = s.tp_type || 'rupees';
   document.getElementById('tp-type').value = tpType;
   document.getElementById('target-profit').value = tpType === 'rupees' ? (s.target_profit_rupees || '') : (s.target_profit_pct || '');
   document.getElementById('entry-time-start').value = s.market_open || '09:15';
@@ -4849,10 +4849,10 @@ async function copyEditStrategy(runId) {
     }
     if (p.instrument) document.getElementById('instrument-select').value = p.instrument;
     // Restore SL/TP type and value
-    const slT = p.sl_type || 'pct';
+    const slT = p.sl_type || 'rupees';
     document.getElementById('sl-type').value = slT;
     document.getElementById('txn-sl').value = slT === 'rupees' ? (p.stoploss_rupees || '') : (p.stoploss_pct || '');
-    const tpT = p.tp_type || 'pct';
+    const tpT = p.tp_type || 'rupees';
     document.getElementById('tp-type').value = tpT;
     document.getElementById('target-profit').value = tpT === 'rupees' ? (p.target_profit_rupees || '') : (p.target_profit_pct || '');
     document.getElementById('entry-time-start').value = p.market_open || '09:15';
@@ -5765,10 +5765,10 @@ async function deployStrategy() {
       lots: lastBacktestPayload.lots || 1,
       stoploss_pct: lastBacktestPayload.stoploss_pct || 0,
       stoploss_rupees: lastBacktestPayload.stoploss_rupees || 0,
-      sl_type: lastBacktestPayload.sl_type || 'pct',
+      sl_type: lastBacktestPayload.sl_type || 'rupees',
       target_profit_pct: lastBacktestPayload.target_profit_pct || 0,
       target_profit_rupees: lastBacktestPayload.target_profit_rupees || 0,
-      tp_type: lastBacktestPayload.tp_type || 'pct',
+      tp_type: lastBacktestPayload.tp_type || 'rupees',
       market_open: lastBacktestPayload.market_open || '09:15',
       market_close: lastBacktestPayload.market_close || '15:25',
       max_trades_per_day: lastBacktestPayload.max_trades_per_day || 1,
