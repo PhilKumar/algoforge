@@ -2909,6 +2909,21 @@ async def get_expiry_dates():
         return {"status": "error", "msg": str(e)}
 
 
+@app.get("/api/expiry-list/{symbol}")
+async def get_expiry_list(symbol: str):
+    """Return all available expiry dates for a given underlying symbol."""
+    try:
+        symbol = symbol.upper()
+        ScripMaster.ensure_loaded()
+        expiries = ScripMaster.get_expiries(symbol)
+        # Only return future expiries (>= today)
+        today = datetime.now().strftime("%Y-%m-%d")
+        future = [e for e in expiries if e >= today]
+        return {"status": "ok", "symbol": symbol, "expiries": future}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
+
 def _refresh_recent_charges(history: dict):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
 

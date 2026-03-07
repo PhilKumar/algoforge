@@ -3011,30 +3011,21 @@ async function loadScalpExpiries() {
     // Update lot size (read-only, auto)
     const ls = document.getElementById('scalp-lot-size');
     if (ls) ls.value = _LOT_SIZES[underlying] || 65;
-    // Fetch expiry dates — API returns { nifty, banknifty, sensex, ... }
-    const res = await fetch('/api/expiry-dates');
+    // Fetch actual expiry dates from scrip master
+    const res = await fetch(`/api/expiry-list/${underlying}`);
     const data = await res.json();
     const sel = document.getElementById('scalp-expiry');
     if (!sel) return;
     sel.innerHTML = '';
-    // Map underlying name to API key
-    const keyMap = { NIFTY: 'nifty', BANKNIFTY: 'banknifty', MIDCPNIFTY: 'nifty', SENSEX: 'sensex' };
-    const nearestDate = data[keyMap[underlying] || 'nifty'];
-    // Build 4 weekly dates from nearest expiry onward
-    const dates = [];
-    if (nearestDate) {
-      const d = new Date(nearestDate + 'T00:00:00');
-      for (let i = 0; i < 5; i++) {
-        const iso = d.toISOString().split('T')[0];
-        dates.push(iso);
-        d.setDate(d.getDate() + 7);
-      }
-    }
-    dates.forEach(d => {
+    const expiries = (data.status === 'ok' && data.expiries) ? data.expiries : [];
+    // Show up to 8 nearest real expiry dates
+    expiries.slice(0, 8).forEach(d => {
       const opt = document.createElement('option');
       opt.value = d;
       const dt = new Date(d + 'T00:00:00');
-      opt.textContent = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+      const dayName = dt.toLocaleDateString('en-IN', { weekday: 'short' });
+      const label = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+      opt.textContent = `${dayName} ${label}`;
       sel.appendChild(opt);
     });
     // Set ITM-4 default strike from live spot
@@ -3346,10 +3337,11 @@ function loadExpiryDates() {
         const dt = new Date(d + 'T00:00:00');
         const today = new Date(); today.setHours(0,0,0,0);
         const diff = Math.ceil((dt - today) / 86400000);
+        const dayName = dt.toLocaleDateString('en-IN', { weekday: 'short' });
         const label = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-        if (diff === 0) return `${label} (TODAY!)`;
-        if (diff === 1) return `${label} (Tomorrow)`;
-        return `${label} (${diff}d)`;
+        if (diff === 0) return `${dayName} ${label} (TODAY!)`;
+        if (diff === 1) return `${dayName} ${label} (Tomorrow)`;
+        return `${dayName} ${label} (${diff}d)`;
       };
       const nEl = document.getElementById('expiry-nifty');
       const bEl = document.getElementById('expiry-banknifty');
