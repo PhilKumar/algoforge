@@ -1184,16 +1184,25 @@
       width: 100%;
       flex-wrap: wrap;
     }
-    /* Compare bar: stack selects vertically */
+    /* Compare bar: stack vertically on mobile */
+    #results-page .card > div[style*="justify-content: space-between"] {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 12px !important;
+    }
     #results-page .card > div[style*="justify-content: space-between"] > div[style*="display: flex"] {
       flex-wrap: wrap;
+      width: 100%;
     }
     #results-page select[style*="width: 180px"] {
       width: 100% !important;
     }
 
-    /* -- Portfolio: single column -- */
-    #portfolio-page > div[style*="grid-template-columns: 1fr 1fr"] {
+    /* -- Portfolio: single column for all 2-col grids -- */
+    #portfolio-page div[style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+    #portfolio-page div[style*="repeat(auto-fit"] {
       grid-template-columns: 1fr !important;
     }
 
