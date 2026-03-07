@@ -2579,9 +2579,12 @@ async def get_scalp_trades():
 
 @app.delete("/api/scalp/trades/{tid}")
 async def delete_scalp_trade(tid: int):
-    """Delete a single scalp trade by trade_id."""
+    """Delete a single scalp trade by trade_id (from disk AND engine memory)."""
     trades = _load_scalp_trades()
     _save_scalp_trades([t for t in trades if t.get("trade_id") != tid])
+    # Also remove from in-memory engine closed_trades so it doesn't reappear
+    if _scalp_engine is not None:
+        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") != tid]
     return {"deleted": tid}
 
 
