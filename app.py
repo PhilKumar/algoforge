@@ -60,6 +60,7 @@ try:
 except ImportError:
     _HAS_SCALP = False
     _ScalpEngineClass = None
+import alerter
 from token_manager import auto_generate_token, token_renewal_loop
 
 # ── Auto-generate Dhan token at startup (single-worker guard) ────
@@ -1235,6 +1236,7 @@ async def connect_broker():
 
     except Exception as e:
         error_msg = str(e)
+        alerter.alert("Broker Connect Failed", f"Error: {error_msg[:200]}", level="warn")
 
         # Provide specific error messages based on error type
         if "401" in error_msg or "Unauthorized" in error_msg:
@@ -2217,6 +2219,10 @@ async def place_order(req: OrderRequest, request: Request):
             price=req.price,
         )
     except Exception as e:
+        alerter.alert(
+            "Order Failed",
+            f"Security: {req.security_id}\nType: {req.transaction_type}\nQty: {req.quantity}\nError: {e}",
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2645,35 +2651,52 @@ class ScalpEntryReq(BaseModel):
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq):
     eng = _get_scalp_engine()
-    result = await eng.enter_trade(
-        underlying=req.underlying,
-        strike=req.strike,
-        option_type=req.option_type,
-        expiry=req.expiry,
-        transaction_type=req.transaction_type,
-        lots=req.lots,
-        lot_size=req.lot_size,
-        target_premium=req.target_premium,
-        sl_premium=req.sl_premium,
-        target_pct=req.target_pct,
-        sl_pct=req.sl_pct,
-        target_rupees=req.target_rupees,
-        sl_rupees=req.sl_rupees,
-        sqoff_time=req.sqoff_time,
-        mode=req.mode,
-    )
-    return result
+    try:
+        result = await eng.enter_trade(
+            underlying=req.underlying,
+            strike=req.strike,
+            option_type=req.option_type,
+            expiry=req.expiry,
+            transaction_type=req.transaction_type,
+            lots=req.lots,
+            lot_size=req.lot_size,
+            target_premium=req.target_premium,
+            sl_premium=req.sl_premium,
+            target_pct=req.target_pct,
+            sl_pct=req.sl_pct,
+            target_rupees=req.target_rupees,
+            sl_rupees=req.sl_rupees,
+            sqoff_time=req.sqoff_time,
+            mode=req.mode,
+        )
+        if result.get("status") == "error":
+            alerter.alert(
+                "Scalp Entry Failed",
+                f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
+            )
+        return result
+    except Exception as e:
+        alerter.alert(
+            "Scalp Entry Error", f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {e}"
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/scalp/exit/{trade_id}")
 async def scalp_exit(trade_id: int):
     eng = _get_scalp_engine()
-    result = await eng.exit_trade(trade_id, reason="manual")
-    if result.get("status") == "ok":
-        trades = _load_scalp_trades()
-        trades.append(result["trade"])
-        _save_scalp_trades(trades)
-    return result
+    try:
+        result = await eng.exit_trade(trade_id, reason="manual")
+        if result.get("status") == "ok":
+            trades = _load_scalp_trades()
+            trades.append(result["trade"])
+            _save_scalp_trades(trades)
+        elif result.get("status") == "error":
+            alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
+        return result
+    except Exception as e:
+        alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class ScalpTargetsReq(BaseModel):
@@ -3193,6 +3216,7 @@ async def _shutdown_cleanup():
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")
     shutdown_feed()
+    await alerter.shutdown()
     print("🛑 [MarketFeed] WebSocket feed shut down")
 
 
