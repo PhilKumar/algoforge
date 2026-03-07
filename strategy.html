@@ -250,6 +250,10 @@
   .input-group label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
   input, select { width: 100%; background: rgba(12,16,26,0.7); border: 1px solid rgba(255,255,255,0.06); border-top: 1px solid rgba(255,255,255,0.08); color: var(--text); padding: 11px 12px; border-radius: 8px; font-family: 'Outfit', sans-serif; font-size: 15px; backdrop-filter: blur(10px); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.04); transition: border-color 0.2s, box-shadow 0.2s; }
   input:focus, select:focus { border-color: rgba(0,200,150,0.3); box-shadow: 0 0 0 2px rgba(0,200,150,0.1), inset 0 1px 3px rgba(0,0,0,0.3); outline: none; }
+  /* Hide number input spinners for lot-size and strike */
+  #scalp-lot-size::-webkit-outer-spin-button, #scalp-lot-size::-webkit-inner-spin-button,
+  #scalp-strike::-webkit-outer-spin-button, #scalp-strike::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  #scalp-lot-size[readonly] { background: rgba(255,255,255,0.02); }
   select { cursor: pointer; }
   /* ── BUTTONS ── */
   .btn {
@@ -2012,9 +2016,9 @@
 <!-- ═══ STRATEGY VIEW MODAL (Read-Only) ═══ -->
 <div class="modal-overlay" id="view-strategy-modal" onclick="if(event.target===this)closeViewModal()">
   <div class="modal" style="width: 620px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h3 style="margin: 0;" id="view-modal-title">Strategy Details</h3>
-      <button class="leg-remove" onclick="closeViewModal()" style="font-size: 22px;">&times;</button>
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px;">
+      <h3 style="margin: 0; line-height: 1; display: flex; align-items: baseline; gap: 4px;" id="view-modal-title">Strategy Details</h3>
+      <button class="leg-remove" onclick="closeViewModal()" style="font-size: 22px; line-height: 1;">&times;</button>
     </div>
     <div id="view-modal-content" style="font-size: 13px; line-height: 1.7;"></div>
     <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;" id="view-modal-actions">
@@ -2069,8 +2073,37 @@
     </div>
   </div>
 
+  <!-- Paper Trade P&L + Monthly P&L side-by-side -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; align-items: start;">
+
+  <!-- Paper Trade P&L Summary -->
+  <div class="card" style="padding: 20px;">
+    <h3 style="font-size: 16px; font-weight: 700; margin: 0 0 16px 0;">Paper Trade P&L</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
+        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Status</div>
+        <div style="font-size: 14px; font-weight: 600;" id="portfolio-paper-status">Idle</div>
+      </div>
+      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
+        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Symbol</div>
+        <div style="font-size: 14px; font-weight: 600;" id="portfolio-paper-symbol">—</div>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
+        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Total P&L</div>
+        <div style="font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;" id="portfolio-paper-total-pnl">₹0.00</div>
+      </div>
+      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
+        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Trades</div>
+        <div style="font-size: 20px; font-weight: 700;" id="portfolio-paper-trades-count">0</div>
+      </div>
+    </div>
+    <div style="margin-top: 14px; padding: 10px 14px; background: rgba(0,0,0,0.1); border-radius: 6px; font-size: 11px; color: var(--muted);" id="portfolio-paper-meta">No paper run active</div>
+  </div>
+
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
-  <div class="card" style="padding: 20px; margin-bottom: 24px;">
+  <div class="card" style="padding: 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
       <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Monthly Profit & Loss</h3>
       <div style="display: flex; align-items: center; gap: 8px;">
@@ -2084,6 +2117,8 @@
     <!-- Trades for month: day-by-day table -->
     <div id="portfolio-monthly-trades" style="margin-top: 18px;"></div>
   </div>
+
+  </div><!-- end dual-column grid -->
 
   <!-- Today's Trades -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
@@ -2153,7 +2188,7 @@
           <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
-            <option value="MIDCAPNIFTY">MIDCAPNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCAPNIFTY</option>
             <option value="SENSEX">SENSEX</option>
           </select>
         </div>
@@ -2161,9 +2196,13 @@
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
           <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
         </div>
-        <div>
+        <div style="grid-column: span 2;">
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
-          <input type="number" id="scalp-strike" placeholder="24500" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
+            <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;">
+            <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
+          </div>
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
@@ -2173,19 +2212,12 @@
           </select>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Direction</label>
-          <select id="scalp-txn-type" style="font-size: 13px; padding: 8px 10px;">
-            <option value="BUY">BUY</option>
-            <option value="SELL">SELL</option>
-          </select>
-        </div>
-        <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots</label>
           <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lot Size</label>
-          <input type="number" id="scalp-lot-size" value="75" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lot Size <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(auto)</span></label>
+          <input type="number" id="scalp-lot-size" value="65" readonly style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; opacity: 0.55; cursor: not-allowed; -moz-appearance: textfield; appearance: textfield;">
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Sq-Off Time</label>
@@ -2216,13 +2248,14 @@
         </div>
       </div>
 
-      <!-- Mode + Submit -->
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <select id="scalp-mode" style="font-size: 12px; padding: 7px 10px; flex: 1;">
+      <!-- Mode + BUY/SELL -->
+      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
+        <select id="scalp-mode" style="font-size: 12px; padding: 7px 10px; width: 110px; flex-shrink: 0;">
+          <option value="paper" selected>📄 Paper</option>
           <option value="live">🔴 Live</option>
-          <option value="paper">📄 Paper</option>
         </select>
-        <button class="btn" onclick="submitScalpEntry()" style="flex: 2; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.30) 0%, rgba(4,130,155,0.50) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.6); padding: 9px 16px; font-size: 13px;">⚡ Execute Scalp</button>
+        <button class="btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
+        <button class="btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
       </div>
       <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
     </div>
@@ -2910,11 +2943,25 @@ function viewScalpTrade(tid) {
     if (!t) { toast('Trade not found', 'danger'); return; }
     const pnl = (t.pnl || 0).toFixed(2);
     const pnlColor = t.pnl >= 0 ? 'var(--success)' : 'var(--danger)';
-    const html = `<div style="line-height:1.8;font-size:13px;"><b>Symbol:</b> ${t.symbol || ''}<br><b>Type:</b> ${t.transaction_type} ${t.option_type}<br><b>Strike:</b> ${t.strike}<br><b>Entry:</b> ₹${(t.entry_premium||0).toFixed(2)} at ${t.entry_time||'—'}<br><b>Exit:</b> ₹${(t.exit_premium||0).toFixed(2)} at ${t.exit_time||'—'}<br><b>Lots:</b> ${t.lots||1} × ${t.lot_size||1} = ${t.quantity||''}<br><b>P&L:</b> <span style="color:${pnlColor};font-weight:700;">₹${pnl}</span><br><b>Exit Reason:</b> ${t.exit_reason||'—'}<br><b>Mode:</b> ${t.mode||'scalp'}</div>`;
-    document.getElementById('view-modal-title').innerHTML = 'Scalp Trade S' + tid;
+    const row = (label, val) => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">${label}</span><div style="font-weight:600;margin-top:2px;">${val}</div></div>`;
+    const html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;font-size:13px;">
+      ${row('Symbol', t.symbol || '—')}
+      ${row('Type', `${t.transaction_type || ''} ${t.option_type || ''}`)}
+      ${row('Strike', t.strike || '—')}
+      ${row('Expiry', t.expiry || '—')}
+      ${row('Entry Price', `₹${(t.entry_premium||0).toFixed(2)}`)}
+      ${row('Exit Price', `₹${(t.exit_premium||0).toFixed(2)}`)}
+      ${row('Entry Time', t.entry_time || '—')}
+      ${row('Exit Time', t.exit_time || '—')}
+      ${row('Lots', `${t.lots||1} × ${t.lot_size||1} = ${t.quantity||''}`)}
+      ${row('Exit Reason', t.exit_reason || '—')}
+      ${row('Mode', t.mode || 'scalp')}
+      <div style="padding:8px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">P&amp;L</span><div style="font-weight:700;margin-top:2px;font-family:'JetBrains Mono',monospace;font-size:16px;color:${pnlColor};">₹${pnl}</div></div>
+    </div>`;
+    document.getElementById('view-modal-title').textContent = 'Scalp Trade S' + tid;
     document.getElementById('view-modal-content').innerHTML = html;
     document.getElementById('view-modal-load-btn').style.display = 'none';
-    document.getElementById('view-strategy-modal').style.display = 'flex';
+    document.getElementById('view-strategy-modal').classList.add('open');
   }).catch(() => toast('Error loading trade', 'danger'));
 }
 
@@ -2930,7 +2977,10 @@ async function deleteScalpTrade(tid) {
 //  SCALP PAGE
 // ══════════════════════════════════════════════════════════════
 let _scalpPollTimer = null;
-const _LOT_SIZES = { NIFTY: 75, BANKNIFTY: 35, MIDCAPNIFTY: 120, SENSEX: 20 };
+// Correct lot sizes as of Jan 2026
+const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
+// Strike step intervals per underlying
+const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100 };
 
 function initScalpPage() {
   loadScalpExpiries();
@@ -2940,24 +2990,60 @@ function initScalpPage() {
   }
 }
 
+function stepScalpStrike(dir) {
+  const underlying = document.getElementById('scalp-underlying').value;
+  const step = _STRIKE_STEPS[underlying] || 50;
+  const inp = document.getElementById('scalp-strike');
+  const cur = parseInt(inp.value) || 0;
+  inp.value = cur + dir * step;
+}
+
+function _scalpITMStrike(spotPrice, underlying, optionType) {
+  const step = _STRIKE_STEPS[underlying] || 50;
+  const atm = Math.round(spotPrice / step) * step;
+  // ITM-4: 4 strikes in-the-money
+  return optionType === 'CE' ? atm - 4 * step : atm + 4 * step;
+}
+
 async function loadScalpExpiries() {
   try {
     const underlying = document.getElementById('scalp-underlying').value;
-    // Update lot size default
+    // Update lot size (read-only, auto)
     const ls = document.getElementById('scalp-lot-size');
-    if (ls) ls.value = _LOT_SIZES[underlying] || 75;
-    // Fetch expiry dates
-    const res = await fetch('/api/expiry-dates?underlying=' + underlying);
+    if (ls) ls.value = _LOT_SIZES[underlying] || 65;
+    // Fetch expiry dates — API returns { nifty, banknifty, sensex, ... }
+    const res = await fetch('/api/expiry-dates');
     const data = await res.json();
     const sel = document.getElementById('scalp-expiry');
     if (!sel) return;
     sel.innerHTML = '';
-    const dates = data.expiry_dates || data.dates || [];
-    dates.slice(0, 8).forEach(d => {
+    // Map underlying name to API key
+    const keyMap = { NIFTY: 'nifty', BANKNIFTY: 'banknifty', MIDCPNIFTY: 'nifty', SENSEX: 'sensex' };
+    const nearestDate = data[keyMap[underlying] || 'nifty'];
+    // Build 4 weekly dates from nearest expiry onward
+    const dates = [];
+    if (nearestDate) {
+      const d = new Date(nearestDate + 'T00:00:00');
+      for (let i = 0; i < 5; i++) {
+        const iso = d.toISOString().split('T')[0];
+        dates.push(iso);
+        d.setDate(d.getDate() + 7);
+      }
+    }
+    dates.forEach(d => {
       const opt = document.createElement('option');
-      opt.value = d; opt.textContent = d;
+      opt.value = d;
+      const dt = new Date(d + 'T00:00:00');
+      opt.textContent = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
       sel.appendChild(opt);
     });
+    // Set ITM-4 default strike from live spot
+    const optType = document.getElementById('scalp-option-type').value;
+    const spotEl = document.getElementById('ticker-nifty');
+    const spot = spotEl ? parseFloat(spotEl.textContent.replace(/[^0-9.]/g, '')) : 0;
+    if (spot > 0) {
+      document.getElementById('scalp-strike').value = _scalpITMStrike(spot, underlying, optType);
+    }
   } catch(e) { /* silent */ }
 }
 
@@ -2977,7 +3063,7 @@ async function stopScalpEngine() {
   } catch(e) { toast('Failed to stop engine', 'error'); }
 }
 
-async function submitScalpEntry() {
+async function submitScalpEntry(direction) {
   const statusEl = document.getElementById('scalp-entry-status');
   statusEl.textContent = 'Placing order...';
   statusEl.style.color = 'var(--warn)';
@@ -2987,7 +3073,7 @@ async function submitScalpEntry() {
       strike: parseInt(document.getElementById('scalp-strike').value),
       option_type: document.getElementById('scalp-option-type').value,
       expiry: document.getElementById('scalp-expiry').value,
-      transaction_type: document.getElementById('scalp-txn-type').value,
+      transaction_type: direction || 'BUY',
       lots: parseInt(document.getElementById('scalp-lots').value),
       lot_size: parseInt(document.getElementById('scalp-lot-size').value),
       target_rupees: parseFloat(document.getElementById('scalp-target-rs').value) || 0,
@@ -6045,6 +6131,32 @@ async function loadPortfolioData() {
     document.getElementById('portfolio-today-pnl').style.color = todayPnL >= 0 ? 'var(--success)' : 'var(--danger)';
     document.getElementById('portfolio-total-trades').textContent = totalTrades;
     document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
+
+    // ── Paper Trade P&L summary card ──
+    const paperClosed = paperData.closed_trades || [];
+    const paperPositions = paperData.positions || [];
+    const paperTotalPnl = paperClosed.reduce((s, t) => s + Number(t.pnl || 0), 0)
+      + paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
+    const paperRunning = paperData.running || paperPositions.length > 0;
+    const paperStratName = paperData.strategy_name || paperData.run_name || '';
+    const pfPaperPnlEl = document.getElementById('portfolio-paper-total-pnl');
+    if (pfPaperPnlEl) {
+      pfPaperPnlEl.textContent = '₹' + paperTotalPnl.toFixed(2);
+      pfPaperPnlEl.style.color = paperTotalPnl > 0 ? 'var(--success)' : paperTotalPnl < 0 ? 'var(--danger)' : 'var(--muted)';
+    }
+    const pfStatus = document.getElementById('portfolio-paper-status');
+    if (pfStatus) { pfStatus.textContent = paperRunning ? 'Running' : 'Idle'; pfStatus.style.color = paperRunning ? 'var(--success)' : 'var(--muted)'; }
+    const pfSym = document.getElementById('portfolio-paper-symbol');
+    if (pfSym) pfSym.textContent = paperStratName || (paperData.symbol || '—');
+    const pfTrades = document.getElementById('portfolio-paper-trades-count');
+    if (pfTrades) pfTrades.textContent = paperClosed.length;
+    const pfMeta = document.getElementById('portfolio-paper-meta');
+    if (pfMeta) {
+      const unrealized = paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
+      pfMeta.textContent = paperRunning
+        ? `${paperPositions.length} open position${paperPositions.length !== 1 ? 's' : ''} · Unrealized ₹${unrealized.toFixed(2)}`
+        : 'No paper run active';
+    }
 
     // ── Store portfolio history globally for month navigation ──
     window._portfolioDaily = portfolioHistory.daily || {};
