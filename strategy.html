@@ -2276,6 +2276,7 @@
       </div>
     </div>
     <div style="margin-top: 14px; padding: 10px 14px; background: rgba(0,0,0,0.1); border-radius: 6px; font-size: 11px; color: var(--muted);" id="portfolio-paper-meta">No paper run active</div>
+    <div id="portfolio-paper-monthly" style="margin-top: 16px;"></div>
   </div>
 
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
@@ -6423,42 +6424,36 @@ function renderMonthlyDailyGrid() {
       const realPnl = entry.real_pnl || 0;
       const paperPnl = entry.paper_pnl || 0;
       const pnl = realPnl + paperPnl;
-      const netPnl = (entry.real_net_pnl || entry.real_pnl || 0) + paperPnl;
+      const netPnl = entry.real_net_pnl || entry.real_pnl || 0;  // real net only
       const charges = entry.real_charges || 0;
       const realTrades = entry.real_trades || 0;
       const paperTrades = entry.paper_trades || 0;
       const trades = realTrades + paperTrades;
-      const tradeLegs = (entry.real_trade_legs || entry.real_trades || 0) + paperTrades;
-      const wins = (entry.real_wins || 0) + (entry.paper_wins || 0);
+      const tradeLegs = entry.real_trade_legs || entry.real_trades || 0;
+      const wins = entry.real_wins || 0;
       dayEntries.push({ day: d, dateStr, pnl, netPnl, charges, trades, tradeLegs, wins, real: realPnl, paper: paperPnl, realTrades, paperTrades });
       totalPnl += pnl;
       totalNetPnl += netPnl;
       totalCharges += charges;
-      totalTrades += trades;
+      totalTrades += realTrades;
       totalTradeLegs += tradeLegs;
       totalWins += wins;
       totalRealPnl += realPnl;
       totalPaperPnl += paperPnl;
       tradingDays++;
-      if (pnl > 0) profitDays++;
+      if (realPnl > 0) profitDays++;
     }
   }
 
-  // Summary bar — matching Dhan style with Real/Paper split
-  const isProfit = totalPnl >= 0;
-  const isNetProfit = totalNetPnl >= 0;
+  // Summary bar — real trades only (paper is shown in the Paper Trade P&L card)
   const isRealProfit = totalRealPnl >= 0;
-  const hasPaper = totalPaperPnl !== 0;
+  const isNetProfit = totalNetPnl >= 0;
   summaryEl.innerHTML = tradingDays > 0 ? `
     <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Real P&L</div>
         <div style="font-size: 16px; font-weight: 700; color: ${isRealProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalRealPnl.toFixed(2)}</div>
       </div>
-      ${hasPaper ? `<div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Paper P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${totalPaperPnl >= 0 ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalPaperPnl.toFixed(2)}</div>
-      </div>` : ''}
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net P&L</div>
         <div style="font-size: 16px; font-weight: 700; color: ${isNetProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalNetPnl.toFixed(2)}</div>
@@ -6487,16 +6482,14 @@ function renderMonthlyDailyGrid() {
 
   let html = '';
   dayEntries.forEach(e => {
-    const isWin = e.pnl >= 0;
+    const isWin = e.real >= 0;
     const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
     const chargesInfo = e.charges > 0 ? `\nCharges: ₹${e.charges.toFixed(2)}\nNet: ₹${e.netPnl.toFixed(2)}` : '';
-    const modeInfo = e.paper !== 0 ? `\nReal: ₹${e.real.toFixed(2)}\nPaper: ₹${e.paper.toFixed(2)}` : '';
-    const modeTag = e.paper !== 0 ? `<span style="font-size:8px;background:rgba(99,102,241,0.15);color:#818cf8;padding:1px 3px;border-radius:3px;margin-left:2px;">+P</span>` : '';
     html += `
-      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Overall ₹${e.pnl.toFixed(2)}${chargesInfo}${modeInfo} (${e.trades} trades)">
+      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: ₹${e.real.toFixed(2)}${chargesInfo} (${e.realTrades} trades)">
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-        <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.real.toFixed(0)}${modeTag}</div>
-        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades || e.trades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}${e.paperTrades > 0 ? ' · ' + e.paperTrades + 'P' : ''}</div>
+        <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.real.toFixed(0)}</div>
+        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
       </div>
     `;
   });
@@ -6512,7 +6505,6 @@ function renderMonthlyDailyGrid() {
           <th style="padding: 10px 8px; text-align: left;">Date</th>
           <th style="padding: 10px 8px; text-align: center;">Trades</th>
           <th style="padding: 10px 8px; text-align: right;">Real P&L</th>
-          <th style="padding: 10px 8px; text-align: right;">Paper P&L</th>
           <th style="padding: 10px 8px; text-align: right;">Net P&L</th>
           <th style="padding: 10px 8px; text-align: right;">Charges</th>
         </tr>
@@ -6520,15 +6512,13 @@ function renderMonthlyDailyGrid() {
       <tbody>`;
     dayEntries.forEach(e => {
       const isRealWin = e.real >= 0;
-      const isPaperWin = e.paper >= 0;
       const isNetWin = e.netPnl >= 0;
       const dateObj = new Date(e.dateStr);
       const dateLabel = MONTH_NAMES_SHORT[dateObj.getMonth()] + ' ' + e.day + ', ' + dateObj.getFullYear();
       thtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
-        <td style="padding: 10px 8px; text-align: center;">${e.realTrades || e.tradeLegs}${e.paperTrades > 0 ? ' <span style="color:#818cf8;font-size:10px;">+' + e.paperTrades + 'P</span>' : ''}</td>
+        <td style="padding: 10px 8px; text-align: center;">${e.realTrades || e.tradeLegs}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.real.toFixed(2)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${e.paper === 0 ? 'var(--muted)' : (isPaperWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${e.paper === 0 ? '—' : '₹ ' + e.paper.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netPnl.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
       </tr>`;
@@ -6537,6 +6527,32 @@ function renderMonthlyDailyGrid() {
     tradesTableEl.innerHTML = thtml;
   } else {
     tradesTableEl.innerHTML = '';
+  }
+
+  // ── Paper P&L breakdown → left card ──
+  const paperMonthEl = document.getElementById('portfolio-paper-monthly');
+  if (paperMonthEl) {
+    const paperDays = dayEntries.filter(e => e.paper !== 0);
+    if (paperDays.length === 0) {
+      paperMonthEl.innerHTML = '';
+    } else {
+      const paperTotal = paperDays.reduce((s, e) => s + e.paper, 0);
+      const isPaperPos = paperTotal >= 0;
+      let ph = `<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Paper — ${monthName}</div>`;
+      ph += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:6px;margin-bottom:10px;">`;
+      paperDays.forEach(e => {
+        const win = e.paper >= 0;
+        const dl = String(e.day).padStart(2,'0') + ' ' + MONTH_NAMES_SHORT[month-1];
+        ph += `<div style="padding:6px 4px;background:${win?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)'};border:1px solid ${win?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)'};border-radius:5px;text-align:center;">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${dl}</div>
+          <div style="font-size:12px;font-weight:700;color:${win?'var(--success)':'var(--danger)'};font-family:'JetBrains Mono',monospace;">₹${e.paper.toFixed(0)}</div>
+          <div style="font-size:8px;color:var(--muted);margin-top:1px;">${e.paperTrades}T</div>
+        </div>`;
+      });
+      ph += `</div>`;
+      ph += `<div style="font-size:11px;color:var(--muted);">Month total: <strong style="color:${isPaperPos?'var(--success)':'var(--danger)'};font-family:'JetBrains Mono',monospace;">₹${paperTotal.toFixed(2)}</strong></div>`;
+      paperMonthEl.innerHTML = ph;
+    }
   }
 }
 
