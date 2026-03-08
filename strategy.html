@@ -641,6 +641,85 @@
   }
   [data-theme="light"] .premium-notice-text { color: #78350f !important; }
 
+  /* ── LIGHT THEME: Scalp Page ── */
+  /* Exit Rules box */
+  [data-theme="light"] #scalp-page div[style*="background: rgba(0,0,0,0.15)"] {
+    background: rgba(0,0,0,0.04) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+  /* Live premium + margin display boxes */
+  [data-theme="light"] #scalp-live-ltp,
+  [data-theme="light"] #scalp-margin {
+    background: rgba(255,255,255,0.85) !important;
+    border-color: rgba(0,0,0,0.1) !important;
+    color: #047857 !important;
+  }
+  [data-theme="light"] #scalp-margin { color: #b45309 !important; }
+  /* Strike stepper buttons */
+  [data-theme="light"] #scalp-page button[onclick*="stepScalpStrike"] {
+    background: rgba(0,0,0,0.05) !important;
+    border-color: rgba(0,0,0,0.12) !important;
+    color: var(--text) !important;
+  }
+  [data-theme="light"] #scalp-page button[onclick*="stepScalpStrike"]:hover {
+    background: rgba(0,0,0,0.09) !important;
+  }
+  /* BUY button — solid green */
+  [data-theme="light"] .btn[onclick*="submitScalpEntry('BUY')"] {
+    --btn-bg: #16a34a !important;
+    --btn-color: #ffffff !important;
+    --btn-border: #15803d !important;
+    background: #16a34a !important;
+    color: #ffffff !important;
+    border-color: #15803d !important;
+    text-shadow: none !important;
+  }
+  [data-theme="light"] .btn[onclick*="submitScalpEntry('BUY')"]:hover {
+    background: #15803d !important;
+  }
+  /* SELL button — solid red */
+  [data-theme="light"] .btn[onclick*="submitScalpEntry('SELL')"] {
+    --btn-bg: #dc2626 !important;
+    --btn-color: #ffffff !important;
+    --btn-border: #b91c1c !important;
+    background: #dc2626 !important;
+    color: #ffffff !important;
+    border-color: #b91c1c !important;
+    text-shadow: none !important;
+  }
+  [data-theme="light"] .btn[onclick*="submitScalpEntry('SELL')"]:hover {
+    background: #b91c1c !important;
+  }
+  /* Start Engine button */
+  [data-theme="light"] #scalp-start-btn {
+    --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%) !important;
+    --btn-color: #0e7490 !important;
+    --btn-border: rgba(6,182,212,0.5) !important;
+  }
+  /* Active positions table */
+  [data-theme="light"] #scalp-active-body tr {
+    border-bottom-color: rgba(0,0,0,0.05) !important;
+  }
+  [data-theme="light"] #scalp-active-body tr:hover {
+    background: rgba(0,0,0,0.02) !important;
+  }
+  /* Trade history table */
+  [data-theme="light"] #scalp-history-body tr {
+    border-bottom-color: rgba(0,0,0,0.05) !important;
+  }
+  /* Event log */
+  [data-theme="light"] #scalp-event-log {
+    color: var(--text);
+    scrollbar-color: rgba(0,0,0,0.15) transparent;
+  }
+  /* Session P&L in status bar */
+  [data-theme="light"] #scalp-session-pnl { color: var(--muted); }
+  [data-theme="light"] #scalp-status-label { color: var(--muted); }
+  /* Lots label sub-text */
+  [data-theme="light"] #scalp-page span[style*="rgba(255,255,255,0.2)"] {
+    color: rgba(0,0,0,0.35) !important;
+  }
+
   /* Theme toggle is now integrated into topbar */
 
   /* ── EMERGENCY KILL SWITCH ── */
