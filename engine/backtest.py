@@ -222,11 +222,10 @@ DEFAULT_EXIT_CONDITIONS = [{"left": "current_close", "operator": "is_below", "ri
 
 
 # ── Option Helpers ─────────────────────────────────────────────────
-def _est_prem(ci, ei, ep, ot, atm_prem=None, minutes_in_trade=0):
+def _est_prem(ci, ei, ep, ot, atm_prem=None):
     """Estimate current option premium given index move.
     Uses improved delta model: d = 1 - 1/(1 + r^2.5) where r = ep/atm_prem.
     This gives higher delta for ITM options, matching real weekly option behavior.
-    Includes theta decay: ~0.04% of ATM premium per minute elapsed.
     """
     if atm_prem and atm_prem > 0 and ep > 0:
         r = ep / atm_prem
@@ -235,12 +234,7 @@ def _est_prem(ci, ei, ep, ot, atm_prem=None, minutes_in_trade=0):
         d = 0.5  # fallback ATM delta
     if ot == "PE":
         d = -d
-    raw = ep + (ci - ei) * d
-    # Theta decay: premium erodes ~0.04% of ATM premium per minute
-    if atm_prem and atm_prem > 0 and minutes_in_trade > 0:
-        theta = atm_prem * 0.0004 * minutes_in_trade
-        raw -= theta
-    return max(0.05, raw)
+    return max(0.05, ep + (ci - ei) * d)
 
 
 def _est_prem_gaussian(atm_prem, moneyness):
@@ -498,12 +492,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             c = float(row["close"])
             h = float(row.get("high", c))
             lo = float(row.get("low", c))
-            mins_in = (ts - et).total_seconds() / 60.0 if et else 0
-            cp = _est_prem(c, ei, ep, ot, atm_prem_ref, mins_in) if has_opt else c
+            cp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
             # OHLC-based worst-case premium for SL detection
             if has_opt:
-                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref, mins_in)
-                cp_at_l = _est_prem(lo, ei, ep, ot, atm_prem_ref, mins_in)
+                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref)
+                cp_at_l = _est_prem(lo, ei, ep, ot, atm_prem_ref)
                 if ltxn == "BUY":
                     cp_worst = min(cp, cp_at_h, cp_at_l)  # worst for BUY holder
                     cp_best = max(cp, cp_at_h, cp_at_l)  # best for BUY holder
