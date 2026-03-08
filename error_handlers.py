@@ -178,6 +178,8 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
 
 async def _generic_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catches any unhandled exception — last resort, never exposes internals."""
+    tb = traceback.format_exc()
+    print(f"[ERROR] Unhandled {request.method} {request.url.path}: {exc}\n{tb}", flush=True)
     _log.error(
         "[%s] Unhandled exception on %s %s",
         getattr(request.state, "request_id", "-"),

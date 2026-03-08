@@ -18,6 +18,10 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 _logger = logging.getLogger(__name__)
 
 try:
@@ -1823,7 +1827,9 @@ async def paper_start(payload: StrategyPayload):
     except Exception as e:
         import traceback
 
-        _logger.error("[PAPER] paper_start crashed: %s\n%s", e, traceback.format_exc())
+        tb = traceback.format_exc()
+        print(f"[PAPER] paper_start crashed: {e}\n{tb}", flush=True)
+        _logger.error("[PAPER] paper_start crashed: %s\n%s", e, tb)
         raise
 
 
