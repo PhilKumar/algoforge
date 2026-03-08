@@ -380,7 +380,6 @@ class StrategyPayload(BaseModel):
     combined_sqoff_time: str = "15:20"
     fee_pct: float = 0.0
     trailing_sl_pct: float = 0.0
-    initial_capital: float = 500000.0
 
 
 # ── Serve Frontend ────────────────────────────────────────────────

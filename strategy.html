@@ -3656,7 +3656,7 @@ async function submitScalpEntry(direction) {
       statusEl.style.color = 'var(--success)';
       refreshScalpStatus();
     } else {
-      statusEl.textContent = '❌ ' + (data.message || data.detail || 'Entry failed');
+      statusEl.textContent = '❌ ' + (data.error?.detail || data.error?.message || data.message || data.detail || 'Entry failed');
       statusEl.style.color = 'var(--danger)';
     }
   } catch(e) {
@@ -6026,7 +6026,8 @@ async function deployStrategy() {
         toast('Strategy deployed in Paper Testing mode', 'success');
         _activeRunMode = 'paper';
       } else {
-        toast(data.message || data.detail || 'Paper deploy failed', 'danger');
+        console.error('[Deploy] Paper start error:', data);
+        toast(data.error?.detail || data.error?.message || data.message || data.detail || 'Paper deploy failed', 'danger');
         closeDeployModal();
         return;
       }
@@ -6061,7 +6062,8 @@ async function deployStrategy() {
         toast('Strategy deployed for Auto Trading (REAL ORDERS)', 'success');
         _activeRunMode = 'auto';
       } else {
-        toast(data.message || data.detail || 'Auto deploy failed', 'danger');
+        console.error('[Deploy] Auto start error:', data);
+        toast(data.error?.detail || data.error?.message || data.message || data.detail || 'Auto deploy failed', 'danger');
         closeDeployModal();
         return;
       }
