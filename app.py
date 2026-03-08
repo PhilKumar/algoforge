@@ -1949,8 +1949,6 @@ def _save_paper_run_to_history(status: dict):
     """Save a completed paper trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
-        if not closed:
-            return
 
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
