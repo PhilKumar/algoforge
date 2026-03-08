@@ -53,8 +53,15 @@ try:
     except ImportError:
         from dhanhq.marketfeed import DhanFeed as MarketFeed  # v2.0.x
     HAS_DHAN_FEED = True
+    # v2.0.x DhanFeed doesn't have Ticker/Quote/Full constants — define fallbacks
+    _TICKER = getattr(MarketFeed, "Ticker", 15)
+    _QUOTE = getattr(MarketFeed, "Quote", 17)
+    _FULL = getattr(MarketFeed, "Full", 21)
 except ImportError:
     HAS_DHAN_FEED = False
+    _TICKER = 15
+    _QUOTE = 17
+    _FULL = 21
     MarketFeed = None
     print("[FEED] ⚠ dhanhq not installed — WebSocket feed unavailable, REST polling fallback active")
 
@@ -264,7 +271,7 @@ class LiveMarketFeed:
 
         self._index_sec_ids[sec_id_int] = label
         # Subscribe as Ticker (type 15) for speed — just LTP
-        self._subscriptions.append((exchange, sec_id_int, MarketFeed.Ticker if HAS_DHAN_FEED else 15))
+        self._subscriptions.append((exchange, sec_id_int, _TICKER))
         print(f"[FEED] Subscribed index: {label} (sec_id={sec_id}, exchange={exchange})")
 
     def subscribe_option(
@@ -282,7 +289,7 @@ class LiveMarketFeed:
         if label is None:
             label = f"{underlying}_{strike}_{option_type}"
 
-        sub_type = MarketFeed.Ticker if HAS_DHAN_FEED else 15
+        sub_type = _TICKER
         self._option_sec_ids[sec_id] = label
         self._subscriptions.append((exchange, sec_id, sub_type))
 
