@@ -2815,6 +2815,12 @@
         </tbody>
       </table>
     </div>
+    <!-- Pagination -->
+    <div id="scalp-hist-pagination" style="display:none; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+      <button id="scalp-hist-prev" class="btn btn-sm" onclick="scalpHistPage(-1)" style="padding:5px 14px;font-size:11px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" disabled>← Prev</button>
+      <span id="scalp-hist-page-info" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Page 1 / 1</span>
+      <button id="scalp-hist-next" class="btn btn-sm" onclick="scalpHistPage(1)" style="padding:5px 14px;font-size:11px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" disabled>Next →</button>
+    </div>
   </div>
 
 </div>
@@ -3517,6 +3523,25 @@ async function fetchScalpLTP() {
   const optType = document.getElementById('scalp-option-type').value;
   const expiry = document.getElementById('scalp-expiry').value;
   if (!strike || !expiry) { el.textContent = '—'; el.style.color = 'var(--muted)'; _scalpCurrentLTP = 0; updateScalpMargin(); return; }
+
+  // Strategy 1: Try to pull LTP from an open trade matching this contract
+  // (zero-cost — already fetched by the 3s status poll via WS/batch feed)
+  if (_lastScalpStatus && _lastScalpStatus.open_trades) {
+    const match = _lastScalpStatus.open_trades.find(t =>
+      t.underlying === underlying && t.strike === strike &&
+      t.option_type === optType && t.expiry === expiry &&
+      t.current_premium > 0
+    );
+    if (match) {
+      _scalpCurrentLTP = match.current_premium;
+      el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
+      el.style.color = '#34d399';
+      updateScalpMargin();
+      return;
+    }
+  }
+
+  // Strategy 2: REST API call (may hit Dhan rate limits)
   el.textContent = '…';
   el.style.color = 'var(--muted)';
   if (_ltpAbort) _ltpAbort.abort();
@@ -3529,12 +3554,25 @@ async function fetchScalpLTP() {
       el.style.color = '#34d399';
       _scalpCurrentLTP = d.ltp;
     } else {
-      el.textContent = '—';
-      el.style.color = 'var(--muted)';
-      _scalpCurrentLTP = 0;
+      // Fallback: keep last known LTP if we had one, show N/A only if truly unknown
+      if (_scalpCurrentLTP > 0) {
+        el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
+        el.style.color = 'rgba(52,211,153,0.5)';
+      } else {
+        el.textContent = 'N/A';
+        el.style.color = 'var(--muted)';
+      }
     }
   } catch(e) {
-    if (e.name !== 'AbortError') { el.textContent = '—'; el.style.color = 'var(--muted)'; _scalpCurrentLTP = 0; }
+    if (e.name !== 'AbortError') {
+      if (_scalpCurrentLTP > 0) {
+        el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
+        el.style.color = 'rgba(52,211,153,0.5)';
+      } else {
+        el.textContent = 'N/A';
+        el.style.color = 'var(--muted)';
+      }
+    }
   }
   updateScalpMargin();
 }
@@ -3548,7 +3586,7 @@ function updateScalpMargin() {
     el.textContent = '₹' + margin.toLocaleString('en-IN', { maximumFractionDigits: 0 });
     el.style.color = 'var(--warn)';
   } else {
-    el.textContent = '—';
+    el.textContent = lots > 0 ? 'N/A' : '—';
     el.style.color = 'var(--muted)';
   }
 }
@@ -3741,11 +3779,72 @@ async function deleteScalpHistoryTrade(tid) {
   refreshScalpStatus();
 }
 
+// ── Pagination state for trade history ──
+var _scalpHistPage = 1;
+var _SCALP_ROWS_PER_PAGE = 10;
+var _scalpAllClosed = [];
+
+function _renderScalpHistoryPage() {
+  const histBody = document.getElementById('scalp-history-body');
+  if (!histBody) return;
+  const totalPages = Math.max(1, Math.ceil(_scalpAllClosed.length / _SCALP_ROWS_PER_PAGE));
+  const start = (_scalpHistPage - 1) * _SCALP_ROWS_PER_PAGE;
+  const page = _scalpAllClosed.slice(start, start + _SCALP_ROWS_PER_PAGE);
+
+  if (!page.length) {
+    histBody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
+  } else {
+    histBody.innerHTML = page.map(t => {
+      const pnl = t.pnl || 0;
+      const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+      const modeBadge = t.mode === 'paper'
+        ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.15);color:rgb(251,191,36);border:1px solid rgba(245,158,11,0.3);">PAPER</span>`
+        : `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.15);color:rgb(167,139,250);border:1px solid rgba(139,92,246,0.3);">LIVE</span>`;
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
+        <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
+        <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.exit_premium||0).toFixed(2)}</td>
+        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${t.lots||1}</td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${(t.exit_reason||'').replace(/_/g,' ')}</td>
+        <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
+        <td style="padding:7px 6px;text-align:center;">
+          <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Update pagination controls
+  const pagDiv = document.getElementById('scalp-hist-pagination');
+  if (pagDiv) {
+    pagDiv.style.display = _scalpAllClosed.length > _SCALP_ROWS_PER_PAGE ? 'flex' : 'none';
+    const info = pagDiv.querySelector('#scalp-hist-page-info');
+    if (info) info.textContent = 'Page ' + _scalpHistPage + ' of ' + totalPages;
+    const prevBtn = pagDiv.querySelector('#scalp-hist-prev');
+    const nextBtn = pagDiv.querySelector('#scalp-hist-next');
+    if (prevBtn) prevBtn.disabled = _scalpHistPage <= 1;
+    if (nextBtn) nextBtn.disabled = _scalpHistPage >= totalPages;
+  }
+}
+
+function scalpHistPage(dir) {
+  const totalPages = Math.max(1, Math.ceil(_scalpAllClosed.length / _SCALP_ROWS_PER_PAGE));
+  _scalpHistPage += dir;
+  if (_scalpHistPage < 1) _scalpHistPage = 1;
+  if (_scalpHistPage > totalPages) _scalpHistPage = totalPages;
+  _renderScalpHistoryPage();
+}
+
+var _lastScalpStatus = null;
 async function refreshScalpStatus() {
   try {
     const res = await fetch('/api/scalp/status');
     if (!res.ok) return;
     const data = await res.json();
+    _lastScalpStatus = data;
     _renderScalpStatus(data);
   } catch(e) { /* offline */ }
 }
@@ -3819,47 +3918,28 @@ function _renderScalpStatus(data) {
     }
   }
 
-  // Closed trades history (file trades)
+  // Closed trades history (file trades) — with pagination
   const histBody = document.getElementById('scalp-history-body');
   if (histBody) {
     const allClosed = [...(data.closed_trades || []), ...(data.file_trades || [])];
-    // Deduplicate by trade_id
     const seen = new Set();
-    const closed = allClosed.filter(t => { if (seen.has(t.trade_id)) return false; seen.add(t.trade_id); return true; })
+    _scalpAllClosed = allClosed.filter(t => { if (seen.has(t.trade_id)) return false; seen.add(t.trade_id); return true; })
       .sort((a, b) => (b.trade_id || 0) - (a.trade_id || 0));
 
+    // Total P&L across ALL trades
     let totalPnl = 0;
-    if (!closed.length) {
-      histBody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
-    } else {
-      histBody.innerHTML = closed.map(t => {
-        const pnl = t.pnl || 0;
-        totalPnl += pnl;
-        const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
-        const modeBadge = t.mode === 'paper'
-          ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.15);color:rgb(251,191,36);border:1px solid rgba(245,158,11,0.3);">PAPER</span>`
-          : `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.15);color:rgb(167,139,250);border:1px solid rgba(139,92,246,0.3);">LIVE</span>`;
-        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
-          <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
-          <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
-          <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
-          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
-          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.exit_premium||0).toFixed(2)}</td>
-          <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${t.lots||1}</td>
-          <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
-          <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${(t.exit_reason||'').replace(/_/g,' ')}</td>
-          <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
-          <td style="padding:7px 6px;text-align:center;">
-            <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
-          </td>
-        </tr>`;
-      }).join('');
-    }
+    _scalpAllClosed.forEach(t => { totalPnl += (t.pnl || 0); });
     const totalEl = document.getElementById('scalp-total-pnl-label');
     if (totalEl) {
       totalEl.textContent = 'Total: ' + (totalPnl >= 0 ? '+' : '') + '₹' + totalPnl.toFixed(2);
       totalEl.style.color = totalPnl > 0 ? 'var(--green)' : totalPnl < 0 ? 'var(--red)' : 'var(--muted)';
     }
+
+    // Clamp page if data shrunk
+    const totalPages = Math.max(1, Math.ceil(_scalpAllClosed.length / _SCALP_ROWS_PER_PAGE));
+    if (_scalpHistPage > totalPages) _scalpHistPage = totalPages;
+
+    _renderScalpHistoryPage();
   }
 }
 
