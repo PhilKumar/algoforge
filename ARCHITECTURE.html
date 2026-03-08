@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlgoForge & CryptoForge — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #060b12;
+  --card:      rgba(11, 20, 36, 0.95);
+  --card2:     rgba(14, 24, 42, 0.90);
+  --border:    rgba(255,255,255,0.07);
+  --border-hi: rgba(255,255,255,0.13);
+  --text:      #dde3ee;
+  --dim:       rgba(200,215,235,0.60);
+  --mono:      rgba(160,185,215,0.50);
+  --accent:    #00bfa5;
+  --blue:      #4f8ef7;
+  --purple:    #9f7aea;
+  --green:     #34d399;
+  --yellow:    #fbbf24;
+  --red:       #f87171;
+  --orange:    #fb923c;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* grid bg */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0,191,165,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,191,165,0.025) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 55% 35% at 15% 5%,  rgba(0,191,165,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 45% 30% at 85% 95%, rgba(79,142,247,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 35% 25% at 50% 50%, rgba(159,122,234,0.04) 0%, transparent 65%);
+}
+
+.page {
+  position: relative; z-index: 1;
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 3.5rem 2rem 6rem;
+}
+
+/* ── HEADER ─────────────────────────────────────────────────────── */
+.header {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 1.1rem;
+  opacity: 0.9;
+}
+.title {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  font-weight: 800;
+  line-height: 1.08;
+  background: linear-gradient(130deg, #e8eeff 0%, var(--accent) 40%, var(--blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.9rem;
+}
+.subtitle {
+  font-size: 1.05rem;
+  color: var(--dim);
+  font-weight: 300;
+  margin-bottom: 2.2rem;
+}
+.badges {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center;
+}
+.badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  padding: 0.32rem 0.85rem;
+  border-radius: 100px;
+  border: 1px solid;
+}
+.b-teal   { border-color: rgba(0,191,165,0.4);   color: var(--accent);  background: rgba(0,191,165,0.08);  }
+.b-blue   { border-color: rgba(79,142,247,0.4);  color: var(--blue);    background: rgba(79,142,247,0.08); }
+.b-purple { border-color: rgba(159,122,234,0.4); color: var(--purple);  background: rgba(159,122,234,0.08);}
+.b-green  { border-color: rgba(52,211,153,0.4);  color: var(--green);   background: rgba(52,211,153,0.08); }
+.b-yellow { border-color: rgba(251,191,36,0.4);  color: var(--yellow);  background: rgba(251,191,36,0.08); }
+.b-red    { border-color: rgba(248,113,113,0.4); color: var(--red);     background: rgba(248,113,113,0.08);}
+
+/* ── SECTION LABEL ──────────────────────────────────────────────── */
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mono);
+  margin-bottom: 1rem;
+}
+
+/* ── CONNECTOR ARROWS ───────────────────────────────────────────── */
+.arrow-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0;
+}
+.arrow-down {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  max-width: 300px;
+}
+.arrow-down .arrow-line {
+  width: 2px;
+  height: 28px;
+  background: linear-gradient(to bottom, var(--accent), rgba(0,191,165,0.2));
+}
+.arrow-down .arrow-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--accent);
+  opacity: 0.75;
+  white-space: nowrap;
+  margin-top: 3px;
+}
+.arrow-tip {
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--accent);
+  opacity: 0.7;
+}
+
+.arrow-right-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.arr-line-h {
+  height: 2px;
+  width: 32px;
+  background: linear-gradient(to right, rgba(0,191,165,0.3), var(--accent));
+}
+.arr-tip-r {
+  width: 0; height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--accent);
+  opacity: 0.7;
+}
+.arr-label-h {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  color: var(--accent);
+  opacity: 0.7;
+  white-space: nowrap;
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ── ZONE WRAPPER ───────────────────────────────────────────────── */
+.zone {
+  border: 1px solid var(--border-hi);
+  border-radius: 18px;
+  padding: 1.5rem;
+  margin-bottom: 0;
+  position: relative;
+  overflow: hidden;
+}
+.zone::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  border-radius: 18px 18px 0 0;
+}
+.zone.teal::before   { background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+.zone.blue::before   { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
+.zone.purple::before { background: linear-gradient(90deg, transparent, var(--purple), transparent); }
+.zone.green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+.zone.yellow::before { background: linear-gradient(90deg, transparent, var(--yellow), transparent); }
+.zone.red::before    { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+.zone.multi::before  { background: linear-gradient(90deg, var(--blue), var(--accent), var(--purple)); }
+
+.zone-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.zone-title.teal   { color: var(--accent); }
+.zone-title.blue   { color: var(--blue); }
+.zone-title.purple { color: var(--purple); }
+.zone-title.green  { color: var(--green); }
+.zone-title.yellow { color: var(--yellow); }
+.zone-title.red    { color: var(--red); }
+
+/* ── NODE CARD ──────────────────────────────────────────────────── */
+.node {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 14px 16px;
+  position: relative;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.node:hover {
+  border-color: var(--border-hi);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.node::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+.node.teal::before   { background: var(--accent); }
+.node.blue::before   { background: var(--blue); }
+.node.purple::before { background: var(--purple); }
+.node.green::before  { background: var(--green); }
+.node.yellow::before { background: var(--yellow); }
+.node.red::before    { background: var(--red); }
+.node.orange::before { background: var(--orange); }
+
+.node-icon {
+  font-size: 1.3rem;
+  margin-bottom: 7px;
+  display: block;
+}
+.node-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 5px;
+  line-height: 1.25;
+}
+.node-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--dim);
+  line-height: 1.65;
+}
+.node-tags {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px;
+}
+.ntag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--mono);
+}
+
+/* ── GRID HELPERS ───────────────────────────────────────────────── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; }
+.grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; }
+.gap-sm  { gap: 0.7rem; }
+
+@media (max-width: 1100px) {
+  .grid-6 { grid-template-columns: repeat(3, 1fr); }
+  .grid-5 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  .grid-6, .grid-5, .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* ── CI/CD PIPELINE (horizontal) ───────────────────────────────── */
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.pipe-stage {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 160px;
+  position: relative;
+}
+.pipe-stage::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  border-radius: 11px 11px 0 0;
+}
+.pipe-stage.s-dev::before    { background: var(--blue); }
+.pipe-stage.s-ci::before     { background: var(--accent); }
+.pipe-stage.s-e2e::before    { background: var(--purple); }
+.pipe-stage.s-deploy::before { background: var(--green); }
+
+.pipe-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: block;
+}
+.pipe-num.s-dev    { color: var(--blue); }
+.pipe-num.s-ci     { color: var(--accent); }
+.pipe-num.s-e2e    { color: var(--purple); }
+.pipe-num.s-deploy { color: var(--green); }
+
+.pipe-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.pipe-item {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--dim);
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+.pipe-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pipe-dot.s-dev    { background: var(--blue); }
+.pipe-dot.s-ci     { background: var(--accent); }
+.pipe-dot.s-e2e    { background: var(--purple); }
+.pipe-dot.s-deploy { background: var(--green); }
+
+.pipe-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.pipe-arrow-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.pipe-arrow-line {
+  width: 2px; height: 40px;
+  background: linear-gradient(to bottom, rgba(0,191,165,0.5), rgba(0,191,165,0.1));
+}
+.pipe-arrow-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.58rem;
+  color: var(--accent);
+  opacity: 0.65;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+}
+.pipe-caret {
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid rgba(0,191,165,0.6);
+}
+
+/* ── EC2 MEGA ZONE ──────────────────────────────────────────────── */
+.ec2-zone {
+  background: rgba(6, 12, 24, 0.6);
+  border: 1px solid rgba(0,191,165,0.2);
+  border-radius: 20px;
+  padding: 1.8rem;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(0,191,165,0.05),
+    inset 0 1px 0 rgba(0,191,165,0.08),
+    0 20px 60px rgba(0,0,0,0.5);
+}
+.ec2-zone::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  border-radius: 20px 20px 0 0;
+  background: linear-gradient(90deg, var(--blue) 0%, var(--accent) 50%, var(--purple) 100%);
+}
+.ec2-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.ec2-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  padding: 4px 12px;
+  border-radius: 100px;
+  background: rgba(0,191,165,0.12);
+  border: 1px solid rgba(0,191,165,0.3);
+  color: var(--accent);
+}
+.ec2-title-text {
+  font-family: 'Syne', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.ec2-ip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--mono);
+  margin-left: auto;
+}
+
+/* ── INNER ZONE ─────────────────────────────────────────────────── */
+.inner-zone {
+  background: rgba(10, 18, 34, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 1.2rem 1.4rem;
+  margin-bottom: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+.inner-zone::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1.5px;
+}
+.iz-teal::before   { background: linear-gradient(90deg, transparent 0%, var(--accent) 40%, transparent 100%); opacity: 0.6; }
+.iz-blue::before   { background: linear-gradient(90deg, transparent 0%, var(--blue) 40%, transparent 100%); opacity: 0.6; }
+.iz-purple::before { background: linear-gradient(90deg, transparent 0%, var(--purple) 40%, transparent 100%); opacity: 0.6; }
+.iz-green::before  { background: linear-gradient(90deg, transparent 0%, var(--green) 40%, transparent 100%); opacity: 0.6; }
+
+.inner-zone-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+}
+.inner-zone-title.iz-teal   { color: var(--accent); }
+.inner-zone-title.iz-blue   { color: var(--blue); }
+.inner-zone-title.iz-purple { color: var(--purple); }
+.inner-zone-title.iz-green  { color: var(--green); }
+
+/* ── MINI NODE (compact) ────────────────────────────────────────── */
+.mnode {
+  background: rgba(13, 22, 40, 0.95);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 11px 13px;
+  position: relative;
+}
+.mnode::before {
+  content: '';
+  position: absolute; left: 0; top: 10px; bottom: 10px;
+  width: 2.5px; border-radius: 0 2px 2px 0;
+}
+.mnode.teal::before   { background: var(--accent); }
+.mnode.blue::before   { background: var(--blue); }
+.mnode.purple::before { background: var(--purple); }
+.mnode.green::before  { background: var(--green); }
+.mnode.yellow::before { background: var(--yellow); }
+.mnode.red::before    { background: var(--red); }
+
+.mnode-icon { font-size: 1rem; margin-bottom: 5px; display: block; }
+.mnode-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+.mnode-detail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+/* ── BLUE-GREEN SPECIAL ─────────────────────────────────────────── */
+.bg-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+  position: relative;
+}
+.bg-pair::after {
+  content: '↔';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: rgba(6,12,24,0.9);
+  border: 1px solid rgba(0,191,165,0.25);
+  border-radius: 50%;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+  font-family: 'JetBrains Mono', monospace;
+}
+.bg-blue-node {
+  background: rgba(8, 22, 50, 0.95);
+  border: 1px solid rgba(79,142,247,0.35);
+  border-radius: 11px; padding: 13px 15px;
+}
+.bg-green-node {
+  background: rgba(5, 22, 14, 0.95);
+  border: 1px solid rgba(52,211,153,0.35);
+  border-radius: 11px; padding: 13px 15px;
+}
+.bg-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.bg-blue-node .bg-label  { color: #93c5fd; }
+.bg-green-node .bg-label { color: #6ee7b7; }
+.bg-detail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--dim);
+  line-height: 1.55;
+}
+
+/* ── CONNECTOR BETWEEN ZONES ────────────────────────────────────── */
+.tier-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.3rem 0;
+  gap: 0;
+}
+.tc-line {
+  width: 2px;
+  height: 32px;
+  position: relative;
+}
+.tc-line::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(0,191,165,0.7), rgba(0,191,165,0.15));
+}
+.tc-tip {
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid rgba(0,191,165,0.6);
+}
+.tc-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  color: var(--accent);
+  opacity: 0.65;
+  margin-top: 3px;
+  letter-spacing: 0.08em;
+}
+
+/* ── HORIZONTAL CONNECTOR (EC2 → External) ───────────────────────── */
+.two-col-connector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  position: relative;
+}
+.two-col-connector::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+/* ── SCROLLBAR ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,191,165,0.25); border-radius: 3px; }
+
+/* ── DIVIDER LINE ───────────────────────────────────────────────── */
+.hdivider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--blue), transparent);
+  opacity: 0.3;
+  margin-bottom: 3.5rem;
+}
+
+/* ── FLOW TABLE ─────────────────────────────────────────────────── */
+.flow-table-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  margin-bottom: 3.5rem;
+}
+@media (max-width: 880px) { .flow-table-wrap { grid-template-columns: 1fr; } }
+
+.flow-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.flow-box-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'Syne', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.flow-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.flow-step-row:last-child { border-bottom: none; }
+
+.fs-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  min-width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.fs-teal   { background: rgba(0,191,165,0.12); color: var(--accent); border: 1px solid rgba(0,191,165,0.3); }
+.fs-blue   { background: rgba(79,142,247,0.12); color: var(--blue); border: 1px solid rgba(79,142,247,0.3); }
+.fs-lbl  { font-size: 0.85rem; font-weight: 500; margin-bottom: 2px; }
+.fs-det  { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: var(--dim); line-height: 1.5; }
+
+/* ── ERROR TABLE ────────────────────────────────────────────────── */
+.err-table-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 3.5rem;
+}
+.err-table-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-hi);
+  font-family: 'Syne', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: rgba(255,255,255,0.02);
+}
+.err-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.err-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mono);
+  text-align: left;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-hi);
+  background: rgba(255,255,255,0.015);
+}
+.err-table td {
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--dim);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.err-table tr:last-child td { border-bottom: none; }
+.err-table tr:hover td { background: rgba(255,255,255,0.018); }
+.sev {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+}
+.sev-c { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+.sev-h { background: rgba(251,191,36,0.1); color: var(--yellow); border: 1px solid rgba(251,191,36,0.2); }
+.sev-m { background: rgba(0,191,165,0.1); color: var(--accent); border: 1px solid rgba(0,191,165,0.2); }
+
+/* ── FOOTER ─────────────────────────────────────────────────────── */
+.footer {
+  text-align: center;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--mono);
+  letter-spacing: 0.08em;
+}
+.footer .hl { color: var(--accent); }
+
+/* ── ANIMATE IN ─────────────────────────────────────────────────── */
+.fade-in {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.fade-in.visible { opacity: 1; transform: none; }
+
+/* ── NAV ────────────────────────────────────────────────────────── */
+.sticky-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(6,11,18,0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.7rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  overflow-x: auto;
+}
+.nav-brand {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+.nav-link {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--mono);
+  text-decoration: none;
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+  transition: color 0.15s;
+}
+.nav-link:hover { color: var(--accent); }
+.nav-sep { color: var(--border-hi); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<!-- ── STICKY NAV ─────────────────────────────────────────────── -->
+<nav class="sticky-nav">
+  <span class="nav-brand">⚡ Architecture</span>
+  <span class="nav-sep">|</span>
+  <a class="nav-link" href="#cicd">CI/CD Pipeline</a>
+  <a class="nav-link" href="#ec2">EC2 Server</a>
+  <a class="nav-link" href="#apis">External APIs</a>
+  <a class="nav-link" href="#flows">Data Flows</a>
+  <a class="nav-link" href="#errors">Error Recovery</a>
+</nav>
+
+<div class="page">
+
+<!-- ── HEADER ────────────────────────────────────────────────── -->
+<header class="header">
+  <p class="eyebrow">Production Infrastructure · System Architecture</p>
+  <h1 class="title">AlgoForge &amp; CryptoForge</h1>
+  <p class="subtitle">Algorithmic trading suite · NSE Equities &amp; Options · Crypto Perpetual Futures · AWS EC2</p>
+  <div class="badges">
+    <span class="badge b-teal">FastAPI · Python 3.11</span>
+    <span class="badge b-blue">Dhan API · Delta Exchange</span>
+    <span class="badge b-purple">WebSocket · Real-time P&amp;L</span>
+    <span class="badge b-green">Blue-Green · Zero Downtime</span>
+    <span class="badge b-yellow">GitHub Actions CI/CD</span>
+    <span class="badge b-purple">Playwright E2E</span>
+    <span class="badge b-red">Telegram · Discord Alerts</span>
+    <span class="badge b-teal">TimescaleDB · asyncpg</span>
+  </div>
+</header>
+
+<div class="hdivider"></div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  TIER 1 — CI/CD PIPELINE                               -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="cicd" style="margin-bottom: 0.5rem;">
+  <p class="section-label">// tier 1 — ci/cd pipeline</p>
+</div>
+
+<div class="pipeline fade-in">
+
+  <!-- Stage 0: Dev -->
+  <div class="pipe-stage s-dev">
+    <span class="pipe-num s-dev">Local · Mac</span>
+    <div class="pipe-title">💻 Developer</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>VSCode + Claude Code</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>/New_Algo + /CryptoForge</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>pre-commit hooks</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>Ruff format on save</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>git push → main</div>
+  </div>
+
+  <div class="pipe-arrow">
+    <div class="pipe-arrow-inner">
+      <div class="pipe-arrow-line"></div>
+      <div class="pipe-arrow-label">git push</div>
+      <div class="pipe-caret"></div>
+    </div>
+  </div>
+
+  <!-- Stage 1: CI -->
+  <div class="pipe-stage s-ci">
+    <span class="pipe-num s-ci">Stage 1 · ci.yml</span>
+    <div class="pipe-title">🔍 CI Checks</div>
+    <div class="pipe-item"><span class="pipe-dot s-ci"></span>Ruff lint + format</div>
+    <div class="pipe-item"><span class="pipe-dot s-ci"></span>Bandit security scan</div>
+    <div class="pipe-item"><span class="pipe-dot s-ci"></span>Gitleaks secret scan</div>
+    <div class="pipe-item"><span class="pipe-dot s-ci"></span>Smoke import test</div>
+    <div class="pipe-item"><span class="pipe-dot s-ci"></span>pytest tests/</div>
+  </div>
+
+  <div class="pipe-arrow">
+    <div class="pipe-arrow-inner">
+      <div class="pipe-arrow-line"></div>
+      <div class="pipe-arrow-label">✅ pass</div>
+      <div class="pipe-caret"></div>
+    </div>
+  </div>
+
+  <!-- Stage 2: E2E -->
+  <div class="pipe-stage s-e2e">
+    <span class="pipe-num s-e2e">Stage 2 · playwright.yml</span>
+    <div class="pipe-title">🎭 E2E Tests</div>
+    <div class="pipe-item"><span class="pipe-dot s-e2e"></span>Start FastAPI dev server</div>
+    <div class="pipe-item"><span class="pipe-dot s-e2e"></span>Chromium headless</div>
+    <div class="pipe-item"><span class="pipe-dot s-e2e"></span>Login flow test</div>
+    <div class="pipe-item"><span class="pipe-dot s-e2e"></span>Dashboard load test</div>
+    <div class="pipe-item"><span class="pipe-dot s-e2e"></span>/api/health assertion</div>
+  </div>
+
+  <div class="pipe-arrow">
+    <div class="pipe-arrow-inner">
+      <div class="pipe-arrow-line"></div>
+      <div class="pipe-arrow-label">✅ pass</div>
+      <div class="pipe-caret"></div>
+    </div>
+  </div>
+
+  <!-- Stage 3: Deploy -->
+  <div class="pipe-stage s-deploy">
+    <span class="pipe-num s-deploy">Stage 3 · deploy.yml</span>
+    <div class="pipe-title">🚀 Deploy</div>
+    <div class="pipe-item"><span class="pipe-dot s-deploy"></span>Configure SSH key</div>
+    <div class="pipe-item"><span class="pipe-dot s-deploy"></span>git reset --hard main</div>
+    <div class="pipe-item"><span class="pipe-dot s-deploy"></span>pip install -q deps</div>
+    <div class="pipe-item"><span class="pipe-dot s-deploy"></span>cd-deploy.sh (blue-green)</div>
+    <div class="pipe-item"><span class="pipe-dot s-deploy"></span>curl /api/health verify</div>
+  </div>
+
+</div>
+
+<!-- Connector down to EC2 -->
+<div class="tier-connector">
+  <div class="tc-line"></div>
+  <div class="tc-tip"></div>
+  <div class="tc-label">SSH → EC2 · cd-deploy.sh</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  TIER 2 — EC2 SERVER                                    -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="ec2">
+<div class="ec2-zone fade-in">
+  <div class="ec2-header">
+    <span class="ec2-pill">☁️ AWS EC2</span>
+    <span class="ec2-title-text">Production Server — Amazon Linux</span>
+    <span class="ec2-ip">65.1.213.207 · t2 · 24/7</span>
+  </div>
+
+  <!-- NGINX -->
+  <div class="inner-zone iz-teal" style="margin-bottom: 1rem;">
+    <div class="inner-zone-title iz-teal">⚡ Nginx — Reverse Proxy</div>
+    <div class="grid-2 gap-sm">
+      <div class="mnode teal">
+        <span class="mnode-icon">🔀</span>
+        <div class="mnode-name">Port :80 → AlgoForge</div>
+        <div class="mnode-detail">
+          algoforge-upstream.conf<br>
+          tcp_nodelay on<br>
+          http/1.1 keepalive<br>
+          WebSocket upgrade headers<br>
+          proxy_read_timeout 86400
+        </div>
+      </div>
+      <div class="mnode teal">
+        <span class="mnode-icon">🔀</span>
+        <div class="mnode-name">Port :9090 → CryptoForge</div>
+        <div class="mnode-detail">
+          proxy_pass :9000<br>
+          tcp_nodelay on<br>
+          http/1.1 keepalive<br>
+          WebSocket upgrade headers<br>
+          proxy_read_timeout 86400
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AlgoForge + CryptoForge side by side -->
+  <div class="grid-2 gap-sm" style="margin-bottom: 1rem;">
+
+    <!-- ALGOFORGE -->
+    <div class="inner-zone iz-blue">
+      <div class="inner-zone-title iz-blue">📈 AlgoForge — Equities &amp; Options</div>
+
+      <!-- Blue-Green -->
+      <div class="bg-pair" style="margin-bottom: 0.8rem;">
+        <div class="bg-blue-node">
+          <div class="bg-label">🔵 BLUE</div>
+          <div class="bg-detail">
+            uvicorn :8000<br>
+            Python 3.11<br>
+            systemd algoforge@8000<br>
+            <em>↑ active traffic</em>
+          </div>
+        </div>
+        <div class="bg-green-node">
+          <div class="bg-label">🟢 GREEN</div>
+          <div class="bg-detail">
+            uvicorn :8001<br>
+            Python 3.11<br>
+            systemd algoforge@8001<br>
+            <em>↑ standby / new deploy</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Engines -->
+      <div class="mnode-name" style="font-size:0.7rem;letter-spacing:0.12em;color:var(--mono);margin-bottom:0.6rem;font-family:'JetBrains Mono',monospace;">TRADING ENGINES</div>
+      <div class="grid-2 gap-sm" style="margin-bottom:0.8rem;">
+        <div class="mnode blue">
+          <span class="mnode-icon">📊</span>
+          <div class="mnode-name">Backtest</div>
+          <div class="mnode-detail">Walk-forward loop<br>No look-ahead bias<br>yfinance fallback</div>
+        </div>
+        <div class="mnode blue">
+          <span class="mnode-icon">📋</span>
+          <div class="mnode-name">Paper Trading</div>
+          <div class="mnode-detail">Simulated fills<br>Real market prices<br>Full P&amp;L tracking</div>
+        </div>
+        <div class="mnode blue">
+          <span class="mnode-icon">💸</span>
+          <div class="mnode-name">Live Trading</div>
+          <div class="mnode-detail">Dhan REST orders<br>Fill verify + retry<br>Max 1 trade/day</div>
+        </div>
+        <div class="mnode blue">
+          <span class="mnode-icon">⚡</span>
+          <div class="mnode-name">Scalp Engine</div>
+          <div class="mnode-detail">Options CE/PE<br>Manual entry<br>Auto SL/TP/Sqoff</div>
+        </div>
+      </div>
+
+      <!-- Infrastructure -->
+      <div class="mnode-name" style="font-size:0.7rem;letter-spacing:0.12em;color:var(--mono);margin-bottom:0.6rem;font-family:'JetBrains Mono',monospace;">INFRASTRUCTURE</div>
+      <div class="grid-2 gap-sm">
+        <div class="mnode teal">
+          <span class="mnode-icon">📡</span>
+          <div class="mnode-name">Market Feed</div>
+          <div class="mnode-detail">Dhan WebSocket<br>CandleAggregator<br>1m·3m·5m OHLCV</div>
+        </div>
+        <div class="mnode teal">
+          <span class="mnode-icon">🔑</span>
+          <div class="mnode-name">Token Manager</div>
+          <div class="mnode-detail">TOTP auto-renewal<br>JWT expiry watch<br>pyotp · fcntl lock</div>
+        </div>
+        <div class="mnode teal">
+          <span class="mnode-icon">📐</span>
+          <div class="mnode-name">Indicators</div>
+          <div class="mnode-detail">SuperTrend · EMA<br>RSI · CPR · VWAP<br>MACD · BB · ADX</div>
+        </div>
+        <div class="mnode teal">
+          <span class="mnode-icon">🔌</span>
+          <div class="mnode-name">WS Hub /ws</div>
+          <div class="mnode-detail">Real-time P&amp;L<br>Trade log stream<br>Multi-client fan-out</div>
+        </div>
+        <div class="mnode red">
+          <span class="mnode-icon">🔔</span>
+          <div class="mnode-name">Alerter</div>
+          <div class="mnode-detail">Telegram + Discord<br>httpx async<br>fire-and-forget</div>
+        </div>
+        <div class="mnode teal">
+          <span class="mnode-icon">📈</span>
+          <div class="mnode-name">Prometheus</div>
+          <div class="mnode-detail">/metrics endpoint<br>FastAPI instrumentator<br>optional</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRYPTOFORGE -->
+    <div class="inner-zone iz-purple">
+      <div class="inner-zone-title iz-purple">🪙 CryptoForge — Crypto Perpetuals</div>
+
+      <div class="mnode purple" style="margin-bottom:0.8rem;">
+        <span class="mnode-icon">🟣</span>
+        <div class="mnode-name">uvicorn :9000</div>
+        <div class="mnode-detail">Python 3.11 · systemd cryptoforge<br>Restart=always · RestartSec=5<br>atexit → engine state saved to runs.json</div>
+      </div>
+
+      <div class="mnode-name" style="font-size:0.7rem;letter-spacing:0.12em;color:var(--mono);margin-bottom:0.6rem;font-family:'JetBrains Mono',monospace;">TRADING ENGINES</div>
+      <div class="grid-2 gap-sm" style="margin-bottom:0.8rem;">
+        <div class="mnode purple">
+          <span class="mnode-icon">📊</span>
+          <div class="mnode-name">Backtest</div>
+          <div class="mnode-detail">Leverage 1×–200×<br>Maker 0.02%<br>Taker 0.05%<br>Liquidation sim</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">📋</span>
+          <div class="mnode-name">Paper Trading</div>
+          <div class="mnode-detail">Simulated fills<br>Real Delta prices<br>Full P&amp;L tracking</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">💸</span>
+          <div class="mnode-name">Live Trading</div>
+          <div class="mnode-detail">Delta REST orders<br>HMAC-SHA256 auth<br>Fill verify · retry 3×</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">⚡</span>
+          <div class="mnode-name">Scalp Engine</div>
+          <div class="mnode-detail">Perp futures<br>Auto SL/TP<br>engine/scalp.py</div>
+        </div>
+      </div>
+
+      <div class="mnode-name" style="font-size:0.7rem;letter-spacing:0.12em;color:var(--mono);margin-bottom:0.6rem;font-family:'JetBrains Mono',monospace;">INFRASTRUCTURE</div>
+      <div class="grid-2 gap-sm">
+        <div class="mnode purple">
+          <span class="mnode-icon">📥</span>
+          <div class="mnode-name">Data Downloader</div>
+          <div class="mnode-detail">aiohttp paginator<br>Semaphore(8) concurrent<br>Exp. backoff · gap detect<br>Incremental sync</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">📡</span>
+          <div class="mnode-name">WS Feed</div>
+          <div class="mnode-detail">Delta WebSocket<br>Auto-reconnect<br>Heartbeat 25s<br>Backoff 1→32s cap</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">📐</span>
+          <div class="mnode-name">Indicators</div>
+          <div class="mnode-detail">SuperTrend · EMA<br>RSI · StochRSI<br>MACD · BB · ADX</div>
+        </div>
+        <div class="mnode purple">
+          <span class="mnode-icon">🔌</span>
+          <div class="mnode-name">WS Hub /ws</div>
+          <div class="mnode-detail">Real-time trades<br>P&amp;L broadcast<br>Multi-client fan-out</div>
+        </div>
+        <div class="mnode red">
+          <span class="mnode-icon">🔔</span>
+          <div class="mnode-name">Alerter</div>
+          <div class="mnode-detail">Telegram + Discord<br>httpx async<br>fire-and-forget</div>
+        </div>
+        <div class="mnode teal">
+          <span class="mnode-icon">🦎</span>
+          <div class="mnode-name">CoinGecko</div>
+          <div class="mnode-detail">Top-25 market caps<br>Live prices<br>30s server cache</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DATA LAYER (inside EC2) -->
+  <div class="inner-zone iz-green">
+    <div class="inner-zone-title iz-green">💾 Data Layer</div>
+    <div class="grid-3 gap-sm">
+      <div class="mnode green">
+        <span class="mnode-icon">🐘</span>
+        <div class="mnode-name">PostgreSQL + TimescaleDB</div>
+        <div class="mnode-detail">
+          candles hypertable<br>
+          1m · 3m · 5m OHLCV<br>
+          auto-compress after 7 days<br>
+          idx (symbol, resolution, time DESC)<br>
+          asyncpg driver · optional
+        </div>
+      </div>
+      <div class="mnode green">
+        <span class="mnode-icon">📄</span>
+        <div class="mnode-name">JSON Flat Files</div>
+        <div class="mnode-detail">
+          strategies.json<br>
+          runs.json<br>
+          scalp_trades.json<br>
+          .sessions.json<br>
+          .current_token
+        </div>
+      </div>
+      <div class="mnode green">
+        <span class="mnode-icon">📋</span>
+        <div class="mnode-name">Scrip Cache</div>
+        <div class="mnode-detail">
+          .scrip_cache/<br>
+          options_{date}.json<br>
+          CE/PE chain<br>
+          daily refresh<br>
+          disk-persisted
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end ec2-zone -->
+</div><!-- end #ec2 -->
+
+<!-- Connector down to APIs -->
+<div class="tier-connector">
+  <div class="tc-line"></div>
+  <div class="tc-tip"></div>
+  <div class="tc-label">REST · WebSocket · async</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  TIER 3 — EXTERNAL APIS                                 -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="apis">
+<div class="zone yellow fade-in" style="margin-bottom:1rem;">
+  <div class="zone-title yellow">🔌 External APIs &amp; Data Sources</div>
+  <div class="grid-5 gap-sm">
+
+    <div class="node yellow">
+      <span class="node-icon">🏦</span>
+      <div class="node-name">Dhan REST API</div>
+      <div class="node-sub">
+        api.dhan.co<br>
+        Orders · Positions<br>
+        Historical OHLCV<br>
+        Scrip master<br>
+        JWT auth
+      </div>
+      <div class="node-tags">
+        <span class="ntag">AlgoForge</span>
+        <span class="ntag">REST</span>
+      </div>
+    </div>
+
+    <div class="node yellow">
+      <span class="node-icon">📡</span>
+      <div class="node-name">Dhan WebSocket</div>
+      <div class="node-sub">
+        api-feed.dhan.co<br>
+        Tick-level LTP<br>
+        Live market data<br>
+        → CandleAggregator<br>
+        Background thread
+      </div>
+      <div class="node-tags">
+        <span class="ntag">AlgoForge</span>
+        <span class="ntag">WS</span>
+      </div>
+    </div>
+
+    <div class="node yellow">
+      <span class="node-icon">🔷</span>
+      <div class="node-name">Delta Exchange</div>
+      <div class="node-sub">
+        api.india.delta.exchange<br>
+        Orders · Positions<br>
+        Funding rates<br>
+        Leverage info<br>
+        HMAC-SHA256 auth
+      </div>
+      <div class="node-tags">
+        <span class="ntag">CryptoForge</span>
+        <span class="ntag">REST</span>
+      </div>
+    </div>
+
+    <div class="node yellow">
+      <span class="node-icon">📡</span>
+      <div class="node-name">Delta WebSocket</div>
+      <div class="node-sub">
+        socket.delta.exchange<br>
+        Candlestick feed<br>
+        Ticker · Orders<br>
+        Auto-reconnect<br>
+        Heartbeat 25s
+      </div>
+      <div class="node-tags">
+        <span class="ntag">CryptoForge</span>
+        <span class="ntag">WS</span>
+      </div>
+    </div>
+
+    <div class="node orange">
+      <span class="node-icon">🟡</span>
+      <div class="node-name">Binance Public</div>
+      <div class="node-sub">
+        api.binance.com<br>
+        /api/v3/klines<br>
+        Candle gap fill<br>
+        No auth needed<br>
+        Fallback only
+      </div>
+      <div class="node-tags">
+        <span class="ntag">CryptoForge</span>
+        <span class="ntag">fallback</span>
+      </div>
+    </div>
+
+    <div class="node orange">
+      <span class="node-icon">📈</span>
+      <div class="node-name">Yahoo Finance</div>
+      <div class="node-sub">
+        yfinance library<br>
+        NSE · BSE data<br>
+        Backtest fallback<br>
+        No credentials<br>
+        NIFTY history
+      </div>
+      <div class="node-tags">
+        <span class="ntag">AlgoForge</span>
+        <span class="ntag">fallback</span>
+      </div>
+    </div>
+
+    <div class="node teal">
+      <span class="node-icon">🦎</span>
+      <div class="node-name">CoinGecko</div>
+      <div class="node-sub">
+        Public API<br>
+        Top-25 market caps<br>
+        Live coin prices<br>
+        30s server cache<br>
+        Free tier
+      </div>
+      <div class="node-tags">
+        <span class="ntag">CryptoForge</span>
+        <span class="ntag">market data</span>
+      </div>
+    </div>
+
+    <div class="node teal">
+      <span class="node-icon">💱</span>
+      <div class="node-name">ExchangeRate API</div>
+      <div class="node-sub">
+        exchangerate-api.com<br>
+        USD → INR rate<br>
+        Browser fetch<br>
+        15-min refresh<br>
+        Fallback ₹84.5/USD
+      </div>
+      <div class="node-tags">
+        <span class="ntag">Browser</span>
+        <span class="ntag">INR display</span>
+      </div>
+    </div>
+
+    <div class="node red">
+      <span class="node-icon">✈️</span>
+      <div class="node-name">Telegram Bot API</div>
+      <div class="node-sub">
+        api.telegram.org<br>
+        Order fill alerts<br>
+        Error events<br>
+        Signal triggers<br>
+        fire-and-forget async
+      </div>
+      <div class="node-tags">
+        <span class="ntag">Both apps</span>
+        <span class="ntag">alerts</span>
+      </div>
+    </div>
+
+    <div class="node red">
+      <span class="node-icon">🎮</span>
+      <div class="node-name">Discord Webhook</div>
+      <div class="node-sub">
+        discord.com/api/webhooks<br>
+        P&amp;L updates<br>
+        Engine status<br>
+        Error events<br>
+        fire-and-forget async
+      </div>
+      <div class="node-tags">
+        <span class="ntag">Both apps</span>
+        <span class="ntag">alerts</span>
+      </div>
+    </div>
+
+  </div>
+</div><!-- end yellow zone -->
+</div>
+
+<!-- Connector up to Browser -->
+<div class="tier-connector">
+  <div class="tc-line"></div>
+  <div class="tc-tip"></div>
+  <div class="tc-label">HTTPS · WSS</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  TIER 4 — BROWSER                                       -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="zone teal fade-in" style="margin-bottom:3.5rem;">
+  <div class="zone-title teal">🌐 Browser — Client UI</div>
+  <div class="grid-2 gap-sm">
+
+    <div class="node blue">
+      <span class="node-icon">📈</span>
+      <div class="node-name">AlgoForge UI</div>
+      <div class="node-sub">
+        strategy.html + login.html<br>
+        Vanilla HTML · CSS · JS (no build step)<br>
+        Dark glassmorphism theme · JetBrains Mono<br>
+        PIN auth → session cookie → dashboard<br>
+        WebSocket /ws → live P&amp;L ticker<br>
+        INR overlay via ExchangeRate API (15m cache)
+      </div>
+      <div class="node-tags">
+        <span class="ntag">:80</span>
+        <span class="ntag">strategy.html</span>
+        <span class="ntag">login.html</span>
+        <span class="ntag">WS /ws</span>
+      </div>
+    </div>
+
+    <div class="node purple">
+      <span class="node-icon">🪙</span>
+      <div class="node-name">CryptoForge UI</div>
+      <div class="node-sub">
+        strategy.html + login.html<br>
+        Vanilla HTML · CSS · JS (no build step)<br>
+        Dark glassmorphism theme · JetBrains Mono<br>
+        PIN auth → session cookie → dashboard<br>
+        WebSocket /ws → live trade stream<br>
+        CoinGecko top-25 market overview panel
+      </div>
+      <div class="node-tags">
+        <span class="ntag">:9090</span>
+        <span class="ntag">strategy.html</span>
+        <span class="ntag">login.html</span>
+        <span class="ntag">WS /ws</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="hdivider"></div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  DATA FLOWS                                             -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="flows">
+<p class="section-label" style="margin-bottom:1rem;">// critical data flows</p>
+<div class="flow-table-wrap fade-in">
+
+  <div class="flow-box">
+    <div class="flow-box-header">💸 Live Order Execution — AlgoForge</div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">1</div><div><div class="fs-lbl">Market Feed tick received</div><div class="fs-det">Dhan WebSocket → CandleAggregator → OHLCV candle close</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">2</div><div><div class="fs-lbl">Indicator engine evaluates</div><div class="fs-det">SuperTrend · EMA · RSI · CPR · VWAP run on latest candle</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">3</div><div><div class="fs-lbl">Strategy conditions checked</div><div class="fs-det">User-defined entry/exit conditions evaluated against indicator values</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">4</div><div><div class="fs-lbl">Pre-flight validation</div><div class="fs-det">Margin check · daily trade cap (MAX 1) · position limit · market hours</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">5</div><div><div class="fs-lbl">Dhan REST order placed</div><div class="fs-det">POST /orders · httpx session-pooled connection · retry up to 3×</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">6</div><div><div class="fs-lbl">Fill verified + position cross-check</div><div class="fs-det">GET /orders/{id} → poll 3× at 2s intervals · GET /positions confirm size</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-teal">7</div><div><div class="fs-lbl">WS broadcast + alert dispatched</div><div class="fs-det">P&amp;L push via /ws to all browsers · Telegram + Discord fire-and-forget</div></div></div>
+  </div>
+
+  <div class="flow-box">
+    <div class="flow-box-header">🚀 Zero-Downtime Blue-Green Deploy</div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">1</div><div><div class="fs-lbl">Push to main triggers pipeline</div><div class="fs-det">ci.yml → playwright.yml → deploy.yml (sequential, each gates next)</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">2</div><div><div class="fs-lbl">SSH into EC2, pull latest code</div><div class="fs-det">git fetch origin main · git reset --hard · pip install -q -r requirements.txt</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">3</div><div><div class="fs-lbl">Read active port, start standby</div><div class="fs-det">~/.algoforge-active-port → systemctl start algoforge@{standby-port}</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">4</div><div><div class="fs-lbl">Health-check standby (30s timeout)</div><div class="fs-det">curl /api/health every 1s · rollback if timeout: stop standby, abort deploy</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">5</div><div><div class="fs-lbl">Rewrite Nginx upstream &amp; reload</div><div class="fs-det">echo upstream → tee conf · nginx -t · nginx -s reload (graceful, 0 dropped reqs)</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">6</div><div><div class="fs-lbl">Drain old WebSocket connections</div><div class="fs-det">sleep 30s — active sessions finish naturally on old uvicorn worker</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">7</div><div><div class="fs-lbl">Stop old instance · save port state</div><div class="fs-det">systemctl stop algoforge@{old} · echo new-port > ~/.algoforge-active-port</div></div></div>
+  </div>
+
+</div>
+</div><!-- end #flows -->
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--  ERROR RECOVERY                                         -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="errors" class="fade-in">
+<div class="err-table-wrap">
+  <div class="err-table-header">🛡️ Error Recovery Matrix</div>
+  <table class="err-table">
+    <thead>
+      <tr>
+        <th>Failure</th>
+        <th>Severity</th>
+        <th>Detection</th>
+        <th>Recovery Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Deploy health check fails</td>
+        <td><span class="sev sev-c">CRITICAL</span></td>
+        <td>curl /api/health timeout 30s</td>
+        <td>Standby stopped · active port file unchanged · CI job fails · Nginx untouched</td>
+      </tr>
+      <tr>
+        <td>Dhan JWT token expired</td>
+        <td><span class="sev sev-c">CRITICAL</span></td>
+        <td>JWT decode on startup · days_left ≤ 0</td>
+        <td>TOTP auto-regeneration via pyotp · new token written to .current_token · fcntl lock prevents race</td>
+      </tr>
+      <tr>
+        <td>Process crash</td>
+        <td><span class="sev sev-c">CRITICAL</span></td>
+        <td>systemd watchdog</td>
+        <td>Restart=always · RestartSec=5 · atexit saves all engine states to runs.json before exit</td>
+      </tr>
+      <tr>
+        <td>WebSocket disconnect</td>
+        <td><span class="sev sev-h">HIGH</span></td>
+        <td>on_close callback</td>
+        <td>Auto-reconnect with exponential backoff: 1s → 2s → 4s → 8s → 16s → 32s cap</td>
+      </tr>
+      <tr>
+        <td>429 Rate Limit</td>
+        <td><span class="sev sev-h">HIGH</span></td>
+        <td>HTTP 429 status code</td>
+        <td>Read Retry-After header · fallback to 60s · exponential backoff on subsequent hits</td>
+      </tr>
+      <tr>
+        <td>API 5xx error</td>
+        <td><span class="sev sev-h">HIGH</span></td>
+        <td>HTTP 5xx status</td>
+        <td>Retry 3× with backoff · Telegram alert on exhaustion · engine pauses until next candle</td>
+      </tr>
+      <tr>
+        <td>Invalid HMAC signature (Delta)</td>
+        <td><span class="sev sev-m">MEDIUM</span></td>
+        <td>HTTP 401 response</td>
+        <td>Regenerate timestamp · retry once · log discrepancy if retry also fails</td>
+      </tr>
+      <tr>
+        <td>Historical candle data gap</td>
+        <td><span class="sev sev-m">MEDIUM</span></td>
+        <td>Gap detector in data_downloader.py</td>
+        <td>Targeted re-fetch for missing range · Binance public API fallback if Delta returns empty</td>
+      </tr>
+      <tr>
+        <td>INR rate API unreachable</td>
+        <td><span class="sev sev-m">MEDIUM</span></td>
+        <td>fetch() exception in browser JS</td>
+        <td>Fallback to hardcoded ₹84.5/USD · silent fail · retry on next 15-minute refresh cycle</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+</div>
+
+<!-- ── FOOTER ─────────────────────────────────────────────── -->
+<footer class="footer">
+  <span class="hl">AlgoForge</span> &amp; <span class="hl">CryptoForge</span>
+  &nbsp;·&nbsp; Production Infrastructure
+  &nbsp;·&nbsp; AWS EC2 · 65.1.213.207
+  &nbsp;·&nbsp; Amazon Linux
+  &nbsp;·&nbsp; Generated 2026-03-08
+</footer>
+
+</div><!-- .page -->
+
+<script>
+// ── Scroll-fade animation ─────────────────────────────────────────
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      io.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.04 });
+
+document.querySelectorAll('.fade-in').forEach(el => io.observe(el));
+
+// ── Pipeline: make horizontal on wide screens ─────────────────────
+// already CSS — just ensure pipeline items use row gap
+</script>
+</body>
+</html>
