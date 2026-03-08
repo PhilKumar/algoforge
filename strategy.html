@@ -2901,9 +2901,9 @@ function customConfirm(message, options = {}) {
     const okBtn = document.getElementById('confirm-ok-btn');
     const cancelBtn = document.getElementById('confirm-cancel-btn');
 
-    titleEl.textContent = options.title || 'Confirm';  // safe — no innerHTML
-    msgEl.textContent = message;                         // safe — strategy names can't XSS
-    iconEl.innerHTML = options.icon || ICO.warn(28);   // internal SVG generator only — ok
+    titleEl.innerHTML = options.title || 'Confirm';      // internal ICO SVG only
+    msgEl.innerHTML = message;                             // internal HTML only (no user input)
+    iconEl.innerHTML = options.icon || ICO.warn(28);     // internal SVG generator only
     okBtn.textContent = options.okText || 'Confirm';
     cancelBtn.textContent = options.cancelText || 'Cancel';
 
