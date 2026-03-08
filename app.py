@@ -3229,13 +3229,15 @@ async def _backfill_in_background():
         _backfill_state.update({"status": "error", "message": str(e)})
 
 
+# ── Prometheus instrumentation (must run before app starts) ────
+if _PROMETHEUS_ENABLED:
+    _PFI(app).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    _logger.info("[Prometheus] Metrics exposed at /metrics")
+
+
 @app.on_event("startup")
 async def _start_token_renewal():
     global _token_renewal_task
-    # ── Prometheus instrumentation ─────────────────────────────
-    if _PROMETHEUS_ENABLED:
-        _PFI(app).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-        _logger.info("[Prometheus] Metrics exposed at /metrics")
     if config.AUTO_TOKEN_ENABLED:
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
