@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 
+import httpx
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -60,6 +61,71 @@ _adapter = HTTPAdapter(
 )
 _http_session.mount("https://", _adapter)
 _http_session.mount("http://", _adapter)
+
+
+# ══════════════════════════════════════════════════════════════
+#  Async HTTP Client (httpx) — true non-blocking with warm TLS
+#  Eliminates asyncio.to_thread overhead on the order hot-path.
+# ══════════════════════════════════════════════════════════════
+_async_transport = httpx.AsyncHTTPTransport(
+    retries=0,  # we handle retries ourselves
+    http2=True,  # HTTP/2 multiplexing — one TLS conn, many streams
+    limits=httpx.Limits(
+        max_connections=20,
+        max_keepalive_connections=10,
+        keepalive_expiry=60,
+    ),
+)
+_async_client: httpx.AsyncClient | None = None
+
+
+def _get_async_client() -> httpx.AsyncClient:
+    """Lazy singleton — created on first use inside a running event loop."""
+    global _async_client
+    if _async_client is None or _async_client.is_closed:
+        _async_client = httpx.AsyncClient(
+            transport=_async_transport,
+            timeout=httpx.Timeout(10.0, connect=3.0),
+            http2=True,
+        )
+    return _async_client
+
+
+async def _async_request_with_retry(
+    method: str,
+    url: str,
+    *,
+    headers: dict,
+    json_data: dict = None,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+    base_delay: float = 0.3,
+) -> httpx.Response:
+    """
+    Async HTTP request with exponential backoff on transient failures.
+    Uses httpx.AsyncClient for true non-blocking I/O (no thread pool).
+    """
+    client = _get_async_client()
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            resp = await client.request(
+                method,
+                url,
+                headers=headers,
+                json=json_data,
+                timeout=timeout,
+            )
+            if resp.status_code not in _RETRYABLE_STATUSES:
+                return resp
+            last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → {resp.status_code} (attempt {attempt+1}/{max_retries})")
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+            last_exc = e
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} network error (attempt {attempt+1}/{max_retries}): {e}")
+        if attempt < max_retries - 1:
+            await asyncio.sleep(base_delay * (2**attempt))  # 0.3s, 0.6s, 1.2s
+    raise last_exc
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1129,25 +1195,183 @@ class DhanClient:
         return result
 
     # ──────────────────────────────────────────────────────────
-    # Async wrappers (#6) — non-blocking in FastAPI handlers
+    # True-async hot-path methods (httpx — zero thread overhead)
+    # ──────────────────────────────────────────────────────────
+    async def async_place_order(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        transaction_type: str,
+        quantity: int,
+        order_type: str = "MARKET",
+        product_type: str = "INTRADAY",
+        price: float = 0,
+        trigger_price: float = 0,
+        validity: str = "DAY",
+        tag: str = "AlgoForge",
+    ) -> dict:
+        """Place an order via httpx (true async — no thread pool)."""
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not set.")
+        payload = {
+            "dhanClientId": self.client_id,
+            "transactionType": transaction_type,
+            "exchangeSegment": exchange_segment,
+            "productType": product_type,
+            "orderType": order_type,
+            "validity": validity,
+            "securityId": security_id,
+            "quantity": quantity,
+            "price": price,
+            "triggerPrice": trigger_price,
+            "correlationId": tag,
+        }
+        if not _circuit_breaker.call_allowed():
+            raise Exception("Dhan API circuit breaker OPEN")
+        try:
+            resp = await _async_request_with_retry(
+                "POST",
+                f"{self.base_url}/v2/orders",
+                headers=self.headers,
+                json_data=payload,
+                timeout=10.0,
+            )
+        except Exception:
+            _circuit_breaker.record_failure()
+            raise
+        if resp.status_code not in (200, 201):
+            _circuit_breaker.record_failure()
+            raise Exception(f"Order placement failed {resp.status_code}: {resp.text}")
+        _circuit_breaker.record_success()
+        return resp.json()
+
+    async def async_place_option_order(
+        self,
+        underlying: str,
+        strike_price: int,
+        option_type: str,
+        expiry: str,
+        transaction_type: str,
+        quantity: int,
+        order_type: str = "MARKET",
+        product_type: str = "INTRADAY",
+        price: float = 0,
+        trigger_price: float = 0,
+        tag: str = "AlgoForge",
+    ) -> dict:
+        """Place an options order via httpx (true async)."""
+        security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
+        if not security_id:
+            raise Exception(
+                f"Cannot find security ID for {underlying} {strike_price}{option_type} " f"expiry {expiry}."
+            )
+        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        return await self.async_place_order(
+            security_id=security_id,
+            exchange_segment=exchange_seg,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            order_type=order_type,
+            product_type=product_type,
+            price=price,
+            trigger_price=trigger_price,
+            tag=tag,
+        )
+
+    async def async_place_sl_order(
+        self,
+        underlying: str,
+        strike_price: int,
+        option_type: str,
+        expiry: str,
+        transaction_type: str,
+        quantity: int,
+        trigger_price: float,
+        price: float = 0,
+        product_type: str = "INTRADAY",
+        order_type: str = "SL",
+        tag: str = "AlgoForge_SL",
+    ) -> dict:
+        """Place a stop-loss order via httpx (true async)."""
+        security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
+        if not security_id:
+            raise Exception(f"Cannot find security ID for SL: {underlying} {strike_price}{option_type}")
+        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        if order_type == "SL-M":
+            price = 0
+        return await self.async_place_order(
+            security_id=security_id,
+            exchange_segment=exchange_seg,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            order_type=order_type,
+            product_type=product_type,
+            price=price,
+            trigger_price=trigger_price,
+            tag=tag,
+        )
+
+    async def async_cancel_order(self, order_id: str) -> dict:
+        """Cancel an order via httpx (true async)."""
+        resp = await _async_request_with_retry(
+            "DELETE",
+            f"{self.base_url}/v2/orders/{order_id}",
+            headers=self.headers,
+            timeout=10.0,
+        )
+        return resp.json()
+
+    async def async_get_ltp(self, security_ids: list, exchange_segment: str = "NSE_EQ") -> dict:
+        """Get LTP via httpx (true async)."""
+        int_ids = [int(sid) for sid in security_ids]
+        payload = {
+            "NSE_EQ": int_ids if exchange_segment == "NSE_EQ" else [],
+            "NSE_FNO": int_ids if exchange_segment == "NSE_FNO" else [],
+            "BSE_FNO": int_ids if exchange_segment == "BSE_FNO" else [],
+            "IDX_I": int_ids if exchange_segment == "IDX_I" else [],
+        }
+        resp = await _async_request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/marketfeed/ltp",
+            headers=self.headers,
+            json_data=payload,
+            timeout=10.0,
+        )
+        if resp.status_code != 200:
+            raise Exception(f"LTP fetch failed: {resp.text}")
+        return resp.json().get("data", {})
+
+    async def async_get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:
+        """Get single option LTP via httpx (true async)."""
+        security_id = ScripMaster.lookup(underlying, strike, expiry, option_type)
+        if not security_id:
+            return 0.0
+        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        try:
+            data = await self.async_get_ltp([security_id], exchange_segment=exchange_seg)
+            if isinstance(data, dict):
+                seg_data = data.get(exchange_seg, {})
+                if isinstance(seg_data, dict):
+                    sid_data = seg_data.get(str(security_id), seg_data.get(int(security_id), {}))
+                    if isinstance(sid_data, dict):
+                        return float(sid_data.get("last_price", sid_data.get("ltp", 0)))
+                    elif isinstance(sid_data, (int, float)):
+                        return float(sid_data)
+            return 0.0
+        except Exception:
+            return 0.0
+
+    # ──────────────────────────────────────────────────────────
+    # Thread-offloaded async wrappers (for non-hot-path calls)
     # ──────────────────────────────────────────────────────────
     async def async_get_historical_data(self, *a, **kw) -> pd.DataFrame:
         return await asyncio.to_thread(self.get_historical_data, *a, **kw)
-
-    async def async_place_order(self, *a, **kw) -> dict:
-        return await asyncio.to_thread(self.place_order, *a, **kw)
-
-    async def async_place_option_order(self, *a, **kw) -> dict:
-        return await asyncio.to_thread(self.place_option_order, *a, **kw)
 
     async def async_get_positions(self) -> list:
         return await asyncio.to_thread(self.get_positions_cached)
 
     async def async_get_funds(self) -> dict:
         return await asyncio.to_thread(self.get_funds_cached)
-
-    async def async_get_ltp(self, security_ids: list, exchange_segment: str = "NSE_EQ") -> dict:
-        return await asyncio.to_thread(self.get_ltp_cached, security_ids, exchange_segment)
 
     async def async_get_order_book(self) -> list:
         return await asyncio.to_thread(self.get_order_book)

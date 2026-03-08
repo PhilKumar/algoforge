@@ -3297,8 +3297,25 @@ async def feed_status():
 if __name__ == "__main__":
     import uvicorn
 
+    # Phase 2: Install uvloop for C-level event-loop speed (~2-4x faster I/O scheduling)
+    try:
+        import uvloop
+
+        uvloop.install()
+        _loop_name = "uvloop"
+    except ImportError:
+        _loop_name = "asyncio (install uvloop for +30% speed)"
+
     print("=" * 60)
     print("  AlgoForge — Starting Backend")
+    print(f"  Event loop : {_loop_name}")
     print(f"  Open: http://{config.APP_HOST}:{config.APP_PORT}")
     print("=" * 60)
-    uvicorn.run("app:app", host=config.APP_HOST, port=config.APP_PORT, reload=False, log_level="info")
+    uvicorn.run(
+        "app:app",
+        host=config.APP_HOST,
+        port=config.APP_PORT,
+        reload=False,
+        log_level="info",
+        loop="uvloop" if _loop_name == "uvloop" else "auto",
+    )

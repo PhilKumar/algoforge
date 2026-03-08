@@ -3,10 +3,12 @@
 #  Load credentials from .env file (NEVER hardcode them!)
 # ============================================================
 
+import base64
+import json
 import os
-from dotenv import load_dotenv
 from datetime import datetime, timezone
-import base64, json
+
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,14 +16,15 @@ load_dotenv()
 # ── Dhan API Credentials ────────────────────────────────────
 # Get these from: https://dhanhq.co → API → Generate Token
 # ⚠ WARNING: Credentials are loaded from .env (not from source code)
-DHAN_CLIENT_ID    = os.getenv('DHAN_CLIENT_ID', 'YOUR_CLIENT_ID_HERE')
-DHAN_ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN', 'YOUR_ACCESS_TOKEN_HERE')
+DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "YOUR_CLIENT_ID_HERE")
+DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN_HERE")
 
 # ── TOTP Auto-Token Settings ────────────────────────────────
 # Enable TOTP on Dhan Web, save the secret here for auto-generation
-DHAN_PIN          = os.getenv('DHAN_PIN', '')
-DHAN_TOTP_SECRET  = os.getenv('DHAN_TOTP_SECRET', '')
+DHAN_PIN = os.getenv("DHAN_PIN", "")
+DHAN_TOTP_SECRET = os.getenv("DHAN_TOTP_SECRET", "")
 AUTO_TOKEN_ENABLED = bool(DHAN_PIN and DHAN_TOTP_SECRET)
+
 
 def get_token_expiry() -> dict:
     """Decode JWT token and return expiry info without external libs"""
@@ -46,37 +49,38 @@ def get_token_expiry() -> dict:
             "expiry_date": exp_dt.strftime("%Y-%m-%d %H:%M UTC"),
             "days_left": days_left,
             "expired": days_left < 0,
-            "warning": days_left <= 7
+            "warning": days_left <= 7,
         }
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
+
 # ── Dhan API Base URLs ──────────────────────────────────────
-DHAN_BASE_URL    = "https://api.dhan.co"
-DHAN_DATA_URL    = "https://api.dhan.co/v2"
+DHAN_BASE_URL = "https://api.dhan.co"
+DHAN_DATA_URL = "https://api.dhan.co/v2"
 
 # ── App Settings ────────────────────────────────────────────
-APP_HOST         = os.getenv('APP_HOST', '127.0.0.1')
-APP_PORT         = int(os.getenv('APP_PORT', '8000'))
-DEBUG            = os.getenv('DEBUG', 'false').lower() == 'true'
+APP_HOST = os.getenv("APP_HOST", "127.0.0.1")
+APP_PORT = int(os.getenv("APP_PORT", "8000"))
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ── Backtest Defaults ───────────────────────────────────────
-DEFAULT_SYMBOL   = "NIFTY"
-DEFAULT_FROM     = "2024-01-01"
-DEFAULT_TO       = "2026-02-26"
-DEFAULT_CAPITAL  = 500000   # ₹5,00,000
+DEFAULT_SYMBOL = "NIFTY"
+DEFAULT_FROM = "2024-01-01"
+DEFAULT_TO = "2026-02-26"
+DEFAULT_CAPITAL = 500000  # ₹5,00,000
 
 # ── Live Engine Settings ────────────────────────────────────
-POLL_INTERVAL_SEC  = 60     # check conditions every 60 seconds
+POLL_INTERVAL_SEC = 10  # REST fallback poll interval (seconds)
 MAX_TRADES_PER_DAY = 1
-MARKET_OPEN        = "09:15"
-MARKET_CLOSE       = "15:25"
+MARKET_OPEN = "09:15"
+MARKET_CLOSE = "15:25"
 
 # ── Indicator Defaults (match your strategy) ───────────────
-SUPERTREND_PERIOD     = 10
+SUPERTREND_PERIOD = 10
 SUPERTREND_MULTIPLIER = 2.7
-EMA_PERIOD            = 17
-RSI_PERIOD            = 14
-CPR_NARROW_RANGE      = 0.2
-CPR_MODERATE_RANGE    = 0.5
-CPR_WIDE_RANGE        = 0.5
+EMA_PERIOD = 17
+RSI_PERIOD = 14
+CPR_NARROW_RANGE = 0.2
+CPR_MODERATE_RANGE = 0.5
+CPR_WIDE_RANGE = 0.5

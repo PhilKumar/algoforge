@@ -14,21 +14,32 @@ Architecture:
 Does NOT affect backtesting at all — this is a pure live-data module.
 """
 
-import asyncio
-import math
-import struct
 import threading
-import time
-from collections import defaultdict
-from datetime import datetime, timedelta, time as dt_time, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Tuple
+
+# Phase 4: Fast JSON deserialization for WebSocket tick payloads
+try:
+    import orjson as _json_mod
+
+    _json_loads = orjson.loads  # ~5-10x faster than stdlib json.loads
+    _json_dumps = orjson.dumps
+    _FAST_JSON = True
+except ImportError:
+    import json as _json_mod
+
+    _json_loads = _json_mod.loads
+    _json_dumps = _json_mod.dumps
+    _FAST_JSON = False
 
 # IST timezone (UTC+5:30) — Dhan operates on Indian market time
 IST = timezone(timedelta(hours=5, minutes=30))
 
+
 def _now_ist() -> datetime:
     """Return current time in IST (naive, for slot/log use)."""
     return datetime.now(IST).replace(tzinfo=None)
+
 
 import pandas as pd
 
@@ -51,6 +62,7 @@ except ImportError:
 # ════════════════════════════════════════════════════════════════
 #  Candle Aggregator — aggregates ticks into OHLCV candles
 # ════════════════════════════════════════════════════════════════
+
 
 class CandleAggregator:
     """
@@ -122,7 +134,7 @@ class CandleAggregator:
 
         # Trim to max
         if len(self.candles) > self.max_candles:
-            self.candles = self.candles[-self.max_candles:]
+            self.candles = self.candles[-self.max_candles :]
 
         # Fire all callbacks
         if self.on_candle_close:
@@ -158,8 +170,10 @@ class CandleAggregator:
 #  DhanContext wrapper — dhanhq MarketFeed needs a context object
 # ════════════════════════════════════════════════════════════════
 
+
 class _DhanContext:
     """Minimal context object that dhanhq.MarketFeed expects."""
+
     def __init__(self, client_id: str, access_token: str):
         self._cid = client_id
         self._token = access_token
@@ -174,6 +188,7 @@ class _DhanContext:
 # ════════════════════════════════════════════════════════════════
 #  LiveMarketFeed — manages WebSocket connection + subscriptions
 # ════════════════════════════════════════════════════════════════
+
 
 class LiveMarketFeed:
     """
@@ -198,11 +213,11 @@ class LiveMarketFeed:
 
     # Map instrument_id → (dhan_security_id, exchange_segment_code)
     INDEX_MAP = {
-        "26000": ("13",   0),    # NIFTY 50 on IDX
-        "26009": ("25",   0),    # BANK NIFTY on IDX
-        "26017": ("27",   0),    # FIN NIFTY on IDX
-        "26037": ("442",  0),    # MIDCAP NIFTY on IDX
-        "1":     ("1",    4),    # SENSEX on BSE
+        "26000": ("13", 0),  # NIFTY 50 on IDX
+        "26009": ("25", 0),  # BANK NIFTY on IDX
+        "26017": ("27", 0),  # FIN NIFTY on IDX
+        "26037": ("442", 0),  # MIDCAP NIFTY on IDX
+        "1": ("1", 4),  # SENSEX on BSE
     }
 
     def __init__(self, dhan: DhanClient = None):
@@ -252,8 +267,9 @@ class LiveMarketFeed:
         self._subscriptions.append((exchange, sec_id_int, MarketFeed.Ticker if HAS_DHAN_FEED else 15))
         print(f"[FEED] Subscribed index: {label} (sec_id={sec_id}, exchange={exchange})")
 
-    def subscribe_option(self, underlying: str, strike: int, expiry: str,
-                         option_type: str, label: str = None) -> Optional[int]:
+    def subscribe_option(
+        self, underlying: str, strike: int, expiry: str, option_type: str, label: str = None
+    ) -> Optional[int]:
         """Subscribe to an option contract's LTP. Returns security_id or None."""
         sec_id_str = ScripMaster.lookup(underlying, strike, expiry, option_type)
         if not sec_id_str:
@@ -289,8 +305,9 @@ class LiveMarketFeed:
 
     # ── Candle Aggregation ────────────────────────────────────
 
-    def set_candle_config(self, instrument_id: str, timeframe: int,
-                          callback: Callable, history_df: pd.DataFrame = None):
+    def set_candle_config(
+        self, instrument_id: str, timeframe: int, callback: Callable, history_df: pd.DataFrame = None
+    ):
         """
         Set up candle aggregation for an index instrument.
 
@@ -323,16 +340,18 @@ class LiveMarketFeed:
         # Pre-seed with historical candles if provided
         if history_df is not None and not history_df.empty:
             for ts, row in history_df.iterrows():
-                agg.candles.append({
-                    "timestamp": ts,
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": int(row.get("volume", 0)),
-                })
+                agg.candles.append(
+                    {
+                        "timestamp": ts,
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": int(row.get("volume", 0)),
+                    }
+                )
             if agg.candles:
-                agg.candles = agg.candles[-agg.max_candles:]
+                agg.candles = agg.candles[-agg.max_candles :]
 
         self._aggregators[agg_key] = agg
         print(f"[FEED] Candle aggregator set: {agg_key}")
@@ -398,7 +417,7 @@ class LiveMarketFeed:
         self._feed = MarketFeed(
             dhan_context=ctx,
             instruments=instruments,
-            version='v2',
+            version="v2",
             on_connect=self._on_connect,
             on_message=self._on_message,
             on_close=self._on_close,
@@ -498,13 +517,13 @@ class LiveMarketFeed:
         For non-standard timeframes (3m, 7m etc.), fetches 1m candles
         and resamples to the target timeframe.
         """
-        from engine.indicators import compute_dynamic_indicators  # lazy to avoid circular
 
         try:
             # Lazy import
             inst_map_fn = None
             try:
                 from app import INSTRUMENT_MAP
+
                 inst_map_fn = INSTRUMENT_MAP
             except ImportError:
                 pass
@@ -537,7 +556,7 @@ class LiveMarketFeed:
                 instrument_type=dhan_type,
                 from_date=from_date,
                 to_date=to_date,
-                candle_type=fetch_tf
+                candle_type=fetch_tf,
             )
 
             if df_raw.empty:
@@ -560,13 +579,19 @@ class LiveMarketFeed:
     def _resample(df: pd.DataFrame, tf_minutes: int) -> pd.DataFrame:
         """Resample a 1m DataFrame to a custom timeframe."""
         rule = f"{tf_minutes}min"
-        resampled = df.resample(rule, label='left', closed='left').agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        }).dropna(subset=["open"])
+        resampled = (
+            df.resample(rule, label="left", closed="left")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna(subset=["open"])
+        )
         return resampled
 
 

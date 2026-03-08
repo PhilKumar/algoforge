@@ -10,4 +10,6 @@ dhanhq
 python-dotenv==1.0.0
 yfinance==0.2.36
 pyotp==2.9.0
-httpx>=0.27
+httpx[http2]>=0.27
+uvloop>=0.19; sys_platform != 'win32'
+orjson>=3.10

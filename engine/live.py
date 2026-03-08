@@ -121,6 +121,12 @@ class LiveEngine:
         self._tp_pct = float(strategy.get("target_profit_pct", 0) or 0)
         self._tp_rupees = float(strategy.get("target_profit_rupees", 0) or 0)
 
+        # Pre-parse market hours once (avoid per-tick string parsing)
+        mo = strategy.get("market_open", "09:15")
+        mc = strategy.get("market_close", "15:25")
+        self._market_open = time(*map(int, mo.split(":"))) if isinstance(mo, str) else mo
+        self._market_close = time(*map(int, mc.split(":"))) if isinstance(mc, str) else mc
+
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         self.log_event(
             "info",
@@ -285,21 +291,8 @@ class LiveEngine:
                     self.session_date = now.date()
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
 
-                # Market hours check
-                market_open_str = self.strategy.get("market_open", "09:15")
-                market_close_str = self.strategy.get("market_close", "15:25")
-                if isinstance(market_open_str, str):
-                    h, m = map(int, market_open_str.split(":"))
-                    market_open = time(h, m)
-                else:
-                    market_open = market_open_str
-                if isinstance(market_close_str, str):
-                    h, m = map(int, market_close_str.split(":"))
-                    market_close = time(h, m)
-                else:
-                    market_close = market_close_str
-
-                if not (market_open <= now.time() <= market_close):
+                # Market hours check (pre-parsed in configure())
+                if not (self._market_open <= now.time() <= self._market_close):
                     await asyncio.sleep(5)
                     if callback:
                         await self._emit(callback, {"type": "status", "message": "Outside market hours"})
@@ -511,21 +504,8 @@ class LiveEngine:
             self.session_date = now.date()
             self.log_event("info", f"📅 New trading day: {self.session_date}")
 
-        # Market hours check
-        market_open_str = self.strategy.get("market_open", "09:15")
-        market_close_str = self.strategy.get("market_close", "15:25")
-        if isinstance(market_open_str, str):
-            h, m = map(int, market_open_str.split(":"))
-            market_open = time(h, m)
-        else:
-            market_open = market_open_str
-        if isinstance(market_close_str, str):
-            h, m = map(int, market_close_str.split(":"))
-            market_close = time(h, m)
-        else:
-            market_close = market_close_str
-
-        if not (market_open <= cur_time <= market_close):
+        # Market hours check (pre-parsed in configure())
+        if not (self._market_open <= cur_time <= self._market_close):
             if callback:
                 await self._emit(callback, {"type": "status", "message": "Outside market hours"})
             return
@@ -690,7 +670,7 @@ class LiveEngine:
                 return ws_ltp
 
         try:
-            ltp = self.dhan.get_option_ltp(
+            ltp = await self.dhan.async_get_option_ltp(
                 underlying=pos["underlying"],
                 strike=pos["strike"],
                 expiry=pos["expiry"],
@@ -700,7 +680,7 @@ class LiveEngine:
                 return ltp
         except Exception as e:
             self.log_event(
-                "error", f"LTP fetch failed for {pos['underlying']} " f"{pos['strike']}{pos['option_type']}: {e}"
+                "error", f"LTP fetch failed for {pos['underlying']} {pos['strike']}{pos['option_type']}: {e}"
             )
 
         # Fallback: estimate based on spot movement
@@ -711,14 +691,13 @@ class LiveEngine:
 
     # ── Entry ─────────────────────────────────────────────────
     async def _enter_trade(self, row: pd.Series, callback=None):
-        """Enter trade: place real orders for each leg."""
+        """Enter trade: place real orders for each leg.
+        Uses true-async httpx calls + parallel leg placement for minimum latency.
+        """
         self.log_event(
             "signal",
             "✅ ENTRY CONDITIONS MET",
-            {
-                "spot": self.current_spot,
-                "time": str(self.current_time),
-            },
+            {"spot": self.current_spot, "time": str(self.current_time)},
         )
 
         legs = self.strategy.get("legs", [])
@@ -738,17 +717,15 @@ class LiveEngine:
         if lot_size == 0:
             lot_size = get_lot_size(instrument, self.session_date)
 
-        # Deploy config for execution
         product_type = self.deploy_config.get("product_type", "MIS")
         if product_type == "NRML":
-            product_type = "MARGIN"  # Dhan uses MARGIN for NRML
+            product_type = "MARGIN"
         entry_order_type = self.deploy_config.get("entry_order", "MARKET")
         place_leg_sl = self.deploy_config.get("place_leg_sl", "no") == "yes"
         sqoff_on_fail = self.deploy_config.get("sqoff_on_fail", "no") == "yes"
 
-        entered_positions = []
-        any_failed = False
-
+        # ── Phase 1: Resolve all strikes (may need premium scan) ──
+        leg_plans = []  # (leg_idx, leg, strike, scanned_premium, quantity, opt_type, txn_type)
         for i, leg in enumerate(legs):
             strike_type = leg.get("strike_type", "atm")
             strike_value = leg.get("strike_value", 0)
@@ -757,14 +734,13 @@ class LiveEngine:
             lots = leg.get("lots", 1)
             quantity = lots * lot_size
 
-            # For premium-based strike types, scan real LTP to find correct strike
             scanned_premium = 0.0
             if (
                 strike_type in ("premium_near", "premium_above", "premium_below")
                 and expiry
                 and float(strike_value or 0) > 0
             ):
-                mode = strike_type.split("_")[1]  # "near", "above", "below"
+                mode = strike_type.split("_")[1]
                 strike, scanned_premium = await self._find_premium_strike(
                     underlying, expiry, opt_type, float(strike_value), self.current_spot, strike_step, mode=mode
                 )
@@ -772,16 +748,22 @@ class LiveEngine:
             else:
                 strike = self._calculate_strike(leg, self.current_spot, strike_step)
 
-            # Trading symbol for display
+            # Early WebSocket subscription BEFORE order (so LTP arrives faster)
+            ws_sec_id = None
+            if self._ws_mode and self._feed:
+                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
+
+            leg_plans.append((i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id))
+
+        # ── Phase 2: Fire all leg orders in parallel (asyncio.gather) ──
+        async def _place_one_leg(plan):
+            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id = plan
             trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
-
             self.log_event(
-                "entry", f"🦿 Leg {i+1}: {txn_type} {lots}x {strike}{opt_type} " f"({entry_order_type}, {product_type})"
+                "entry", f"🦿 Leg {i+1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
             )
-
-            # Place the entry order
             try:
-                result = self.dhan.place_option_order(
+                result = await self.dhan.async_place_option_order(
                     underlying=underlying,
                     strike_price=strike,
                     option_type=opt_type,
@@ -793,26 +775,72 @@ class LiveEngine:
                     tag=f"AF_E{i+1}_{opt_type}_{strike}",
                 )
                 order_id = result.get("orderId", "")
-                self.log_event("order", f"✅ Order placed: {txn_type} {trading_symbol} | " f"OrderID: {order_id}")
+                self.log_event("order", f"✅ Order placed: {txn_type} {trading_symbol} | OrderID: {order_id}")
+                return (
+                    True,
+                    i,
+                    leg,
+                    strike,
+                    scanned_premium,
+                    quantity,
+                    opt_type,
+                    txn_type,
+                    lots,
+                    ws_sec_id,
+                    order_id,
+                    trading_symbol,
+                )
             except Exception as e:
                 self.log_event("error", f"❌ Order FAILED for Leg {i+1}: {e}")
+                return (
+                    False,
+                    i,
+                    leg,
+                    strike,
+                    scanned_premium,
+                    quantity,
+                    opt_type,
+                    txn_type,
+                    lots,
+                    ws_sec_id,
+                    None,
+                    trading_symbol,
+                )
+
+        results = await asyncio.gather(*[_place_one_leg(p) for p in leg_plans])
+
+        # ── Phase 3: Build positions from results ──
+        entered_positions = []
+        any_failed = False
+        for res in results:
+            (
+                ok,
+                i,
+                leg,
+                strike,
+                scanned_premium,
+                quantity,
+                opt_type,
+                txn_type,
+                lots,
+                ws_sec_id,
+                order_id,
+                trading_symbol,
+            ) = res
+            if not ok:
                 any_failed = True
-                if sqoff_on_fail and entered_positions:
-                    self.log_event("warning", "Square-off triggered due to failed entry")
-                    for pos in entered_positions:
-                        await self._exit_position(pos, "ENTRY_FAIL_SQOFF", pos["entry_premium"], callback)
-                    return
                 continue
 
-            # Get fill price — reuse scanned LTP if available, else fresh fetch
-            entry_premium = (
-                scanned_premium
-                if scanned_premium > 0
-                else (
-                    self.dhan.get_option_ltp(underlying, strike, expiry, opt_type)
-                    or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
-                )
-            )
+            # Get fill price — reuse scanned LTP, else async fetch, else estimate
+            if scanned_premium > 0:
+                entry_premium = scanned_premium
+            else:
+                try:
+                    entry_premium = await self.dhan.async_get_option_ltp(
+                        underlying, strike, expiry, opt_type
+                    ) or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+                except Exception:
+                    entry_premium = self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
 
             position = {
                 "id": len(self.positions) + len(self.closed_trades) + 1,
@@ -844,27 +872,36 @@ class LiveEngine:
                 "sl_order_id": None,
                 "exit_order_id": None,
                 "trading_symbol": trading_symbol,
-                "symbol": trading_symbol,  # For UI display
+                "symbol": trading_symbol,
                 "status": "open",
-                "ws_sec_id": None,  # Will be set if WebSocket mode
-                "_exit_attempts": 0,  # tracks consecutive failed exit order attempts
+                "ws_sec_id": ws_sec_id,
+                "_exit_attempts": 0,
             }
 
-            # Subscribe option to WebSocket feed for instant LTP tracking
-            if self._ws_mode and self._feed:
-                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
-                if ws_sec_id:
-                    position["ws_sec_id"] = ws_sec_id
-                    self._option_sec_id = ws_sec_id
-                    self.log_event("info", f"⚡ Option subscribed to WebSocket: sec_id={ws_sec_id}")
-
-            # Place SL order to broker if configured
-            if place_leg_sl and leg.get("sl_pct", 0) > 0:
-                await self._place_sl_order(position)
+            if ws_sec_id:
+                self._option_sec_id = ws_sec_id
+                self.log_event("info", f"⚡ Option subscribed to WebSocket: sec_id={ws_sec_id}")
 
             async with self._trades_lock:
                 self.positions.append(position)
             entered_positions.append(position)
+
+        # ── Phase 4: Fire SL orders in background (don't block entry) ──
+        if place_leg_sl and entered_positions:
+
+            async def _bg_sl():
+                for pos in entered_positions:
+                    if pos.get("sl_pct", 0) > 0:
+                        await self._place_sl_order(pos)
+
+            asyncio.create_task(_bg_sl())
+
+        # Handle sqoff_on_fail
+        if any_failed and sqoff_on_fail and entered_positions:
+            self.log_event("warning", "Square-off triggered due to failed entry")
+            for pos in entered_positions:
+                await self._exit_position(pos, "ENTRY_FAIL_SQOFF", pos["entry_premium"], callback)
+            return
 
         if entered_positions:
             self.in_trade = True
@@ -901,20 +938,18 @@ class LiveEngine:
 
     # ── SL Order Placement ────────────────────────────────────
     async def _place_sl_order(self, pos: dict):
-        """Place a stop-loss order at the broker for a position."""
+        """Place a stop-loss order at the broker for a position (async)."""
         sl_pct = pos.get("sl_pct", 0)
         if sl_pct <= 0:
             return
 
         opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
 
-        # Calculate SL trigger price
         if pos["transaction_type"] == "BUY":
             trigger = round(pos["entry_premium"] * (1 - sl_pct / 100), 2)
         else:
             trigger = round(pos["entry_premium"] * (1 + sl_pct / 100), 2)
 
-        # SL-Limit price difference from deploy config
         sl_limit_diff = float(self.deploy_config.get("sl_limit_diff_pct", 1) or 1)
         if pos["transaction_type"] == "BUY":
             limit_price = round(trigger * (1 - sl_limit_diff / 100), 2)
@@ -926,7 +961,7 @@ class LiveEngine:
             product_type = "MARGIN"
 
         try:
-            result = self.dhan.place_sl_order(
+            result = await self.dhan.async_place_sl_order(
                 underlying=pos["underlying"],
                 strike_price=pos["strike"],
                 option_type=pos["option_type"],
@@ -951,7 +986,7 @@ class LiveEngine:
 
     # ── Exit ──────────────────────────────────────────────────
     async def _exit_position(self, pos: dict, reason: str, exit_premium: float, callback=None):
-        """Exit a position: place exit order and cancel SL order."""
+        """Exit a position: cancel SL + place exit order (async, non-blocking)."""
         opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
 
         exit_order_type = self.deploy_config.get("exit_order", "MARKET")
@@ -959,17 +994,17 @@ class LiveEngine:
         if product_type == "NRML":
             product_type = "MARGIN"
 
-        # Cancel existing SL order first
-        if pos.get("sl_order_id"):
-            try:
-                self.dhan.cancel_order(pos["sl_order_id"])
-                self.log_event("order", f"🚫 SL order cancelled: {pos['sl_order_id']}")
-            except Exception as e:
-                self.log_event("warning", f"SL cancel failed (may already be triggered): {e}")
+        # Cancel SL and place exit order concurrently
+        async def _cancel_sl():
+            if pos.get("sl_order_id"):
+                try:
+                    await self.dhan.async_cancel_order(pos["sl_order_id"])
+                    self.log_event("order", f"🚫 SL order cancelled: {pos['sl_order_id']}")
+                except Exception as e:
+                    self.log_event("warning", f"SL cancel failed (may already be triggered): {e}")
 
-        # Place exit order
-        try:
-            result = self.dhan.place_option_order(
+        async def _place_exit():
+            return await self.dhan.async_place_option_order(
                 underlying=pos["underlying"],
                 strike_price=pos["strike"],
                 option_type=pos["option_type"],
@@ -980,16 +1015,20 @@ class LiveEngine:
                 product_type=product_type,
                 tag=f"AF_X_{pos['option_type']}_{pos['strike']}",
             )
+
+        try:
+            # Fire SL cancel + exit order in parallel
+            _, result = await asyncio.gather(_cancel_sl(), _place_exit())
             pos["exit_order_id"] = result.get("orderId", "")
-            pos["_exit_attempts"] = 0  # reset on success
+            pos["_exit_attempts"] = 0
             self.log_event(
                 "order",
-                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} " f"| OrderID: {pos['exit_order_id']}",
+                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} | OrderID: {pos['exit_order_id']}",
             )
         except Exception as e:
             pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
             attempt = pos["_exit_attempts"]
-            self.log_event("error", f"❌ Exit order FAILED for Leg {pos['leg_num']} " f"(attempt {attempt}/3): {e}")
+            self.log_event("error", f"❌ Exit order FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {e}")
             if attempt >= 3:
                 self.log_event(
                     "error",
@@ -1200,7 +1239,7 @@ class LiveEngine:
         live_ltps = {}  # strike -> ltp
         if sec_id_map:
             try:
-                resp_data = self.dhan.get_ltp(list(sec_id_map.values()), exchange_segment=exchange_seg)
+                resp_data = await self.dhan.async_get_ltp(list(sec_id_map.values()), exchange_segment=exchange_seg)
                 seg_data = resp_data.get(exchange_seg, {})
                 id_to_price = {}
                 for k, v in seg_data.items():
