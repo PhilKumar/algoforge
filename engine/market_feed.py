@@ -22,8 +22,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 try:
     import orjson as _json_mod
 
-    _json_loads = orjson.loads  # ~5-10x faster than stdlib json.loads
-    _json_dumps = orjson.dumps
+    _json_loads = _json_mod.loads  # ~5-10x faster than stdlib json.loads
+    _json_dumps = _json_mod.dumps
     _FAST_JSON = True
 except ImportError:
     import json as _json_mod
