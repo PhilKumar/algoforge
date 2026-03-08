@@ -47,9 +47,12 @@ import config
 from broker.dhan import DhanClient, ScripMaster
 
 # Try importing dhanhq MarketFeed, fall back gracefully
+_DHAN_FEED_V2 = False  # True = v2.2.0+ MarketFeed (dhan_context), False = v2.0.x DhanFeed (client_id, access_token)
 try:
     try:
         from dhanhq.marketfeed import MarketFeed  # v2.2.0+
+
+        _DHAN_FEED_V2 = True
     except ImportError:
         from dhanhq.marketfeed import DhanFeed as MarketFeed  # v2.0.x
     HAS_DHAN_FEED = True
@@ -420,18 +423,35 @@ class LiveMarketFeed:
         token = self.dhan.access_token
         client_id = config.DHAN_CLIENT_ID
 
-        ctx = _DhanContext(client_id, token)
-        self._feed = MarketFeed(
-            dhan_context=ctx,
-            instruments=instruments,
-            version="v2",
-            on_connect=self._on_connect,
-            on_message=self._on_message,
-            on_close=self._on_close,
-            on_error=self._on_error,
-        )
+        if _DHAN_FEED_V2:
+            # v2.2.0+ MarketFeed — uses dhan_context object + callbacks
+            ctx = _DhanContext(client_id, token)
+            self._feed = MarketFeed(
+                dhan_context=ctx,
+                instruments=instruments,
+                version="v2",
+                on_connect=self._on_connect,
+                on_message=self._on_message,
+                on_close=self._on_close,
+                on_error=self._on_error,
+            )
+        else:
+            # v2.0.x DhanFeed — positional args, no callbacks in constructor
+            self._feed = MarketFeed(
+                client_id,
+                token,
+                instruments,
+                version="v2",
+            )
+            self._feed.on_ticks = self._on_message_v1
 
-        self._ws_thread = self._feed.start()  # starts in daemon thread
+        self._ws_thread = self._feed.start() if _DHAN_FEED_V2 else None
+        if not _DHAN_FEED_V2:
+            # v2.0.x run_forever blocks — run in a daemon thread
+            import threading
+
+            self._ws_thread = threading.Thread(target=self._feed.run_forever, daemon=True)
+            self._ws_thread.start()
         print(f"[FEED] ✅ WebSocket started — {len(instruments)} instruments subscribed")
         return True
 
@@ -467,6 +487,10 @@ class LiveMarketFeed:
 
     def _on_error(self, ws, error):
         print(f"[FEED] ❌ WebSocket error: {error}")
+
+    def _on_message_v1(self, data):
+        """Adapter for v2.0.x DhanFeed on_ticks callback (no ws arg)."""
+        self._on_message(None, data)
 
     def _on_message(self, ws, data):
         """Process incoming tick data from Dhan WebSocket."""
