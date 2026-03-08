@@ -339,6 +339,13 @@
     color: var(--accent); font-weight: 600; font-size: 11px; text-align: center;
     padding: 3px 16px; border-radius: 10px; letter-spacing: 1px;
   }
+  /* Current Candle optgroup highlight */
+  .condition-row select optgroup[label*="Current Candle"] {
+    color: #38bdf8; font-weight: 700; font-style: normal;
+  }
+  .condition-row select optgroup[label*="Current Candle"] option {
+    color: #38bdf8; font-weight: 600;
+  }
 
   /* ── MODAL ── */
   .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 2000; display: none; align-items: center; justify-content: center; }
@@ -4601,10 +4608,11 @@ const CPR_CONDITION_COLUMNS = [
   { value: "CPR_is_wide",     label: "CPR — Is Wide (true/false)" },
 ];
 const CANDLE_COLUMNS = [
-  { value: "current_open",  label: "Current Candle — Open" },
-  { value: "current_high",  label: "Current Candle — High" },
-  { value: "current_low",   label: "Current Candle — Low" },
-  { value: "current_close", label: "Current Candle — Close" },
+  { value: "current_open",   label: "Current Candle — Open" },
+  { value: "current_high",   label: "Current Candle — High" },
+  { value: "current_low",    label: "Current Candle — Low" },
+  { value: "current_close",  label: "Current Candle — Close" },
+  { value: "current_volume", label: "Current Candle — Volume" },
 ];
 const PREV_DAY_COLUMNS = [
   { value: "Yesterday_Open",  label: "Prev Day — Open" },
@@ -4691,7 +4699,7 @@ function buildLHSOptions() {
   const hasCPR = myIndicators.some(i => i.startsWith('CPR'));
   const hasPrevDay = myIndicators.includes('Previous_Day');
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
-  let html = `<optgroup label="\u2500\u2500 Current Candle \u2500\u2500">`;
+  let html = `<optgroup label="\ud83d\udd6f\ufe0f Current Candle">`;
   CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += `</optgroup>`;
   if (hasPrevDay) { html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`; PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
@@ -4715,7 +4723,7 @@ function buildRHSOptions(lhsValue) {
   }
 
   // Add Current Candle columns FIRST (default selection)
-  html += `<optgroup label="\u2500\u2500 Current Candle \u2500\u2500">`;
+  html += `<optgroup label="\ud83d\udd6f\ufe0f Current Candle">`;
   CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += '</optgroup>';
 

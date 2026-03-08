@@ -363,11 +363,12 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
     df = yesterday_candle(df)
     df["time_of_day"] = df.index.time
 
-    # Always expose current candle OHLC columns
+    # Always expose current candle OHLC + Volume columns
     df["current_open"] = df["open"]
     df["current_high"] = df["high"]
     df["current_low"] = df["low"]
     df["current_close"] = df["close"]
+    df["current_volume"] = df["volume"]
 
     # Always expose Previous Day columns (from yesterday_candle)
     df["Yesterday_Open"] = df["yesterday_open"]
