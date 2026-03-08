@@ -2012,6 +2012,57 @@ def _save_paper_run_to_history(status: dict):
         print(f"[PAPER] Failed to save run to history: {e}")
 
 
+def _save_scalp_run_to_history(eng) -> None:
+    """Persist a completed scalp session to runs.json so it appears on the Results page."""
+    try:
+        status = eng.get_status()
+        closed = status.get("closed_trades", [])
+        if not closed:
+            print("[SCALP] No closed trades — skipping runs.json")
+            return
+
+        runs = _load_runs()
+        max_id = max((r.get("id", 0) for r in runs), default=0)
+
+        total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
+        winners = [t for t in closed if t.get("pnl", 0) > 0]
+        losers = [t for t in closed if t.get("pnl", 0) <= 0]
+        win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
+
+        # Derive a human-readable name from the underlyings traded
+        underlyings = list(dict.fromkeys(t.get("underlying", "") for t in closed if t.get("underlying")))
+        run_name = "Scalp — " + ", ".join(underlyings) if underlyings else "Scalp Session"
+
+        scalp_run = {
+            "id": max_id + 1,
+            "mode": "scalp",
+            "run_name": run_name,
+            "instrument": underlyings[0] if underlyings else "",
+            "status": "completed",
+            "started_at": closed[-1].get("entry_time", str(datetime.now())),
+            "stopped_at": str(datetime.now()),
+            "trade_count": len(closed),
+            "total_pnl": total_pnl,
+            "stats": {
+                "total_trades": len(closed),
+                "winning_trades": len(winners),
+                "losing_trades": len(losers),
+                "win_rate": win_rate,
+                "total_pnl": total_pnl,
+                "avg_profit": round(sum(t["pnl"] for t in winners) / len(winners), 2) if winners else 0,
+                "avg_loss": round(sum(t["pnl"] for t in losers) / len(losers), 2) if losers else 0,
+            },
+            "trades": closed,
+            "created_at": str(datetime.now()),
+        }
+
+        runs.append(scalp_run)
+        _save_runs(runs)
+        print(f"[SCALP] Saved run #{scalp_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+    except Exception as e:
+        print(f"[SCALP] Failed to save run to history: {e}")
+
+
 def _save_live_run_to_history(status: dict):
     """Save a completed live (auto) trading run to runs.json for history."""
     try:
@@ -2630,6 +2681,7 @@ async def start_scalp_engine():
 @app.post("/api/scalp/stop")
 async def stop_scalp_engine():
     eng = _get_scalp_engine()
+    _save_scalp_run_to_history(eng)
     eng.stop()
     return {"status": "stopped"}
 
