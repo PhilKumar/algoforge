@@ -137,6 +137,16 @@ def _build_response(
 
 async def _http_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Catches all FastAPI / Starlette HTTPException raises."""
+    if exc.status_code >= 500:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        msg = f"[HTTP-{exc.status_code}] {request.method} {request.url.path}: {exc.detail}\n{tb}"
+        print(msg, flush=True)
+        try:
+            _crash_log = os.path.join(os.path.dirname(__file__), "crash.log")
+            with open(_crash_log, "a") as _f:
+                _f.write(f"\n{'='*60}\n{msg}\n")
+        except Exception:
+            pass
     _log.warning(
         "[%s] HTTP %d on %s %s — %s",
         getattr(request.state, "request_id", "-"),

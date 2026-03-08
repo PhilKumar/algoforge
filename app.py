@@ -1822,14 +1822,21 @@ async def export_live_trades_csv(run_id: str = ""):
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload):
     """Start paper trading with real live market data"""
+    _crash_log = os.path.join(_HERE, "crash.log")
+    with open(_crash_log, "a") as _f:
+        _f.write(f"\n[PAPER] paper_start ENTERED at {datetime.now()}\n")
+        _f.write(f"[PAPER] payload.instrument={payload.instrument}, run_name={payload.run_name}\n")
     try:
         return await _paper_start_impl(payload)
     except Exception as e:
         import traceback
 
         tb = traceback.format_exc()
-        print(f"[PAPER] paper_start crashed: {e}\n{tb}", flush=True)
+        msg = f"[PAPER] paper_start crashed: {e}\n{tb}"
+        print(msg, flush=True)
         _logger.error("[PAPER] paper_start crashed: %s\n%s", e, tb)
+        with open(_crash_log, "a") as _f:
+            _f.write(f"\n{'='*60}\n{msg}\n")
         raise
 
 
