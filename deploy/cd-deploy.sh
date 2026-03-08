@@ -62,11 +62,22 @@ pip install -q --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 
 # ── 2. Stop standby if somehow still running ──────────────────
 sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
+
+# ── 2b. Kill legacy non-template service if it exists ─────────
+#  Prevents port conflict: old algoforge.service may hold port 8000
+if sudo systemctl is-active "${APP}.service" >/dev/null 2>&1; then
+    log "⚠ Found legacy ${APP}.service — stopping & disabling..."
+    sudo systemctl stop "${APP}.service"
+    sudo systemctl disable "${APP}.service" 2>/dev/null || true
+fi
 sleep 1
 
 # ── 3. Start standby instance ────────────────────────────────
 log "Starting standby on port $STANDBY_PORT..."
 sudo systemctl start "${APP}@${STANDBY_PORT}"
+
+# Give Dhan token generation a moment (2-min rate limit per generation)
+sleep 5
 
 # ── 4. Health check standby ──────────────────────────────────
 log "Waiting for standby health check..."

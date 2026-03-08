@@ -1818,7 +1818,16 @@ async def export_live_trades_csv(run_id: str = ""):
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload):
     """Start paper trading with real live market data"""
+    try:
+        return await _paper_start_impl(payload)
+    except Exception as e:
+        import traceback
 
+        _logger.error("[PAPER] paper_start crashed: %s\n%s", e, traceback.format_exc())
+        raise
+
+
+async def _paper_start_impl(payload: StrategyPayload):
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
         "run_name": payload.run_name,

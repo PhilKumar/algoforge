@@ -63,5 +63,9 @@ server.log
 # Runtime / temp files
 .sessions.json
 live_state_*.json
+paper_state_*.json
+trade_history.json
+.current_token
+.token_lock
 *.tmp
 *.log
