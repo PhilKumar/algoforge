@@ -222,10 +222,11 @@ DEFAULT_EXIT_CONDITIONS = [{"left": "current_close", "operator": "is_below", "ri
 
 
 # ── Option Helpers ─────────────────────────────────────────────────
-def _est_prem(ci, ei, ep, ot, atm_prem=None):
+def _est_prem(ci, ei, ep, ot, atm_prem=None, minutes_in_trade=0):
     """Estimate current option premium given index move.
     Uses improved delta model: d = 1 - 1/(1 + r^2.5) where r = ep/atm_prem.
     This gives higher delta for ITM options, matching real weekly option behavior.
+    Includes theta decay: ~0.04% of ATM premium per minute elapsed.
     """
     if atm_prem and atm_prem > 0 and ep > 0:
         r = ep / atm_prem
@@ -234,7 +235,12 @@ def _est_prem(ci, ei, ep, ot, atm_prem=None):
         d = 0.5  # fallback ATM delta
     if ot == "PE":
         d = -d
-    return max(0.05, ep + (ci - ei) * d)
+    raw = ep + (ci - ei) * d
+    # Theta decay: premium erodes ~0.04% of ATM premium per minute
+    if atm_prem and atm_prem > 0 and minutes_in_trade > 0:
+        theta = atm_prem * 0.0004 * minutes_in_trade
+        raw -= theta
+    return max(0.05, raw)
 
 
 def _est_prem_gaussian(atm_prem, moneyness):
@@ -492,11 +498,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             c = float(row["close"])
             h = float(row.get("high", c))
             lo = float(row.get("low", c))
-            cp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
+            mins_in = (ts - et).total_seconds() / 60.0 if et else 0
+            cp = _est_prem(c, ei, ep, ot, atm_prem_ref, mins_in) if has_opt else c
             # OHLC-based worst-case premium for SL detection
             if has_opt:
-                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref)
-                cp_at_l = _est_prem(lo, ei, ep, ot, atm_prem_ref)
+                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref, mins_in)
+                cp_at_l = _est_prem(lo, ei, ep, ot, atm_prem_ref, mins_in)
                 if ltxn == "BUY":
                     cp_worst = min(cp, cp_at_h, cp_at_l)  # worst for BUY holder
                     cp_best = max(cp, cp_at_h, cp_at_l)  # best for BUY holder
@@ -526,9 +533,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             elif not has_opt and slp > 0:
                 sh = l <= slp
             if has_opt and ltgt > 0:
-                th = (ltxn == "BUY" and cp >= tgtp) or (ltxn == "SELL" and cp <= tgtp)
+                th = (ltxn == "BUY" and cp_best >= tgtp) or (ltxn == "SELL" and cp_best <= tgtp)
             elif not has_opt and tgtp > 0:
-                th = c >= tgtp
+                th = h >= tgtp
             # Trailing stop loss check (leg-level)
             if has_opt and ltrail > 0:
                 if ltxn == "BUY" and cp_worst <= peak_prem * (1 - ltrail / 100):
@@ -831,10 +838,13 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                                 best_strike = test_strike
 
                         strike_used = int(best_strike)
-                        # For premium_near, use target premium as entry (closest to real execution)
-                        ep = round(target_prem, 2)
+                        # Use the actual estimated premium for the selected strike
+                        best_moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
+                        ep = max(1, round(_est_prem_gaussian(atm_prem, best_moneyness), 2))
                         strike_name = f"{inst_label} {strike_used} {ot}"
-                        print(f"[BT]   Premium_Near {target_prem}: Selected {strike_used}, entry_premium={ep}")
+                        print(
+                            f"[BT]   Premium_Near target={target_prem}: Selected {strike_used}, actual_est_premium={ep}"
+                        )
                     elif strike_type == "strike_price" and strike_value > 0:
                         strike_used = int(round(strike_value / strike_step) * strike_step)
                         moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
