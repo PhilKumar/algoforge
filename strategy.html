@@ -7485,6 +7485,7 @@ const _WS_BACKOFF_BASE = 1000;
 // ── Heartbeat / staleness tracking ──
 let _wsLastMsgAt = 0;           // Date.now() of last received message
 const _WS_STALE_MS = 2500;     // 2.5s = 10 missed 250ms cycles
+const _WS_ZOMBIE_MS = 7000;    // 7s = kill zombie TCP, force reconnect
 let _wsStale = false;
 let _wsHeartbeatTimer = null;
 
@@ -7519,6 +7520,12 @@ function _wsStartHeartbeat() {
       return;
     }
     const gap = Date.now() - _wsLastMsgAt;
+    // Zombie killer: TCP alive but no data for 7s → force close → triggers reconnect
+    if (gap > _WS_ZOMBIE_MS) {
+      console.error('[WS] Zombie detected (' + gap + 'ms silence) — killing connection');
+      _ws.close(4000, 'Zombie kill');
+      return;
+    }
     if (gap > _WS_STALE_MS && !_wsStale) {
       _wsStale = true;
       _wsSetLiveIndicator(true, true);
@@ -7528,6 +7535,10 @@ function _wsStartHeartbeat() {
       _wsSetLiveIndicator(true, false);
     }
   }, 1000);
+}
+
+function _wsStopHeartbeat() {
+  if (_wsHeartbeatTimer) { clearInterval(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
 }
 
 function connectWebSocket() {
@@ -7568,6 +7579,7 @@ function connectWebSocket() {
 
     _ws.onclose = (evt) => {
       _ws = null;
+      _wsStopHeartbeat();
       _wsSetLiveIndicator(false, false);
       console.warn('[WS] Closed (code=' + evt.code + ') — reconnecting in ' + _wsBackoff + 'ms');
       clearTimeout(_wsReconnectTimer);
@@ -7706,6 +7718,24 @@ function _renderScalpStatusWS(data) {
 
 // Connect WebSocket on load
 setTimeout(connectWebSocket, 1000);
+
+// ── Page Visibility: instant reconnect when trader returns to tab ──
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  // Tab is back in focus — check WebSocket health immediately
+  const alive = _ws && _ws.readyState === 1;
+  if (!alive) {
+    // Dead or absent — skip backoff timer, reconnect now
+    console.log('[WS] Tab visible — forcing immediate reconnect');
+    clearTimeout(_wsReconnectTimer);
+    _wsBackoff = _WS_BACKOFF_BASE;  // reset backoff since this is user-initiated
+    connectWebSocket();
+  } else if (_wsLastMsgAt && (Date.now() - _wsLastMsgAt > _WS_STALE_MS)) {
+    // Open but stale — zombie kill, reconnect will follow via onclose
+    console.warn('[WS] Tab visible — connection stale, killing zombie');
+    _ws.close(4001, 'Visibility zombie kill');
+  }
+});
 
 // ══════════════════════════════════════════════════════════════
 //  BROWSER NOTIFICATIONS
