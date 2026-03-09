@@ -1963,7 +1963,7 @@
       <div style="position:absolute;top:-16px;right:-16px;width:64px;height:64px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;"></div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
         <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.06));border-radius:6px;color:var(--accent);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg></span></span>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">Daily Mantra</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">Warrior's Creed</div>
       </div>
       <div id="daily-mantra" style="font-size:13px;color:var(--text);font-style:italic;line-height:1.5;font-weight:500;">&ldquo;The market rewards patience and punishes impulse.&rdquo;</div>
       <div id="daily-mantra-author" style="font-size:10px;color:var(--muted);margin-top:6px;">— Trading Wisdom</div>
@@ -7591,7 +7591,7 @@ const _TRADING_MANTRAS = [
 ];
 
 function initMoodWidgets() {
-  // Daily Mantra — deterministic pick based on date so it stays the same all day
+  // Warrior's Creed — deterministic pick based on date so it stays the same all day
   const today = new Date();
   const dayIdx = (today.getFullYear() * 366 + today.getMonth() * 31 + today.getDate()) % _TRADING_MANTRAS.length;
   const mantra = _TRADING_MANTRAS[dayIdx];
