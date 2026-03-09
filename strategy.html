@@ -855,6 +855,30 @@
   [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.12); border-radius: 4px; }
   [data-theme="light"] ::-webkit-scrollbar-track { background: transparent; }
 
+  /* ── Premium Light: Live Page ── */
+  [data-theme="light"] #live-tabs-bar {
+    background: rgba(255,255,255,0.97) !important;
+    border-bottom: 1px solid rgba(15,23,42,0.12) !important;
+  }
+  [data-theme="light"] #live-panels-container .card,
+  [data-theme="light"] #live-panels-container .card-glass {
+    background: rgba(255,255,255,0.97) !important;
+    border: 1px solid rgba(15,23,42,0.12) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px -4px rgba(0,0,0,0.08) !important;
+  }
+  [data-theme="light"] #live-panels-container .card::after,
+  [data-theme="light"] #live-panels-container .card-glass::after { background: none !important; }
+  [data-theme="light"] #live-panels-container div[style*="background:var(--card)"],
+  [data-theme="light"] #live-panels-container div[style*="background: var(--card)"] {
+    background: rgba(255,255,255,0.97) !important;
+    border-color: rgba(15,23,42,0.12) !important;
+  }
+  [data-theme="light"] #live-panels-container .stat-box {
+    background: #ffffff !important;
+    border: 1px solid rgba(15,23,42,0.10) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.06) !important;
+  }
+
   /* Theme toggle is now integrated into topbar */
 
   /* ── EMERGENCY KILL SWITCH ── */
@@ -1441,13 +1465,19 @@
     #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
       grid-template-columns: 1fr !important;
     }
-    /* Scalp form inner 2-col: stack on phones */
+    /* Scalp form inner 2-col: forced desktop layout on mobile with tighter spacing */
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
-      grid-template-columns: 1fr !important;
-    }
-    /* Exit rules inner grid: keep 2-col (it's compact) */
-    #scalp-page div[style*="background: rgba(0,0,0,0.15)"] div[style*="grid-template-columns: 1fr 1fr"] {
       grid-template-columns: 1fr 1fr !important;
+      gap: 6px !important;
+    }
+    #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] label {
+      font-size: 9px !important;
+      letter-spacing: 0.4px !important;
+    }
+    #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] input,
+    #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] select {
+      font-size: 12px !important;
+      padding: 6px 8px !important;
     }
     /* BUY/SELL: full-width touch targets */
     #scalp-page .btn[onclick*="submitScalpEntry"] {
@@ -1568,7 +1598,8 @@
     .stat-label { font-size: 9px !important; }
     .expiry-chip { font-size: 10px !important; }
     #scalp-page div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 4px !important;
     }
   }
 
