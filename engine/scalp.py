@@ -111,8 +111,16 @@ class ScalpTrade:
 
     def check_exit(self, current_prem: float) -> Optional[str]:
         """Returns exit reason string if an exit rule is triggered, else None."""
-        pnl = self._compute_pnl(current_prem)
         now = _now_ist()
+
+        # Grace period: don't auto-exit within 3 seconds of entry.
+        # Protects against: (1) stale LTP from rate-limited API responses,
+        # (2) instant SL triggers before real market data arrives.
+        elapsed = (now - self.entry_time).total_seconds()
+        if elapsed < 3:
+            return None
+
+        pnl = self._compute_pnl(current_prem)
 
         # Square-off time
         try:
@@ -319,6 +327,39 @@ class ScalpEngine:
             # Use LTP as immediate estimated entry price — don't block on fill verify
             entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
 
+        # ── Validate & auto-fix SL/Target vs entry price ────────
+        # For BUY: SL must be BELOW entry, Target must be ABOVE entry.
+        # For SELL: SL must be ABOVE entry, Target must be BELOW entry.
+        # If swapped (e.g. user sets SL=100 for a BUY at 43), auto-swap and warn.
+        warnings = []
+        if entry_premium > 0 and sl_premium > 0 and target_premium > 0:
+            if transaction_type == "BUY" and sl_premium > entry_premium and target_premium > entry_premium:
+                # SL is above entry — user likely swapped SL and Target
+                if sl_premium > target_premium:
+                    sl_premium, target_premium = target_premium, sl_premium
+                    warnings.append(
+                        f"Auto-swapped Target/SL: SL was ₹{target_premium} (above entry ₹{entry_premium:.2f}). "
+                        f"Now Target=₹{target_premium} SL=₹{sl_premium}"
+                    )
+            elif transaction_type == "SELL" and sl_premium < entry_premium and target_premium < entry_premium:
+                if sl_premium < target_premium:
+                    sl_premium, target_premium = target_premium, sl_premium
+                    warnings.append(f"Auto-swapped Target/SL for SELL: Now Target=₹{target_premium} SL=₹{sl_premium}")
+        # Single-value sanity: SL alone on wrong side
+        if entry_premium > 0 and sl_premium > 0 and target_premium == 0:
+            if transaction_type == "BUY" and sl_premium >= entry_premium:
+                warnings.append(
+                    f"⚠️ SL premium ₹{sl_premium} >= entry ₹{entry_premium:.2f} for BUY — "
+                    f"SL will trigger immediately. Did you mean SL rupees (₹ loss) instead?"
+                )
+            elif transaction_type == "SELL" and sl_premium <= entry_premium:
+                warnings.append(
+                    f"⚠️ SL premium ₹{sl_premium} <= entry ₹{entry_premium:.2f} for SELL — "
+                    f"SL will trigger immediately."
+                )
+        for w in warnings:
+            self._log("warn", w)
+
         self._trade_counter += 1
         trade = ScalpTrade(
             trade_id=self._trade_counter,
@@ -445,7 +486,8 @@ class ScalpEngine:
                         continue
 
                     current_prem = price_map.get(tid, 0.0)
-                    if current_prem > 0:
+                    got_fresh_ltp = current_prem > 0
+                    if got_fresh_ltp:
                         # Backfill entry price if it was 0 at entry time
                         if trade.entry_premium == 0:
                             trade.entry_premium = current_prem
@@ -461,6 +503,12 @@ class ScalpEngine:
                                 f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
                             )
                         trade.current_premium = current_prem
+
+                    # Only check exits when we have a FRESH LTP from this tick.
+                    # If the API was rate-limited or errored, skip exit check
+                    # to avoid false triggers on stale current_premium.
+                    if not got_fresh_ltp:
+                        continue
 
                     reason = trade.check_exit(trade.current_premium)
                     if reason:

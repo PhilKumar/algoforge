@@ -3694,6 +3694,24 @@ async function submitScalpEntry(direction) {
       statusEl.style.color = 'var(--danger)';
       return;
     }
+    // Pre-flight validation: warn if SL premium is on the wrong side of entry
+    const liveLtp = parseFloat(document.getElementById('scalp-live-ltp')?.textContent?.replace(/[₹,]/g, '')) || 0;
+    if (liveLtp > 0 && payload.sl_premium > 0) {
+      const bad = (payload.transaction_type === 'BUY' && payload.sl_premium >= liveLtp)
+               || (payload.transaction_type === 'SELL' && payload.sl_premium <= liveLtp);
+      if (bad) {
+        statusEl.textContent = `⚠️ SL ₹${payload.sl_premium} is on the wrong side of LTP ₹${liveLtp.toFixed(2)} — SL will trigger immediately!`;
+        statusEl.style.color = 'var(--danger)';
+        const proceed = confirm(
+          `WARNING: Your SL Premium (₹${payload.sl_premium}) will trigger immediately!\n\n` +
+          `For a ${payload.transaction_type} at ₹${liveLtp.toFixed(2)}:\n` +
+          `• SL should be ${payload.transaction_type === 'BUY' ? 'BELOW' : 'ABOVE'} entry price.\n\n` +
+          `Did you mean to use "SL ₹ (max loss)" instead?\n\nClick OK to submit anyway, Cancel to fix.`
+        );
+        if (!proceed) return;
+      }
+    }
+
     const res = await fetch('/api/scalp/entry', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3703,6 +3721,14 @@ async function submitScalpEntry(direction) {
     if (data.status === 'ok') {
       statusEl.textContent = `✅ Trade #${data.trade_id} entered @ ₹${(data.trade?.entry_premium || 0).toFixed(2)}`;
       statusEl.style.color = 'var(--success)';
+      // Immediately inject the new trade into Active Positions so it's
+      // visible without waiting for the next 3-second poll cycle.
+      if (data.trade && _lastScalpStatus) {
+        if (!_lastScalpStatus.open_trades) _lastScalpStatus.open_trades = [];
+        _lastScalpStatus.open_trades.push(data.trade);
+        _renderScalpStatus(_lastScalpStatus);
+      }
+      // Also trigger a full refresh to get authoritative server state
       refreshScalpStatus();
     } else {
       statusEl.textContent = '❌ ' + (data.error?.detail || data.error?.message || data.message || data.detail || 'Entry failed');

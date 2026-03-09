@@ -96,8 +96,14 @@ class ScalpTrade:
 
     def check_exit(self, current_prem: float) -> Optional[str]:
         """Returns exit reason string if an exit rule is triggered, else None."""
-        pnl = self._compute_pnl(current_prem)
         now = _now_ist()
+
+        # Grace period: don't auto-exit within 3 seconds of entry.
+        elapsed = (now - self.entry_time).total_seconds()
+        if elapsed < 3:
+            return None
+
+        pnl = self._compute_pnl(current_prem)
 
         # Square-off time
         try:
