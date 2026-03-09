@@ -209,7 +209,7 @@ class ScalpEngine:
         target_rupees: float = 0.0,
         sl_rupees: float = 0.0,
         sqoff_time: str = "15:20",
-        product_type: str = "MIS",
+        product_type: str = "INTRADAY",
         order_type: str = "MARKET",
         mode: str = "live",  # "live" or "paper"
     ) -> Dict[str, Any]:
@@ -450,7 +450,7 @@ class ScalpEngine:
                     transaction_type=exit_txn,
                     quantity=trade.quantity,
                     order_type="MARKET",
-                    product_type="MIS",
+                    product_type="INTRADAY",
                     tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                 )
                 exit_order_id = result.get("orderId", "")

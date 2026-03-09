@@ -55,10 +55,12 @@ fi
 
 log "Active: port $ACTIVE_PORT → Deploying to: port $STANDBY_PORT"
 
-# ── 1. Install dependencies ──────────────────────────────────
+# ── 1. Install dependencies + clear stale bytecode ───────────
 log "Installing dependencies..."
 source "$VENV/bin/activate"
 pip install -q --disable-pip-version-check -r "$APP_DIR/requirements.txt"
+log "Clearing __pycache__ to prevent stale bytecode..."
+find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
 # ── 2. Stop standby if somehow still running ──────────────────
 sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
