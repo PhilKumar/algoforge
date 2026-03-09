@@ -2654,6 +2654,10 @@
       <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
       <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>
       <span id="scalp-status-label" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Idle</span>
+      <span style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
+        <span id="ws-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s;"></span>
+        <span id="ws-status-label" style="font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.3px;">Feed</span>
+      </span>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
       <span style="font-size: 11px; color: var(--muted);">Session P&L:</span>
@@ -7436,38 +7440,115 @@ let _ws = null;
 let _wsReconnectTimer = null;
 const _wsDecoder = new TextDecoder();
 
+// ── Exponential backoff state ──
+let _wsBackoff = 1000;          // start at 1s
+const _WS_BACKOFF_MAX = 16000;  // cap at 16s
+const _WS_BACKOFF_BASE = 1000;
+
+// ── Heartbeat / staleness tracking ──
+let _wsLastMsgAt = 0;           // Date.now() of last received message
+const _WS_STALE_MS = 2500;     // 2.5s = 10 missed 250ms cycles
+let _wsStale = false;
+let _wsHeartbeatTimer = null;
+
+function _wsSetLiveIndicator(connected, stale) {
+  const dot = document.getElementById('ws-status-dot');
+  const label = document.getElementById('ws-status-label');
+  if (!dot || !label) return;
+  if (!connected) {
+    dot.style.background = '#ef4444';
+    dot.style.animation = 'none';
+    label.textContent = 'Disconnected';
+    label.style.color = '#ef4444';
+  } else if (stale) {
+    dot.style.background = '#f59e0b';
+    dot.style.animation = 'none';
+    label.textContent = 'Stale';
+    label.style.color = '#f59e0b';
+  } else {
+    dot.style.background = '#34d399';
+    dot.style.animation = 'livePulse 2s infinite';
+    label.textContent = 'Live';
+    label.style.color = '#34d399';
+  }
+}
+
+function _wsStartHeartbeat() {
+  if (_wsHeartbeatTimer) return;
+  _wsHeartbeatTimer = setInterval(() => {
+    const connected = _ws && _ws.readyState === 1;
+    if (!connected) {
+      if (!_wsStale) { _wsStale = true; _wsSetLiveIndicator(false, false); }
+      return;
+    }
+    const gap = Date.now() - _wsLastMsgAt;
+    if (gap > _WS_STALE_MS && !_wsStale) {
+      _wsStale = true;
+      _wsSetLiveIndicator(true, true);
+      console.warn('[WS] Data stale — no message for ' + gap + 'ms');
+    } else if (gap <= _WS_STALE_MS && _wsStale) {
+      _wsStale = false;
+      _wsSetLiveIndicator(true, false);
+    }
+  }, 1000);
+}
+
 function connectWebSocket() {
   if (_ws && _ws.readyState <= 1) return; // already open or connecting
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${proto}//${location.host}/ws`;
   try {
     _ws = new WebSocket(wsUrl);
-    _ws.onopen = () => { console.log('WebSocket connected'); };
     _ws.binaryType = 'arraybuffer';
+
+    _ws.onopen = () => {
+      console.log('[WS] Connected');
+      _wsBackoff = _WS_BACKOFF_BASE;  // reset backoff on success
+      _wsStale = false;
+      _wsLastMsgAt = Date.now();
+      _wsSetLiveIndicator(true, false);
+      _wsStartHeartbeat();
+    };
+
     _ws.onmessage = (evt) => {
+      _wsLastMsgAt = Date.now();
+      // Clear stale state on first message after gap
+      if (_wsStale) { _wsStale = false; _wsSetLiveIndicator(true, false); }
       try {
         // Robust: handle both binary (orjson bytes) and plain text (stdlib json)
         let raw;
         if (evt.data instanceof ArrayBuffer) {
           raw = _wsDecoder.decode(evt.data);
         } else if (evt.data instanceof Blob) {
-          // Should not happen with binaryType='arraybuffer', but safety net
           evt.data.text().then(t => { try { handleWSMessage(JSON.parse(t)); } catch(_){} });
           return;
         } else {
-          raw = evt.data;  // already a string
+          raw = evt.data;
         }
         handleWSMessage(JSON.parse(raw));
       } catch(e) {}
     };
-    _ws.onclose = () => {
+
+    _ws.onclose = (evt) => {
       _ws = null;
-      // Reconnect after 5s
+      _wsSetLiveIndicator(false, false);
+      console.warn('[WS] Closed (code=' + evt.code + ') — reconnecting in ' + _wsBackoff + 'ms');
       clearTimeout(_wsReconnectTimer);
-      _wsReconnectTimer = setTimeout(connectWebSocket, 5000);
+      _wsReconnectTimer = setTimeout(connectWebSocket, _wsBackoff);
+      _wsBackoff = Math.min(_wsBackoff * 2, _WS_BACKOFF_MAX);  // exponential backoff
     };
-    _ws.onerror = () => { _ws = null; };
-  } catch(e) { console.warn('WebSocket connection failed:', e); }
+
+    _ws.onerror = () => {
+      // onclose will fire after onerror — reconnect happens there
+      if (_ws) { _ws.close(); }
+    };
+  } catch(e) {
+    console.warn('[WS] Connection failed:', e);
+    _wsSetLiveIndicator(false, false);
+    clearTimeout(_wsReconnectTimer);
+    _wsReconnectTimer = setTimeout(connectWebSocket, _wsBackoff);
+    _wsBackoff = Math.min(_wsBackoff * 2, _WS_BACKOFF_MAX);
+  }
 }
 
 // ── Cached DOM refs for scalp WS updates (Phase 2) ──
