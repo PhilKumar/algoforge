@@ -415,6 +415,12 @@ async def serve_logo():
     return FileResponse("logo.jpg")
 
 
+@app.get("/logo.png")
+async def serve_logo_png():
+    """Serves the PNG application logo."""
+    return FileResponse("logo.png")
+
+
 # ── Brute-Force Protection ────────────────────────────────────────
 _login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = 5
