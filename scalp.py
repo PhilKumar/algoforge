@@ -355,6 +355,8 @@ class ScalpEngine:
                         trade.current_premium = current_prem
                     reason = trade.check_exit(trade.current_premium)
                     if reason:
+                        if tid not in self.open_trades:
+                            continue  # Already closed by manual exit during LTP fetch
                         await self._close_trade(trade, reason)
             except Exception as e:
                 self._log("error", f"Monitor error: {e}")
@@ -436,12 +438,27 @@ class ScalpEngine:
 
     async def _close_trade(self, trade: ScalpTrade, reason: str):
         """Place exit order (or simulate in paper mode) and move trade to closed_trades."""
+        # Guard against double-close (race between manual exit and auto-exit monitor)
+        if trade.trade_id not in self.open_trades or trade.status == "closed":
+            self._log("info", f"⚠️ Trade {trade.trade_id} already closed, skipping duplicate exit")
+            return
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
         exit_order_id = ""
         if trade.mode == "paper":
             exit_order_id = "PAPER"
         else:
             try:
+                # Use LIMIT order with aggressive fill price — Dhan converts
+                # F&O MARKET orders to LIMIT with a bad price buffer for SELLs,
+                # causing exit orders to hang as pending instead of filling.
+                ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                if exit_txn == "SELL":
+                    # Sell at 5% below LTP to guarantee immediate fill
+                    exit_price = round(max(0.05, ltp * 0.95), 2)
+                else:
+                    # Buy at 5% above LTP to guarantee immediate fill
+                    exit_price = round(ltp * 1.05, 2)
+                self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
                 result = self.dhan.place_option_order(
                     underlying=trade.underlying,
                     strike_price=trade.strike,
@@ -449,8 +466,9 @@ class ScalpEngine:
                     expiry=trade.expiry,
                     transaction_type=exit_txn,
                     quantity=trade.quantity,
-                    order_type="MARKET",
+                    order_type="LIMIT",
                     product_type="INTRADAY",
+                    price=exit_price,
                     tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                 )
                 exit_order_id = result.get("orderId", "")
@@ -469,7 +487,7 @@ class ScalpEngine:
         trade.current_premium = exit_prem
 
         self.closed_trades.append(trade.to_dict())
-        del self.open_trades[trade.trade_id]
+        self.open_trades.pop(trade.trade_id, None)
 
         pnl_sign = "+" if pnl >= 0 else ""
         self._log(

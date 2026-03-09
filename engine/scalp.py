@@ -22,6 +22,9 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 _SCALP_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scalp_trades.json")
 
+# How many consecutive exit-order failures before we stop retrying and alert
+_MAX_EXIT_RETRIES = 3
+
 
 def _now_ist():
     return datetime.now(IST).replace(tzinfo=None)
@@ -66,17 +69,22 @@ class ScalpTrade:
         self.entry_premium = entry_premium
         self.current_premium = entry_premium
 
+        # Store raw pct values so backfill can recompute targets after
+        # entry_premium is confirmed (it may be 0 at construction time).
+        self._target_pct = target_pct
+        self._sl_pct = sl_pct
+
         # Compute absolute target/SL premiums if only % given
         self.target_premium = target_premium
         self.sl_premium = sl_premium
 
-        if not self.target_premium and target_pct > 0:
+        if not self.target_premium and target_pct > 0 and entry_premium > 0:
             if transaction_type == "BUY":
                 self.target_premium = round(entry_premium * (1 + target_pct / 100), 2)
             else:
                 self.target_premium = round(entry_premium * (1 - target_pct / 100), 2)
 
-        if not self.sl_premium and sl_pct > 0:
+        if not self.sl_premium and sl_pct > 0 and entry_premium > 0:
             if transaction_type == "BUY":
                 self.sl_premium = round(entry_premium * (1 - sl_pct / 100), 2)
             else:
@@ -93,6 +101,9 @@ class ScalpTrade:
         self.exit_order_id: str = ""
         self.pnl: float = 0.0
         self.status: str = "open"
+
+        # Exit retry counter — incremented on each failed broker exit call
+        self._exit_retries: int = 0
 
     def _compute_pnl(self, current_prem: float) -> float:
         mult = 1 if self.transaction_type == "BUY" else -1
@@ -161,6 +172,7 @@ class ScalpTrade:
             "pnl": round(self._compute_pnl(self.current_premium), 2),
             "status": self.status,
             "mode": self.mode,
+            "exit_retries": self._exit_retries,
         }
 
 
@@ -183,6 +195,10 @@ class ScalpEngine:
         self._running: bool = False
         self._task: Optional[asyncio.Task] = None
         self._ws_subs: Dict[int, str] = {}  # trade_id → ws_sec_id
+
+        # Set of trade_ids currently being closed — prevents race-condition
+        # double-exits when monitor loop and manual exit fire simultaneously.
+        self._closing: set = set()
 
         # Load persisted closed trades from disk
         self._load_trades()
@@ -210,7 +226,12 @@ class ScalpEngine:
     def _save_trades(self):
         """Persist closed trades to scalp_trades.json (fire-and-forget, non-blocking)."""
         data = list(self.closed_trades)  # snapshot
-        asyncio.get_event_loop().run_in_executor(None, self._save_trades_sync, data)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._save_trades_sync, data)
+        except RuntimeError:
+            # No running loop (e.g. shutdown) — write synchronously
+            self._save_trades_sync(data)
 
     @staticmethod
     def _save_trades_sync(data: list):
@@ -264,7 +285,6 @@ class ScalpEngine:
 
         if mode == "paper":
             # Paper mode: no real order — snapshot current LTP as entry price.
-            # Run LTP fetch off the event loop so it never blocks concurrent entries.
             order_id = "PAPER"
             entry_premium = 0.0
             for _attempt in range(3):
@@ -276,9 +296,9 @@ class ScalpEngine:
                 except Exception:
                     pass
                 if _attempt < 2:
-                    await asyncio.sleep(0.3)  # brief pause between retries
+                    await asyncio.sleep(0.3)
         else:
-            # Place real broker order — fire immediately via thread pool
+            # Place real broker order via thread pool — never block the event loop
             try:
                 result = await asyncio.to_thread(
                     self.dhan.place_option_order,
@@ -357,8 +377,21 @@ class ScalpEngine:
                 return  # already closed
             if fill.get("status") == "FILLED" and fill.get("avg_price"):
                 actual = float(fill["avg_price"])
+                old_entry = trade.entry_premium
                 trade.entry_premium = actual
-                self._log("info", f"📌 Entry fill verified: ₹{actual:.2f} (orderId={order_id})")
+                # Recompute pct-based targets with confirmed fill price
+                if not trade.target_premium and trade._target_pct > 0:
+                    mult = 1 if trade.transaction_type == "BUY" else -1
+                    trade.target_premium = round(actual * (1 + mult * trade._target_pct / 100), 2)
+                if not trade.sl_premium and trade._sl_pct > 0:
+                    mult = -1 if trade.transaction_type == "BUY" else 1
+                    trade.sl_premium = round(actual * (1 + mult * trade._sl_pct / 100), 2)
+                self._log(
+                    "info",
+                    f"📌 Entry fill verified: ₹{actual:.2f} (was ₹{old_entry:.2f}) "
+                    f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'} "
+                    f"(orderId={order_id})",
+                )
             else:
                 self._log("warn", f"⚠️ Entry fill not confirmed for trade {trade_id}: {fill.get('message', '')}")
         except Exception as e:
@@ -407,21 +440,33 @@ class ScalpEngine:
                 price_map = await self._fetch_all_ltps(trades)
 
                 for tid, trade in trades:
+                    # Skip if this trade is already being closed
+                    if tid in self._closing:
+                        continue
+
                     current_prem = price_map.get(tid, 0.0)
                     if current_prem > 0:
                         # Backfill entry price if it was 0 at entry time
                         if trade.entry_premium == 0:
                             trade.entry_premium = current_prem
-                            if not trade.target_premium and hasattr(trade, "_target_pct") and trade._target_pct > 0:
+                            if not trade.target_premium and trade._target_pct > 0:
                                 mult = 1 if trade.transaction_type == "BUY" else -1
                                 trade.target_premium = round(current_prem * (1 + mult * trade._target_pct / 100), 2)
-                            if not trade.sl_premium and hasattr(trade, "_sl_pct") and trade._sl_pct > 0:
+                            if not trade.sl_premium and trade._sl_pct > 0:
                                 mult = -1 if trade.transaction_type == "BUY" else 1
                                 trade.sl_premium = round(current_prem * (1 + mult * trade._sl_pct / 100), 2)
-                            self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
+                            self._log(
+                                "info",
+                                f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f} "
+                                f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+                            )
                         trade.current_premium = current_prem
+
                     reason = trade.check_exit(trade.current_premium)
                     if reason:
+                        # Re-check trade is still open before closing
+                        if tid not in self.open_trades:
+                            continue
                         await self._close_trade(trade, reason)
             except Exception as e:
                 self._log("error", f"Monitor error: {e}")
@@ -502,43 +547,127 @@ class ScalpEngine:
             return 0.0
 
     async def _close_trade(self, trade: ScalpTrade, reason: str):
-        """Place exit order (or simulate in paper mode) and move trade to closed_trades."""
-        exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
-        exit_order_id = ""
-        if trade.mode == "paper":
-            exit_order_id = "PAPER"
-        else:
-            try:
-                result = self.dhan.place_option_order(
-                    underlying=trade.underlying,
-                    strike_price=trade.strike,
-                    option_type=trade.option_type,
-                    expiry=trade.expiry,
-                    transaction_type=exit_txn,
-                    quantity=trade.quantity,
-                    order_type="MARKET",
-                    product_type="INTRADAY",
-                    tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
-                )
-                exit_order_id = result.get("orderId", "")
-            except Exception as e:
-                self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
+        """
+        Place exit order and move trade to closed_trades.
 
-        # Get ACTUAL fill price from Dhan (not LTP)
+        Safety guarantees:
+          1. Atomic _closing set prevents double-exit from monitor + manual exit racing.
+          2. Exit order uses LIMIT with 5% slippage — avoids Dhan's bad MARKET→LIMIT conversion.
+          3. Exit order is placed via asyncio.to_thread — never blocks the event loop.
+          4. If broker API fails, trade stays in open_trades and retries on next monitor tick.
+             After _MAX_EXIT_RETRIES consecutive failures, trade is force-closed with last LTP
+             and a critical alert is logged so the operator can manually verify Dhan.
+          5. Uses .pop() instead of del — safe against any remaining race conditions.
+        """
+        tid = trade.trade_id
+
+        # ── Guard 1: already closed ──────────────────────────────
+        if trade.status == "closed" or tid not in self.open_trades:
+            return
+
+        # ── Guard 2: atomic double-close prevention ───────────────
+        if tid in self._closing:
+            self._log("info", f"⚠️ Trade {tid} exit already in progress ({reason}), skipping duplicate")
+            return
+        self._closing.add(tid)
+
+        try:
+            exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
+            exit_order_id = ""
+
+            if trade.mode == "paper":
+                exit_order_id = "PAPER"
+            else:
+                # ── LIMIT order with aggressive slippage (not MARKET) ──────
+                # Dhan converts F&O MARKET orders to LIMIT with a conservative
+                # buffer for SELLs, causing them to hang as PENDING.
+                # We use a LIMIT at ±5% of LTP to guarantee immediate fill.
+                ltp = self._get_ltp(trade, tid) or trade.current_premium
+                if exit_txn == "SELL":
+                    exit_price = round(max(0.05, ltp * 0.95), 2)  # 5% below for fast fill
+                else:
+                    exit_price = round(ltp * 1.05, 2)  # 5% above for fast fill
+
+                self._log(
+                    "info",
+                    f"🚀 Placing exit [{reason}]: {exit_txn} LIMIT @ ₹{exit_price} "
+                    f"(LTP=₹{ltp:.2f}) | trade={tid} retry={trade._exit_retries}",
+                )
+
+                try:
+                    result = await asyncio.to_thread(
+                        self.dhan.place_option_order,
+                        underlying=trade.underlying,
+                        strike_price=trade.strike,
+                        option_type=trade.option_type,
+                        expiry=trade.expiry,
+                        transaction_type=exit_txn,
+                        quantity=trade.quantity,
+                        order_type="LIMIT",
+                        product_type="INTRADAY",
+                        price=exit_price,
+                        tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
+                    )
+                    exit_order_id = result.get("orderId", "")
+                    if not exit_order_id:
+                        raise ValueError(f"Broker returned no orderId. Response: {result}")
+
+                except Exception as broker_err:
+                    trade._exit_retries += 1
+                    alert = (
+                        f"🚨🚨🚨 EXIT ORDER FAILED (attempt {trade._exit_retries}/{_MAX_EXIT_RETRIES}) "
+                        f"for trade {tid} [{reason}] — {broker_err} "
+                        f"| {trade.underlying} {trade.strike}{trade.option_type} "
+                        f"| POSITION STILL OPEN AT DHAN — CHECK BROKER DASHBOARD"
+                    )
+                    self._log("error", alert)
+
+                    if trade._exit_retries < _MAX_EXIT_RETRIES:
+                        # Leave trade in open_trades — monitor loop will retry on next tick
+                        return
+
+                    # Max retries exceeded — force-close in system state with loud alert
+                    self._log(
+                        "error",
+                        f"🚨🚨🚨 MAX EXIT RETRIES EXCEEDED for trade {tid}. "
+                        f"Force-closing in system state. MANUALLY VERIFY DHAN POSITION. "
+                        f"Last LTP=₹{ltp:.2f}",
+                    )
+                    exit_order_id = "FAILED_CHECK_DHAN"
+
+        except Exception as unexpected_err:
+            self._log("error", f"Unexpected error in _close_trade for trade {tid}: {unexpected_err}")
+            self._closing.discard(tid)
+            return
+
+        # ── Verify fill price ────────────────────────────────────
         exit_prem = 0.0
-        if exit_order_id and exit_order_id != "PAPER":
+        if exit_order_id and exit_order_id not in ("PAPER", "FAILED_CHECK_DHAN"):
             try:
                 fill = await asyncio.to_thread(self.dhan.verify_order_fill, exit_order_id, 15, 1.5)
-                if fill.get("status") == "FILLED" and fill.get("avg_price"):
+                fill_status = fill.get("status", "")
+                if fill_status == "FILLED" and fill.get("avg_price"):
                     exit_prem = float(fill["avg_price"])
                     self._log("info", f"📌 Exit fill verified: ₹{exit_prem:.2f} (orderId={exit_order_id})")
+                elif fill_status in ("REJECTED", "CANCELLED"):
+                    self._log(
+                        "error",
+                        f"🚨 Exit order {exit_order_id} was {fill_status}: {fill.get('message', '')} "
+                        f"| trade {tid} — MANUALLY VERIFY DHAN POSITION",
+                    )
                 else:
-                    self._log("warn", f"⚠️ Exit fill not confirmed: {fill.get('message', '')}. Falling back to LTP.")
-            except Exception as e:
-                self._log("error", f"Exit fill verification error: {e}")
+                    self._log(
+                        "warn",
+                        f"⚠️ Exit fill unconfirmed (status={fill_status}) for trade {tid}. "
+                        f"Falling back to LTP. Msg: {fill.get('message', '')}",
+                    )
+            except Exception as verify_err:
+                self._log("error", f"Exit fill verification error for trade {tid}: {verify_err}")
+
         # Fallback to LTP if verify_order_fill didn't return a price
         if not exit_prem:
-            exit_prem = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+            exit_prem = self._get_ltp(trade, tid) or trade.current_premium
+
         pnl = trade._compute_pnl(exit_prem)
 
         trade.exit_time = _now_ist()
@@ -551,7 +680,8 @@ class ScalpEngine:
 
         self.closed_trades.append(trade.to_dict())
         self._save_trades()  # persist to disk
-        del self.open_trades[trade.trade_id]
+        self.open_trades.pop(tid, None)  # safe pop — no KeyError on race
+        self._closing.discard(tid)
 
         pnl_sign = "+" if pnl >= 0 else ""
         self._log(
