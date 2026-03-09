@@ -2852,6 +2852,38 @@ async def export_paper_trades_csv(run_id: str = ""):
 # Ticker caching
 _ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}  # Cache for 30 seconds
 _prev_close_cache = {"data": {}, "date": None}  # Cache prev close for the day
+_vix_cache = {"price": 0, "prev_close": 0, "timestamp": 0, "ttl": 60}  # NSE VIX cache (60s)
+
+
+def _fetch_nse_vix() -> dict:
+    """Fetch India VIX from NSE allIndices API. Returns {price, prev_close} or cached."""
+    now = time.time()
+    if _vix_cache["price"] > 0 and (now - _vix_cache["timestamp"]) < _vix_cache["ttl"]:
+        return {"price": _vix_cache["price"], "prev_close": _vix_cache["prev_close"]}
+    try:
+        import httpx
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        }
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=8) as client:
+            client.get("https://www.nseindia.com")  # get cookies
+            r = client.get("https://www.nseindia.com/api/allIndices")
+            if r.status_code == 200:
+                for idx in r.json().get("data", []):
+                    if idx.get("indexSymbol") == "INDIA VIX":
+                        price = float(idx.get("last", 0))
+                        prev = float(idx.get("previousClose", 0))
+                        if price > 0:
+                            _vix_cache["price"] = price
+                            _vix_cache["prev_close"] = prev
+                            _vix_cache["timestamp"] = now
+                            print(f"[TICKER] NSE VIX={price} (prev={prev})")
+                            return {"price": price, "prev_close": prev}
+    except Exception as e:
+        print(f"[TICKER] NSE VIX fetch failed: {e}")
+    return {"price": _vix_cache["price"], "prev_close": _vix_cache["prev_close"]}
 
 
 def _get_prev_close():
@@ -2865,7 +2897,7 @@ def _get_prev_close():
         import yfinance as yf
 
         result = {}
-        for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex"), ("^INDIAVIX", "vix")]:
+        for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex")]:
             hist = yf.Ticker(sym).history(period="5d")
             if len(hist) >= 2:
                 result[key] = float(hist["Close"].iloc[-2])
@@ -2968,9 +3000,12 @@ async def get_ticker():
 
                 n_chg, n_pct = _chg(nifty_ltp, "nifty")
                 s_chg, s_pct = _chg(sensex_ltp, "sensex")
-                # VIX from yfinance (Dhan IDX_I doesn't have India VIX)
-                vix_ltp = prev.get("vix_ltp", 0)
-                v_chg, v_pct = _chg(vix_ltp, "vix")
+                # VIX from NSE India (yfinance ^INDIAVIX delisted)
+                vix_data = _fetch_nse_vix()
+                vix_ltp = vix_data["price"]
+                vix_prev = vix_data["prev_close"]
+                v_chg = round(vix_ltp - vix_prev, 2) if vix_prev > 0 else 0
+                v_pct = round(((vix_ltp - vix_prev) / vix_prev) * 100, 2) if vix_prev > 0 else 0
 
                 bn_chg, bn_pct = _chg(banknifty_ltp, "banknifty")
                 mc_chg, mc_pct = _chg(midcpnifty_ltp, "midcpnifty")
@@ -3016,7 +3051,11 @@ async def get_ticker():
 
         nifty_price, nifty_chg, nifty_pct = _last_close_and_change("^NSEI")
         sensex_price, sensex_chg, sensex_pct = _last_close_and_change("^BSESN")
-        vix_price, vix_chg, vix_pct = _last_close_and_change("^INDIAVIX")
+        vix_data = _fetch_nse_vix()
+        vix_price = vix_data["price"]
+        vix_prev = vix_data["prev_close"]
+        vix_chg = round(vix_price - vix_prev, 2) if vix_prev > 0 else 0
+        vix_pct = round(((vix_price - vix_prev) / vix_prev) * 100, 2) if vix_prev > 0 else 0
 
         if nifty_price > 0:
             result = {
