@@ -51,6 +51,25 @@ _api_cache = _TTLCache()
 
 
 # ══════════════════════════════════════════════════════════════
+#  Exchange Tick Size Rounding
+# ══════════════════════════════════════════════════════════════
+def round_to_tick(price: float, tick_size: float = 0.05) -> float:
+    """Round a price to the nearest valid exchange tick size.
+
+    NSE F&O tick size is ₹0.05. Sending 250.12 gets rejected with
+    EXCH:16283 — this function snaps it to 250.10 or 250.15.
+
+    Uses integer arithmetic internally to avoid floating-point drift
+    (e.g. 250.15000000000003).
+    """
+    if price <= 0 or tick_size <= 0:
+        return price
+    # Scale to integer domain, round, scale back
+    multiplier = round(1 / tick_size)  # 20 for 0.05 tick
+    return round(round(price * multiplier) / multiplier, 2)
+
+
+# ══════════════════════════════════════════════════════════════
 #  Persistent HTTP Session (keeps TCP+TLS warm to Dhan servers)
 # ══════════════════════════════════════════════════════════════
 _http_session = requests.Session()
@@ -675,8 +694,8 @@ class DhanClient:
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
-            "price": float(price),
-            "triggerPrice": float(trigger_price),
+            "price": round_to_tick(float(price)) if price else 0.0,
+            "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
         print(f"[DHAN] Order payload: {payload}")
@@ -1094,9 +1113,9 @@ class DhanClient:
         if quantity:
             payload["quantity"] = quantity
         if price is not None:
-            payload["price"] = price
+            payload["price"] = round_to_tick(float(price)) if price else 0.0
         if trigger_price is not None:
-            payload["triggerPrice"] = trigger_price
+            payload["triggerPrice"] = round_to_tick(float(trigger_price)) if trigger_price else 0.0
 
         resp = _http_session.put(
             f"{self.base_url}/v2/orders/{order_id}",
@@ -1223,8 +1242,8 @@ class DhanClient:
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
-            "price": float(price),
-            "triggerPrice": float(trigger_price),
+            "price": round_to_tick(float(price)) if price else 0.0,
+            "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
         print(f"[DHAN] Async order payload: {payload}")
