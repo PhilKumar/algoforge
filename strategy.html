@@ -573,23 +573,23 @@
   /* ── Premium Light: Cards & Panels — Floating Glassmorphism ── */
   [data-theme="light"] .card {
     background: rgba(255,255,255,0.97);
-    border: 1px solid rgba(15,23,42,0.06);
-    border-top: 1px solid rgba(15,23,42,0.04);
-    box-shadow: 0 2px 10px -3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+    border: 1px solid rgba(15,23,42,0.12);
+    border-top: 1px solid rgba(15,23,42,0.08);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px -4px rgba(0,0,0,0.08);
   }
   [data-theme="light"] .card::after { background: none; }
   [data-theme="light"] .card-glass {
     background: rgba(255,255,255,0.96);
-    border: 1px solid rgba(15,23,42,0.06);
-    border-top: 1px solid rgba(15,23,42,0.04);
-    box-shadow: 0 4px 16px -4px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+    border: 1px solid rgba(15,23,42,0.12);
+    border-top: 1px solid rgba(15,23,42,0.08);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 6px 20px -6px rgba(0,0,0,0.10);
   }
   [data-theme="light"] .card-glass::before { background: linear-gradient(90deg, transparent, rgba(5,150,105,0.06), transparent); }
   [data-theme="light"] .card-glass::after { background: none; }
   [data-theme="light"] .stat-box {
     background: #ffffff;
-    border: 1px solid rgba(15,23,42,0.06);
-    box-shadow: 0 2px 8px -2px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03);
+    border: 1px solid rgba(15,23,42,0.10);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.06);
   }
   [data-theme="light"] .stat-box::after { background: none; }
   [data-theme="light"] .stat-box::before { background: linear-gradient(90deg, transparent, rgba(5,150,105,0.08), transparent); }
@@ -1441,7 +1441,14 @@
     #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
       grid-template-columns: 1fr !important;
     }
-    /* Scalp form inner 2-col keeps 2-col (it's compact) */
+    /* Scalp form inner 2-col: stack on phones */
+    #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
+      grid-template-columns: 1fr !important;
+    }
+    /* Exit rules inner grid: keep 2-col (it's compact) */
+    #scalp-page div[style*="background: rgba(0,0,0,0.15)"] div[style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr 1fr !important;
+    }
     /* BUY/SELL: full-width touch targets */
     #scalp-page .btn[onclick*="submitScalpEntry"] {
       min-height: 48px;
