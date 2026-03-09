@@ -46,4 +46,4 @@ jobs:
       - name: Post-deploy summary
         if: always()
         run: |
-          ssh deploy-target "echo '── AlgoForge Deploy Status ──' && systemctl is-active algoforge@\$(cat ~/.algoforge-active-port) && echo 'Active port:' \$(cat ~/.algoforge-active-port)"
+          ssh deploy-target "echo '── AlgoForge Deploy Status ──' && echo 'State:' \$(systemctl is-active algoforge@\$(cat ~/.algoforge-active-port)) && echo 'Active port:' \$(cat ~/.algoforge-active-port)"
