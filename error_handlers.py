@@ -144,7 +144,7 @@ async def _http_handler(request: Request, exc: StarletteHTTPException) -> JSONRe
         try:
             _crash_log = os.path.join(os.path.dirname(__file__), "crash.log")
             with open(_crash_log, "a") as _f:
-                _f.write(f"\n{'='*60}\n{msg}\n")
+                _f.write(f"\n{'=' * 60}\n{msg}\n")
         except Exception:
             pass
     _log.warning(
@@ -199,7 +199,7 @@ async def _generic_handler(request: Request, exc: Exception) -> JSONResponse:
     try:
         _crash_log = os.path.join(os.path.dirname(__file__), "crash.log")
         with open(_crash_log, "a") as _f:
-            _f.write(f"\n{'='*60}\n{msg}\n")
+            _f.write(f"\n{'=' * 60}\n{msg}\n")
     except Exception:
         pass
     _log.error(

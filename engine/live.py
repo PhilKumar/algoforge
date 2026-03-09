@@ -219,9 +219,9 @@ class LiveEngine:
             for pos in self.positions:
                 self.log_event(
                     "warning",
-                    f"⚠ Open position: {pos.get('underlying','')} "
-                    f"{pos.get('strike','')}{pos.get('option_type','')} "
-                    f"Order ID: {pos.get('entry_order_id','?')}",
+                    f"⚠ Open position: {pos.get('underlying', '')} "
+                    f"{pos.get('strike', '')}{pos.get('option_type', '')} "
+                    f"Order ID: {pos.get('entry_order_id', '?')}",
                 )
 
         total_pnl = sum(t.get("pnl", 0) for t in self.closed_trades)
@@ -229,7 +229,7 @@ class LiveEngine:
 
         self.log_event("stop", "🛑 Live Auto-Trading Engine Stopped")
         self.log_event(
-            "info", f"Session: {len(self.closed_trades)} trades | " f"Winners: {win_count} | P&L: ₹{total_pnl:,.2f}"
+            "info", f"Session: {len(self.closed_trades)} trades | Winners: {win_count} | P&L: ₹{total_pnl:,.2f}"
         )
 
     # ── WebSocket Event-Driven Mode ───────────────────────────
@@ -760,7 +760,7 @@ class LiveEngine:
             i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id = plan
             trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
             self.log_event(
-                "entry", f"🦿 Leg {i+1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
+                "entry", f"🦿 Leg {i + 1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
             )
             try:
                 result = await self.dhan.async_place_option_order(
@@ -772,7 +772,7 @@ class LiveEngine:
                     quantity=quantity,
                     order_type=entry_order_type,
                     product_type=product_type,
-                    tag=f"AF_E{i+1}_{opt_type}_{strike}",
+                    tag=f"AF_E{i + 1}_{opt_type}_{strike}",
                 )
                 order_id = result.get("orderId", "")
                 self.log_event("order", f"✅ Order placed: {txn_type} {trading_symbol} | OrderID: {order_id}")
@@ -791,7 +791,7 @@ class LiveEngine:
                     trading_symbol,
                 )
             except Exception as e:
-                self.log_event("error", f"❌ Order FAILED for Leg {i+1}: {e}")
+                self.log_event("error", f"❌ Order FAILED for Leg {i + 1}: {e}")
                 return (
                     False,
                     i,
@@ -1068,7 +1068,7 @@ class LiveEngine:
             self.strat_tp_val = 0
             trade_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
             self.log_event(
-                "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | " f"Daily P&L: ₹{self.daily_pnl:,.2f}"
+                "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | Daily P&L: ₹{self.daily_pnl:,.2f}"
             )
 
     # ── Exit Condition Check ──────────────────────────────────
@@ -1270,7 +1270,7 @@ class LiveEngine:
         live_count = sum(1 for _, _, src in candidates if src == "live")
         self.log_event(
             "info",
-            f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates)-live_count} estimated)",
+            f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates) - live_count} estimated)",
         )
 
         if mode == "above":

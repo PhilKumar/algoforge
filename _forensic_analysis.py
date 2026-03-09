@@ -68,7 +68,7 @@ if af_only_dates:
             f"    {d}  entry={t['entry_time'].strftime('%H:%M')}  strike={t['strike']}  exit={t['exit_reason']}  pnl={t['pnl']:.0f}"
         )
     if len(af_only_dates) > 15:
-        print(f"    ... and {len(af_only_dates)-15} more")
+        print(f"    ... and {len(af_only_dates) - 15} more")
 
 if bm_only_dates:
     print("\n  Missed trade dates (Benchmark had trades, AlgoForge didn't):")
@@ -76,7 +76,7 @@ if bm_only_dates:
         t = bm_overlap[bm_overlap["trade_date"] == d].iloc[0]
         print(f"    {d}  entry={t['Entry Time'].strftime('%H:%M')}  pnl={t['Profit']:.0f}")
     if len(bm_only_dates) > 15:
-        print(f"    ... and {len(bm_only_dates)-15} more")
+        print(f"    ... and {len(bm_only_dates) - 15} more")
 
 # 2b) Merge matched-date trades for detailed comparison
 af_matched = af_overlap[af_overlap["trade_date"].isin(matched_dates)].copy()
@@ -171,19 +171,19 @@ print(f"  AlgoForge exit prices (unique): {sorted(af_overlap['exit_price'].uniqu
 af_exit_counts = af_overlap["exit_price"].value_counts().head(5)
 print("  AlgoForge most common exit prices:")
 for price, count in af_exit_counts.items():
-    print(f"    {price:.2f}: {count} times ({count/len(af_overlap)*100:.1f}%)")
+    print(f"    {price:.2f}: {count} times ({count / len(af_overlap) * 100:.1f}%)")
 
 bm_exit_counts = bm_overlap["Exit Price"].value_counts().head(5)
 print("  Benchmark most common exit prices:")
 for price, count in bm_exit_counts.items():
-    print(f"    {price:.2f}: {count} times ({count/len(bm_overlap)*100:.1f}%)")
+    print(f"    {price:.2f}: {count} times ({count / len(bm_overlap) * 100:.1f}%)")
 
 # 3c) Exit Reason Analysis
 print("\n── Exit Reason Analysis ──")
 af_exit_reasons = af_overlap["exit_reason"].value_counts()
 print("  AlgoForge exit reasons:")
 for reason, count in af_exit_reasons.items():
-    print(f"    {reason}: {count} ({count/len(af_overlap)*100:.1f}%)")
+    print(f"    {reason}: {count} ({count / len(af_overlap) * 100:.1f}%)")
 
 # 3d) Qty / lot size comparison
 print("\n── Quantity & Lot Size ──")
@@ -271,29 +271,31 @@ bm_exit_seconds = bm_overlap["Exit Time"].dt.second
 bm_near_close = (bm_exit_seconds >= 40).sum()
 bm_exact_min = (bm_exit_seconds == 0).sum()
 print(
-    f"  Benchmark exit times with seconds >= :40 (near candle close): {bm_near_close}/{len(bm_overlap)} ({bm_near_close/len(bm_overlap)*100:.1f}%)"
+    f"  Benchmark exit times with seconds >= :40 (near candle close): {bm_near_close}/{len(bm_overlap)} ({bm_near_close / len(bm_overlap) * 100:.1f}%)"
 )
 print(
-    f"  Benchmark exit times at exact minute (:00): {bm_exact_min}/{len(bm_overlap)} ({bm_exact_min/len(bm_overlap)*100:.1f}%)"
+    f"  Benchmark exit times at exact minute (:00): {bm_exact_min}/{len(bm_overlap)} ({bm_exact_min / len(bm_overlap) * 100:.1f}%)"
 )
 
 # Check if AF exits are at exact 5-min boundaries
 af_exit_minutes = af_overlap["exit_time"].dt.minute % 5
 af_on_5min = (af_exit_minutes == 0).sum()
-print(f"  AlgoForge exits at 5-min boundaries: {af_on_5min}/{len(af_overlap)} ({af_on_5min/len(af_overlap)*100:.1f}%)")
+print(
+    f"  AlgoForge exits at 5-min boundaries: {af_on_5min}/{len(af_overlap)} ({af_on_5min / len(af_overlap) * 100:.1f}%)"
+)
 
 # Check AF entry times
 af_entry_minutes = af_overlap["entry_time"].dt.minute % 5
 af_entry_on_5min = (af_entry_minutes == 0).sum()
 print(
-    f"  AlgoForge entries at 5-min boundaries: {af_entry_on_5min}/{len(af_overlap)} ({af_entry_on_5min/len(af_overlap)*100:.1f}%)"
+    f"  AlgoForge entries at 5-min boundaries: {af_entry_on_5min}/{len(af_overlap)} ({af_entry_on_5min / len(af_overlap) * 100:.1f}%)"
 )
 
 # Benchmark entry times
 bm_entry_seconds = bm_overlap["Entry Time"].dt.second
 bm_entry_exact = (bm_entry_seconds == 0).sum()
 print(
-    f"  Benchmark entries at exact minute (:00): {bm_entry_exact}/{len(bm_overlap)} ({bm_entry_exact/len(bm_overlap)*100:.1f}%)"
+    f"  Benchmark entries at exact minute (:00): {bm_entry_exact}/{len(bm_overlap)} ({bm_entry_exact / len(bm_overlap) * 100:.1f}%)"
 )
 
 # 3h) AlgoForge fee structure — does it subtract broker fees?
@@ -308,7 +310,7 @@ if len(tp_trades) > 0:
     )
     print(f"    Raw P&L (no fees):  {raw_pnl:.2f}")
     print(f"    Actual P&L:         {actual_pnl:.2f}")
-    print(f"    Implied fee:        {implied_fee:.2f} ({implied_fee/raw_pnl*100:.2f}% of gross)")
+    print(f"    Implied fee:        {implied_fee:.2f} ({implied_fee / raw_pnl * 100:.2f}% of gross)")
 
 # 3i) Check duration patterns
 print("\n── Trade Duration Analysis ──")

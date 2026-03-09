@@ -38,7 +38,7 @@ if len(tp):
 # Win rate / stats
 wins = (new["pnl"] > 0).sum()
 print("\n--- Stats ---")
-print(f"  Win rate:     {wins}/{len(new)} ({wins/len(new)*100:.1f}%)")
+print(f"  Win rate:     {wins}/{len(new)} ({wins / len(new) * 100:.1f}%)")
 print(f"  Avg P&L:      {new['pnl'].mean():,.2f}")
 print(f"  Final cum:    {new['cumulative'].iloc[-1]:,.2f}")
 print(f"  Max drawdown: {(new['cumulative'].cummax() - new['cumulative']).max():,.2f}")
@@ -71,7 +71,7 @@ print(
     f"  Entry price diff (AF-BM): mean={merged['entry_price'].sub(merged['Entry Price']).mean():+.2f}  std={merged['entry_price'].sub(merged['Entry Price']).std():.2f}"
 )
 print(
-    f"  P&L diff (AF-BM):        mean={merged['pnl'].sub(merged['Profit']).mean():+.2f}  total={merged['pnl'].sum()-merged['Profit'].sum():+,.2f}"
+    f"  P&L diff (AF-BM):        mean={merged['pnl'].sub(merged['Profit']).mean():+.2f}  total={merged['pnl'].sum() - merged['Profit'].sum():+,.2f}"
 )
 
 # Dates only in AF (ghost) vs dates only in BM (missed)

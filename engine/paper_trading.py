@@ -1040,7 +1040,7 @@ class PaperTradingEngine:
 
             self.log_event(
                 "entry",
-                f"📝 Leg {i+1}: {leg['transaction_type']} {symbol} {strike} {option_type} @ ₹{entry_premium:.2f}",
+                f"📝 Leg {i + 1}: {leg['transaction_type']} {symbol} {strike} {option_type} @ ₹{entry_premium:.2f}",
                 {"premium": entry_premium, "lots": leg_lots, "lot_size": lot_size, "strike": strike, "expiry": expiry},
             )
 
@@ -1139,7 +1139,7 @@ class PaperTradingEngine:
         live_count = sum(1 for _, _, src in candidates if src == "live")
         self.log_event(
             "info",
-            f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates)-live_count} estimated)",
+            f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates) - live_count} estimated)",
         )
 
         if mode == "above":

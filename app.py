@@ -661,11 +661,11 @@ async def validate_strategy(request: Request):
     if legs:
         for i, leg in enumerate(legs):
             if not leg.get("lots"):
-                errors.append(f"Leg {i+1}: lot size not specified")
+                errors.append(f"Leg {i + 1}: lot size not specified")
             sl = leg.get("sl_points", 0)
             tp = leg.get("tp_points", 0)
             if sl and tp and tp <= sl:
-                warnings.append(f"Leg {i+1}: target ({tp}) is less than stop-loss ({sl}) — poor risk:reward")
+                warnings.append(f"Leg {i + 1}: target ({tp}) is less than stop-loss ({sl}) — poor risk:reward")
 
     # Contradictory conditions check
     for c in entry:
@@ -1475,7 +1475,7 @@ async def api_run_backtest(payload: StrategyPayload):
                                 candle_interval = "5"
                             break
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"[BACKTEST] Run: {payload.run_name}")
         print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
         print(f"[BACKTEST] Timeframe: {candle_interval}-minute candles")
@@ -1484,7 +1484,7 @@ async def api_run_backtest(payload: StrategyPayload):
         print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
         print(f"[BACKTEST] Legs: {payload.legs}")
         print("[BACKTEST] ⚠️  Using ESTIMATED option premiums (not historical data)")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # 1. Fetch data with segment-aware routing + fallback
         print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
@@ -1553,9 +1553,7 @@ async def api_run_backtest(payload: StrategyPayload):
             traceback.print_exc()
             return {"status": "error", "message": error_msg}
 
-        print(
-            f"[BACKTEST] Result: {results.get('status')}, " f"Trades: {results.get('stats', {}).get('total_trades', 0)}"
-        )
+        print(f"[BACKTEST] Result: {results.get('status')}, Trades: {results.get('stats', {}).get('total_trades', 0)}")
 
         # Save the run
         if results.get("status") == "success":
@@ -1836,7 +1834,7 @@ async def paper_start(payload: StrategyPayload):
         print(msg, flush=True)
         _logger.error("[PAPER] paper_start crashed: %s\n%s", e, tb)
         with open(_crash_log, "a") as _f:
-            _f.write(f"\n{'='*60}\n{msg}\n")
+            _f.write(f"\n{'=' * 60}\n{msg}\n")
         raise
 
 

@@ -119,10 +119,10 @@ async def _async_request_with_retry(
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
-            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → {resp.status_code} (attempt {attempt+1}/{max_retries})")
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{max_retries})")
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
             last_exc = e
-            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} network error (attempt {attempt+1}/{max_retries}): {e}")
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} network error (attempt {attempt + 1}/{max_retries}): {e}")
         if attempt < max_retries - 1:
             await asyncio.sleep(base_delay * (2**attempt))  # 0.3s, 0.6s, 1.2s
     raise last_exc
@@ -161,10 +161,10 @@ def _request_with_retry(
                 return resp
             # Retryable status — treat as transient
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
-            _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt+1}/{max_retries})")
+            _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{max_retries})")
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             last_exc = e
-            _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt+1}/{max_retries}): {e}")
+            _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt + 1}/{max_retries}): {e}")
         if attempt < max_retries - 1:
             delay = base_delay * (2**attempt)  # 1s, 2s, 4s …
             _time.sleep(delay)
@@ -1262,9 +1262,7 @@ class DhanClient:
         """Place an options order via httpx (true async)."""
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
         if not security_id:
-            raise Exception(
-                f"Cannot find security ID for {underlying} {strike_price}{option_type} " f"expiry {expiry}."
-            )
+            raise Exception(f"Cannot find security ID for {underlying} {strike_price}{option_type} expiry {expiry}.")
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
         return await self.async_place_order(
             security_id=security_id,
