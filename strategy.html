@@ -2699,8 +2699,9 @@
 
     <!-- Entry Form -->
     <div class="card" style="padding: 20px;">
-      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--accent);" id="scalp-form-title">⚡ New Scalp Entry</h3>
+      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--accent);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+        <!-- Row 1: UNDERLYING | EXPIRY -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
           <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
@@ -2714,18 +2715,16 @@
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
           <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
         </div>
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
-            <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTP()">
-            <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
-          </div>
-        </div>
+        <!-- Row 2: LIVE PREMIUM | MARGIN REQUIRED -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Live Premium</label>
           <div id="scalp-live-ltp" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #34d399; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
         </div>
+        <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
+          <div id="scalp-margin" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--warn); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
+        </div>
+        <!-- Row 3: OPTION TYPE | STRIKE -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
           <select id="scalp-option-type" style="font-size: 13px; padding: 8px 10px;" onchange="updateScalpStrike(); fetchScalpLTP();">
@@ -2734,13 +2733,18 @@
           </select>
         </div>
         <div>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
+            <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTP()">
+            <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
+          </div>
+        </div>
+        <!-- Row 4: LOTS | SQ-OFF TIME -->
+        <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(×<span id="scalp-lot-size-label">65</span>)</span></label>
           <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
           <input type="hidden" id="scalp-lot-size" value="65">
-        </div>
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
-          <div id="scalp-margin" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--warn); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Sq-Off Time</label>
@@ -2762,7 +2766,7 @@
           </div>
           <div>
             <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
-            <input type="number" id="scalp-target-prem" value="200" min="200" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
           <div>
             <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
@@ -3583,15 +3587,48 @@ async function fetchScalpLTP() {
   updateScalpMargin();
 }
 
-function updateScalpMargin() {
+// ── Margin caching: only recalculate when contract params change ──
+// Live Premium streams every 250ms via WS — margin should NOT recalc each tick.
+// Margin only changes when: underlying, strike, option_type, or lots change.
+var _marginCache = { underlying: '', strike: 0, optType: '', lots: 0, lotSize: 0, ltp: 0, value: null };
+
+function updateScalpMargin(forceRecalc) {
   const el = document.getElementById('scalp-margin');
+  const underlying = document.getElementById('scalp-underlying').value;
+  const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
+  const optType = document.getElementById('scalp-option-type').value;
   const lots = parseInt(document.getElementById('scalp-lots').value) || 0;
   const lotSize = parseInt(document.getElementById('scalp-lot-size').value) || 0;
+
+  // Check if contract params changed (triggers recalculation)
+  const paramsChanged = (
+    underlying !== _marginCache.underlying ||
+    strike !== _marginCache.strike ||
+    optType !== _marginCache.optType ||
+    lots !== _marginCache.lots ||
+    lotSize !== _marginCache.lotSize
+  );
+
+  if (!paramsChanged && !forceRecalc && _marginCache.value !== null) {
+    // Contract unchanged — show cached margin, skip recalc
+    return;
+  }
+
+  // Update cache key
+  _marginCache.underlying = underlying;
+  _marginCache.strike = strike;
+  _marginCache.optType = optType;
+  _marginCache.lots = lots;
+  _marginCache.lotSize = lotSize;
+  _marginCache.ltp = _scalpCurrentLTP;
+
   if (_scalpCurrentLTP > 0 && lots > 0 && lotSize > 0) {
     const margin = _scalpCurrentLTP * lots * lotSize;
+    _marginCache.value = margin;
     el.textContent = '₹' + margin.toLocaleString('en-IN', { maximumFractionDigits: 0 });
     el.style.color = 'var(--warn)';
   } else {
+    _marginCache.value = null;
     el.textContent = lots > 0 ? 'N/A' : '—';
     el.style.color = 'var(--muted)';
   }
