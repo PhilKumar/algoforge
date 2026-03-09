@@ -9,6 +9,11 @@ Fixed:
 import asyncio
 import inspect
 import json
+
+try:
+    import orjson as _orjson
+except ImportError:
+    _orjson = None
 import logging
 import os
 import secrets
@@ -2249,6 +2254,32 @@ async def engines_all():
 
 
 # ── WebSocket ─────────────────────────────────────────────────────
+
+
+# Event-driven signal: set whenever scalp state changes (entry/exit/modify)
+_scalp_ws_event: asyncio.Event | None = None
+
+
+def _get_scalp_ws_event() -> asyncio.Event:
+    global _scalp_ws_event
+    if _scalp_ws_event is None:
+        _scalp_ws_event = asyncio.Event()
+    return _scalp_ws_event
+
+
+def _notify_scalp_ws():
+    """Signal all WS clients to push scalp update immediately."""
+    evt = _get_scalp_ws_event()
+    evt.set()
+
+
+def _ws_serialize(payload: dict) -> bytes:
+    """Serialize WS payload using orjson (fast) with stdlib json fallback."""
+    if _orjson is not None:
+        return _orjson.dumps(payload)
+    return json.dumps(payload).encode("utf-8")
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     # Authenticate WebSocket via session cookie
@@ -2258,20 +2289,44 @@ async def websocket_endpoint(ws: WebSocket):
         return
     await ws.accept()
     ws_clients.append(ws)
+
+    scalp_evt = _get_scalp_ws_event()
+    engine_tick = 0  # counter: send full engine status every 20 cycles (~5s)
+
     try:
         while True:
-            paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
-            live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
-            await ws.send_json(
-                {
-                    "type": "status",
-                    "paper_engines": paper_sts,
-                    "live_engines": live_sts,
-                    "paper_running": any(s.get("running") for s in paper_sts.values()),
-                    "live_running": any(s.get("running") for s in live_sts.values()),
-                }
-            )
-            await asyncio.sleep(5)
+            # Wait for either: scalp event fires OR 250ms timeout
+            try:
+                await asyncio.wait_for(scalp_evt.wait(), timeout=0.25)
+                scalp_evt.clear()
+            except asyncio.TimeoutError:
+                pass
+
+            # Scalp status — every cycle (250ms)
+            scalp_data = None
+            if _HAS_SCALP and _scalp_engine is not None:
+                try:
+                    scalp_data = _scalp_engine.get_status()
+                except Exception:
+                    pass
+
+            payload = {"type": "status", "_ts": time.time()}
+
+            if scalp_data is not None:
+                payload["scalp"] = scalp_data
+
+            # Engine status — every ~5s (20 × 250ms) to avoid waste
+            engine_tick += 1
+            if engine_tick >= 20:
+                engine_tick = 0
+                paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
+                live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
+                payload["paper_engines"] = paper_sts
+                payload["live_engines"] = live_sts
+                payload["paper_running"] = any(s.get("running") for s in paper_sts.values())
+                payload["live_running"] = any(s.get("running") for s in live_sts.values())
+
+            await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
         if ws in ws_clients:
             ws_clients.remove(ws)
@@ -2665,6 +2720,7 @@ async def delete_scalp_trade(tid: int):
     # Also remove from in-memory engine closed_trades so it doesn't reappear
     if _scalp_engine is not None:
         _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") != tid]
+    _notify_scalp_ws()
     return {"deleted": tid}
 
 
@@ -2694,6 +2750,7 @@ async def get_scalp_status():
 async def start_scalp_engine():
     eng = _get_scalp_engine()
     eng.start()
+    _notify_scalp_ws()
     return {"status": "started"}
 
 
@@ -2702,6 +2759,7 @@ async def stop_scalp_engine():
     eng = _get_scalp_engine()
     _save_scalp_run_to_history(eng)
     eng.stop()
+    _notify_scalp_ws()
     return {"status": "stopped"}
 
 
@@ -2749,6 +2807,7 @@ async def scalp_entry(req: ScalpEntryReq):
                 "Scalp Entry Failed",
                 f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
             )
+        _notify_scalp_ws()
         return result
     except Exception as e:
         alerter.alert(
@@ -2768,6 +2827,7 @@ async def scalp_exit(trade_id: int):
             _save_scalp_trades(trades)
         elif result.get("status") == "error":
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
+        _notify_scalp_ws()
         return result
     except Exception as e:
         alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
@@ -2785,7 +2845,9 @@ class ScalpTargetsReq(BaseModel):
 @app.put("/api/scalp/trades/{trade_id}/targets")
 async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq):
     eng = _get_scalp_engine()
-    return await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
+    result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
+    _notify_scalp_ws()
+    return result
 
 
 @app.get("/api/option-ltp")

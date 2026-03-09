@@ -3487,8 +3487,9 @@ const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100 }
 function initScalpPage() {
   loadScalpExpiries();
   refreshScalpStatus();
+  // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
-    _scalpPollTimer = setInterval(refreshScalpStatus, 3000);
+    _scalpPollTimer = setInterval(refreshScalpStatus, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
   if (!_scalpLTPTimer) {
     _scalpLTPTimer = setInterval(fetchScalpLTP, 5000);
@@ -7433,6 +7434,7 @@ function compareBacktests() {
 // ══════════════════════════════════════════════════════════════
 let _ws = null;
 let _wsReconnectTimer = null;
+const _wsDecoder = new TextDecoder();
 
 function connectWebSocket() {
   if (_ws && _ws.readyState <= 1) return; // already open or connecting
@@ -7441,10 +7443,21 @@ function connectWebSocket() {
   try {
     _ws = new WebSocket(wsUrl);
     _ws.onopen = () => { console.log('WebSocket connected'); };
+    _ws.binaryType = 'arraybuffer';
     _ws.onmessage = (evt) => {
       try {
-        const msg = JSON.parse(evt.data);
-        handleWSMessage(msg);
+        // Robust: handle both binary (orjson bytes) and plain text (stdlib json)
+        let raw;
+        if (evt.data instanceof ArrayBuffer) {
+          raw = _wsDecoder.decode(evt.data);
+        } else if (evt.data instanceof Blob) {
+          // Should not happen with binaryType='arraybuffer', but safety net
+          evt.data.text().then(t => { try { handleWSMessage(JSON.parse(t)); } catch(_){} });
+          return;
+        } else {
+          raw = evt.data;  // already a string
+        }
+        handleWSMessage(JSON.parse(raw));
       } catch(e) {}
     };
     _ws.onclose = () => {
@@ -7457,17 +7470,119 @@ function connectWebSocket() {
   } catch(e) { console.warn('WebSocket connection failed:', e); }
 }
 
+// ── Cached DOM refs for scalp WS updates (Phase 2) ──
+const _scalpDomCache = {};
+function _getScalpEl(id) {
+  if (!_scalpDomCache[id] || !_scalpDomCache[id].isConnected) {
+    _scalpDomCache[id] = document.getElementById(id);
+  }
+  return _scalpDomCache[id];
+}
+
+let _scalpRafPending = false;
+let _pendingScalpData = null;
+let _pendingScalpTs = 0;
+
 function handleWSMessage(msg) {
   // msg format: { type: 'trade'|'status'|'pnl', data: {...} }
   if (msg.type === 'trade' || msg.event === 'trade') {
     const d = msg.data || msg;
-    // Show browser notification
     sendTradeNotification(d);
-    // Update dashboard if visible
     loadDashboardSummary();
   }
-  if (msg.type === 'status' || msg.event === 'engine_status') {
+  // Engine status fields only arrive every ~5s — update kill switch when present
+  if (msg.type === 'status' && (msg.paper_engines || msg.live_engines)) {
     updateKillSwitchVisibility();
+  }
+  if (msg.event === 'engine_status') {
+    updateKillSwitchVisibility();
+  }
+  // Scalp status pushed from WS every 250ms — skip HTTP poll
+  if (msg.type === 'status' && msg.scalp) {
+    _lastScalpStatus = msg.scalp;
+    _pendingScalpData = msg.scalp;
+    _pendingScalpTs = msg._ts || 0;
+    if (!_scalpRafPending) {
+      _scalpRafPending = true;
+      window.requestAnimationFrame(_flushScalpRender);
+    }
+  }
+}
+
+function _flushScalpRender() {
+  _scalpRafPending = false;
+  if (_pendingScalpData) {
+    // LATENCY DEBUG — remove after verification
+    if (_pendingScalpTs) console.log('[WS→Paint] ' + (Date.now() - _pendingScalpTs * 1000).toFixed(0) + 'ms');
+    _renderScalpStatusWS(_pendingScalpData);
+    _pendingScalpData = null;
+    _pendingScalpTs = 0;
+  }
+}
+
+// Lightweight WS-driven scalp render — only updates dynamic cells via cached refs
+function _renderScalpStatusWS(data) {
+  // Engine status dot + label
+  const dot = _getScalpEl('scalp-status-dot');
+  const label = _getScalpEl('scalp-status-label');
+  const engDot = _getScalpEl('scalp-engine-dot');
+  if (data.running) {
+    if (dot) { dot.style.background = '#34d399'; dot.style.animation = 'livePulse 2s infinite'; }
+    if (label) label.textContent = 'Running';
+    if (engDot) engDot.style.color = '#34d399';
+  } else {
+    if (dot) { dot.style.background = 'var(--muted)'; dot.style.animation = 'none'; }
+    if (label) label.textContent = 'Idle';
+    if (engDot) engDot.style.color = '#06b6d4';
+  }
+
+  // Session P&L
+  const sessionPnl = _getScalpEl('scalp-session-pnl');
+  if (sessionPnl) {
+    const pnl = data.total_pnl || 0;
+    sessionPnl.textContent = '₹' + pnl.toFixed(2);
+    sessionPnl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+  }
+
+  // Active positions — granular update via cached refs
+  const tbody = _getScalpEl('scalp-active-body');
+  if (!tbody) return;
+  const open = data.open_trades || [];
+  const countEl = _getScalpEl('scalp-open-count');
+  if (countEl) countEl.textContent = open.length + ' open';
+
+  const serverTids = new Set(open.map(t => t.trade_id));
+  const domTids = new Set();
+  tbody.querySelectorAll('tr[data-tid]').forEach(tr => domTids.add(parseInt(tr.dataset.tid)));
+  const sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+
+  if (!open.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
+    // Invalidate cached refs for removed trades
+    for (const tid of domTids) { delete _scalpDomCache['scalp-ltp-'+tid]; delete _scalpDomCache['scalp-pnl-'+tid]; delete _scalpDomCache['scalp-entry-'+tid]; }
+  } else if (!sameSet) {
+    // Trade set changed — full rebuild, invalidate cache
+    tbody.innerHTML = open.map(t => _buildScalpActiveRow(t)).join('');
+    for (const tid of domTids) { delete _scalpDomCache['scalp-ltp-'+tid]; delete _scalpDomCache['scalp-pnl-'+tid]; delete _scalpDomCache['scalp-entry-'+tid]; }
+  } else {
+    // Same trades — granular .textContent updates only
+    open.forEach(t => {
+      const ltpEl = _getScalpEl('scalp-ltp-' + t.trade_id);
+      const pnlEl = _getScalpEl('scalp-pnl-' + t.trade_id);
+      const entryEl = _getScalpEl('scalp-entry-' + t.trade_id);
+      if (ltpEl) ltpEl.textContent = '₹' + (t.current_premium||0).toFixed(2);
+      if (pnlEl) {
+        const pnl = t.pnl || 0;
+        pnlEl.textContent = (pnl>=0?'+':'') + '₹' + pnl.toFixed(2);
+        pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+      }
+      if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
+      // Update inputs only when not focused
+      const tgtInput = _getScalpEl('scalp-tgt-' + t.trade_id);
+      const slInput = _getScalpEl('scalp-sl-' + t.trade_id);
+      if (tgtInput && document.activeElement !== tgtInput) tgtInput.value = t.target_premium || 0;
+      if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
+    });
   }
 }
 
