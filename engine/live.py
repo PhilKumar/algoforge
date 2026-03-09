@@ -717,9 +717,10 @@ class LiveEngine:
         if lot_size == 0:
             lot_size = get_lot_size(instrument, self.session_date)
 
-        product_type = self.deploy_config.get("product_type", "MIS")
-        if product_type == "NRML":
-            product_type = "MARGIN"
+        product_type = self.deploy_config.get("product_type", "INTRADAY")
+        # Map common aliases to Dhan API values
+        _pt_map = {"MIS": "INTRADAY", "NRML": "MARGIN"}
+        product_type = _pt_map.get(product_type, product_type)
         entry_order_type = self.deploy_config.get("entry_order", "MARKET")
         place_leg_sl = self.deploy_config.get("place_leg_sl", "no") == "yes"
         sqoff_on_fail = self.deploy_config.get("sqoff_on_fail", "no") == "yes"
@@ -956,9 +957,10 @@ class LiveEngine:
         else:
             limit_price = round(trigger * (1 + sl_limit_diff / 100), 2)
 
-        product_type = self.deploy_config.get("product_type", "MIS")
-        if product_type == "NRML":
-            product_type = "MARGIN"
+        product_type = self.deploy_config.get("product_type", "INTRADAY")
+        # Map common aliases to Dhan API values
+        _pt_map = {"MIS": "INTRADAY", "NRML": "MARGIN"}
+        product_type = _pt_map.get(product_type, product_type)
 
         try:
             result = await self.dhan.async_place_sl_order(
@@ -990,9 +992,10 @@ class LiveEngine:
         opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
 
         exit_order_type = self.deploy_config.get("exit_order", "MARKET")
-        product_type = self.deploy_config.get("product_type", "MIS")
-        if product_type == "NRML":
-            product_type = "MARGIN"
+        product_type = self.deploy_config.get("product_type", "INTRADAY")
+        # Map common aliases to Dhan API values
+        _pt_map = {"MIS": "INTRADAY", "NRML": "MARGIN"}
+        product_type = _pt_map.get(product_type, product_type)
 
         # Cancel SL and place exit order concurrently
         async def _cancel_sl():

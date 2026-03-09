@@ -673,12 +673,13 @@ class DhanClient:
             "productType": product_type,
             "orderType": order_type,
             "validity": validity,
-            "securityId": security_id,
-            "quantity": quantity,
-            "price": price,
-            "triggerPrice": trigger_price,
-            "correlationId": tag,
+            "securityId": str(security_id),
+            "quantity": int(quantity),
+            "price": float(price),
+            "triggerPrice": float(trigger_price),
+            "correlationId": (tag or "")[:25],
         }
+        print(f"[DHAN] Order payload: {payload}")
 
         if not _circuit_breaker.call_allowed():
             raise Exception(
@@ -1220,12 +1221,13 @@ class DhanClient:
             "productType": product_type,
             "orderType": order_type,
             "validity": validity,
-            "securityId": security_id,
-            "quantity": quantity,
-            "price": price,
-            "triggerPrice": trigger_price,
-            "correlationId": tag,
+            "securityId": str(security_id),
+            "quantity": int(quantity),
+            "price": float(price),
+            "triggerPrice": float(trigger_price),
+            "correlationId": (tag or "")[:25],
         }
+        print(f"[DHAN] Async order payload: {payload}")
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker OPEN")
         try:
