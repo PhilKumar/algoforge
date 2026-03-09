@@ -4,22 +4,24 @@ Caches downloaded candle data to local Parquet/JSON files to avoid
 re-downloading the same date ranges from Dhan API.
 """
 
-import os
-import json
-import hashlib
 import asyncio
-import pandas as pd
+import hashlib
+import json
+import os
 from datetime import datetime, timedelta
+
+import pandas as pd
 
 _CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".data_cache")
 os.makedirs(_CACHE_DIR, exist_ok=True)
 
 
-def _cache_key(security_id: str, exchange_segment: str, instrument_type: str,
-               candle_type: str, from_date: str, to_date: str) -> str:
+def _cache_key(
+    security_id: str, exchange_segment: str, instrument_type: str, candle_type: str, from_date: str, to_date: str
+) -> str:
     """Generate a deterministic cache key for given parameters."""
     raw = f"{security_id}:{exchange_segment}:{instrument_type}:{candle_type}:{from_date}:{to_date}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 def _cache_path(key: str) -> str:
@@ -30,12 +32,17 @@ def _meta_path(key: str) -> str:
     return os.path.join(_CACHE_DIR, f"{key}.meta.json")
 
 
-def get_cached(security_id: str, exchange_segment: str, instrument_type: str,
-               candle_type: str, from_date: str, to_date: str,
-               max_age_hours: float = 12.0) -> pd.DataFrame | None:
+def get_cached(
+    security_id: str,
+    exchange_segment: str,
+    instrument_type: str,
+    candle_type: str,
+    from_date: str,
+    to_date: str,
+    max_age_hours: float = 12.0,
+) -> pd.DataFrame | None:
     """Return cached DataFrame if it exists and is fresh, else None."""
-    key = _cache_key(security_id, exchange_segment, instrument_type,
-                     candle_type, from_date, to_date)
+    key = _cache_key(security_id, exchange_segment, instrument_type, candle_type, from_date, to_date)
     cache_file = _cache_path(key)
     meta_file = _meta_path(key)
 
@@ -58,37 +65,50 @@ def get_cached(security_id: str, exchange_segment: str, instrument_type: str,
         return None
 
 
-def save_to_cache(df: pd.DataFrame, security_id: str, exchange_segment: str,
-                  instrument_type: str, candle_type: str,
-                  from_date: str, to_date: str):
+def save_to_cache(
+    df: pd.DataFrame,
+    security_id: str,
+    exchange_segment: str,
+    instrument_type: str,
+    candle_type: str,
+    from_date: str,
+    to_date: str,
+):
     """Save DataFrame to cache."""
-    key = _cache_key(security_id, exchange_segment, instrument_type,
-                     candle_type, from_date, to_date)
+    key = _cache_key(security_id, exchange_segment, instrument_type, candle_type, from_date, to_date)
     cache_file = _cache_path(key)
     meta_file = _meta_path(key)
 
     try:
         df.to_parquet(cache_file, engine="pyarrow")
         with open(meta_file, "w") as f:
-            json.dump({
-                "cached_at": datetime.now().isoformat(),
-                "rows": len(df),
-                "security_id": security_id,
-                "exchange_segment": exchange_segment,
-                "candle_type": candle_type,
-                "from_date": from_date,
-                "to_date": to_date,
-            }, f)
+            json.dump(
+                {
+                    "cached_at": datetime.now().isoformat(),
+                    "rows": len(df),
+                    "security_id": security_id,
+                    "exchange_segment": exchange_segment,
+                    "candle_type": candle_type,
+                    "from_date": from_date,
+                    "to_date": to_date,
+                },
+                f,
+            )
         print(f"[CACHE] 💾 Saved {len(df)} candles to cache")
     except Exception as e:
         print(f"[CACHE] Write error: {e}")
 
 
-async def get_historical_cached(dhan_client, security_id: str,
-                                 exchange_segment: str, instrument_type: str,
-                                 candle_type: str = "5",
-                                 from_date: str = None, to_date: str = None,
-                                 max_age_hours: float = 12.0) -> pd.DataFrame:
+async def get_historical_cached(
+    dhan_client,
+    security_id: str,
+    exchange_segment: str,
+    instrument_type: str,
+    candle_type: str = "5",
+    from_date: str = None,
+    to_date: str = None,
+    max_age_hours: float = 12.0,
+) -> pd.DataFrame:
     """
     Get historical data with local file cache.
     1. Check cache → return if fresh
@@ -101,8 +121,7 @@ async def get_historical_cached(dhan_client, security_id: str,
         to_date = datetime.now().strftime("%Y-%m-%d")
 
     # Check cache
-    cached = get_cached(security_id, exchange_segment, instrument_type,
-                        candle_type, from_date, to_date, max_age_hours)
+    cached = get_cached(security_id, exchange_segment, instrument_type, candle_type, from_date, to_date, max_age_hours)
     if cached is not None:
         return cached
 
@@ -120,8 +139,7 @@ async def get_historical_cached(dhan_client, security_id: str,
 
     # Save to cache
     if df is not None and len(df) > 0:
-        save_to_cache(df, security_id, exchange_segment, instrument_type,
-                      candle_type, from_date, to_date)
+        save_to_cache(df, security_id, exchange_segment, instrument_type, candle_type, from_date, to_date)
 
     return df
 

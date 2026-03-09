@@ -10,19 +10,18 @@ Requires:
     DHAN_TOTP_SECRET  — TOTP secret from Dhan (base32 string)
 """
 
-import os
-import time
 import asyncio
 import logging
-import requests
+import os
+
 import pyotp
-from datetime import datetime, timezone, timedelta
+import requests
 
 log = logging.getLogger("token_manager")
 
 # ── Auth endpoint ─────────────────────────────────────────────
 GENERATE_URL = "https://auth.dhan.co/app/generateAccessToken"
-RENEW_URL    = "https://api.dhan.co/v2/RenewToken"
+RENEW_URL = "https://api.dhan.co/v2/RenewToken"
 
 
 def generate_totp(secret: str) -> str:
@@ -98,8 +97,8 @@ def auto_generate_token() -> str | None:
     """
     import config
 
-    client_id   = config.DHAN_CLIENT_ID
-    pin         = os.getenv("DHAN_PIN", "")
+    client_id = config.DHAN_CLIENT_ID
+    pin = os.getenv("DHAN_PIN", "")
     totp_secret = os.getenv("DHAN_TOTP_SECRET", "")
 
     if not client_id or client_id == "YOUR_CLIENT_ID_HERE":
@@ -164,7 +163,7 @@ async def token_renewal_loop():
         await asyncio.sleep(RENEWAL_INTERVAL)
         log.info("[TokenManager] 🔄 Scheduled token renewal starting...")
 
-        client_id   = config.DHAN_CLIENT_ID
+        client_id = config.DHAN_CLIENT_ID
         totp_secret = os.getenv("DHAN_TOTP_SECRET", "")
 
         # Try renewal first (cheaper, no TOTP needed)
