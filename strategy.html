@@ -2803,6 +2803,7 @@
             <th style="padding: 8px 6px; text-align: center;">Dir</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
+            <th style="padding: 8px 6px; text-align: center;">Time</th>
             <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Lots</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
             <th style="padding: 8px 6px; text-align: center;">Reason</th>
@@ -3805,6 +3806,26 @@ async function deleteScalpHistoryTrade(tid) {
   refreshScalpStatus();
 }
 
+// ── Timestamp formatter for trade history ──
+function _fmtScalpTime(raw) {
+  // Accepts: "2026-03-10 13:37:55.123", "2026-03-10 13:37:55", "13:37:55", null
+  if (!raw || raw === 'None') return '—';
+  // If it's already HH:MM:SS, return as-is
+  if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
+  // Try to parse as Date and extract local HH:MM:SS
+  try {
+    // Backend sends IST naive timestamps like "2026-03-10 13:37:55"
+    // If no timezone info, treat as local time
+    const d = new Date(raw.replace(' ', 'T'));
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+  } catch(_) {}
+  // Last resort: extract time portion from "YYYY-MM-DD HH:MM:SS..."
+  const m = raw.match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : raw.slice(0, 8);
+}
+
 // ── Pagination state for trade history ──
 var _scalpHistPage = 1;
 var _SCALP_ROWS_PER_PAGE = 10;
@@ -3818,7 +3839,7 @@ function _renderScalpHistoryPage() {
   const page = _scalpAllClosed.slice(start, start + _SCALP_ROWS_PER_PAGE);
 
   if (!page.length) {
-    histBody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
+    histBody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
   } else {
     histBody.innerHTML = page.map(t => {
       const pnl = t.pnl || 0;
@@ -3826,13 +3847,21 @@ function _renderScalpHistoryPage() {
       const modeBadge = t.mode === 'paper'
         ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.15);color:rgb(251,191,36);border:1px solid rgba(245,158,11,0.3);">PAPER</span>`
         : `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.15);color:rgb(167,139,250);border:1px solid rgba(139,92,246,0.3);">LIVE</span>`;
+      // Format timestamps: "2026-03-10 13:37:55" → "13:37:55"
+      const entryTime = _fmtScalpTime(t.entry_time);
+      const exitTime = _fmtScalpTime(t.exit_time);
+      // Lots display: "2 Lots (130)" if qty > lot_size, else just "1"
+      const lots = t.lots || 1;
+      const qty = t.quantity || (lots * (t.lot_size || 1));
+      const lotsStr = lots > 1 ? `${lots} <span style="font-size:9px;color:var(--muted);">(${qty})</span>` : `${lots}`;
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
         <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.exit_premium||0).toFixed(2)}</td>
-        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${t.lots||1}</td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;" title="Entry: ${entryTime}&#10;Exit: ${exitTime}">${entryTime} → ${exitTime}</td>
+        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${lotsStr}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
         <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${(t.exit_reason||'').replace(/_/g,' ')}</td>
         <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
@@ -3898,33 +3927,67 @@ function _renderScalpStatus(data) {
     sessionPnl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
   }
 
-  // Active positions
+  // Active positions — GRANULAR DOM updates so typing in Target/SL inputs
+  // is never interrupted by the 3-second poll refresh.
   const tbody = document.getElementById('scalp-active-body');
   if (tbody) {
     const open = data.open_trades || [];
     document.getElementById('scalp-open-count').textContent = open.length + ' open';
+
+    // Build set of current trade IDs from server
+    const serverTids = new Set(open.map(t => t.trade_id));
+    // Build set of trade IDs currently rendered in the DOM
+    const domTids = new Set();
+    tbody.querySelectorAll('tr[data-tid]').forEach(tr => domTids.add(parseInt(tr.dataset.tid)));
+
+    // Decide: full rebuild or granular update?
+    // Full rebuild if: empty, trade added, trade removed
+    const sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+
     if (!open.length) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
+    } else if (!sameSet) {
+      // Full rebuild — trade set changed
+      tbody.innerHTML = open.map(t => _buildScalpActiveRow(t)).join('');
     } else {
-      tbody.innerHTML = open.map(t => {
-        const pnl = t.pnl || 0;
-        const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
-        const tgtVal = t.target_premium || 0;
-        const slVal = t.sl_premium || 0;
-        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
-          <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
-          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${(t.entry_premium||0).toFixed(2)}</td>
-          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${(t.current_premium||0).toFixed(2)}</td>
-          <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
-          <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',-10)">−</button><input type="number" id="scalp-tgt-${t.trade_id}" value="${tgtVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--green);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',10)">+</button></div></td>
-          <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',-10)">−</button><input type="number" id="scalp-sl-${t.trade_id}" value="${slVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--red);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',10)">+</button></div></td>
-          <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
-            <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
-            <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
-          </td>
-        </tr>`;
-      }).join('');
+      // Granular update — only touch LTP, P&L, Entry cells. Never touch inputs.
+      open.forEach(t => {
+        const ltpEl = document.getElementById('scalp-ltp-' + t.trade_id);
+        const pnlEl = document.getElementById('scalp-pnl-' + t.trade_id);
+        const entryEl = document.getElementById('scalp-entry-' + t.trade_id);
+        if (ltpEl) ltpEl.textContent = '₹' + (t.current_premium||0).toFixed(2);
+        if (pnlEl) {
+          const pnl = t.pnl || 0;
+          pnlEl.textContent = (pnl>=0?'+':'') + '₹' + pnl.toFixed(2);
+          pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+        }
+        if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
+        // Update input values ONLY if the user is not currently focused on them
+        const tgtInput = document.getElementById('scalp-tgt-' + t.trade_id);
+        const slInput = document.getElementById('scalp-sl-' + t.trade_id);
+        if (tgtInput && document.activeElement !== tgtInput) tgtInput.value = t.target_premium || 0;
+        if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
+      });
     }
+  }
+
+  function _buildScalpActiveRow(t) {
+    const pnl = t.pnl || 0;
+    const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+    const tgtVal = t.target_premium || 0;
+    const slVal = t.sl_premium || 0;
+    return `<tr data-tid="${t.trade_id}" style="border-bottom:1px solid rgba(255,255,255,0.03);">
+      <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
+      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
+      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
+      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
+      <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',-10)">−</button><input type="number" id="scalp-tgt-${t.trade_id}" value="${tgtVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--green);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',10)">+</button></div></td>
+      <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',-10)">−</button><input type="number" id="scalp-sl-${t.trade_id}" value="${slVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--red);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',10)">+</button></div></td>
+      <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
+        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
+        <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
+      </td>
+    </tr>`;
   }
 
   // Event log

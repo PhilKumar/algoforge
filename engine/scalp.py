@@ -629,17 +629,22 @@ class ScalpEngine:
                 # ── LIMIT order with aggressive slippage (not MARKET) ──────
                 # Dhan converts F&O MARKET orders to LIMIT with a conservative
                 # buffer for SELLs, causing them to hang as PENDING.
-                # We use a LIMIT at ±5% of LTP to guarantee immediate fill.
-                ltp = self._get_ltp(trade, tid) or trade.current_premium
+                # Slippage widens on each retry: 5% → 10% → 15%.
+                try:
+                    ltp = await asyncio.to_thread(self._get_ltp, trade, tid)
+                except Exception:
+                    ltp = 0.0
+                ltp = ltp or trade.current_premium
+                slippage = 0.05 + (trade._exit_retries * 0.05)  # 5%, 10%, 15%
                 if exit_txn == "SELL":
-                    exit_price = round(max(0.05, ltp * 0.95), 2)  # 5% below for fast fill
+                    exit_price = round(max(0.05, ltp * (1 - slippage)), 2)
                 else:
-                    exit_price = round(ltp * 1.05, 2)  # 5% above for fast fill
+                    exit_price = round(ltp * (1 + slippage), 2)
 
                 self._log(
                     "info",
                     f"🚀 Placing exit [{reason}]: {exit_txn} LIMIT @ ₹{exit_price} "
-                    f"(LTP=₹{ltp:.2f}) | trade={tid} retry={trade._exit_retries}",
+                    f"(LTP=₹{ltp:.2f}, slip={slippage:.0%}) | trade={tid} retry={trade._exit_retries}",
                 )
 
                 try:
@@ -698,11 +703,36 @@ class ScalpEngine:
                     exit_prem = float(fill["avg_price"])
                     self._log("info", f"📌 Exit fill verified: ₹{exit_prem:.2f} (orderId={exit_order_id})")
                 elif fill_status in ("REJECTED", "CANCELLED"):
+                    # Order was rejected — increment retry counter and leave trade open
+                    trade._exit_retries += 1
                     self._log(
                         "error",
                         f"🚨 Exit order {exit_order_id} was {fill_status}: {fill.get('message', '')} "
-                        f"| trade {tid} — MANUALLY VERIFY DHAN POSITION",
+                        f"| trade {tid} (retry {trade._exit_retries}/{_MAX_EXIT_RETRIES}) "
+                        f"— will retry on next tick",
                     )
+                    if trade._exit_retries < _MAX_EXIT_RETRIES:
+                        self._closing.discard(tid)
+                        return  # keep trade open for retry
+                    self._log("error", f"🚨🚨🚨 MAX RETRIES after {fill_status} for trade {tid}. Force-closing.")
+                    exit_order_id = "FAILED_CHECK_DHAN"
+                elif fill_status == "TIMEOUT":
+                    # Order is stuck PENDING at Dhan — cancel it and retry with wider slippage
+                    self._log(
+                        "warn",
+                        f"⚠️ Exit order {exit_order_id} still PENDING after 15s — cancelling and retrying",
+                    )
+                    try:
+                        await asyncio.to_thread(self.dhan.cancel_order, exit_order_id)
+                        self._log("info", f"Cancelled pending exit order {exit_order_id}")
+                    except Exception as cancel_err:
+                        self._log("error", f"Failed to cancel pending order {exit_order_id}: {cancel_err}")
+                    trade._exit_retries += 1
+                    if trade._exit_retries < _MAX_EXIT_RETRIES:
+                        self._closing.discard(tid)
+                        return  # keep trade open — next tick will retry with wider slippage
+                    self._log("error", f"🚨🚨🚨 MAX RETRIES after TIMEOUT for trade {tid}. Force-closing.")
+                    exit_order_id = "FAILED_CHECK_DHAN"
                 else:
                     self._log(
                         "warn",
