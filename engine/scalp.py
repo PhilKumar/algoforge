@@ -354,8 +354,7 @@ class ScalpEngine:
                 )
             elif transaction_type == "SELL" and sl_premium <= entry_premium:
                 warnings.append(
-                    f"⚠️ SL premium ₹{sl_premium} <= entry ₹{entry_premium:.2f} for SELL — "
-                    f"SL will trigger immediately."
+                    f"⚠️ SL premium ₹{sl_premium} <= entry ₹{entry_premium:.2f} for SELL — SL will trigger immediately."
                 )
         for w in warnings:
             self._log("warn", w)
