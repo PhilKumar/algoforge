@@ -543,8 +543,8 @@
     --card: rgba(255,255,255,0.96);
     --card2: rgba(248,250,252,0.98);
     --surface: rgba(248,250,252,0.95);
-    --border: rgba(15,23,42,0.06);
-    --border-hi: rgba(15,23,42,0.10);
+    --border: rgba(15,23,42,0.10);
+    --border-hi: rgba(15,23,42,0.14);
     --border-acc: rgba(5,150,105,0.12);
     --text: #0f172a;
     --text-dim: #1e293b;
@@ -877,6 +877,26 @@
     background: #ffffff !important;
     border: 1px solid rgba(15,23,42,0.10) !important;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.06) !important;
+  }
+  /* Live page: stat cards + signal/position/event panels (JS-rendered with inline styles) */
+  [data-theme="light"] #live-panels-container div[style*="border:1px solid var(--border)"][style*="border-radius"] {
+    background: #ffffff !important;
+    border: 1px solid rgba(15,23,42,0.12) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px -4px rgba(0,0,0,0.08) !important;
+  }
+  /* Live page: header bar */
+  [data-theme="light"] #live-panels-container > div:first-child {
+    background: rgba(255,255,255,0.97) !important;
+    border-color: rgba(15,23,42,0.10) !important;
+  }
+  /* Live page: conditions bar */
+  [data-theme="light"] #live-panels-container div[style*="background:rgba(0,0,0,0.15)"] {
+    background: rgba(0,0,0,0.03) !important;
+    border-color: rgba(15,23,42,0.08) !important;
+  }
+  /* Live page: tables inside panels */
+  [data-theme="light"] #live-panels-container table tr[style*="border-bottom:1px solid var(--border)"] {
+    border-bottom-color: rgba(15,23,42,0.08) !important;
   }
 
   /* Theme toggle is now integrated into topbar */
