@@ -256,8 +256,32 @@ class ScalpEngine:
                     tag="AF_SCALP",
                 )
                 order_id = result.get("orderId", "")
+                # Dhan may accept the API call (200) but reject on exchange side.
+                # Check for rejection signals in the response.
+                order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
+                if order_status in ("REJECTED", "CANCELLED", "FAILED"):
+                    reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
+                    return {"status": "error", "message": f"Order rejected by broker: {reason}"}
+                if not order_id:
+                    return {"status": "error", "message": f"No orderId returned: {result}"}
             except Exception as e:
                 return {"status": "error", "message": str(e)}
+
+            # Verify order was accepted — poll order status once after brief delay
+            try:
+                await asyncio.sleep(0.5)
+                order_book = await asyncio.to_thread(self.dhan.get_order_book)
+                for o in order_book:
+                    if str(o.get("orderId", "")) == str(order_id):
+                        o_status = str(o.get("orderStatus", "")).upper()
+                        if o_status in ("REJECTED", "CANCELLED"):
+                            reason = o.get("rejectedReason", o.get("remarks", "Unknown"))
+                            self._log("error", f"❌ Order {order_id} was {o_status}: {reason}")
+                            return {"status": "error", "message": f"Order {o_status}: {reason}"}
+                        break
+            except Exception as e:
+                self._log("error", f"Order verification failed: {e}")
+                # Continue — the order might still be valid
 
             # Get fill premium
             entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
