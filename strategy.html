@@ -3973,8 +3973,6 @@ async function submitScalpEntry(direction) {
 }
 
 async function exitScalpTrade(tradeId) {
-  const ok = await customConfirm('Exit this scalp position at market price?', { title: 'Exit Trade', okText: 'Exit Now', danger: true });
-  if (!ok) return;
   try {
     const res = await fetch('/api/scalp/exit/' + tradeId, { method: 'POST' });
     const data = await res.json();
