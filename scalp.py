@@ -98,6 +98,10 @@ class ScalpTrade:
         """Returns exit reason string if an exit rule is triggered, else None."""
         now = _now_ist()
 
+        # Don't auto-exit until entry price is known (backfill pending)
+        if self.entry_premium <= 0:
+            return None
+
         # Grace period: don't auto-exit within 3 seconds of entry.
         elapsed = (now - self.entry_time).total_seconds()
         if elapsed < 3:
@@ -351,6 +355,8 @@ class ScalpEngine:
                         # Backfill entry price if it was 0 at entry time
                         if trade.entry_premium == 0:
                             trade.entry_premium = current_prem
+                            # Reset grace period so check_exit waits 3s from backfill
+                            trade.entry_time = _now_ist()
                             if not trade.target_premium and hasattr(trade, "_target_pct") and trade._target_pct > 0:
                                 mult = 1 if trade.transaction_type == "BUY" else -1
                                 trade.target_premium = round(current_prem * (1 + mult * trade._target_pct / 100), 2)
