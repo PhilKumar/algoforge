@@ -3661,7 +3661,8 @@ function initScalpPage() {
     _scalpPollTimer = setInterval(refreshScalpStatus, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
   if (!_scalpLTPTimer) {
-    _scalpLTPTimer = setInterval(fetchScalpLTP, 5000);
+    // REST poll as fallback — 1.5s when no open-trade WS match, reduced from 5s
+    _scalpLTPTimer = setInterval(fetchScalpLTP, 1500);
   }
 }
 
@@ -3687,6 +3688,7 @@ function stepScalpField(inputId, delta) {
 
 let _ltpAbort = null;
 var _scalpCurrentLTP = 0;
+var _scalpLTPFromWS = 0;  // timestamp (ms) of last WS-driven LTP update
 async function fetchScalpLTP() {
   const el = document.getElementById('scalp-live-ltp');
   const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
@@ -3694,6 +3696,12 @@ async function fetchScalpLTP() {
   const optType = document.getElementById('scalp-option-type').value;
   const expiry = document.getElementById('scalp-expiry').value;
   if (!strike || !expiry) { el.textContent = '—'; el.style.color = 'var(--muted)'; _scalpCurrentLTP = 0; updateScalpMargin(); return; }
+
+  // Skip REST call if WS provided a fresh price within the last 2 seconds
+  // (avoids Dhan rate limits while WS is actively pushing open-trade data)
+  if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 2000) && _scalpCurrentLTP > 0) {
+    return;
+  }
 
   // Strategy 1: Try to pull LTP from an open trade matching this contract
   // (zero-cost — already fetched by the 3s status poll via WS/batch feed)
@@ -7989,6 +7997,40 @@ function _renderScalpStatusWS(data) {
       if (tgtInput && document.activeElement !== tgtInput) tgtInput.value = t.target_premium || 0;
       if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
     });
+  }
+
+  // ── Surgical Live Premium update from WS open trade data ──
+  // Piggyback on the 250ms WS push: if an open trade matches the form's
+  // instrument, update the Live Premium display with zero extra latency.
+  _updateLivePremiumFromWS(open);
+}
+
+/**
+ * Surgical DOM update for the Live Premium display.
+ * Reads instrument from form fields, finds matching open trade,
+ * writes directly to #scalp-live-ltp — no React, no re-render, no REST call.
+ */
+function _updateLivePremiumFromWS(openTrades) {
+  if (!openTrades || !openTrades.length) return;
+  const underlying = document.getElementById('scalp-underlying')?.value;
+  const strike = parseInt(document.getElementById('scalp-strike')?.value) || 0;
+  const optType = document.getElementById('scalp-option-type')?.value;
+  const expiry = document.getElementById('scalp-expiry')?.value;
+  if (!strike || !expiry) return;
+
+  const match = openTrades.find(t =>
+    t.underlying === underlying && t.strike === strike &&
+    t.option_type === optType && t.expiry === expiry &&
+    t.current_premium > 0
+  );
+  if (match) {
+    const el = _getScalpEl('scalp-live-ltp');
+    if (el) {
+      el.textContent = '₹' + match.current_premium.toFixed(2);
+      el.style.color = '#34d399';
+    }
+    _scalpCurrentLTP = match.current_premium;
+    _scalpLTPFromWS = Date.now();  // mark as fresh — suppresses REST fallback
   }
 }
 
