@@ -121,6 +121,11 @@ class PaperTradingEngine:
         try:
             state = {
                 "session_date": str(self.session_date) if self.session_date else None,
+                # Full configuration — enough to reconstruct the engine on restore
+                "strategy": self.strategy,
+                "entry_conditions": self.entry_conditions,
+                "exit_conditions": self.exit_conditions,
+                # Legacy compat keys
                 "strategy_name": self.strategy.get("run_name", ""),
                 "instrument": self.strategy.get("instrument", ""),
                 "in_trade": self.in_trade,
@@ -178,11 +183,18 @@ class PaperTradingEngine:
             self.current_candle = state.get("current_candle", {})
             self.current_indicators = state.get("current_indicators", {})
 
-            # Restore strategy name/instrument for display
-            if state.get("strategy_name"):
-                self.strategy["run_name"] = state["strategy_name"]
-            if state.get("instrument"):
-                self.strategy["instrument"] = state["instrument"]
+            # Restore full strategy config (new format) or fallback to legacy keys
+            if state.get("strategy"):
+                self.strategy = state["strategy"]
+            else:
+                if state.get("strategy_name"):
+                    self.strategy["run_name"] = state["strategy_name"]
+                if state.get("instrument"):
+                    self.strategy["instrument"] = state["instrument"]
+            if state.get("entry_conditions"):
+                self.entry_conditions = state["entry_conditions"]
+            if state.get("exit_conditions"):
+                self.exit_conditions = state["exit_conditions"]
 
             # Restore event log (convert time strings back to datetime)
             raw_log = state.get("event_log", [])
@@ -199,6 +211,14 @@ class PaperTradingEngine:
             print(f"[PAPER] Restored state: {n_trades} trades, {n_pos} positions, P&L=₹{pnl:,.2f}")
         except Exception as e:
             print(f"[PAPER] State load failed: {e}")
+
+    def _delete_state_file(self):
+        """Remove state file (called when engine is manually stopped)."""
+        try:
+            if os.path.exists(self._state_file):
+                os.remove(self._state_file)
+        except Exception as e:
+            print(f"[PAPER] State file delete failed: {e}")
 
     def configure(self, strategy: dict, entry_conditions: list, exit_conditions: list):
         """Configure the paper trading strategy"""

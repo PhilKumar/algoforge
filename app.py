@@ -2146,6 +2146,9 @@ async def paper_stop(request: Request):
 
     paper_engines.pop(run_id, None)
 
+    # Delete state file so engine doesn't auto-restore on next startup
+    engine._delete_state_file()
+
     # Save paper run to runs.json so it persists across restarts
     _save_paper_run_to_history(status_before)
 
@@ -3593,6 +3596,9 @@ async def _start_token_renewal():
     # ── Auto-restore live engines from persisted state ────────
     asyncio.create_task(_restore_live_engines())
 
+    # ── Auto-restore paper engines from persisted state ────────
+    asyncio.create_task(_restore_paper_engines())
+
 
 async def _restore_live_engines():
     """Scan for live_state_*.json files and re-start engines that were running."""
@@ -3666,6 +3672,83 @@ async def _restore_live_engines():
 
     if restored:
         print(f"🔄 [Restore] {restored} live engine(s) auto-restored from saved state")
+
+
+async def _restore_paper_engines():
+    """Scan for paper_state_*.json files and re-start engines that were running."""
+    import json as _json
+    from datetime import date as date_type
+
+    _here = os.path.dirname(__file__) or "."
+    today = str(date_type.today())
+    restored = 0
+
+    for fname in os.listdir(_here):
+        if not fname.startswith("paper_state_") or not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(_here, fname)
+        try:
+            with open(fpath, "r") as f:
+                state = _json.load(f)
+
+            # Skip stale sessions (not from today)
+            if state.get("session_date") != today:
+                print(f"🔄 [Restore] Skipping stale paper state: {fname} (date={state.get('session_date')})")
+                continue
+
+            strategy = state.get("strategy", {})
+            entry_conditions = state.get("entry_conditions", [])
+            exit_conditions = state.get("exit_conditions", [])
+
+            # Require full config — can't restore from legacy format
+            if not strategy:
+                print(f"🔄 [Restore] Skipping {fname}: no full strategy config saved")
+                continue
+
+            run_id = strategy.get("run_name", "paper") or "paper"
+
+            # Skip if already running
+            if run_id in paper_engines:
+                print(f"🔄 [Restore] Paper engine '{run_id}' already running — skipping")
+                continue
+
+            engine = PaperTradingEngine(dhan, run_id=run_id)
+            engine.configure(
+                strategy=strategy,
+                entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+                exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
+            )
+
+            # Inject WebSocket feed if available
+            if _market_feed and HAS_DHAN_FEED:
+                instrument = strategy.get("instrument", "26000")
+                _market_feed.subscribe_index(instrument)
+                if not _market_feed.is_running:
+                    _market_feed.start()
+                engine.set_feed(_market_feed)
+
+            # Restore trading state (positions, in_trade, closed trades, P&L, etc.)
+            engine._load_state()
+            engine.running = True
+
+            async def broadcast(event: dict, _rid=run_id):
+                for ws in ws_clients.copy():
+                    try:
+                        await ws.send_json({"source": "paper", "run_id": _rid, **event})
+                    except Exception:
+                        if ws in ws_clients:
+                            ws_clients.remove(ws)
+
+            paper_engines[run_id] = engine
+            _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            restored += 1
+            print(f"✅ [Restore] Paper engine '{run_id}' restored and started")
+
+        except Exception as e:
+            print(f"❌ [Restore] Failed to restore paper {fname}: {e}")
+
+    if restored:
+        print(f"🔄 [Restore] {restored} paper engine(s) auto-restored from saved state")
 
 
 @app.on_event("shutdown")
