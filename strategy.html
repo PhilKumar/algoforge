@@ -4135,6 +4135,26 @@ async function refreshScalpStatus() {
   } catch(e) { /* offline */ }
 }
 
+// Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
+function _buildScalpActiveRow(t) {
+  const pnl = t.pnl || 0;
+  const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+  const tgtVal = t.target_premium || 0;
+  const slVal = t.sl_premium || 0;
+  return `<tr data-tid="${t.trade_id}" style="border-bottom:1px solid rgba(255,255,255,0.03);">
+    <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
+    <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
+    <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
+    <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
+    <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',-10)">−</button><input type="number" id="scalp-tgt-${t.trade_id}" value="${tgtVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--green);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',10)">+</button></div></td>
+    <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',-10)">−</button><input type="number" id="scalp-sl-${t.trade_id}" value="${slVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--red);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',10)">+</button></div></td>
+    <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
+      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
+      <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
+    </td>
+  </tr>`;
+}
+
 function _renderScalpStatus(data) {
   const dot = document.getElementById('scalp-status-dot');
   const label = document.getElementById('scalp-status-label');
@@ -4200,25 +4220,6 @@ function _renderScalpStatus(data) {
         if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
       });
     }
-  }
-
-  function _buildScalpActiveRow(t) {
-    const pnl = t.pnl || 0;
-    const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
-    const tgtVal = t.target_premium || 0;
-    const slVal = t.sl_premium || 0;
-    return `<tr data-tid="${t.trade_id}" style="border-bottom:1px solid rgba(255,255,255,0.03);">
-      <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
-      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
-      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
-      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
-      <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',-10)">−</button><input type="number" id="scalp-tgt-${t.trade_id}" value="${tgtVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--green);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',10)">+</button></div></td>
-      <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',-10)">−</button><input type="number" id="scalp-sl-${t.trade_id}" value="${slVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--red);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',10)">+</button></div></td>
-      <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
-        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
-        <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
-      </td>
-    </tr>`;
   }
 
   // Event log
