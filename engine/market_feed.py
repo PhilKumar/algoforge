@@ -259,6 +259,12 @@ class LiveMarketFeed:
         # Historical data bootstrap (for indicators that need history)
         self._bootstrap_done = False
 
+        # Reconnect state
+        self._reconnect_lock = threading.Lock()
+        self._reconnecting = False
+        self._last_tick_time: Optional[datetime] = None
+        self._reconnect_count = 0
+
     # ── Subscription Management ───────────────────────────────
 
     def subscribe_index(self, instrument_id: str, label: str = None):
@@ -415,7 +421,14 @@ class LiveMarketFeed:
             return False
 
         self._running = True
+        self._reconnect_count = 0
+        ok = self._connect_ws()
+        if ok:
+            print(f"[FEED] ✅ WebSocket started — {len(self._subscriptions)} instruments subscribed")
+        return ok
 
+    def _connect_ws(self) -> bool:
+        """Create a fresh DhanFeed/MarketFeed and start it. Reusable for reconnect."""
         # Build instrument list for MarketFeed
         instruments = [(ex, str(sid), rtype) for ex, sid, rtype in self._subscriptions]
 
@@ -423,37 +436,46 @@ class LiveMarketFeed:
         token = self.dhan.access_token
         client_id = config.DHAN_CLIENT_ID
 
-        if _DHAN_FEED_V2:
-            # v2.2.0+ MarketFeed — uses dhan_context object + callbacks
-            ctx = _DhanContext(client_id, token)
-            self._feed = MarketFeed(
-                dhan_context=ctx,
-                instruments=instruments,
-                version="v2",
-                on_connect=self._on_connect,
-                on_message=self._on_message,
-                on_close=self._on_close,
-                on_error=self._on_error,
-            )
-        else:
-            # v2.0.x DhanFeed — positional args, no callbacks in constructor
-            self._feed = MarketFeed(
-                client_id,
-                token,
-                instruments,
-                version="v2",
-            )
-            self._feed.on_ticks = self._on_message_v1
+        try:
+            if _DHAN_FEED_V2:
+                ctx = _DhanContext(client_id, token)
+                self._feed = MarketFeed(
+                    dhan_context=ctx,
+                    instruments=instruments,
+                    version="v2",
+                    on_connect=self._on_connect,
+                    on_message=self._on_message,
+                    on_close=self._on_close,
+                    on_error=self._on_error,
+                )
+            else:
+                self._feed = MarketFeed(
+                    client_id,
+                    token,
+                    instruments,
+                    version="v2",
+                )
+                self._feed.on_ticks = self._on_message_v1
 
-        self._ws_thread = self._feed.start() if _DHAN_FEED_V2 else None
-        if not _DHAN_FEED_V2:
-            # v2.0.x run_forever blocks — run in a daemon thread
-            import threading
+            self._ws_thread = self._feed.start() if _DHAN_FEED_V2 else None
+            if not _DHAN_FEED_V2:
 
-            self._ws_thread = threading.Thread(target=self._feed.run_forever, daemon=True)
-            self._ws_thread.start()
-        print(f"[FEED] ✅ WebSocket started — {len(instruments)} instruments subscribed")
-        return True
+                def _run_forever_with_reconnect():
+                    try:
+                        self._feed.run_forever()
+                    except Exception as e:
+                        print(f"[FEED] ❌ run_forever crashed: {e}")
+                    # run_forever exited — means WS disconnected
+                    if self._running:
+                        print(f"[FEED] ⚠ run_forever exited at {_now_ist().strftime('%H:%M:%S')}")
+                        self._schedule_reconnect()
+
+                self._ws_thread = threading.Thread(target=_run_forever_with_reconnect, daemon=True)
+                self._ws_thread.start()
+            return True
+        except Exception as e:
+            print(f"[FEED] ❌ _connect_ws failed: {e}")
+            return False
 
     def stop(self):
         """Stop the WebSocket feed."""
@@ -475,18 +497,82 @@ class LiveMarketFeed:
     def is_running(self) -> bool:
         return self._running
 
+    @property
+    def last_tick_age_seconds(self) -> float:
+        """Seconds since the last tick was received. Returns -1 if no ticks yet."""
+        if self._last_tick_time is None:
+            return -1.0
+        return (_now_ist() - self._last_tick_time).total_seconds()
+
+    def check_health(self) -> bool:
+        """
+        Returns True if the feed is healthy (received a tick within last 60s).
+        If stale and running, triggers a reconnect.
+        """
+        if not self._running:
+            return False
+        age = self.last_tick_age_seconds
+        if age < 0:
+            # Never received a tick — give it time after start
+            return True
+        if age > 60:
+            print(f"[FEED] ⚠ No ticks for {age:.0f}s — triggering reconnect")
+            self._schedule_reconnect()
+            return False
+        return True
+
     # ── WebSocket Callbacks ───────────────────────────────────
 
     def _on_connect(self, ws):
+        self._reconnecting = False
+        self._last_tick_time = _now_ist()
         print(f"[FEED] ✅ WebSocket connected at {_now_ist().strftime('%H:%M:%S')}")
 
     def _on_close(self, ws):
         print(f"[FEED] ⚠ WebSocket closed at {_now_ist().strftime('%H:%M:%S')}")
         if self._running:
-            print("[FEED] Will auto-reconnect on next tick...")
+            self._schedule_reconnect()
 
     def _on_error(self, ws, error):
         print(f"[FEED] ❌ WebSocket error: {error}")
+        if self._running:
+            self._schedule_reconnect()
+
+    def _schedule_reconnect(self):
+        """Schedule a reconnect in a background thread (with backoff)."""
+        with self._reconnect_lock:
+            if self._reconnecting:
+                return
+            self._reconnecting = True
+
+        self._reconnect_count += 1
+        delay = min(5 * self._reconnect_count, 30)  # 5s, 10s, 15s... max 30s
+        print(f"[FEED] 🔄 Reconnecting in {delay}s (attempt #{self._reconnect_count})...")
+
+        def _do_reconnect():
+            import time
+
+            time.sleep(delay)
+            if not self._running:
+                return
+            # Close old feed
+            if self._feed:
+                try:
+                    self._feed.close_connection()
+                except Exception:
+                    pass
+                self._feed = None
+            ok = self._connect_ws()
+            if ok:
+                print(f"[FEED] ✅ Reconnected successfully (attempt #{self._reconnect_count})")
+                self._reconnect_count = 0
+            else:
+                self._reconnecting = False
+                if self._running:
+                    self._schedule_reconnect()
+
+        t = threading.Thread(target=_do_reconnect, daemon=True)
+        t.start()
 
     def _on_message_v1(self, data):
         """Adapter for v2.0.x DhanFeed on_ticks callback (no ws arg)."""
@@ -513,6 +599,7 @@ class LiveMarketFeed:
             return
 
         now = _now_ist()
+        self._last_tick_time = now
 
         # Update LTP cache (thread-safe)
         with self._lock:
