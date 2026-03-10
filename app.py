@@ -2787,39 +2787,51 @@ class ScalpEntryReq(BaseModel):
     mode: str = "live"
 
 
+_scalp_entry_lock = asyncio.Lock()
+_last_scalp_entry_ts: float = 0.0
+
+
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq):
-    eng = _get_scalp_engine()
-    try:
-        result = await eng.enter_trade(
-            underlying=req.underlying,
-            strike=req.strike,
-            option_type=req.option_type,
-            expiry=req.expiry,
-            transaction_type=req.transaction_type,
-            lots=req.lots,
-            lot_size=req.lot_size,
-            target_premium=req.target_premium,
-            sl_premium=req.sl_premium,
-            target_pct=req.target_pct,
-            sl_pct=req.sl_pct,
-            target_rupees=req.target_rupees,
-            sl_rupees=req.sl_rupees,
-            sqoff_time=req.sqoff_time,
-            mode=req.mode,
-        )
-        if result.get("status") == "error":
-            alerter.alert(
-                "Scalp Entry Failed",
-                f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
+    global _last_scalp_entry_ts
+    # Cooldown guard: reject entries within 2 seconds of the previous one
+    now = asyncio.get_event_loop().time()
+    if now - _last_scalp_entry_ts < 2.0:
+        return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
+    async with _scalp_entry_lock:
+        _last_scalp_entry_ts = asyncio.get_event_loop().time()
+        eng = _get_scalp_engine()
+        try:
+            result = await eng.enter_trade(
+                underlying=req.underlying,
+                strike=req.strike,
+                option_type=req.option_type,
+                expiry=req.expiry,
+                transaction_type=req.transaction_type,
+                lots=req.lots,
+                lot_size=req.lot_size,
+                target_premium=req.target_premium,
+                sl_premium=req.sl_premium,
+                target_pct=req.target_pct,
+                sl_pct=req.sl_pct,
+                target_rupees=req.target_rupees,
+                sl_rupees=req.sl_rupees,
+                sqoff_time=req.sqoff_time,
+                mode=req.mode,
             )
-        _notify_scalp_ws()
-        return result
-    except Exception as e:
-        alerter.alert(
-            "Scalp Entry Error", f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {e}"
-        )
-        raise HTTPException(status_code=500, detail=str(e))
+            if result.get("status") == "error":
+                alerter.alert(
+                    "Scalp Entry Failed",
+                    f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
+                )
+            _notify_scalp_ws()
+            return result
+        except Exception as e:
+            alerter.alert(
+                "Scalp Entry Error",
+                f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {e}",
+            )
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/scalp/exit/{trade_id}")

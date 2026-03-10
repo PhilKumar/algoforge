@@ -3873,7 +3873,14 @@ async function stopScalpEngine() {
   } catch(e) { toast('Failed to stop engine', 'error'); }
 }
 
+let _scalpEntryInFlight = false;
 async function submitScalpEntry(direction) {
+  if (_scalpEntryInFlight) return;  // prevent double-click
+  _scalpEntryInFlight = true;
+  // Disable BUY/SELL buttons while order is in flight
+  const btns = document.querySelectorAll('#scalp-page .btn[onclick*="submitScalpEntry"]');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
+  const _enableBtns = () => { _scalpEntryInFlight = false; btns.forEach(b => { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }); };
   const statusEl = document.getElementById('scalp-entry-status');
   statusEl.textContent = 'Placing order...';
   statusEl.style.color = 'var(--warn)';
@@ -3941,6 +3948,8 @@ async function submitScalpEntry(direction) {
   } catch(e) {
     statusEl.textContent = '❌ Error: ' + e.message;
     statusEl.style.color = 'var(--danger)';
+  } finally {
+    _enableBtns();
   }
 }
 
