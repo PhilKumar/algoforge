@@ -3065,6 +3065,15 @@ async def get_ticker():
                     return float(info.get("last_price", 0))
                 return 0.0
 
+            def _extract_prev_close(d, sid):
+                """Extract previous day close from Dhan OHLC response (ohlc.close = prev day close)."""
+                info = d.get(str(sid), {})
+                if isinstance(info, dict):
+                    ohlc = info.get("ohlc", {})
+                    if isinstance(ohlc, dict):
+                        return float(ohlc.get("close", 0))
+                return 0.0
+
             nifty_ltp = _extract_ltp(idx, 13)
             banknifty_ltp = _extract_ltp(idx, 25)
             midcpnifty_ltp = _extract_ltp(idx, 49)
@@ -3076,41 +3085,58 @@ async def get_ticker():
                 if correct_atm != atm_strike and ce_sid and pe_sid:
                     print(f"[TICKER] ATM shifted {atm_strike} → {correct_atm}, will correct next cycle")
 
-                # ATM CE/PE from same response
+                # ATM CE/PE from same response (with change% from ohlc.close)
                 atm_ce = {"price": 0, "change": 0, "pct": 0}
                 atm_pe = {"price": 0, "change": 0, "pct": 0}
                 if ce_sid:
                     ce_p = _extract_ltp(fno, ce_sid)
+                    ce_prev = _extract_prev_close(fno, ce_sid)
                     if ce_p > 0:
-                        atm_ce = {"price": round(ce_p, 2), "change": 0, "pct": 0}
+                        ce_chg = round(ce_p - ce_prev, 2) if ce_prev > 0 else 0
+                        ce_pct = round(((ce_p - ce_prev) / ce_prev) * 100, 2) if ce_prev > 0 else 0
+                        atm_ce = {"price": round(ce_p, 2), "change": ce_chg, "pct": ce_pct}
                 if pe_sid:
                     pe_p = _extract_ltp(fno, pe_sid)
+                    pe_prev = _extract_prev_close(fno, pe_sid)
                     if pe_p > 0:
-                        atm_pe = {"price": round(pe_p, 2), "change": 0, "pct": 0}
+                        pe_chg = round(pe_p - pe_prev, 2) if pe_prev > 0 else 0
+                        pe_pct = round(((pe_p - pe_prev) / pe_prev) * 100, 2) if pe_prev > 0 else 0
+                        atm_pe = {"price": round(pe_p, 2), "change": pe_chg, "pct": pe_pct}
                 if ce_sid or pe_sid:
                     print(f"[TICKER] ATM {atm_strike}: CE={atm_ce['price']}, PE={atm_pe['price']}")
 
-                # Index change% from yfinance prev close (cached daily)
-                # Dhan IDX_I doesn't provide net_change or prev close for indices
-                prev = _get_prev_close()
-
-                def _chg(ltp, key):
-                    pc = prev.get(key, 0)
+                # Index change% from Dhan OHLC prev close (ohlc.close = prev day close)
+                # Fallback to yfinance if Dhan prev close is missing
+                def _chg_from_ohlc(ltp, d, sid):
+                    pc = _extract_prev_close(d, sid)
                     if pc > 0:
                         return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
                     return 0, 0
 
-                n_chg, n_pct = _chg(nifty_ltp, "nifty")
-                s_chg, s_pct = _chg(sensex_ltp, "sensex")
+                n_chg, n_pct = _chg_from_ohlc(nifty_ltp, idx, 13)
+                s_chg, s_pct = _chg_from_ohlc(sensex_ltp, idx, 51)
+                bn_chg, bn_pct = _chg_from_ohlc(banknifty_ltp, idx, 25)
+                mc_chg, mc_pct = _chg_from_ohlc(midcpnifty_ltp, idx, 49)
+
+                # If Dhan didn't provide prev close, try yfinance as fallback
+                if n_chg == 0 and n_pct == 0 and nifty_ltp > 0:
+                    prev = _get_prev_close()
+
+                    def _chg_yf(ltp, key):
+                        pc = prev.get(key, 0)
+                        if pc > 0:
+                            return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
+                        return 0, 0
+
+                    n_chg, n_pct = _chg_yf(nifty_ltp, "nifty")
+                    s_chg, s_pct = _chg_yf(sensex_ltp, "sensex")
+
                 # VIX from NSE India (yfinance ^INDIAVIX delisted)
                 vix_data = _fetch_nse_vix()
                 vix_ltp = vix_data["price"]
                 vix_prev = vix_data["prev_close"]
                 v_chg = round(vix_ltp - vix_prev, 2) if vix_prev > 0 else 0
                 v_pct = round(((vix_ltp - vix_prev) / vix_prev) * 100, 2) if vix_prev > 0 else 0
-
-                bn_chg, bn_pct = _chg(banknifty_ltp, "banknifty")
-                mc_chg, mc_pct = _chg(midcpnifty_ltp, "midcpnifty")
 
                 result = {
                     "status": "ok",
