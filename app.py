@@ -425,7 +425,7 @@ async def serve_logo_png():
 import calendar as _cal
 import re as _re
 
-CHARTS_DIR = os.path.join(_HERE, "Daily Charts")
+CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
 
 # Build month-name lookup: JAN→1, JANUARY→1, FEB→2, FEBRUARY→2, …
 _MONTH_MAP: dict[str, int] = {}
