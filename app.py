@@ -2794,12 +2794,12 @@ _last_scalp_entry_ts: float = 0.0
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq):
     global _last_scalp_entry_ts
-    # Cooldown guard: reject entries within 2 seconds of the previous one
-    now = asyncio.get_event_loop().time()
-    if now - _last_scalp_entry_ts < 2.0:
-        return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
     async with _scalp_entry_lock:
-        _last_scalp_entry_ts = asyncio.get_event_loop().time()
+        # Cooldown guard INSIDE lock to prevent race condition
+        now = asyncio.get_event_loop().time()
+        if now - _last_scalp_entry_ts < 2.0:
+            return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
+        _last_scalp_entry_ts = now
         eng = _get_scalp_engine()
         try:
             result = await eng.enter_trade(
