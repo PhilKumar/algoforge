@@ -69,3 +69,4 @@ trade_history.json
 .token_lock
 *.tmp
 *.log
+Daily Charts/

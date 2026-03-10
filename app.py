@@ -494,7 +494,10 @@ async def serve_charts_viewer(request: Request):
 @app.get("/api/charts/tree")
 async def charts_tree():
     """Return directory tree adapted to Daily Charts/ folder structure."""
+    print(f"[CHARTS] Scanning CHARTS_DIR: {CHARTS_DIR}")
+    print(f"[CHARTS] Exists: {os.path.isdir(CHARTS_DIR)}")
     if not os.path.isdir(CHARTS_DIR):
+        print("[CHARTS] Directory NOT found – returning empty tree")
         return {"years": {}}
     tree: dict = {}
     for year in sorted(os.listdir(CHARTS_DIR)):
@@ -541,6 +544,9 @@ async def charts_tree():
             continue
         months_list.sort(key=lambda m: m["num"])
         tree[year] = months_list
+    print(
+        f"[CHARTS] Tree result: {len(tree)} years, total days: {sum(sum(len(m['days']) for m in ms) for ms in tree.values())}"
+    )
     return {"years": tree}
 
 
