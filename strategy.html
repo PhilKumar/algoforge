@@ -3679,12 +3679,27 @@ function stepScalpStrike(dir) {
   fetchScalpLTP();
 }
 
+// Track user-edited scalp inputs — suppress WS/REST overwrites for 5s
+const _scalpDirtyInputs = {};
+const _SCALP_DIRTY_TTL = 5000; // ms
+function _markScalpInputDirty(inputId) { _scalpDirtyInputs[inputId] = Date.now(); }
+function _isScalpInputDirty(inputId) { return _scalpDirtyInputs[inputId] && (Date.now() - _scalpDirtyInputs[inputId] < _SCALP_DIRTY_TTL); }
+function _clearScalpInputDirty(tradeId) { delete _scalpDirtyInputs['scalp-tgt-' + tradeId]; delete _scalpDirtyInputs['scalp-sl-' + tradeId]; }
+
 function stepScalpField(inputId, delta) {
   const inp = document.getElementById(inputId);
   if (!inp) return;
   const cur = parseFloat(inp.value) || 0;
   inp.value = Math.max(0, cur + delta);
+  _markScalpInputDirty(inputId);
 }
+
+// Also mark dirty on manual typing (delegated to scalp-active-body)
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id && (e.target.id.startsWith('scalp-tgt-') || e.target.id.startsWith('scalp-sl-'))) {
+    _markScalpInputDirty(e.target.id);
+  }
+});
 
 let _ltpAbort = null;
 var _scalpCurrentLTP = 0;
@@ -4015,6 +4030,7 @@ async function modifyScalpTrade(tradeId) {
     });
     const data = await res.json();
     if (data.status === 'ok') {
+      _clearScalpInputDirty(tradeId);
       toast(`Trade #${tradeId} updated — TP: ₹${newTarget || '—'} SL: ₹${newSL || '—'}`, 'success');
       refreshScalpStatus();
     } else {
@@ -4211,11 +4227,11 @@ function _renderScalpStatus(data) {
           pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
         }
         if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
-        // Update input values ONLY if the user is not currently focused on them
+        // Update input values ONLY if user is not focused or hasn't recently edited
         const tgtInput = document.getElementById('scalp-tgt-' + t.trade_id);
         const slInput = document.getElementById('scalp-sl-' + t.trade_id);
-        if (tgtInput && document.activeElement !== tgtInput) tgtInput.value = t.target_premium || 0;
-        if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
+        if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
+        if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
       });
     }
   }
@@ -8001,11 +8017,11 @@ function _renderScalpStatusWS(data) {
         pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
       }
       if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
-      // Update inputs only when not focused
+      // Update inputs only when not focused and not recently edited by user
       const tgtInput = _getScalpEl('scalp-tgt-' + t.trade_id);
       const slInput = _getScalpEl('scalp-sl-' + t.trade_id);
-      if (tgtInput && document.activeElement !== tgtInput) tgtInput.value = t.target_premium || 0;
-      if (slInput && document.activeElement !== slInput) slInput.value = t.sl_premium || 0;
+      if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
+      if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
     });
   }
 
