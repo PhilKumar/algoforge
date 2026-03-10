@@ -1781,6 +1781,22 @@ async def live_status(run_id: str = ""):
     }
 
 
+@app.get("/api/live/debug")
+async def live_debug(run_id: str = ""):
+    """Deep diagnostic of live engine state — call when trades aren't triggering."""
+    engine = None
+    if run_id and run_id in live_engines:
+        engine = live_engines[run_id]
+    else:
+        for e in live_engines.values():
+            if e.running:
+                engine = e
+                break
+    if not engine:
+        return {"error": "No live engine running", "engines": list(live_engines.keys())}
+    return engine.debug_engine_state()
+
+
 @app.get("/api/live/trades/csv")
 async def export_live_trades_csv(run_id: str = ""):
     """Export live auto-trading trades to CSV"""

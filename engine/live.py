@@ -97,7 +97,11 @@ class LiveEngine:
         self.current_candle: dict = {}
         self.current_indicators: dict = {}
         self._prev_row = None
-        self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle  # For crossover detection
+        self._entry_signal_pending = False  # LEGACY compat — now driven by _pending_order
+
+        # ── "Quantman Way" — 1-second candle-boundary execution ──
+        self._pending_order: Optional[dict] = None  # Rich signal context for next-candle entry
+        self._last_processed_candle_time: Optional[datetime] = None  # Double-trigger guard
 
         # Logging
         self.event_log: List[dict] = []
@@ -162,6 +166,72 @@ class LiveEngine:
                 callback(event)
         except Exception as e:
             print(f"[LIVE] Callback error: {e}")
+
+    # ── Diagnostic / Debug ─────────────────────────────────────
+    def debug_engine_state(self) -> dict:
+        """Return a comprehensive snapshot of engine state for debugging silent failures.
+        Call from /api endpoint or logging to diagnose why trades aren't triggering."""
+        feed_status = "not_injected"
+        last_tick_age = -1.0
+        ws_connected = False
+        if self._feed:
+            ws_connected = getattr(self._feed, "is_running", False)
+            last_tick_age = getattr(self._feed, "last_tick_age_seconds", -1.0)
+            feed_status = "running" if ws_connected else "stopped"
+
+        pending_info = None
+        if self._pending_order:
+            po = self._pending_order
+            pending_info = {
+                "signal_candle_time": str(po.get("signal_candle_time")),
+                "created_at": str(po.get("created_at")),
+                "attempts": po.get("attempts", 0),
+                "retry_at": str(po.get("retry_at")) if po.get("retry_at") else None,
+                "age_seconds": (_now_ist() - po["created_at"]).total_seconds() if po.get("created_at") else 0,
+            }
+
+        return {
+            "timestamp": _now_ist().isoformat(),
+            "is_running": self.running,
+            "is_trade_active": self.in_trade,
+            "ws_mode": self._ws_mode,
+            "is_websocket_connected": ws_connected,
+            "feed_status": feed_status,
+            "last_tick_age_seconds": round(last_tick_age, 1),
+            "current_spot": self.current_spot,
+            "current_signal_status": {
+                "entry_signal_pending": self._entry_signal_pending,
+                "pending_order": pending_info,
+                "last_processed_candle_time": str(self._last_processed_candle_time),
+            },
+            "trading_state": {
+                "trades_today": self.trades_today,
+                "max_trades_per_day": self.strategy.get("max_trades_per_day", 1),
+                "daily_pnl": round(self.daily_pnl, 2),
+                "max_daily_loss": self.max_daily_loss,
+                "daily_loss_hit": self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss,
+                "open_positions": len(self.positions),
+                "closed_trades": len(self.closed_trades),
+            },
+            "data_state": {
+                "candle_buffer_rows": len(self.candle_buffer),
+                "candle_buffer_empty": self.candle_buffer.empty,
+                "has_indicators": bool(self.current_indicators),
+                "has_candle": bool(self.current_candle),
+            },
+            "positions": [
+                {
+                    "id": p.get("id"),
+                    "symbol": p.get("display_symbol"),
+                    "status": p.get("status"),
+                    "entry_premium": p.get("entry_premium"),
+                    "current_premium": p.get("current_premium"),
+                    "unrealized_pnl": p.get("unrealized_pnl"),
+                    "exit_attempts": p.get("_exit_attempts", 0),
+                }
+                for p in self.positions
+            ],
+        }
 
     # ── Main Loop ─────────────────────────────────────────────
     async def start(self, callback=None):
@@ -365,19 +435,9 @@ class LiveEngine:
                             self.log_event("warning", f"⚠ No ticks for {age:.0f}s — feed may be dead, checking health")
                             self._feed.check_health()
 
-                    # No new candle — but execute pending entry immediately
-                    if self._entry_signal_pending and not self.in_trade:
-                        max_trades = self.strategy.get("max_trades_per_day", 1)
-                        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
-                        if self.trades_today < max_trades and not daily_loss_hit:
-                            self._entry_signal_pending = False
-                            latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                            if latest_row is not None:
-                                self.log_event(
-                                    "entry",
-                                    f"🚀 Executing pending entry at {_now_ist().strftime('%H:%M:%S')} (next candle open)",
-                                )
-                                await self._enter_trade(latest_row, callback)
+                    # ── "Quantman Way" — flush pending order at 1st second of new candle ──
+                    await self._try_flush_pending_order(callback)
+
                     if callback:
                         await self._emit(callback, self.get_status())
                     continue
@@ -404,22 +464,55 @@ class LiveEngine:
                 latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
                 self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
 
-                # Check entry
+                # ── Check entry (Quantman Way — signal → pendingOrder → flush on next candle) ──
                 max_trades = self.strategy.get("max_trades_per_day", 1)
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
                 if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
                     # Execute pending signal from previous candle (enter on THIS candle's open)
-                    if self._entry_signal_pending:
-                        self._entry_signal_pending = False
-                        self.log_event("entry", "🚀 Executing pending entry (next candle open)")
-                        await self._enter_trade(latest_row, callback)
+                    if self._pending_order:
+                        po = self._pending_order
+                        # Double-trigger guard
+                        if self._last_processed_candle_time == po.get("signal_candle_time"):
+                            self.log_event("debug", "Duplicate pending order for already-processed candle — discarding")
+                            self._clear_pending_order()
+                        else:
+                            self.log_event(
+                                "entry",
+                                f"🚀 Executing pending entry (candle boundary @ {_now_ist().strftime('%H:%M:%S')})",
+                            )
+                            await self._flush_pending_order(latest_row, callback)
                     else:
+                        # Evaluate new signal on this closed candle
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
                         entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
                         if entry_sig:
+                            candle_time = latest_candle.get("timestamp", now)
+                            self._pending_order = {
+                                "signal_candle_time": candle_time,
+                                "created_at": _now_ist(),
+                                "row": latest_row,
+                                "attempts": 0,
+                                "retry_at": None,
+                            }
                             self._entry_signal_pending = True
-                            self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT candle open")
+                            self.log_event(
+                                "signal",
+                                f"⚡ ENTRY SIGNAL @ candle {candle_time} — will enter on NEXT candle open (1st second)",
+                            )
+                elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
+                    # Signal exists but can't execute — log WHY and clear
+                    reason = (
+                        "in_trade=True"
+                        if self.in_trade
+                        else (
+                            f"trades_today({self.trades_today})>=max({max_trades})"
+                            if self.trades_today >= max_trades
+                            else f"daily_loss_hit(PnL={self.daily_pnl:.0f})"
+                        )
+                    )
+                    self.log_event("warning", f"⚠ Pending order cleared — cannot execute: {reason}")
+                    self._clear_pending_order()
 
                 self._prev_row = latest_row
 
@@ -497,9 +590,110 @@ class LiveEngine:
         except Exception:
             pass
 
+    # ── Pending Order Management (Quantman Way) ──────────────
+    def _clear_pending_order(self):
+        """Clear pending order state."""
+        self._pending_order = None
+        self._entry_signal_pending = False
+
+    async def _flush_pending_order(self, row: pd.Series, callback=None):
+        """Execute the pending order with retry-once logic.
+        Returns True if entry succeeded, False otherwise."""
+        po = self._pending_order
+        if not po:
+            return False
+
+        po["attempts"] = po.get("attempts", 0) + 1
+        attempt = po["attempts"]
+
+        self.log_event("entry", f"🚀 Firing entry (attempt {attempt}/2) at {_now_ist().strftime('%H:%M:%S.%f')[:12]}")
+
+        await self._enter_trade(row, callback)
+
+        if self.in_trade:
+            # Success — mark candle as processed
+            self._last_processed_candle_time = po.get("signal_candle_time")
+            self.log_event("entry", f"✅ Entry succeeded on attempt {attempt}")
+            self._clear_pending_order()
+            return True
+        else:
+            # Entry failed
+            if attempt >= 2:
+                self.log_event(
+                    "error", f"❌ Entry FAILED after {attempt} attempts — giving up. Check debug_engine_state()."
+                )
+                self._clear_pending_order()
+                return False
+            else:
+                # Schedule retry in ~4 seconds
+                po["retry_at"] = _now_ist() + timedelta(seconds=4)
+                self.log_event(
+                    "warning",
+                    f"⚠ Entry failed (attempt {attempt}). Retry scheduled at {po['retry_at'].strftime('%H:%M:%S')}",
+                )
+                return False
+
+    async def _try_flush_pending_order(self, callback=None):
+        """Check and execute pending order from the 1-second poll loop.
+        Implements: Quantman Way timing, double-trigger guard, retry-once, stale expiry."""
+        if not self._pending_order:
+            return
+
+        po = self._pending_order
+        now = _now_ist()
+
+        # ── Stale signal expiry (older than 2 candle periods) ──
+        if po.get("created_at"):
+            age = (now - po["created_at"]).total_seconds()
+            max_age = self._get_timeframe() * 60 * 2
+            if age > max_age:
+                self.log_event("warning", f"⚠ Stale pending order expired ({age:.0f}s old, max={max_age}s)")
+                self._clear_pending_order()
+                return
+
+        # ── Guard: can we trade? ──
+        if self.in_trade:
+            # Don't silently hang — log it
+            if po.get("_in_trade_warn", 0) == 0:
+                self.log_event("warning", "⚠ Pending order waiting — in_trade=True (position still open)")
+                po["_in_trade_warn"] = 1
+            return
+
+        max_trades = self.strategy.get("max_trades_per_day", 1)
+        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+        if self.trades_today >= max_trades:
+            self.log_event("info", f"Pending order cleared — max trades reached ({self.trades_today}/{max_trades})")
+            self._clear_pending_order()
+            return
+        if daily_loss_hit:
+            self.log_event("info", f"Pending order cleared — daily loss limit hit (PnL: ₹{self.daily_pnl:.0f})")
+            self._clear_pending_order()
+            return
+
+        # ── Double-trigger guard ──
+        if self._last_processed_candle_time == po.get("signal_candle_time"):
+            self.log_event("debug", "Double-trigger blocked — candle already processed")
+            self._clear_pending_order()
+            return
+
+        # ── Retry timing check ──
+        if po.get("retry_at") and now < po["retry_at"]:
+            return  # Wait for retry window
+
+        # ── FIRE THE ORDER ──
+        latest_row = po.get("row")
+        if latest_row is None:
+            latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+        if latest_row is None:
+            self.log_event("error", "Cannot execute pending order — no candle data available")
+            self._clear_pending_order()
+            return
+
+        await self._flush_pending_order(latest_row, callback)
+
     # ── Tick ──────────────────────────────────────────────────
     async def _tick(self, callback=None):
-        """Single tick — fetch data, evaluate conditions, manage trades."""
+        """Single tick — fetch data, evaluate conditions, manage trades (REST fallback)."""
         now = _now_ist()
         self.current_time = now
         cur_time = now.time()
@@ -553,23 +747,47 @@ class LiveEngine:
             if exit_reason:
                 await self._exit_position(pos, exit_reason, current_premium, callback)
 
-        # ── Check entry conditions ──
+        # ── Check entry conditions (REST mode — same Quantman Way logic) ──
         max_trades = self.strategy.get("max_trades_per_day", 1)
         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
-        if daily_loss_hit and not self.in_trade:
-            pass  # Skip — daily loss limit hit
-        elif self.trades_today < max_trades and not self.in_trade:
-            # Execute pending signal from previous tick (enter on THIS candle)
-            if self._entry_signal_pending:
-                self._entry_signal_pending = False
-                self.log_event("entry", "🚀 Executing pending entry (next candle open)")
-                await self._enter_trade(latest_row, callback)
+        if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
+            # Execute pending signal from previous tick
+            if self._pending_order:
+                po = self._pending_order
+                # Retry timing check
+                if po.get("retry_at") and now < po["retry_at"]:
+                    pass  # Wait for retry window
+                elif self._last_processed_candle_time == po.get("signal_candle_time"):
+                    self.log_event("debug", "Double-trigger blocked (REST mode)")
+                    self._clear_pending_order()
+                else:
+                    self.log_event("entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (REST mode)")
+                    await self._flush_pending_order(latest_row, callback)
             else:
                 entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
                 if entry_sig:
+                    self._pending_order = {
+                        "signal_candle_time": latest_row.name if hasattr(latest_row, "name") else now,
+                        "created_at": now,
+                        "row": latest_row,
+                        "attempts": 0,
+                        "retry_at": None,
+                    }
                     self._entry_signal_pending = True
-                    self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT candle open")
+                    self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT poll (REST mode)")
+        elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
+            reason = (
+                "in_trade=True"
+                if self.in_trade
+                else (
+                    f"trades_today({self.trades_today})>=max({max_trades})"
+                    if self.trades_today >= max_trades
+                    else f"daily_loss_hit(PnL={self.daily_pnl:.0f})"
+                )
+            )
+            self.log_event("warning", f"⚠ Pending order cleared (REST): {reason}")
+            self._clear_pending_order()
 
         self._prev_row = latest_row
 
