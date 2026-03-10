@@ -1711,6 +1711,11 @@ async def live_start(req: LiveStartRequest):
     # Store engine and start task
     live_engines[run_id] = engine
     _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+
+    # Persist config + state immediately so it survives server restarts
+    engine.session_date = date.today()
+    engine._save_state()
+
     return {"status": "started", "run_id": run_id, "message": "Auto trading started with REAL orders"}
 
 
@@ -1747,6 +1752,9 @@ async def live_stop(request: Request):
         except asyncio.CancelledError:
             pass
     live_engines.pop(run_id, None)
+
+    # Delete state file so engine doesn't auto-restore on next startup
+    engine._delete_state_file()
 
     # Persist live run to runs.json (same as paper)
     _save_live_run_to_history(status_before)
@@ -3403,6 +3411,83 @@ async def _start_token_renewal():
     # Auto-backfill trade history — runs in a thread so startup returns instantly
     asyncio.create_task(_backfill_in_background())
 
+    # ── Auto-restore live engines from persisted state ────────
+    asyncio.create_task(_restore_live_engines())
+
+
+async def _restore_live_engines():
+    """Scan for live_state_*.json files and re-start engines that were running."""
+    import json as _json
+    from datetime import date as date_type
+
+    _here = os.path.dirname(__file__) or "."
+    today = str(date_type.today())
+    restored = 0
+
+    for fname in os.listdir(_here):
+        if not fname.startswith("live_state_") or not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(_here, fname)
+        try:
+            with open(fpath, "r") as f:
+                state = _json.load(f)
+
+            # Skip stale sessions (not from today)
+            if state.get("session_date") != today:
+                print(f"🔄 [Restore] Skipping stale state: {fname} (date={state.get('session_date')})")
+                continue
+
+            strategy = state.get("strategy", {})
+            entry_conditions = state.get("entry_conditions", [])
+            exit_conditions = state.get("exit_conditions", [])
+            deploy_config = state.get("deploy_config", {})
+            run_id = strategy.get("run_name", "live") or "live"
+
+            # Skip if an engine with this run_id already exists
+            if run_id in live_engines:
+                print(f"🔄 [Restore] Engine '{run_id}' already running — skipping")
+                continue
+
+            # Reconstruct engine with full config
+            engine = LiveEngine(dhan, run_id=run_id)
+            engine.configure(
+                strategy=strategy,
+                entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+                exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
+                deploy_config=deploy_config,
+            )
+
+            # Inject WebSocket feed if available
+            if _market_feed and HAS_DHAN_FEED:
+                instrument = strategy.get("instrument", "26000")
+                _market_feed.subscribe_index(instrument)
+                if not _market_feed.is_running:
+                    _market_feed.start()
+                engine.set_feed(_market_feed)
+
+            # Restore trading state (positions, in_trade, closed trades, P&L, etc.)
+            engine._load_state()
+            engine.running = True
+
+            async def broadcast(event: dict, _rid=run_id):
+                for ws in ws_clients.copy():
+                    try:
+                        await ws.send_json({"source": "live", "run_id": _rid, **event})
+                    except Exception:
+                        if ws in ws_clients:
+                            ws_clients.remove(ws)
+
+            live_engines[run_id] = engine
+            _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            restored += 1
+            print(f"✅ [Restore] Live engine '{run_id}' restored and started")
+
+        except Exception as e:
+            print(f"❌ [Restore] Failed to restore {fname}: {e}")
+
+    if restored:
+        print(f"🔄 [Restore] {restored} live engine(s) auto-restored from saved state")
+
 
 @app.on_event("shutdown")
 async def _shutdown_cleanup():
@@ -3417,12 +3502,12 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved paper engine: {run_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save paper engine {run_id}: {e}")
-    # Save all running live engines
+    # Save all running live engines (state file for auto-restore + runs.json for history)
     for run_id, engine in list(live_engines.items()):
         try:
             status = engine.get_status()
             if engine.running:
-                engine.stop()
+                engine.stop()  # stop() calls _save_state() internally
             _save_live_run_to_history(status)
             print(f"🛑 [Shutdown] Saved live engine: {run_id}")
         except Exception as e:

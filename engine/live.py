@@ -8,6 +8,8 @@ Two modes:
      → conditions evaluated per poll → ~30-90 second latency"""
 
 import asyncio
+import json as _json
+import math
 from datetime import date as date_type
 from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
@@ -33,6 +35,9 @@ from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
 
+# ── State File ────────────────────────────────────────────────
+_STATE_DIR = os.path.dirname(os.path.dirname(__file__))
+
 
 # Lazy import to avoid circular dependency
 def _get_instrument_map():
@@ -57,6 +62,13 @@ class LiveEngine:
         self.session_date = None
         self.mode = "auto"  # "auto" for real orders
         self.run_id = run_id  # Unique ID for multi-engine support
+
+        # Per-instance state file for persistence
+        if run_id:
+            safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
+            self._state_file = os.path.join(_STATE_DIR, f"live_state_{safe_id}.json")
+        else:
+            self._state_file = os.path.join(_STATE_DIR, "live_state.json")
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None  # LiveMarketFeed instance
@@ -148,6 +160,116 @@ class LiveEngine:
                 "info",
                 f"Strategy TP: ₹{self._tp_rupees:,.0f}" if self._tp_rupees > 0 else f"Strategy TP: {self._tp_pct}%",
             )
+
+    # ── STATE PERSISTENCE ─────────────────────────────────────
+    def _save_state(self):
+        """Persist full engine config + trading state to disk so it survives restarts."""
+        try:
+            state = {
+                "session_date": str(self.session_date) if self.session_date else None,
+                # Full configuration — enough to reconstruct the engine
+                "strategy": self.strategy,
+                "entry_conditions": self.entry_conditions,
+                "exit_conditions": self.exit_conditions,
+                "deploy_config": self.deploy_config,
+                # Trading state
+                "in_trade": self.in_trade,
+                "positions": self.positions,
+                "closed_trades": self.closed_trades,
+                "trades_today": self.trades_today,
+                "daily_pnl": self.daily_pnl,
+                "strat_sl_val": self.strat_sl_val,
+                "strat_tp_val": self.strat_tp_val,
+                "trade_entry_prem": self.trade_entry_prem,
+                # Market data snapshot
+                "current_spot": self.current_spot,
+                "current_time": str(self.current_time) if self.current_time else None,
+                "current_candle": self.current_candle,
+                "current_indicators": {
+                    k: (v if not isinstance(v, float) or not math.isnan(v) else None)
+                    for k, v in self.current_indicators.items()
+                },
+                "event_log": [
+                    {
+                        "time": e["time"].strftime("%Y-%m-%d %H:%M:%S")
+                        if isinstance(e["time"], datetime)
+                        else str(e["time"]),
+                        "type": e["type"],
+                        "message": e["message"],
+                    }
+                    for e in self.event_log[-100:]
+                ],
+                "saved_at": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            with open(self._state_file, "w") as f:
+                _json.dump(state, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[LIVE] State save failed: {e}")
+
+    def _load_state(self):
+        """Load last session state from disk (called on __init__)."""
+        try:
+            if not os.path.exists(self._state_file):
+                return
+            with open(self._state_file, "r") as f:
+                state = _json.load(f)
+
+            # Only restore if the session was from today (stale sessions are ignored)
+            saved_date = state.get("session_date")
+            today = str(date_type.today())
+            if saved_date != today:
+                print(f"[LIVE] Stale state from {saved_date} (today={today}) — ignoring")
+                return
+
+            # Restore full configuration
+            self.session_date = date_type.today()
+            if state.get("strategy"):
+                self.strategy = state["strategy"]
+            if state.get("entry_conditions"):
+                self.entry_conditions = state["entry_conditions"]
+            if state.get("exit_conditions"):
+                self.exit_conditions = state["exit_conditions"]
+            if state.get("deploy_config"):
+                self.deploy_config = state["deploy_config"]
+
+            # Restore trading state
+            self.in_trade = state.get("in_trade", False)
+            self.positions = state.get("positions", [])
+            self.closed_trades = state.get("closed_trades", [])
+            self.trades_today = state.get("trades_today", 0)
+            self.daily_pnl = state.get("daily_pnl", 0.0)
+            self.strat_sl_val = state.get("strat_sl_val", 0.0)
+            self.strat_tp_val = state.get("strat_tp_val", 0.0)
+            self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
+
+            # Restore market data snapshot
+            self.current_spot = state.get("current_spot", 0.0)
+            self.current_candle = state.get("current_candle", {})
+            self.current_indicators = state.get("current_indicators", {})
+
+            # Restore event log (convert time strings back to datetime)
+            raw_log = state.get("event_log", [])
+            for entry in raw_log:
+                try:
+                    t = datetime.strptime(entry["time"], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    t = _now_ist()
+                self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
+
+            n_trades = len(self.closed_trades)
+            n_pos = len(self.positions)
+            pnl = sum(t.get("pnl", 0) for t in self.closed_trades)
+            print(f"[LIVE] Restored state: {n_trades} trades, {n_pos} open positions, P&L=₹{pnl:,.2f}")
+        except Exception as e:
+            print(f"[LIVE] State load failed: {e}")
+
+    def _delete_state_file(self):
+        """Remove state file (called when engine is manually stopped)."""
+        try:
+            if os.path.exists(self._state_file):
+                os.remove(self._state_file)
+        except Exception as e:
+            print(f"[LIVE] State file delete failed: {e}")
 
     # ── Logging ───────────────────────────────────────────────
     def log_event(self, event_type: str, message: str, data: dict = None):
@@ -301,6 +423,7 @@ class LiveEngine:
         self.log_event(
             "info", f"Session: {len(self.closed_trades)} trades | Winners: {win_count} | P&L: ₹{total_pnl:,.2f}"
         )
+        self._save_state()  # Persist final state
 
     # ── WebSocket Event-Driven Mode ───────────────────────────
     async def _run_ws_mode(self, callback=None):
@@ -1159,6 +1282,7 @@ class LiveEngine:
                 self.log_event("info", f"🎯 Strategy TP: ₹{self.strat_tp_val:,.0f}")
 
             self.log_event("info", f"📊 Trade #{self.trades_today}: {len(entered_positions)} legs opened")
+            self._save_state()  # Persist after trade entry
         else:
             self.log_event("error", "No legs could be entered")
 
@@ -1298,6 +1422,7 @@ class LiveEngine:
             self.log_event(
                 "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | Daily P&L: ₹{self.daily_pnl:,.2f}"
             )
+        self._save_state()  # Persist after trade close
 
     # ── Exit Condition Check ──────────────────────────────────
     def _check_exit_conditions(self, pos: dict, row: pd.Series, current_premium: float) -> Optional[str]:
