@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AlgoForge — Chart Viewer</title>
+<link rel="icon" href="logo.png" type="image/png">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:         #080d14;
+  --surface:    rgba(15, 22, 36, 0.88);
+  --card:       rgba(18, 26, 42, 0.85);
+  --card2:      rgba(22, 32, 50, 0.80);
+  --border:     rgba(255, 255, 255, 0.065);
+  --border-hi:  rgba(255, 255, 255, 0.12);
+  --border-acc: rgba(0, 191, 165, 0.18);
+  --text:       #dde3ee;
+  --text-dim:   rgba(221, 227, 238, 0.65);
+  --muted:      rgba(180, 195, 215, 0.5);
+  --accent:     #00bfa5;
+  --accent2:    #4f8ef7;
+  --green:      #34d399;
+  --red:        #f87171;
+  --warn:       #fbbf24;
+  --purple:     #a78bfa;
+  --glass-hi:   rgba(255, 255, 255, 0.18);
+  --glass-mid:  rgba(255, 255, 255, 0.09);
+  --glass-lo:   rgba(255, 255, 255, 0.04);
+}
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 900px 700px at 15% 25%, rgba(0,191,165,0.045) 0%, transparent 68%),
+    radial-gradient(ellipse 700px 600px at 82% 72%, rgba(79,142,247,0.032) 0%, transparent 68%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100vh;
+  margin: 0;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0) 30%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ── Topbar ── */
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  background: linear-gradient(180deg, rgba(12,18,30,0.96), rgba(8,13,20,0.92));
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(32px) saturate(1.4);
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.topbar-brand img { width: 32px; height: 32px; border-radius: 8px; }
+.topbar-brand-text {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 1.5px;
+  background: linear-gradient(130deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.topbar-brand-sub {
+  font-size: 9.5px;
+  color: var(--muted);
+  letter-spacing: 0.6px;
+  margin-top: -2px;
+}
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 16px;
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--border-hi); }
+.topbar-btn.active { background: rgba(0,191,165,0.12); border-color: var(--accent); color: var(--accent); }
+
+/* ── Layout ── */
+.layout {
+  display: flex;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  gap: 18px;
+  min-height: calc(100vh - 56px);
+}
+
+/* ── Sidebar (Tree) ── */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 74px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.sidebar-card {
+  background: linear-gradient(160deg, rgba(20,28,46,0.90), rgba(13,18,32,0.85));
+  border: 1px solid var(--border);
+  border-top: 1px solid var(--border-hi);
+  border-radius: 14px;
+  padding: 16px;
+  backdrop-filter: blur(32px) saturate(1.35);
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 6px 28px rgba(0,0,0,0.42);
+}
+.sidebar-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Accordion tree */
+.tree-year, .tree-month {
+  margin-bottom: 2px;
+}
+.tree-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tree-toggle:hover { background: rgba(255,255,255,0.05); }
+.tree-toggle .arrow {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.2s;
+}
+.tree-toggle.open .arrow { transform: rotate(90deg); }
+.tree-toggle .year-label { font-weight: 600; font-size: 15px; }
+.tree-toggle .month-label { font-weight: 500; color: var(--text-dim); }
+.tree-toggle .count {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  background: rgba(255,255,255,0.04);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+.tree-children {
+  display: none;
+  padding-left: 10px;
+}
+.tree-children.open { display: block; }
+
+.day-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px 6px 28px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.day-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.day-btn.active {
+  background: rgba(0,191,165,0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+.day-btn .day-icon { font-size: 11px; opacity: 0.5; }
+
+/* ── Main Content ── */
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+.content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.content-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.content-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.badge {
+  background: rgba(0,191,165,0.12);
+  border: 1px solid rgba(0,191,165,0.25);
+  color: var(--accent);
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Empty State ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state .empty-icon { font-size: 52px; margin-bottom: 16px; opacity: 0.5; }
+.empty-state h3 { font-family: 'Syne', sans-serif; font-size: 18px; color: var(--text-dim); margin-bottom: 6px; }
+.empty-state p { font-size: 13px; max-width: 340px; line-height: 1.6; }
+
+/* ── Image Grid ── */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.chart-card {
+  background: linear-gradient(160deg, rgba(20,28,46,0.90), rgba(13,18,32,0.85));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.chart-card:hover {
+  border-color: var(--border-hi);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.chart-card img {
+  width: 100%;
+  aspect-ratio: 16/10;
+  object-fit: cover;
+  display: block;
+  background: rgba(0,0,0,0.3);
+}
+.chart-card-info {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.chart-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.chart-card-idx {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+}
+
+/* ── Lightbox ── */
+.lightbox-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(4, 8, 16, 0.94);
+  backdrop-filter: blur(20px);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+.lightbox-overlay.open { display: flex; }
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 20px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+.lightbox-close:hover { background: rgba(248,113,113,0.2); border-color: var(--red); color: var(--red); }
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 22px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.12); border-color: var(--border-hi); }
+.lightbox-nav.prev { left: 16px; }
+.lightbox-nav.next { right: 16px; }
+.lightbox-nav:disabled { opacity: 0.2; cursor: default; }
+
+.lightbox-img-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 92vw;
+  max-height: 82vh;
+  position: relative;
+}
+.lightbox-img-wrap img {
+  max-width: 92vw;
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 60px rgba(0,0,0,0.6);
+  cursor: zoom-in;
+  transition: transform 0.3s ease;
+}
+.lightbox-img-wrap img.zoomed {
+  cursor: zoom-out;
+  transform: scale(1.8);
+}
+
+.lightbox-caption {
+  margin-top: 14px;
+  text-align: center;
+}
+.lightbox-caption .lb-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.lightbox-caption .lb-count {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 3px;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ── Loading skeleton ── */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .layout { flex-direction: column; padding: 12px; }
+  .sidebar { width: 100%; position: static; max-height: none; }
+  .chart-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .lightbox-nav { width: 36px; height: 36px; font-size: 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Topbar ── -->
+<div class="app-topbar">
+  <a href="/" class="topbar-brand">
+    <img src="logo.png" alt="AlgoForge">
+    <div>
+      <div class="topbar-brand-text">ALGOFORGE</div>
+      <div class="topbar-brand-sub">Chart Viewer</div>
+    </div>
+  </a>
+  <div class="topbar-right">
+    <a href="/" class="topbar-btn">← Back to Dashboard</a>
+    <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())">Logout</button>
+  </div>
+</div>
+
+<!-- ── Layout ── -->
+<div class="layout">
+
+  <!-- Sidebar: Year → Month → Day tree -->
+  <aside class="sidebar">
+    <div class="sidebar-card">
+      <div class="sidebar-title">📂 Chart History</div>
+      <div id="tree-container">
+        <div class="empty-state" style="min-height:120px;">
+          <p style="font-size:12px;">Loading...</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content area -->
+  <main class="main-content">
+    <div id="content-area">
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h3>Select a Date</h3>
+        <p>Choose a year, month, and day from the sidebar to browse your historical trading charts.</p>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<!-- ── Lightbox ── -->
+<div class="lightbox-overlay" id="lightbox">
+  <button class="lightbox-close" onclick="closeLightbox()" title="Close (Esc)">✕</button>
+  <button class="lightbox-nav prev" onclick="lbNav(-1)">‹</button>
+  <button class="lightbox-nav next" onclick="lbNav(1)">›</button>
+  <div class="lightbox-img-wrap">
+    <img id="lb-img" src="" alt="Chart" onclick="toggleZoom(this)">
+  </div>
+  <div class="lightbox-caption">
+    <div class="lb-name" id="lb-name"></div>
+    <div class="lb-count" id="lb-count"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let treeData = {};         // {year: [{folder, label, num, days: [{folder, label, sort}]}]}
+let currentImages = [];    // [{name, url}]
+let currentDateLabel = '';
+let lbIndex = 0;
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', loadTree);
+
+async function loadTree() {
+  try {
+    const r = await fetch('/api/charts/tree', { credentials: 'same-origin' });
+    const d = await r.json();
+    treeData = d.years || {};
+    renderTree();
+  } catch (e) {
+    document.getElementById('tree-container').innerHTML =
+      '<div class="empty-state" style="min-height:120px;"><p style="font-size:12px;color:var(--red);">Failed to load chart tree</p></div>';
+  }
+}
+
+function renderTree() {
+  const container = document.getElementById('tree-container');
+  const years = Object.keys(treeData).sort().reverse();
+
+  if (!years.length) {
+    container.innerHTML =
+      '<div class="empty-state" style="min-height:120px;">' +
+      '<p style="font-size:12px;">No charts found.<br>Add JPGs to <code style="color:var(--accent);font-size:11px;">Daily Charts/YYYY/Mon_YYYY/DD_MM_YYYY/</code></p></div>';
+    return;
+  }
+
+  let html = '';
+  years.forEach((year, yi) => {
+    const months = treeData[year]; // already sorted by month_num from backend
+    const totalDays = months.reduce((s, m) => s + m.days.length, 0);
+    const yearOpen = yi === 0 ? ' open' : '';
+
+    html += '<div class="tree-year">';
+    html += '<button class="tree-toggle' + yearOpen + '" onclick="toggleTree(this)">';
+    html += '<span class="arrow">▶</span>';
+    html += '<span class="year-label">📅 ' + year + '</span>';
+    html += '<span class="count">' + totalDays + 'd</span>';
+    html += '</button>';
+    html += '<div class="tree-children' + yearOpen + '">';
+
+    months.forEach((mo, mi) => {
+      const monthOpen = yi === 0 && mi === 0 ? ' open' : '';
+
+      html += '<div class="tree-month">';
+      html += '<button class="tree-toggle' + monthOpen + '" onclick="toggleTree(this)">';
+      html += '<span class="arrow">▶</span>';
+      html += '<span class="month-label">' + mo.label + '</span>';
+      html += '<span class="count">' + mo.days.length + '</span>';
+      html += '</button>';
+      html += '<div class="tree-children' + monthOpen + '">';
+
+      mo.days.forEach(day => {
+        const esc = (s) => s.replace(/'/g, "\\'");
+        html += '<button class="day-btn" onclick="selectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',this)">';
+        html += '<span class="day-icon">📄</span> ' + day.label;
+        html += '</button>';
+      });
+
+      html += '</div></div>';
+    });
+
+    html += '</div></div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function toggleTree(btn) {
+  btn.classList.toggle('open');
+  const children = btn.nextElementSibling;
+  if (children) children.classList.toggle('open');
+}
+
+// ── Load Images for a Day ──
+async function selectDay(year, monthFolder, dayFolder, dateLabel, btn) {
+  document.querySelectorAll('.day-btn.active').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  currentDateLabel = dateLabel;
+  const area = document.getElementById('content-area');
+  area.innerHTML = '<div class="chart-grid">' +
+    '<div class="skeleton" style="height:200px;"></div>'.repeat(4) +
+    '</div>';
+
+  try {
+    const url = '/api/charts/images/' + encodeURIComponent(year) + '/' + encodeURIComponent(monthFolder) + '/' + encodeURIComponent(dayFolder);
+    const r = await fetch(url, { credentials: 'same-origin' });
+    const d = await r.json();
+    currentImages = (d.images || []).map((name, i) => ({
+      name: name,
+      url: d.urls[i]
+    }));
+    renderImages();
+  } catch (e) {
+    area.innerHTML = '<div class="empty-state"><h3 style="color:var(--red);">Failed to load</h3><p>' + e.message + '</p></div>';
+  }
+}
+
+function renderImages() {
+  const area = document.getElementById('content-area');
+
+  if (!currentImages.length) {
+    area.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><h3>No Charts</h3><p>No images found for this date</p></div>';
+    return;
+  }
+
+  let html = '<div class="content-header">';
+  html += '<div><div class="content-title">' + currentDateLabel + '</div>';
+  html += '<div class="content-subtitle">Historical trading charts</div></div>';
+  html += '<span class="badge">' + currentImages.length + ' chart' + (currentImages.length > 1 ? 's' : '') + '</span>';
+  html += '</div>';
+  html += '<div class="chart-grid">';
+
+  currentImages.forEach((img, i) => {
+    html += '<div class="chart-card" onclick="openLightbox(' + i + ')">';
+    html += '<img src="' + img.url + '" alt="' + img.name + '" loading="lazy">';
+    html += '<div class="chart-card-info">';
+    html += '<span class="chart-card-name" title="' + img.name + '">' + img.name + '</span>';
+    html += '<span class="chart-card-idx">#' + (i + 1) + '</span>';
+    html += '</div></div>';
+  });
+
+  html += '</div>';
+  area.innerHTML = html;
+}
+
+// ── Lightbox ──
+function openLightbox(index) {
+  lbIndex = index;
+  updateLightbox();
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.body.style.overflow = '';
+  document.getElementById('lb-img').classList.remove('zoomed');
+}
+
+function updateLightbox() {
+  const img = currentImages[lbIndex];
+  if (!img) return;
+  const lbImg = document.getElementById('lb-img');
+  lbImg.src = img.url;
+  lbImg.alt = img.name;
+  lbImg.classList.remove('zoomed');
+  document.getElementById('lb-name').textContent = img.name;
+  document.getElementById('lb-count').textContent = (lbIndex + 1) + ' / ' + currentImages.length;
+  document.querySelector('.lightbox-nav.prev').disabled = lbIndex === 0;
+  document.querySelector('.lightbox-nav.next').disabled = lbIndex === currentImages.length - 1;
+}
+
+function lbNav(dir) {
+  const next = lbIndex + dir;
+  if (next < 0 || next >= currentImages.length) return;
+  lbIndex = next;
+  updateLightbox();
+}
+
+function toggleZoom(img) {
+  img.classList.toggle('zoomed');
+}
+
+// Keyboard navigation
+document.addEventListener('keydown', function(e) {
+  const lb = document.getElementById('lightbox');
+  if (!lb.classList.contains('open')) return;
+  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'ArrowLeft') lbNav(-1);
+  if (e.key === 'ArrowRight') lbNav(1);
+});
+</script>
+</body>
+</html>

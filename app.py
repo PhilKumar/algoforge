@@ -421,6 +421,159 @@ async def serve_logo_png():
     return FileResponse("logo.png")
 
 
+# ── Chart Viewer ──────────────────────────────────────────────────
+import calendar as _cal
+import re as _re
+
+CHARTS_DIR = os.path.join(_HERE, "Daily Charts")
+
+# Build month-name lookup: JAN→1, JANUARY→1, FEB→2, FEBRUARY→2, …
+_MONTH_MAP: dict[str, int] = {}
+for _i in range(1, 13):
+    _MONTH_MAP[_cal.month_abbr[_i].upper()] = _i
+    _MONTH_MAP[_cal.month_name[_i].upper()] = _i
+
+
+def _parse_month_folder(name: str):
+    """Parse 'APR_2023' / 'Apr-2024' / 'JULY_2023' → (month_num, label) or None."""
+    parts = _re.split(r"[_-]", name, maxsplit=1)
+    if len(parts) < 2:
+        return None
+    num = _MONTH_MAP.get(parts[0].upper()) or _MONTH_MAP.get(parts[0].upper()[:3])
+    if num is None:
+        return None
+    return num, _cal.month_abbr[num]
+
+
+def _parse_day_folder(name: str):
+    """Parse day folder → (sort_key, display_label) or fallback to name itself."""
+    # DD_MM_YYYY or DD-MM-YYYY (all numeric)
+    m = _re.match(r"^(\d{1,2})[_-](\d{1,2})[_-](\d{4})$", name)
+    if m:
+        dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
+    # DD-Mon-YYYY (e.g. 01-Feb-2026)
+    m = _re.match(r"^(\d{1,2})-([A-Za-z]+)-(\d{4})$", name)
+    if m:
+        dd = int(m.group(1))
+        num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
+        if num:
+            return f"{int(m.group(3)):04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
+    # Fallback (ranges like Feb-12-15, Feb-4-5-6)
+    return name, name
+
+
+def _safe_charts_subpath(*parts: str) -> str | None:
+    """Resolve path under CHARTS_DIR; return None if traversal detected."""
+    for p in parts:
+        if "/" in p or "\\" in p or ".." in p:
+            return None
+    candidate = os.path.join(CHARTS_DIR, *parts)
+    if not os.path.realpath(candidate).startswith(os.path.realpath(CHARTS_DIR)):
+        return None
+    return candidate
+
+
+@app.get("/charts-viewer", response_class=HTMLResponse)
+async def serve_charts_viewer(request: Request):
+    """Serve the historical chart viewer page (auth-protected)."""
+    token = _get_session_token(request)
+    if not _validate_session(token):
+        login_path = os.path.join(_HERE, "login.html")
+        if os.path.exists(login_path):
+            with open(login_path, encoding="utf-8") as f:
+                return HTMLResponse(f.read())
+        return HTMLResponse("<h2>login.html not found</h2>")
+    html_path = os.path.join(_HERE, "charts.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("<h2>charts.html not found. Place it beside app.py</h2>")
+
+
+@app.get("/api/charts/tree")
+async def charts_tree():
+    """Return directory tree adapted to Daily Charts/ folder structure."""
+    if not os.path.isdir(CHARTS_DIR):
+        return {"years": {}}
+    tree: dict = {}
+    for year in sorted(os.listdir(CHARTS_DIR)):
+        year_path = os.path.join(CHARTS_DIR, year)
+        if not os.path.isdir(year_path) or not year.isdigit():
+            continue
+        months_list = []
+        for mfolder in os.listdir(year_path):
+            month_path = os.path.join(year_path, mfolder)
+            if not os.path.isdir(month_path):
+                continue
+            parsed = _parse_month_folder(mfolder)
+            if parsed is None:
+                continue
+            month_num, month_label = parsed
+            days_list = []
+            for dfolder in os.listdir(month_path):
+                day_path = os.path.join(month_path, dfolder)
+                if not os.path.isdir(day_path):
+                    continue
+                has_img = any(f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) for f in os.listdir(day_path))
+                if not has_img:
+                    continue
+                sort_key, day_label = _parse_day_folder(dfolder)
+                days_list.append(
+                    {
+                        "folder": dfolder,
+                        "label": day_label,
+                        "sort": sort_key,
+                    }
+                )
+            if not days_list:
+                continue
+            days_list.sort(key=lambda d: d["sort"])
+            months_list.append(
+                {
+                    "folder": mfolder,
+                    "label": month_label,
+                    "num": month_num,
+                    "days": days_list,
+                }
+            )
+        if not months_list:
+            continue
+        months_list.sort(key=lambda m: m["num"])
+        tree[year] = months_list
+    return {"years": tree}
+
+
+@app.get("/api/charts/images/{year}/{month}/{day}")
+async def charts_images(year: str, month: str, day: str):
+    """Return list of image URLs for a specific date folder."""
+    day_path = _safe_charts_subpath(year, month, day)
+    if day_path is None:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isdir(day_path):
+        return {"images": [], "urls": [], "date": day}
+    images = sorted(f for f in os.listdir(day_path) if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")))
+    from urllib.parse import quote
+
+    return {
+        "images": images,
+        "date": day,
+        "urls": [f"/charts-static/{quote(year)}/{quote(month)}/{quote(day)}/{quote(img)}" for img in images],
+    }
+
+
+@app.get("/charts-static/{year}/{month}/{day}/{filename}")
+async def serve_chart_image(year: str, month: str, day: str, filename: str):
+    """Serve a single chart image file."""
+    safe_name = os.path.basename(filename)
+    if not safe_name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    file_path = _safe_charts_subpath(year, month, day, safe_name)
+    if file_path is None or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(file_path)
+
+
 # ── Brute-Force Protection ────────────────────────────────────────
 _login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = 5
