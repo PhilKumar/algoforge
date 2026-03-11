@@ -160,10 +160,20 @@ _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 # Global rate limiter for /v2/marketfeed/* endpoints (shared across all callers)
 _mf_last_call: float = 0.0
 _MF_MIN_INTERVAL: float = 1.0  # seconds between marketfeed REST calls
+_mf_throttle_enabled: bool = False  # activated by ScalpEngine when a trade is open
+
+
+def enable_marketfeed_throttle(on: bool = True):
+    """Toggle the global marketfeed rate-limiter (called by ScalpEngine)."""
+    global _mf_throttle_enabled
+    _mf_throttle_enabled = on
 
 
 def _throttle_marketfeed():
-    """Block until at least _MF_MIN_INTERVAL has elapsed since the last marketfeed call."""
+    """Block until at least _MF_MIN_INTERVAL has elapsed since the last marketfeed call.
+    Only active when a live scalp trade is open."""
+    if not _mf_throttle_enabled:
+        return
     global _mf_last_call
     now = _time.monotonic()
     wait = _MF_MIN_INTERVAL - (now - _mf_last_call)

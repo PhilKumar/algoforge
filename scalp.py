@@ -14,7 +14,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from broker.dhan import ScripMaster
+from broker.dhan import ScripMaster, enable_marketfeed_throttle
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -318,6 +318,10 @@ class ScalpEngine:
             except Exception:
                 pass
 
+        # Enable broker-level marketfeed throttle while scalp trades are open
+        if mode == "live":
+            enable_marketfeed_throttle(True)
+
         mode_label = "[PAPER] " if mode == "paper" else ""
         self._log(
             "entry",
@@ -525,6 +529,10 @@ class ScalpEngine:
 
         self.closed_trades.append(trade.to_dict())
         self.open_trades.pop(trade.trade_id, None)
+
+        # Disable throttle when no live trades remain
+        if not any(t.mode == "live" for t in self.open_trades.values()):
+            enable_marketfeed_throttle(False)
 
         pnl_sign = "+" if pnl >= 0 else ""
         self._log(
