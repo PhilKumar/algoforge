@@ -2365,6 +2365,9 @@ def _save_paper_run_to_history(status: dict):
     """Save a completed paper trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
+        if not closed:
+            print("[PAPER] No closed trades — skipping runs.json")
+            return
 
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
@@ -2483,6 +2486,9 @@ def _save_live_run_to_history(status: dict):
     """Save a completed live (auto) trading run to runs.json for history."""
     try:
         closed = status.get("closed_trades", [])
+        if not closed:
+            print("[LIVE] No closed trades — skipping runs.json")
+            return
 
         runs = _load_runs()
         max_id = max([r.get("id", 0) for r in runs], default=0)
@@ -3026,6 +3032,19 @@ async def bulk_delete_runs(request: Request):
     runs = _load_runs()
     _save_runs([r for r in runs if r.get("id") not in id_set])
     return {"deleted": len(id_set)}
+
+
+@app.post("/api/runs/cleanup-empty")
+async def cleanup_empty_runs():
+    """Remove all 0-trade paper/live runs from runs.json."""
+    runs = _load_runs()
+    before = len(runs)
+    cleaned = [
+        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
+    ]
+    _save_runs(cleaned)
+    removed = before - len(cleaned)
+    return {"removed": removed, "remaining": len(cleaned)}
 
 
 @app.get("/api/runs/{rid}")
@@ -3810,6 +3829,16 @@ async def _start_token_renewal():
 
     # Auto-backfill trade history — runs in a thread so startup returns instantly
     asyncio.create_task(_backfill_in_background())
+
+    # Cleanup 0-trade paper/live entries left by prior deploys/restarts
+    runs = _load_runs()
+    before = len(runs)
+    cleaned = [
+        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
+    ]
+    if len(cleaned) < before:
+        _save_runs(cleaned)
+        print(f"🧹 [STARTUP] Removed {before - len(cleaned)} empty 0-trade runs from runs.json")
 
     # ── Auto-restore live engines from persisted state ────────
     asyncio.create_task(_restore_live_engines())
