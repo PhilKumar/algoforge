@@ -8659,6 +8659,14 @@ fetchRuns = async function() {
           credentials: 'same-origin',
           body: fd,
         });
+        if (!r.ok) {
+          const ct = r.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const err = await r.json();
+            throw new Error(err.detail || 'Upload failed (' + r.status + ')');
+          }
+          throw new Error('Server error ' + r.status + (r.status === 413 ? ' — file too large' : ''));
+        }
         const d = await r.json();
         if (d.status !== 'ok') throw new Error(d.detail || d.message || 'Upload failed');
         console.log('[Charts] Upload OK:', d.filename);
