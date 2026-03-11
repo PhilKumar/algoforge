@@ -3182,7 +3182,7 @@
             <input type="text" id="cj-asset" class="cj-input" placeholder="e.g. NIFTY 24000 CE" maxlength="100">
           </label>
           <label class="cj-label">Strategy Used
-            <select id="cj-strategy" class="cj-input">
+            <select id="cj-strategy" class="cj-input" onchange="window._cjStrategyChanged()">
               <option value="">— Select —</option>
               <option value="CPR Bounce">CPR Bounce</option>
               <option value="Mean Reversion">Mean Reversion</option>
@@ -3190,6 +3190,7 @@
               <option value="Scalp">Scalp</option>
               <option value="Other">Other</option>
             </select>
+            <input type="text" id="cj-strategy-custom" class="cj-input" placeholder="Name your strategy…" maxlength="100" style="display:none;margin-top:6px;">
           </label>
           <fieldset class="cj-fieldset">
             <legend class="cj-legend">Execution Grade</legend>
@@ -8680,7 +8681,7 @@ fetchRuns = async function() {
   //  JOURNAL — auto-save on change, persist to backend + localStorage
   // ══════════════════════════════════════════════════════════
   function _cjBindForm() {
-    const fields = ['cj-asset', 'cj-strategy', 'cj-well', 'cj-improve', 'cj-mental'];
+    const fields = ['cj-asset', 'cj-strategy', 'cj-well', 'cj-improve', 'cj-mental', 'cj-strategy-custom'];
     fields.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', _cjScheduleSave);
@@ -8698,9 +8699,12 @@ fetchRuns = async function() {
 
   function _cjGetFormData() {
     const grade = document.querySelector('input[name="cj-grade"]:checked');
+    const sel = document.getElementById('cj-strategy').value || '';
+    const custom = (document.getElementById('cj-strategy-custom').value || '').trim().slice(0, 100);
     return {
       asset: (document.getElementById('cj-asset').value || '').slice(0, 100),
-      strategy: document.getElementById('cj-strategy').value || '',
+      strategy: sel === 'Other' && custom ? custom : sel,
+      strategy_custom: sel === 'Other' ? custom : '',
       grade: grade ? grade.value : '',
       went_well: (document.getElementById('cj-well').value || '').slice(0, 2000),
       to_improve: (document.getElementById('cj-improve').value || '').slice(0, 2000),
@@ -8710,7 +8714,17 @@ fetchRuns = async function() {
 
   function _cjSetFormData(d) {
     document.getElementById('cj-asset').value = d.asset || '';
-    document.getElementById('cj-strategy').value = d.strategy || '';
+    const customInput = document.getElementById('cj-strategy-custom');
+    if (d.strategy_custom) {
+      document.getElementById('cj-strategy').value = 'Other';
+      customInput.value = d.strategy_custom;
+      customInput.style.display = '';
+    } else {
+      const sel = document.getElementById('cj-strategy');
+      sel.value = d.strategy || '';
+      if (!sel.value && d.strategy) { sel.value = 'Other'; customInput.value = d.strategy; customInput.style.display = ''; }
+      else { customInput.value = ''; customInput.style.display = 'none'; }
+    }
     document.getElementById('cj-well').value = d.went_well || '';
     document.getElementById('cj-improve').value = d.to_improve || '';
     document.getElementById('cj-mental').value = d.mental_state || '';
@@ -8722,6 +8736,8 @@ fetchRuns = async function() {
   function _cjClearForm() {
     document.getElementById('cj-asset').value = '';
     document.getElementById('cj-strategy').value = '';
+    document.getElementById('cj-strategy-custom').value = '';
+    document.getElementById('cj-strategy-custom').style.display = 'none';
     document.getElementById('cj-well').value = '';
     document.getElementById('cj-improve').value = '';
     document.getElementById('cj-mental').value = '';
@@ -8895,6 +8911,14 @@ fetchRuns = async function() {
       console.warn('[Journal] Entries load failed:', e);
     }
   }
+
+  window._cjStrategyChanged = function() {
+    const sel = document.getElementById('cj-strategy');
+    const custom = document.getElementById('cj-strategy-custom');
+    if (sel.value === 'Other') { custom.style.display = ''; custom.focus(); }
+    else { custom.style.display = 'none'; custom.value = ''; }
+    _cjScheduleSave();
+  };
 
   window._cjSelectEntry = function(dateStr) {
     _cjCurrentDate = dateStr;
