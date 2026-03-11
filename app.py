@@ -3135,6 +3135,22 @@ async def get_scalp_trades():
     return _load_scalp_trades()
 
 
+@app.post("/api/scalp/trades/bulk-delete")
+async def bulk_delete_scalp_trades(request: Request):
+    """Bulk-delete scalp trades by trade_id list."""
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    id_set = set(ids)
+    trades = _load_scalp_trades()
+    _save_scalp_trades([t for t in trades if t.get("trade_id") not in id_set])
+    if _scalp_engine is not None:
+        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") not in id_set]
+    _notify_scalp_ws()
+    return {"deleted": len(id_set)}
+
+
 @app.delete("/api/scalp/trades/{tid}")
 async def delete_scalp_trade(tid: int):
     """Delete a single scalp trade by trade_id (from disk AND engine memory)."""

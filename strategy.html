@@ -2964,6 +2964,7 @@
   <div class="card" style="padding: 20px;">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Paper Trading Runs</h3>
     <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+    <div id="portfolio-paper-pagination" class="pagination-bar" style="display:none;"></div>
     <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper trading runs yet. Start paper trading from the Live page.</div>
   </div>
 </div>
@@ -3129,6 +3130,7 @@
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+            <th style="padding: 8px 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
             <th style="padding: 8px 10px; text-align: left;">#</th>
             <th style="padding: 8px 10px; text-align: left;">Symbol</th>
             <th style="padding: 8px 6px; text-align: center;">Dir</th>
@@ -3143,10 +3145,12 @@
           </tr>
         </thead>
         <tbody id="scalp-history-body">
-          <tr><td colspan="10" style="text-align: center; padding: 20px; color: var(--muted);">No trades yet</td></tr>
+          <tr><td colspan="12" style="text-align: center; padding: 20px; color: var(--muted);">No trades yet</td></tr>
         </tbody>
       </table>
     </div>
+    <!-- Bulk bar -->
+    <div id="scalp-hist-bulk-bar" class="bulk-bar" style="display:none;"></div>
     <!-- Pagination -->
     <div id="scalp-hist-pagination" style="display:none; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
       <button id="scalp-hist-prev" class="btn btn-sm" onclick="scalpHistPage(-1)" style="padding:5px 14px;font-size:11px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" disabled>← Prev</button>
@@ -3634,8 +3638,11 @@ let _runsPageDash = 1;
 let _runsPageResults = 1;
 const _RUNS_PER_PAGE = 15;
 let _selectedRunIds = new Set();
+let _selectedScalpHistIds = new Set();
+let _selectedScalpRunIds = new Set();
 let _scalpTradesCache = [];
 let _scalpPage = 1;
+let _portfolioPaperPage = 1;
 
 function _getModeBadge(mode) {
   const m = (mode || 'backtest').toLowerCase();
@@ -3724,12 +3731,14 @@ function toggleAllRuns(el) {
   _updateBulkBar();
 }
 function _updateBulkBar() {
-  const bar = document.getElementById('runs-bulk-bar');
-  if (!bar) return;
-  const n = _selectedRunIds.size;
-  if (!n) { bar.style.display = 'none'; return; }
-  bar.style.display = 'flex';
-  bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteRuns()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
+  ['runs-bulk-bar', 'runs-bulk-bar-dash'].forEach(barId => {
+    const bar = document.getElementById(barId);
+    if (!bar) return;
+    const n = _selectedRunIds.size;
+    if (!n) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteRuns()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
+  });
 }
 async function bulkDeleteRuns() {
   const ids = Array.from(_selectedRunIds);
@@ -3749,6 +3758,7 @@ function filterRuns(mode, btn) {
   _currentRunFilter = mode;
   _runsPageResults = 1;
   _selectedRunIds.clear();
+  _selectedScalpRunIds.clear();
   const _setV = (el, bg, clr, bdr) => { el.style.setProperty('--btn-bg', bg); el.style.setProperty('--btn-color', clr); el.style.setProperty('--btn-border', bdr); };
   document.querySelectorAll('.runs-filter-btn').forEach(b => {
     b.classList.remove('active');
@@ -3828,11 +3838,13 @@ function _renderDashRuns() {
   if (_runsPageDash > totalPages) _runsPageDash = totalPages;
   const start = (_runsPageDash - 1) * _RUNS_PER_PAGE;
   const pageData = _allRunsCache.slice(start, start + _RUNS_PER_PAGE);
-  if (container) container.innerHTML = _buildRunsTable(pageData, { checkboxes: false });
+  let bulkHtml = '<div id="runs-bulk-bar-dash" class="bulk-bar" style="display:none;"></div>';
+  if (container) container.innerHTML = bulkHtml + _buildRunsTable(pageData);
   if (pagEl) {
     const pHtml = _buildPagination(_runsPageDash, total, _RUNS_PER_PAGE, '_goDashPage');
     if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
   }
+  _updateBulkBar();
 }
 function _goDashPage(p) { _runsPageDash = p; _renderDashRuns(); }
 
@@ -3855,8 +3867,10 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
     const start = (_scalpPage - 1) * _RUNS_PER_PAGE;
     const pageData = _scalpTradesCache.slice(start, start + _RUNS_PER_PAGE);
 
-    let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
+    let html = '<div id="scalp-runs-bulk-bar" class="bulk-bar" style="display:none;"></div>';
+    html += `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
+        <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpRuns(this)"></th>
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
         <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
       </tr></thead><tbody>`;
@@ -3867,7 +3881,9 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
       const name = t.symbol || (t.underlying + ' ' + t.strike + t.option_type) || 'Unnamed';
       const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
       const runName = name + (entryDate ? ' ' + entryDate : '');
+      const chk = _selectedScalpRunIds.has(t.trade_id) ? ' checked' : '';
       html += `<tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}></td>
         <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
         <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
         <td style="padding: 10px; font-weight: 600; color: var(--accent);">${runName}</td>
@@ -3891,6 +3907,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
       const pHtml = _buildPagination(_scalpPage, total, _RUNS_PER_PAGE, '_goScalpPage');
       if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
     }
+    _updateScalpRunsBulkBar();
   } catch(e) {
     console.error('Failed to load scalp trades:', e);
     if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = 'Error loading scalp trades.'; }
@@ -3901,29 +3918,40 @@ function _goScalpPage(p) { _scalpPage = p; _renderFilteredRuns(); }
 function _renderPortfolioPaperRuns(runs) {
   const container = document.getElementById('portfolio-paper-runs');
   const empty = document.getElementById('portfolio-paper-runs-empty');
+  const pagEl = document.getElementById('portfolio-paper-pagination');
   const paperRuns = runs.filter(r => _normalizeMode(r.mode) === 'paper');
 
   if (!container) return;
   if (!paperRuns.length) {
     if (empty) empty.style.display = 'block';
     container.innerHTML = '';
+    if (pagEl) { pagEl.style.display = 'none'; }
     return;
   }
   if (empty) empty.style.display = 'none';
 
+  const total = paperRuns.length;
+  const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
+  if (_portfolioPaperPage > totalPages) _portfolioPaperPage = totalPages;
+  const start = (_portfolioPaperPage - 1) * _RUNS_PER_PAGE;
+  const pageData = paperRuns.slice(start, start + _RUNS_PER_PAGE);
+
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
+      <th style="padding: 8px 6px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>
       <th style="padding: 8px 6px;">Run</th><th style="padding: 8px 6px;">Name</th><th style="padding: 8px 6px;">Instrument</th>
       <th style="padding: 8px 6px;">Trades</th><th style="padding: 8px 6px;">P&L</th><th style="padding: 8px 6px;">Entry Time</th><th style="padding: 8px 6px;">Exit Time</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
 
-  paperRuns.forEach(r => {
+  pageData.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = getInstrumentName(r.instrument);
     const _fmtPT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
     const pEntryTime = _fmtPT(r.first_entry_time || r.created_at);
     const pExitTime = _fmtPT(r.last_exit_time);
+    const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
     html += `<tr style="border-bottom: 1px solid var(--border);">
+      <td style="padding: 8px 6px;"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}></td>
       <td style="padding: 8px 6px; color: var(--muted); font-size: 11px;">#${r.id}</td>
       <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
       <td style="padding: 8px 6px;">${instName || '-'}</td>
@@ -3932,13 +3960,21 @@ function _renderPortfolioPaperRuns(runs) {
       <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${pEntryTime}</td>
       <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${pExitTime}</td>
       <td style="padding: 8px 6px; text-align: center;">
-        <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 10px; padding: 4px 8px;">View</button>
+        <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
+          <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 10px; padding: 4px 8px;">View</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 10px; padding: 4px 8px;">Del</button>
+        </div>
       </td>
     </tr>`;
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+  if (pagEl) {
+    const pHtml = _buildPagination(_portfolioPaperPage, total, _RUNS_PER_PAGE, '_goPortfolioPaperPage');
+    if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
+  }
 }
+function _goPortfolioPaperPage(p) { _portfolioPaperPage = p; _renderPortfolioPaperRuns(_allRunsCache); }
 
 async function fetchRuns() {
   try {
@@ -4470,7 +4506,7 @@ function _renderScalpHistoryPage() {
   const page = _scalpAllClosed.slice(start, start + _SCALP_ROWS_PER_PAGE);
 
   if (!page.length) {
-    histBody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
+    histBody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
   } else {
     histBody.innerHTML = page.map(t => {
       const pnl = t.pnl || 0;
@@ -4478,14 +4514,14 @@ function _renderScalpHistoryPage() {
       const modeBadge = t.mode === 'paper'
         ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.15);color:rgb(251,191,36);border:1px solid rgba(245,158,11,0.3);">PAPER</span>`
         : `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.15);color:rgb(167,139,250);border:1px solid rgba(139,92,246,0.3);">LIVE</span>`;
-      // Format timestamps: "2026-03-10 13:37:55" → "13:37:55"
       const entryTime = _fmtScalpTime(t.entry_time);
       const exitTime = _fmtScalpTime(t.exit_time);
-      // Lots display: "2 Lots (130)" if qty > lot_size, else just "1"
       const lots = t.lots || 1;
       const qty = t.quantity || (lots * (t.lot_size || 1));
       const lotsStr = lots > 1 ? `${lots} <span style="font-size:9px;color:var(--muted);">(${qty})</span>` : `${lots}`;
+      const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
+        <td style="padding:7px 6px;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
         <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
@@ -4514,6 +4550,7 @@ function _renderScalpHistoryPage() {
     if (prevBtn) prevBtn.disabled = _scalpHistPage <= 1;
     if (nextBtn) nextBtn.disabled = _scalpHistPage >= totalPages;
   }
+  _updateScalpHistBulkBar();
 }
 
 function scalpHistPage(dir) {
@@ -4522,6 +4559,70 @@ function scalpHistPage(dir) {
   if (_scalpHistPage < 1) _scalpHistPage = 1;
   if (_scalpHistPage > totalPages) _scalpHistPage = totalPages;
   _renderScalpHistoryPage();
+}
+
+// ── Scalp History checkboxes + bulk delete ──
+function toggleScalpHistCheck(el) {
+  const id = parseInt(el.dataset.id);
+  if (el.checked) _selectedScalpHistIds.add(id); else _selectedScalpHistIds.delete(id);
+  _updateScalpHistBulkBar();
+}
+function toggleAllScalpHist(el) {
+  document.querySelectorAll('.scalp-hist-chk').forEach(b => { b.checked = el.checked; const id = parseInt(b.dataset.id); if (el.checked) _selectedScalpHistIds.add(id); else _selectedScalpHistIds.delete(id); });
+  _updateScalpHistBulkBar();
+}
+function _updateScalpHistBulkBar() {
+  const bar = document.getElementById('scalp-hist-bulk-bar');
+  if (!bar) return;
+  const n = _selectedScalpHistIds.size;
+  if (!n) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteScalpTrades()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedScalpHistIds.clear();_renderScalpHistoryPage();" style="font-size:11px;">Clear</button>';
+}
+async function bulkDeleteScalpTrades() {
+  const ids = Array.from(_selectedScalpHistIds);
+  if (!ids.length) return;
+  const ok = await customConfirm('Delete <strong>' + ids.length + '</strong> selected scalp trade' + (ids.length > 1 ? 's' : '') + '?<br><span style="font-size:11px;">This cannot be undone.</span>', { title: 'Bulk Delete', icon: ICO.trash(28), okText: 'Delete All', danger: true });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/scalp/trades/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ids }) });
+    if (!r.ok) throw new Error('Failed');
+    _selectedScalpHistIds.clear();
+    toast(ids.length + ' trade' + (ids.length > 1 ? 's' : '') + ' deleted', 'success');
+    refreshScalpStatus();
+  } catch(e) { toast('Bulk delete failed: ' + e.message, 'danger'); }
+}
+
+// ── Scalp Runs (Results tab) checkboxes + bulk delete ──
+function toggleScalpRunCheck(el) {
+  const id = parseInt(el.dataset.id);
+  if (el.checked) _selectedScalpRunIds.add(id); else _selectedScalpRunIds.delete(id);
+  _updateScalpRunsBulkBar();
+}
+function toggleAllScalpRuns(el) {
+  document.querySelectorAll('.scalp-run-chk').forEach(b => { b.checked = el.checked; const id = parseInt(b.dataset.id); if (el.checked) _selectedScalpRunIds.add(id); else _selectedScalpRunIds.delete(id); });
+  _updateScalpRunsBulkBar();
+}
+function _updateScalpRunsBulkBar() {
+  const bar = document.getElementById('scalp-runs-bulk-bar');
+  if (!bar) return;
+  const n = _selectedScalpRunIds.size;
+  if (!n) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteScalpRuns()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedScalpRunIds.clear();_renderFilteredRuns();" style="font-size:11px;">Clear</button>';
+}
+async function bulkDeleteScalpRuns() {
+  const ids = Array.from(_selectedScalpRunIds);
+  if (!ids.length) return;
+  const ok = await customConfirm('Delete <strong>' + ids.length + '</strong> selected scalp trade' + (ids.length > 1 ? 's' : '') + '?<br><span style="font-size:11px;">This cannot be undone.</span>', { title: 'Bulk Delete', icon: ICO.trash(28), okText: 'Delete All', danger: true });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/scalp/trades/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ids }) });
+    if (!r.ok) throw new Error('Failed');
+    _selectedScalpRunIds.clear();
+    toast(ids.length + ' trade' + (ids.length > 1 ? 's' : '') + ' deleted', 'success');
+    _renderFilteredRuns();
+  } catch(e) { toast('Bulk delete failed: ' + e.message, 'danger'); }
 }
 
 var _lastScalpStatus = null;
