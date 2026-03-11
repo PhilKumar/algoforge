@@ -275,6 +275,19 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
     ]
     shifted = daily[pivot_cols].shift(1)
 
+    # Pre-market fix: if today has no candles yet, the last daily bar IS
+    # yesterday for the current date — use its own (un-shifted) values.
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
+
+    _ist = _tz(_td(hours=5, minutes=30))
+    _today = pd.Timestamp(_dt.now(_ist).date())
+    if not daily.empty and daily.index[-1] < _today:
+        idx = daily.index[-1]
+        for col in pivot_cols:
+            shifted.loc[idx, col] = daily.loc[idx, col]
+
     result = df.copy()
     if intraday:
         result = result.join(shifted.reindex(result.index, method="ffill"))
@@ -299,6 +312,21 @@ def yesterday_candle(df: pd.DataFrame) -> pd.DataFrame:
     daily["yesterday_low"] = daily["low"].shift(1)
     daily["yesterday_close"] = daily["close"].shift(1)
     daily["yesterday_open"] = daily["open"].shift(1)
+
+    # Pre-market fix: if today has no candles yet, the last daily bar IS
+    # yesterday for the current date — use its own OHLC (un-shifted).
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
+
+    _ist = _tz(_td(hours=5, minutes=30))
+    _today = pd.Timestamp(_dt.now(_ist).date())
+    if not daily.empty and daily.index[-1] < _today:
+        idx = daily.index[-1]
+        daily.loc[idx, "yesterday_high"] = daily.loc[idx, "high"]
+        daily.loc[idx, "yesterday_low"] = daily.loc[idx, "low"]
+        daily.loc[idx, "yesterday_close"] = daily.loc[idx, "close"]
+        daily.loc[idx, "yesterday_open"] = daily.loc[idx, "open"]
 
     yest_cols = ["yesterday_high", "yesterday_low", "yesterday_close", "yesterday_open"]
     result = df.copy()
