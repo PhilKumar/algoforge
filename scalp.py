@@ -189,7 +189,6 @@ class ScalpEngine:
         self._running: bool = False
         self._task: Optional[asyncio.Task] = None
         self._ws_subs: Dict[int, str] = {}  # trade_id → ws_sec_id
-        self._last_rest_ltp: float = 0.0  # monotonic time of last REST LTP call
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -429,14 +428,6 @@ class ScalpEngine:
                     nse_ids[tid] = int(sec_id)
 
         if nse_ids or bse_ids:
-            # Throttle REST calls to max 1 per 2 seconds to avoid rate-limiting
-            import time as _t
-
-            now = _t.monotonic()
-            if now - self._last_rest_ltp < 2.0:
-                return result  # Return WS-only results, skip REST this cycle
-            self._last_rest_ltp = now
-
             segments: Dict[str, list] = {}
             if nse_ids:
                 segments["NSE_FNO"] = list(set(nse_ids.values()))

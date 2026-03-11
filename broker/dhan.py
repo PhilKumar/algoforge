@@ -157,6 +157,20 @@ _dhan_log = _log.getLogger("algoforge.dhan")
 # Retryable HTTP status codes (rate-limit / transient server errors)
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
+# Global rate limiter for /v2/marketfeed/* endpoints (shared across all callers)
+_mf_last_call: float = 0.0
+_MF_MIN_INTERVAL: float = 1.0  # seconds between marketfeed REST calls
+
+
+def _throttle_marketfeed():
+    """Block until at least _MF_MIN_INTERVAL has elapsed since the last marketfeed call."""
+    global _mf_last_call
+    now = _time.monotonic()
+    wait = _MF_MIN_INTERVAL - (now - _mf_last_call)
+    if wait > 0:
+        _time.sleep(wait)
+    _mf_last_call = _time.monotonic()
+
 
 def _request_with_retry(
     method: str,
@@ -991,10 +1005,12 @@ class DhanClient:
             "BSE_FNO": int_ids if exchange_segment == "BSE_FNO" else [],
             "IDX_I": int_ids if exchange_segment == "IDX_I" else [],
         }
-        resp = _http_session.post(
+        _throttle_marketfeed()
+        resp = _request_with_retry(
+            "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
-            json=payload,
             headers=self.headers,
+            json=payload,
             timeout=10,
         )
         if resp.status_code != 200:
@@ -1012,6 +1028,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
@@ -1034,6 +1051,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
             f"{self.base_url}/v2/marketfeed/ohlc",
@@ -1055,6 +1073,7 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
             f"{self.base_url}/v2/marketfeed/quote",

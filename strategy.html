@@ -3746,8 +3746,8 @@ function initScalpPage() {
     _scalpPollTimer = setInterval(refreshScalpStatus, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
   if (!_scalpLTPTimer) {
-    // REST poll as fallback — 1.5s when no open-trade WS match, reduced from 5s
-    _scalpLTPTimer = setInterval(fetchScalpLTP, 1500);
+    // REST poll as fallback — 5s since broker-level throttle + WS push handle freshness
+    _scalpLTPTimer = setInterval(fetchScalpLTP, 5000);
   }
 }
 
@@ -3807,7 +3807,7 @@ async function fetchScalpLTP() {
 
   // Skip REST call if WS provided a fresh price within the last 2 seconds
   // (avoids Dhan rate limits while WS is actively pushing open-trade data)
-  if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 2000) && _scalpCurrentLTP > 0) {
+  if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 5000) && _scalpCurrentLTP > 0) {
     return;
   }
 
