@@ -1653,7 +1653,8 @@
   /* ── Chart Viewer Tab ── */
   .charts-layout { display: flex; gap: 18px; width: 100%; min-height: 500px; }
   .charts-sidebar { width: 220px; flex-shrink: 0; max-height: 75vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
-  .charts-sidebar-inner { background: linear-gradient(160deg, rgba(20,28,46,0.90), rgba(13,18,32,0.85)); border: 1px solid var(--border); border-top: 1px solid var(--border-hi); border-radius: 14px; padding: 16px; backdrop-filter: blur(32px) saturate(1.35); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 6px 28px rgba(0,0,0,0.42); }
+  .charts-sidebar-inner { background: linear-gradient(160deg, rgba(20,28,46,0.90), rgba(13,18,32,0.85)); border: 1px solid var(--border); border-top: 1px solid var(--border-hi); border-radius: 14px; padding: 16px; backdrop-filter: blur(32px) saturate(1.35); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 6px 28px rgba(0,0,0,0.42), inset 0 1px 0 var(--glass-mid); position: relative; overflow: hidden; }
+  .charts-sidebar-inner::after { content: ''; position: absolute; inset: 0; border-radius: 14px; background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.01) 30%, transparent 60%); pointer-events: none; mix-blend-mode: screen; }
   .charts-sidebar-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   .charts-main { flex: 1; min-width: 0; }
 
@@ -1664,7 +1665,9 @@
   .cj-right { flex: 35; min-width: 320px; max-width: 420px; }
 
   /* ── Journal Panel ── */
-  .cj-journal-panel { position: sticky; top: 80px; background: linear-gradient(160deg, rgba(20,28,46,0.92), rgba(13,18,32,0.88)); border: 1px solid var(--border); border-top: 1px solid var(--border-hi); border-radius: 16px; padding: 20px; backdrop-filter: blur(32px) saturate(1.35); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.45); }
+  .cj-journal-panel { position: sticky; top: 80px; background: linear-gradient(160deg, rgba(20,28,46,0.92), rgba(13,18,32,0.88)); border: 1px solid var(--border); border-top: 1px solid var(--border-hi); border-radius: 16px; padding: 20px; backdrop-filter: blur(32px) saturate(1.35); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 var(--glass-mid); position: relative; overflow: hidden; }
+  .cj-journal-panel::after { content: ''; position: absolute; inset: 0; border-radius: 16px; background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.01) 30%, transparent 60%); pointer-events: none; mix-blend-mode: screen; z-index: 0; }
+  .cj-journal-panel > * { position: relative; z-index: 1; }
   .cj-journal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
   .cj-journal-icon { font-size: 28px; }
   .cj-journal-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); }
@@ -3170,7 +3173,7 @@
         <!-- Date sidebar -->
         <aside class="charts-sidebar">
           <div class="charts-sidebar-inner">
-            <div class="charts-sidebar-title">📂 Chart History</div>
+            <div class="charts-sidebar-title" id="ch-sidebar-title">Chart History</div>
             <div id="ch-tree"><div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">Click tab to load...</div></div>
           </div>
         </aside>
@@ -3191,7 +3194,7 @@
     <div class="cj-right">
       <div class="cj-journal-panel">
         <div class="cj-journal-header">
-          <span class="cj-journal-icon">📝</span>
+          <span class="cj-journal-icon" id="cj-journal-ico"></span>
           <div>
             <div class="cj-journal-title">Daily Journal</div>
             <div class="cj-journal-date" id="cj-date-label">Select a date</div>
@@ -3241,13 +3244,13 @@
               <option value="Confident">💪 Confident</option>
             </select>
           </label>
-          <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()">💾 Save Journal</button>
+          <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()"><span id="cj-save-ico"></span> Save Journal</button>
         </form>
       </div>
     </div>
   </div>
   <!-- Upload toast -->
-  <div class="cj-toast" id="cj-toast">📤 Uploading chart...</div>
+  <div class="cj-toast" id="cj-toast"><span id="cj-toast-ico"></span> Uploading chart...</div>
   <!-- Lightbox -->
   <div class="ch-lightbox" id="ch-lightbox">
     <button class="ch-lb-close" onclick="chCloseLB()" title="Close (Esc)">✕</button>
@@ -8687,6 +8690,15 @@ fetchRuns = async function() {
     _chLoaded = true;
     const phIcon = document.getElementById('ch-placeholder-icon');
     if (phIcon) phIcon.innerHTML = ICO.candle(52);
+    // Inject SVG icons replacing emojis
+    const sideTitle = document.getElementById('ch-sidebar-title');
+    if (sideTitle) sideTitle.insertAdjacentHTML('afterbegin', ICO.folder(14) + ' ');
+    const jIco = document.getElementById('cj-journal-ico');
+    if (jIco) jIco.innerHTML = ICO.edit(24);
+    const saveIco = document.getElementById('cj-save-ico');
+    if (saveIco) saveIco.innerHTML = ICO.save(14);
+    const toastIco = document.getElementById('cj-toast-ico');
+    if (toastIco) toastIco.innerHTML = ICO.download(14);
     _chLoadTree();
     _cjBindForm();
     _cjBindPaste();
@@ -8718,7 +8730,7 @@ fetchRuns = async function() {
       const totalDays = months.reduce((s, m) => s + m.days.length, 0);
       const yo = yi === 0 ? ' open' : '';
       h += '<div>';
-      h += '<button class="chtree-toggle' + yo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="yr-label">📅 ' + year + '</span><span class="cnt">' + totalDays + 'd</span></button>';
+      h += '<button class="chtree-toggle' + yo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="yr-label">' + ICO.calendar(14) + ' ' + year + '</span><span class="cnt">' + totalDays + 'd</span></button>';
       h += '<div class="chtree-children' + yo + '">';
       months.forEach((mo, mi) => {
         const moo = yi === 0 && mi === 0 ? ' open' : '';
@@ -8727,7 +8739,7 @@ fetchRuns = async function() {
         h += '<div class="chtree-children' + moo + '">';
         mo.days.forEach(day => {
           const esc = s => s.replace(/'/g, "\\'");
-          h += '<button class="chday-btn" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="font-size:11px;opacity:0.5;">📄</span> ' + day.label + '</button>';
+          h += '<button class="chday-btn" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
         });
         h += '</div></div>';
       });
@@ -9014,16 +9026,16 @@ fetchRuns = async function() {
   // ══════════════════════════════════════════════════════════
   window._cjManualSave = async function() {
     if (!_cjCurrentDate) {
-      await customConfirm('Select a date first from the chart sidebar.', { title: 'No Date Selected', icon: '📅', okText: 'OK', cancelText: '' });
+      await customConfirm('Select a date first from the chart sidebar.', { title: 'No Date Selected', icon: ICO.calendar(24), okText: 'OK', cancelText: '' });
       return;
     }
     clearTimeout(_cjSaveTimer);
     const btn = document.getElementById('cj-submit-btn');
-    btn.textContent = '⏳ Saving...';
+    btn.innerHTML = ICO.hour(14) + ' Saving...';
     btn.disabled = true;
     await _cjSaveJournal(_cjCurrentDate);
-    btn.textContent = '✅ Saved!';
-    setTimeout(() => { btn.textContent = '💾 Save Journal'; btn.disabled = false; }, 1500);
+    btn.innerHTML = ICO.check(14) + ' Saved!';
+    setTimeout(() => { btn.innerHTML = ICO.save(14) + ' Save Journal'; btn.disabled = false; }, 1500);
     _cjLoadEntries();
   };
 
@@ -9112,7 +9124,7 @@ fetchRuns = async function() {
         months[key].entries.push(e);
       });
 
-      let h = '<div class="cj-entries-title">📋 Journal Entries</div>';
+      let h = '<div class="cj-entries-title">' + ICO.clip(12) + ' Journal Entries</div>';
       const keys = Object.keys(months).sort().reverse();
       keys.forEach((key, ki) => {
         const mo = months[key];
