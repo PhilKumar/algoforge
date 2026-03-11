@@ -3016,6 +3016,18 @@ async def get_runs():
     return result
 
 
+@app.post("/api/runs/bulk-delete")
+async def bulk_delete_runs(request: Request):
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    id_set = set(ids)
+    runs = _load_runs()
+    _save_runs([r for r in runs if r.get("id") not in id_set])
+    return {"deleted": len(id_set)}
+
+
 @app.get("/api/runs/{rid}")
 async def get_run(rid: int):
     runs = _load_runs()

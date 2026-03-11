@@ -1777,6 +1777,23 @@
   [data-theme="light"] .cj-journal-panel { background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(248,250,252,0.92)); border-color: rgba(0,0,0,0.08); box-shadow: 0 2px 16px rgba(0,0,0,0.06); }
   [data-theme="light"] .cj-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: var(--text); }
   [data-theme="light"] .cj-fieldset { border-color: rgba(0,0,0,0.08); }
+
+  /* ── Pagination ── */
+  .pagination-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .pagination-info { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .pagination-controls { display: flex; gap: 3px; align-items: center; }
+  .page-btn { padding: 5px 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; border-radius: 6px; font-size: 12px; transition: all 0.15s; font-family: 'JetBrains Mono', monospace; }
+  .page-btn:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .page-btn:disabled { opacity: 0.3; cursor: default; }
+  .page-size-select { padding: 4px 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer; }
+
+  /* ── Bulk select bar ── */
+  .bulk-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 8px; background: linear-gradient(180deg, rgba(239,68,68,0.08) 0%, rgba(180,40,40,0.12) 100%); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; font-size: 12px; transition: all 0.2s; }
+  .bulk-bar .bulk-count { font-weight: 700; color: var(--danger); font-family: 'JetBrains Mono', monospace; }
+  .bulk-bar .bulk-del-btn { padding: 5px 14px; border: 1px solid rgba(239,68,68,0.4); background: linear-gradient(180deg, rgba(239,68,68,0.25) 0%, rgba(180,40,40,0.45) 100%); color: #fca5a5; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .bulk-bar .bulk-del-btn:hover { background: linear-gradient(180deg, rgba(239,68,68,0.4) 0%, rgba(180,40,40,0.6) 100%); color: #fff; }
+  .tbl-chk { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 </style>
 <script src="/static/error-handler.js" defer></script>
 </head>
@@ -2155,6 +2172,7 @@
   <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
     <div id="runs-list" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+    <div id="runs-pagination-dash" class="pagination-bar" style="display:none;"></div>
     <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
   </div>
   <div class="card" style="max-width: 1000px; margin: 0 auto;">
@@ -2427,6 +2445,7 @@
       </div>
     </div>
     <div id="runs-list-results" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+    <div id="runs-pagination-results" class="pagination-bar" style="display:none;"></div>
     <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
   </div>
 
@@ -3309,11 +3328,12 @@ const ICO = {
   sword:    (s) => ICO._s('<path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>', s),
   target:   (s) => ICO._s('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>', s),
   compass:  (s) => ICO._s('<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/>', s),
+  candle:   (s) => ICO._s('<line x1="6" y1="2" x2="6" y2="6"/><rect x="3" y="6" width="6" height="8" rx="1" fill="currentColor" opacity="0.6"/><line x1="6" y1="14" x2="6" y2="18"/><line x1="14" y1="4" x2="14" y2="9"/><rect x="11" y="9" width="6" height="7" rx="1" fill="currentColor" opacity="0.9"/><line x1="14" y1="16" x2="14" y2="21"/><line x1="20" y1="6" x2="20" y2="10"/><rect x="18" y="10" width="4" height="5" rx="1" fill="currentColor" opacity="0.4"/><line x1="20" y1="15" x2="20" y2="19"/>', s),
 };
 
 // Inject nav tab icons
 (function initNavIcons() {
-  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), charts: ICO.memo(16)};
+  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), charts: ICO.candle(16)};
   Object.keys(map).forEach(k => { const el = document.getElementById('ico-' + k); if (el) el.innerHTML = map[k]; });
 })();
 
@@ -3610,6 +3630,12 @@ function loadTemplate(key) {
 // ══════════════════════════════════════════════════════════════
 let _allRunsCache = [];
 let _currentRunFilter = 'all';
+let _runsPageDash = 1;
+let _runsPageResults = 1;
+const _RUNS_PER_PAGE = 15;
+let _selectedRunIds = new Set();
+let _scalpTradesCache = [];
+let _scalpPage = 1;
 
 function _getModeBadge(mode) {
   const m = (mode || 'backtest').toLowerCase();
@@ -3627,10 +3653,12 @@ function _normalizeMode(mode) {
   return 'backtest';
 }
 
-function _buildRunsTable(runs) {
+function _buildRunsTable(runs, opts = {}) {
   if (!runs.length) return '';
+  const showCheck = opts.checkboxes !== false;
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
     <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
+      ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>' : ''}
       <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
       <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
@@ -3641,7 +3669,9 @@ function _buildRunsTable(runs) {
     const _fmtRT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
     const rEntryTime = _fmtRT(r.first_entry_time || r.created_at);
     const rExitTime = _fmtRT(r.last_exit_time);
+    const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}">
+      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px; color: var(--muted);">${r.id}</td>
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
@@ -3664,9 +3694,61 @@ function _buildRunsTable(runs) {
   return html;
 }
 
+// ── Pagination helper ──
+function _buildPagination(page, total, perPage, onPageFn) {
+  const totalPages = Math.ceil(total / perPage) || 1;
+  if (totalPages <= 1) return '';
+  const start = (page - 1) * perPage;
+  let info = 'Showing ' + (total ? start + 1 : 0) + '–' + Math.min(start + perPage, total) + ' of ' + total;
+  let btns = '';
+  btns += '<button class="page-btn" onclick="' + onPageFn + '(1)"' + (page <= 1 ? ' disabled' : '') + '>«</button>';
+  btns += '<button class="page-btn" onclick="' + onPageFn + '(' + (page - 1) + ')"' + (page <= 1 ? ' disabled' : '') + '>‹</button>';
+  const sp = Math.max(1, page - 2), ep = Math.min(totalPages, page + 2);
+  for (let p = sp; p <= ep; p++) {
+    btns += '<button class="page-btn' + (p === page ? ' active' : '') + '" onclick="' + onPageFn + '(' + p + ')">' + p + '</button>';
+  }
+  btns += '<button class="page-btn" onclick="' + onPageFn + '(' + (page + 1) + ')"' + (page >= totalPages ? ' disabled' : '') + '>›</button>';
+  btns += '<button class="page-btn" onclick="' + onPageFn + '(' + totalPages + ')"' + (page >= totalPages ? ' disabled' : '') + '>»</button>';
+  return '<div class="pagination-info">' + info + '</div><div class="pagination-controls">' + btns + '</div>';
+}
+
+// ── Bulk select helpers ──
+function toggleRunCheck(el) {
+  const id = parseInt(el.dataset.id);
+  if (el.checked) _selectedRunIds.add(id); else _selectedRunIds.delete(id);
+  _updateBulkBar();
+}
+function toggleAllRuns(el) {
+  const boxes = document.querySelectorAll('.run-chk');
+  boxes.forEach(b => { b.checked = el.checked; const id = parseInt(b.dataset.id); if (el.checked) _selectedRunIds.add(id); else _selectedRunIds.delete(id); });
+  _updateBulkBar();
+}
+function _updateBulkBar() {
+  const bar = document.getElementById('runs-bulk-bar');
+  if (!bar) return;
+  const n = _selectedRunIds.size;
+  if (!n) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteRuns()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
+}
+async function bulkDeleteRuns() {
+  const ids = Array.from(_selectedRunIds);
+  if (!ids.length) return;
+  const ok = await customConfirm('Delete <strong>' + ids.length + '</strong> selected run' + (ids.length > 1 ? 's' : '') + '?<br><span style="font-size:11px;">This cannot be undone.</span>', { title: 'Bulk Delete', icon: ICO.trash(28), okText: 'Delete All', danger: true });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/runs/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ids }) });
+    if (!r.ok) throw new Error('Failed');
+    _selectedRunIds.clear();
+    toast(ids.length + ' run' + (ids.length > 1 ? 's' : '') + ' deleted', 'success');
+    fetchRuns();
+  } catch(e) { toast('Bulk delete failed: ' + e.message, 'danger'); }
+}
+
 function filterRuns(mode, btn) {
   _currentRunFilter = mode;
-  // Update active button styles
+  _runsPageResults = 1;
+  _selectedRunIds.clear();
   const _setV = (el, bg, clr, bdr) => { el.style.setProperty('--btn-bg', bg); el.style.setProperty('--btn-color', clr); el.style.setProperty('--btn-border', bdr); };
   document.querySelectorAll('.runs-filter-btn').forEach(b => {
     b.classList.remove('active');
@@ -3691,10 +3773,10 @@ function filterRuns(mode, btn) {
 function _renderFilteredRuns() {
   const containerResults = document.getElementById('runs-list-results');
   const emptyResults = document.getElementById('runs-empty-results');
+  const pagEl = document.getElementById('runs-pagination-results');
 
-  // Scalp trades come from a separate endpoint
   if (_currentRunFilter === 'scalp') {
-    _renderScalpRuns(containerResults, emptyResults);
+    _renderScalpRuns(containerResults, emptyResults, pagEl);
     return;
   }
 
@@ -3706,29 +3788,79 @@ function _renderFilteredRuns() {
   if (!filtered.length) {
     if (emptyResults) { emptyResults.style.display = 'block'; emptyResults.textContent = _currentRunFilter === 'all' ? 'No runs yet.' : 'No ' + _currentRunFilter + ' runs found.'; }
     if (containerResults) containerResults.innerHTML = '';
-  } else {
-    if (emptyResults) emptyResults.style.display = 'none';
-    if (containerResults) containerResults.innerHTML = _buildRunsTable(filtered);
+    if (pagEl) { pagEl.style.display = 'none'; pagEl.innerHTML = ''; }
+    _updateBulkBar();
+    return;
   }
+  if (emptyResults) emptyResults.style.display = 'none';
+
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
+  if (_runsPageResults > totalPages) _runsPageResults = totalPages;
+  const start = (_runsPageResults - 1) * _RUNS_PER_PAGE;
+  const pageData = filtered.slice(start, start + _RUNS_PER_PAGE);
+
+  // Bulk bar
+  let bulkHtml = '<div id="runs-bulk-bar" class="bulk-bar" style="display:none;"></div>';
+  if (containerResults) containerResults.innerHTML = bulkHtml + _buildRunsTable(pageData);
+  if (pagEl) {
+    const pHtml = _buildPagination(_runsPageResults, total, _RUNS_PER_PAGE, '_goResultsPage');
+    if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
+  }
+  _updateBulkBar();
 }
 
-async function _renderScalpRuns(container, emptyEl) {
+function _goResultsPage(p) { _runsPageResults = p; _renderFilteredRuns(); }
+
+function _renderDashRuns() {
+  const container = document.getElementById('runs-list');
+  const empty = document.getElementById('runs-empty');
+  const pagEl = document.getElementById('runs-pagination-dash');
+  if (!_allRunsCache.length) {
+    if (empty) empty.style.display = 'block';
+    if (container) container.innerHTML = '';
+    if (pagEl) { pagEl.style.display = 'none'; }
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  const total = _allRunsCache.length;
+  const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
+  if (_runsPageDash > totalPages) _runsPageDash = totalPages;
+  const start = (_runsPageDash - 1) * _RUNS_PER_PAGE;
+  const pageData = _allRunsCache.slice(start, start + _RUNS_PER_PAGE);
+  if (container) container.innerHTML = _buildRunsTable(pageData, { checkboxes: false });
+  if (pagEl) {
+    const pHtml = _buildPagination(_runsPageDash, total, _RUNS_PER_PAGE, '_goDashPage');
+    if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
+  }
+}
+function _goDashPage(p) { _runsPageDash = p; _renderDashRuns(); }
+
+async function _renderScalpRuns(container, emptyEl, pagEl) {
   try {
     const res = await fetch('/api/scalp/trades');
     const trades = await res.json();
     if (!trades.length) {
       if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = 'No scalp trades found.'; }
       if (container) container.innerHTML = '';
+      if (pagEl) { pagEl.style.display = 'none'; }
       return;
     }
     if (emptyEl) emptyEl.style.display = 'none';
-    const reversed = trades.slice().reverse();
+    _scalpTradesCache = trades.slice().reverse();
+
+    const total = _scalpTradesCache.length;
+    const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
+    if (_scalpPage > totalPages) _scalpPage = totalPages;
+    const start = (_scalpPage - 1) * _RUNS_PER_PAGE;
+    const pageData = _scalpTradesCache.slice(start, start + _RUNS_PER_PAGE);
+
     let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
         <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
       </tr></thead><tbody>`;
-    reversed.forEach(t => {
+    pageData.forEach(t => {
       const pnl = t.pnl || 0;
       const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
       const fmtTime = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : s.slice(-8); };
@@ -3755,11 +3887,16 @@ async function _renderScalpRuns(container, emptyEl) {
     });
     html += '</tbody></table>';
     if (container) container.innerHTML = html;
+    if (pagEl) {
+      const pHtml = _buildPagination(_scalpPage, total, _RUNS_PER_PAGE, '_goScalpPage');
+      if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
+    }
   } catch(e) {
     console.error('Failed to load scalp trades:', e);
     if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = 'Error loading scalp trades.'; }
   }
 }
+function _goScalpPage(p) { _scalpPage = p; _renderFilteredRuns(); }
 
 function _renderPortfolioPaperRuns(runs) {
   const container = document.getElementById('portfolio-paper-runs');
@@ -3809,22 +3946,10 @@ async function fetchRuns() {
     const runs = await res.json();
     _allRunsCache = runs.slice().reverse();
 
-    const container = document.getElementById('runs-list');
-    const empty = document.getElementById('runs-empty');
+    // Dashboard: paginated
+    _renderDashRuns();
 
-    if (!_allRunsCache.length) {
-      if (empty) { empty.style.display = 'block'; }
-      if (container) { container.innerHTML = ''; }
-      _renderFilteredRuns();
-      _renderPortfolioPaperRuns([]);
-      return;
-    }
-    if (empty) empty.style.display = 'none';
-
-    // Dashboard: show all runs
-    if (container) container.innerHTML = _buildRunsTable(_allRunsCache);
-
-    // Results page: apply current filter
+    // Results page: apply current filter (paginated)
     _renderFilteredRuns();
 
     // Portfolio page: show paper runs
