@@ -1012,10 +1012,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = _http_session.post(
+        resp = _request_with_retry(
+            "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
-            json=payload,
             headers=self.headers,
+            json=payload,
             timeout=10,
         )
         if resp.status_code != 200:
@@ -1033,10 +1034,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = _http_session.post(
+        resp = _request_with_retry(
+            "POST",
             f"{self.base_url}/v2/marketfeed/ohlc",
-            json=payload,
             headers=self.headers,
+            json=payload,
             timeout=10,
         )
         if resp.status_code != 200:
@@ -1053,10 +1055,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
-        resp = _http_session.post(
+        resp = _request_with_retry(
+            "POST",
             f"{self.base_url}/v2/marketfeed/quote",
-            json=payload,
             headers=self.headers,
+            json=payload,
             timeout=10,
         )
         if resp.status_code != 200:
