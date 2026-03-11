@@ -146,6 +146,9 @@ _backfill_state: Dict[str, object] = {
 }
 _paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
+# Stopped engine snapshots — persist on Live page after stop, keyed by run_id
+_stopped_engines: Dict[str, dict] = {}
+
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engine: Optional["_ScalpEngineClass"] = None
@@ -2019,6 +2022,9 @@ async def live_start(req: LiveStartRequest):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "live") or "live"
 
+    # Clear any stopped snapshot for this run_id
+    _stopped_engines.pop(run_id, None)
+
     # If an engine with same run_id exists, save its results before replacing
     old_engine = live_engines.get(run_id)
     if old_engine:
@@ -2117,6 +2123,12 @@ async def live_stop(request: Request):
 
     # Persist live run to runs.json (same as paper)
     _save_live_run_to_history(status_before)
+
+    # Keep snapshot on Live page so panel persists after stop
+    status_before["running"] = False
+    status_before["run_id"] = run_id
+    status_before["mode"] = "auto"
+    _stopped_engines[run_id] = status_before
 
     return {"status": "stopped", "run_id": run_id}
 
@@ -2260,6 +2272,9 @@ async def _paper_start_impl(payload: StrategyPayload):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
 
+    # Clear any stopped snapshot for this run_id
+    _stopped_engines.pop(run_id, None)
+
     # If an engine with same run_id exists, save its results before replacing
     old_engine = paper_engines.get(run_id)
     if old_engine:
@@ -2357,6 +2372,12 @@ async def paper_stop(request: Request):
 
     # Save paper run to runs.json so it persists across restarts
     _save_paper_run_to_history(status_before)
+
+    # Keep snapshot on Live page so panel persists after stop
+    status_before["running"] = False
+    status_before["run_id"] = run_id
+    status_before["mode"] = "paper"
+    _stopped_engines[run_id] = status_before
 
     return {"status": "stopped", "run_id": run_id}
 
@@ -2619,36 +2640,28 @@ async def engines_all():
             st["mode"] = "auto"
             engines.append(st)
 
-    # If nothing running, show last paper run from history
-    if not engines:
-        try:
-            runs = _load_runs()
-            paper_runs = [r for r in runs if r.get("mode") == "paper"]
-            if paper_runs:
-                last = paper_runs[-1]
-                trades = last.get("trades", [])
-                engines.append(
-                    {
-                        "running": False,
-                        "run_id": "",
-                        "mode": "paper",
-                        "in_trade": False,
-                        "positions": [],
-                        "closed_trades": trades,
-                        "total_pnl": last.get("total_pnl", 0),
-                        "trades_today": len(trades),
-                        "strategy_name": last.get("run_name", "Last Paper Run"),
-                        "instrument": last.get("instrument", ""),
-                        "current_candle": {},
-                        "current_indicators": {},
-                        "event_log": [],
-                        "_from_history": True,
-                    }
-                )
-        except Exception:
-            pass
+    # Add stopped engine snapshots (persisted panels)
+    active_ids = {e["run_id"] for e in engines}
+    for run_id, snapshot in _stopped_engines.items():
+        if run_id not in active_ids:
+            engines.append(snapshot)
 
     return {"engines": engines, "count": len(engines)}
+
+
+@app.post("/api/engines/dismiss")
+async def engines_dismiss(request: Request):
+    """Remove a stopped engine snapshot from the Live page."""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    run_id = body.get("run_id", "")
+    if run_id and run_id in _stopped_engines:
+        _stopped_engines.pop(run_id)
+        return {"status": "dismissed", "run_id": run_id}
+    return {"status": "not_found", "run_id": run_id}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────

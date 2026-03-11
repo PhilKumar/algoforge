@@ -7214,6 +7214,54 @@ async function stopPaperTrade() {
   }
 }
 
+async function dismissEngine(runId) {
+  try {
+    await fetch('/api/engines/dismiss', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId }) });
+    _liveEngines = _liveEngines.filter(e => (e.run_id || '') !== runId);
+    if (_selectedLiveTab >= _liveEngines.length) _selectedLiveTab = Math.max(0, _liveEngines.length - 1);
+    renderLiveTabs();
+    if (_liveEngines.length > 0) {
+      renderLivePanel(_liveEngines[_selectedLiveTab], _selectedLiveTab);
+    } else {
+      document.getElementById('live-panels-container').innerHTML =
+        '<div style="text-align:center;padding:60px 28px;color:var(--muted);">' +
+        '<div style="margin-bottom:12px;">' + ICO.antenna(40) + '</div>' +
+        '<div style="font-size:16px;font-weight:600;margin-bottom:6px;">No Active Strategies</div>' +
+        '<div style="font-size:13px;">Deploy a strategy with Paper Trade or Auto Trade to see live monitoring here.</div></div>';
+    }
+  } catch(e) { toast('Error dismissing panel', 'danger'); }
+}
+
+async function restartEngine(runId, mode) {
+  const eng = _liveEngines.find(e => (e.run_id || '') === runId);
+  if (!eng) { toast('Engine data not found', 'danger'); return; }
+  const strat = eng.strategy || {};
+  if (!strat.run_name && !strat.entry_conditions) {
+    toast('Strategy config not available — please deploy from the Builder tab', 'warn');
+    return;
+  }
+  const label = mode === 'auto' ? 'Auto Trade' : 'Paper Trade';
+  const ok = await customConfirm(`Restart <strong>${label}</strong> "<strong>${runId}</strong>" with the same strategy config?`, { title: 'Restart Strategy', icon: ICO.play(28), okText: 'Start', danger: false });
+  if (!ok) return;
+  try {
+    const endpoint = mode === 'auto' ? '/api/live/start' : '/api/paper/start';
+    const payload = {
+      ...strat,
+      entry_conditions: strat.entry_conditions || eng._entry_conditions || [],
+      exit_conditions: strat.exit_conditions || eng._exit_conditions || [],
+    };
+    if (mode === 'auto') payload.strategy_config = strat;
+    const res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const result = await res.json();
+    if (result.status === 'started') {
+      toast(`${label} "${runId}" restarted`, 'success');
+      setTimeout(() => loadLiveMonitor(), 500);
+    } else {
+      toast(result.message || 'Failed to restart', 'danger');
+    }
+  } catch(e) { toast('Error restarting engine: ' + e.message, 'danger'); }
+}
+
 const INST_NAMES = { '26000': 'NIFTY 50', '26009': 'BANK NIFTY', '26037': 'FINNIFTY', '26041': 'MIDCPNIFTY' };
 
 async function loadLiveMonitor() {
@@ -7421,8 +7469,10 @@ function renderLivePanel(d, idx) {
       ${badgeHtml}
     </div>
     <div style="display:flex;gap:8px;">
-      ${running ? `<button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>` : ''}
+      <button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
       ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.pause(14)} Stop</button>` : ''}
+      ${!running && runId ? `<button class="btn" onclick="restartEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
+      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${runId.replace(/'/g,"\\'")}') " style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
       <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
     </div>
   </div>
