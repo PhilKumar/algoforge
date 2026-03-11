@@ -90,10 +90,16 @@ if ! health_check "$STANDBY_PORT"; then
 fi
 log "Standby is healthy!"
 
-# ── 5. Swap nginx upstream ───────────────────────────────────
+# ── 5. Swap nginx upstream + sync site config ────────────────
 log "Switching nginx to port $STANDBY_PORT..."
 echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
     | sudo tee "$UPSTREAM_CONF" >/dev/null
+
+# Sync main nginx site config (picks up client_max_body_size, etc.)
+if [[ -f "$APP_DIR/deploy/nginx.conf" ]]; then
+    sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
+    log "Synced nginx site config from deploy/nginx.conf"
+fi
 
 if ! sudo nginx -t 2>/dev/null; then
     die "Nginx config test failed! Restoring old upstream."

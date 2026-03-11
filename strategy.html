@@ -1694,6 +1694,22 @@
   .ch-card-info { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; }
   .ch-card-name { font-size: 12px; font-weight: 500; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
   .ch-card-idx { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); }
+  .ch-card { position: relative; }
+  .ch-delete-btn { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; background: rgba(248,113,113,0.85); border: 1px solid rgba(248,113,113,0.5); color: #fff; font-size: 14px; line-height: 24px; text-align: center; cursor: pointer; opacity: 0; transition: opacity 0.2s; z-index: 5; backdrop-filter: blur(4px); padding: 0; }
+  .ch-card:hover .ch-delete-btn { opacity: 1; }
+  .ch-delete-btn:hover { background: rgba(220,38,38,0.95); transform: scale(1.1); }
+  .cj-submit-btn { width: 100%; padding: 10px 16px; background: linear-gradient(135deg, var(--accent), #00897b); color: #fff; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; font-family: 'Syne', sans-serif; cursor: pointer; transition: all 0.2s; margin-top: 8px; letter-spacing: 0.3px; }
+  .cj-submit-btn:hover { filter: brightness(1.15); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,191,165,0.3); }
+  .cj-submit-btn:active { transform: translateY(0); }
+  .cj-entries-list { max-height: 180px; overflow-y: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .cj-entries-list:empty { display: none; }
+  .cj-entry-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: background 0.15s; color: var(--text-dim); }
+  .cj-entry-item:hover { background: rgba(0,191,165,0.08); }
+  .cj-entry-item.active { background: rgba(0,191,165,0.15); color: var(--accent); font-weight: 600; }
+  .cj-entry-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 78px; }
+  .cj-entry-asset { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cj-entry-grade { width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .cj-entry-grade.g-A { background: var(--green); } .cj-entry-grade.g-B { background: #facc15; color: #000; } .cj-entry-grade.g-C { background: var(--red); } .cj-entry-grade.g-D { background: var(--purple); }
   .ch-lightbox { display: none; position: fixed; inset: 0; z-index: 2000; background: rgba(4,8,16,0.94); backdrop-filter: blur(20px); align-items: center; justify-content: center; flex-direction: column; }
   .ch-lightbox.open { display: flex; }
   .ch-lb-close { position: absolute; top: 16px; right: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); font-size: 20px; transition: all 0.2s; z-index: 10; }
@@ -3126,6 +3142,8 @@
           </div>
           <span class="cj-journal-save-dot" id="cj-save-dot" title="Saved"></span>
         </div>
+        <!-- Journal entries list -->
+        <div id="cj-entries-list" class="cj-entries-list"></div>
         <form id="cj-form" autocomplete="off" class="cj-form">
           <label class="cj-label">Asset / Ticker
             <input type="text" id="cj-asset" class="cj-input" placeholder="e.g. NIFTY 24000 CE" maxlength="100">
@@ -3166,6 +3184,7 @@
               <option value="Confident">💪 Confident</option>
             </select>
           </label>
+          <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()">💾 Save Journal</button>
         </form>
       </div>
     </div>
@@ -8395,6 +8414,7 @@ fetchRuns = async function() {
     _chLoadTree();
     _cjBindForm();
     _cjBindPaste();
+    _cjLoadEntries();
   };
 
   // ── Tree loading ──
@@ -8488,7 +8508,7 @@ fetchRuns = async function() {
     h += '<span style="background:rgba(0,191,165,0.12);border:1px solid rgba(0,191,165,0.25);color:var(--accent);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">' + _chImages.length + ' chart' + (_chImages.length > 1 ? 's' : '') + '</span>';
     h += '</div><div class="ch-grid">';
     _chImages.forEach((img, i) => {
-      h += '<div class="ch-card" onclick="window._chOpenLB(' + i + ')"><img src="' + img.url + '" alt="' + img.name + '" loading="lazy"><div class="ch-card-info"><span class="ch-card-name" title="' + img.name + '">' + img.name + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div></div>';
+      h += '<div class="ch-card"><button class="ch-delete-btn" title="Delete chart" onclick="event.stopPropagation();window._chDeleteChart(' + i + ')">✕</button><div onclick="window._chOpenLB(' + i + ')" style="cursor:pointer;"><img src="' + img.url + '" alt="' + img.name + '" loading="lazy"></div><div class="ch-card-info"><span class="ch-card-name" title="' + img.name + '">' + img.name + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div></div>';
     });
     h += '</div>';
     area.innerHTML = h;
@@ -8693,6 +8713,87 @@ fetchRuns = async function() {
       }, 2500);
     });
   }
+
+  // ══════════════════════════════════════════════════════════
+  //  DELETE CHART — remove a chart image
+  // ══════════════════════════════════════════════════════════
+  window._chDeleteChart = async function(idx) {
+    const img = _chImages[idx];
+    if (!img || !_cjCurrentDayMeta) return;
+    if (!confirm('Delete "' + img.name + '"?')) return;
+    const { year, monthFolder, dayFolder } = _cjCurrentDayMeta;
+    try {
+      const url = '/api/charts/delete/' + [year, monthFolder, dayFolder, img.name].map(encodeURIComponent).join('/');
+      const r = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
+      if (!r.ok) {
+        const ct = r.headers.get('content-type') || '';
+        const err = ct.includes('json') ? (await r.json()).detail : 'Delete failed (' + r.status + ')';
+        throw new Error(err);
+      }
+      _chImages.splice(idx, 1);
+      _chRenderImages();
+      console.log('[Charts] Deleted:', img.name);
+    } catch(e) {
+      alert('Delete failed: ' + e.message);
+    }
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  MANUAL SAVE BUTTON
+  // ══════════════════════════════════════════════════════════
+  window._cjManualSave = async function() {
+    if (!_cjCurrentDate) {
+      alert('Select a date first from the chart sidebar.');
+      return;
+    }
+    clearTimeout(_cjSaveTimer);
+    const btn = document.getElementById('cj-submit-btn');
+    btn.textContent = '⏳ Saving...';
+    btn.disabled = true;
+    await _cjSaveJournal(_cjCurrentDate);
+    btn.textContent = '✅ Saved!';
+    setTimeout(() => { btn.textContent = '💾 Save Journal'; btn.disabled = false; }, 1500);
+    // Refresh entries list
+    _cjLoadEntries();
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  JOURNAL ENTRIES LIST — shows all saved journal entries
+  // ══════════════════════════════════════════════════════════
+  async function _cjLoadEntries() {
+    const el = document.getElementById('cj-entries-list');
+    if (!el) return;
+    try {
+      const r = await fetch('/api/journal/list', { credentials: 'same-origin' });
+      const d = await r.json();
+      const entries = d.entries || [];
+      if (!entries.length) { el.innerHTML = ''; return; }
+      let h = '<div style="font-size:11px;color:var(--muted);padding:4px 10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Journal Entries</div>';
+      entries.forEach(e => {
+        const active = e.date === _cjCurrentDate ? ' active' : '';
+        const gradeEl = e.grade ? '<span class="cj-entry-grade g-' + e.grade + '">' + e.grade + '</span>' : '';
+        h += '<div class="cj-entry-item' + active + '" onclick="window._cjSelectEntry(\'' + e.date + '\')">';
+        h += '<span class="cj-entry-date">' + e.date + '</span>';
+        h += '<span class="cj-entry-asset">' + (e.asset || e.strategy || '—') + '</span>';
+        h += gradeEl;
+        h += '</div>';
+      });
+      el.innerHTML = h;
+    } catch(e) {
+      console.warn('[Journal] Entries load failed:', e);
+    }
+  }
+
+  window._cjSelectEntry = function(dateStr) {
+    // Find the matching day button in the tree and click it
+    _cjCurrentDate = dateStr;
+    _cjLoadJournal(dateStr);
+    document.getElementById('cj-date-label').textContent = dateStr;
+    // Highlight in entries list
+    document.querySelectorAll('.cj-entry-item').forEach(el => {
+      el.classList.toggle('active', el.textContent.includes(dateStr));
+    });
+  };
 })();
 </script>
 </body>

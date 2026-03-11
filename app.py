@@ -646,7 +646,55 @@ async def upload_chart(file: UploadFile):
     }
 
 
+# ── Delete a chart image ─────────────────────────────────────────
+@app.delete("/api/charts/delete/{year}/{month}/{day}/{filename}")
+async def delete_chart(year: str, month: str, day: str, filename: str):
+    """Delete a single chart image file."""
+    # Validate filename has an image extension
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _ALLOWED_IMG_EXT:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    file_path = _safe_charts_subpath(year, month, day, filename)
+    if file_path is None:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    os.remove(file_path)
+    print(f"[CHARTS] Deleted: {file_path}")
+    return {"status": "ok", "deleted": filename}
+
+
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
+@app.get("/api/journal/list")
+async def list_journals():
+    """Return list of all journal dates that have entries."""
+    if not os.path.isdir(JOURNAL_DIR):
+        return {"entries": []}
+    entries = []
+    for fname in sorted(os.listdir(JOURNAL_DIR), reverse=True):
+        if not fname.endswith(".json"):
+            continue
+        date_str = fname[:-5]
+        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+            continue
+        fpath = os.path.join(JOURNAL_DIR, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Include summary fields for the list view
+            entries.append(
+                {
+                    "date": date_str,
+                    "asset": data.get("asset", ""),
+                    "grade": data.get("grade", ""),
+                    "strategy": data.get("strategy", ""),
+                }
+            )
+        except Exception:
+            entries.append({"date": date_str, "asset": "", "grade": "", "strategy": ""})
+    return {"entries": entries}
+
+
 @app.get("/api/journal/{date_str}")
 async def get_journal(date_str: str):
     """Load journal entry for a date (YYYY-MM-DD)."""
