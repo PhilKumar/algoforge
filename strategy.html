@@ -3130,7 +3130,7 @@
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-            <th style="padding: 8px 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
+            <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
             <th style="padding: 8px 10px; text-align: left;">#</th>
             <th style="padding: 8px 10px; text-align: left;">Symbol</th>
             <th style="padding: 8px 6px; text-align: center;">Dir</th>
@@ -3178,7 +3178,7 @@
         <div class="charts-main">
           <div id="ch-content">
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;text-align:center;color:var(--muted);">
-              <div style="font-size:52px;margin-bottom:16px;opacity:0.5;">📊</div>
+              <div style="margin-bottom:16px;opacity:0.5;" id="ch-placeholder-icon"></div>
               <h3 style="font-family:'Syne',sans-serif;font-size:18px;color:var(--text-dim);margin-bottom:6px;">Select a Date</h3>
               <p style="font-size:13px;max-width:340px;line-height:1.6;">Choose a year, month, and day from the sidebar to browse your historical trading charts.</p>
               <p style="font-size:12px;color:var(--accent);margin-top:12px;opacity:0.7;">💡 Pro tip: Press <kbd style="background:rgba(255,255,255,0.08);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:11px;">Ctrl+V</kbd> to paste a screenshot directly into today's journal.</p>
@@ -3337,7 +3337,7 @@ const ICO = {
 
 // Inject nav tab icons
 (function initNavIcons() {
-  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), charts: ICO.candle(16)};
+  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), charts: ICO.memo(16)};
   Object.keys(map).forEach(k => { const el = document.getElementById('ico-' + k); if (el) el.innerHTML = map[k]; });
 })();
 
@@ -4521,7 +4521,7 @@ function _renderScalpHistoryPage() {
       const lotsStr = lots > 1 ? `${lots} <span style="font-size:9px;color:var(--muted);">(${qty})</span>` : `${lots}`;
       const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
-        <td style="padding:7px 6px;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
+        <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
         <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
@@ -8685,6 +8685,8 @@ fetchRuns = async function() {
   window.initChartsPage = function() {
     if (_chLoaded) return;
     _chLoaded = true;
+    const phIcon = document.getElementById('ch-placeholder-icon');
+    if (phIcon) phIcon.innerHTML = ICO.candle(52);
     _chLoadTree();
     _cjBindForm();
     _cjBindPaste();
