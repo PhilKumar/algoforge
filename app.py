@@ -149,6 +149,50 @@ _paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 # Stopped engine snapshots — persist on Live page after stop, keyed by run_id
 _stopped_engines: Dict[str, dict] = {}
 
+# Trade state tracker for Telegram alerts (keyed by run_id)
+_alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
+
+
+def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
+    """Detect trade entry/exit from engine status updates and fire Telegram alerts."""
+    if event.get("type") in ("status", "price_update"):
+        return  # Skip non-status-change events
+    in_trade = event.get("in_trade", False)
+    closed_trades = event.get("closed_trades", [])
+    positions = event.get("positions", [])
+    total_pnl = event.get("total_pnl", 0)
+    prev = _alert_state.get(run_id, {"in_trade": False, "closed_count": 0})
+
+    # Detect entry: was not in trade, now in trade
+    if in_trade and not prev["in_trade"]:
+        pos_lines = []
+        for p in positions:
+            sym = p.get("symbol") or p.get("trading_symbol") or "—"
+            txn = p.get("transaction_type", "")
+            premium = p.get("entry_premium", 0)
+            pos_lines.append(f"  {txn} {sym} @ ₹{premium:.2f}")
+        body = f"Strategy: {run_id}\nMode: {mode_label}\n" + "\n".join(pos_lines)
+        alerter.alert("Trade Entry", body, level="info")
+
+    # Detect exit: closed_trades count increased
+    new_count = len(closed_trades)
+    if new_count > prev["closed_count"]:
+        new_trades = closed_trades[prev["closed_count"] :]
+        for t in new_trades:
+            sym = t.get("symbol") or t.get("trading_symbol") or "—"
+            pnl = round(t.get("pnl", 0), 2)
+            reason = t.get("exit_reason") or t.get("reason") or "—"
+            level = "info" if pnl >= 0 else "warn"
+            body = (
+                f"Strategy: {run_id}\nMode: {mode_label}\n"
+                f"Symbol: {sym}\nP&L: ₹{pnl:.2f}\nReason: {reason}\n"
+                f"Total P&L: ₹{round(total_pnl, 2):.2f}"
+            )
+            alerter.alert("Trade Exit", body, level=level)
+
+    _alert_state[run_id] = {"in_trade": in_trade, "closed_count": new_count}
+
+
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engine: Optional["_ScalpEngineClass"] = None
@@ -2065,6 +2109,8 @@ async def live_start(req: LiveStartRequest):
     engine.in_trade = False
     engine.trades_today = 0
 
+    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
             try:
@@ -2072,6 +2118,7 @@ async def live_start(req: LiveStartRequest):
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
+        _check_trade_alerts(run_id, "Auto", event)
 
     # Store engine and start task
     live_engines[run_id] = engine
@@ -2081,6 +2128,7 @@ async def live_start(req: LiveStartRequest):
     engine.session_date = date.today()
     engine._save_state()
 
+    alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Auto (LIVE)", level="info")
     return {"status": "started", "run_id": run_id, "message": "Auto trading started with REAL orders"}
 
 
@@ -2129,6 +2177,15 @@ async def live_stop(request: Request):
     status_before["run_id"] = run_id
     status_before["mode"] = "auto"
     _stopped_engines[run_id] = status_before
+    _alert_state.pop(run_id, None)
+
+    pnl = round(status_before.get("total_pnl", 0), 2)
+    trades = len(status_before.get("closed_trades", []))
+    alerter.alert(
+        "Engine Stopped",
+        f"Strategy: {run_id}\nMode: Auto (LIVE)\nTrades: {trades}\nTotal P&L: \u20b9{pnl:.2f}",
+        level="warn",
+    )
 
     return {"status": "stopped", "run_id": run_id}
 
@@ -2314,7 +2371,9 @@ async def _paper_start_impl(payload: StrategyPayload):
     engine.in_trade = False
     engine.trades_today = 0
 
-    # Broadcast updates to WebSocket clients
+    # Broadcast updates to WebSocket clients + Telegram alerts
+    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+
     async def broadcast(event: dict):
         for ws in ws_clients.copy():
             try:
@@ -2322,11 +2381,13 @@ async def _paper_start_impl(payload: StrategyPayload):
             except Exception:
                 if ws in ws_clients:
                     ws_clients.remove(ws)
+        _check_trade_alerts(run_id, "Paper", event)
 
     # Store engine and start task
     paper_engines[run_id] = engine
     _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
+    alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
 
@@ -2378,6 +2439,13 @@ async def paper_stop(request: Request):
     status_before["run_id"] = run_id
     status_before["mode"] = "paper"
     _stopped_engines[run_id] = status_before
+    _alert_state.pop(run_id, None)
+
+    pnl = round(status_before.get("total_pnl", 0), 2)
+    trades = len(status_before.get("closed_trades", []))
+    alerter.alert(
+        "Engine Stopped", f"Strategy: {run_id}\nMode: Paper\nTrades: {trades}\nTotal P&L: \u20b9{pnl:.2f}", level="warn"
+    )
 
     return {"status": "stopped", "run_id": run_id}
 
