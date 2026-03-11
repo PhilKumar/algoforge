@@ -49,7 +49,7 @@ os.chdir(_HERE)
 
 import fcntl
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -578,6 +578,105 @@ async def serve_chart_image(year: str, month: str, day: str, filename: str):
     if file_path is None or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(file_path)
+
+
+# ── Chart Upload (Ctrl+V paste) ──────────────────────────────────
+JOURNAL_DIR = os.path.join(_HERE, "journals")
+_ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@app.post("/api/upload-chart")
+async def upload_chart(file: UploadFile):
+    """Receive a pasted screenshot, save to Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/."""
+    from urllib.parse import quote
+
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are allowed")
+
+    # Read with size limit
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    # Determine extension from content type
+    ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+    ext = ext_map.get(file.content_type, ".png")
+
+    # Build date-based folder: Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/
+    from datetime import timezone as _tz
+
+    now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
+    year_str = str(now_ist.year)
+    month_abbr = _cal.month_abbr[now_ist.month]
+    month_folder = f"{month_abbr}-{year_str}"
+    day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
+
+    day_path = os.path.join(CHARTS_DIR, year_str, month_folder, day_folder)
+    os.makedirs(day_path, exist_ok=True)
+    print(f"[CHARTS] Upload target dir: {day_path}")
+
+    # Generate timestamped filename
+    ts = now_ist.strftime("%H%M%S")
+    filename = f"chart_{ts}{ext}"
+    file_path = os.path.join(day_path, filename)
+
+    # Avoid overwrite
+    counter = 1
+    while os.path.exists(file_path):
+        filename = f"chart_{ts}_{counter}{ext}"
+        file_path = os.path.join(day_path, filename)
+        counter += 1
+
+    with open(file_path, "wb") as f:
+        f.write(data)
+    print(f"[CHARTS] Saved upload: {file_path} ({len(data)} bytes)")
+
+    url = f"/charts-static/{quote(year_str)}/{quote(month_folder)}/{quote(day_folder)}/{quote(filename)}"
+    return {
+        "status": "ok",
+        "filename": filename,
+        "url": url,
+        "year": year_str,
+        "month_folder": month_folder,
+        "day_folder": day_folder,
+    }
+
+
+# ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
+@app.get("/api/journal/{date_str}")
+async def get_journal(date_str: str):
+    """Load journal entry for a date (YYYY-MM-DD)."""
+    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
+    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(journal_file):
+        return {"date": date_str, "data": None}
+    with open(journal_file, "r", encoding="utf-8") as f:
+        return {"date": date_str, "data": json.load(f)}
+
+
+@app.put("/api/journal/{date_str}")
+async def save_journal(date_str: str, request: Request):
+    """Save journal entry for a date (YYYY-MM-DD)."""
+    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    os.makedirs(JOURNAL_DIR, exist_ok=True)
+    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
+    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    body = await request.json()
+    # Sanitize: only allow known fields
+    allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
+    clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
+    with open(journal_file, "w", encoding="utf-8") as f:
+        json.dump(clean, f, indent=2)
+    return {"status": "ok", "date": date_str}
 
 
 # ── Brute-Force Protection ────────────────────────────────────────
