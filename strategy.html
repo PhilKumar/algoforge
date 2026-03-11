@@ -422,6 +422,24 @@
     line-height: 1.6;
     text-align: center;
   }
+  #confirm-modal .confirm-input {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    outline: none;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+  }
+  #confirm-modal .confirm-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,191,165,0.12);
+  }
   #confirm-modal .confirm-actions {
     display: flex;
     gap: 12px;
@@ -1695,21 +1713,36 @@
   .ch-card-name { font-size: 12px; font-weight: 500; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
   .ch-card-idx { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); }
   .ch-card { position: relative; }
-  .ch-delete-btn { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; background: rgba(248,113,113,0.85); border: 1px solid rgba(248,113,113,0.5); color: #fff; font-size: 14px; line-height: 24px; text-align: center; cursor: pointer; opacity: 0; transition: opacity 0.2s; z-index: 5; backdrop-filter: blur(4px); padding: 0; }
+  .ch-delete-btn { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(180deg, rgba(239,68,68,0.25), rgba(180,40,40,0.45)); border: 1px solid rgba(239,68,68,0.45); color: rgb(248,113,113); font-size: 13px; line-height: 26px; text-align: center; cursor: pointer; opacity: 0; transition: all 0.2s; z-index: 5; backdrop-filter: blur(8px); padding: 0; box-shadow: 0 4px 12px rgba(239,68,68,0.2); }
   .ch-card:hover .ch-delete-btn { opacity: 1; }
-  .ch-delete-btn:hover { background: rgba(220,38,38,0.95); transform: scale(1.1); }
-  .cj-submit-btn { width: 100%; padding: 10px 16px; background: linear-gradient(135deg, var(--accent), #00897b); color: #fff; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; font-family: 'Syne', sans-serif; cursor: pointer; transition: all 0.2s; margin-top: 8px; letter-spacing: 0.3px; }
-  .cj-submit-btn:hover { filter: brightness(1.15); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,191,165,0.3); }
-  .cj-submit-btn:active { transform: translateY(0); }
-  .cj-entries-list { max-height: 180px; overflow-y: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .ch-delete-btn:hover { box-shadow: 0 6px 18px rgba(239,68,68,0.35); filter: saturate(1.1); transform: translateY(-1px); }
+  .ch-card-name { font-size: 12px; font-weight: 500; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background 0.15s; }
+  .ch-card-name:hover { background: rgba(0,191,165,0.08); color: var(--accent); }
+  .cj-submit-btn { width: 100%; padding: 11px 16px; background: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); color: rgb(52,211,153); border: 1px solid rgba(0,200,150,0.5); border-radius: 999px; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; transition: all 0.18s; margin-top: 8px; letter-spacing: 0.3px; box-shadow: 0 4px 12px rgba(0,200,150,0.2), inset 0 1px 0 rgba(255,255,255,0.1); position: relative; overflow: hidden; text-shadow: 0 1px 1px rgba(0,0,0,0.2); }
+  .cj-submit-btn::before { content: ''; position: absolute; top: 2px; left: 6%; width: 88%; height: 42%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.03)); pointer-events: none; }
+  .cj-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,200,150,0.35), inset 0 1px 0 rgba(255,255,255,0.15); filter: saturate(1.1); }
+  .cj-submit-btn:active { transform: translateY(1px); }
+  .cj-submit-btn:disabled { opacity: 0.6; cursor: default; transform: none; filter: none; }
+  .cj-entries-list { max-height: 240px; overflow-y: auto; margin-bottom: 12px; padding-bottom: 4px; }
   .cj-entries-list:empty { display: none; }
-  .cj-entry-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: background 0.15s; color: var(--text-dim); }
+  .cj-entries-title { font-size: 11px; color: var(--muted); padding: 4px 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .cj-month-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 10px; background: none; border: none; border-radius: 6px; color: var(--text-dim); font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  .cj-month-toggle:hover { background: rgba(255,255,255,0.04); }
+  .cj-month-toggle .arrow { display: inline-block; width: 12px; font-size: 9px; color: var(--muted); transition: transform 0.2s; }
+  .cj-month-toggle.open .arrow { transform: rotate(90deg); }
+  .cj-month-toggle .cnt { margin-left: auto; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); background: rgba(255,255,255,0.04); padding: 1px 6px; border-radius: 8px; }
+  .cj-month-children { display: none; padding-left: 6px; }
+  .cj-month-children.open { display: block; }
+  .cj-entry-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: background 0.15s; color: var(--text-dim); position: relative; }
   .cj-entry-item:hover { background: rgba(0,191,165,0.08); }
   .cj-entry-item.active { background: rgba(0,191,165,0.15); color: var(--accent); font-weight: 600; }
-  .cj-entry-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 78px; }
+  .cj-entry-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 20px; }
   .cj-entry-asset { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cj-entry-grade { width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .cj-entry-grade { width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
   .cj-entry-grade.g-A { background: var(--green); } .cj-entry-grade.g-B { background: #facc15; color: #000; } .cj-entry-grade.g-C { background: var(--red); } .cj-entry-grade.g-D { background: var(--purple); }
+  .cj-entry-del { opacity: 0; width: 20px; height: 20px; border-radius: 50%; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: var(--red); font-size: 11px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+  .cj-entry-item:hover .cj-entry-del { opacity: 1; }
+  .cj-entry-del:hover { background: rgba(239,68,68,0.3); transform: scale(1.1); }
   .ch-lightbox { display: none; position: fixed; inset: 0; z-index: 2000; background: rgba(4,8,16,0.94); backdrop-filter: blur(20px); align-items: center; justify-content: center; flex-direction: column; }
   .ch-lightbox.open { display: flex; }
   .ch-lb-close { position: absolute; top: 16px; right: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); font-size: 20px; transition: all 0.2s; z-index: 10; }
@@ -3207,6 +3240,7 @@
     <div class="confirm-icon" id="confirm-icon"></div>
     <div class="confirm-title" id="confirm-title">Confirm</div>
     <div class="confirm-message" id="confirm-message">Are you sure?</div>
+    <input type="text" class="confirm-input" id="confirm-input" style="display:none;" autocomplete="off">
     <div class="confirm-actions">
       <button class="btn-confirm-cancel" id="confirm-cancel-btn">Cancel</button>
       <button class="btn-confirm-ok" id="confirm-ok-btn">OK</button>
@@ -3293,12 +3327,23 @@ function customConfirm(message, options = {}) {
     const iconEl = document.getElementById('confirm-icon');
     const okBtn = document.getElementById('confirm-ok-btn');
     const cancelBtn = document.getElementById('confirm-cancel-btn');
+    const inputEl = document.getElementById('confirm-input');
 
     titleEl.innerHTML = options.title || 'Confirm';      // internal ICO SVG only
     msgEl.innerHTML = message;                             // internal HTML only (no user input)
     iconEl.innerHTML = options.icon || ICO.warn(28);     // internal SVG generator only
     okBtn.textContent = options.okText || 'Confirm';
     cancelBtn.textContent = options.cancelText || 'Cancel';
+
+    // Prompt mode: show input with prefill
+    if (options.prompt) {
+      inputEl.style.display = 'block';
+      inputEl.value = options.promptValue || '';
+      setTimeout(() => { inputEl.focus(); inputEl.select(); }, 60);
+    } else {
+      inputEl.style.display = 'none';
+      inputEl.value = '';
+    }
 
     // Style the OK button based on type
     okBtn.className = options.danger ? 'btn-confirm-danger' : 'btn-confirm-ok';
@@ -3310,17 +3355,19 @@ function customConfirm(message, options = {}) {
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       modal.removeEventListener('click', onBackdrop);
+      inputEl.removeEventListener('keydown', onEnter);
     }
-    function onOk() { cleanup(); resolve(true); }
-    function onCancel() { cleanup(); resolve(false); }
-    function onBackdrop(e) { if (e.target === modal) { cleanup(); resolve(false); } }
+    function onOk() { cleanup(); resolve(options.prompt ? inputEl.value.trim() : true); }
+    function onCancel() { cleanup(); resolve(options.prompt ? null : false); }
+    function onBackdrop(e) { if (e.target === modal) { cleanup(); resolve(options.prompt ? null : false); } }
+    function onEnter(e) { if (e.key === 'Enter') { e.preventDefault(); onOk(); } }
 
     okBtn.addEventListener('click', onOk);
     cancelBtn.addEventListener('click', onCancel);
     modal.addEventListener('click', onBackdrop);
+    if (options.prompt) inputEl.addEventListener('keydown', onEnter);
 
-    // Focus the cancel button for safety
-    cancelBtn.focus();
+    if (!options.prompt) cancelBtn.focus();
   });
 }
 
@@ -8423,10 +8470,8 @@ fetchRuns = async function() {
       const r = await fetch('/api/charts/tree', { credentials: 'same-origin' });
       const d = await r.json();
       _chTree = d.years || {};
-      console.log('[Charts] Tree loaded:', Object.keys(_chTree));
       _chRenderTree();
     } catch (e) {
-      console.error('[Charts] Tree load failed:', e);
       document.getElementById('ch-tree').innerHTML = '<div style="text-align:center;color:var(--red);font-size:12px;padding:20px 0;">Failed to load chart tree</div>';
     }
   }
@@ -8473,27 +8518,26 @@ fetchRuns = async function() {
     document.querySelectorAll('.chday-btn.active').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     _chDateLabel = dateLabel;
-    _cjCurrentDate = sortKey;  // YYYY-MM-DD
+    _cjCurrentDate = sortKey;
     _cjCurrentDayMeta = { year, monthFolder, dayFolder };
     document.getElementById('cj-date-label').textContent = dateLabel + ' (' + sortKey + ')';
 
-    // Load images
     const area = document.getElementById('ch-content');
     area.innerHTML = '<div class="ch-grid">' + '<div class="skeleton" style="height:200px;"></div>'.repeat(4) + '</div>';
     try {
       const url = '/api/charts/images/' + encodeURIComponent(year) + '/' + encodeURIComponent(monthFolder) + '/' + encodeURIComponent(dayFolder);
-      console.log('[Charts] Fetching images:', url);
       const r = await fetch(url, { credentials: 'same-origin' });
       const d = await r.json();
       _chImages = (d.images || []).map((name, i) => ({ name, url: d.urls[i] }));
-      console.log('[Charts] Got', _chImages.length, 'images');
       _chRenderImages();
     } catch (e) {
       area.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;color:var(--red);"><h3>Failed to load</h3><p>' + e.message + '</p></div>';
     }
-
-    // Load journal
     _cjLoadJournal(sortKey);
+    // Highlight in entries list
+    document.querySelectorAll('.cj-entry-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.date === sortKey);
+    });
   };
 
   function _chRenderImages() {
@@ -8508,7 +8552,12 @@ fetchRuns = async function() {
     h += '<span style="background:rgba(0,191,165,0.12);border:1px solid rgba(0,191,165,0.25);color:var(--accent);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">' + _chImages.length + ' chart' + (_chImages.length > 1 ? 's' : '') + '</span>';
     h += '</div><div class="ch-grid">';
     _chImages.forEach((img, i) => {
-      h += '<div class="ch-card"><button class="ch-delete-btn" title="Delete chart" onclick="event.stopPropagation();window._chDeleteChart(' + i + ')">✕</button><div onclick="window._chOpenLB(' + i + ')" style="cursor:pointer;"><img src="' + img.url + '" alt="' + img.name + '" loading="lazy"></div><div class="ch-card-info"><span class="ch-card-name" title="' + img.name + '">' + img.name + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div></div>';
+      const eName = img.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      h += '<div class="ch-card">';
+      h += '<button class="ch-delete-btn" title="Delete chart" onclick="event.stopPropagation();window._chDeleteChart(' + i + ')">✕</button>';
+      h += '<div onclick="window._chOpenLB(' + i + ')" style="cursor:pointer;"><img src="' + img.url + '" alt="' + eName + '" loading="lazy"></div>';
+      h += '<div class="ch-card-info"><span class="ch-card-name" title="Click to rename" onclick="event.stopPropagation();window._chRenameChart(' + i + ')">' + img.name + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div>';
+      h += '</div>';
     });
     h += '</div>';
     area.innerHTML = h;
@@ -8542,6 +8591,7 @@ fetchRuns = async function() {
     document.querySelector('.ch-lb-nav.prev').disabled = _chLBIdx === 0;
     document.querySelector('.ch-lb-nav.next').disabled = _chLBIdx === _chImages.length - 1;
   }
+  // Keyboard nav + close on outside click
   document.addEventListener('keydown', function(e) {
     const lb = document.getElementById('ch-lightbox');
     if (!lb || !lb.classList.contains('open')) return;
@@ -8549,6 +8599,82 @@ fetchRuns = async function() {
     if (e.key === 'ArrowLeft') chNavLB(-1);
     if (e.key === 'ArrowRight') chNavLB(1);
   });
+  // Close lightbox when clicking outside the image
+  document.addEventListener('click', function(e) {
+    const lb = document.getElementById('ch-lightbox');
+    if (!lb || !lb.classList.contains('open')) return;
+    const img = document.getElementById('ch-lb-img');
+    // If click is on the lightbox background (not on image, buttons, or caption)
+    if (e.target === lb || e.target.classList.contains('ch-lb-wrap')) {
+      chCloseLB();
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  DELETE CHART — custom modal
+  // ══════════════════════════════════════════════════════════
+  window._chDeleteChart = async function(idx) {
+    const img = _chImages[idx];
+    if (!img || !_cjCurrentDayMeta) return;
+    const ok = await customConfirm('Delete chart <strong>' + img.name + '</strong>?<br><span style="font-size:11px;">This cannot be undone.</span>', {
+      title: 'Delete Chart',
+      icon: ICO.trash ? ICO.trash(28) : '🗑️',
+      okText: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const { year, monthFolder, dayFolder } = _cjCurrentDayMeta;
+    try {
+      const url = '/api/charts/delete/' + [year, monthFolder, dayFolder, img.name].map(encodeURIComponent).join('/');
+      const r = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
+      if (!r.ok) {
+        const ct = r.headers.get('content-type') || '';
+        const err = ct.includes('json') ? (await r.json()).detail : 'Delete failed (' + r.status + ')';
+        throw new Error(err);
+      }
+      _chImages.splice(idx, 1);
+      _chRenderImages();
+    } catch(e) {
+      await customConfirm(e.message, { title: 'Error', icon: '❌', okText: 'OK', cancelText: '' });
+    }
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  RENAME CHART — click filename to rename
+  // ══════════════════════════════════════════════════════════
+  window._chRenameChart = async function(idx) {
+    const img = _chImages[idx];
+    if (!img || !_cjCurrentDayMeta) return;
+    const baseName = img.name.replace(/\.[^.]+$/, '');
+    const newName = await customConfirm('Enter a new name for this chart:', {
+      title: 'Rename Chart',
+      icon: ICO.memo(28),
+      okText: 'Rename',
+      prompt: true,
+      promptValue: baseName,
+    });
+    if (!newName || newName === baseName) return;
+    const { year, monthFolder, dayFolder } = _cjCurrentDayMeta;
+    try {
+      const url = '/api/charts/rename/' + [year, monthFolder, dayFolder, img.name].map(encodeURIComponent).join('/');
+      const r = await fetch(url, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: newName }),
+      });
+      if (!r.ok) {
+        const ct = r.headers.get('content-type') || '';
+        const err = ct.includes('json') ? (await r.json()).detail : 'Rename failed (' + r.status + ')';
+        throw new Error(err);
+      }
+      const d = await r.json();
+      _chImages[idx] = { name: d.new_name, url: d.url };
+      _chRenderImages();
+    } catch(e) {
+      await customConfirm(e.message, { title: 'Error', icon: '❌', okText: 'OK', cancelText: '' });
+    }
+  };
 
   // ══════════════════════════════════════════════════════════
   //  JOURNAL — auto-save on change, persist to backend + localStorage
@@ -8604,13 +8730,11 @@ fetchRuns = async function() {
 
   async function _cjLoadJournal(dateStr) {
     _cjClearForm();
-    // Try localStorage first (instant)
     const lsKey = 'cj_journal_' + dateStr;
     try {
       const cached = localStorage.getItem(lsKey);
       if (cached) _cjSetFormData(JSON.parse(cached));
     } catch(e) {}
-    // Also fetch from backend
     try {
       const r = await fetch('/api/journal/' + dateStr, { credentials: 'same-origin' });
       const d = await r.json();
@@ -8625,9 +8749,7 @@ fetchRuns = async function() {
 
   async function _cjSaveJournal(dateStr) {
     const data = _cjGetFormData();
-    // Save to localStorage immediately
     try { localStorage.setItem('cj_journal_' + dateStr, JSON.stringify(data)); } catch(e) {}
-    // Save to backend
     try {
       await fetch('/api/journal/' + dateStr, {
         method: 'PUT',
@@ -8644,11 +8766,28 @@ fetchRuns = async function() {
   }
 
   // ══════════════════════════════════════════════════════════
-  //  PASTE UPLOAD — Ctrl+V pastes screenshot to today's charts
+  //  MANUAL SAVE BUTTON
+  // ══════════════════════════════════════════════════════════
+  window._cjManualSave = async function() {
+    if (!_cjCurrentDate) {
+      await customConfirm('Select a date first from the chart sidebar.', { title: 'No Date Selected', icon: '📅', okText: 'OK', cancelText: '' });
+      return;
+    }
+    clearTimeout(_cjSaveTimer);
+    const btn = document.getElementById('cj-submit-btn');
+    btn.textContent = '⏳ Saving...';
+    btn.disabled = true;
+    await _cjSaveJournal(_cjCurrentDate);
+    btn.textContent = '✅ Saved!';
+    setTimeout(() => { btn.textContent = '💾 Save Journal'; btn.disabled = false; }, 1500);
+    _cjLoadEntries();
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  PASTE UPLOAD — Ctrl+V pastes screenshot
   // ══════════════════════════════════════════════════════════
   function _cjBindPaste() {
     document.addEventListener('paste', async function(e) {
-      // Only handle pastes when charts page is visible
       const page = document.getElementById('charts-page');
       if (!page || !page.classList.contains('active-page')) return;
 
@@ -8665,10 +8804,8 @@ fetchRuns = async function() {
       if (!imageFile) return;
 
       e.preventDefault();
-      console.log('[Charts] Pasting image:', imageFile.type, imageFile.size, 'bytes');
-
-      // Show toast
       const toast = document.getElementById('cj-toast');
+      toast.textContent = '📤 Uploading chart...';
       toast.classList.add('show');
 
       try {
@@ -8689,21 +8826,16 @@ fetchRuns = async function() {
         }
         const d = await r.json();
         if (d.status !== 'ok') throw new Error(d.detail || d.message || 'Upload failed');
-        console.log('[Charts] Upload OK:', d.filename);
 
-        // If we have a current day selected AND it matches today, append to grid
-        // Otherwise reload today's folder
         const newImg = { name: d.filename, url: d.url };
         _chImages.push(newImg);
         _chRenderImages();
 
-        // Refresh tree in case a new date folder was created
         _chLoaded = false;
         _chLoadTree().then(() => _chLoaded = true);
 
         toast.textContent = '✅ Chart saved: ' + d.filename;
       } catch(err) {
-        console.error('[Charts] Upload failed:', err);
         toast.textContent = '❌ Upload failed: ' + err.message;
       }
 
@@ -8715,50 +8847,7 @@ fetchRuns = async function() {
   }
 
   // ══════════════════════════════════════════════════════════
-  //  DELETE CHART — remove a chart image
-  // ══════════════════════════════════════════════════════════
-  window._chDeleteChart = async function(idx) {
-    const img = _chImages[idx];
-    if (!img || !_cjCurrentDayMeta) return;
-    if (!confirm('Delete "' + img.name + '"?')) return;
-    const { year, monthFolder, dayFolder } = _cjCurrentDayMeta;
-    try {
-      const url = '/api/charts/delete/' + [year, monthFolder, dayFolder, img.name].map(encodeURIComponent).join('/');
-      const r = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
-      if (!r.ok) {
-        const ct = r.headers.get('content-type') || '';
-        const err = ct.includes('json') ? (await r.json()).detail : 'Delete failed (' + r.status + ')';
-        throw new Error(err);
-      }
-      _chImages.splice(idx, 1);
-      _chRenderImages();
-      console.log('[Charts] Deleted:', img.name);
-    } catch(e) {
-      alert('Delete failed: ' + e.message);
-    }
-  };
-
-  // ══════════════════════════════════════════════════════════
-  //  MANUAL SAVE BUTTON
-  // ══════════════════════════════════════════════════════════
-  window._cjManualSave = async function() {
-    if (!_cjCurrentDate) {
-      alert('Select a date first from the chart sidebar.');
-      return;
-    }
-    clearTimeout(_cjSaveTimer);
-    const btn = document.getElementById('cj-submit-btn');
-    btn.textContent = '⏳ Saving...';
-    btn.disabled = true;
-    await _cjSaveJournal(_cjCurrentDate);
-    btn.textContent = '✅ Saved!';
-    setTimeout(() => { btn.textContent = '💾 Save Journal'; btn.disabled = false; }, 1500);
-    // Refresh entries list
-    _cjLoadEntries();
-  };
-
-  // ══════════════════════════════════════════════════════════
-  //  JOURNAL ENTRIES LIST — shows all saved journal entries
+  //  JOURNAL ENTRIES — collapsible month tree
   // ══════════════════════════════════════════════════════════
   async function _cjLoadEntries() {
     const el = document.getElementById('cj-entries-list');
@@ -8768,15 +8857,38 @@ fetchRuns = async function() {
       const d = await r.json();
       const entries = d.entries || [];
       if (!entries.length) { el.innerHTML = ''; return; }
-      let h = '<div style="font-size:11px;color:var(--muted);padding:4px 10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Journal Entries</div>';
+
+      // Group entries by YYYY-MM
+      const months = {};
+      const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       entries.forEach(e => {
-        const active = e.date === _cjCurrentDate ? ' active' : '';
-        const gradeEl = e.grade ? '<span class="cj-entry-grade g-' + e.grade + '">' + e.grade + '</span>' : '';
-        h += '<div class="cj-entry-item' + active + '" onclick="window._cjSelectEntry(\'' + e.date + '\')">';
-        h += '<span class="cj-entry-date">' + e.date + '</span>';
-        h += '<span class="cj-entry-asset">' + (e.asset || e.strategy || '—') + '</span>';
-        h += gradeEl;
-        h += '</div>';
+        const [y, m] = e.date.split('-');
+        const key = y + '-' + m;
+        if (!months[key]) months[key] = { label: monthNames[parseInt(m)] + ' ' + y, entries: [] };
+        months[key].entries.push(e);
+      });
+
+      let h = '<div class="cj-entries-title">📋 Journal Entries</div>';
+      const keys = Object.keys(months).sort().reverse();
+      keys.forEach((key, ki) => {
+        const mo = months[key];
+        const isOpen = ki === 0 ? ' open' : '';
+        h += '<div>';
+        h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + mo.label + '<span class="cnt">' + mo.entries.length + '</span></button>';
+        h += '<div class="cj-month-children' + isOpen + '">';
+        mo.entries.forEach(e => {
+          const day = e.date.split('-')[2];
+          const active = e.date === _cjCurrentDate ? ' active' : '';
+          const gradeEl = e.grade ? '<span class="cj-entry-grade g-' + e.grade + '">' + e.grade + '</span>' : '';
+          const esc = e.date.replace(/'/g, "\\'");
+          h += '<div class="cj-entry-item' + active + '" data-date="' + e.date + '" onclick="window._cjSelectEntry(\'' + esc + '\')">';
+          h += '<span class="cj-entry-date">' + day + '</span>';
+          h += '<span class="cj-entry-asset">' + (e.asset || e.strategy || '—') + '</span>';
+          h += gradeEl;
+          h += '<button class="cj-entry-del" title="Delete entry" onclick="event.stopPropagation();window._cjDeleteEntry(\'' + esc + '\')">✕</button>';
+          h += '</div>';
+        });
+        h += '</div></div>';
       });
       el.innerHTML = h;
     } catch(e) {
@@ -8785,14 +8897,31 @@ fetchRuns = async function() {
   }
 
   window._cjSelectEntry = function(dateStr) {
-    // Find the matching day button in the tree and click it
     _cjCurrentDate = dateStr;
     _cjLoadJournal(dateStr);
     document.getElementById('cj-date-label').textContent = dateStr;
-    // Highlight in entries list
     document.querySelectorAll('.cj-entry-item').forEach(el => {
-      el.classList.toggle('active', el.textContent.includes(dateStr));
+      el.classList.toggle('active', el.dataset.date === dateStr);
     });
+  };
+
+  window._cjDeleteEntry = async function(dateStr) {
+    const ok = await customConfirm('Delete journal entry for <strong>' + dateStr + '</strong>?<br><span style="font-size:11px;">This cannot be undone.</span>', {
+      title: 'Delete Journal Entry',
+      icon: '🗑️',
+      okText: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch('/api/journal/' + dateStr, { method: 'DELETE', credentials: 'same-origin' });
+      if (!r.ok) throw new Error('Failed (' + r.status + ')');
+      try { localStorage.removeItem('cj_journal_' + dateStr); } catch(e) {}
+      if (_cjCurrentDate === dateStr) _cjClearForm();
+      _cjLoadEntries();
+    } catch(e) {
+      await customConfirm(e.message, { title: 'Error', icon: '❌', okText: 'OK', cancelText: '' });
+    }
   };
 })();
 </script>

@@ -619,15 +619,15 @@ async def upload_chart(file: UploadFile):
     os.makedirs(day_path, exist_ok=True)
     print(f"[CHARTS] Upload target dir: {day_path}")
 
-    # Generate timestamped filename
-    ts = now_ist.strftime("%H%M%S")
-    filename = f"chart_{ts}{ext}"
+    # Generate filename: Nifty_DD-MM-YYYY[_N].ext
+    date_tag = now_ist.strftime("%d-%m-%Y")
+    filename = f"Nifty_{date_tag}{ext}"
     file_path = os.path.join(day_path, filename)
 
     # Avoid overwrite
     counter = 1
     while os.path.exists(file_path):
-        filename = f"chart_{ts}_{counter}{ext}"
+        filename = f"Nifty_{date_tag}_{counter}{ext}"
         file_path = os.path.join(day_path, filename)
         counter += 1
 
@@ -650,7 +650,6 @@ async def upload_chart(file: UploadFile):
 @app.delete("/api/charts/delete/{year}/{month}/{day}/{filename}")
 async def delete_chart(year: str, month: str, day: str, filename: str):
     """Delete a single chart image file."""
-    # Validate filename has an image extension
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _ALLOWED_IMG_EXT:
         raise HTTPException(status_code=400, detail="Invalid file type")
@@ -662,6 +661,41 @@ async def delete_chart(year: str, month: str, day: str, filename: str):
     os.remove(file_path)
     print(f"[CHARTS] Deleted: {file_path}")
     return {"status": "ok", "deleted": filename}
+
+
+# ── Rename a chart image ─────────────────────────────────────────
+@app.patch("/api/charts/rename/{year}/{month}/{day}/{filename}")
+async def rename_chart(year: str, month: str, day: str, filename: str, request: Request):
+    """Rename a chart image file."""
+    body = await request.json()
+    new_name = body.get("new_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="New name is required")
+    # Validate old file
+    old_ext = os.path.splitext(filename)[1].lower()
+    if old_ext not in _ALLOWED_IMG_EXT:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    old_path = _safe_charts_subpath(year, month, day, filename)
+    if old_path is None:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(old_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    # Sanitize new name: keep extension, strip dangerous chars
+    new_base = _re.sub(r"[^\w\s._-]", "", os.path.splitext(new_name)[0])[:80]
+    if not new_base:
+        raise HTTPException(status_code=400, detail="Invalid new name")
+    new_filename = f"{new_base}{old_ext}"
+    new_path = _safe_charts_subpath(year, month, day, new_filename)
+    if new_path is None:
+        raise HTTPException(status_code=400, detail="Invalid new path")
+    if os.path.exists(new_path):
+        raise HTTPException(status_code=409, detail="A file with that name already exists")
+    os.rename(old_path, new_path)
+    from urllib.parse import quote
+
+    new_url = f"/charts-static/{quote(year)}/{quote(month)}/{quote(day)}/{quote(new_filename)}"
+    print(f"[CHARTS] Renamed: {filename} → {new_filename}")
+    return {"status": "ok", "old_name": filename, "new_name": new_filename, "url": new_url}
 
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
@@ -725,6 +759,25 @@ async def save_journal(date_str: str, request: Request):
     with open(journal_file, "w", encoding="utf-8") as f:
         json.dump(clean, f, indent=2)
     return {"status": "ok", "date": date_str}
+
+
+@app.delete("/api/journal/{date_str}")
+async def delete_journal(date_str: str):
+    """Delete a journal entry for a date (YYYY-MM-DD)."""
+    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
+    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(journal_file):
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    os.remove(journal_file)
+    try:
+        localStorage_key = f"cj_journal_{date_str}"
+        print(f"[JOURNAL] Deleted: {journal_file}")
+    except Exception:
+        pass
+    return {"status": "ok", "deleted": date_str}
 
 
 # ── Brute-Force Protection ────────────────────────────────────────
