@@ -18,7 +18,7 @@ PORT_FILE="$HOME/.${APP}-active-port"
 UPSTREAM_CONF="/etc/nginx/conf.d/${APP}-upstream.conf"
 
 HEALTH_PATH="/api/health"
-HEALTH_TIMEOUT=30          # seconds to wait for standby health
+HEALTH_TIMEOUT=45          # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 
 LOG_TAG="[DEPLOY]"
@@ -72,6 +72,13 @@ if sudo systemctl is-active "${APP}.service" >/dev/null 2>&1; then
     sudo systemctl stop "${APP}.service"
     sudo systemctl disable "${APP}.service" 2>/dev/null || true
 fi
+
+# ── 2c. Kill any stale process holding the standby port ───────
+if sudo fuser "${STANDBY_PORT}/tcp" >/dev/null 2>&1; then
+    log "⚠ Stale process on port $STANDBY_PORT — killing..."
+    sudo fuser -k "${STANDBY_PORT}/tcp" 2>/dev/null || true
+    sleep 1
+fi
 sleep 1
 
 # ── 3. Start standby instance ────────────────────────────────
@@ -85,6 +92,8 @@ sleep 5
 log "Waiting for standby health check..."
 if ! health_check "$STANDBY_PORT"; then
     log "ROLLBACK — standby failed health check! Stopping standby."
+    log "── Last 40 lines of journal for ${APP}@${STANDBY_PORT} ──"
+    sudo journalctl -u "${APP}@${STANDBY_PORT}" --no-pager -n 40 || true
     sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
     die "Deploy aborted. Active instance on port $ACTIVE_PORT unchanged."
 fi
