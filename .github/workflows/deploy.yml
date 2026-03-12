@@ -8,6 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:        # manual trigger from GitHub UI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Only one deploy at a time — never cancel a running deploy
 concurrency:
   group: deploy-algoforge
