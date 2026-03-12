@@ -10,6 +10,7 @@ import csv
 import json
 import os
 import sys
+import threading
 import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,46 @@ from requests.adapters import HTTPAdapter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
+
+# ══════════════════════════════════════════════════════════════
+#  Token Auto-Refresh on DH-906 "Invalid Token"
+# ══════════════════════════════════════════════════════════════
+_token_refresh_lock = threading.Lock()
+_last_token_refresh: float = 0.0
+
+
+def _is_invalid_token_response(resp) -> bool:
+    """Check if an HTTP response is a DH-906 Invalid Token error."""
+    if resp.status_code != 400:
+        return False
+    try:
+        body = resp.json() if hasattr(resp, "json") else {}
+        return body.get("errorCode") == "DH-906"
+    except Exception:
+        return False
+
+
+def _try_refresh_token() -> bool:
+    """Attempt to regenerate the Dhan access token via TOTP.
+    Returns True if a new token was obtained. Thread-safe with a cooldown."""
+    global _last_token_refresh
+    with _token_refresh_lock:
+        # Cooldown: don't retry within 30s of last refresh attempt
+        if _time.time() - _last_token_refresh < 30:
+            return False
+        _last_token_refresh = _time.time()
+    try:
+        from token_manager import auto_generate_token
+
+        new_tok = auto_generate_token()
+        if new_tok:
+            _dhan_log.info("[DHAN] ✅ Token auto-refreshed after DH-906")
+            return True
+        _dhan_log.warning("[DHAN] Token refresh failed — auto_generate_token returned None")
+        return False
+    except Exception as e:
+        _dhan_log.error(f"[DHAN] Token refresh error: {e}")
+        return False
 
 
 # ══════════════════════════════════════════════════════════════
@@ -123,6 +164,7 @@ async def _async_request_with_retry(
     """
     Async HTTP request with exponential backoff on transient failures.
     Uses httpx.AsyncClient for true non-blocking I/O (no thread pool).
+    Auto-refreshes token on DH-906 Invalid Token errors.
     """
     client = _get_async_client()
     last_exc = None
@@ -135,6 +177,12 @@ async def _async_request_with_retry(
                 json=json_data,
                 timeout=timeout,
             )
+            if _is_invalid_token_response(resp):
+                _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → DH-906 Invalid Token, refreshing...")
+                refreshed = await asyncio.to_thread(_try_refresh_token)
+                if refreshed:
+                    headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
+                    continue
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
@@ -194,12 +242,18 @@ def _request_with_retry(
 ) -> "requests.Response":
     """
     Execute an HTTP request with exponential backoff on transient failures.
+    Auto-refreshes token on DH-906 Invalid Token errors.
     Raises the last exception if all retries are exhausted.
     """
     last_exc = None
     for attempt in range(max_retries):
         try:
             resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
+            if _is_invalid_token_response(resp):
+                _dhan_log.warning(f"[DHAN] {method} {url} → DH-906 Invalid Token, refreshing...")
+                if _try_refresh_token():
+                    headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
+                    continue
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
             # Retryable status — treat as transient

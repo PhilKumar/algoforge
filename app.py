@@ -1215,6 +1215,18 @@ async def token_status():
     return config.get_token_expiry()
 
 
+@app.post("/api/refresh-token")
+async def refresh_token():
+    """Force-regenerate the Dhan access token via TOTP."""
+    try:
+        new_tok = auto_generate_token()
+        if new_tok:
+            return {"status": "ok", "message": "Token refreshed successfully"}
+        return {"status": "error", "message": "Token generation failed — check TOTP secret"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ── Broker Connection Validation ──────────────────────────────────
 @app.post("/api/broker/check")
 async def check_broker():
