@@ -32,12 +32,25 @@ _last_token_refresh: float = 0.0
 
 
 def _is_invalid_token_response(resp) -> bool:
-    """Check if an HTTP response is a DH-906 Invalid Token error."""
+    """Check if an HTTP response indicates an invalid/expired token.
+    Dhan uses two error formats:
+      1. Order endpoints:  {"errorCode": "DH-906", "errorMessage": "Invalid Token"}
+      2. Data endpoints:   {"data": {"808": "Authentication Failed - ..."}}
+    """
     if resp.status_code != 400:
         return False
     try:
         body = resp.json() if hasattr(resp, "json") else {}
-        return body.get("errorCode") == "DH-906"
+        # Format 1: Order/trade endpoints
+        if body.get("errorCode") == "DH-906":
+            return True
+        # Format 2: Data/funds/trades endpoints
+        data = body.get("data")
+        if isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, str) and ("Authentication Failed" in v or "Token invalid" in v):
+                    return True
+        return False
     except Exception:
         return False
 
@@ -56,7 +69,7 @@ def _try_refresh_token() -> bool:
 
         new_tok = auto_generate_token()
         if new_tok:
-            _dhan_log.info("[DHAN] ✅ Token auto-refreshed after DH-906")
+            _dhan_log.info("[DHAN] ✅ Token auto-refreshed after invalid token error")
             return True
         _dhan_log.warning("[DHAN] Token refresh failed — auto_generate_token returned None")
         return False
@@ -178,7 +191,7 @@ async def _async_request_with_retry(
                 timeout=timeout,
             )
             if _is_invalid_token_response(resp):
-                _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → DH-906 Invalid Token, refreshing...")
+                _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → Invalid Token (400), refreshing...")
                 refreshed = await asyncio.to_thread(_try_refresh_token)
                 if refreshed:
                     headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
@@ -250,7 +263,7 @@ def _request_with_retry(
         try:
             resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
             if _is_invalid_token_response(resp):
-                _dhan_log.warning(f"[DHAN] {method} {url} → DH-906 Invalid Token, refreshing...")
+                _dhan_log.warning(f"[DHAN] {method} {url} → Invalid Token (400), refreshing...")
                 if _try_refresh_token():
                     headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
                     continue

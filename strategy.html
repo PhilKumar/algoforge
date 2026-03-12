@@ -2045,7 +2045,10 @@
           <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
           <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
         </div>
-        <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="margin-top: 10px; font-size: 11px; padding: 6px 16px; width: 100%;">Connect</button>
+        <div style="display: flex; gap: 6px; margin-top: 10px;">
+          <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Connect</button>
+          <button id="broker-refresh-btn" onclick="refreshToken()" class="btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
+        </div>
       </div>
     </div>
 
@@ -5073,6 +5076,8 @@ function updateBrokerUI(status, text, dotColor, btnLabel) {
   document.getElementById('broker-text').textContent = text;
   const btn = document.getElementById('broker-toggle-btn');
   if (btn) btn.textContent = btnLabel;
+  const refreshBtn = document.getElementById('broker-refresh-btn');
+  if (refreshBtn) refreshBtn.style.display = (dotColor === 'red' || dotColor === 'orange') ? '' : 'none';
 }
 
 async function checkBrokerStatus(silent) {
@@ -5114,6 +5119,24 @@ async function toggleBroker() {
     await checkBrokerStatus(false);
   }
   btn.disabled = false;
+}
+
+async function refreshToken() {
+  const btn = document.getElementById('broker-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ ...'; }
+  try {
+    const res = await fetch('/api/refresh-token', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      toast('Token refreshed!', 'success');
+      await checkBrokerStatus(false);
+    } else {
+      toast(data.message || 'Token refresh failed', 'danger');
+    }
+  } catch (err) {
+    toast('Token refresh error: ' + err.message, 'danger');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⟳ Token'; }
 }
 
 function startBrokerHealthCheck() {
