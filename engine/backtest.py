@@ -217,6 +217,36 @@ def eval_condition_group(row, conditions, prev_row=None):
     return result
 
 
+def debug_condition_group(row, conditions, prev_row=None):
+    """Evaluate conditions and return per-condition results for debugging."""
+    if not conditions:
+        return False, [{"condition": "(none)", "result": False}]
+    details = []
+    for c in conditions:
+        lv = _resolve_value(row, c["left"])
+        rv = _resolve_value(row, c["right"], c)
+        passed = eval_condition(row, c, prev_row)
+        label = f"{c['left']} {c['operator']} {c['right']}"
+        try:
+            lv_str = f"{float(lv):,.4f}" if lv is not None else "None"
+        except (TypeError, ValueError):
+            lv_str = str(lv)
+        try:
+            rv_str = f"{float(rv):,.4f}" if rv is not None else "None"
+        except (TypeError, ValueError):
+            rv_str = str(rv)
+        details.append(
+            {
+                "condition": label,
+                "left_value": lv_str,
+                "right_value": rv_str,
+                "result": passed,
+            }
+        )
+    overall = eval_condition_group(row, conditions, prev_row)
+    return overall, details
+
+
 DEFAULT_ENTRY_CONDITIONS = [{"left": "current_close", "operator": "is_above", "right": "EMA_20_5m", "connector": "AND"}]
 DEFAULT_EXIT_CONDITIONS = [{"left": "current_close", "operator": "is_below", "right": "EMA_20_5m", "connector": "AND"}]
 

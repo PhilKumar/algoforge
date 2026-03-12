@@ -7415,6 +7415,39 @@ function renderLivePanel(d, idx) {
     evtHtml = events.map(e => `<div><span style="color:var(--muted);">[${e.time}]</span> <span style="color:${evtColors[e.type]||'var(--text)'};">[${e.type.toUpperCase()}]</span> ${e.message}</div>`).join('');
   }
 
+  // Condition Debug
+  const cdebug = d.condition_debug || {};
+  let condDebugHtml = '';
+  if (running && cdebug.gate) {
+    const gate = cdebug.gate;
+    const conds = cdebug.conditions || [];
+    if (gate !== 'evaluating') {
+      condDebugHtml = `<div style="padding:8px 12px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono';">⏸ Skipping entry: <span style="color:var(--warn);">${gate}</span></div>`;
+    } else {
+      const overall = cdebug.overall;
+      const timeStr = cdebug.time || '';
+      const rows = conds.map(c => {
+        const icon = c.result ? '✅' : '❌';
+        const color = c.result ? 'var(--success)' : 'var(--danger)';
+        return `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:5px 8px;font-size:11px;">${icon}</td>
+          <td style="padding:5px 8px;font-size:11px;color:var(--text);">${c.condition}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${c.left_value}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${c.right_value}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:center;color:${color};font-weight:700;">${c.result?'PASS':'FAIL'}</td>
+        </tr>`;
+      }).join('');
+      const overallColor = overall ? 'var(--success)' : 'var(--danger)';
+      const overallLabel = overall ? '✅ ALL MET — signal pending' : '❌ NOT MET';
+      condDebugHtml = `
+        <div style="padding:8px 12px;font-size:11px;color:var(--muted);">Last check: ${timeStr} — Result: <span style="color:${overallColor};font-weight:700;">${overallLabel}</span></div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:var(--card2);"><th style="padding:5px 8px;text-align:left;color:var(--muted);font-size:10px;"></th><th style="padding:5px 8px;text-align:left;color:var(--muted);font-size:10px;">CONDITION</th><th style="padding:5px 8px;text-align:right;color:var(--muted);font-size:10px;">LEFT</th><th style="padding:5px 8px;text-align:right;color:var(--muted);font-size:10px;">RIGHT</th><th style="padding:5px 8px;text-align:center;color:var(--muted);font-size:10px;">RESULT</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+  }
+
   // Closed trades
   const closed = (d.closed_trades || []).slice().reverse();
   let closedHtml;
@@ -7525,6 +7558,10 @@ function renderLivePanel(d, idx) {
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Event Log</div>
         <div style="padding:10px;max-height:300px;overflow-y:auto;font-family:'JetBrains Mono';font-size:11px;line-height:1.8;">${evtHtml}</div>
       </div>
+      ${condDebugHtml ? `<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Entry Condition Debug</div>
+        ${condDebugHtml}
+      </div>` : ''}
     </div>
   </div>
 

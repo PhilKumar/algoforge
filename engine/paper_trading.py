@@ -32,7 +32,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from broker.dhan import DhanClient, ScripMaster
-from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
+from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
 
 # ── State File ────────────────────────────────────────────────
@@ -103,6 +103,7 @@ class PaperTradingEngine:
         self.current_candle = {}  # Latest OHLCV candle for UI
         self._prev_row = None  # Previous candle row for crossover detection
         self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle
+        self._condition_debug = {}  # Last condition evaluation details for UI
 
         # Logging
         self.event_log = []
@@ -518,13 +519,30 @@ class PaperTradingEngine:
                         await self._enter_trade(latest_row)
                     else:
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
-                        entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                        entry_triggered, cond_details = debug_condition_group(
+                            latest_row, self.entry_conditions, prev_row
+                        )
+                        self._condition_debug = {
+                            "time": now.strftime("%H:%M:%S"),
+                            "overall": entry_triggered,
+                            "gate": "evaluating",
+                            "conditions": cond_details,
+                        }
                         if entry_triggered:
                             self._entry_signal_pending = True
                             self.log_event(
                                 "signal",
                                 f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open",
                             )
+                elif self.in_trade:
+                    self._condition_debug = {"gate": "in_trade", "conditions": []}
+                elif self.trades_today >= max_trades:
+                    self._condition_debug = {
+                        "gate": f"max_trades_reached ({self.trades_today}/{max_trades})",
+                        "conditions": [],
+                    }
+                elif daily_loss_hit:
+                    self._condition_debug = {"gate": f"daily_loss_limit (₹{self.daily_pnl:,.2f})", "conditions": []}
 
                 # Store previous row for crossover detection
                 self._prev_row = latest_row
@@ -681,7 +699,7 @@ class PaperTradingEngine:
         # Check max daily loss limit
         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
         if daily_loss_hit and not self.in_trade:
-            pass  # Skip entry — daily loss limit reached
+            self._condition_debug = {"gate": f"daily_loss_limit (₹{self.daily_pnl:,.2f})", "conditions": []}
         elif self.trades_today < max_trades and not self.in_trade:
             # Execute pending signal from previous tick (enter on THIS candle)
             if self._entry_signal_pending:
@@ -690,10 +708,20 @@ class PaperTradingEngine:
                 await self._enter_trade(latest_row)
             else:
                 prev_row = df.iloc[-2] if len(df) >= 2 else None
-                entry_triggered = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                entry_triggered, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
+                self._condition_debug = {
+                    "time": now.strftime("%H:%M:%S"),
+                    "overall": entry_triggered,
+                    "gate": "evaluating",
+                    "conditions": cond_details,
+                }
                 if entry_triggered:
                     self._entry_signal_pending = True
                     self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT candle open")
+        elif self.in_trade:
+            self._condition_debug = {"gate": "in_trade", "conditions": []}
+        elif self.trades_today >= max_trades:
+            self._condition_debug = {"gate": f"max_trades_reached ({self.trades_today}/{max_trades})", "conditions": []}
 
         # Store previous row for crossover detection in exit conditions
         self._prev_row = latest_row
@@ -1343,4 +1371,5 @@ class PaperTradingEngine:
                 {"time": e["time"].strftime("%H:%M:%S"), "type": e["type"], "message": e["message"]}
                 for e in self.event_log[-50:]  # Last 50 events
             ],
+            "condition_debug": self._condition_debug,
         }
