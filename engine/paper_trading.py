@@ -459,24 +459,28 @@ class PaperTradingEngine:
                             if exit_triggered:
                                 self._close_position(position, exit_triggered, position["current_premium"])
 
+                # ── Execute pending entry immediately (no wait) ──
+                if self._entry_signal_pending and not self.in_trade:
+                    max_trades = self.strategy.get("max_trades_per_day", 1)
+                    daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+                    if self.trades_today < max_trades and not daily_loss_hit:
+                        self._entry_signal_pending = False
+                        latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                        if latest_row is not None:
+                            self.log_event(
+                                "entry",
+                                f"🚀 Executing pending entry at {_now_ist().strftime('%H:%M:%S')} (next candle open)",
+                            )
+                            await self._enter_trade(latest_row)
+                    if callback:
+                        await self._emit_callback(callback, self.get_status())
+                    continue
+
                 # ── Wait for candle close event (with timeout for position monitoring) ──
                 try:
                     await asyncio.wait_for(self._candle_event.wait(), timeout=1.0)
                     self._candle_event.clear()
                 except asyncio.TimeoutError:
-                    # No new candle — but execute pending entry immediately
-                    if self._entry_signal_pending and not self.in_trade:
-                        max_trades = self.strategy.get("max_trades_per_day", 1)
-                        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
-                        if self.trades_today < max_trades and not daily_loss_hit:
-                            self._entry_signal_pending = False
-                            latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                            if latest_row is not None:
-                                self.log_event(
-                                    "entry",
-                                    f"🚀 Executing pending entry at {_now_ist().strftime('%H:%M:%S')} (next candle open)",
-                                )
-                                await self._enter_trade(latest_row)
                     if callback:
                         await self._emit_callback(callback, self.get_status())
                     continue
