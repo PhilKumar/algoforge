@@ -55,6 +55,26 @@ def _is_invalid_token_response(resp) -> bool:
         return False
 
 
+def _notify_token_event(success: bool, detail: str = "") -> None:
+    """Fire-and-forget sync Telegram notification for token refresh events."""
+    try:
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if not bot_token or not chat_id:
+            return
+        icon = "✅" if success else "🔴"
+        text = f"{icon} <b>[AlgoForge] Token Auto-Refresh</b>\n{'Refreshed successfully' if success else 'FAILED — manual intervention may be needed'}"
+        if detail:
+            text += f"\n<code>{detail}</code>"
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def _try_refresh_token() -> bool:
     """Attempt to regenerate the Dhan access token via TOTP.
     Returns True if a new token was obtained. Thread-safe with a cooldown."""
@@ -70,11 +90,14 @@ def _try_refresh_token() -> bool:
         new_tok = auto_generate_token()
         if new_tok:
             _dhan_log.info("[DHAN] ✅ Token auto-refreshed after invalid token error")
+            _notify_token_event(True)
             return True
         _dhan_log.warning("[DHAN] Token refresh failed — auto_generate_token returned None")
+        _notify_token_event(False, "auto_generate_token returned None")
         return False
     except Exception as e:
         _dhan_log.error(f"[DHAN] Token refresh error: {e}")
+        _notify_token_event(False, str(e)[:200])
         return False
 
 
@@ -907,11 +930,7 @@ class DhanClient:
 
     def get_order_book(self) -> list:
         """Get all orders for the day"""
-        resp = _http_session.get(
-            f"{self.base_url}/v2/orders",
-            headers=self.headers,
-            timeout=10,
-        )
+        resp = _request_with_retry("GET", f"{self.base_url}/v2/orders", headers=self.headers, timeout=10)
         if resp.status_code != 200:
             raise Exception(f"Order book failed: {resp.text}")
         data = resp.json()
@@ -930,21 +949,11 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not configured")
 
         try:
-            # Dhan /v2/trades endpoint gets today's trades by default
-            # For historical data, we might need additional parameters
-            resp = _http_session.get(
-                f"{self.base_url}/v2/trades",
-                headers=self.headers,
-                timeout=10,
-            )
+            resp = _request_with_retry("GET", f"{self.base_url}/v2/trades", headers=self.headers, timeout=10)
 
             print(f"[DHAN] get_trades status: {resp.status_code}")
 
-            if resp.status_code == 401:
-                raise Exception("Unauthorized - Invalid access token or client ID")
-            elif resp.status_code == 403:
-                raise Exception("Forbidden - Access token may have expired")
-            elif resp.status_code != 200:
+            if resp.status_code != 200:
                 raise Exception(f"Trade book API returned {resp.status_code}: {resp.text[:200]}")
 
             data = resp.json()
@@ -985,11 +994,14 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not configured")
 
         try:
-            resp = _http_session.get(
-                f"{self.base_url}/v2/trades/{from_date}/{to_date}/{page}",
-                headers=self.headers,
-                timeout=15,
-            )
+            url = f"{self.base_url}/v2/trades/{from_date}/{to_date}/{page}"
+            resp = _http_session.get(url, headers=self.headers, timeout=15)
+
+            # Auto-refresh token if expired
+            if _is_invalid_token_response(resp):
+                _dhan_log.warning("[DHAN] get_trade_history → Invalid Token (400), refreshing...")
+                if _try_refresh_token():
+                    resp = _http_session.get(url, headers=self.headers, timeout=15)
 
             print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
 
@@ -1016,20 +1028,14 @@ class DhanClient:
             return []
 
     def cancel_order(self, order_id: str) -> dict:
-        resp = _http_session.delete(
-            f"{self.base_url}/v2/orders/{order_id}",
-            headers=self.headers,
-            timeout=10,
+        resp = _request_with_retry(
+            "DELETE", f"{self.base_url}/v2/orders/{order_id}", headers=self.headers, timeout=10, max_retries=2
         )
         return resp.json()
 
     def get_positions(self) -> list:
         """Get current open positions"""
-        resp = _http_session.get(
-            f"{self.base_url}/v2/positions",
-            headers=self.headers,
-            timeout=10,
-        )
+        resp = _request_with_retry("GET", f"{self.base_url}/v2/positions", headers=self.headers, timeout=10)
         if resp.status_code != 200:
             raise Exception(f"Positions fetch failed: {resp.text}")
         return resp.json().get("data", [])
@@ -1040,19 +1046,11 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not configured")
 
         try:
-            resp = _http_session.get(
-                f"{self.base_url}/v2/fundlimit",
-                headers=self.headers,
-                timeout=10,
-            )
+            resp = _request_with_retry("GET", f"{self.base_url}/v2/fundlimit", headers=self.headers, timeout=10)
 
             print(f"[DHAN] get_funds status: {resp.status_code}")
 
-            if resp.status_code == 401:
-                raise Exception("Unauthorized - Invalid access token or client ID")
-            elif resp.status_code == 403:
-                raise Exception("Forbidden - Access token may have expired")
-            elif resp.status_code != 200:
+            if resp.status_code != 200:
                 raise Exception(f"API returned {resp.status_code}: {resp.text[:200]}")
 
             data = resp.json()
@@ -1216,11 +1214,13 @@ class DhanClient:
         if trigger_price is not None:
             payload["triggerPrice"] = round_to_tick(float(trigger_price)) if trigger_price else 0.0
 
-        resp = _http_session.put(
+        resp = _request_with_retry(
+            "PUT",
             f"{self.base_url}/v2/orders/{order_id}",
-            json=payload,
             headers=self.headers,
+            json=payload,
             timeout=10,
+            max_retries=2,
         )
         if resp.status_code not in (200, 201):
             raise Exception(f"Order modify failed: {resp.text}")
@@ -1229,15 +1229,11 @@ class DhanClient:
     def get_order_status(self, order_id: str) -> dict:
         """Get status of a specific order"""
         try:
-            resp = _http_session.get(
-                f"{self.base_url}/v2/orders/{order_id}",
-                headers=self.headers,
-                timeout=10,
-            )
+            resp = _request_with_retry("GET", f"{self.base_url}/v2/orders/{order_id}", headers=self.headers, timeout=10)
             if resp.status_code != 200:
                 return {"orderStatus": "UNKNOWN"}
             return resp.json()
-        except:
+        except Exception:
             return {"orderStatus": "UNKNOWN"}
 
     # ──────────────────────────────────────────────────────────

@@ -155,11 +155,14 @@ async def token_renewal_loop():
     """
     Background loop that renews the token every 12 hours.
     If renewal fails, it falls back to generating a brand new token via TOTP.
+    On total failure, retries up to 5 times at 5-minute intervals before giving up.
     Runs forever — call as an asyncio task.
     """
     import config
 
     RENEWAL_INTERVAL = 12 * 60 * 60  # 12 hours in seconds
+    RETRY_INTERVAL = 5 * 60  # 5 minutes between retries
+    MAX_RETRIES = 5
 
     while True:
         await asyncio.sleep(RENEWAL_INTERVAL)
@@ -168,18 +171,51 @@ async def token_renewal_loop():
         client_id = config.DHAN_CLIENT_ID
         totp_secret = os.getenv("DHAN_TOTP_SECRET", "")
 
+        success = False
+
         # Try renewal first (cheaper, no TOTP needed)
         result = renew_access_token(client_id, config.DHAN_ACCESS_TOKEN)
         if result.get("success"):
             config.DHAN_ACCESS_TOKEN = result["accessToken"]
             _update_env_token(result["accessToken"])
             log.info("[TokenManager] ✅ Token renewed via /RenewToken")
-            continue
-
-        # Renewal failed → generate fresh token
-        log.warning("[TokenManager] Renewal failed, generating fresh token via TOTP...")
-        new_token = auto_generate_token()
-        if new_token:
-            log.info("[TokenManager] ✅ Fresh token generated as renewal fallback")
+            success = True
         else:
-            log.error("[TokenManager] ❌ Both renewal and generation failed!")
+            # Renewal failed → generate fresh token with retries
+            log.warning("[TokenManager] Renewal failed, generating fresh token via TOTP...")
+            for attempt in range(1, MAX_RETRIES + 1):
+                new_token = auto_generate_token()
+                if new_token:
+                    log.info(f"[TokenManager] ✅ Fresh token generated (attempt {attempt})")
+                    success = True
+                    break
+                log.error(f"[TokenManager] ❌ Generation attempt {attempt}/{MAX_RETRIES} failed")
+                if attempt < MAX_RETRIES:
+                    log.info(f"[TokenManager] Retrying in {RETRY_INTERVAL // 60} minutes...")
+                    await asyncio.sleep(RETRY_INTERVAL)
+
+        if not success:
+            log.critical("[TokenManager] ❌ ALL renewal attempts failed! Token may be expired.")
+            _alert_renewal_failure()
+
+
+def _alert_renewal_failure():
+    """Send Telegram alert when all token renewal attempts fail."""
+    try:
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if not bot_token or not chat_id:
+            return
+        text = (
+            "🔴 <b>[AlgoForge] Token Renewal FAILED</b>\n"
+            "All 5 renewal attempts failed.\n"
+            "The access token may be expired.\n\n"
+            "<b>Action needed:</b> Use the ⟳ Token button on the dashboard or restart the server."
+        )
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=5,
+        )
+    except Exception:
+        pass
