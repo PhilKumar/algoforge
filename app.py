@@ -3274,6 +3274,23 @@ def _get_scalp_engine():
             trades.append(trade_dict)
             _save_scalp_trades(trades)
             _notify_scalp_ws()
+            # Telegram alert for every scalp exit (manual, target, SL, sqoff)
+            pnl = trade_dict.get("pnl", 0)
+            sym = (
+                f"{trade_dict.get('underlying', '?')} {trade_dict.get('strike', '')}{trade_dict.get('option_type', '')}"
+            )
+            reason = trade_dict.get("exit_reason", "unknown")
+            entry_p = trade_dict.get("entry_premium", 0)
+            exit_p = trade_dict.get("exit_premium", 0)
+            pnl_sign = "+" if pnl >= 0 else ""
+            level = "info" if pnl >= 0 else "error"
+            alerter.alert(
+                f"Scalp Exit [{reason}]",
+                f"Symbol: {sym}\n"
+                f"Entry: \u20b9{entry_p:.2f} \u2192 Exit: \u20b9{exit_p:.2f}\n"
+                f"P&L: {pnl_sign}\u20b9{pnl:.2f}",
+                level=level,
+            )
 
         _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
         # Seed trade counter from file so IDs never collide across restarts
@@ -3365,6 +3382,16 @@ async def scalp_entry(req: ScalpEntryReq):
                 alerter.alert(
                     "Scalp Entry Failed",
                     f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
+                )
+            else:
+                trade_info = result.get("trade", {})
+                entry_p = trade_info.get("entry_premium", 0)
+                alerter.alert(
+                    "Scalp Entry",
+                    f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
+                    f"Side: {req.transaction_type} | Lots: {req.lots}\n"
+                    f"Entry: \u20b9{entry_p:.2f} | Mode: {req.mode}",
+                    level="info",
                 )
             _notify_scalp_ws()
             return result
