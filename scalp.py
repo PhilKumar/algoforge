@@ -178,9 +178,10 @@ class ScalpEngine:
     • Falls back to REST `get_option_ltp` every 2s if no WS feed.
     """
 
-    def __init__(self, dhan_client, market_feed=None):
+    def __init__(self, dhan_client, market_feed=None, on_trade_close=None):
         self.dhan = dhan_client
         self.feed = market_feed  # LiveMarketFeed instance or None
+        self.on_trade_close = on_trade_close  # callback(trade_dict) for persistence
 
         self.open_trades: Dict[int, ScalpTrade] = {}
         self.closed_trades: list = []
@@ -527,8 +528,16 @@ class ScalpEngine:
         trade.status = "closed"
         trade.current_premium = exit_prem
 
-        self.closed_trades.append(trade.to_dict())
+        trade_dict = trade.to_dict()
+        self.closed_trades.append(trade_dict)
         self.open_trades.pop(trade.trade_id, None)
+
+        # Persist via callback (auto-exits + manual exits all go through here)
+        if self.on_trade_close:
+            try:
+                self.on_trade_close(trade_dict)
+            except Exception as e:
+                self._log("error", f"on_trade_close callback failed: {e}")
 
         # Disable throttle when no live trades remain
         if not any(t.mode == "live" for t in self.open_trades.values()):

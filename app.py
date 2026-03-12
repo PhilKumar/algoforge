@@ -3256,7 +3256,14 @@ def _get_scalp_engine():
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")
     if _scalp_engine is None:
-        _scalp_engine = _ScalpEngineClass(dhan, _market_feed)
+
+        def _persist_closed_trade(trade_dict):
+            trades = _load_scalp_trades()
+            trades.append(trade_dict)
+            _save_scalp_trades(trades)
+            _notify_scalp_ws()
+
+        _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
     return _scalp_engine
 
 
@@ -3266,7 +3273,7 @@ async def get_scalp_status():
     status = eng.get_status()
     # Merge in closed trades from file (persist across restarts)
     file_trades = _load_scalp_trades()
-    status["file_trades"] = list(reversed(file_trades[-50:]))
+    status["file_trades"] = list(reversed(file_trades))
     return status
 
 
@@ -3357,11 +3364,7 @@ async def scalp_exit(trade_id: int):
     eng = _get_scalp_engine()
     try:
         result = await eng.exit_trade(trade_id, reason="manual")
-        if result.get("status") == "ok":
-            trades = _load_scalp_trades()
-            trades.append(result["trade"])
-            _save_scalp_trades(trades)
-        elif result.get("status") == "error":
+        if result.get("status") == "error":
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
         _notify_scalp_ws()
         return result
