@@ -3264,6 +3264,11 @@ def _get_scalp_engine():
             _notify_scalp_ws()
 
         _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
+        # Seed trade counter from file so IDs never collide across restarts
+        existing = _load_scalp_trades()
+        if existing:
+            max_id = max(t.get("trade_id", 0) for t in existing)
+            _scalp_engine._trade_counter = max_id
     return _scalp_engine
 
 
