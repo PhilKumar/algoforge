@@ -80,7 +80,11 @@ if config.AUTO_TOKEN_ENABLED:
         fcntl.flock(_lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # We got the lock — this worker generates the token
         print("🔑 [TokenManager] Auto-token enabled — generating fresh Dhan token...")
-        _new_tok = auto_generate_token()
+        try:
+            _new_tok = auto_generate_token()
+        except Exception as _tok_err:
+            print(f"⚠️  [TokenManager] Token generation error: {_tok_err}")
+            _new_tok = None
         if _new_tok:
             # Write token to a shared file so other workers can read it
             _tok_file = os.path.join(_HERE, ".current_token")

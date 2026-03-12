@@ -26,7 +26,9 @@ RENEW_URL = "https://api.dhan.co/v2/RenewToken"
 
 def generate_totp(secret: str) -> str:
     """Generate a 6-digit TOTP code from the secret."""
-    totp = pyotp.TOTP(secret)
+    # Strip whitespace/padding issues from the secret
+    cleaned = secret.strip().replace(" ", "")
+    totp = pyotp.TOTP(cleaned)
     return totp.now()
 
 
