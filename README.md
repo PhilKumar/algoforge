@@ -609,3 +609,4 @@ Private — All rights reserved. © 2025 AlgoForge / CryptoForge.
 <div align="center">
 Built with ⚡ FastAPI · Python 3.11 · Delta Exchange · Dhan API
 </div>
+# Deployed on Lightsail 2026-03-12
