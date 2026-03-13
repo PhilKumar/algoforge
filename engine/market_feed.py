@@ -552,6 +552,14 @@ class LiveMarketFeed:
 
     def _schedule_reconnect(self):
         """Schedule a reconnect in a background thread (with backoff)."""
+        # Don't reconnect outside market hours (IST 09:00-15:35) to avoid tight loop
+        now = _now_ist()
+        if now.hour < 9 or (now.hour >= 15 and now.minute >= 35):
+            with self._reconnect_lock:
+                self._reconnecting = False
+            print(f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — skipping reconnect")
+            return
+
         with self._reconnect_lock:
             if self._reconnecting:
                 return
