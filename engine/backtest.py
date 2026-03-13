@@ -521,6 +521,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 td += 1
             if ct < mkt_open or ct >= mkt_close:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
                 continue
 
         if in_trade:
@@ -835,10 +837,14 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         else:
             if td >= max_tpd:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
                 continue
             # Only skip the very first 5min candle (09:15) — enter from 09:20
             if not is_daily and ct < ENTRY_EARLIEST:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
                 continue
 
             if prev_row is not None and eval_condition_group(prev_row, entry_conditions, prev_prev_row):
