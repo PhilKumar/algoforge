@@ -5720,6 +5720,7 @@ function addConditionRow(type) {
       <option value="is_above">Is Above</option>
       <option value="crosses_below">Crosses Below</option>
       <option value="is_below">Is Below</option>
+      <option value="touches">Touches</option>
       <option value=">=">Equal or Above</option>
       <option value="<=">Equal or Below</option>
       <option value="==">Equal To</option>
@@ -5827,7 +5828,7 @@ function onLHSChange(lhsSelect) {
     const isBool = BOOLEAN_FIELDS.includes(lhsVal);
     opSelect.innerHTML = isBool
       ? '<option value="==">Equal To</option><option value="is_true">Is True</option><option value="is_false">Is False</option>'
-      : '<option value="crosses_above">Crosses Above</option><option value="is_above">Is Above</option><option value="crosses_below">Crosses Below</option><option value="is_below">Is Below</option><option value=">=">Equal or Above</option><option value="<=">Equal or Below</option><option value="==">Equal To</option>';
+      : '<option value="crosses_above">Crosses Above</option><option value="is_above">Is Above</option><option value="crosses_below">Crosses Below</option><option value="is_below">Is Below</option><option value="touches">Touches</option><option value=">=">Equal or Above</option><option value="<=">Equal or Below</option><option value="==">Equal To</option>';
     rhsWrap.innerHTML = `<select class="condition-select right-op" onchange="toggleNumberInput(this)" style="flex:1;min-width:120px;">${buildRHSOptions(lhsVal)}</select><input type="number" class="right-num" style="display:none;width:100px;padding:8px;font-size:13px;" placeholder="Enter value">`;
   }
 }

@@ -1531,6 +1531,15 @@ class LiveEngine:
             if cur_pnl >= target_rupees:
                 return "TARGET_RUPEES"
 
+        # Touch-based exit — evaluated on CURRENT row (no 1-candle delay)
+        if any(c.get("operator") == "touches" for c in self.exit_conditions):
+            _touch_row = row.copy() if self._signal_candle else row
+            if self._signal_candle:
+                for _k, _v in self._signal_candle.items():
+                    _touch_row[_k] = _v
+            if eval_condition_group(_touch_row, self.exit_conditions, self._prev_row):
+                return "TOUCH_EXIT"
+
         # Signal exit — inject Signal Candle values into evaluation row
         _exit_row = row.copy() if self._signal_candle else row
         if self._signal_candle:

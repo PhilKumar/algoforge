@@ -186,6 +186,11 @@ def eval_condition(row, cond, prev_row=None):
         except (TypeError, ValueError):
             return lv_f < rv_f
         return plv_f >= prv_f and lv_f < rv_f
+    if op == "touches":
+        # Intra-candle touch: RHS level is within candle's [Low, High] range
+        h_val = float(row.get("high", 0))
+        lo_val = float(row.get("low", 0))
+        return lo_val <= rv_f <= h_val
     if op == "is_above":
         return lv_f > rv_f
     elif op == "is_below":
@@ -797,6 +802,59 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 )
                 in_trade = False
                 td += 1
+            # Touch-based exit: check "touches" conditions on CURRENT row (no 1-candle delay)
+            elif any(c.get("operator") == "touches" for c in exit_conditions):
+                _touch_row = row.copy() if signal_candle else row
+                if signal_candle:
+                    for _k, _v in signal_candle.items():
+                        _touch_row[_k] = _v
+                if eval_condition_group(_touch_row, exit_conditions, prev_row):
+                    # Find the touched level for exit pricing
+                    touch_price = None
+                    h_val = float(row.get("high", 0))
+                    lo_val = float(row.get("low", 0))
+                    for _tc in exit_conditions:
+                        if _tc.get("operator") == "touches":
+                            _trv = _resolve_value(row, _tc["right"], _tc)
+                            if _trv is not None:
+                                _trv_f = float(_trv)
+                                if lo_val <= _trv_f <= h_val:
+                                    touch_price = _trv_f
+                                    break
+                    if touch_price is not None:
+                        xp = _est_prem(touch_price, ei, ep, ot, atm_prem_ref) if has_opt else touch_price
+                        pnl = (
+                            _opt_pnl(ep, xp, lots, lot_size, ltxn)
+                            if has_opt
+                            else _idx_pnl(ei, touch_price, lots, lot_size)
+                        )
+                        _ep_ = ep if has_opt else ei
+                        _xp_ = xp if has_opt else touch_price
+                        fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
+                        pnl -= fee
+                        total_fees += fee
+                        total_pnl += pnl
+                        peak_total_pnl = max(peak_total_pnl, total_pnl)
+                        trades.append(
+                            _mk(
+                                len(trades) + 1,
+                                et,
+                                ts,
+                                _ep_,
+                                _xp_,
+                                pnl,
+                                "Touch",
+                                total_pnl,
+                                ot,
+                                strike_name,
+                                trade_qty,
+                                ltxn,
+                                fee,
+                            )
+                        )
+                        in_trade = False
+                        signal_candle = None
+                        td += 1
             elif prev_row is not None:
                 # Inject Signal Candle values into exit evaluation row
                 _exit_row = prev_row.copy() if signal_candle else prev_row
