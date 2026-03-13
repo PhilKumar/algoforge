@@ -461,10 +461,17 @@ class LiveMarketFeed:
             if not _DHAN_FEED_V2:
 
                 def _run_forever_with_reconnect():
+                    # DhanFeed.run_forever() needs its own asyncio event loop
+                    import asyncio
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
                     try:
                         self._feed.run_forever()
                     except Exception as e:
                         print(f"[FEED] ❌ run_forever crashed: {e}")
+                    finally:
+                        loop.close()
                     # run_forever exited — means WS disconnected
                     if self._running:
                         print(f"[FEED] ⚠ run_forever exited at {_now_ist().strftime('%H:%M:%S')}")
