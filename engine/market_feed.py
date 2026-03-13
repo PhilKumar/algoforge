@@ -550,11 +550,17 @@ class LiveMarketFeed:
         print(f"[FEED] 🔄 Reconnecting in {delay}s (attempt #{self._reconnect_count})...")
 
         def _do_reconnect():
+            import asyncio
             import time
 
             time.sleep(delay)
             if not self._running:
                 return
+            # Ensure this thread has an event loop (dhanhq MarketFeed needs one)
+            try:
+                asyncio.get_event_loop()
+            except RuntimeError:
+                asyncio.set_event_loop(asyncio.new_event_loop())
             # Close old feed
             if self._feed:
                 try:
