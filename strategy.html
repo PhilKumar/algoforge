@@ -5549,7 +5549,7 @@ function renderIndicatorFields() {
   else if (name === 'VWAP' || name === 'Current_Candle') c.innerHTML = tf;
   else if (name === 'ORB') c.innerHTML = `<div style="display:flex;align-items:center;gap:6px"><label style="font-size:11px;color:var(--muted);white-space:nowrap;">Minutes:</label><input type="number" id="ind-orb-minutes" value="15" style="width:70px" title="ORB window in minutes" min="5" max="60" step="5"></div>` + tf;
   else if (name === 'Previous_Day' || name === 'CPR') c.innerHTML = '';
-  else if (name === 'Signal_Candle') c.innerHTML = '';
+  else if (name === 'Signal_Candle') c.innerHTML = tf;
 }
 function addIndicator() {
   const name = document.getElementById('new-indicator-name').value;
@@ -5564,7 +5564,7 @@ function addIndicator() {
   let id = "";
   if (name === "Current_Candle") id = `Current_Candle_${document.getElementById('ind-tf').value}m`;
   else if (name === "Previous_Day") id = "Previous_Day";
-  else if (name === "Signal_Candle") id = "Signal_Candle";
+  else if (name === "Signal_Candle") id = `Signal_Candle_${document.getElementById('ind-tf').value}m`;
   else if (name === "ORB") {
     const mins = document.getElementById('ind-orb-minutes').value || 15;
     id = `ORB_${mins}min`;
@@ -5736,7 +5736,7 @@ function buildLHSOptions() {
   const hasCPR = myIndicators.some(i => i.startsWith('CPR'));
   const hasPrevDay = myIndicators.includes('Previous_Day');
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
-  const hasSignalCandle = myIndicators.includes('Signal_Candle');
+  const hasSignalCandle = myIndicators.some(i => i.startsWith('Signal_Candle'));
   let html = `<optgroup label="\ud83d\udd6f\ufe0f Current Candle">`;
   CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += `</optgroup>`;
@@ -5744,7 +5744,7 @@ function buildLHSOptions() {
   if (hasORB) { html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasCPR) { html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasSignalCandle) { html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`; SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
-  myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB') && ind !== 'Signal_Candle') html += `<option value="${ind}">${ind}</option>`; });
+  myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && !ind.startsWith('Signal_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB')) html += `<option value="${ind}">${ind}</option>`; });
   html += `<optgroup label="\u2500\u2500 Day / Time \u2500\u2500"><option value="Time_Of_Day">Time Of Day</option><option value="Day_Of_Week">Day Of Week</option></optgroup>`;
   return html;
 }
@@ -5753,7 +5753,7 @@ function buildRHSOptions(lhsValue) {
   const hasCPR = myIndicators.some(i => i.startsWith('CPR'));
   const hasPrevDay = myIndicators.includes('Previous_Day');
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
-  const hasSignalCandle = myIndicators.includes('Signal_Candle');
+  const hasSignalCandle = myIndicators.some(i => i.startsWith('Signal_Candle'));
   const isBool = BOOLEAN_FIELDS.includes(lhsValue);
   let html = '';
 
@@ -5791,7 +5791,7 @@ function buildRHSOptions(lhsValue) {
 
   // Add custom indicators
   myIndicators.forEach(ind => {
-    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB') && ind !== 'Signal_Candle')
+    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && !ind.startsWith('Signal_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB'))
       html += `<option value="${ind}">${ind}</option>`;
   });
 
