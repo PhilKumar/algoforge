@@ -505,4 +505,8 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
         elif name in ("Current", "Previous"):
             pass
 
+        # Signal Candle — trade-context indicator, populated at runtime by engines
+        elif name == "Signal":
+            pass
+
     return df

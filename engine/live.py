@@ -110,6 +110,7 @@ class LiveEngine:
         self.current_indicators: dict = {}
         self._prev_row = None
         self._entry_signal_pending = False  # LEGACY compat — now driven by _pending_order
+        self._signal_candle = None  # OHLC of the candle that triggered entry signal
 
         # ── "Quantman Way" — 1-second candle-boundary execution ──
         self._pending_order: Optional[dict] = None  # Rich signal context for next-candle entry
@@ -619,6 +620,12 @@ class LiveEngine:
                                 "retry_at": None,
                             }
                             self._entry_signal_pending = True
+                            self._signal_candle = {
+                                "Signal_Candle_Open": float(latest_row["open"]),
+                                "Signal_Candle_High": float(latest_row["high"]),
+                                "Signal_Candle_Low": float(latest_row["low"]),
+                                "Signal_Candle_Close": float(latest_row["close"]),
+                            }
                             self.log_event(
                                 "signal",
                                 f"⚡ ENTRY SIGNAL @ candle {candle_time} — will enter on NEXT candle open (1st second)",
@@ -718,6 +725,7 @@ class LiveEngine:
         """Clear pending order state."""
         self._pending_order = None
         self._entry_signal_pending = False
+        self._signal_candle = None
 
     async def _flush_pending_order(self, row: pd.Series, callback=None):
         """Execute the pending order with retry-once logic.
@@ -898,6 +906,12 @@ class LiveEngine:
                         "retry_at": None,
                     }
                     self._entry_signal_pending = True
+                    self._signal_candle = {
+                        "Signal_Candle_Open": float(latest_row["open"]),
+                        "Signal_Candle_High": float(latest_row["high"]),
+                        "Signal_Candle_Low": float(latest_row["low"]),
+                        "Signal_Candle_Close": float(latest_row["close"]),
+                    }
                     self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT poll (REST mode)")
         elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
             reason = (
@@ -1416,6 +1430,7 @@ class LiveEngine:
         # Check if all legs closed
         if not self.positions:
             self.in_trade = False
+            self._signal_candle = None
             self.strat_sl_val = 0
             self.strat_tp_val = 0
             trade_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
@@ -1516,8 +1531,12 @@ class LiveEngine:
             if cur_pnl >= target_rupees:
                 return "TARGET_RUPEES"
 
-        # Signal exit
-        if eval_condition_group(row, self.exit_conditions, self._prev_row):
+        # Signal exit — inject Signal Candle values into evaluation row
+        _exit_row = row.copy() if self._signal_candle else row
+        if self._signal_candle:
+            for _k, _v in self._signal_candle.items():
+                _exit_row[_k] = _v
+        if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
             return "EXIT_SIGNAL"
 
         # Square-off time — check strategy-level combined_sqoff_time first

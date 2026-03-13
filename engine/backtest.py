@@ -435,6 +435,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     atm_prem_ref = 0
     peak_prem = 0.0
     total_fees = 0.0
+    signal_candle = None  # OHLC of the candle that triggered entry
 
     print(
         f"[BT] open={mkt_open} close={mkt_close} lots={lots} user_lot_size={user_lot_size} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}"
@@ -773,36 +774,43 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 )
                 in_trade = False
                 td += 1
-            elif prev_row is not None and eval_condition_group(prev_row, exit_conditions, prev_prev_row):
-                xo = float(row["open"])
-                xp = _est_prem(xo, ei, ep, ot, atm_prem_ref) if has_opt else xo
-                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, xo, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                _xp_ = xp if has_opt else xo
-                fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        _xp_,
-                        pnl,
-                        "Signal",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
+            elif prev_row is not None:
+                # Inject Signal Candle values into exit evaluation row
+                _exit_row = prev_row.copy() if signal_candle else prev_row
+                if signal_candle:
+                    for _k, _v in signal_candle.items():
+                        _exit_row[_k] = _v
+                if eval_condition_group(_exit_row, exit_conditions, prev_prev_row):
+                    xo = float(row["open"])
+                    xp = _est_prem(xo, ei, ep, ot, atm_prem_ref) if has_opt else xo
+                    pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, xo, lots, lot_size)
+                    _ep_ = ep if has_opt else ei
+                    _xp_ = xp if has_opt else xo
+                    fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
+                    pnl -= fee
+                    total_fees += fee
+                    total_pnl += pnl
+                    peak_total_pnl = max(peak_total_pnl, total_pnl)
+                    trades.append(
+                        _mk(
+                            len(trades) + 1,
+                            et,
+                            ts,
+                            _ep_,
+                            _xp_,
+                            pnl,
+                            "Signal",
+                            total_pnl,
+                            ot,
+                            strike_name,
+                            trade_qty,
+                            ltxn,
+                            fee,
+                        )
                     )
-                )
-                in_trade = False
-                td += 1
+                    in_trade = False
+                    signal_candle = None
+                    td += 1
         else:
             if td >= max_tpd:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
@@ -816,6 +824,13 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 in_trade = True
                 ei = float(row["open"])
                 et = ts  # Use candle OPEN (matches Quantman entry timing)
+                # Capture signal candle OHLC (prev_row triggered the entry)
+                signal_candle = {
+                    "Signal_Candle_Open": float(prev_row["open"]),
+                    "Signal_Candle_High": float(prev_row["high"]),
+                    "Signal_Candle_Low": float(prev_row["low"]),
+                    "Signal_Candle_Close": float(prev_row["close"]),
+                }
                 lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
                 trade_qty = lots * lot_size
                 atm = round(ei / strike_step) * strike_step

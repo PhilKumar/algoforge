@@ -103,6 +103,7 @@ class PaperTradingEngine:
         self.current_candle = {}  # Latest OHLCV candle for UI
         self._prev_row = None  # Previous candle row for crossover detection
         self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle
+        self._signal_candle = None  # OHLC of the candle that triggered entry signal
         self._condition_debug = {}  # Last condition evaluation details for UI
 
         # Logging
@@ -541,6 +542,12 @@ class PaperTradingEngine:
                         }
                         if entry_triggered:
                             self._entry_signal_pending = True
+                            self._signal_candle = {
+                                "Signal_Candle_Open": float(latest_row["open"]),
+                                "Signal_Candle_High": float(latest_row["high"]),
+                                "Signal_Candle_Low": float(latest_row["low"]),
+                                "Signal_Candle_Close": float(latest_row["close"]),
+                            }
                             self.log_event(
                                 "signal",
                                 f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open",
@@ -728,6 +735,12 @@ class PaperTradingEngine:
                 }
                 if entry_triggered:
                     self._entry_signal_pending = True
+                    self._signal_candle = {
+                        "Signal_Candle_Open": float(latest_row["open"]),
+                        "Signal_Candle_High": float(latest_row["high"]),
+                        "Signal_Candle_Low": float(latest_row["low"]),
+                        "Signal_Candle_Close": float(latest_row["close"]),
+                    }
                     self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT candle open")
         elif self.in_trade:
             self._condition_debug = {"gate": "in_trade", "conditions": []}
@@ -979,8 +992,12 @@ class PaperTradingEngine:
             if cur_pnl >= target_rupees:
                 return "TARGET_RUPEES"
 
-        # Signal exit
-        if eval_condition_group(row, self.exit_conditions, self._prev_row):
+        # Signal exit — inject Signal Candle values into evaluation row
+        _exit_row = row.copy() if self._signal_candle else row
+        if self._signal_candle:
+            for _k, _v in self._signal_candle.items():
+                _exit_row[_k] = _v
+        if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
             return "EXIT_SIGNAL"
 
         # Square off time
@@ -1277,6 +1294,7 @@ class PaperTradingEngine:
         # Check if all positions are closed
         if not self.positions:
             self.in_trade = False
+            self._signal_candle = None
             self.strat_sl_val = 0
             self.strat_tp_val = 0
             total_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)

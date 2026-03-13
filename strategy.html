@@ -2358,6 +2358,7 @@
             <option value="ATR">ATR</option>
             <option value="StochRSI">Stochastic RSI</option>
             <option value="ADX">ADX</option>
+            <option value="Signal_Candle">Signal Candle</option>
             <option value="Supertrend">Supertrend</option>
             <option value="CPR">CPR</option>
           </select>
@@ -5548,6 +5549,7 @@ function renderIndicatorFields() {
   else if (name === 'VWAP' || name === 'Current_Candle') c.innerHTML = tf;
   else if (name === 'ORB') c.innerHTML = `<div style="display:flex;align-items:center;gap:6px"><label style="font-size:11px;color:var(--muted);white-space:nowrap;">Minutes:</label><input type="number" id="ind-orb-minutes" value="15" style="width:70px" title="ORB window in minutes" min="5" max="60" step="5"></div>` + tf;
   else if (name === 'Previous_Day' || name === 'CPR') c.innerHTML = '';
+  else if (name === 'Signal_Candle') c.innerHTML = '';
 }
 function addIndicator() {
   const name = document.getElementById('new-indicator-name').value;
@@ -5562,6 +5564,7 @@ function addIndicator() {
   let id = "";
   if (name === "Current_Candle") id = `Current_Candle_${document.getElementById('ind-tf').value}m`;
   else if (name === "Previous_Day") id = "Previous_Day";
+  else if (name === "Signal_Candle") id = "Signal_Candle";
   else if (name === "ORB") {
     const mins = document.getElementById('ind-orb-minutes').value || 15;
     id = `ORB_${mins}min`;
@@ -5656,6 +5659,12 @@ const ORB_COLUMNS = [
   { value: "ORB_is_breakout_down", label: "ORB — Breakout Down (true/false)" },
   { value: "ORB_is_inside",        label: "ORB — Inside Range (true/false)" },
 ];
+const SIGNAL_CANDLE_COLUMNS = [
+  { value: "Signal_Candle_Open",  label: "Signal Candle — Open" },
+  { value: "Signal_Candle_High",  label: "Signal Candle — High" },
+  { value: "Signal_Candle_Low",   label: "Signal Candle — Low" },
+  { value: "Signal_Candle_Close", label: "Signal Candle — Close" },
+];
 const BOOLEAN_FIELDS = [
   'CPR_is_narrow', 'CPR_is_moderate', 'CPR_is_wide',
   'ORB_is_breakout_up', 'ORB_is_breakout_down', 'ORB_is_inside',
@@ -5727,13 +5736,15 @@ function buildLHSOptions() {
   const hasCPR = myIndicators.some(i => i.startsWith('CPR'));
   const hasPrevDay = myIndicators.includes('Previous_Day');
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
+  const hasSignalCandle = myIndicators.includes('Signal_Candle');
   let html = `<optgroup label="\ud83d\udd6f\ufe0f Current Candle">`;
   CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += `</optgroup>`;
   if (hasPrevDay) { html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`; PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasORB) { html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasCPR) { html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
-  myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB')) html += `<option value="${ind}">${ind}</option>`; });
+  if (hasSignalCandle) { html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`; SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
+  myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB') && ind !== 'Signal_Candle') html += `<option value="${ind}">${ind}</option>`; });
   html += `<optgroup label="\u2500\u2500 Day / Time \u2500\u2500"><option value="Time_Of_Day">Time Of Day</option><option value="Day_Of_Week">Day Of Week</option></optgroup>`;
   return html;
 }
@@ -5742,6 +5753,7 @@ function buildRHSOptions(lhsValue) {
   const hasCPR = myIndicators.some(i => i.startsWith('CPR'));
   const hasPrevDay = myIndicators.includes('Previous_Day');
   const hasORB = myIndicators.some(i => i.startsWith('ORB'));
+  const hasSignalCandle = myIndicators.includes('Signal_Candle');
   const isBool = BOOLEAN_FIELDS.includes(lhsValue);
   let html = '';
 
@@ -5771,10 +5783,15 @@ function buildRHSOptions(lhsValue) {
     CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
     html += '</optgroup>';
   }
+  if (hasSignalCandle) {
+    html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`;
+    SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
+    html += '</optgroup>';
+  }
 
   // Add custom indicators
   myIndicators.forEach(ind => {
-    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB'))
+    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB') && ind !== 'Signal_Candle')
       html += `<option value="${ind}">${ind}</option>`;
   });
 
