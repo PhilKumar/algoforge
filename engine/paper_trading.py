@@ -481,6 +481,13 @@ class PaperTradingEngine:
                     await asyncio.wait_for(self._candle_event.wait(), timeout=1.0)
                     self._candle_event.clear()
                 except asyncio.TimeoutError:
+                    # Periodic feed health check — detect dead WebSocket and reconnect
+                    if self._feed and hasattr(self._feed, "last_tick_age_seconds"):
+                        age = self._feed.last_tick_age_seconds
+                        if age > 60 and int(age) % 60 < 2:
+                            self.log_event("warning", f"⚠ No ticks for {age:.0f}s — feed may be dead, checking health")
+                            self._feed.check_health()
+
                     if callback:
                         await self._emit_callback(callback, self.get_status())
                     continue
