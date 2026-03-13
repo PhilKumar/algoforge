@@ -448,34 +448,39 @@ class LiveMarketFeed:
                     on_close=self._on_close,
                     on_error=self._on_error,
                 )
+                self._ws_thread = self._feed.start()
             else:
-                self._feed = MarketFeed(
-                    client_id,
-                    token,
-                    instruments,
-                    version="v2",
-                )
-                self._feed.on_ticks = self._on_message_v1
-
-            self._ws_thread = self._feed.start() if _DHAN_FEED_V2 else None
-            if not _DHAN_FEED_V2:
+                # DhanFeed v2.0.x: __init__ captures asyncio.get_event_loop(),
+                # and run_forever() calls self.loop.run_until_complete().
+                # Both MUST happen in a dedicated thread with its own event loop
+                # to avoid "this event loop is already running" from uvicorn's loop.
+                _on_msg = self._on_message_v1
+                _parent = self
 
                 def _run_forever_with_reconnect():
-                    # DhanFeed.run_forever() needs its own asyncio event loop
                     import asyncio
 
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        self._feed.run_forever()
+                        # Construct DhanFeed HERE so it captures this thread's loop
+                        feed = MarketFeed(
+                            client_id,
+                            token,
+                            instruments,
+                            version="v2",
+                        )
+                        feed.on_ticks = _on_msg
+                        _parent._feed = feed
+                        feed.run_forever()
                     except Exception as e:
                         print(f"[FEED] ❌ run_forever crashed: {e}")
                     finally:
                         loop.close()
                     # run_forever exited — means WS disconnected
-                    if self._running:
+                    if _parent._running:
                         print(f"[FEED] ⚠ run_forever exited at {_now_ist().strftime('%H:%M:%S')}")
-                        self._schedule_reconnect()
+                        _parent._schedule_reconnect()
 
                 self._ws_thread = threading.Thread(target=_run_forever_with_reconnect, daemon=True)
                 self._ws_thread.start()
@@ -563,11 +568,6 @@ class LiveMarketFeed:
             time.sleep(delay)
             if not self._running:
                 return
-            # Ensure this thread has an event loop (dhanhq MarketFeed needs one)
-            try:
-                asyncio.get_event_loop()
-            except RuntimeError:
-                asyncio.set_event_loop(asyncio.new_event_loop())
             # Close old feed
             if self._feed:
                 try:
@@ -575,6 +575,35 @@ class LiveMarketFeed:
                 except Exception:
                     pass
                 self._feed = None
+
+            # For v2.0.x DhanFeed: construct + run_forever in THIS thread
+            # with a dedicated event loop (same pattern as _connect_ws).
+            if not _DHAN_FEED_V2:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    instruments = [(ex, str(sid), rtype) for ex, sid, rtype in self._subscriptions]
+                    token = self.dhan.access_token
+                    client_id = config.DHAN_CLIENT_ID
+                    feed = MarketFeed(client_id, token, instruments, version="v2")
+                    feed.on_ticks = self._on_message_v1
+                    self._feed = feed
+                    self._reconnecting = False
+                    print(f"[FEED] ✅ Reconnected successfully (attempt #{self._reconnect_count})")
+                    self._reconnect_count = 0
+                    feed.run_forever()
+                except Exception as e:
+                    print(f"[FEED] ❌ Reconnect run_forever crashed: {e}")
+                finally:
+                    loop.close()
+                # run_forever exited
+                if self._running:
+                    print(f"[FEED] ⚠ run_forever exited at {_now_ist().strftime('%H:%M:%S')}")
+                    self._reconnecting = False
+                    self._schedule_reconnect()
+                return
+
+            # v2.2.0+ MarketFeed path
             ok = self._connect_ws()
             if ok:
                 print(f"[FEED] ✅ Reconnected successfully (attempt #{self._reconnect_count})")
