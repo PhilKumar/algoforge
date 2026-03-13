@@ -480,6 +480,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 in_trade = False
             td = 0
             ld = cd
+            # Reset prev_row at day boundary — prevents stale cross-day signals
+            # (e.g., Tuesday's last candle passing Wednesday's Day_Of_Week filter)
+            prev_row = None
+            prev_prev_row = None
             # Update lot size for this date — use user-configured if set, else historical
             lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
             trade_qty = lots * lot_size
@@ -555,7 +559,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if has_opt and lsl > 0:
                 sh = (ltxn == "BUY" and cp_worst <= slp) or (ltxn == "SELL" and cp_worst >= slp)
             elif not has_opt and slp > 0:
-                sh = l <= slp
+                sh = lo <= slp
             if has_opt and ltgt > 0:
                 th = (ltxn == "BUY" and cp_best >= tgtp) or (ltxn == "SELL" and cp_best <= tgtp)
             elif not has_opt and tgtp > 0:
@@ -567,7 +571,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 elif ltxn == "SELL" and cp_worst >= peak_prem * (1 + ltrail / 100):
                     trail_hit = True
             elif not has_opt and ltrail > 0:
-                if l <= peak_prem * (1 - ltrail / 100):
+                if lo <= peak_prem * (1 - ltrail / 100):
                     trail_hit = True
             # Strategy-level trailing SL on total portfolio P&L
             if trailing_sl_pct > 0 and peak_total_pnl > 0:
@@ -576,15 +580,32 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 if peak_total_pnl - hypothetical_total > peak_total_pnl * trailing_sl_pct / 100:
                     strat_trail_hit = True
             # Strategy-level SL/TP (₹ or %) — SL uses worst-case OHLC, TP uses best-case OHLC
-            if has_opt and (sl_rupees > 0 or sl_pct > 0 or tp_rupees > 0 or tp_pct > 0):
-                cur_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn)
-                worst_pnl = _opt_pnl(ep, cp_worst, lots, lot_size, ltxn)
-                best_pnl = _opt_pnl(ep, cp_best, lots, lot_size, ltxn)
+            if sl_rupees > 0 or sl_pct > 0 or tp_rupees > 0 or tp_pct > 0:
+                if has_opt:
+                    cur_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn)
+                    worst_pnl = _opt_pnl(ep, cp_worst, lots, lot_size, ltxn)
+                    best_pnl = _opt_pnl(ep, cp_best, lots, lot_size, ltxn)
+                else:
+                    cur_pnl = _idx_pnl(ei, c, lots, lot_size)
+                    worst_pnl = _idx_pnl(ei, lo, lots, lot_size)
+                    best_pnl = _idx_pnl(ei, h, lots, lot_size)
                 strat_sl_val = (
-                    sl_rupees if sl_rupees > 0 else (ep * lots * lot_size * sl_pct / 100) if sl_pct > 0 else 0
+                    sl_rupees
+                    if sl_rupees > 0
+                    else (ep * lots * lot_size * sl_pct / 100)
+                    if (sl_pct > 0 and has_opt)
+                    else (ei * lots * lot_size * sl_pct / 100)
+                    if sl_pct > 0
+                    else 0
                 )
                 strat_tp_val = (
-                    tp_rupees if tp_rupees > 0 else (ep * lots * lot_size * tp_pct / 100) if tp_pct > 0 else 0
+                    tp_rupees
+                    if tp_rupees > 0
+                    else (ep * lots * lot_size * tp_pct / 100)
+                    if (tp_pct > 0 and has_opt)
+                    else (ei * lots * lot_size * tp_pct / 100)
+                    if tp_pct > 0
+                    else 0
                 )
                 if strat_sl_val > 0 and worst_pnl <= -strat_sl_val:
                     strat_sl_hit = True

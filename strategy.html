@@ -5538,7 +5538,7 @@ let myIndicators = [];
 function renderIndicatorFields() {
   const name = document.getElementById('new-indicator-name').value;
   const c = document.getElementById('dynamic-indicator-fields');
-  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="25">25 Min</option><option value="60">1 Hour</option></select>`;
+  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>`;
   if (name === 'EMA' || name === 'SMA') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
   else if (name === 'Supertrend') c.innerHTML = `<input type="number" id="ind-period" value="10" style="width:80px"><input type="number" id="ind-multiplier" value="3" step="0.1" style="width:80px">` + tf;
   else if (name === 'RSI') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
