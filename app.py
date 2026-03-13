@@ -315,7 +315,7 @@ async def auth_middleware(request: Request, call_next):
     """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
     # Allow login, health, static, and WebSocket without auth
-    if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/login", "/"):
+    if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/api/save-state", "/login", "/"):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
@@ -1207,6 +1207,23 @@ async def health():
         ),
         "live_running": any(e.running for e in live_engines.values()),
     }
+
+
+@app.post("/api/save-state")
+async def save_state(request: Request):
+    """Persist all running engine states to disk (called by deploy script before restart)."""
+    if request.client.host not in ("127.0.0.1", "::1"):
+        return JSONResponse(status_code=403, content={"error": "localhost only"})
+    saved = []
+    for run_id, engine in live_engines.items():
+        if engine.running:
+            engine._save_state()
+            saved.append(run_id)
+    for run_id, engine in paper_engines.items():
+        if engine.running:
+            engine._save_state()
+            saved.append(f"paper:{run_id}")
+    return {"status": "ok", "saved": saved}
 
 
 @app.get("/api/token-status")

@@ -65,6 +65,14 @@ find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 # ── 2. Stop standby if somehow still running ──────────────────
 sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
 
+# ── 2a. Tell active instance to persist state before restart ──
+#  This ensures live_state_*.json files exist for the new instance to restore
+if curl -sf --max-time 5 -X POST "http://127.0.0.1:${ACTIVE_PORT}/api/save-state" >/dev/null 2>&1; then
+    log "Active instance saved state to disk"
+else
+    log "⚠ Could not save active state (may not be running)"
+fi
+
 # ── 2b. Kill legacy non-template service if it exists ─────────
 #  Prevents port conflict: old algoforge.service may hold port 8000
 if sudo systemctl is-active "${APP}.service" >/dev/null 2>&1; then
