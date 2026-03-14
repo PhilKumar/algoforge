@@ -159,7 +159,7 @@
   .stat-value-lg { font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -1px; position: relative; z-index: 1; }
 
   /* ── Results page: softer pastel stat colors (less eye strain) ── */
-  #results-content {
+  #results-content, #live-page {
     --success: #6ee7b7;
     --green: #6ee7b7;
     --danger: #fca5a5;
@@ -942,6 +942,17 @@
   /* Live page: tables inside panels */
   [data-theme="light"] #live-panels-container table tr[style*="border-bottom:1px solid var(--border)"] {
     border-bottom-color: rgba(15,23,42,0.08) !important;
+  }
+  /* Light mode: softer muted tones for live + results stat colors */
+  [data-theme="light"] #results-content,
+  [data-theme="light"] #live-page {
+    --success: #059669;
+    --green: #059669;
+    --danger: #dc2626;
+    --red: #dc2626;
+    --warn: #d97706;
+    --accent: #0d9488;
+    --accent2: #2563eb;
   }
 
   /* Theme toggle is now integrated into topbar */
@@ -3167,7 +3178,7 @@
         <!-- Row 4: LOTS | SQ-OFF TIME -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(×<span id="scalp-lot-size-label">65</span>)</span></label>
-          <input type="number" id="scalp-lots" value="1" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
+          <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
           <input type="hidden" id="scalp-lot-size" value="65">
         </div>
         <div>
@@ -7967,8 +7978,8 @@ function renderLivePanel(d, idx) {
 
   ${conditionsHtml}
 
-  <!-- 4 stat cards -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:20px 28px 8px;">
+  <!-- 5 stat cards -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;padding:20px 28px 8px;">
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Completed P&L</div>
       <div style="font-size:22px;font-weight:700;color:${pnlColor};font-family:'JetBrains Mono';">₹${closedPnl.toFixed(2)}</div>
@@ -7976,6 +7987,10 @@ function renderLivePanel(d, idx) {
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Run Type</div>
       <div style="font-size:18px;font-weight:700;color:${modeColor};">${modeLabel}</div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Lots</div>
+      <div style="font-size:22px;font-weight:700;color:var(--purple);font-family:'JetBrains Mono';">${legs.length ? legs.map(l => l.lots || 1).join(' + ') : '—'}</div>
     </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Trades Today</div>
