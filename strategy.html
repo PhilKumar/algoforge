@@ -157,6 +157,33 @@
   .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 6px; font-weight: 600; }
   .stat-value { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; line-height: 1.1; position: relative; z-index: 1; }
   .stat-value-lg { font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -1px; position: relative; z-index: 1; }
+
+  /* ── Results page: softer pastel stat colors (less eye strain) ── */
+  #results-content {
+    --success: #6ee7b7;
+    --green: #6ee7b7;
+    --danger: #fca5a5;
+    --red: #fca5a5;
+    --warn: #fde68a;
+    --accent: #5eead4;
+    --accent2: #93c5fd;
+  }
+  #results-content .stat-value,
+  #results-content .stat-value-lg {
+    text-shadow: 0 0 18px currentColor;
+    opacity: 0.92;
+  }
+  #results-content .stat-box {
+    background: linear-gradient(155deg, rgba(18,26,42,0.55) 0%, rgba(12,18,32,0.45) 100%);
+    box-shadow:
+      0 0 0 0.5px rgba(255,255,255,0.05),
+      0 2px 16px rgba(0,0,0,0.15),
+      inset 0 1px 0 rgba(255,255,255,0.07),
+      inset 0 0 20px rgba(255,255,255,0.012);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-top: 1px solid rgba(255,255,255,0.12);
+  }
+
   .trade-row-hover:hover { background: rgba(255,255,255,0.028) !important; }
 
   /* Analytics inner panels */
@@ -7029,20 +7056,30 @@ function renderEquityChart(equityData) {
   ctx.setLineDash([]);
 
   // Equity line with glow — Catmull-Rom spline for true smooth curves
-  const points = values.map((v, i) => ({
+  // Densify: insert midpoints between each pair for visibly smoother rendering
+  const rawPoints = values.map((v, i) => ({
     x: padding.left + (i / (values.length - 1)) * plotW,
     y: padding.top + ((maxVal - v) / range) * plotH
   }));
+  const points = [];
+  for (let i = 0; i < rawPoints.length; i++) {
+    points.push(rawPoints[i]);
+    if (i < rawPoints.length - 1) {
+      points.push({ x: (rawPoints[i].x + rawPoints[i+1].x) / 2, y: (rawPoints[i].y + rawPoints[i+1].y) / 2 });
+    }
+  }
 
   ctx.beginPath();
   ctx.strokeStyle = 'rgba(0,200,150,1)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   ctx.shadowColor = 'rgba(0,200,150,0.35)';
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = 12;
   ctx.moveTo(points[0].x, points[0].y);
 
-  // Catmull-Rom → cubic Bezier conversion (tension 0.3 = smooth without overshoot)
-  const tension = 0.3;
+  // Catmull-Rom → cubic Bezier conversion (tension 0.5 = pronounced smoothing)
+  const tension = 0.5;
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[Math.max(0, i - 1)];
     const p1 = points[i];
