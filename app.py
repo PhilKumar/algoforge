@@ -151,7 +151,32 @@ _backfill_state: Dict[str, object] = {
 _paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
 # Stopped engine snapshots — persist on Live page after stop, keyed by run_id
+_STOPPED_ENGINES_FILE = "stopped_engines.json"
 _stopped_engines: Dict[str, dict] = {}
+
+
+def _load_stopped_engines():
+    global _stopped_engines
+    if os.path.exists(_STOPPED_ENGINES_FILE):
+        try:
+            with open(_STOPPED_ENGINES_FILE, "r") as f:
+                _stopped_engines = json.load(f)
+        except Exception:
+            _stopped_engines = {}
+
+
+def _save_stopped_engines():
+    try:
+        tmp = _STOPPED_ENGINES_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(_stopped_engines, f, indent=2, default=str)
+        os.replace(tmp, _STOPPED_ENGINES_FILE)
+    except Exception:
+        pass
+
+
+# Load on import
+_load_stopped_engines()
 
 # Trade state tracker for Telegram alerts (keyed by run_id)
 _alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
@@ -2101,6 +2126,7 @@ async def live_start(req: LiveStartRequest):
 
     # Clear any stopped snapshot for this run_id
     _stopped_engines.pop(run_id, None)
+    _save_stopped_engines()
 
     # If an engine with same run_id exists, save its results before replacing
     old_engine = live_engines.get(run_id)
@@ -2210,6 +2236,7 @@ async def live_stop(request: Request):
     status_before["run_id"] = run_id
     status_before["mode"] = "auto"
     _stopped_engines[run_id] = status_before
+    _save_stopped_engines()
     _alert_state.pop(run_id, None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
@@ -2364,6 +2391,7 @@ async def _paper_start_impl(payload: StrategyPayload):
 
     # Clear any stopped snapshot for this run_id
     _stopped_engines.pop(run_id, None)
+    _save_stopped_engines()
 
     # If an engine with same run_id exists, save its results before replacing
     old_engine = paper_engines.get(run_id)
@@ -2472,6 +2500,7 @@ async def paper_stop(request: Request):
     status_before["run_id"] = run_id
     status_before["mode"] = "paper"
     _stopped_engines[run_id] = status_before
+    _save_stopped_engines()
     _alert_state.pop(run_id, None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
@@ -2761,6 +2790,7 @@ async def engines_dismiss(request: Request):
     run_id = body.get("run_id", "")
     if run_id and run_id in _stopped_engines:
         _stopped_engines.pop(run_id)
+        _save_stopped_engines()
         return {"status": "dismissed", "run_id": run_id}
     return {"status": "not_found", "run_id": run_id}
 
@@ -3175,6 +3205,22 @@ async def delete_run(rid: int):
     runs = _load_runs()
     _save_runs([r for r in runs if r.get("id") != rid])
     return {"deleted": rid}
+
+
+@app.put("/api/runs/{rid}")
+async def update_run(rid: int, request: Request):
+    """Update run metadata (run_name, folder)."""
+    body = await request.json()
+    runs = _load_runs()
+    for r in runs:
+        if r.get("id") == rid:
+            if "run_name" in body:
+                r["run_name"] = str(body["run_name"]).strip()
+            if "folder" in body:
+                r["folder"] = str(body["folder"]).strip()
+            _save_runs(runs)
+            return {"updated": rid, "run_name": r.get("run_name"), "folder": r.get("folder")}
+    raise HTTPException(status_code=404, detail="Run not found")
 
 
 @app.get("/api/runs/{rid}/csv")

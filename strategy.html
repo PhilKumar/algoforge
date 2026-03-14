@@ -2485,47 +2485,8 @@
 
 <!-- ═══ RESULTS ═══ -->
 <div id="results-page" class="page-section">
-  <!-- All Runs Panel -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-      <h3 style="margin: 0; font-size: 16px;">All Runs</h3>
-      <div id="runs-filter-bar" style="display: flex; gap: 6px;">
-        <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(0,200,150,0.5);">All</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
-        <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5);">Scalp</button>
-      </div>
-    </div>
-    <div id="runs-list-results" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-    <div id="runs-pagination-results" class="pagination-bar" style="display:none;"></div>
-    <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
-  </div>
 
-  <!-- Backtest Comparison Panel -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-      <h3 style="margin: 0; font-size: 16px;">Compare Backtests</h3>
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <select id="compare-run-a" style="width: 180px; font-size: 12px; padding: 6px 8px;">
-          <option value="">Select Run A</option>
-        </select>
-        <span style="color: var(--muted); font-weight: 600;">vs</span>
-        <select id="compare-run-b" style="width: 180px; font-size: 12px; padding: 6px 8px;">
-          <option value="">Select Run B</option>
-        </select>
-        <button class="btn" onclick="compareBacktests()" style="font-size: 11px; padding: 6px 14px;">Compare</button>
-      </div>
-    </div>
-    <div id="comparison-result" style="display: none;">
-      <div class="comparison-grid" id="comparison-grid"></div>
-    </div>
-    <div id="comparison-empty" style="text-align: center; padding: 16px; color: var(--muted); font-size: 13px;">
-      Select two backtest runs above to compare side-by-side.
-    </div>
-  </div>
-
-  <div id="results-empty" class="card" style="max-width: 1000px; margin: 0 auto; text-align: center; padding: 50px;">
+  <div id="results-empty" class="card" style="max-width: 1000px; margin: 0 auto 20px auto; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
   </div>
   <div id="results-content" style="display: none;">
@@ -2599,34 +2560,90 @@
       </div>
     </div>
 
-    <!-- Monthly P&L + Heatmap — Glossy -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-      <div class="card-glass" style="padding: 22px;">
-        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Monthly P&L</h3>
-        <div id="monthly-pnl-grid" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
-      </div>
-      <div class="card-glass" style="padding: 22px;">
-        <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Profit / Loss Heatmap</h3>
-        <div id="pnl-heatmap" style="font-size: 11px;"></div>
-      </div>
+    <!-- Monthly P&L — Full width table -->
+    <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Monthly P&L</h3>
+      <div id="monthly-pnl-grid" style="overflow-x:auto;"></div>
+    </div>
+    <!-- Profit / Loss Heatmap — Full width -->
+    <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Profit / Loss Heatmap</h3>
+      <div id="pnl-heatmap" style="font-size: 11px;"></div>
     </div>
 
-    <!-- Trade Log — Glossy -->
+    <!-- Trade Log — Matching Scalp Trade History style -->
     <div class="card-glass" style="padding: 22px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transaction Order Details</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="trade-search-input" placeholder="Search trades..." oninput="_filterTradesBySearch()" style="width: 160px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card2); color: var(--text);">
           <span id="trade-count-display" style="background: rgba(0,200,150,0.1); border: 1px solid rgba(0,200,150,0.2); padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent);"></span>
           <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
         </div>
       </div>
-      <div class="trade-log-wrap">
-        <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
-          <thead><tr><th style="padding: 12px 14px;">Case</th><th style="padding: 12px 14px;">T.Id</th><th style="padding: 12px 14px;">Instrument</th><th style="padding: 12px 14px;">Qty</th><th style="padding: 12px 14px;">Entry</th><th style="padding: 12px 14px;">Exit</th><th style="padding: 12px 14px;">Profit</th><th style="padding: 12px 14px;">Cumulative Profit</th></tr></thead>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+              <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_toggleTradeSort('id')"># <span id="ts-id"></span></th>
+              <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_toggleTradeSort('strike')">Symbol <span id="ts-strike"></span></th>
+              <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_toggleTradeSort('txn_type')">Dir <span id="ts-txn_type"></span></th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_toggleTradeSort('entry_price')">Entry <span id="ts-entry_price"></span></th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_toggleTradeSort('exit_price')">Exit <span id="ts-exit_price"></span></th>
+              <th style="padding: 8px 6px; text-align: center;">Time</th>
+              <th style="padding: 8px 10px; text-align: center;">Qty</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_toggleTradeSort('pnl')">P&L <span id="ts-pnl"></span></th>
+              <th style="padding: 8px 6px; text-align: center;">Reason</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_toggleTradeSort('cumulative')">Cumulative <span id="ts-cumulative"></span></th>
+            </tr>
+          </thead>
           <tbody id="trade-log-body"></tbody>
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- Backtest Comparison Panel -->
+  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+      <h3 style="margin: 0; font-size: 16px;">Compare Backtests</h3>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <select id="compare-run-a" style="width: 180px; font-size: 12px; padding: 6px 8px;">
+          <option value="">Select Run A</option>
+        </select>
+        <span style="color: var(--muted); font-weight: 600;">vs</span>
+        <select id="compare-run-b" style="width: 180px; font-size: 12px; padding: 6px 8px;">
+          <option value="">Select Run B</option>
+        </select>
+        <button class="btn" onclick="compareBacktests()" style="font-size: 11px; padding: 6px 14px;">Compare</button>
+      </div>
+    </div>
+    <div id="comparison-result" style="display: none;">
+      <div class="comparison-grid" id="comparison-grid"></div>
+    </div>
+    <div id="comparison-empty" style="text-align: center; padding: 16px; color: var(--muted); font-size: 13px;">
+      Select two backtest runs above to compare side-by-side.
+    </div>
+  </div>
+
+  <!-- All Runs Panel -->
+  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+      <h3 style="margin: 0; font-size: 16px;">All Runs</h3>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <input type="text" id="runs-search-input" placeholder="Search runs..." oninput="_filterRunsBySearch()" style="width: 180px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card2); color: var(--text);">
+        <div id="runs-filter-bar" style="display: flex; gap: 6px;">
+          <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(0,200,150,0.5);">All</button>
+          <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
+          <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
+          <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
+          <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5);">Scalp</button>
+        </div>
+      </div>
+    </div>
+    <div id="runs-list-results" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+    <div id="runs-pagination-results" class="pagination-bar" style="display:none;"></div>
+    <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
   </div>
 </div>
 
@@ -3690,7 +3707,7 @@ let _allRunsCache = [];
 let _currentRunFilter = 'all';
 let _runsPageDash = 1;
 let _runsPageResults = 1;
-const _RUNS_PER_PAGE = 15;
+const _RUNS_PER_PAGE = 10;
 let _selectedRunIds = new Set();
 let _selectedScalpHistIds = new Set();
 let _selectedScalpRunIds = new Set();
@@ -3714,38 +3731,138 @@ function _normalizeMode(mode) {
   return 'backtest';
 }
 
+// ── Sortable table state ──
+let _runsSortCol = null;   // column key
+let _runsSortAsc = true;
+let _runsSearchQuery = '';
+
+function _sortArrow(col) {
+  if (_runsSortCol !== col) return '<span style="opacity:0.3;font-size:10px;margin-left:3px;">⇅</span>';
+  return _runsSortAsc ? '<span style="color:var(--accent);font-size:10px;margin-left:3px;">▲</span>' : '<span style="color:var(--accent);font-size:10px;margin-left:3px;">▼</span>';
+}
+function _toggleRunsSort(col) {
+  if (_runsSortCol === col) _runsSortAsc = !_runsSortAsc;
+  else { _runsSortCol = col; _runsSortAsc = true; }
+  _renderFilteredRuns();
+}
+function _filterRunsBySearch() {
+  _runsSearchQuery = (document.getElementById('runs-search-input')?.value || '').toLowerCase().trim();
+  _runsPageResults = 1;
+  _renderFilteredRuns();
+}
+function _applySortAndSearch(arr) {
+  let out = arr;
+  if (_runsSearchQuery) {
+    out = out.filter(r => {
+      const name = (r.run_name || '').toLowerCase();
+      const inst = (getInstrumentName(r.instrument) || '').toLowerCase();
+      const mode = (r.mode || '').toLowerCase();
+      return name.includes(_runsSearchQuery) || inst.includes(_runsSearchQuery) || mode.includes(_runsSearchQuery);
+    });
+  }
+  if (_runsSortCol) {
+    const key = _runsSortCol;
+    out = [...out].sort((a, b) => {
+      let va, vb;
+      if (key === 'run_name') { va = (a.run_name||'').toLowerCase(); vb = (b.run_name||'').toLowerCase(); }
+      else if (key === 'instrument') { va = getInstrumentName(a.instrument)||''; vb = getInstrumentName(b.instrument)||''; }
+      else if (key === 'trades') { va = a.trade_count||0; vb = b.trade_count||0; }
+      else if (key === 'pnl') { va = a.total_pnl||0; vb = b.total_pnl||0; }
+      else if (key === 'period') { va = a.from_date||''; vb = b.from_date||''; }
+      else if (key === 'mode') { va = _normalizeMode(a.mode); vb = _normalizeMode(b.mode); }
+      else { va = a[key]||''; vb = b[key]||''; }
+      if (typeof va === 'number' && typeof vb === 'number') return _runsSortAsc ? va - vb : vb - va;
+      return _runsSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+  }
+  return out;
+}
+
+async function renameRun(id) {
+  const inp = document.getElementById('rn-inp-' + id);
+  if (!inp) return;
+  const newName = inp.value.trim();
+  if (!newName) { toast('Name cannot be empty', 'warn'); return; }
+  try {
+    const res = await fetch('/api/runs/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({run_name: newName}) });
+    if (!res.ok) throw new Error('Failed');
+    toast('Run renamed', 'success');
+    // Update cache
+    const r = _allRunsCache.find(x => x.id === id);
+    if (r) r.run_name = newName;
+    _renderFilteredRuns();
+  } catch(e) { toast('Rename failed: ' + e.message, 'danger'); }
+}
+
+async function moveRunToFolder(id) {
+  // Fetch saved strategy folders
+  let folders = ['Scalping', 'Intraday', 'Swing', 'Positional', 'Experimental', 'Hedging'];
+  try {
+    const res = await fetch('/api/strategies');
+    const strats = await res.json();
+    const extraFolders = [...new Set(strats.map(s => s.folder).filter(Boolean))];
+    folders = [...new Set([...folders, ...extraFolders])];
+  } catch(e) {}
+  const run = _allRunsCache.find(x => x.id === id);
+  const currentFolder = run?.folder || '';
+  let optionsHtml = folders.map(f => `<option value="${f}"${f === currentFolder ? ' selected' : ''}>${f}</option>`).join('');
+  optionsHtml = '<option value="">— No Folder —</option>' + optionsHtml + '<option value="__custom__">+ Custom Folder</option>';
+  const html = `<div style="font-size:13px;">
+    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Move "<strong>${run?.run_name||'Unnamed'}</strong>" to folder:</label>
+    <select id="move-folder-sel" onchange="if(this.value==='__custom__'){document.getElementById('move-folder-custom').style.display='block'}else{document.getElementById('move-folder-custom').style.display='none'}" style="width:100%;padding:8px;font-size:13px;margin-bottom:8px;">${optionsHtml}</select>
+    <input type="text" id="move-folder-custom" placeholder="Custom folder name" style="display:none;width:100%;padding:8px;font-size:13px;">
+  </div>`;
+  const ok = await customConfirm(html, { title: 'Move to Folder', okText: 'Move', danger: false });
+  if (!ok) return;
+  const sel = document.getElementById('move-folder-sel');
+  let folder = sel?.value || '';
+  if (folder === '__custom__') folder = document.getElementById('move-folder-custom')?.value?.trim() || '';
+  try {
+    const res = await fetch('/api/runs/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({folder}) });
+    if (!res.ok) throw new Error('Failed');
+    toast('Moved to ' + (folder || 'No Folder'), 'success');
+    if (run) run.folder = folder;
+    _renderFilteredRuns();
+  } catch(e) { toast('Move failed: ' + e.message, 'danger'); }
+}
+
 function _buildRunsTable(runs, opts = {}) {
   if (!runs.length) return '';
   const showCheck = opts.checkboxes !== false;
+  const thStyle = 'padding:10px;cursor:pointer;user-select:none;white-space:nowrap;';
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
-    <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
+    <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
       ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>' : ''}
-      <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
-      <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('mode')">Mode ${_sortArrow('mode')}</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('run_name')">Run Name ${_sortArrow('run_name')}</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('instrument')">Instrument ${_sortArrow('instrument')}</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('period')">Period ${_sortArrow('period')}</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('trades')">Trades ${_sortArrow('trades')}</th>
+      <th style="${thStyle}" onclick="_toggleRunsSort('pnl')">P&L ${_sortArrow('pnl')}</th>
+      <th style="${thStyle}">Folder</th>
+      <th style="padding: 10px; width: 240px; min-width: 240px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
 
   runs.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = getInstrumentName(r.instrument);
-    const _fmtRT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
-    const rEntryTime = _fmtRT(r.first_entry_time || r.created_at);
-    const rExitTime = _fmtRT(r.last_exit_time);
     const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
-    html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}">
+    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${r.folder}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
+    html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
       ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
-      <td style="padding: 10px; color: var(--muted);">${r.id}</td>
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
       <td style="padding: 10px;">${instName || '-'}</td>
       <td style="padding: 10px; font-size: 12px;">${r.from_date || ''} → ${r.to_date || ''}</td>
       <td style="padding: 10px; font-weight: 600;">${r.trade_count || 0}</td>
       <td style="padding: 10px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
-      <td style="padding: 10px; font-family: 'JetBrains Mono'; font-size: 12px; color: var(--muted);">${rEntryTime}</td>
-      <td style="padding: 10px; font-family: 'JetBrains Mono'; font-size: 12px; color: var(--muted);">${rExitTime}</td>
-      <td style="padding: 10px; width: 200px; min-width: 200px; white-space: nowrap; text-align: center;">
+      <td style="padding: 10px;">${folderBadge}</td>
+      <td style="padding: 10px; width: 240px; min-width: 240px; white-space: nowrap; text-align: center;">
         <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
           <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 11px; padding: 5px 10px;">View</button>
           <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Copy&amp;Edit</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">✏️</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(245,158,11,0.15); --btn-color: #fbbf24; --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">📁</button>
           <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
         </div>
       </td>
@@ -3753,6 +3870,18 @@ function _buildRunsTable(runs, opts = {}) {
   });
   html += '</tbody></table>';
   return html;
+}
+
+function _showRenameInline(id) {
+  const run = _allRunsCache.find(x => x.id === id);
+  const currentName = run?.run_name || 'Unnamed';
+  const html = `<div style="font-size:13px;">
+    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">New name:</label>
+    <input type="text" id="rn-inp-${id}" value="${currentName.replace(/"/g, '&quot;')}" style="width:100%;padding:8px;font-size:13px;" onkeydown="if(event.key==='Enter'){renameRun(${id})}">
+  </div>`;
+  customConfirm(html, { title: 'Rename Run', okText: 'Save', danger: false }).then(ok => {
+    if (ok) renameRun(id);
+  });
 }
 
 // ── Pagination helper ──
@@ -3848,9 +3977,11 @@ function _renderFilteredRuns() {
   if (_currentRunFilter !== 'all') {
     filtered = _allRunsCache.filter(r => _normalizeMode(r.mode) === _currentRunFilter);
   }
+  // Apply search + sort
+  filtered = _applySortAndSearch(filtered);
 
   if (!filtered.length) {
-    if (emptyResults) { emptyResults.style.display = 'block'; emptyResults.textContent = _currentRunFilter === 'all' ? 'No runs yet.' : 'No ' + _currentRunFilter + ' runs found.'; }
+    if (emptyResults) { emptyResults.style.display = 'block'; emptyResults.textContent = _runsSearchQuery ? 'No matching runs.' : (_currentRunFilter === 'all' ? 'No runs yet.' : 'No ' + _currentRunFilter + ' runs found.'); }
     if (containerResults) containerResults.innerHTML = '';
     if (pagEl) { pagEl.style.display = 'none'; pagEl.innerHTML = ''; }
     _updateBulkBar();
@@ -3861,6 +3992,7 @@ function _renderFilteredRuns() {
   const total = filtered.length;
   const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
   if (_runsPageResults > totalPages) _runsPageResults = totalPages;
+  if (_runsPageResults < 1) _runsPageResults = 1;
   const start = (_runsPageResults - 1) * _RUNS_PER_PAGE;
   const pageData = filtered.slice(start, start + _RUNS_PER_PAGE);
 
@@ -6470,56 +6602,130 @@ function renderResults(data, payload) {
   renderYearly(data.yearly||[]);
   const mpGrid = document.getElementById('monthly-pnl-grid');
   mpGrid.innerHTML = '';
-  (data.monthly||[]).forEach(m => {
-    const isP = m.pnl >= 0;
-    mpGrid.innerHTML += '<div style="padding:6px 10px;background:'+(isP?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.06)')+';border:1px solid '+(isP?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)')+';border-radius:6px;text-align:center;min-width:80px;backdrop-filter:blur(4px);"><div style="font-size:9px;color:var(--muted);">'+m.month+'</div><div style="font-size:12px;font-weight:700;color:'+(isP?'var(--success)':'var(--danger)')+';font-family:\'JetBrains Mono\',monospace;">'+fmt(m.pnl)+'</div></div>';
-  });
+  const monthly = data.monthly || [];
+  if (monthly.length) {
+    // Group by year for a table layout
+    const byYear = {};
+    monthly.forEach(m => {
+      const [y, mo] = m.month.split('-');
+      if (!byYear[y]) byYear[y] = {};
+      byYear[y][parseInt(mo)] = m.pnl;
+    });
+    const moNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let tbl = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="padding:6px 8px;color:var(--muted);font-size:10px;text-align:left;">Year</th>';
+    moNames.forEach(mn => { tbl += `<th style="padding:6px 4px;color:var(--muted);font-size:10px;text-align:center;">${mn}</th>`; });
+    tbl += '<th style="padding:6px 8px;color:var(--accent);font-size:10px;text-align:right;">Total</th></tr></thead><tbody>';
+    Object.keys(byYear).sort().forEach(yr => {
+      let yearTotal = 0;
+      tbl += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;font-weight:700;font-size:11px;">${yr}</td>`;
+      for (let m = 1; m <= 12; m++) {
+        const val = byYear[yr][m] || 0;
+        yearTotal += val;
+        const isP = val >= 0;
+        const bg = val !== 0 ? (isP ? `rgba(34,197,94,${Math.min(0.25, Math.abs(val)/200000)})` : `rgba(239,68,68,${Math.min(0.25, Math.abs(val)/200000)})`) : '';
+        const color = val !== 0 ? (isP ? 'var(--success)' : 'var(--danger)') : 'var(--muted)';
+        tbl += `<td style="padding:6px 4px;text-align:center;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:11px;color:${color};background:${bg};border-radius:3px;" title="${yr}-${String(m).padStart(2,'0')}: ${fmt(val)}">${val !== 0 ? fmt(val) : '—'}</td>`;
+      }
+      const ytColor = yearTotal >= 0 ? 'var(--success)' : 'var(--danger)';
+      tbl += `<td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12px;color:${ytColor};">${fmt(yearTotal)}</td></tr>`;
+    });
+    tbl += '</tbody></table>';
+    mpGrid.innerHTML = tbl;
+  }
   renderHeatmap(data.trades||[]);
   window._allTrades = [...(data.trades||[])].reverse();
   window._tradePage = 1;
   renderTradePage();
 }
 
+// ── Trade sort/search state ──
+let _tradeSortCol = null;
+let _tradeSortAsc = true;
+let _tradeSearchQuery = '';
+
+function _tradeSortArrow(col) {
+  if (_tradeSortCol !== col) return '<span style="opacity:0.3;font-size:9px;">⇅</span>';
+  return _tradeSortAsc ? '<span style="color:var(--accent);font-size:9px;">▲</span>' : '<span style="color:var(--accent);font-size:9px;">▼</span>';
+}
+function _toggleTradeSort(col) {
+  if (_tradeSortCol === col) _tradeSortAsc = !_tradeSortAsc;
+  else { _tradeSortCol = col; _tradeSortAsc = col === 'id'; }
+  renderTradePage();
+}
+function _filterTradesBySearch() {
+  _tradeSearchQuery = (document.getElementById('trade-search-input')?.value || '').toLowerCase().trim();
+  window._tradePage = 1;
+  renderTradePage();
+}
+function _getFilteredTrades() {
+  let trades = window._allTrades || [];
+  if (_tradeSearchQuery) {
+    trades = trades.filter(t => {
+      const sk = (t.strike||'').toLowerCase();
+      const reason = (t.exit_reason||'').toLowerCase();
+      return sk.includes(_tradeSearchQuery) || reason.includes(_tradeSearchQuery) || String(t.id).includes(_tradeSearchQuery);
+    });
+  }
+  if (_tradeSortCol) {
+    trades = [...trades].sort((a, b) => {
+      const va = a[_tradeSortCol] ?? 0, vb = b[_tradeSortCol] ?? 0;
+      if (typeof va === 'number' && typeof vb === 'number') return _tradeSortAsc ? va - vb : vb - va;
+      return _tradeSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+  }
+  return trades;
+}
+
 function renderTradePage() {
-  const PS=10, trades=window._allTrades, pg=window._tradePage;
+  const PS=10, pg=window._tradePage;
+  const trades = _getFilteredTrades();
   const tp=Math.ceil(trades.length/PS)||1, st=(pg-1)*PS;
   const sl=trades.slice(st, st+PS);
   const tcd = document.getElementById('trade-count-display');
   if(tcd) tcd.textContent = trades.length + ' Transactions';
+  // Update sort arrows in headers
+  ['id','strike','txn_type','entry_price','exit_price','pnl','cumulative'].forEach(col => {
+    const el = document.getElementById('ts-' + col);
+    if (el) el.innerHTML = _tradeSortArrow(col);
+  });
   const tbody=document.getElementById('trade-log-body');
   tbody.innerHTML='';
-  sl.forEach(t => {
-    const w=t.pnl>=0, sk=t.strike||'NIFTY', qty=t.qty||'-', txn=t.txn_type||'BUY', rid='td-'+t.id;
-    tbody.innerHTML += '<tr onclick="toggleTD(\''+rid+'\')" style="border-bottom:1px solid var(--border);cursor:pointer;" onmouseover="this.style.background=\'rgba(0,200,150,0.03)\'" onmouseout="this.style.background=\'transparent\'">'
-      +'<td style="padding:8px;color:var(--muted);width:30px;">\u21D5 1</td>'
-      +'<td style="padding:8px;font-weight:600;">'+t.id+'</td>'
-      +'<td style="padding:8px;"><strong>'+sk+'</strong></td>'
-      +'<td style="padding:8px;text-align:center;">'+qty+'<br><span style="font-size:9px;color:var(--muted);">Qty</span></td>'
-      +'<td style="padding:8px;"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:600;">\u20B9 '+t.entry_price.toFixed(2)+'</span><br><span style="font-size:10px;color:var(--muted);">'+t.entry_time+'</span><br><span style="font-size:10px;color:'+(txn==="BUY"?"var(--success)":"var(--danger)")+';font-weight:600;">'+txn+'</span></td>'
-      +'<td style="padding:8px;"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:600;">\u20B9 '+t.exit_price.toFixed(2)+'</span><br><span style="font-size:10px;color:var(--muted);">'+t.exit_time+'</span><br><span style="font-size:10px;color:'+(txn==="BUY"?"var(--danger)":"var(--success)")+';font-weight:600;">'+(txn==="BUY"?"SELL":"BUY")+'</span></td>'
-      +'<td style="padding:8px;font-weight:700;color:'+(w?'var(--success)':'var(--danger)')+';font-family:\'JetBrains Mono\',monospace;">'+(w?'':'- ')+fmt(Math.abs(t.pnl))+'</td>'
-      +'<td style="padding:8px;font-family:\'JetBrains Mono\',monospace;color:var(--muted);">'+fmt(t.cumulative)+'</td></tr>'
-      +'<tr id="'+rid+'" style="display:none;background:rgba(0,200,150,0.02);"><td colspan="8" style="padding:12px 20px;"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;font-size:11px;">'
-      +'<div><span style="color:var(--muted);">Strike</span><br><strong>'+sk+'</strong></div>'
-      +'<div><span style="color:var(--muted);">Quantity</span><br><strong>'+qty+'</strong></div>'
-      +'<div><span style="color:var(--muted);">Exit Reason</span><br><span style="background:'+(t.exit_reason==="StopLoss"?"rgba(239,68,68,0.15)":"rgba(59,130,246,0.15)")+';padding:2px 8px;border-radius:3px;">'+t.exit_reason+'</span></div>'
-      +'<div><span style="color:var(--muted);">P&L</span><br><strong style="color:'+(w?'var(--success)':'var(--danger)')+';">'+fmt(t.pnl)+'</strong></div>'
-      +'<div><span style="color:var(--muted);">Cumulative</span><br><strong>'+fmt(t.cumulative)+'</strong></div>'
-      +'</div></td></tr>';
-  });
+  if (!sl.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No trades found</td></tr>';
+  } else {
+    sl.forEach(t => {
+      const w=t.pnl>=0, sk=t.strike||'NIFTY', qty=t.qty||'-', txn=t.txn_type||'BUY';
+      const entryTime = t.entry_time ? String(t.entry_time).substring(11, 16) || t.entry_time : '';
+      const exitTime = t.exit_time ? String(t.exit_time).substring(11, 16) || t.exit_time : '';
+      const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
+      const exitDate = t.exit_time ? String(t.exit_time).substring(0, 10) : '';
+      const dirColor = txn === 'BUY' ? 'var(--success)' : 'var(--danger)';
+      const reasonBg = t.exit_reason === 'StopLoss' ? 'rgba(239,68,68,0.15)' : (t.exit_reason === 'Target' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)');
+      const reasonColor = t.exit_reason === 'StopLoss' ? 'rgb(248,113,113)' : (t.exit_reason === 'Target' ? 'rgb(74,222,128)' : 'rgb(147,197,253)');
+      tbody.innerHTML += `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
+        <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.id}</td>
+        <td style="padding:7px 10px;font-size:12px;font-weight:600;">${sk}</td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${dirColor};">${txn}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${t.entry_price.toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${entryDate} ${entryTime}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${t.exit_price.toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${exitDate} ${exitTime}</span></td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;">${entryTime} → ${exitTime}</td>
+        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${qty}</td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${w?'var(--success)':'var(--danger)'};">${w?'+':''}${fmt(t.pnl)}</td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:9px;padding:1px 6px;border-radius:3px;background:${reasonBg};color:${reasonColor};">${(t.exit_reason||'').replace(/_/g,' ')}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:${(t.cumulative||0)>=0?'var(--success)':'var(--danger)'};">${fmt(t.cumulative)}</td>
+      </tr>`;
+    });
+  }
   let pd=document.getElementById('trade-pagination');
-  if(!pd){pd=document.createElement('div');pd.id='trade-pagination';pd.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:0 4px;';const cardEl=tbody.closest('.card-glass')||tbody.closest('.card')||tbody.parentElement.parentElement;cardEl.appendChild(pd);}
-  let L='<span style="font-size:11px;color:var(--muted);">Showing '+(st+1)+' to '+Math.min(st+PS,trades.length)+' of '+trades.length+' entries</span>';
+  if(!pd){pd=document.createElement('div');pd.id='trade-pagination';pd.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);';const cardEl=tbody.closest('.card-glass')||tbody.closest('.card')||tbody.parentElement.parentElement;cardEl.appendChild(pd);}
+  let L='<span style="font-size:11px;color:var(--muted);">Showing '+(trades.length?st+1:0)+' to '+Math.min(st+PS,trades.length)+' of '+trades.length+' entries</span>';
   let R='<div style="display:flex;gap:3px;">';
-  R+='<button onclick="goTP('+(pg-1)+')" class="btn" style="font-size:11px;padding:5px 10px;" '+(pg<=1?'disabled':'')+'>\u2039</button>';
-  let pS=Math.max(1,pg-3),pE=Math.min(tp,pS+6);pS=Math.max(1,pE-6);
-  for(let p=pS;p<=pE;p++) R+='<button onclick="goTP('+p+')" class="btn" style="font-size:11px;padding:5px 10px;'+(p===pg?'--btn-bg:linear-gradient(180deg,rgba(0,200,150,0.3) 0%,rgba(0,150,110,0.5) 100%);--btn-color:rgb(52,211,153);--btn-border:rgba(0,200,150,0.5);font-weight:700;':'')+'">'+p+'</button>';
-  if(pE<tp) R+='<span style="padding:5px;color:var(--muted);">...</span><button onclick="goTP('+tp+')" class="btn" style="font-size:11px;padding:5px 10px;">'+tp+'</button>';
-  R+='<button onclick="goTP('+(pg+1)+')" class="btn" style="font-size:11px;padding:5px 10px;" '+(pg>=tp?'disabled':'')+'>\u203A</button></div>';
+  R+='<button onclick="goTP('+(pg-1)+')" class="btn btn-sm" style="font-size:11px;padding:5px 14px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" '+(pg<=1?'disabled':'')+'>\u2190 Prev</button>';
+  R+='<span style="padding:5px 8px;font-size:11px;color:var(--muted);font-family:\'JetBrains Mono\',monospace;">Page '+pg+' of '+tp+'</span>';
+  R+='<button onclick="goTP('+(pg+1)+')" class="btn btn-sm" style="font-size:11px;padding:5px 14px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" '+(pg>=tp?'disabled':'')+'> Next \u2192</button></div>';
   pd.innerHTML=L+R;
 }
-function toggleTD(id){const e=document.getElementById(id);if(e)e.style.display=e.style.display==='none'?'table-row':'none';}
-function goTP(p){const tp=Math.ceil((window._allTrades||[]).length/10)||1;window._tradePage=Math.max(1,Math.min(p,tp));renderTradePage();}
+function goTP(p){const tp=Math.ceil((_getFilteredTrades()).length/10)||1;window._tradePage=Math.max(1,Math.min(p,tp));renderTradePage();}
 
 
 function renderDOW(dowData) {
@@ -6567,26 +6773,31 @@ function renderHeatmap(trades) {
   container.innerHTML = '';
   // Group by year-month
   const grid = {};
+  let absMax = 1;
   trades.forEach(t => {
     const year = t.entry_time.substring(0, 4);
     const month = parseInt(t.entry_time.substring(5, 7));
     if (!grid[year]) grid[year] = {};
     grid[year][month] = (grid[year][month] || 0) + t.pnl;
   });
+  Object.values(grid).forEach(yr => Object.values(yr).forEach(v => { if (Math.abs(v) > absMax) absMax = Math.abs(v); }));
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   // Header
-  let html = '<div style="display: grid; grid-template-columns: 40px repeat(12, 1fr); gap: 2px; margin-bottom: 4px;">';
+  let html = '<div style="display: grid; grid-template-columns: 44px repeat(12, 1fr); gap: 3px; margin-bottom: 6px;">';
   html += '<div></div>';
-  months.forEach(m => { html += `<div style="text-align: center; font-size: 9px; color: var(--muted);">${m}</div>`; });
+  months.forEach(m => { html += `<div style="text-align: center; font-size: 10px; color: var(--muted); font-weight: 600;">${m}</div>`; });
   html += '</div>';
   // Rows
   Object.keys(grid).sort().forEach(year => {
-    html += `<div style="display: grid; grid-template-columns: 40px repeat(12, 1fr); gap: 2px; margin-bottom: 2px;">`;
-    html += `<div style="font-size: 10px; font-weight: 600; display: flex; align-items: center;">${year}</div>`;
+    html += `<div style="display: grid; grid-template-columns: 44px repeat(12, 1fr); gap: 3px; margin-bottom: 3px;">`;
+    html += `<div style="font-size: 11px; font-weight: 700; display: flex; align-items: center;">${year}</div>`;
     for (let m = 1; m <= 12; m++) {
       const val = grid[year][m] || 0;
-      const bg = val > 0 ? `rgba(34,197,94,${Math.min(0.7, Math.abs(val) / 100000)})` : (val < 0 ? `rgba(239,68,68,${Math.min(0.7, Math.abs(val) / 100000)})` : 'var(--glass-lo)');
-      html += `<div style="background: ${bg}; border-radius: 2px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-family: 'JetBrains Mono', monospace;" title="${year}-${String(m).padStart(2,'0')}: ₹${Math.round(val).toLocaleString('en-IN')}">${val !== 0 ? (val > 0 ? '+' : '') + (Math.abs(val) > 999 ? Math.round(val/1000) + 'k' : Math.round(val)) : ''}</div>`;
+      const intensity = Math.min(0.8, (Math.abs(val) / absMax) * 0.7 + 0.1);
+      const bg = val > 0 ? `rgba(34,197,94,${intensity})` : (val < 0 ? `rgba(239,68,68,${intensity})` : 'rgba(255,255,255,0.03)');
+      const textColor = val !== 0 ? (intensity > 0.4 ? '#fff' : (val > 0 ? 'rgb(74,222,128)' : 'rgb(248,113,113)')) : 'var(--muted)';
+      const label = val !== 0 ? (val > 0 ? '+' : '') + (Math.abs(val) > 999 ? Math.round(val/1000) + 'k' : Math.round(val)) : '';
+      html += `<div style="background:${bg};border-radius:4px;height:34px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;font-family:'JetBrains Mono',monospace;color:${textColor};transition:transform 0.15s;" title="${year}-${String(m).padStart(2,'0')}: ${fmt(val)}" onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'">${label}</div>`;
     }
     html += '</div>';
   });
@@ -6684,23 +6895,31 @@ function renderEquityChart(equityData) {
   ctx.beginPath(); ctx.moveTo(padding.left, startY); ctx.lineTo(w - padding.right, startY); ctx.stroke();
   ctx.setLineDash([]);
 
-  // Equity line with glow
+  // Equity line with glow — smooth Bezier curve
+  const points = values.map((v, i) => ({
+    x: padding.left + (i / (values.length - 1)) * plotW,
+    y: padding.top + ((maxVal - v) / range) * plotH
+  }));
+
   ctx.beginPath();
   ctx.strokeStyle = 'rgba(0,200,150,1)';
   ctx.lineWidth = 2.2;
   ctx.shadowColor = 'rgba(0,200,150,0.35)';
   ctx.shadowBlur = 10;
-  values.forEach((v, i) => {
-    const x = padding.left + (i / (values.length - 1)) * plotW;
-    const y = padding.top + ((maxVal - v) / range) * plotH;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const cpx = (prev.x + curr.x) / 2;
+    ctx.quadraticCurveTo(prev.x + (cpx - prev.x) * 0.8, prev.y, cpx, (prev.y + curr.y) / 2);
+    ctx.quadraticCurveTo(curr.x - (curr.x - cpx) * 0.8, curr.y, curr.x, curr.y);
+  }
   ctx.stroke();
   ctx.shadowBlur = 0;
 
   // Fill gradient
-  const lastX = padding.left + plotW;
-  const lastY = padding.top + ((maxVal - values[values.length - 1]) / range) * plotH;
+  const lastX = points[points.length - 1].x;
+  const lastY = points[points.length - 1].y;
   ctx.lineTo(lastX, padding.top + plotH);
   ctx.lineTo(padding.left, padding.top + plotH);
   ctx.closePath();
@@ -8445,28 +8664,59 @@ function compareBacktests() {
     const grid = document.getElementById('comparison-grid');
     grid.innerHTML = '';
 
-    [runA, runB].forEach((run, idx) => {
-      const s = run.stats || {};
-      const pnl = s.total_profit || s.net_profit || 0;
-      const card = document.createElement('div');
-      card.className = 'comparison-card';
-      card.style.borderColor = idx === 0 ? 'var(--accent)' : 'var(--accent2)';
-      card.innerHTML = `
-        <div style="font-weight:700; font-size:14px; margin-bottom:12px; color:${idx === 0 ? 'var(--accent)' : 'var(--accent2)'};">
-          ${idx === 0 ? '🅰️' : '🅱️'} ${run.run_name || run.name || 'Run #' + run.id}
-        </div>
-        <div class="comparison-metric"><span class="label">Total P&L</span><span class="value" style="color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toLocaleString('en-IN')}</span></div>
-        <div class="comparison-metric"><span class="label">Total Trades</span><span class="value">${s.total_trades || 0}</span></div>
-        <div class="comparison-metric"><span class="label">Win Rate</span><span class="value">${s.win_rate || 0}%</span></div>
-        <div class="comparison-metric"><span class="label">Profit Factor</span><span class="value">${s.profit_factor || 0}</span></div>
-        <div class="comparison-metric"><span class="label">Max Drawdown</span><span class="value" style="color:var(--danger)">${s.max_drawdown ? '₹' + s.max_drawdown.toLocaleString('en-IN') : '—'}</span></div>
-        <div class="comparison-metric"><span class="label">Avg Profit</span><span class="value" style="color:var(--success)">${s.avg_profit ? '₹' + Math.round(s.avg_profit).toLocaleString('en-IN') : '—'}</span></div>
-        <div class="comparison-metric"><span class="label">Avg Loss</span><span class="value" style="color:var(--danger)">${s.avg_loss ? '₹' + Math.round(s.avg_loss).toLocaleString('en-IN') : '—'}</span></div>
-        <div class="comparison-metric"><span class="label">Win Streak</span><span class="value">${s.max_win_streak || 0}</span></div>
-        <div class="comparison-metric"><span class="label">Loss Streak</span><span class="value">${s.max_loss_streak || 0}</span></div>
-      `;
-      grid.appendChild(card);
-    });
+    function _cmpMetric(label, valA, valB, opts = {}) {
+      const colorFn = opts.colorFn || (() => 'var(--text)');
+      const fmtFn = opts.fmtFn || (v => v);
+      const highlight = opts.higherBetter !== undefined;
+      let bgA = '', bgB = '';
+      if (highlight && valA !== valB) {
+        const aWins = opts.higherBetter ? valA > valB : valA < valB;
+        bgA = aWins ? 'background:rgba(34,197,94,0.06);' : '';
+        bgB = !aWins ? 'background:rgba(34,197,94,0.06);' : '';
+      }
+      return `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 10px;font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;">${label}</td>
+        <td style="padding:8px 10px;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:${colorFn(valA)};text-align:right;${bgA}">${fmtFn(valA)}</td>
+        <td style="padding:8px 10px;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:${colorFn(valB)};text-align:right;${bgB}">${fmtFn(valB)}</td>
+      </tr>`;
+    }
+
+    const sA = runA.stats || {}, sB = runB.stats || {};
+    const pnlA = sA.total_pnl || 0, pnlB = sB.total_pnl || 0;
+    const pnlColor = v => v >= 0 ? 'var(--success)' : 'var(--danger)';
+    const pctColor = v => v >= 50 ? 'var(--success)' : 'var(--danger)';
+    const pfColor = v => v >= 1.5 ? 'var(--success)' : (v >= 1 ? 'var(--warn)' : 'var(--danger)');
+    const srColor = v => v >= 1.5 ? 'var(--success)' : (v >= 0.5 ? 'var(--warn)' : 'var(--danger)');
+
+    let tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="border-bottom:2px solid var(--border);">
+        <th style="padding:10px;text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;">Metric</th>
+        <th style="padding:10px;text-align:right;color:var(--accent);font-size:12px;font-weight:700;">${runA.run_name || 'Run A'}</th>
+        <th style="padding:10px;text-align:right;color:var(--accent2);font-size:12px;font-weight:700;">${runB.run_name || 'Run B'}</th>
+      </tr></thead><tbody>`;
+    tableHtml += _cmpMetric('Total P&L', pnlA, pnlB, { fmtFn: fmt, colorFn: pnlColor, higherBetter: true });
+    tableHtml += _cmpMetric('Total Trades', sA.total_trades||0, sB.total_trades||0, { fmtFn: v => v });
+    tableHtml += _cmpMetric('Win Rate', sA.win_rate||0, sB.win_rate||0, { fmtFn: v => v.toFixed(2) + '%', colorFn: pctColor, higherBetter: true });
+    tableHtml += _cmpMetric('Winning', sA.winning_trades||0, sB.winning_trades||0, { fmtFn: v => v, higherBetter: true });
+    tableHtml += _cmpMetric('Losing', sA.losing_trades||0, sB.losing_trades||0, { fmtFn: v => v, higherBetter: false });
+    tableHtml += _cmpMetric('Profit Factor', sA.profit_factor||0, sB.profit_factor||0, { fmtFn: v => Number(v).toFixed(2), colorFn: pfColor, higherBetter: true });
+    tableHtml += _cmpMetric('Sharpe Ratio', sA.sharpe_ratio||0, sB.sharpe_ratio||0, { fmtFn: v => Number(v).toFixed(2), colorFn: srColor, higherBetter: true });
+    tableHtml += _cmpMetric('Calmar Ratio', sA.calmar_ratio||0, sB.calmar_ratio||0, { fmtFn: v => Number(v).toFixed(2), higherBetter: true });
+    tableHtml += _cmpMetric('Max Drawdown', sA.max_drawdown_val||0, sB.max_drawdown_val||0, { fmtFn: fmt, colorFn: () => 'var(--danger)', higherBetter: false });
+    tableHtml += _cmpMetric('Drawdown Days', sA.max_drawdown_days||0, sB.max_drawdown_days||0, { fmtFn: v => v + ' days', higherBetter: false });
+    tableHtml += _cmpMetric('Risk Per Trade', sA.risk_per_trade||0, sB.risk_per_trade||0, { fmtFn: fmt });
+    tableHtml += _cmpMetric('Avg Profit', sA.avg_profit||0, sB.avg_profit||0, { fmtFn: fmt, colorFn: () => 'var(--success)', higherBetter: true });
+    tableHtml += _cmpMetric('Avg Loss', sA.avg_loss||0, sB.avg_loss||0, { fmtFn: fmt, colorFn: () => 'var(--danger)' });
+    tableHtml += _cmpMetric('Win Streak', sA.win_streak||0, sB.win_streak||0, { fmtFn: v => v, higherBetter: true });
+    tableHtml += _cmpMetric('Loss Streak', sA.loss_streak||0, sB.loss_streak||0, { fmtFn: v => v, higherBetter: false });
+    tableHtml += _cmpMetric('Max Profit', sA.max_profit||0, sB.max_profit||0, { fmtFn: fmt, colorFn: () => 'var(--success)', higherBetter: true });
+    tableHtml += _cmpMetric('Max Loss', sA.max_loss||0, sB.max_loss||0, { fmtFn: fmt, colorFn: () => 'var(--danger)' });
+    tableHtml += _cmpMetric('Expectancy', sA.expectancy||0, sB.expectancy||0, { fmtFn: fmt, colorFn: pnlColor, higherBetter: true });
+    tableHtml += _cmpMetric('ROI %', sA.roi_pct||0, sB.roi_pct||0, { fmtFn: v => Number(v).toFixed(2) + '%', colorFn: pnlColor, higherBetter: true });
+    tableHtml += _cmpMetric('Avg Duration', sA.avg_duration||'-', sB.avg_duration||'-', { fmtFn: v => v });
+    tableHtml += _cmpMetric('Total Fees', sA.total_fees||0, sB.total_fees||0, { fmtFn: fmt, colorFn: () => 'var(--warn)' });
+    tableHtml += '</tbody></table>';
+    grid.innerHTML = tableHtml;
 
     document.getElementById('comparison-result').style.display = 'block';
     document.getElementById('comparison-empty').style.display = 'none';
@@ -8865,7 +9115,7 @@ fetchRuns = async function() {
     selB.innerHTML = '<option value="">Select Run B</option>';
     runs.forEach(r => {
       const name = r.run_name || r.name || 'Run #' + r.id;
-      const pnl = r.stats ? (r.stats.total_profit || r.stats.net_profit || 0) : 0;
+      const pnl = r.total_pnl || (r.stats ? (r.stats.total_pnl || 0) : 0);
       const opt = `<option value="${r.id}">${name} (₹${Math.round(pnl).toLocaleString('en-IN')})</option>`;
       selA.innerHTML += opt;
       selB.innerHTML += opt;
