@@ -188,11 +188,13 @@
 
   /* Analytics inner panels */
   .analytics-inner {
-    background: linear-gradient(160deg, rgba(22,30,46,0.85), rgba(14,20,32,0.8));
-    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(160deg, rgba(22,30,46,0.45), rgba(14,20,32,0.35));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.10);
     border-radius: 12px;
     padding: 14px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 16px rgba(0,0,0,0.15);
   }
   /* Trade log table container */
   .trade-log-wrap {
@@ -645,9 +647,11 @@
   [data-theme="light"] .stat-label { color: #64748b; font-weight: 600; }
   [data-theme="light"] .stat-value, [data-theme="light"] .stat-value-lg { color: #0f172a; }
   [data-theme="light"] .analytics-inner {
-    background: #ffffff;
-    border: 1px solid rgba(15,23,42,0.06);
-    box-shadow: 0 2px 10px -3px rgba(0,0,0,0.06);
+    background: rgba(255,255,255,0.45);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 2px 10px -3px rgba(0,0,0,0.06);
   }
   /* ── Premium Light: Trade Log — Airy Dividers ── */
   [data-theme="light"] .trade-log-wrap {
@@ -953,6 +957,46 @@
     --warn: #d97706;
     --accent: #0d9488;
     --accent2: #2563eb;
+  }
+  /* Light mode: results stat-box override (undo dark gradient) */
+  [data-theme="light"] #results-content .stat-box {
+    background: #ffffff !important;
+    border: 1px solid rgba(15,23,42,0.10) !important;
+    border-top: 1px solid rgba(15,23,42,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.06) !important;
+  }
+  [data-theme="light"] #results-content .stat-value,
+  [data-theme="light"] #results-content .stat-value-lg {
+    text-shadow: none !important;
+    opacity: 1 !important;
+  }
+  /* Light mode: results header labels (white-alpha text invisible on white bg) */
+  [data-theme="light"] #results-content .card-glass span[style*="rgba(255,255,255"],
+  [data-theme="light"] #results-content .card-glass div[style*="rgba(255,255,255"] {
+    color: #64748b !important;
+  }
+  [data-theme="light"] #results-content .btn[onclick*="openDeployModal"] {
+    --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.22) 100%) !important;
+    --btn-color: #6d28d9 !important;
+    --btn-border: rgba(124,58,237,0.30) !important;
+  }
+  [data-theme="light"] #results-content .btn[onclick*="copyEditStrategy"] {
+    --btn-bg: rgba(37,99,235,0.10) !important;
+    --btn-color: #1d4ed8 !important;
+    --btn-border: rgba(37,99,235,0.25) !important;
+  }
+  [data-theme="light"] #results-content .btn[onclick*="viewRunDetails"] {
+    --btn-bg: rgba(124,58,237,0.10) !important;
+    --btn-color: #6d28d9 !important;
+    --btn-border: rgba(124,58,237,0.25) !important;
+  }
+  [data-theme="light"] #res-trade-count-badge {
+    background: linear-gradient(135deg, #059669, #0d9488) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 10px rgba(5,150,105,0.25) !important;
+  }
+  [data-theme="light"] #res-header-pnl {
+    color: #0f172a !important;
   }
 
   /* Theme toggle is now integrated into topbar */
