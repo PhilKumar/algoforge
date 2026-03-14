@@ -3407,6 +3407,8 @@ class ScalpEntryReq(BaseModel):
     sl_rupees: float = 0.0
     sqoff_time: str = "15:20"
     mode: str = "live"
+    entry_limit_price: float = 0.0
+    entry_limit_max: float = 0.0
 
 
 _scalp_entry_lock = asyncio.Lock()
@@ -3440,6 +3442,8 @@ async def scalp_entry(req: ScalpEntryReq):
                 sl_rupees=req.sl_rupees,
                 sqoff_time=req.sqoff_time,
                 mode=req.mode,
+                entry_limit_price=req.entry_limit_price,
+                entry_limit_max=req.entry_limit_max,
             )
             if result.get("status") == "error":
                 alerter.alert(
@@ -3449,13 +3453,23 @@ async def scalp_entry(req: ScalpEntryReq):
             else:
                 trade_info = result.get("trade", {})
                 entry_p = trade_info.get("entry_premium", 0)
-                alerter.alert(
-                    "Scalp Entry",
-                    f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
-                    f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                    f"Entry: \u20b9{entry_p:.2f} | Mode: {req.mode}",
-                    level="info",
-                )
+                is_pending = trade_info.get("status") == "pending"
+                if is_pending:
+                    alerter.alert(
+                        "Scalp Stop-Limit Pending",
+                        f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
+                        f"Side: {req.transaction_type} | Lots: {req.lots}\n"
+                        f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Mode: {req.mode}",
+                        level="info",
+                    )
+                else:
+                    alerter.alert(
+                        "Scalp Entry",
+                        f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
+                        f"Side: {req.transaction_type} | Lots: {req.lots}\n"
+                        f"Entry: \u20b9{entry_p:.2f} | Mode: {req.mode}",
+                        level="info",
+                    )
             _notify_scalp_ws()
             return result
         except Exception as e:
@@ -3477,6 +3491,21 @@ async def scalp_exit(trade_id: int):
         return result
     except Exception as e:
         alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scalp/kill-all")
+async def scalp_kill_all():
+    eng = _get_scalp_engine()
+    try:
+        result = await eng.kill_all_trades()
+        closed = result.get("closed", 0)
+        if closed > 0:
+            alerter.alert("Scalp Kill All", f"Emergency exit: {closed} trade(s) closed", level="warning")
+        _notify_scalp_ws()
+        return result
+    except Exception as e:
+        alerter.alert("Scalp Kill All Error", f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

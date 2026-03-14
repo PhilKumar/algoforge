@@ -48,6 +48,9 @@ class ScalpTrade:
         order_id: str = "",
         entry_time: Optional[datetime] = None,
         mode: str = "live",  # "live" or "paper"
+        # Stop-limit entry: wait for premium to enter [limit_price, limit_max] before placing order
+        entry_limit_price: float = 0.0,
+        entry_limit_max: float = 0.0,
     ):
         self.trade_id = trade_id
         self.mode = mode
@@ -62,21 +65,30 @@ class ScalpTrade:
         self.entry_premium = entry_premium
         self.current_premium = entry_premium
 
+        # Stop-limit entry fields
+        self.entry_limit_price = entry_limit_price
+        self.entry_limit_max = entry_limit_max
+
+        # Store pct values for deferred computation (pending trades have no entry price yet)
+        self.target_pct = target_pct
+        self.sl_pct = sl_pct
+
         # Compute absolute target/SL premiums if only % given
         self.target_premium = target_premium
         self.sl_premium = sl_premium
 
-        if not self.target_premium and target_pct > 0:
-            if transaction_type == "BUY":
-                self.target_premium = round(entry_premium * (1 + target_pct / 100), 2)
-            else:
-                self.target_premium = round(entry_premium * (1 - target_pct / 100), 2)
+        if entry_premium > 0:
+            if not self.target_premium and target_pct > 0:
+                if transaction_type == "BUY":
+                    self.target_premium = round(entry_premium * (1 + target_pct / 100), 2)
+                else:
+                    self.target_premium = round(entry_premium * (1 - target_pct / 100), 2)
 
-        if not self.sl_premium and sl_pct > 0:
-            if transaction_type == "BUY":
-                self.sl_premium = round(entry_premium * (1 - sl_pct / 100), 2)
-            else:
-                self.sl_premium = round(entry_premium * (1 + sl_pct / 100), 2)
+            if not self.sl_premium and sl_pct > 0:
+                if transaction_type == "BUY":
+                    self.sl_premium = round(entry_premium * (1 - sl_pct / 100), 2)
+                else:
+                    self.sl_premium = round(entry_premium * (1 + sl_pct / 100), 2)
 
         self.target_rupees = target_rupees
         self.sl_rupees = sl_rupees
@@ -88,7 +100,11 @@ class ScalpTrade:
         self.exit_reason: str = ""
         self.exit_order_id: str = ""
         self.pnl: float = 0.0
-        self.status: str = "open"
+        # Broker-side SL/TP order IDs (safety net — placed after entry fills)
+        self.broker_sl_order_id: str = ""
+        self.broker_tp_order_id: str = ""
+        # Pending = waiting for stop-limit trigger; open = actively trading
+        self.status: str = "pending" if (entry_limit_price > 0 and entry_limit_max > 0) else "open"
 
     def _compute_pnl(self, current_prem: float) -> float:
         mult = 1 if self.transaction_type == "BUY" else -1
@@ -164,9 +180,13 @@ class ScalpTrade:
             "exit_premium": self.exit_premium,
             "exit_reason": self.exit_reason,
             "exit_order_id": self.exit_order_id,
-            "pnl": round(self._compute_pnl(self.current_premium), 2),
+            "pnl": round(self._compute_pnl(self.current_premium), 2) if self.status != "pending" else 0.0,
             "status": self.status,
             "mode": self.mode,
+            "entry_limit_price": self.entry_limit_price,
+            "entry_limit_max": self.entry_limit_max,
+            "broker_sl_order_id": self.broker_sl_order_id,
+            "broker_tp_order_id": self.broker_tp_order_id,
         }
 
 
@@ -223,10 +243,66 @@ class ScalpEngine:
         product_type: str = "INTRADAY",
         order_type: str = "MARKET",
         mode: str = "live",  # "live" or "paper"
+        entry_limit_price: float = 0.0,
+        entry_limit_max: float = 0.0,
     ) -> Dict[str, Any]:
-        """Place a broker order (or simulate in paper mode) and register the scalp trade."""
+        """Place a broker order (or simulate in paper mode) and register the scalp trade.
+        If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
+        and waits for the premium to enter [limit_price, limit_max] before placing the order."""
         quantity = lots * lot_size
 
+        # ── Stop-limit entry: create pending trade, no order yet ──
+        if entry_limit_price > 0 and entry_limit_max > 0:
+            # Ensure min <= max
+            lo = min(entry_limit_price, entry_limit_max)
+            hi = max(entry_limit_price, entry_limit_max)
+            self._trade_counter += 1
+            trade = ScalpTrade(
+                trade_id=self._trade_counter,
+                underlying=underlying,
+                strike=strike,
+                option_type=option_type,
+                expiry=expiry,
+                transaction_type=transaction_type,
+                lots=lots,
+                lot_size=lot_size,
+                entry_premium=0.0,  # unknown until triggered
+                target_premium=target_premium,
+                sl_premium=sl_premium,
+                target_pct=target_pct,
+                sl_pct=sl_pct,
+                target_rupees=target_rupees,
+                sl_rupees=sl_rupees,
+                sqoff_time=sqoff_time,
+                mode=mode,
+                entry_limit_price=lo,
+                entry_limit_max=hi,
+            )
+            self.open_trades[self._trade_counter] = trade
+
+            # Subscribe to WS feed for LTP monitoring
+            if self.feed:
+                try:
+                    ws_sec_id = self.feed.subscribe_option(underlying, strike, expiry, option_type)
+                    if ws_sec_id:
+                        self._ws_subs[self._trade_counter] = ws_sec_id
+                except Exception:
+                    pass
+
+            mode_label = "[PAPER] " if mode == "paper" else ""
+            self._log(
+                "info",
+                f"{mode_label}⏳ STOP-LIMIT PENDING: {transaction_type} {underlying} {strike}{option_type} "
+                f"| trigger range ₹{lo:.2f}–₹{hi:.2f} "
+                f"| target=₹{target_premium or 'none'} SL=₹{sl_premium or 'none'}",
+            )
+
+            if not self._running:
+                self.start()
+
+            return {"status": "ok", "trade_id": self._trade_counter, "trade": trade.to_dict()}
+
+        # ── Immediate (market) entry ──
         if mode == "paper":
             # Paper mode: no real order — snapshot current LTP as entry price.
             # Run LTP fetch off the event loop so it never blocks concurrent entries.
@@ -331,6 +407,10 @@ class ScalpEngine:
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
+        # Place broker-side SL/TP safety-net orders (live mode only)
+        if mode == "live" and entry_premium > 0:
+            await self._place_broker_sl_tp(trade)
+
         if not self._running:
             self.start()
 
@@ -344,6 +424,21 @@ class ScalpEngine:
         await self._close_trade(trade, reason)
         return {"status": "ok", "trade": trade.to_dict()}
 
+    async def kill_all_trades(self) -> Dict[str, Any]:
+        """Emergency exit ALL open trades immediately."""
+        trades_to_close = list(self.open_trades.values())
+        if not trades_to_close:
+            return {"status": "ok", "closed": 0, "message": "No open trades"}
+        self._log("info", f"🔴 KILL ALL — closing {len(trades_to_close)} trade(s)...")
+        closed = 0
+        for trade in trades_to_close:
+            try:
+                await self._close_trade(trade, "kill")
+                closed += 1
+            except Exception as e:
+                self._log("error", f"Kill failed for trade {trade.trade_id}: {e}")
+        return {"status": "ok", "closed": closed}
+
     async def update_trade_targets(self, trade_id: int, **kwargs) -> Dict[str, Any]:
         """Update target/SL for an open trade (e.g. after looking at the chart)."""
         trade = self.open_trades.get(trade_id)
@@ -352,6 +447,9 @@ class ScalpEngine:
         for attr in ("target_premium", "sl_premium", "target_rupees", "sl_rupees", "sqoff_time"):
             if attr in kwargs and kwargs[attr] is not None:
                 setattr(trade, attr, kwargs[attr])
+        # Sync broker-side SL/TP orders (live mode only)
+        if trade.mode == "live" and ("sl_premium" in kwargs or "target_premium" in kwargs):
+            await self._modify_broker_sl_tp(trade, **kwargs)
         self._log("info", f"🎯 Trade {trade_id} targets updated: {kwargs}")
         return {"status": "ok", "trade": trade.to_dict()}
 
@@ -369,7 +467,17 @@ class ScalpEngine:
     async def _monitor_loop(self):
         """Poll/WS prices every ~1s and trigger auto-exits."""
         _last_rest_call = 0.0
+        _last_ws_health_check = 0.0
         while self._running:
+            # Periodic WS health check — every 30s, verify feed is alive
+            now_mono = asyncio.get_event_loop().time()
+            if self.feed and (now_mono - _last_ws_health_check) > 30:
+                _last_ws_health_check = now_mono
+                try:
+                    if hasattr(self.feed, "check_health") and not self.feed.check_health():
+                        self._log("info", "📡 WS feed stale — triggering reconnect")
+                except Exception:
+                    pass
             try:
                 trades = list(self.open_trades.items())
                 if not trades:
@@ -381,20 +489,31 @@ class ScalpEngine:
 
                 for tid, trade in trades:
                     current_prem = price_map.get(tid, 0.0)
-                    if current_prem > 0:
-                        # Backfill entry price if it was 0 at entry time
-                        if trade.entry_premium == 0:
-                            trade.entry_premium = current_prem
-                            # Reset grace period so check_exit waits 3s from backfill
-                            trade.entry_time = _now_ist()
-                            if not trade.target_premium and hasattr(trade, "_target_pct") and trade._target_pct > 0:
-                                mult = 1 if trade.transaction_type == "BUY" else -1
-                                trade.target_premium = round(current_prem * (1 + mult * trade._target_pct / 100), 2)
-                            if not trade.sl_premium and hasattr(trade, "_sl_pct") and trade._sl_pct > 0:
-                                mult = -1 if trade.transaction_type == "BUY" else 1
-                                trade.sl_premium = round(current_prem * (1 + mult * trade._sl_pct / 100), 2)
-                            self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
+                    if current_prem <= 0:
+                        continue
+
+                    # ── Handle pending stop-limit trades ──
+                    if trade.status == "pending":
                         trade.current_premium = current_prem
+                        if trade.entry_limit_price <= current_prem <= trade.entry_limit_max:
+                            # Premium entered the trigger range — activate!
+                            await self._activate_pending_trade(trade)
+                        continue  # Don't check exit for pending trades
+
+                    # ── Handle open trades ──
+                    # Backfill entry price if it was 0 at entry time
+                    if trade.entry_premium == 0:
+                        trade.entry_premium = current_prem
+                        # Reset grace period so check_exit waits 3s from backfill
+                        trade.entry_time = _now_ist()
+                        if not trade.target_premium and trade.target_pct > 0:
+                            mult = 1 if trade.transaction_type == "BUY" else -1
+                            trade.target_premium = round(current_prem * (1 + mult * trade.target_pct / 100), 2)
+                        if not trade.sl_premium and trade.sl_pct > 0:
+                            mult = -1 if trade.transaction_type == "BUY" else 1
+                            trade.sl_premium = round(current_prem * (1 + mult * trade.sl_pct / 100), 2)
+                        self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
+                    trade.current_premium = current_prem
                     reason = trade.check_exit(trade.current_premium)
                     if reason:
                         if tid not in self.open_trades:
@@ -403,6 +522,203 @@ class ScalpEngine:
             except Exception as e:
                 self._log("error", f"Monitor error: {e}")
             await asyncio.sleep(1)
+
+    async def _activate_pending_trade(self, trade: ScalpTrade):
+        """Place broker order for a pending stop-limit trade when premium enters the trigger range."""
+        tid = trade.trade_id
+        mode_label = "[PAPER] " if trade.mode == "paper" else ""
+        self._log(
+            "entry",
+            f"{mode_label}🎯 STOP-LIMIT TRIGGERED: {trade.transaction_type} {trade.underlying} "
+            f"{trade.strike}{trade.option_type} | LTP ₹{trade.current_premium:.2f} "
+            f"in range ₹{trade.entry_limit_price:.2f}–₹{trade.entry_limit_max:.2f}",
+        )
+
+        if trade.mode == "paper":
+            order_id = "PAPER"
+            entry_premium = trade.current_premium
+        else:
+            # Place real broker order
+            try:
+                result = self.dhan.place_option_order(
+                    underlying=trade.underlying,
+                    strike_price=trade.strike,
+                    option_type=trade.option_type,
+                    expiry=trade.expiry,
+                    transaction_type=trade.transaction_type,
+                    quantity=trade.quantity,
+                    order_type="MARKET",
+                    product_type="INTRADAY",
+                    tag="AF_SCALP_SL",
+                )
+                order_id = result.get("orderId", "")
+                order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
+                if order_status in ("REJECTED", "CANCELLED", "FAILED"):
+                    reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
+                    self._log("error", f"❌ Stop-limit order rejected: {reason}")
+                    # Remove the pending trade
+                    self.open_trades.pop(tid, None)
+                    return
+                if not order_id:
+                    self._log("error", f"❌ No orderId returned for stop-limit: {result}")
+                    self.open_trades.pop(tid, None)
+                    return
+            except Exception as e:
+                self._log("error", f"❌ Stop-limit order placement failed: {e}")
+                self.open_trades.pop(tid, None)
+                return
+
+            # Brief delay then get fill premium
+            await asyncio.sleep(0.5)
+            entry_premium = (
+                self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+                or trade.current_premium
+            )
+
+            # Enable throttle for live trades
+            enable_marketfeed_throttle(True)
+
+        # Activate the trade
+        trade.status = "open"
+        trade.order_id = order_id
+        trade.entry_premium = entry_premium
+        trade.entry_time = _now_ist()
+        trade.current_premium = entry_premium
+
+        # Compute pct-based targets now that we have an actual entry price
+        if not trade.target_premium and trade.target_pct > 0:
+            if trade.transaction_type == "BUY":
+                trade.target_premium = round(entry_premium * (1 + trade.target_pct / 100), 2)
+            else:
+                trade.target_premium = round(entry_premium * (1 - trade.target_pct / 100), 2)
+        if not trade.sl_premium and trade.sl_pct > 0:
+            if trade.transaction_type == "BUY":
+                trade.sl_premium = round(entry_premium * (1 - trade.sl_pct / 100), 2)
+            else:
+                trade.sl_premium = round(entry_premium * (1 + trade.sl_pct / 100), 2)
+
+        self._log(
+            "entry",
+            f"{mode_label}✅ SCALP ENTER (stop-limit): {trade.transaction_type} {trade.underlying} "
+            f"{trade.strike}{trade.option_type} @ ₹{entry_premium:.2f} | orderId={order_id} "
+            f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+        )
+
+        # Place broker-side SL/TP safety-net orders (live mode only)
+        if trade.mode == "live":
+            await self._place_broker_sl_tp(trade)
+
+    async def _place_broker_sl_tp(self, trade: ScalpTrade):
+        """Place SL and/or TP orders on the broker as a safety net (live mode only).
+        These protect the position even if the server goes down."""
+        if trade.mode != "live" or not trade.entry_premium:
+            return
+        exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
+
+        # ── SL order (Stop-Loss Limit on broker) ──
+        if trade.sl_premium > 0:
+            try:
+                if exit_txn == "SELL":
+                    sl_price = round(max(0.05, trade.sl_premium * 0.95), 2)
+                else:
+                    sl_price = round(trade.sl_premium * 1.05, 2)
+                result = await asyncio.to_thread(
+                    self.dhan.place_option_order,
+                    underlying=trade.underlying,
+                    strike_price=trade.strike,
+                    option_type=trade.option_type,
+                    expiry=trade.expiry,
+                    transaction_type=exit_txn,
+                    quantity=trade.quantity,
+                    order_type="SL",
+                    product_type="INTRADAY",
+                    price=sl_price,
+                    trigger_price=trade.sl_premium,
+                    tag="AF_SC_SL",
+                )
+                oid = result.get("orderId", "")
+                if oid:
+                    trade.broker_sl_order_id = str(oid)
+                    self._log("info", f"🛡️ Broker SL placed: {exit_txn} trigger=₹{trade.sl_premium} orderId={oid}")
+            except Exception as e:
+                self._log("error", f"Broker SL placement failed: {e}")
+
+        # ── TP order (Limit order on broker) ──
+        if trade.target_premium > 0:
+            try:
+                result = await asyncio.to_thread(
+                    self.dhan.place_option_order,
+                    underlying=trade.underlying,
+                    strike_price=trade.strike,
+                    option_type=trade.option_type,
+                    expiry=trade.expiry,
+                    transaction_type=exit_txn,
+                    quantity=trade.quantity,
+                    order_type="LIMIT",
+                    product_type="INTRADAY",
+                    price=trade.target_premium,
+                    tag="AF_SC_TP",
+                )
+                oid = result.get("orderId", "")
+                if oid:
+                    trade.broker_tp_order_id = str(oid)
+                    self._log("info", f"🎯 Broker TP placed: {exit_txn} limit=₹{trade.target_premium} orderId={oid}")
+            except Exception as e:
+                self._log("error", f"Broker TP placement failed: {e}")
+
+    async def _cancel_broker_orders(self, trade: ScalpTrade):
+        """Cancel pending broker-side SL/TP orders (called before software-triggered exit)."""
+        for label, oid_attr in [("SL", "broker_sl_order_id"), ("TP", "broker_tp_order_id")]:
+            oid = getattr(trade, oid_attr, "")
+            if oid:
+                try:
+                    await asyncio.to_thread(self.dhan.cancel_order, oid)
+                    self._log("info", f"🚫 Broker {label} cancelled: orderId={oid}")
+                except Exception as e:
+                    self._log("error", f"Broker {label} cancel failed ({oid}): {e}")
+                setattr(trade, oid_attr, "")
+
+    async def _modify_broker_sl_tp(self, trade: ScalpTrade, **kwargs):
+        """Modify broker-side SL/TP orders when user updates targets (live mode only)."""
+        if trade.mode != "live":
+            return
+        new_sl = kwargs.get("sl_premium")
+        new_tp = kwargs.get("target_premium")
+        exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
+
+        if new_sl is not None and trade.broker_sl_order_id:
+            try:
+                if exit_txn == "SELL":
+                    sl_price = round(max(0.05, new_sl * 0.95), 2)
+                else:
+                    sl_price = round(new_sl * 1.05, 2)
+                await asyncio.to_thread(
+                    self.dhan.modify_order,
+                    order_id=trade.broker_sl_order_id,
+                    price=sl_price,
+                    trigger_price=new_sl,
+                )
+                self._log("info", f"🛡️ Broker SL modified: trigger=₹{new_sl} orderId={trade.broker_sl_order_id}")
+            except Exception as e:
+                self._log("error", f"Broker SL modify failed: {e}")
+        elif new_sl is not None and new_sl > 0 and not trade.broker_sl_order_id:
+            # SL was 0 before, now user set one — place new SL order
+            trade.sl_premium = new_sl
+            await self._place_broker_sl_tp(trade)
+
+        if new_tp is not None and trade.broker_tp_order_id:
+            try:
+                await asyncio.to_thread(
+                    self.dhan.modify_order,
+                    order_id=trade.broker_tp_order_id,
+                    price=new_tp,
+                )
+                self._log("info", f"🎯 Broker TP modified: limit=₹{new_tp} orderId={trade.broker_tp_order_id}")
+            except Exception as e:
+                self._log("error", f"Broker TP modify failed: {e}")
+        elif new_tp is not None and new_tp > 0 and not trade.broker_tp_order_id:
+            trade.target_premium = new_tp
+            await self._place_broker_sl_tp(trade)
 
     async def _fetch_all_ltps(self, trades: list) -> dict:
         """Fetch LTPs for all open trades in a single batched API call.
@@ -424,7 +740,24 @@ class ScalpEngine:
                         continue
                 except Exception:
                     pass
-            # Queue for batch REST fetch
+                # WS cache returned 0 — try re-subscribing (silent recovery)
+                try:
+                    new_id = self.feed.subscribe_option(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+                    if new_id:
+                        self._ws_subs[tid] = new_id
+                except Exception:
+                    pass
+            elif self.feed and tid not in self._ws_subs:
+                # Trade has no WS subscription yet — subscribe now
+                try:
+                    ws_sec_id = self.feed.subscribe_option(
+                        trade.underlying, trade.strike, trade.expiry, trade.option_type
+                    )
+                    if ws_sec_id:
+                        self._ws_subs[tid] = ws_sec_id
+                except Exception:
+                    pass
+            # Queue for batch REST fetch (fallback)
             sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
             if sec_id:
                 if trade.underlying == "SENSEX":
@@ -484,6 +817,21 @@ class ScalpEngine:
         if trade.trade_id not in self.open_trades or trade.status == "closed":
             self._log("info", f"⚠️ Trade {trade.trade_id} already closed, skipping duplicate exit")
             return
+
+        # Cancel pending stop-limit trade — no position to exit
+        if trade.status == "pending":
+            trade.status = "closed"
+            trade.exit_time = _now_ist()
+            trade.exit_reason = "cancelled"
+            self.open_trades.pop(trade.trade_id, None)
+            self._ws_subs.pop(trade.trade_id, None)
+            self._log("info", f"🚫 STOP-LIMIT CANCELLED: {trade.underlying} {trade.strike}{trade.option_type}")
+            return
+
+        # Cancel broker-side SL/TP orders before placing exit
+        if trade.broker_sl_order_id or trade.broker_tp_order_id:
+            await self._cancel_broker_orders(trade)
+
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
         exit_order_id = ""
         if trade.mode == "paper":
@@ -531,6 +879,7 @@ class ScalpEngine:
         trade_dict = trade.to_dict()
         self.closed_trades.append(trade_dict)
         self.open_trades.pop(trade.trade_id, None)
+        self._ws_subs.pop(trade.trade_id, None)
 
         # Persist via callback (auto-exits + manual exits all go through here)
         if self.on_trade_close:

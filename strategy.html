@@ -126,17 +126,17 @@
 
   /* ── Stat Box ── */
   .stat-box {
-    background: linear-gradient(155deg, rgba(22,32,52,0.92) 0%, rgba(15,22,38,0.86) 100%);
-    border: 1px solid var(--border);
-    border-top: 1px solid var(--border-hi);
+    background: linear-gradient(155deg, rgba(18,26,42,0.65) 0%, rgba(12,18,32,0.55) 100%);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-top: 1px solid rgba(255,255,255,0.10);
     border-radius: 12px;
     padding: 14px 18px;
-    backdrop-filter: blur(28px) saturate(1.3);
-    -webkit-backdrop-filter: blur(28px) saturate(1.3);
+    backdrop-filter: blur(32px) saturate(1.2);
+    -webkit-backdrop-filter: blur(32px) saturate(1.2);
     box-shadow:
-      0 0 0 0.5px rgba(255,255,255,0.07),
-      0 4px 20px rgba(0,0,0,0.38),
-      inset 0 1px 0 rgba(255,255,255,0.09);
+      0 0 0 0.5px rgba(255,255,255,0.04),
+      0 2px 12px rgba(0,0,0,0.18),
+      inset 0 1px 0 rgba(255,255,255,0.06);
     transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
     position: relative;
     overflow: hidden;
@@ -145,14 +145,14 @@
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent 5%, rgba(255,255,255,0.10) 25%, var(--border-acc) 50%, rgba(255,255,255,0.10) 75%, transparent 95%);
+    background: linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.06) 30%, rgba(0,200,150,0.12) 50%, rgba(255,255,255,0.06) 70%, transparent 90%);
     pointer-events: none;
   }
   .stat-box::after { display: none; }
   .stat-box:hover {
     transform: translateY(-1px);
-    border-color: var(--border-acc);
-    box-shadow: 0 0 0 0.5px rgba(255,255,255,0.10), 0 8px 32px rgba(0,0,0,0.44), inset 0 1px 0 rgba(255,255,255,0.12);
+    border-color: rgba(0,200,150,0.15);
+    box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 4px 20px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08);
   }
   .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 6px; font-weight: 600; }
   .stat-value { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; line-height: 1.1; position: relative; z-index: 1; }
@@ -3067,7 +3067,10 @@
   <div class="card" style="padding: 20px; margin-bottom: 16px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
       <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
-      <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
+        <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
+      </div>
     </div>
     <div style="overflow-x: auto;">
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -3167,6 +3170,22 @@
             <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
         </div>
+      </div>
+
+      <!-- Stop-Limit Entry (optional) -->
+      <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 10px; font-weight: 700; color: rgba(139,143,255,0.9); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">⏳ Stop-Limit Entry (optional — leave 0 for market order)</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Trigger Price ₹</label>
+            <input type="number" id="scalp-limit-price" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Max Price ₹</label>
+            <input type="number" id="scalp-limit-max" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+          </div>
+        </div>
+        <div style="font-size: 9px; color: var(--muted); margin-top: 6px; line-height: 1.4;">Enter when premium reaches ₹Trigger–₹Max range. E.g. market at 256, set 262–263 to buy on breakout.</div>
       </div>
 
       <!-- Mode + BUY/SELL -->
@@ -3826,6 +3845,11 @@ async function moveRunToFolder(id) {
   } catch(e) { toast('Move failed: ' + e.message, 'danger'); }
 }
 
+function _truncName(name, max) {
+  if (!name) return 'Unnamed';
+  return name.length > max ? name.substring(0, max) + '...' : name;
+}
+
 function _buildRunsTable(runs, opts = {}) {
   if (!runs.length) return '';
   const showCheck = opts.checkboxes !== false;
@@ -3851,7 +3875,7 @@ function _buildRunsTable(runs, opts = {}) {
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
       ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
-      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
+      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${(r.run_name||'Unnamed').replace(/"/g,'&quot;')}">${_truncName(r.run_name, 18)}</td>
       <td style="padding: 10px;">${instName || '-'}</td>
       <td style="padding: 10px; font-size: 12px;">${r.from_date || ''} → ${r.to_date || ''}</td>
       <td style="padding: 10px; font-weight: 600;">${r.trade_count || 0}</td>
@@ -3920,8 +3944,65 @@ function _updateBulkBar() {
     const n = _selectedRunIds.size;
     if (!n) { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
-    bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span><button class="bulk-del-btn" onclick="bulkDeleteRuns()">' + ICO.trash(14) + ' Delete Selected</button><button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
+    bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span>'
+      + '<button class="btn btn-danger btn-sm" onclick="bulkDeleteRuns()" style="font-size:11px;padding:5px 12px;">' + ICO.trash(13) + ' Delete</button>'
+      + '<button class="btn btn-sm" onclick="bulkMoveToFolder()" style="font-size:11px;padding:5px 12px;--btn-bg:rgba(245,158,11,0.15);--btn-color:#fbbf24;--btn-border:rgba(245,158,11,0.3);">📁 Move to Folder</button>'
+      + '<button class="btn btn-sm" onclick="bulkRename()" style="font-size:11px;padding:5px 12px;--btn-bg:rgba(99,102,241,0.15);--btn-color:#a594f9;--btn-border:rgba(99,102,241,0.3);">✏️ Rename</button>'
+      + '<button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
   });
+}
+
+async function bulkMoveToFolder() {
+  const ids = Array.from(_selectedRunIds);
+  if (!ids.length) return;
+  let folders = ['Scalping', 'Intraday', 'Swing', 'Positional', 'Experimental', 'Hedging'];
+  try { const res = await fetch('/api/strategies'); const strats = await res.json(); const extra = [...new Set(strats.map(s => s.folder).filter(Boolean))]; folders = [...new Set([...folders, ...extra])]; } catch(e) {}
+  let optionsHtml = '<option value="">— No Folder —</option>' + folders.map(f => `<option value="${f}">${f}</option>`).join('') + '<option value="__custom__">+ Custom Folder</option>';
+  const html = `<div style="font-size:13px;">
+    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Move <strong>${ids.length}</strong> run(s) to folder:</label>
+    <select id="bulk-move-sel" onchange="if(this.value==='__custom__'){document.getElementById('bulk-move-custom').style.display='block'}else{document.getElementById('bulk-move-custom').style.display='none'}" style="width:100%;padding:8px;font-size:13px;margin-bottom:8px;">${optionsHtml}</select>
+    <input type="text" id="bulk-move-custom" placeholder="Custom folder name" style="display:none;width:100%;padding:8px;font-size:13px;">
+  </div>`;
+  const ok = await customConfirm(html, { title: 'Bulk Move to Folder', okText: 'Move All', danger: false });
+  if (!ok) return;
+  let folder = document.getElementById('bulk-move-sel')?.value || '';
+  if (folder === '__custom__') folder = document.getElementById('bulk-move-custom')?.value?.trim() || '';
+  let moved = 0;
+  for (const id of ids) {
+    try { await fetch('/api/runs/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({folder}) }); const r = _allRunsCache.find(x => x.id === id); if (r) r.folder = folder; moved++; } catch(e) {}
+  }
+  toast(moved + ' run(s) moved to ' + (folder || 'No Folder'), 'success');
+  _selectedRunIds.clear();
+  _renderFilteredRuns(); _renderDashRuns();
+}
+
+async function bulkRename() {
+  const ids = Array.from(_selectedRunIds);
+  if (!ids.length) return;
+  if (ids.length === 1) { _showRenameInline(ids[0]); return; }
+  const html = `<div style="font-size:13px;">
+    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Add prefix/suffix to <strong>${ids.length}</strong> run name(s):</label>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <input type="text" id="bulk-rename-prefix" placeholder="Prefix (optional)" style="flex:1;padding:8px;font-size:13px;">
+      <input type="text" id="bulk-rename-suffix" placeholder="Suffix (optional)" style="flex:1;padding:8px;font-size:13px;">
+    </div>
+    <span style="font-size:11px;color:var(--muted);">Example: prefix "V2_" + suffix "_final" → "V2_StrategyName_final"</span>
+  </div>`;
+  const ok = await customConfirm(html, { title: 'Bulk Rename', okText: 'Apply', danger: false });
+  if (!ok) return;
+  const prefix = document.getElementById('bulk-rename-prefix')?.value || '';
+  const suffix = document.getElementById('bulk-rename-suffix')?.value || '';
+  if (!prefix && !suffix) { toast('Enter a prefix or suffix', 'warn'); return; }
+  let renamed = 0;
+  for (const id of ids) {
+    const r = _allRunsCache.find(x => x.id === id);
+    if (!r) continue;
+    const newName = prefix + (r.run_name || 'Unnamed') + suffix;
+    try { await fetch('/api/runs/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({run_name: newName}) }); r.run_name = newName; renamed++; } catch(e) {}
+  }
+  toast(renamed + ' run(s) renamed', 'success');
+  _selectedRunIds.clear();
+  _renderFilteredRuns(); _renderDashRuns();
 }
 async function bulkDeleteRuns() {
   const ids = Array.from(_selectedRunIds);
@@ -4139,7 +4220,7 @@ function _renderPortfolioPaperRuns(runs) {
     html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 8px 6px;"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}></td>
       <td style="padding: 8px 6px; color: var(--muted); font-size: 11px;">#${r.id}</td>
-      <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer;" onclick="viewRun(${r.id})">${r.run_name || 'Unnamed'}</td>
+      <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 160px;" onclick="viewRun(${r.id})" title="${(r.run_name||'Unnamed').replace(/"/g,'&quot;')}">${_truncName(r.run_name, 18)}</td>
       <td style="padding: 8px 6px;">${instName || '-'}</td>
       <td style="padding: 8px 6px; font-weight: 600;">${r.trade_count || 0}</td>
       <td style="padding: 8px 6px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
@@ -4538,6 +4619,8 @@ async function submitScalpEntry(direction) {
       sl_premium: parseFloat(document.getElementById('scalp-sl-prem').value) || 0,
       sqoff_time: document.getElementById('scalp-sqoff').value || '15:20',
       mode: document.getElementById('scalp-mode').value,
+      entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
+      entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
     };
     if (!payload.strike || payload.strike <= 0) {
       statusEl.textContent = 'Strike price required';
@@ -4569,8 +4652,13 @@ async function submitScalpEntry(direction) {
     });
     const data = await res.json();
     if (data.status === 'ok') {
-      statusEl.textContent = `✅ Trade #${data.trade_id} entered @ ₹${(data.trade?.entry_premium || 0).toFixed(2)}`;
-      statusEl.style.color = 'var(--success)';
+      if (data.trade?.status === 'pending') {
+        statusEl.textContent = `⏳ Stop-limit #${data.trade_id} pending — trigger ₹${data.trade.entry_limit_price.toFixed(2)}–₹${data.trade.entry_limit_max.toFixed(2)}`;
+        statusEl.style.color = 'rgba(139,143,255,0.9)';
+      } else {
+        statusEl.textContent = `✅ Trade #${data.trade_id} entered @ ₹${(data.trade?.entry_premium || 0).toFixed(2)}`;
+        statusEl.style.color = 'var(--success)';
+      }
       // Immediately inject the new trade into Active Positions so it's
       // visible without waiting for the next 3-second poll cycle.
       if (data.trade && _lastScalpStatus) {
@@ -4607,6 +4695,23 @@ async function exitScalpTrade(tradeId) {
       toast(data.message || 'Exit failed', 'error');
     }
   } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function killAllScalpTrades() {
+  if (!confirm('⚠ KILL ALL — This will immediately exit ALL open scalp trades. Continue?')) return;
+  const btn = document.getElementById('scalp-kill-all-btn');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    const res = await fetch('/api/scalp/kill-all', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      toast(`🔴 Killed ${data.closed} trade(s)`, data.closed > 0 ? 'warning' : 'info');
+      refreshScalpStatus();
+    } else {
+      toast(data.message || 'Kill all failed', 'error');
+    }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.style.opacity = ''; } }
 }
 
 async function modifyScalpTrade(tradeId) {
@@ -4824,12 +4929,29 @@ async function refreshScalpStatus() {
 
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
 function _buildScalpActiveRow(t) {
+  const isPending = t.status === 'pending';
   const pnl = t.pnl || 0;
   const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
   const tgtVal = t.target_premium || 0;
   const slVal = t.sl_premium || 0;
-  return `<tr data-tid="${t.trade_id}" style="border-bottom:1px solid rgba(255,255,255,0.03);">
-    <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span></td>
+  if (isPending) {
+    // Pending stop-limit trade — show trigger range instead of entry/P&L
+    return `<tr data-tid="${t.trade_id}" data-status="pending" style="border-bottom:1px solid rgba(255,255,255,0.03);background:rgba(99,102,241,0.06);">
+      <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span><br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
+      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(139,143,255,0.9);"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_limit_price||0).toFixed(2)}–₹${(t.entry_limit_max||0).toFixed(2)}</span></td>
+      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
+      <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);">—</td>
+      <td style="padding:6px 4px;text-align:center;font-size:10px;color:var(--muted);">—</td>
+      <td style="padding:6px 4px;text-align:center;font-size:10px;color:var(--muted);">—</td>
+      <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
+        <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
+      </td>
+    </tr>`;
+  }
+  const hasBrokerOrders = t.broker_sl_order_id || t.broker_tp_order_id;
+  const brokerBadge = hasBrokerOrders ? ' <span title="SL/TP placed on broker" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">🛡️</span>' : '';
+  return `<tr data-tid="${t.trade_id}" data-status="open" style="border-bottom:1px solid rgba(255,255,255,0.03);">
+    <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span>${brokerBadge}</td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
@@ -4870,7 +4992,11 @@ function _renderScalpStatus(data) {
   const tbody = document.getElementById('scalp-active-body');
   if (tbody) {
     const open = data.open_trades || [];
-    document.getElementById('scalp-open-count').textContent = open.length + ' open';
+    const pendingCount = open.filter(t => t.status === 'pending').length;
+    const activeCount = open.length - pendingCount;
+    document.getElementById('scalp-open-count').textContent = activeCount + ' open' + (pendingCount ? ` · ${pendingCount} pending` : '');
+    const killBtn = document.getElementById('scalp-kill-all-btn');
+    if (killBtn) killBtn.style.display = open.length > 0 ? '' : 'none';
 
     // Build set of current trade IDs from server
     const serverTids = new Set(open.map(t => t.trade_id));
@@ -4879,8 +5005,15 @@ function _renderScalpStatus(data) {
     tbody.querySelectorAll('tr[data-tid]').forEach(tr => domTids.add(parseInt(tr.dataset.tid)));
 
     // Decide: full rebuild or granular update?
-    // Full rebuild if: empty, trade added, trade removed
-    const sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+    // Full rebuild if: empty, trade added, trade removed, or status changed (pending→open)
+    let sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+    if (sameSet) {
+      // Also check if any trade status changed (e.g. pending→open needs full rebuild)
+      for (const t of open) {
+        const row = tbody.querySelector(`tr[data-tid="${t.trade_id}"]`);
+        if (row && row.dataset.status !== t.status) { sameSet = false; break; }
+      }
+    }
 
     if (!open.length) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
@@ -6895,7 +7028,7 @@ function renderEquityChart(equityData) {
   ctx.beginPath(); ctx.moveTo(padding.left, startY); ctx.lineTo(w - padding.right, startY); ctx.stroke();
   ctx.setLineDash([]);
 
-  // Equity line with glow — smooth Bezier curve
+  // Equity line with glow — Catmull-Rom spline for true smooth curves
   const points = values.map((v, i) => ({
     x: padding.left + (i / (values.length - 1)) * plotW,
     y: padding.top + ((maxVal - v) / range) * plotH
@@ -6903,16 +7036,23 @@ function renderEquityChart(equityData) {
 
   ctx.beginPath();
   ctx.strokeStyle = 'rgba(0,200,150,1)';
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 2;
   ctx.shadowColor = 'rgba(0,200,150,0.35)';
   ctx.shadowBlur = 10;
   ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const cpx = (prev.x + curr.x) / 2;
-    ctx.quadraticCurveTo(prev.x + (cpx - prev.x) * 0.8, prev.y, cpx, (prev.y + curr.y) / 2);
-    ctx.quadraticCurveTo(curr.x - (curr.x - cpx) * 0.8, curr.y, curr.x, curr.y);
+
+  // Catmull-Rom → cubic Bezier conversion (tension 0.3 = smooth without overshoot)
+  const tension = 0.3;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
   }
   ctx.stroke();
   ctx.shadowBlur = 0;
