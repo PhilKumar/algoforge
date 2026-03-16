@@ -472,7 +472,23 @@ class LiveMarketFeed:
                         )
                         feed.on_ticks = _on_msg
                         _parent._feed = feed
+                        # DhanFeed v2.0.x: run_forever() only connects + subscribes,
+                        # it does NOT have an internal receive loop.
+                        # We must poll get_data() ourselves.
                         feed.run_forever()
+                        print("[FEED] ✅ WebSocket connected, starting receive loop")
+                        while _parent._running:
+                            try:
+                                data = feed.get_data()
+                                if data and _on_msg:
+                                    _on_msg(data)
+                            except Exception as recv_err:
+                                err_str = str(recv_err)
+                                if "closed" in err_str.lower() or "connection" in err_str.lower():
+                                    print(f"[FEED] ❌ WebSocket closed: {recv_err}")
+                                    break
+                                # Transient error — continue
+                                print(f"[FEED] ⚠ recv error: {recv_err}")
                     except Exception as e:
                         print(f"[FEED] ❌ run_forever crashed: {e}")
                     finally:
@@ -557,7 +573,32 @@ class LiveMarketFeed:
         if now.hour < 9 or (now.hour >= 15 and now.minute >= 35):
             with self._reconnect_lock:
                 self._reconnecting = False
-            print(f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — skipping reconnect")
+            # Schedule wake-up at next market open (09:00 IST)
+            if now.hour >= 15:
+                # After market close — wake up tomorrow at 09:00
+                tomorrow = now + timedelta(days=1)
+                wake_at = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+            else:
+                # Before market open today
+                wake_at = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            delay_secs = (wake_at - now).total_seconds()
+            if delay_secs > 0:
+                print(
+                    f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — will reconnect at 09:00 IST (in {delay_secs/3600:.1f}h)"
+                )
+
+                def _wake_up():
+                    import time as _time
+
+                    _time.sleep(delay_secs)
+                    if self._running:
+                        print("[FEED] ⏰ Market hours wake-up — reconnecting")
+                        self._schedule_reconnect()
+
+                t = threading.Thread(target=_wake_up, daemon=True)
+                t.start()
+            else:
+                print(f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — skipping reconnect")
             return
 
         with self._reconnect_lock:
@@ -597,14 +638,27 @@ class LiveMarketFeed:
                     feed.on_ticks = self._on_message_v1
                     self._feed = feed
                     self._reconnecting = False
+                    # DhanFeed v2.0.x: run_forever() only connects + subscribes
+                    feed.run_forever()
                     print(f"[FEED] ✅ Reconnected successfully (attempt #{self._reconnect_count})")
                     self._reconnect_count = 0
-                    feed.run_forever()
+                    # Poll get_data() for messages
+                    while self._running:
+                        try:
+                            data = feed.get_data()
+                            if data and self._on_message_v1:
+                                self._on_message_v1(data)
+                        except Exception as recv_err:
+                            err_str = str(recv_err)
+                            if "closed" in err_str.lower() or "connection" in err_str.lower():
+                                print(f"[FEED] ❌ WebSocket closed: {recv_err}")
+                                break
+                            print(f"[FEED] ⚠ recv error: {recv_err}")
                 except Exception as e:
-                    print(f"[FEED] ❌ Reconnect run_forever crashed: {e}")
+                    print(f"[FEED] ❌ Reconnect crashed: {e}")
                 finally:
                     loop.close()
-                # run_forever exited
+                # receive loop exited
                 if self._running:
                     print(f"[FEED] ⚠ run_forever exited at {_now_ist().strftime('%H:%M:%S')}")
                     self._reconnecting = False
