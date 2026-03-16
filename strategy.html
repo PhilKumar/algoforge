@@ -9466,6 +9466,7 @@ fetchRuns = async function() {
       el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">No charts found.<br>Add images to <code style="color:var(--accent);font-size:11px;">Daily Charts/</code></div>';
       return;
     }
+    const esc = s => s.replace(/'/g, "\\'");
     let h = '';
     years.forEach((year, yi) => {
       const months = _chTree[year];
@@ -9476,7 +9477,6 @@ fetchRuns = async function() {
       h += '<div class="chtree-children' + yo + '">';
       months.forEach((mo, mi) => {
         const moo = yi === 0 && mi === 0 ? ' open' : '';
-        const esc = s => s.replace(/'/g, "\\'");
         h += '<div>';
         h += '<button class="chtree-toggle' + moo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="mo-label">' + mo.label + '</span><span class="cnt">' + mo.days.length + '</span></button>';
         h += '<div class="chtree-children' + moo + '">';
