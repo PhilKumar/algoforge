@@ -535,8 +535,22 @@ def _parse_day_folder(name: str):
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
         if num:
             return f"{int(m.group(3)):04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
-    # Fallback (ranges like Feb-12-15, Feb-4-5-6)
-    return name, name
+    # DD-Mon (no year, e.g. 13-Feb)
+    m = _re.match(r"^(\d{1,2})-([A-Za-z]+)$", name)
+    if m:
+        dd = int(m.group(1))
+        num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
+        if num:
+            return f"9999-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
+    # Mon-DD-DD or Mon-DD-DD-DD (ranges like Feb-12-15, Feb-4-5-6)
+    m = _re.match(r"^([A-Za-z]+)-(\d{1,2})", name)
+    if m:
+        num = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3])
+        dd = int(m.group(2))
+        if num:
+            return f"9999-{num:02d}-{dd:02d}", name
+    # Fallback — sort after all dated entries
+    return f"9999-99-{name}", name
 
 
 def _safe_charts_subpath(*parts: str) -> str | None:
