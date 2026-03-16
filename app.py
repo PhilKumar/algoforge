@@ -49,7 +49,7 @@ os.chdir(_HERE)
 
 import fcntl
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -690,7 +690,12 @@ _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 @app.post("/api/upload-chart")
-async def upload_chart(file: UploadFile):
+async def upload_chart(
+    file: UploadFile,
+    target_year: str | None = Form(None),
+    target_month: str | None = Form(None),
+    target_day: str | None = Form(None),
+):
     """Receive a pasted screenshot, save to Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/."""
     from urllib.parse import quote
 
@@ -709,20 +714,31 @@ async def upload_chart(file: UploadFile):
     ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
     ext = ext_map.get(file.content_type, ".png")
 
-    # Build date-based folder: Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/
-    from datetime import timezone as _tz
+    # Use target folder if provided, otherwise default to today's date
+    if target_year and target_month and target_day:
+        year_str = target_year
+        month_folder = target_month
+        day_folder = target_day
+    else:
+        from datetime import timezone as _tz
 
-    now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
-    year_str = str(now_ist.year)
-    month_abbr = _cal.month_abbr[now_ist.month]
-    month_folder = f"{month_abbr}-{year_str}"
-    day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
+        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
+        year_str = str(now_ist.year)
+        month_abbr = _cal.month_abbr[now_ist.month]
+        month_folder = f"{month_abbr}-{year_str}"
+        day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
 
-    day_path = os.path.join(CHARTS_DIR, year_str, month_folder, day_folder)
+    day_path = _safe_charts_subpath(year_str, month_folder, day_folder)
+    if day_path is None:
+        raise HTTPException(status_code=400, detail="Invalid target path")
     os.makedirs(day_path, exist_ok=True)
     print(f"[CHARTS] Upload target dir: {day_path}")
 
     # Generate filename: Nifty_DD-MM-YYYY[_N].ext
+    if target_year and target_month and target_day:
+        from datetime import timezone as _tz
+
+        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
     date_tag = now_ist.strftime("%d-%m-%Y")
     filename = f"Nifty_{date_tag}{ext}"
     file_path = os.path.join(day_path, filename)
@@ -736,6 +752,10 @@ async def upload_chart(file: UploadFile):
 
     with open(file_path, "wb") as f:
         f.write(data)
+    # Remove .keep placeholder if present (created by create-folder)
+    keep_file = os.path.join(day_path, ".keep")
+    if os.path.isfile(keep_file):
+        os.remove(keep_file)
     print(f"[CHARTS] Saved upload: {file_path} ({len(data)} bytes)")
 
     url = f"/charts-static/{quote(year_str)}/{quote(month_folder)}/{quote(day_folder)}/{quote(filename)}"

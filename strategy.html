@@ -9993,6 +9993,12 @@ fetchRuns = async function() {
       try {
         const fd = new FormData();
         fd.append('file', imageFile, 'screenshot.png');
+        // If a day folder is selected, upload to that folder instead of today
+        if (_cjCurrentDayMeta) {
+          fd.append('target_year', _cjCurrentDayMeta.year);
+          fd.append('target_month', _cjCurrentDayMeta.monthFolder);
+          fd.append('target_day', _cjCurrentDayMeta.dayFolder);
+        }
         const r = await fetch('/api/upload-chart', {
           method: 'POST',
           credentials: 'same-origin',
