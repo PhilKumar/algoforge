@@ -2164,7 +2164,8 @@ async def live_start(req: LiveStartRequest):
     engine.running = True
     engine.event_log = []
     engine.positions = []
-    engine.closed_trades = []
+    # Preserve historical closed trades so "Completed Trades" panel shows past results
+    engine.closed_trades = engine._load_trade_history() if hasattr(engine, "_load_trade_history") else []
     engine.in_trade = False
     engine.trades_today = 0
 
@@ -2431,7 +2432,8 @@ async def _paper_start_impl(payload: StrategyPayload):
     engine.running = True
     engine.event_log = []
     engine.positions = []
-    engine.closed_trades = []
+    # Preserve historical closed trades so "Completed Trades" panel shows past results
+    engine.closed_trades = engine._load_trade_history() if hasattr(engine, "_load_trade_history") else []
     engine.in_trade = False
     engine.trades_today = 0
 
