@@ -5599,6 +5599,8 @@ function showDetailsModal(data, title) {
       <div><span style="color: var(--muted); font-size: 11px;">Strategy SL</span><div style="font-weight: 600;">${data.sl_type === 'rupees' ? '₹' + (data.stoploss_rupees || 0) : (data.stoploss_pct || 0) + '%'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Target Profit</span><div style="font-weight: 600;">${data.tp_type === 'rupees' ? '₹' + (data.target_profit_rupees || 0) : (data.target_profit_pct || 0) + '%'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${data.market_open || '09:15'} — ${data.market_close || '15:25'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Max Trades/Day</span><div style="font-weight: 600;">${data.max_trades_per_day || '—'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Order Type</span><div style="font-weight: 600;">${(data.deploy_config || {}).product_type || data.product_type || 'MIS'}</div></div>
     </div>`;
 
   // Indicators
@@ -8022,27 +8024,35 @@ function renderLivePanel(d, idx) {
 
   ${conditionsHtml}
 
-  <!-- 5 stat cards -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;padding:20px 28px 8px;">
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Completed P&L</div>
-      <div style="font-size:22px;font-weight:700;color:${pnlColor};font-family:'JetBrains Mono';">₹${closedPnl.toFixed(2)}</div>
+  <!-- 7 stat cards -->
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px;padding:20px 28px 8px;">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Completed P&L</div>
+      <div style="font-size:20px;font-weight:700;color:${pnlColor};font-family:'JetBrains Mono';">₹${closedPnl.toFixed(2)}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Run Type</div>
-      <div style="font-size:18px;font-weight:700;color:${modeColor};">${modeLabel}</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Run Type</div>
+      <div style="font-size:16px;font-weight:700;color:${modeColor};">${modeLabel}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Lots</div>
-      <div style="font-size:22px;font-weight:700;color:var(--purple);font-family:'JetBrains Mono';">${legs.length ? legs.map(l => l.lots || 1).join(' + ') : '—'}</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Lots</div>
+      <div style="font-size:20px;font-weight:700;color:var(--purple);font-family:'JetBrains Mono';">${legs.length ? legs.map(l => l.lots || 1).join(' + ') : '—'}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Trades Today</div>
-      <div style="font-size:22px;font-weight:700;color:var(--accent2);">${d.trades_today || 0}</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Trades Today</div>
+      <div style="font-size:20px;font-weight:700;color:var(--accent2);font-family:'JetBrains Mono';">${d.trades_today || 0} / ${strat.max_trades_per_day || '—'}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Status</div>
-      <div style="font-size:18px;font-weight:700;color:${statusColor};">${statusText}</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Max Trades/Day</div>
+      <div style="font-size:20px;font-weight:700;color:var(--warn);font-family:'JetBrains Mono';">${strat.max_trades_per_day || '—'}</div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Order Type</div>
+      <div style="font-size:16px;font-weight:700;color:${(strat.deploy_config || {}).product_type === 'NORMAL' ? 'var(--accent2)' : 'var(--purple)'};">${(strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS'}</div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Status</div>
+      <div style="font-size:16px;font-weight:700;color:${statusColor};">${statusText}</div>
     </div>
   </div>
 

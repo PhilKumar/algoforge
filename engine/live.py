@@ -1755,7 +1755,9 @@ class LiveEngine:
                 **self.strategy,
                 "entry_conditions": self.entry_conditions,
                 "exit_conditions": self.exit_conditions,
+                "deploy_config": self.deploy_config,
             },
+            "deploy_config": self.deploy_config,
             "current_candle": self.current_candle,
             "current_indicators": self.current_indicators,
             "event_log": [
