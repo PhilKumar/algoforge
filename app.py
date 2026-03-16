@@ -623,7 +623,18 @@ async def charts_tree():
                 )
             if not days_list:
                 continue
-            days_list.sort(key=lambda d: d["sort"])
+            # Check for custom sort order
+            _sort_file = os.path.join(month_path, "_sort_order.json")
+            if os.path.isfile(_sort_file):
+                try:
+                    with open(_sort_file, "r") as _sf:
+                        _custom_order = json.load(_sf)  # list of folder names
+                    _order_map = {name: i for i, name in enumerate(_custom_order)}
+                    days_list.sort(key=lambda d: _order_map.get(d["folder"], 9999))
+                except Exception:
+                    days_list.sort(key=lambda d: d["sort"])
+            else:
+                days_list.sort(key=lambda d: d["sort"])
             months_list.append(
                 {
                     "folder": mfolder,
@@ -846,6 +857,25 @@ async def create_chart_folder(request: Request):
         f.write("")
     print(f"[CHARTS] Created folder: {year}/{month}/{safe_name}")
     return {"status": "ok", "folder": safe_name}
+
+
+@app.post("/api/charts/reorder")
+async def reorder_chart_folders(request: Request):
+    """Save custom sort order for day folders within a month."""
+    body = await request.json()
+    year = body.get("year", "")
+    month = body.get("month", "")
+    order = body.get("order", [])  # list of folder names in desired order
+    if not all([year, month]) or not isinstance(order, list):
+        raise HTTPException(status_code=400, detail="year, month, order[] required")
+    month_path = _safe_charts_subpath(year, month)
+    if month_path is None or not os.path.isdir(month_path):
+        raise HTTPException(status_code=404, detail="Month folder not found")
+    sort_file = os.path.join(month_path, "_sort_order.json")
+    with open(sort_file, "w") as f:
+        json.dump(order, f)
+    print(f"[CHARTS] Saved custom order for {year}/{month}: {len(order)} folders")
+    return {"status": "ok"}
 
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
