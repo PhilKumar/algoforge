@@ -7893,11 +7893,12 @@ function renderLivePanel(d, idx) {
   const positions = d.positions || [];
   let posHtml;
   if (!positions.length) {
-    posHtml = '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--muted);font-size:12px;">No open positions</td></tr>';
+    posHtml = '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);font-size:12px;">No open positions</td></tr>';
   } else {
-    posHtml = positions.map(p => {
+    posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${p.symbol||p.trading_symbol||'—'}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${p.transaction_type}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td></tr>`;
+      const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${p.symbol||p.trading_symbol||'—'}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${p.transaction_type}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${exitApi}','${runId.replace(/'/g,"\\'")}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:#f87171;border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
     }).join('');
   }
 
@@ -8073,7 +8074,7 @@ function renderLivePanel(d, idx) {
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Open Positions</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead><tr style="background:var(--card2);"><th style="padding:7px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Current</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Unr. P&L</th></tr></thead>
+          <thead><tr style="background:var(--card2);"><th style="padding:7px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Current</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Unr. P&L</th><th style="padding:7px 8px;text-align:center;color:var(--muted);font-size:11px;">Action</th></tr></thead>
           <tbody>${posHtml}</tbody>
         </table>
       </div>
@@ -8111,6 +8112,25 @@ function _goLiveClosedPage(runId, page) {
   const tp = Math.max(1, Math.ceil(closed.length / _LIVE_TRADES_PER_PAGE));
   _liveClosedPages[runId] = Math.max(1, Math.min(page, tp));
   renderLivePanel(eng, _selectedLiveTab);
+}
+
+async function _forceExitPosition(apiPath, runId, posIndex) {
+  if (!confirm('Are you sure you want to exit this position?')) return;
+  try {
+    const res = await fetch(apiPath, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, position_index: posIndex })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      showToast(data.message || 'Position exited', 'success');
+    } else {
+      showToast(data.message || 'Exit failed', 'error');
+    }
+  } catch (e) {
+    showToast('Exit request failed: ' + e.message, 'error');
+  }
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }

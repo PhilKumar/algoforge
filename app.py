@@ -2520,6 +2520,59 @@ async def paper_stop(request: Request):
     return {"status": "stopped", "run_id": run_id}
 
 
+@app.post("/api/paper/exit-position")
+async def paper_exit_position(request: Request):
+    """Force-exit an open position in a running paper engine."""
+    body = await request.json()
+    run_id = body.get("run_id", "")
+    pos_index = body.get("position_index", 0)
+
+    engine = paper_engines.get(run_id)
+    if not engine:
+        # Try first running engine
+        for rid, eng in paper_engines.items():
+            if eng.running:
+                engine = eng
+                run_id = rid
+                break
+    if not engine or not engine.running:
+        return {"status": "error", "message": "No running paper engine found"}
+
+    if pos_index >= len(engine.positions):
+        return {"status": "error", "message": f"Position index {pos_index} out of range"}
+
+    pos = engine.positions[pos_index]
+    current_premium = pos.get("current_premium", pos.get("entry_premium", 0))
+    engine._close_position(pos, "MANUAL_EXIT", current_premium)
+    return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exited manually"}
+
+
+@app.post("/api/live/exit-position")
+async def live_exit_position(request: Request):
+    """Force-exit an open position in a running live engine."""
+    body = await request.json()
+    run_id = body.get("run_id", "")
+    pos_index = body.get("position_index", 0)
+
+    engine = live_engines.get(run_id)
+    if not engine:
+        for rid, eng in live_engines.items():
+            if eng.running:
+                engine = eng
+                run_id = rid
+                break
+    if not engine or not engine.running:
+        return {"status": "error", "message": "No running live engine found"}
+
+    if pos_index >= len(engine.positions):
+        return {"status": "error", "message": f"Position index {pos_index} out of range"}
+
+    pos = engine.positions[pos_index]
+    current_premium = pos.get("current_premium", pos.get("entry_premium", 0))
+    await engine._exit_position(pos, "MANUAL_EXIT", current_premium)
+    return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
+
+
 def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") -> None:
     """Save a single closed trade (paper/live) to runs.json in real-time for All Results."""
     try:
