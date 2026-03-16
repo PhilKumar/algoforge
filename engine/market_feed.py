@@ -584,7 +584,7 @@ class LiveMarketFeed:
             delay_secs = (wake_at - now).total_seconds()
             if delay_secs > 0:
                 print(
-                    f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — will reconnect at 09:00 IST (in {delay_secs/3600:.1f}h)"
+                    f"[FEED] ⏸ Outside market hours ({now.strftime('%H:%M')}) — will reconnect at 09:00 IST (in {delay_secs / 3600:.1f}h)"
                 )
 
                 def _wake_up():

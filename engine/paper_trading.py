@@ -62,12 +62,14 @@ class PaperTradingEngine:
         self.session_date = None
         self.run_id = run_id  # Unique ID for multi-engine support
 
-        # Per-instance state file
+        # Per-instance state file + persistent trade history
         if run_id:
             safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
             self._state_file = os.path.join(_STATE_DIR, f"paper_state_{safe_id}.json")
+            self._history_file = os.path.join(_STATE_DIR, f"paper_history_{safe_id}.json")
         else:
             self._state_file = _DEFAULT_STATE_FILE
+            self._history_file = os.path.join(_STATE_DIR, "paper_history.json")
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None  # LiveMarketFeed instance
@@ -159,19 +161,65 @@ class PaperTradingEngine:
         except Exception as e:
             print(f"[PAPER] State save failed: {e}")
 
+    def _load_trade_history(self) -> list:
+        """Load cumulative trade history from persistent file."""
+        try:
+            if os.path.exists(self._history_file):
+                with open(self._history_file, "r") as f:
+                    return _json.load(f)
+        except Exception as e:
+            print(f"[PAPER] Trade history load failed: {e}")
+        return []
+
+    def _save_trade_history(self, trades: list):
+        """Append trades to persistent history file (deduplicates by entry_time+strike)."""
+        try:
+            existing = self._load_trade_history()
+            # Build a set of existing trade keys for dedup
+            seen = set()
+            for t in existing:
+                key = (str(t.get("entry_time", "")), str(t.get("strike", "")), str(t.get("option_type", "")))
+                seen.add(key)
+            # Append only new trades
+            added = 0
+            for t in trades:
+                key = (str(t.get("entry_time", "")), str(t.get("strike", "")), str(t.get("option_type", "")))
+                if key not in seen:
+                    existing.append(t)
+                    seen.add(key)
+                    added += 1
+            if added:
+                with open(self._history_file, "w") as f:
+                    _json.dump(existing, f, indent=2, default=str)
+                print(f"[PAPER] Saved {added} trades to history ({len(existing)} total)")
+        except Exception as e:
+            print(f"[PAPER] Trade history save failed: {e}")
+
     def _load_state(self):
         """Load last session state from disk (called on __init__)."""
         try:
             if not os.path.exists(self._state_file):
+                # Even without state file, load historical trades
+                hist = self._load_trade_history()
+                if hist:
+                    self.closed_trades = hist
+                    print(f"[PAPER] Loaded {len(hist)} historical trades from trade history")
                 return
             with open(self._state_file, "r") as f:
                 state = _json.load(f)
 
-            # Only restore if the session was from today (stale sessions are ignored)
+            # Only restore live trading state if the session was from today
             saved_date = state.get("session_date")
             today = str(date_type.today())
             if saved_date != today:
-                print(f"[PAPER] Stale state from {saved_date} (today={today}) — ignoring")
+                # Stale session — save any closed trades to history before discarding
+                stale_trades = state.get("closed_trades", [])
+                if stale_trades:
+                    self._save_trade_history(stale_trades)
+                # Load all historical trades for display
+                self.closed_trades = self._load_trade_history()
+                n = len(self.closed_trades)
+                print(f"[PAPER] Stale state from {saved_date} — loaded {n} historical trades")
                 return
 
             # Restore fields
@@ -1291,7 +1339,8 @@ class PaperTradingEngine:
         position["pnl"] = pnl
         self.daily_pnl += pnl
 
-        self.closed_trades.append(position.copy())
+        closed_pos = position.copy()
+        self.closed_trades.append(closed_pos)
         self.positions.remove(position)
 
         self.log_event(
@@ -1309,6 +1358,7 @@ class PaperTradingEngine:
             total_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
             self.log_event("info", f"✅ All legs closed. Trade P&L: ₹{total_pnl:,.2f}")
         self._save_state()  # Persist after trade close
+        self._save_trade_history([closed_pos])  # Persist to cumulative history
 
     def _calculate_strike(self, leg: dict, spot: float, strike_step: int) -> int:
         """Calculate strike price based on strike_type"""
