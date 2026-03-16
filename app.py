@@ -2178,6 +2178,9 @@ async def live_start(req: LiveStartRequest):
                 if ws in ws_clients:
                     ws_clients.remove(ws)
         _check_trade_alerts(run_id, "Auto", event)
+        # Save each closed trade to runs.json for the All Results page
+        if event.get("type") == "exit" and event.get("trade"):
+            _save_single_trade_to_history(event["trade"], "live", run_name=run_id)
 
     # Store engine and start task
     live_engines[run_id] = engine
@@ -2443,6 +2446,9 @@ async def _paper_start_impl(payload: StrategyPayload):
                 if ws in ws_clients:
                     ws_clients.remove(ws)
         _check_trade_alerts(run_id, "Paper", event)
+        # Save each closed trade to runs.json for the All Results page
+        if event.get("type") == "exit" and event.get("trade"):
+            _save_single_trade_to_history(event["trade"], "paper", run_name=run_id)
 
     # Store engine and start task
     paper_engines[run_id] = engine
@@ -2512,15 +2518,61 @@ async def paper_stop(request: Request):
     return {"status": "stopped", "run_id": run_id}
 
 
+def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") -> None:
+    """Save a single closed trade (paper/live) to runs.json in real-time for All Results."""
+    try:
+        pnl = round(trade.get("pnl", 0), 2)
+        runs = _load_runs()
+        max_id = max((r.get("id", 0) for r in runs), default=0)
+        instrument = trade.get("instrument", trade.get("symbol", ""))
+        side = trade.get("side", trade.get("trade_side", ""))
+        label = mode.title()
+        name = run_name or f"{label} {instrument} {side}"
+        run_entry = {
+            "id": max_id + 1,
+            "mode": mode,
+            "run_name": name,
+            "instrument": instrument,
+            "status": "completed",
+            "started_at": str(trade.get("entry_time", "")),
+            "stopped_at": str(trade.get("exit_time", "")),
+            "trade_count": 1,
+            "total_pnl": pnl,
+            "stats": {
+                "total_trades": 1,
+                "winning_trades": 1 if pnl > 0 else 0,
+                "losing_trades": 1 if pnl <= 0 else 0,
+                "win_rate": 100.0 if pnl > 0 else 0.0,
+                "total_pnl": pnl,
+            },
+            "trades": [trade],
+            "created_at": str(datetime.now()),
+        }
+        runs.append(run_entry)
+        _save_runs(runs)
+        print(f"[{mode.upper()}] Saved trade to runs.json: {instrument} {side} P&L=₹{pnl}")
+    except Exception as e:
+        print(f"[{mode.upper()}] Failed to save trade to history: {e}")
+
+
 def _save_paper_run_to_history(status: dict):
-    """Save a completed paper trading run to runs.json for history."""
+    """Save a completed paper trading run to runs.json for history.
+    Skips if trades were already saved individually via _save_single_trade_to_history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
             print("[PAPER] No closed trades — skipping runs.json")
             return
 
+        run_name = status.get("strategy_name", "Paper Run")
         runs = _load_runs()
+        existing = sum(
+            1 for r in runs if r.get("mode") == "paper" and r.get("run_name") == run_name and r.get("trade_count") == 1
+        )
+        if existing >= len(closed):
+            print(f"[PAPER] All {len(closed)} trades already saved individually — skipping bulk save")
+            return
+
         max_id = max([r.get("id", 0) for r in runs], default=0)
 
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
@@ -2634,14 +2686,23 @@ def _save_scalp_run_to_history(eng) -> None:
 
 
 def _save_live_run_to_history(status: dict):
-    """Save a completed live (auto) trading run to runs.json for history."""
+    """Save a completed live (auto) trading run to runs.json for history.
+    Skips if trades were already saved individually via _save_single_trade_to_history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
             print("[LIVE] No closed trades — skipping runs.json")
             return
 
+        run_name = status.get("strategy_name", "Live Run")
         runs = _load_runs()
+        existing = sum(
+            1 for r in runs if r.get("mode") == "live" and r.get("run_name") == run_name and r.get("trade_count") == 1
+        )
+        if existing >= len(closed):
+            print(f"[LIVE] All {len(closed)} trades already saved individually — skipping bulk save")
+            return
+
         max_id = max([r.get("id", 0) for r in runs], default=0)
 
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
@@ -4148,6 +4209,8 @@ async def _restore_live_engines():
                     except Exception:
                         if ws in ws_clients:
                             ws_clients.remove(ws)
+                if event.get("type") == "exit" and event.get("trade"):
+                    _save_single_trade_to_history(event["trade"], "live", run_name=_rid)
 
             live_engines[run_id] = engine
             _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
@@ -4225,6 +4288,8 @@ async def _restore_paper_engines():
                     except Exception:
                         if ws in ws_clients:
                             ws_clients.remove(ws)
+                if event.get("type") == "exit" and event.get("trade"):
+                    _save_single_trade_to_history(event["trade"], "paper", run_name=_rid)
 
             paper_engines[run_id] = engine
             _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
