@@ -252,6 +252,18 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
     daily["R5"] = daily["R4"] + (daily["high"] - daily["low"])
     daily["S5"] = daily["S4"] - (daily["high"] - daily["low"])
 
+    # Half-levels (midpoints between consecutive levels)
+    daily["R0.5"] = (daily["pivot"] + daily["R1"]) / 2
+    daily["R1.5"] = (daily["R1"] + daily["R2"]) / 2
+    daily["R2.5"] = (daily["R2"] + daily["R3"]) / 2
+    daily["R3.5"] = (daily["R3"] + daily["R4"]) / 2
+    daily["R4.5"] = (daily["R4"] + daily["R5"]) / 2
+    daily["S0.5"] = (daily["pivot"] + daily["S1"]) / 2
+    daily["S1.5"] = (daily["S1"] + daily["S2"]) / 2
+    daily["S2.5"] = (daily["S2"] + daily["S3"]) / 2
+    daily["S3.5"] = (daily["S3"] + daily["S4"]) / 2
+    daily["S4.5"] = (daily["S4"] + daily["S5"]) / 2
+
     daily["cpr_type"] = daily["cpr_width_pct"].apply(
         lambda w: "narrow" if w <= narrow_pct else ("moderate" if w <= moderate_pct else "wide")
     )
@@ -262,15 +274,25 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
         "tc",
         "cpr_width_pct",
         "cpr_type",
+        "R0.5",
         "R1",
+        "R1.5",
         "R2",
+        "R2.5",
         "R3",
+        "R3.5",
         "R4",
+        "R4.5",
         "R5",
+        "S0.5",
         "S1",
+        "S1.5",
         "S2",
+        "S2.5",
         "S3",
+        "S3.5",
         "S4",
+        "S4.5",
         "S5",
     ]
     shifted = daily[pivot_cols].shift(1)
@@ -294,6 +316,119 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
     else:
         for col in pivot_cols:
             result[col] = shifted[col].reindex(result.index, method="ffill")
+
+    result["cpr_is_narrow"] = result["cpr_type"] == "narrow"
+    return result
+
+
+def cpr_timeframe(
+    df: pd.DataFrame,
+    timeframe: str = "D",
+    narrow_pct: float = 0.2,
+    moderate_pct: float = 0.5,
+) -> pd.DataFrame:
+    """Compute CPR + floor pivots + half-levels for 4H / Weekly / Monthly timeframes.
+
+    Parameters
+    ----------
+    timeframe : str
+        '4h' | '4H' → 4-hour bars
+        'W' → weekly bars
+        'M' → monthly bars
+        'D' → daily (delegates to existing cpr())
+    """
+    tf = timeframe.upper()
+    if tf == "D":
+        return cpr(df, narrow_pct=narrow_pct, moderate_pct=moderate_pct)
+
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
+
+    _ist = _tz(_td(hours=5, minutes=30))
+
+    # Resample rule
+    rule_map = {"4H": "4h", "W": "W", "M": "ME"}
+    rule = rule_map.get(tf, tf)
+
+    bars = df.resample(rule).agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+
+    # Standard Floor Pivot calculations
+    bars["pivot"] = (bars["high"] + bars["low"] + bars["close"]) / 3
+    bars["bc"] = (bars["high"] + bars["low"]) / 2
+    bars["tc"] = bars["pivot"] * 2 - bars["bc"]
+    bars["cpr_range"] = (bars["tc"] - bars["bc"]).abs()
+    bars["cpr_width_pct"] = bars["cpr_range"] / bars["close"].replace(0, np.nan) * 100
+
+    bars["R1"] = bars["pivot"] * 2 - bars["low"]
+    bars["S1"] = bars["pivot"] * 2 - bars["high"]
+    bars["R2"] = bars["pivot"] + (bars["high"] - bars["low"])
+    bars["S2"] = bars["pivot"] - (bars["high"] - bars["low"])
+    bars["R3"] = bars["high"] + 2 * (bars["pivot"] - bars["low"])
+    bars["S3"] = bars["low"] - 2 * (bars["high"] - bars["pivot"])
+    bars["R4"] = bars["R3"] + (bars["high"] - bars["low"])
+    bars["S4"] = bars["S3"] - (bars["high"] - bars["low"])
+    bars["R5"] = bars["R4"] + (bars["high"] - bars["low"])
+    bars["S5"] = bars["S4"] - (bars["high"] - bars["low"])
+
+    # Half-levels
+    bars["R0.5"] = (bars["pivot"] + bars["R1"]) / 2
+    bars["R1.5"] = (bars["R1"] + bars["R2"]) / 2
+    bars["R2.5"] = (bars["R2"] + bars["R3"]) / 2
+    bars["R3.5"] = (bars["R3"] + bars["R4"]) / 2
+    bars["R4.5"] = (bars["R4"] + bars["R5"]) / 2
+    bars["S0.5"] = (bars["pivot"] + bars["S1"]) / 2
+    bars["S1.5"] = (bars["S1"] + bars["S2"]) / 2
+    bars["S2.5"] = (bars["S2"] + bars["S3"]) / 2
+    bars["S3.5"] = (bars["S3"] + bars["S4"]) / 2
+    bars["S4.5"] = (bars["S4"] + bars["S5"]) / 2
+
+    bars["cpr_type"] = bars["cpr_width_pct"].apply(
+        lambda w: "narrow" if w <= narrow_pct else ("moderate" if w <= moderate_pct else "wide")
+    )
+
+    pivot_cols = [
+        "pivot",
+        "bc",
+        "tc",
+        "cpr_width_pct",
+        "cpr_type",
+        "R0.5",
+        "R1",
+        "R1.5",
+        "R2",
+        "R2.5",
+        "R3",
+        "R3.5",
+        "R4",
+        "R4.5",
+        "R5",
+        "S0.5",
+        "S1",
+        "S1.5",
+        "S2",
+        "S2.5",
+        "S3",
+        "S3.5",
+        "S4",
+        "S4.5",
+        "S5",
+    ]
+    shifted = bars[pivot_cols].shift(1)
+
+    # Pre-market fix for the latest incomplete bar
+    _today = pd.Timestamp(_dt.now(_ist).date())
+    if not bars.empty and bars.index[-1] < _today:
+        idx = bars.index[-1]
+        for col in pivot_cols:
+            shifted.loc[idx, col] = bars.loc[idx, col]
+
+    result = df.copy()
+    result = result.join(shifted.reindex(result.index, method="ffill"), rsuffix="_tf")
+    # Drop any duplicate columns from join
+    for c in result.columns:
+        if c.endswith("_tf"):
+            result.drop(columns=[c], inplace=True)
 
     result["cpr_is_narrow"] = result["cpr_type"] == "narrow"
     return result
@@ -479,19 +614,53 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
         elif name == "CPR":
             narrow_pct = float(parts[1]) if len(parts) > 1 else 0.2
             moderate_pct = float(parts[2]) if len(parts) > 2 else 0.5
+            # Optional timeframe: CPR_0.2_0.5_W → weekly, CPR_0.2_0.5_4H → 4-hour
+            tf = parts[3] if len(parts) > 3 else "D"
+            tf_upper = tf.upper()
+            # Prefix for multi-timeframe: CPR_W_Pivot, CPR_4H_R1, etc.
+            tf_prefix = f"CPR_{tf_upper}_" if tf_upper != "D" else "CPR_"
 
-            df = cpr(df, narrow_pct=narrow_pct, moderate_pct=moderate_pct, wide_pct=moderate_pct)
+            if tf_upper in ("4H", "W", "M", "ME"):
+                df = cpr_timeframe(df, timeframe=tf_upper, narrow_pct=narrow_pct, moderate_pct=moderate_pct)
+            else:
+                df = cpr(df, narrow_pct=narrow_pct, moderate_pct=moderate_pct, wide_pct=moderate_pct)
 
-            df["CPR_Pivot"] = df["pivot"]
-            df["CPR_TC"] = df["tc"]
-            df["CPR_BC"] = df["bc"]
-            df["CPR_width_pct"] = df["cpr_width_pct"]
-            df["CPR_is_narrow"] = df["cpr_type"] == "narrow"
-            df["CPR_is_moderate"] = df["cpr_type"] == "moderate"
-            df["CPR_is_wide"] = df["cpr_type"] == "wide"
-            # Support & Resistance levels
-            for lvl in ["R1", "R2", "R3", "R4", "R5", "S1", "S2", "S3", "S4", "S5"]:
-                df[f"CPR_{lvl}"] = df[lvl]
+            df[f"{tf_prefix}Pivot"] = df["pivot"]
+            df[f"{tf_prefix}TC"] = df["tc"]
+            df[f"{tf_prefix}BC"] = df["bc"]
+            df[f"{tf_prefix}width_pct"] = df["cpr_width_pct"]
+            df[f"{tf_prefix}is_narrow"] = df["cpr_type"] == "narrow"
+            df[f"{tf_prefix}is_moderate"] = df["cpr_type"] == "moderate"
+            df[f"{tf_prefix}is_wide"] = df["cpr_type"] == "wide"
+            # Support & Resistance levels (full + half)
+            for lvl in [
+                "R0.5",
+                "R1",
+                "R1.5",
+                "R2",
+                "R2.5",
+                "R3",
+                "R3.5",
+                "R4",
+                "R4.5",
+                "R5",
+                "S0.5",
+                "S1",
+                "S1.5",
+                "S2",
+                "S2.5",
+                "S3",
+                "S3.5",
+                "S4",
+                "S4.5",
+                "S5",
+            ]:
+                df[f"{tf_prefix}{lvl}"] = df[lvl]
+            # Backward compat: keep CPR_ prefix columns for daily
+            if tf_upper == "D":
+                df["CPR_Pivot"] = df["pivot"]
+                df["CPR_TC"] = df["tc"]
+                df["CPR_BC"] = df["bc"]
             df[ind_string] = df["pivot"]
 
         # Calculate ORB (Opening Range Breakout)

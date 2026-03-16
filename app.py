@@ -594,8 +594,10 @@ async def charts_tree():
                 day_path = os.path.join(month_path, dfolder)
                 if not os.path.isdir(day_path):
                     continue
-                has_img = any(f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) for f in os.listdir(day_path))
-                if not has_img:
+                files = os.listdir(day_path)
+                has_img = any(f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) for f in files)
+                has_keep = ".keep" in files
+                if not has_img and not has_keep:
                     continue
                 sort_key, day_label = _parse_day_folder(dfolder)
                 days_list.append(
@@ -772,6 +774,64 @@ async def rename_chart(year: str, month: str, day: str, filename: str, request: 
     new_url = f"/charts-static/{quote(year)}/{quote(month)}/{quote(day)}/{quote(new_filename)}"
     print(f"[CHARTS] Renamed: {filename} → {new_filename}")
     return {"status": "ok", "old_name": filename, "new_name": new_filename, "url": new_url}
+
+
+@app.patch("/api/charts/rename-folder")
+async def rename_chart_folder(request: Request):
+    """Rename a day folder in Chart History."""
+    body = await request.json()
+    year = body.get("year", "")
+    month = body.get("month", "")
+    old_day = body.get("old_day", "")
+    new_day = body.get("new_day", "").strip()
+    if not all([year, month, old_day, new_day]):
+        raise HTTPException(status_code=400, detail="year, month, old_day, new_day required")
+    old_path = _safe_charts_subpath(year, month, old_day)
+    if old_path is None or not os.path.isdir(old_path):
+        raise HTTPException(status_code=404, detail="Folder not found")
+    safe_new = _re.sub(r"[^\w\s._-]", "", new_day)[:80]
+    if not safe_new:
+        raise HTTPException(status_code=400, detail="Invalid new name")
+    new_path = _safe_charts_subpath(year, month, safe_new)
+    if new_path is None:
+        raise HTTPException(status_code=400, detail="Invalid new path")
+    if os.path.exists(new_path):
+        raise HTTPException(status_code=409, detail="Folder already exists")
+    os.rename(old_path, new_path)
+    print(f"[CHARTS] Renamed folder: {old_day} → {safe_new}")
+    return {"status": "ok", "old_name": old_day, "new_name": safe_new}
+
+
+@app.post("/api/charts/create-folder")
+async def create_chart_folder(request: Request):
+    """Create a new day folder in Chart History."""
+    body = await request.json()
+    year = body.get("year", "")
+    month = body.get("month", "")
+    day_name = body.get("day_name", "").strip()
+    if not all([year, month, day_name]):
+        raise HTTPException(status_code=400, detail="year, month, day_name required")
+    safe_name = _re.sub(r"[^\w\s._-]", "", day_name)[:80]
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+    # Ensure year and month directories exist
+    year_path = _safe_charts_subpath(year)
+    if year_path is None:
+        raise HTTPException(status_code=400, detail="Invalid year")
+    month_path = _safe_charts_subpath(year, month)
+    if month_path is None:
+        raise HTTPException(status_code=400, detail="Invalid month")
+    os.makedirs(month_path, exist_ok=True)
+    folder_path = os.path.join(month_path, safe_name)
+    if os.path.exists(folder_path):
+        raise HTTPException(status_code=409, detail="Folder already exists")
+    os.makedirs(folder_path)
+    # Create a placeholder so it shows in the tree (tree requires at least one image)
+    placeholder = os.path.join(folder_path, ".keep")
+    with open(placeholder, "w") as f:
+        f.write("")
+    print(f"[CHARTS] Created folder: {year}/{month}/{safe_name}")
+    return {"status": "ok", "folder": safe_name}
 
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─

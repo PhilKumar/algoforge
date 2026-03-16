@@ -2769,9 +2769,10 @@
       <div>
         <label>Time Frame</label>
         <select id="cpr-timeframe">
-          <option value="Day" selected>Day</option>
-          <option value="Week">Week</option>
-          <option value="Month">Month</option>
+          <option value="D" selected>Daily</option>
+          <option value="4H">4 Hour</option>
+          <option value="W">Weekly</option>
+          <option value="M">Monthly</option>
         </select>
       </div>
     </div>
@@ -5945,48 +5946,66 @@ function closeCPRModal() { document.getElementById('cpr-modal').classList.remove
 function confirmAddCPR() {
   const narrowPct = parseFloat(document.getElementById('cpr-narrow-pct').value) || 0.2;
   const moderatePct = parseFloat(document.getElementById('cpr-moderate-pct').value) || 0.5;
+  const tf = document.getElementById('cpr-timeframe').value || 'D';
 
-  // Encode config into the indicator string: CPR_0.2_0.5
-  const indId = `CPR_${narrowPct}_${moderatePct}`;
+  // Encode config: CPR_0.2_0.5 (daily) or CPR_0.2_0.5_W (weekly), etc.
+  const indId = tf === 'D' ? `CPR_${narrowPct}_${moderatePct}` : `CPR_${narrowPct}_${moderatePct}_${tf}`;
+  const tfLabels = { D: 'Daily', '4H': '4H', W: 'Weekly', M: 'Monthly' };
+  const tfLabel = tfLabels[tf] || tf;
 
-  if (!myIndicators.some(i => i.startsWith('CPR'))) {
-    myIndicators.push(indId);
-
-    const badge = document.createElement('span');
-    badge.id = `badge-${indId}`;
-    badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:linear-gradient(135deg, var(--accent2), var(--purple));color:white;border-radius:4px;font-weight:600;font-size:12px;";
-    badge.innerHTML = `CPR (N:${narrowPct}% M:${moderatePct}%) <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${indId}')">&times;</span>`;
-    document.getElementById('active-indicators-list').appendChild(badge);
-
-    syncConditionDropdowns();
+  // Allow multiple CPR with different timeframes
+  if (myIndicators.includes(indId)) {
+    toast(`CPR ${tfLabel} already added!`, 'warn');
     closeCPRModal();
-    toast(`Added CPR indicator (Narrow ≤${narrowPct}%, Moderate ≤${moderatePct}%)`, 'success');
-  } else {
-    toast('CPR already added!', 'warn');
-    closeCPRModal();
+    return;
   }
+
+  myIndicators.push(indId);
+
+  const badge = document.createElement('span');
+  badge.id = `badge-${indId}`;
+  badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:linear-gradient(135deg, var(--accent2), var(--purple));color:white;border-radius:4px;font-weight:600;font-size:12px;";
+  badge.innerHTML = `CPR ${tfLabel} (N:${narrowPct}% M:${moderatePct}%) <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${indId}')">&times;</span>`;
+  document.getElementById('active-indicators-list').appendChild(badge);
+
+  syncConditionDropdowns();
+  closeCPRModal();
+  toast(`Added CPR ${tfLabel} (Narrow ≤${narrowPct}%, Moderate ≤${moderatePct}%)`, 'success');
 }
 
 // ── INDICATOR SUB-COLUMNS for condition dropdowns ──
-const CPR_CONDITION_COLUMNS = [
-  { value: "CPR_Pivot",       label: "CPR — Pivot" },
-  { value: "CPR_TC",          label: "CPR — TC (Top Central)" },
-  { value: "CPR_BC",          label: "CPR — BC (Bottom Central)" },
-  { value: "CPR_R1",          label: "CPR — R1" },
-  { value: "CPR_R2",          label: "CPR — R2" },
-  { value: "CPR_R3",          label: "CPR — R3" },
-  { value: "CPR_R4",          label: "CPR — R4" },
-  { value: "CPR_R5",          label: "CPR — R5" },
-  { value: "CPR_S1",          label: "CPR — S1" },
-  { value: "CPR_S2",          label: "CPR — S2" },
-  { value: "CPR_S3",          label: "CPR — S3" },
-  { value: "CPR_S4",          label: "CPR — S4" },
-  { value: "CPR_S5",          label: "CPR — S5" },
-  { value: "CPR_width_pct",   label: "CPR — Width %" },
-  { value: "CPR_is_narrow",   label: "CPR — Is Narrow (true/false)" },
-  { value: "CPR_is_moderate", label: "CPR — Is Moderate (true/false)" },
-  { value: "CPR_is_wide",     label: "CPR — Is Wide (true/false)" },
-];
+function _buildCPRColumns() {
+  const cols = [];
+  const tfLabels = { D: 'Daily', '4H': '4H', W: 'Weekly', M: 'Monthly' };
+  const cprInds = myIndicators.filter(i => i.startsWith('CPR'));
+  const timeframes = cprInds.map(ind => {
+    const p = ind.split('_');
+    return p.length > 3 ? p[3].toUpperCase() : 'D';
+  });
+  // Deduplicate
+  const unique = [...new Set(timeframes)];
+  if (!unique.length) unique.push('D');
+  unique.forEach(tf => {
+    const prefix = tf === 'D' ? 'CPR_' : `CPR_${tf}_`;
+    const label = tf === 'D' ? 'CPR' : `CPR ${tfLabels[tf] || tf}`;
+    cols.push({ value: `${prefix}Pivot`, label: `${label} — Pivot` });
+    cols.push({ value: `${prefix}TC`, label: `${label} — TC` });
+    cols.push({ value: `${prefix}BC`, label: `${label} — BC` });
+    ['R0.5','R1','R1.5','R2','R2.5','R3','R3.5','R4','R4.5','R5'].forEach(lvl => {
+      cols.push({ value: `${prefix}${lvl}`, label: `${label} — ${lvl}` });
+    });
+    ['S0.5','S1','S1.5','S2','S2.5','S3','S3.5','S4','S4.5','S5'].forEach(lvl => {
+      cols.push({ value: `${prefix}${lvl}`, label: `${label} — ${lvl}` });
+    });
+    cols.push({ value: `${prefix}width_pct`, label: `${label} — Width %` });
+    cols.push({ value: `${prefix}is_narrow`, label: `${label} — Is Narrow` });
+    cols.push({ value: `${prefix}is_moderate`, label: `${label} — Is Moderate` });
+    cols.push({ value: `${prefix}is_wide`, label: `${label} — Is Wide` });
+  });
+  return cols;
+}
+// Backward compat: static reference for any code that reads CPR_CONDITION_COLUMNS directly
+const CPR_CONDITION_COLUMNS = _buildCPRColumns();
 const CANDLE_COLUMNS = [
   { value: "current_open",   label: "Current Candle — Open" },
   { value: "current_high",   label: "Current Candle — High" },
@@ -6016,6 +6035,9 @@ const SIGNAL_CANDLE_COLUMNS = [
 ];
 const BOOLEAN_FIELDS = [
   'CPR_is_narrow', 'CPR_is_moderate', 'CPR_is_wide',
+  'CPR_4H_is_narrow', 'CPR_4H_is_moderate', 'CPR_4H_is_wide',
+  'CPR_W_is_narrow', 'CPR_W_is_moderate', 'CPR_W_is_wide',
+  'CPR_M_is_narrow', 'CPR_M_is_moderate', 'CPR_M_is_wide',
   'ORB_is_breakout_up', 'ORB_is_breakout_down', 'ORB_is_inside',
 ];
 
@@ -6092,7 +6114,7 @@ function buildLHSOptions() {
   html += `</optgroup>`;
   if (hasPrevDay) { html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`; PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasORB) { html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
-  if (hasCPR) { html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
+  if (hasCPR) { const _cc = _buildCPRColumns(); html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; _cc.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasSignalCandle) { html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`; SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && !ind.startsWith('Signal_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB')) html += `<option value="${ind}">${ind}</option>`; });
   html += `<optgroup label="\u2500\u2500 Day / Time \u2500\u2500"><option value="Time_Of_Day">Time Of Day</option><option value="Day_Of_Week">Day Of Week</option></optgroup>`;
@@ -6129,8 +6151,9 @@ function buildRHSOptions(lhsValue) {
     html += '</optgroup>';
   }
   if (hasCPR) {
+    const _cc = _buildCPRColumns();
     html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`;
-    CPR_CONDITION_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
+    _cc.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
     html += '</optgroup>';
   }
   if (hasSignalCandle) {
@@ -9453,15 +9476,22 @@ fetchRuns = async function() {
       h += '<div class="chtree-children' + yo + '">';
       months.forEach((mo, mi) => {
         const moo = yi === 0 && mi === 0 ? ' open' : '';
+        const esc = s => s.replace(/'/g, "\\'");
         h += '<div>';
         h += '<button class="chtree-toggle' + moo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="mo-label">' + mo.label + '</span><span class="cnt">' + mo.days.length + '</span></button>';
         h += '<div class="chtree-children' + moo + '">';
         mo.days.forEach(day => {
-          const esc = s => s.replace(/'/g, "\\'");
-          h += '<button class="chday-btn" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
+          h += '<div style="display:flex;align-items:center;gap:2px;">';
+          h += '<button class="chday-btn" style="flex:1;" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
+          h += '<span class="ch-edit-btn" onclick="event.stopPropagation();window._chRenameFolder(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\')" title="Rename" style="cursor:pointer;opacity:0.3;padding:2px 4px;font-size:11px;flex-shrink:0;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">&#9998;</span>';
+          h += '</div>';
         });
+        // Add new folder button at end of month
+        h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);" onclick="window._chCreateFolder(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\')">+ New folder</button>';
         h += '</div></div>';
       });
+      // Add new month/folder button at year level
+      h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);margin-top:2px;" onclick="window._chCreateMonthFolder(\'' + esc(year) + '\')">+ New month folder</button>';
       h += '</div></div>';
     });
     el.innerHTML = h;
@@ -9471,6 +9501,66 @@ fetchRuns = async function() {
     btn.classList.toggle('open');
     const ch = btn.nextElementSibling;
     if (ch) ch.classList.toggle('open');
+  };
+
+  window._chRenameFolder = async function(year, month, dayFolder) {
+    const newName = prompt('Rename folder:', dayFolder);
+    if (!newName || newName === dayFolder) return;
+    try {
+      const r = await fetch('/api/charts/rename-folder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year, month, old_day: dayFolder, new_day: newName })
+      });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        showToast('Folder renamed', 'success');
+        _chLoadTree();
+      } else {
+        showToast(d.detail || 'Rename failed', 'error');
+      }
+    } catch (e) { showToast('Rename failed: ' + e.message, 'error'); }
+  };
+
+  window._chCreateFolder = async function(year, month) {
+    const name = prompt('New folder name (e.g. 17-Mar-2026):');
+    if (!name) return;
+    try {
+      const r = await fetch('/api/charts/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year, month, day_name: name })
+      });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        showToast('Folder created', 'success');
+        _chLoadTree();
+      } else {
+        showToast(d.detail || 'Create failed', 'error');
+      }
+    } catch (e) { showToast('Create failed: ' + e.message, 'error'); }
+  };
+
+  window._chCreateMonthFolder = async function(year) {
+    const monthName = prompt('Month folder name (e.g. Apr-2026):');
+    if (!monthName) return;
+    // Create a day sub-folder so it appears in tree
+    const dayName = prompt('Day folder name inside (e.g. 01-Apr-2026):', '');
+    if (!dayName) return;
+    try {
+      const r = await fetch('/api/charts/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year, month: monthName, day_name: dayName })
+      });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        showToast('Month folder created', 'success');
+        _chLoadTree();
+      } else {
+        showToast(d.detail || 'Create failed', 'error');
+      }
+    } catch (e) { showToast('Create failed: ' + e.message, 'error'); }
   };
 
   // ── Day selection → load images + journal ──
