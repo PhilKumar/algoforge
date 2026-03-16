@@ -2991,6 +2991,21 @@
   </div>
 </div>
 
+<!-- ═══ CHART FOLDER INPUT MODAL ═══ -->
+<div class="modal-overlay" id="ch-folder-modal" onclick="if(event.target===this)_chCloseInputModal()">
+  <div class="modal" style="width: 420px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <h3 style="margin: 0; font-size: 16px;" id="ch-folder-modal-title">Rename Folder</h3>
+      <button class="leg-remove" onclick="_chCloseInputModal()" style="font-size: 22px;">&times;</button>
+    </div>
+    <div id="ch-folder-modal-fields"></div>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn" id="ch-folder-modal-ok" style="padding: 10px 32px;">Save</button>
+      <button class="modal-close" onclick="_chCloseInputModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MOVE FOLDER MODAL ═══ -->
 <div class="modal-overlay" id="move-folder-modal" onclick="if(event.target===this)closeMoveModal()">
   <div class="modal" style="width: 400px;">
@@ -9503,64 +9518,93 @@ fetchRuns = async function() {
     if (ch) ch.classList.toggle('open');
   };
 
-  window._chRenameFolder = async function(year, month, dayFolder) {
-    const newName = prompt('Rename folder:', dayFolder);
-    if (!newName || newName === dayFolder) return;
-    try {
-      const r = await fetch('/api/charts/rename-folder', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, month, old_day: dayFolder, new_day: newName })
-      });
-      const d = await r.json();
-      if (d.status === 'ok') {
-        showToast('Folder renamed', 'success');
-        _chLoadTree();
-      } else {
-        showToast(d.detail || 'Rename failed', 'error');
-      }
-    } catch (e) { showToast('Rename failed: ' + e.message, 'error'); }
+  // ── Styled modal helpers for chart folder operations ──
+  function _chOpenInputModal(title, fields, onSave) {
+    document.getElementById('ch-folder-modal-title').textContent = title;
+    const container = document.getElementById('ch-folder-modal-fields');
+    container.innerHTML = fields.map(f =>
+      `<div style="margin-bottom:14px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;">${f.label}</label>
+        <input type="text" id="ch-inp-${f.id}" value="${(f.value||'').replace(/"/g,'&quot;')}" placeholder="${f.placeholder||''}"
+          style="width:100%;padding:10px 14px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Outfit',sans-serif;font-size:14px;">
+      </div>`
+    ).join('');
+    const modal = document.getElementById('ch-folder-modal');
+    modal.classList.add('open');
+    // Focus first input
+    setTimeout(() => { const inp = container.querySelector('input'); if (inp) inp.focus(); }, 100);
+    // Wire save button
+    const okBtn = document.getElementById('ch-folder-modal-ok');
+    const handler = () => {
+      const vals = {};
+      fields.forEach(f => { vals[f.id] = document.getElementById('ch-inp-' + f.id).value.trim(); });
+      onSave(vals);
+      okBtn.removeEventListener('click', handler);
+    };
+    okBtn.onclick = handler;
+    // Enter key submits
+    container.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handler(); } };
+  }
+  window._chCloseInputModal = function() {
+    document.getElementById('ch-folder-modal').classList.remove('open');
   };
 
-  window._chCreateFolder = async function(year, month) {
-    const name = prompt('New folder name (e.g. 17-Mar-2026):');
-    if (!name) return;
-    try {
-      const r = await fetch('/api/charts/create-folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, month, day_name: name })
-      });
-      const d = await r.json();
-      if (d.status === 'ok') {
-        showToast('Folder created', 'success');
-        _chLoadTree();
-      } else {
-        showToast(d.detail || 'Create failed', 'error');
-      }
-    } catch (e) { showToast('Create failed: ' + e.message, 'error'); }
+  window._chRenameFolder = function(year, month, dayFolder) {
+    _chOpenInputModal('Rename Folder', [
+      { id: 'name', label: 'Folder Name', value: dayFolder, placeholder: 'e.g. 17-Mar-2026' }
+    ], async (vals) => {
+      if (!vals.name || vals.name === dayFolder) { _chCloseInputModal(); return; }
+      try {
+        const r = await fetch('/api/charts/rename-folder', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year, month, old_day: dayFolder, new_day: vals.name })
+        });
+        const d = await r.json();
+        _chCloseInputModal();
+        if (d.status === 'ok') { showToast('Folder renamed', 'success'); _chLoadTree(); }
+        else { showToast(d.detail || 'Rename failed', 'error'); }
+      } catch (e) { _chCloseInputModal(); showToast('Rename failed: ' + e.message, 'error'); }
+    });
   };
 
-  window._chCreateMonthFolder = async function(year) {
-    const monthName = prompt('Month folder name (e.g. Apr-2026):');
-    if (!monthName) return;
-    // Create a day sub-folder so it appears in tree
-    const dayName = prompt('Day folder name inside (e.g. 01-Apr-2026):', '');
-    if (!dayName) return;
-    try {
-      const r = await fetch('/api/charts/create-folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, month: monthName, day_name: dayName })
-      });
-      const d = await r.json();
-      if (d.status === 'ok') {
-        showToast('Month folder created', 'success');
-        _chLoadTree();
-      } else {
-        showToast(d.detail || 'Create failed', 'error');
-      }
-    } catch (e) { showToast('Create failed: ' + e.message, 'error'); }
+  window._chCreateFolder = function(year, month) {
+    _chOpenInputModal('Create New Folder', [
+      { id: 'name', label: 'Folder Name', value: '', placeholder: 'e.g. 17-Mar-2026' }
+    ], async (vals) => {
+      if (!vals.name) { _chCloseInputModal(); return; }
+      try {
+        const r = await fetch('/api/charts/create-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year, month, day_name: vals.name })
+        });
+        const d = await r.json();
+        _chCloseInputModal();
+        if (d.status === 'ok') { showToast('Folder created', 'success'); _chLoadTree(); }
+        else { showToast(d.detail || 'Create failed', 'error'); }
+      } catch (e) { _chCloseInputModal(); showToast('Create failed: ' + e.message, 'error'); }
+    });
+  };
+
+  window._chCreateMonthFolder = function(year) {
+    _chOpenInputModal('Create Month Folder', [
+      { id: 'month', label: 'Month Folder', value: '', placeholder: 'e.g. Apr-2026' },
+      { id: 'day', label: 'First Day Folder', value: '', placeholder: 'e.g. 01-Apr-2026' }
+    ], async (vals) => {
+      if (!vals.month || !vals.day) { _chCloseInputModal(); return; }
+      try {
+        const r = await fetch('/api/charts/create-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year, month: vals.month, day_name: vals.day })
+        });
+        const d = await r.json();
+        _chCloseInputModal();
+        if (d.status === 'ok') { showToast('Month folder created', 'success'); _chLoadTree(); }
+        else { showToast(d.detail || 'Create failed', 'error'); }
+      } catch (e) { _chCloseInputModal(); showToast('Create failed: ' + e.message, 'error'); }
+    });
   };
 
   // ── Day selection → load images + journal ──
