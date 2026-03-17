@@ -5659,11 +5659,12 @@ async function submitScalpEntry(direction) {
       if (bad) {
         statusEl.textContent = `⚠️ SL ₹${payload.sl_premium} is on the wrong side of LTP ₹${liveLtp.toFixed(2)} — SL will trigger immediately!`;
         statusEl.style.color = 'var(--danger)';
-        const proceed = confirm(
-          `WARNING: Your SL Premium (₹${payload.sl_premium}) will trigger immediately!\n\n` +
-          `For a ${payload.transaction_type} at ₹${liveLtp.toFixed(2)}:\n` +
-          `• SL should be ${payload.transaction_type === 'BUY' ? 'BELOW' : 'ABOVE'} entry price.\n\n` +
-          `Did you mean to use "SL ₹ (max loss)" instead?\n\nClick OK to submit anyway, Cancel to fix.`
+        const proceed = await customConfirm(
+          `<strong style="color:var(--danger)">WARNING:</strong> Your SL Premium (₹${payload.sl_premium}) will trigger immediately!<br><br>` +
+          `For a ${payload.transaction_type} at ₹${liveLtp.toFixed(2)}:<br>` +
+          `• SL should be ${payload.transaction_type === 'BUY' ? 'BELOW' : 'ABOVE'} entry price.<br><br>` +
+          `Did you mean to use "SL ₹ (max loss)" instead?`,
+          { title: 'SL Warning', okText: 'Submit Anyway', danger: true }
         );
         if (!proceed) return;
       }
@@ -5722,7 +5723,8 @@ async function exitScalpTrade(tradeId) {
 }
 
 async function killAllScalpTrades() {
-  if (!confirm('⚠ KILL ALL — This will immediately exit ALL open scalp trades. Continue?')) return;
+  const ok = await customConfirm('<strong style="color:var(--danger)">KILL ALL</strong> — This will immediately exit <strong>ALL</strong> open scalp trades.', { title: 'Kill All Trades', okText: 'Kill All', danger: true });
+  if (!ok) return;
   const btn = document.getElementById('scalp-kill-all-btn');
   if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
   try {
@@ -9173,7 +9175,8 @@ function _goLiveClosedPage(runId, page) {
 }
 
 async function _forceExitPosition(apiPath, runId, posIndex) {
-  if (!confirm('Are you sure you want to exit this position?')) return;
+  const ok = await customConfirm('Are you sure you want to exit this position?', { title: 'Exit Position', okText: 'Exit', danger: true });
+  if (!ok) return;
   try {
     const res = await fetch(apiPath, {
       method: 'POST',
