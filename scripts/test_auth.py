@@ -147,9 +147,9 @@ async def main():
         print(" 16. Disabled user login blocked: PASS")
         passed += 1
 
-    print(f"\n{'='*40}")
+    print(f"\n{'=' * 40}")
     print(f"  Results: {passed} passed, {failed} failed")
-    print(f"{'='*40}")
+    print(f"{'=' * 40}")
 
     server.should_exit = True
     await task

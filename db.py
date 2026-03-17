@@ -153,7 +153,7 @@ async def create_user(username: str, password_hash: str, role: str = "user", ema
         db.row_factory = aiosqlite.Row
         now = _now_iso()
         cursor = await db.execute(
-            "INSERT INTO users (username, email, password_hash, role, created_at) " "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
             (username, email, password_hash, role, now),
         )
         await db.commit()
