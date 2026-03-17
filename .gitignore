@@ -70,3 +70,9 @@ trade_history.json
 *.tmp
 *.log
 Daily Charts/
+
+# SQLite database (per-server, contains user data)
+algoforge.db
+algoforge.db-shm
+algoforge.db-wal
+test_algoforge.db

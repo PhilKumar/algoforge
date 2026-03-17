@@ -70,7 +70,48 @@
   .unlock-sub {
     color: var(--muted); font-size: 11px;
     letter-spacing: 2px; text-transform: uppercase;
-    margin-bottom: 28px;
+    margin-bottom: 20px;
+  }
+
+  .username-field {
+    width: 100%; max-width: 260px;
+    margin: 0 auto 20px;
+    position: relative; z-index: 1;
+  }
+  .username-field input {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    padding: 14px 18px;
+    outline: none;
+    transition: all 0.2s ease;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+  .username-field input::placeholder {
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .username-field input:focus {
+    border-color: rgba(0,200,150,0.4);
+    box-shadow: 0 0 12px rgba(0,200,150,0.15);
+    background: rgba(255,255,255,0.06);
+  }
+  [data-theme="light"] .username-field input {
+    background: rgba(248,250,252,0.8);
+    border: 1px solid rgba(15,23,42,0.1);
+    color: #0f172a;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  [data-theme="light"] .username-field input::placeholder { color: #94a3b8; }
+  [data-theme="light"] .username-field input:focus {
+    border-color: rgba(5,150,105,0.4);
+    box-shadow: 0 0 10px rgba(5,150,105,0.12);
   }
 
   .pin-dots {
@@ -244,7 +285,11 @@
 <div class="unlock-card" id="unlock-card">
   <img src="logo.jpg" alt="AlgoForge" class="unlock-logo">
   <div class="unlock-title">AlgoForge</div>
-  <div class="unlock-sub">Enter PIN to unlock</div>
+  <div class="unlock-sub">Sign in to continue</div>
+
+  <div class="username-field">
+    <input type="text" id="username-input" placeholder="Username" autocomplete="username" spellcheck="false" autofocus>
+  </div>
 
   <div class="pin-dots" id="pin-dots">
     <div class="pin-dot" data-i="0"></div>
@@ -255,7 +300,7 @@
     <div class="pin-dot" data-i="5"></div>
   </div>
 
-  <div class="unlock-status" id="unlock-status">Enter your 6-digit PIN</div>
+  <div class="unlock-status" id="unlock-status">Enter username &amp; PIN</div>
 
   <div class="keypad" id="keypad">
     <button class="key" data-val="1">1</button>
@@ -289,6 +334,17 @@ let locked = false;
 const dots = document.querySelectorAll('.pin-dot');
 const status = document.getElementById('unlock-status');
 const card = document.getElementById('unlock-card');
+const usernameInput = document.getElementById('username-input');
+
+// Focus management: move to keypad after username, Enter skips to PIN
+usernameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    usernameInput.blur(); // focus moves to keypad (keyboard digits)
+    status.textContent = 'Now enter your PIN';
+    status.className = 'unlock-status';
+  }
+});
 
 function updateDots() {
   dots.forEach((dot, i) => {
@@ -306,7 +362,7 @@ function setError(msg) {
     card.classList.remove('shake');
     pin = '';
     updateDots();
-    status.textContent = 'Enter your 6-digit PIN';
+    status.textContent = 'Enter username & PIN';
     status.className = 'unlock-status';
     locked = false;
   }, 800);
@@ -325,16 +381,18 @@ async function tryUnlock() {
   status.textContent = 'Verifying...';
   status.className = 'unlock-status';
   try {
+    const username = usernameInput.value.trim();
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pin })
+      body: JSON.stringify({ username: username, password: pin })
     });
     if (res.ok) {
       setSuccess();
       setTimeout(() => { window.location.href = '/'; }, 400);
     } else {
-      setError('Wrong PIN. Try again.');
+      const data = await res.json().catch(() => ({}));
+      setError(data.detail || 'Wrong credentials. Try again.');
     }
   } catch (e) {
     setError('Connection error.');
@@ -372,6 +430,8 @@ document.getElementById('keypad').addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  // Don't capture digits when username input is focused
+  if (document.activeElement === usernameInput) return;
   if (e.key >= '0' && e.key <= '9') addDigit(e.key);
   else if (e.key === 'Backspace') removeDigit();
   else if (e.key === 'Escape') clearAll();

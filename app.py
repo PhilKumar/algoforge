@@ -55,7 +55,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import auth as _auth_mod
 import config
+import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, run_backtest
 from engine.live import LiveEngine
@@ -230,15 +232,9 @@ ws_clients: List[WebSocket] = []
 
 
 # ── Authentication ────────────────────────────────────────────────
-AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD")
-if not AUTH_PASSWORD:
-    raise RuntimeError(
-        "[FATAL] ALGOFORGE_PIN environment variable is not set. "
-        "The server refuses to start without an explicit PIN. "
-        "Set it in your .env file: ALGOFORGE_PIN=<your-pin>"
-    )
+# Legacy PIN kept as fallback for admin auto-creation on first DB init
+AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or ""
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
-_SESSION_FILE = os.path.join(_HERE, ".sessions.json")
 
 _redis_client = None
 _redis_checked = False
@@ -260,67 +256,18 @@ def _get_redis():
     return _redis_client
 
 
-def _load_sessions() -> dict:
-    """Load sessions from shared file (works across workers)."""
-    try:
-        if os.path.exists(_SESSION_FILE):
-            with open(_SESSION_FILE, "r") as f:
-                data = json.loads(f.read())
-            # Clean expired sessions
-            now = datetime.now().isoformat()
-            return {k: v for k, v in data.items() if v > now}
-    except Exception:
-        pass
-    return {}
+# ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
+# These bridge the old middleware (sync-ish) to the async DB via asyncio
 
 
-def _save_sessions(sessions: dict):
-    """Persist sessions to shared file (atomic write via tmp + os.replace)."""
-    import tempfile
-
-    try:
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(_SESSION_FILE), suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(sessions))
-        os.replace(tmp_path, _SESSION_FILE)
-    except Exception:
-        # Remove tmp file if os.replace failed
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-
-
-def _create_session() -> str:
-    sessions = _load_sessions()
-    token = secrets.token_hex(32)
-    sessions[token] = (datetime.now() + timedelta(hours=24)).isoformat()
-    _save_sessions(sessions)
-    return token
-
-
-def _validate_session(token: str) -> bool:
-    if not token:
-        return False
-    sessions = _load_sessions()
-    exp_str = sessions.get(token)
-    if not exp_str:
-        return False
-    if datetime.now() > datetime.fromisoformat(exp_str):
-        sessions.pop(token, None)
-        _save_sessions(sessions)
-        return False
-    return True
+async def _validate_session_async(token: str) -> dict | None:
+    """Validate session token via DB. Returns session dict or None."""
+    return await _auth_mod.validate_session(token)
 
 
 def _get_session_token(request: Request) -> str:
-    """Extract session token from cookie or Authorization header"""
-    token = request.cookies.get("algoforge_session", "")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    return token
+    """Extract session token from cookie or Authorization header."""
+    return _auth_mod.get_session_token(request)
 
 
 @app.middleware("http")
@@ -344,9 +291,13 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
+    # Admin routes have their own Depends() guard, but still need basic session check
     token = _get_session_token(request)
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    # Stash user_id on request state for downstream use
+    request.state.user_id = session["user_id"]
     return await call_next(request)
 
 
@@ -471,7 +422,8 @@ class StrategyPayload(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
     token = _get_session_token(request)
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         # Serve login page
         login_path = os.path.join(_HERE, "login.html")
         if os.path.exists(login_path):
@@ -568,7 +520,8 @@ def _safe_charts_subpath(*parts: str) -> str | None:
 async def serve_charts_viewer(request: Request):
     """Serve the historical chart viewer page (auth-protected)."""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         login_path = os.path.join(_HERE, "login.html")
         if os.path.exists(login_path):
             with open(login_path, encoding="utf-8") as f:
@@ -1038,35 +991,166 @@ async def auth_login(request: Request):
     ip = request.client.host if request.client else "unknown"
     _check_login_rate(ip)
     body = await request.json()
+    username = body.get("username", "").strip()
     password = body.get("password", "")
-    if password == AUTH_PASSWORD:
-        _clear_login_attempts(ip)
-        token = _create_session()
-        resp = JSONResponse({"status": "ok", "message": "Login successful"})
-        # secure=True only when behind HTTPS; current setup is HTTP-only
-        is_https = request.headers.get("x-forwarded-proto") == "https"
-        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax", secure=is_https)
-        return resp
-    _record_failed_login(ip)
-    raise HTTPException(status_code=401, detail="Invalid password")
+
+    # If no username provided, treat as legacy PIN login → look up admin user
+    if not username:
+        username = "admin"
+
+    user = await _db_mod.get_user_by_username(username)
+    if not user:
+        _record_failed_login(ip)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(ip)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Success — create DB session
+    _clear_login_attempts(ip)
+    token = await _auth_mod.create_session(user["id"])
+    await _db_mod.update_last_login(user["id"])
+
+    resp = JSONResponse(
+        {
+            "status": "ok",
+            "message": "Login successful",
+            "username": user["username"],
+            "role": user["role"],
+        }
+    )
+    is_https = request.headers.get("x-forwarded-proto") == "https"
+    resp.set_cookie(
+        "algoforge_session",
+        token,
+        max_age=config.SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=is_https,
+    )
+    return resp
 
 
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
     token = _get_session_token(request)
-    valid = _validate_session(token)
-    return {"authenticated": valid}
+    session = await _validate_session_async(token)
+    if not session:
+        return {"authenticated": False}
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "username": user["username"],
+        "role": user["role"],
+        "user_id": user["id"],
+    }
 
 
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
     token = _get_session_token(request)
-    sessions = _load_sessions()
-    sessions.pop(token, None)
-    _save_sessions(sessions)
+    await _auth_mod.destroy_session(token)
     resp = JSONResponse({"status": "ok"})
     resp.delete_cookie("algoforge_session")
     return resp
+
+
+# ── Admin Routes ──────────────────────────────────────────────────
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(request: Request):
+    """List all users (admin only)."""
+    await _auth_mod.require_admin(request)
+    users = await _db_mod.list_users()
+    return {"users": users}
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(request: Request):
+    """Create a new user (admin only)."""
+    admin = await _auth_mod.require_admin(request)
+    body = await request.json()
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    role = body.get("role", "user")
+    email = body.get("email", "").strip() or None
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if role not in ("admin", "user"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
+    if len(password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+
+    # Check if username already exists
+    existing = await _db_mod.get_user_by_username(username)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Username '{username}' already taken")
+
+    hashed = _auth_mod.hash_password(password)
+    user_id = await _db_mod.create_user(username, hashed, role=role, email=email)
+    _logger.info(f"[Admin] User '{username}' created by '{admin['username']}' (id={user_id})")
+    return {"status": "ok", "user_id": user_id, "username": username, "role": role}
+
+
+@app.put("/api/admin/users/{user_id}/toggle")
+async def admin_toggle_user(user_id: int, request: Request):
+    """Enable or disable a user account (admin only)."""
+    admin = await _auth_mod.require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot disable your own account")
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_state = not bool(user["is_active"])
+    await _db_mod.set_user_active(user_id, new_state)
+    action = "enabled" if new_state else "disabled"
+    _logger.info(f"[Admin] User '{user['username']}' {action} by '{admin['username']}'")
+    return {"status": "ok", "user_id": user_id, "is_active": new_state}
+
+
+@app.put("/api/admin/users/{user_id}/password")
+async def admin_reset_password(user_id: int, request: Request):
+    """Reset a user's password (admin only)."""
+    await _auth_mod.require_admin(request)
+    body = await request.json()
+    new_password = body.get("password", "")
+    if len(new_password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    hashed = _auth_mod.hash_password(new_password)
+    await _db_mod.update_user(user_id, password_hash=hashed)
+    return {"status": "ok", "message": f"Password reset for '{user['username']}'"}
+
+
+# ── User Self-Service Routes ─────────────────────────────────────
+
+
+@app.put("/api/user/password")
+async def change_own_password(request: Request):
+    """Change your own password."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    current = body.get("current_password", "")
+    new_pw = body.get("new_password", "")
+
+    if not _auth_mod.verify_password(current, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if len(new_pw) < 4:
+        raise HTTPException(status_code=400, detail="New password must be at least 4 characters")
+
+    hashed = _auth_mod.hash_password(new_pw)
+    await _db_mod.update_user(user["id"], password_hash=hashed)
+    return {"status": "ok", "message": "Password changed successfully"}
 
 
 # ── Emergency Stop (Kill Switch) ─────────────────────────────────
@@ -1074,7 +1158,7 @@ async def auth_logout(request: Request):
 async def emergency_stop(request: Request):
     """Kill switch: stop ALL running strategies immediately"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     results = {}
@@ -1131,7 +1215,7 @@ async def emergency_stop(request: Request):
 async def dashboard_summary(request: Request):
     """Aggregated dashboard data for the homepage"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Strategies count
@@ -1206,7 +1290,7 @@ async def dashboard_summary(request: Request):
 async def validate_strategy(request: Request):
     """Deep validation of strategy before deployment"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     body = await request.json()
@@ -1307,7 +1391,7 @@ async def validate_strategy(request: Request):
 async def portfolio_summary(request: Request):
     """Aggregated portfolio: balance + positions + unrealized P&L in one call"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     result = {"funds": None, "positions": [], "unrealized_pnl": 0, "total_value": 0, "errors": []}
@@ -3064,9 +3148,10 @@ def _ws_serialize(payload: dict) -> bytes:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    # Authenticate WebSocket via session cookie
+    # Authenticate WebSocket via session cookie (DB-backed)
     token = ws.cookies.get("algoforge_session", "")
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         await ws.close(code=4001, reason="Unauthorized")
         return
     await ws.accept()
@@ -4297,6 +4382,22 @@ if _PROMETHEUS_ENABLED:
 
 
 @app.on_event("startup")
+async def _init_database():
+    """Initialize SQLite database and auto-create admin user if needed."""
+    await _db_mod.init_db()
+    # Auto-create admin user on first run (uses ALGOFORGE_PIN as password)
+    admin = await _db_mod.get_user_by_username("admin")
+    if not admin:
+        pin = AUTH_PASSWORD or "123456"
+        hashed = _auth_mod.hash_password(pin)
+        admin_name = os.getenv("ADMIN_USERNAME", "admin")
+        uid = await _db_mod.create_user(admin_name, hashed, role="admin")
+        print(f"🔐 [Auth] Created admin user '{admin_name}' (id={uid})")
+    else:
+        print(f"🔐 [Auth] Admin user '{admin['username']}' exists (id={admin['id']})")
+
+
+@app.on_event("startup")
 async def _start_token_renewal():
     global _token_renewal_task
     if config.AUTO_TOKEN_ENABLED:
@@ -4507,7 +4608,8 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")
     shutdown_feed()
     await alerter.shutdown()
-    print("🛑 [MarketFeed] WebSocket feed shut down")
+    await _db_mod.close_db()
+    print("🛑 [Shutdown] MarketFeed + DB closed")
 
 
 # ── Feed Status ───────────────────────────────────────────────────
