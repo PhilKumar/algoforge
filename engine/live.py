@@ -34,6 +34,7 @@ import config
 from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
+from engine.timeframes import describe_timeframe, resample_ohlcv, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -376,7 +377,7 @@ class LiveEngine:
 
         self.log_event("start", "🚀 Live Auto-Trading Engine Started (REAL ORDERS)")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
-        self.log_event("info", f"Timeframe: {self._get_timeframe()}m")
+        self.log_event("info", f"Timeframe: {describe_timeframe(self._get_timeframe_spec())}")
         self.log_event("info", f"Max trades/day: {self.strategy.get('max_trades_per_day', 1)}")
         if self.max_daily_loss > 0:
             self.log_event("info", f"Max daily loss: ₹{self.max_daily_loss:,.0f}")
@@ -946,10 +947,8 @@ class LiveEngine:
     # ── Data Fetch ────────────────────────────────────────────
     async def _fetch_live_data(self) -> pd.DataFrame:
         """Fetch live candle data with indicators applied."""
-        timeframe = self._get_timeframe()
-        valid_intervals = [1, 5, 15, 25, 60]
-        resample_from_1m = timeframe not in valid_intervals
-        fetch_tf = 1 if resample_from_1m else timeframe
+        tf_spec = self._get_timeframe_spec()
+        timeframe = tf_spec.requested
 
         instrument = self.strategy.get("instrument", "26000")
         from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -964,17 +963,11 @@ class LiveEngine:
             instrument_type=inst_info.get("dhan_type", "INDEX"),
             from_date=from_date,
             to_date=to_date,
-            candle_type=str(fetch_tf),
+            candle_type=str(tf_spec.fetch),
         )
 
-        # Resample 1m candles to non-standard timeframe (e.g. 3m, 7m)
-        if resample_from_1m and not df_raw.empty:
-            rule = f"{timeframe}min"
-            df_raw = (
-                df_raw.resample(rule)
-                .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
-                .dropna(subset=["open"])
-            )
+        if tf_spec.derived and not df_raw.empty:
+            df_raw = resample_ohlcv(df_raw, timeframe)
 
         indicators = self.strategy.get("indicators", [])
         df = compute_dynamic_indicators(df_raw, indicators)
@@ -1715,15 +1708,13 @@ class LiveEngine:
         }
         return names.get(self.strategy.get("instrument", "26000"), "Unknown")
 
+    def _get_timeframe_spec(self):
+        default = int(self.strategy.get("timeframe_minutes", 5) or 5)
+        return resolve_strategy_timeframe(self.strategy.get("indicators", []), default=default)
+
     def _get_timeframe(self) -> int:
-        """Extract candle timeframe from indicators."""
-        for ind in self.strategy.get("indicators", []):
-            if "_" in ind and ind.endswith("m"):
-                parts = ind.split("_")
-                for p in parts:
-                    if p.endswith("m") and p[:-1].isdigit():
-                        return int(p[:-1])
-        return 5
+        """Extract the execution timeframe from strategy indicators."""
+        return self._get_timeframe_spec().requested
 
     # ── Status ────────────────────────────────────────────────
     def get_status(self) -> dict:

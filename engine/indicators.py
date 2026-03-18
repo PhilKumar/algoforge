@@ -17,6 +17,13 @@ def _clean(s):
     return s.replace([np.inf, -np.inf], np.nan)
 
 
+def _assign_indicator_outputs(df: pd.DataFrame, ind_string: str, outputs: dict, primary_key: str) -> None:
+    """Expose both the raw UI indicator id and per-component output columns."""
+    df[ind_string] = outputs[primary_key]
+    for suffix, series in outputs.items():
+        df[f"{ind_string}_{suffix}"] = series
+
+
 def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
@@ -568,6 +575,16 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
             df["MACD_line"] = macd_df["macd_line"]
             df["MACD_signal"] = macd_df["macd_signal"]
             df["MACD_histogram"] = macd_df["macd_histogram"]
+            _assign_indicator_outputs(
+                df,
+                ind_string,
+                {
+                    "line": macd_df["macd_line"],
+                    "signal": macd_df["macd_signal"],
+                    "histogram": macd_df["macd_histogram"],
+                },
+                primary_key="line",
+            )
 
         # Calculate Bollinger Bands
         elif name == "BB":
@@ -578,10 +595,22 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
             df["BB_middle"] = bb_df["bb_middle"]
             df["BB_lower"] = bb_df["bb_lower"]
             df["BB_width"] = bb_df["bb_width"]
+            _assign_indicator_outputs(
+                df,
+                ind_string,
+                {
+                    "upper": bb_df["bb_upper"],
+                    "middle": bb_df["bb_middle"],
+                    "lower": bb_df["bb_lower"],
+                    "width": bb_df["bb_width"],
+                },
+                primary_key="middle",
+            )
 
         # Calculate VWAP
         elif name == "VWAP":
             df["VWAP"] = vwap(df)
+            df[ind_string] = df["VWAP"]
 
         # Calculate ATR
         elif name == "ATR":
@@ -594,6 +623,15 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
             srsi = stochastic_rsi(df["close"], period)
             df["StochRSI_K"] = srsi["stoch_rsi_k"]
             df["StochRSI_D"] = srsi["stoch_rsi_d"]
+            _assign_indicator_outputs(
+                df,
+                ind_string,
+                {
+                    "K": srsi["stoch_rsi_k"],
+                    "D": srsi["stoch_rsi_d"],
+                },
+                primary_key="K",
+            )
 
         # Calculate ADX
         elif name == "ADX":
@@ -602,6 +640,9 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
             df["ADX"] = adx_df["ADX"]
             df["ADX_plus_di"] = adx_df["ADX_plus_di"]
             df["ADX_minus_di"] = adx_df["ADX_minus_di"]
+            df[ind_string] = adx_df["ADX"]
+            df[f"{ind_string}_plus_di"] = adx_df["ADX_plus_di"]
+            df[f"{ind_string}_minus_di"] = adx_df["ADX_minus_di"]
 
         # Calculate Supertrend
         elif name == "Supertrend":
@@ -669,6 +710,9 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
             window_str = parts[1] if len(parts) > 1 else "15min"
             window_minutes = int(window_str.replace("min", ""))
             df = orb(df, window_minutes=window_minutes)
+            df["ORB_Breakout_Up"] = df["ORB_is_breakout_up"]
+            df["ORB_Breakout_Down"] = df["ORB_is_breakout_down"]
+            df["ORB_Inside"] = df["ORB_is_inside"]
 
         # Current Candle & Previous Day — already computed above, just skip
         elif name in ("Current", "Previous"):

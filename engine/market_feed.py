@@ -45,6 +45,7 @@ import pandas as pd
 
 import config
 from broker.dhan import DhanClient, ScripMaster
+from engine.timeframes import aligned_candle_start, get_fetch_timeframe, is_supported_timeframe, resample_ohlcv
 
 # Try importing dhanhq MarketFeed, fall back gracefully
 _DHAN_FEED_V2 = False  # True = v2.2.0+ MarketFeed (dhan_context), False = v2.0.x DhanFeed (client_id, access_token)
@@ -100,9 +101,7 @@ class CandleAggregator:
 
     def _get_slot(self, ts: datetime) -> datetime:
         """Get the candle slot start time for a given timestamp."""
-        minute = ts.minute
-        slot_minute = (minute // self.tf) * self.tf
-        return ts.replace(minute=slot_minute, second=0, microsecond=0)
+        return aligned_candle_start(ts, self.tf)
 
     def feed_tick(self, price: float, volume: int = 0, ts: datetime = None):
         """Feed a tick into the aggregator. Call this on every LTP update."""
@@ -752,8 +751,8 @@ class LiveMarketFeed:
         Fetch historical candle data via REST API to seed indicators.
         Returns the DataFrame for external use too.
 
-        For non-standard timeframes (3m, 7m etc.), fetches 1m candles
-        and resamples to the target timeframe.
+        For derived timeframes (3m, 30m, 45m, etc.), fetches the closest exact
+        lower native Dhan interval and resamples to the target timeframe.
         """
 
         try:
@@ -780,13 +779,7 @@ class LiveMarketFeed:
             from_date = (_now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
             to_date = _now_ist().strftime("%Y-%m-%d")
 
-            # Dhan supports: 1, 5, 15, 25, 60
-            # For non-standard TFs, fetch 1m and resample
-            standard_tfs = {1, 5, 15, 25, 60}
-            if timeframe in standard_tfs:
-                fetch_tf = str(timeframe)
-            else:
-                fetch_tf = "1"  # fetch 1m, will resample
+            fetch_tf = str(get_fetch_timeframe(timeframe))
 
             df_raw = self.dhan.get_historical_data(
                 security_id=dhan_id,
@@ -802,7 +795,7 @@ class LiveMarketFeed:
                 return df_raw
 
             # Resample if needed
-            if timeframe not in standard_tfs and fetch_tf == "1":
+            if not is_supported_timeframe(timeframe) and not df_raw.empty:
                 df_raw = self._resample(df_raw, timeframe)
 
             self._bootstrap_done = True
@@ -815,22 +808,8 @@ class LiveMarketFeed:
 
     @staticmethod
     def _resample(df: pd.DataFrame, tf_minutes: int) -> pd.DataFrame:
-        """Resample a 1m DataFrame to a custom timeframe."""
-        rule = f"{tf_minutes}min"
-        resampled = (
-            df.resample(rule, label="left", closed="left")
-            .agg(
-                {
-                    "open": "first",
-                    "high": "max",
-                    "low": "min",
-                    "close": "last",
-                    "volume": "sum",
-                }
-            )
-            .dropna(subset=["open"])
-        )
-        return resampled
+        """Resample a lower-timeframe DataFrame to a custom timeframe."""
+        return resample_ohlcv(df, tf_minutes)
 
 
 # ════════════════════════════════════════════════════════════════

@@ -61,6 +61,14 @@ from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, r
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
+from engine.timeframes import (
+    INTRADAY_CHUNK_DAYS,
+    MAX_INTRADAY_HISTORY_DAYS,
+    derived_timeframe_warning,
+    describe_timeframe,
+    resample_ohlcv,
+    resolve_strategy_timeframe,
+)
 
 try:
     from scalp import ScalpEngine as _ScalpEngineClass
@@ -1925,7 +1933,7 @@ INSTRUMENT_MAP = {
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
-INTRADAY_MAX_DAYS = 750  # Dhan intraday API returns ~2 years max; 750 days threshold (~2y + margin)
+INTRADAY_MAX_DAYS = MAX_INTRADAY_HISTORY_DAYS
 
 
 def _fetch_data(
@@ -1933,9 +1941,10 @@ def _fetch_data(
 ) -> pd.DataFrame:
     """
     Fetches OHLCV candles from Dhan API at specified interval.
-    - For date ranges ≤ ~2 years: fetches intraday candles in 28-day chunks.
-    - For date ranges > ~2 years: automatically falls back to DAILY candles
-      (Dhan historical API supports 10+ years of daily data).
+    - Native Dhan intervals are fetched directly.
+    - Derived intervals (e.g. 3m, 30m) fetch the closest exact lower native interval
+      and are resampled locally.
+    - For date ranges > 5 years: automatically falls back to daily candles.
     """
     inst_info = INSTRUMENT_MAP.get(instrument)
     if not inst_info:
@@ -1948,9 +1957,11 @@ def _fetch_data(
     to_dt = dt.strptime(to_date, "%Y-%m-%d")
     day_span = (to_dt - from_dt).days
 
-    # Auto-detect: if range > ~2 years, use daily candles (Dhan intraday limit)
+    # Auto-detect: if range exceeds Dhan intraday history window, use daily candles.
     use_daily = day_span > INTRADAY_MAX_DAYS
-    effective_interval = "D" if use_daily else str(candle_interval)
+    requested_interval = 5 if str(candle_interval).upper() == "D" else int(candle_interval)
+    tf_spec = resolve_strategy_timeframe([f"Current_Candle_{requested_interval}m"])
+    effective_interval = "D" if use_daily else str(tf_spec.fetch)
 
     if use_daily:
         print(
@@ -1960,7 +1971,7 @@ def _fetch_data(
 
     print(
         f"[DATA] Instrument={instrument} ({inst_info['name']}), DhanID={inst_info['dhan_id']}, "
-        f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else candle_interval + 'm'}, "
+        f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else describe_timeframe(tf_spec)}, "
         f"From={from_date}, To={to_date}, Span={day_span}d"
     )
 
@@ -1983,11 +1994,11 @@ def _fetch_data(
             raise Exception(f"Daily data fetch failed: {str(e)}")
         raise Exception(f"No daily data from Dhan for {inst_info['name']}.")
 
-    # Intraday candles — chunk into 28-day windows
+    # Intraday candles — chunk into 90-day windows
     # Dhan rate limit: ~10 requests/second. We add delay + retry on 429.
     import time as _time
 
-    CHUNK_DAYS = 28
+    CHUNK_DAYS = INTRADAY_CHUNK_DAYS
     RATE_LIMIT_DELAY = 0.5  # seconds between API calls
     MAX_RETRIES = 3  # retry on 429 rate-limit errors
     all_dfs = []
@@ -1995,8 +2006,8 @@ def _fetch_data(
     chunk_num = 0
     last_error = None
 
-    while chunk_start < to_dt:
-        chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS), to_dt)
+    while chunk_start <= to_dt:
+        chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), to_dt)
         chunk_num += 1
 
         cs = chunk_start.strftime("%Y-%m-%d")
@@ -2050,8 +2061,16 @@ def _fetch_data(
     # Remove duplicates (overlapping chunk boundaries)
     df = df[~df.index.duplicated(keep="first")]
 
+    if tf_spec.derived:
+        before = len(df)
+        df = resample_ohlcv(df, tf_spec.requested)
+        print(
+            f"[DATA] Resampled {tf_spec.fetch}m → {tf_spec.requested}m: "
+            f"{before} raw candles → {len(df)} derived candles"
+        )
+
     print(
-        f"[DATA] ✅ Total: {len(df)} {candle_interval}-min candles across {chunk_num} chunks, "
+        f"[DATA] ✅ Total: {len(df)} {'daily' if use_daily else describe_timeframe(tf_spec)} candles across {chunk_num} chunks, "
         f"{df.index[0]} → {df.index[-1]}"
     )
     return df
@@ -2064,28 +2083,16 @@ async def api_run_backtest(payload: StrategyPayload):
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
 
-        # Extract timeframe from indicators (e.g., Supertrend_10_3_3m → 3)
-        # Validate against supported Dhan intervals: 1, 5, 15, 25, 60, D
-        candle_interval = "5"  # default
-        valid_intervals = ["1", "5", "15", "25", "60", "D"]
-        if payload.indicators:
-            for ind in payload.indicators:
-                if "_" in ind and ind.endswith("m"):
-                    parts = ind.split("_")
-                    for p in parts:
-                        if p.endswith("m") and p[:-1].isdigit():
-                            candidate = p[:-1]
-                            if candidate in valid_intervals:
-                                candle_interval = candidate
-                            else:
-                                print(f"[BACKTEST] Unsupported timeframe {candidate}m, using 5m")
-                                candle_interval = "5"
-                            break
+        try:
+            tf_spec = resolve_strategy_timeframe(payload.indicators)
+        except ValueError as tf_err:
+            return {"status": "error", "message": str(tf_err)}
+        candle_interval = str(tf_spec.requested)
 
         print(f"\n{'=' * 60}")
         print(f"[BACKTEST] Run: {payload.run_name}")
         print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
-        print(f"[BACKTEST] Timeframe: {candle_interval}-minute candles")
+        print(f"[BACKTEST] Timeframe: {describe_timeframe(tf_spec)}")
         print(f"[BACKTEST] Indicators: {payload.indicators}")
         print(f"[BACKTEST] Entry conditions: {payload.entry_conditions}")
         print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
@@ -2117,6 +2124,7 @@ async def api_run_backtest(payload: StrategyPayload):
 
         # Warn if actual data range is shorter than requested, or if using daily candles
         data_range_warning = None
+        timeframe_warning = derived_timeframe_warning(tf_spec)
         from datetime import datetime as _dtw
 
         _from_dt = _dtw.strptime(from_date, "%Y-%m-%d")
@@ -2126,7 +2134,7 @@ async def api_run_backtest(payload: StrategyPayload):
             data_range_warning = (
                 f"📊 Date range is {_day_span} days — automatically using DAILY candles "
                 f"for full {from_date} → {to_date} coverage. "
-                f"(Dhan intraday API is limited to ~2 years. Daily candles go back 10+ years.)"
+                f"(Dhan intraday history is limited to about 5 years. Daily candles go back further.)"
             )
             print(f"[BACKTEST] {data_range_warning}")
         else:
@@ -2210,6 +2218,13 @@ async def api_run_backtest(payload: StrategyPayload):
 
         if data_range_warning:
             results["data_range_warning"] = data_range_warning
+        if timeframe_warning:
+            results["timeframe_warning"] = timeframe_warning
+        results["timeframe_info"] = {
+            "requested_minutes": tf_spec.requested,
+            "fetch_minutes": tf_spec.fetch,
+            "derived": tf_spec.derived,
+        }
 
         return results
 
@@ -2226,6 +2241,10 @@ async def api_run_backtest(payload: StrategyPayload):
 @app.post("/api/live/start")
 async def live_start(req: LiveStartRequest):
     """Start live auto-trading with full strategy configuration."""
+    try:
+        tf_spec = resolve_strategy_timeframe((req.strategy_config or {}).get("indicators", req.indicators))
+    except ValueError as tf_err:
+        return {"status": "error", "message": str(tf_err)}
     # Build strategy dict from the request
     strategy_dict = {}
     if req.strategy_config:
@@ -2250,6 +2269,7 @@ async def live_start(req: LiveStartRequest):
             "tp_type": req.tp_type,
             "poll_interval": 10,
         }
+    strategy_dict["timeframe_minutes"] = tf_spec.requested
 
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
 
@@ -2498,6 +2518,10 @@ async def paper_start(payload: StrategyPayload):
 
 
 async def _paper_start_impl(payload: StrategyPayload):
+    try:
+        tf_spec = resolve_strategy_timeframe(payload.indicators)
+    except ValueError as tf_err:
+        return {"status": "error", "message": str(tf_err)}
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
         "run_name": payload.run_name,
@@ -2520,6 +2544,7 @@ async def _paper_start_impl(payload: StrategyPayload):
         "tp_type": payload.tp_type,
         "max_daily_loss": payload.max_daily_loss,
         "combined_sqoff_time": payload.combined_sqoff_time,
+        "timeframe_minutes": tf_spec.requested,
     }
 
     # Generate run_id from strategy name
