@@ -3723,7 +3723,7 @@ const STRATEGY_TEMPLATES = {
     max_trades_per_day: 1, max_daily_loss: 3000,
     indicators: ['ORB_15m'],
     entry_conditions: [
-      {left: 'ORB_Breakout_Up', operator: 'is_true', right: 'true', connector: 'AND'},
+      {left: 'ORB_is_breakout_up', operator: 'is_true', right: 'true', connector: 'AND'},
       {left: 'Time_Of_Day', operator: '>=', right_time: '09:30', connector: 'AND'}
     ],
     exit_conditions: [
@@ -3792,8 +3792,8 @@ function loadTemplate(key) {
     if (entryBox) entryBox.innerHTML = '';
     if (exitBox) exitBox.innerHTML = '';
     conditionCounters = { entry: 0, exit: 0 };
-    t.entry_conditions.forEach(c => addConditionRow('entry'));
-    t.exit_conditions.forEach(c => addConditionRow('exit'));
+    populateConditionRows('entry', t.entry_conditions);
+    populateConditionRows('exit', t.exit_conditions);
     // Set legs
     legs = []; legCounter = 0;
     const legsBox = document.getElementById('legs-container');
@@ -6054,10 +6054,83 @@ const BOOLEAN_FIELDS = [
   'CPR_W_is_narrow', 'CPR_W_is_moderate', 'CPR_W_is_wide',
   'CPR_M_is_narrow', 'CPR_M_is_moderate', 'CPR_M_is_wide',
   'ORB_is_breakout_up', 'ORB_is_breakout_down', 'ORB_is_inside',
+  'ORB_Breakout_Up', 'ORB_Breakout_Down', 'ORB_Inside',
 ];
 
 // Special condition types that get custom UIs
 // Special LHS types handled in onLHSChange
+
+function _isDynamicConditionIndicator(indicatorId) {
+  return !indicatorId.startsWith('CPR') &&
+    !indicatorId.startsWith('Current_Candle') &&
+    !indicatorId.startsWith('Signal_Candle') &&
+    indicatorId !== 'Previous_Day' &&
+    !indicatorId.startsWith('ORB');
+}
+
+function _formatIndicatorConditionLabel(indicatorId) {
+  return indicatorId.replace(/_/g, ' ');
+}
+
+function _buildIndicatorConditionOptions(indicatorId) {
+  const label = _formatIndicatorConditionLabel(indicatorId);
+
+  if (indicatorId.startsWith('MACD_')) {
+    return [
+      { value: indicatorId, label: `${label} - Line` },
+      { value: `${indicatorId}_signal`, label: `${label} - Signal` },
+      { value: `${indicatorId}_histogram`, label: `${label} - Histogram` },
+    ];
+  }
+
+  if (indicatorId.startsWith('BB_')) {
+    return [
+      { value: indicatorId, label: `${label} - Middle` },
+      { value: `${indicatorId}_upper`, label: `${label} - Upper` },
+      { value: `${indicatorId}_lower`, label: `${label} - Lower` },
+      { value: `${indicatorId}_width`, label: `${label} - Width %` },
+    ];
+  }
+
+  if (indicatorId.startsWith('StochRSI_')) {
+    return [
+      { value: indicatorId, label: `${label} - %K` },
+      { value: `${indicatorId}_D`, label: `${label} - %D` },
+    ];
+  }
+
+  if (indicatorId.startsWith('ADX_')) {
+    return [
+      { value: indicatorId, label: `${label} - ADX` },
+      { value: `${indicatorId}_plus_di`, label: `${label} - Plus DI` },
+      { value: `${indicatorId}_minus_di`, label: `${label} - Minus DI` },
+    ];
+  }
+
+  return [{ value: indicatorId, label }];
+}
+
+function _buildDynamicIndicatorOptionsHtml() {
+  let html = '';
+  myIndicators.forEach(indicatorId => {
+    if (!_isDynamicConditionIndicator(indicatorId)) return;
+    _buildIndicatorConditionOptions(indicatorId).forEach(opt => {
+      html += `<option value="${opt.value}">${opt.label}</option>`;
+    });
+  });
+  return html;
+}
+
+function ensureConditionOption(select, value, label) {
+  if (!select || value === undefined || value === null || value === '') return;
+  const exists = Array.from(select.options).some(option => option.value === value);
+  if (exists) return;
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label || `${value} (legacy)`;
+  option.dataset.legacy = 'true';
+  select.appendChild(option);
+}
 
 function removeIndicator(id) {
   myIndicators = myIndicators.filter(i => i !== id);
@@ -6131,7 +6204,7 @@ function buildLHSOptions() {
   if (hasORB) { html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasCPR) { const _cc = _buildCPRColumns(); html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; _cc.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasSignalCandle) { html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`; SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
-  myIndicators.forEach(ind => { if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && !ind.startsWith('Signal_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB')) html += `<option value="${ind}">${ind}</option>`; });
+  html += _buildDynamicIndicatorOptionsHtml();
   html += `<optgroup label="\u2500\u2500 Day / Time \u2500\u2500"><option value="Time_Of_Day">Time Of Day</option><option value="Day_Of_Week">Day Of Week</option></optgroup>`;
   return html;
 }
@@ -6178,10 +6251,7 @@ function buildRHSOptions(lhsValue) {
   }
 
   // Add custom indicators
-  myIndicators.forEach(ind => {
-    if (!ind.startsWith('CPR') && !ind.startsWith('Current_Candle') && !ind.startsWith('Signal_Candle') && ind !== 'Previous_Day' && !ind.startsWith('ORB'))
-      html += `<option value="${ind}">${ind}</option>`;
-  });
+  html += _buildDynamicIndicatorOptionsHtml();
 
   // Add "Number" option at the END (not default)
   html += '<option value="number">─── Number (custom value) ───</option>';
@@ -6285,10 +6355,70 @@ function syncConditionDropdowns() {
     if (!lhsSel) return;
     const curLHS = lhsSel.value;
     lhsSel.innerHTML = buildLHSOptions();
-    if (lhsSel.querySelector(`option[value="${curLHS}"]`)) lhsSel.value = curLHS;
+    ensureConditionOption(lhsSel, curLHS);
+    lhsSel.value = curLHS;
     if (curLHS !== 'Time_Of_Day' && curLHS !== 'Day_Of_Week') {
       const rhsSel = row.querySelector('.right-op');
-      if (rhsSel) { const curRHS = rhsSel.value; rhsSel.innerHTML = buildRHSOptions(curLHS); if (rhsSel.querySelector(`option[value="${curRHS}"]`)) rhsSel.value = curRHS; }
+      if (rhsSel) {
+        const curRHS = rhsSel.value;
+        rhsSel.innerHTML = buildRHSOptions(curLHS);
+        ensureConditionOption(rhsSel, curRHS);
+        rhsSel.value = curRHS;
+      }
+    }
+  });
+}
+
+function populateConditionRows(type, conditions) {
+  (conditions || []).forEach((cond, i) => {
+    addConditionRow(type);
+    const row = document.getElementById(`${type}-row-${i}`);
+    if (!row) return;
+
+    const lhsSelect = row.querySelector('.left-op');
+    const defaultOperator = type === 'entry' ? 'is_above' : 'is_below';
+
+    if (lhsSelect) {
+      const lhsValue = cond.left || 'current_close';
+      ensureConditionOption(lhsSelect, lhsValue);
+      lhsSelect.value = lhsValue;
+      onLHSChange(lhsSelect);
+    }
+
+    const opSelect = row.querySelector('.operator');
+    if (opSelect) opSelect.value = cond.operator || defaultOperator;
+
+    if (cond.left === 'Time_Of_Day') {
+      const timeInput = row.querySelector('.time-rhs');
+      if (timeInput) timeInput.value = cond.right_time || '11:00';
+    } else if (cond.left === 'Day_Of_Week') {
+      const days = cond.right_days || [];
+      row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
+    } else {
+      const rhsSelect = row.querySelector('.right-op');
+      const rhsValue = cond.right || 'current_close';
+      if (rhsSelect) {
+        ensureConditionOption(rhsSelect, rhsValue);
+        rhsSelect.value = rhsValue;
+      }
+      if (cond.right === 'number') {
+        const numInput = row.querySelector('.right-num');
+        if (numInput) {
+          numInput.value = cond.right_number_value || '';
+          numInput.style.display = 'block';
+        }
+      }
+    }
+
+    if (i > 0) {
+      const connector = row.previousElementSibling;
+      if (connector && connector.classList.contains('condition-connector')) {
+        const logicSel = connector.querySelector('.logic-op');
+        if (logicSel) {
+          logicSel.value = cond.logic || cond.connector || 'AND';
+          logicSel.dispatchEvent(new Event('change'));
+        }
+      }
     }
   });
 }
@@ -6544,94 +6674,8 @@ async function copyEditStrategy(runId) {
     document.getElementById('entry-conditions-container').innerHTML = '';
     document.getElementById('exit-conditions-container').innerHTML = '';
     conditionCounters = { entry: 0, exit: 0 };
-
-    if (p.entry_conditions && p.entry_conditions.length > 0) {
-      p.entry_conditions.forEach((cond, i) => {
-        addConditionRow('entry');
-        const row = document.getElementById(`entry-row-${i}`);
-        if (!row) return;
-        const lhsSelect = row.querySelector('.left-op');
-        if (lhsSelect) {
-          lhsSelect.value = cond.left || 'current_close';
-          onLHSChange(lhsSelect);
-        }
-        const opSelect = row.querySelector('.operator');
-        if (opSelect) opSelect.value = cond.operator || 'is_above';
-
-        if (cond.left === 'Time_Of_Day') {
-          const ti = row.querySelector('.time-rhs');
-          if (ti) ti.value = cond.right_time || '11:00';
-        } else if (cond.left === 'Day_Of_Week') {
-          const days = cond.right_days || [];
-          row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
-        } else {
-          const rhsSelect = row.querySelector('.right-op');
-          if (rhsSelect) rhsSelect.value = cond.right || 'current_close';
-          if (cond.right === 'number') {
-            const numInput = row.querySelector('.right-num');
-            if (numInput) {
-              numInput.value = cond.right_number_value || '';
-              numInput.style.display = 'block';
-            }
-          }
-        }
-        // Restore AND/OR logic connector
-        if (i > 0) {
-          const connector = row.previousElementSibling;
-          if (connector && connector.classList.contains('condition-connector')) {
-            const logicSel = connector.querySelector('.logic-op');
-            if (logicSel) {
-              logicSel.value = cond.logic || 'AND';
-              logicSel.dispatchEvent(new Event('change'));
-            }
-          }
-        }
-      });
-    }
-
-    if (p.exit_conditions && p.exit_conditions.length > 0) {
-      p.exit_conditions.forEach((cond, i) => {
-        addConditionRow('exit');
-        const row = document.getElementById(`exit-row-${i}`);
-        if (!row) return;
-        const lhsSelect = row.querySelector('.left-op');
-        if (lhsSelect) {
-          lhsSelect.value = cond.left || 'current_close';
-          onLHSChange(lhsSelect);
-        }
-        const opSelect = row.querySelector('.operator');
-        if (opSelect) opSelect.value = cond.operator || 'is_below';
-
-        if (cond.left === 'Time_Of_Day') {
-          const ti = row.querySelector('.time-rhs');
-          if (ti) ti.value = cond.right_time || '11:00';
-        } else if (cond.left === 'Day_Of_Week') {
-          const days = cond.right_days || [];
-          row.querySelectorAll('.day-opt input').forEach(cb => { cb.checked = days.includes(cb.value); });
-        } else {
-          const rhsSelect = row.querySelector('.right-op');
-          if (rhsSelect) rhsSelect.value = cond.right || 'current_close';
-          if (cond.right === 'number') {
-            const numInput = row.querySelector('.right-num');
-            if (numInput) {
-              numInput.value = cond.right_number_value || '';
-              numInput.style.display = 'block';
-            }
-          }
-        }
-        // Restore AND/OR logic connector
-        if (i > 0) {
-          const connector = row.previousElementSibling;
-          if (connector && connector.classList.contains('condition-connector')) {
-            const logicSel = connector.querySelector('.logic-op');
-            if (logicSel) {
-              logicSel.value = cond.logic || 'AND';
-              logicSel.dispatchEvent(new Event('change'));
-            }
-          }
-        }
-      });
-    }
+    populateConditionRows('entry', p.entry_conditions);
+    populateConditionRows('exit', p.exit_conditions);
 
     // Restore legs
     legs = []; legCounter = 0;
@@ -6711,12 +6755,35 @@ function buildPayload() {
   };
 }
 
+function getSelectedStrategyTimeframes(indicators) {
+  const frames = new Set();
+  (indicators || []).forEach(ind => {
+    if (typeof ind !== 'string') return;
+    const parts = ind.split('_').reverse();
+    for (const part of parts) {
+      if (/^\d+m$/.test(part)) {
+        frames.add(parseInt(part.slice(0, -1), 10));
+        break;
+      }
+    }
+  });
+  return Array.from(frames).sort((a, b) => a - b);
+}
+
+function ensureSingleStrategyTimeframe(payload) {
+  const frames = getSelectedStrategyTimeframes(payload.indicators);
+  if (frames.length <= 1) return true;
+  toast(`Mixed indicator timeframes are not supported yet: ${frames.map(f => `${f}m`).join(', ')}`, 'warn', 7000);
+  return false;
+}
+
 // ══════════════════════════════════════════════════════════════
 //  SAVE & BACKTEST
 // ══════════════════════════════════════════════════════════════
 async function saveStrategy() {
   const payload = buildPayload();
   if(!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
+  if (!ensureSingleStrategyTimeframe(payload)) return;
   try {
     const res = await fetch('/api/strategies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (res.ok) { toast('Strategy Saved!', 'success'); fetchStrategies(); }
@@ -6730,6 +6797,7 @@ let lastBacktestPayload = null;
 async function runBacktest() {
   const payload = buildPayload();
   if(!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
+  if (!ensureSingleStrategyTimeframe(payload)) return;
 
   // Switch to results page immediately with loading
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
@@ -6761,6 +6829,9 @@ async function runBacktest() {
       renderResults(data, payload);
       if (data.data_range_warning) {
         toast(data.data_range_warning, 'warn', 8000);
+      }
+      if (data.timeframe_warning) {
+        toast(data.timeframe_warning, 'warn', 8000);
       }
       toast('Backtest Complete! ' + data.stats.total_trades + ' trades', 'success');
       fetchRuns();
@@ -7234,6 +7305,7 @@ let paperStatusInterval = null;
 async function startPaperTrading() {
   const payload = buildPayload();
   if (!payload.instrument) { toast('Select an instrument first', 'warn'); return; }
+  if (!ensureSingleStrategyTimeframe(payload)) return;
   if (!payload.entry_conditions || payload.entry_conditions.length === 0) {
     toast('Add at least one entry condition', 'warn');
     return;
@@ -7547,6 +7619,10 @@ async function deployStrategy() {
 
   if (!payload.instrument) {
     toast('No instrument selected. Open a strategy or run a backtest first.', 'warn');
+    closeDeployModal();
+    return;
+  }
+  if (!ensureSingleStrategyTimeframe(payload)) {
     closeDeployModal();
     return;
   }

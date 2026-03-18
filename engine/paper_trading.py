@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
+from engine.timeframes import describe_timeframe, resample_ohlcv, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -321,7 +322,7 @@ class PaperTradingEngine:
         self.max_daily_loss = float(self.strategy.get("max_daily_loss", 0) or 0)
         self.log_event("start", "🚀 Paper Trading Engine Started (LIVE DATA MODE)")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
-        self.log_event("info", f"Timeframe: {self._get_timeframe()} minutes")
+        self.log_event("info", f"Timeframe: {describe_timeframe(self._get_timeframe_spec())}")
         self.log_event("info", f"Max trades/day: {self.strategy.get('max_trades_per_day', 1)}")
         if self.max_daily_loss > 0:
             self.log_event("info", f"Max daily loss: ₹{self.max_daily_loss:,.0f}")
@@ -806,11 +807,8 @@ class PaperTradingEngine:
         """Fetch live candle data with indicators"""
         from datetime import timedelta
 
-        # Validate timeframe — resample from 1m for non-standard intervals
-        timeframe = self._get_timeframe()
-        valid_intervals = [1, 5, 15, 25, 60]
-        resample_from_1m = timeframe not in valid_intervals
-        fetch_tf = 1 if resample_from_1m else timeframe
+        tf_spec = self._get_timeframe_spec()
+        timeframe = tf_spec.requested
 
         instrument = self.strategy.get("instrument", "26000")
 
@@ -828,18 +826,12 @@ class PaperTradingEngine:
             instrument_type=inst_info.get("dhan_type", "INDEX"),
             from_date=from_date,
             to_date=to_date,
-            candle_type=str(fetch_tf),
+            candle_type=str(tf_spec.fetch),
         )
 
-        # Resample 1m candles to the requested non-standard timeframe (e.g. 3m, 7m)
-        if resample_from_1m and not df_raw.empty:
-            rule = f"{timeframe}min"
-            df_raw = (
-                df_raw.resample(rule)
-                .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
-                .dropna(subset=["open"])
-            )
-            print(f"[PAPER] Resampled 1m → {timeframe}m: {len(df_raw)} candles")
+        if tf_spec.derived and not df_raw.empty:
+            df_raw = resample_ohlcv(df_raw, timeframe)
+            print(f"[PAPER] Resampled {tf_spec.fetch}m → {timeframe}m: {len(df_raw)} candles")
 
         # Apply indicators
         indicators = self.strategy.get("indicators", [])
@@ -1419,16 +1411,13 @@ class PaperTradingEngine:
         sym_map = {"26000": "NIFTY", "26009": "BANKNIFTY", "1": "SENSEX", "26017": "FINNIFTY", "26037": "MIDCPNIFTY"}
         return sym_map.get(self.strategy.get("instrument", "26000"), "NIFTY")
 
+    def _get_timeframe_spec(self):
+        default = int(self.strategy.get("timeframe_minutes", 5) or 5)
+        return resolve_strategy_timeframe(self.strategy.get("indicators", []), default=default)
+
     def _get_timeframe(self) -> int:
-        """Extract timeframe from indicators"""
-        indicators = self.strategy.get("indicators", [])
-        for ind in indicators:
-            if "_" in ind and ind.endswith("m"):
-                parts = ind.split("_")
-                for p in parts:
-                    if p.endswith("m") and p[:-1].isdigit():
-                        return int(p[:-1])
-        return 5  # default
+        """Extract the execution timeframe from strategy indicators."""
+        return self._get_timeframe_spec().requested
 
     def get_status(self) -> dict:
         """Get current status for UI"""
