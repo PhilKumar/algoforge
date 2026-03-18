@@ -59,7 +59,7 @@ import auth as _auth_mod
 import config
 import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
-from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, run_backtest
+from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
@@ -2102,6 +2102,13 @@ INSTRUMENT_MAP = {
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
 INTRADAY_MAX_DAYS = MAX_INTRADAY_HISTORY_DAYS
+ROLLING_OPTION_CHUNK_DAYS = 30
+ROLLING_EXPIRY_SELECTIONS = {
+    "current_week": ("WEEK", 0),
+    "next_week": ("WEEK", 1),
+    "current_month": ("MONTH", 0),
+    "next_month": ("MONTH", 1),
+}
 
 
 def _fetch_data(
@@ -2244,6 +2251,195 @@ def _fetch_data(
     return df
 
 
+def _format_rolling_strike(offset_steps: int) -> str:
+    if offset_steps == 0:
+        return "ATM"
+    sign = "+" if offset_steps > 0 else "-"
+    return f"ATM{sign}{abs(offset_steps)}"
+
+
+def _resolve_rolling_strike_alias(leg: dict, strike_step: int, max_offset: int) -> tuple[str | None, str | None]:
+    strike_type = str(leg.get("strike_type", "atm") or "atm").lower()
+    strike_value = float(leg.get("strike_value", 0) or 0)
+    option_type = str(leg.get("option_type", "CE") or "CE").upper()
+
+    if strike_type == "atm":
+        return "ATM", None
+
+    if strike_type in ("otm", "itm"):
+        offset_steps = int(round(abs(strike_value) / strike_step)) if strike_step > 0 else 0
+        if offset_steps == 0:
+            return "ATM", None
+        signed_steps = offset_steps if strike_type == "otm" else -offset_steps
+        if option_type == "PE":
+            signed_steps *= -1
+        if abs(signed_steps) > max_offset:
+            return None, f"rolling options support up to ATM±{max_offset}, requested {strike_type} {offset_steps}"
+        return _format_rolling_strike(signed_steps), None
+
+    if strike_type == "spot_price":
+        offset_steps = int(round(strike_value / strike_step)) if strike_step > 0 else 0
+        if abs(offset_steps) > max_offset:
+            return None, f"rolling options support up to ATM±{max_offset}, requested spot offset {offset_steps}"
+        return _format_rolling_strike(offset_steps), None
+
+    if strike_type == "strike_price":
+        return None, "fixed strike backtests are not representable on Dhan rolling options API"
+    if strike_type in ("premium_near", "premium_above", "premium_below"):
+        return None, "premium-target strike selection is not representable on Dhan rolling options API"
+    return None, f"unsupported strike type '{strike_type}' for historical option pricing"
+
+
+def _resample_option_history(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    agg_map = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+    }
+    if "volume" in df.columns:
+        agg_map["volume"] = "sum"
+    for field in ("oi", "iv", "strike", "spot"):
+        if field in df.columns:
+            agg_map[field] = "last"
+
+    return (
+        df.sort_index()
+        .resample(
+            f"{timeframe_minutes}min",
+            label="left",
+            closed="left",
+            origin="start_day",
+            offset="15min",
+        )
+        .agg(agg_map)
+        .dropna(subset=["open"])
+    )
+
+
+def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: str, to_date: str) -> dict:
+    legs = strategy_config.get("legs") or []
+    option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
+    pricing_info = {
+        "historical_legs": 0,
+        "synthetic_legs": len(option_legs),
+        "warnings": [],
+    }
+    if not option_legs:
+        return pricing_info
+
+    if tf_spec.requested <= 0:
+        pricing_info["warnings"].append("Invalid timeframe for option history fetch; using synthetic premiums.")
+        return pricing_info
+
+    inst_info = INSTRUMENT_MAP.get(strategy_config.get("instrument", ""))
+    if not inst_info:
+        pricing_info["warnings"].append("Unknown instrument for option history fetch; using synthetic premiums.")
+        return pricing_info
+
+    if str(tf_spec.requested).upper() == "D":
+        pricing_info["warnings"].append(
+            "Daily option candles are not available on Dhan rolling options API; using synthetic premiums."
+        )
+        return pricing_info
+
+    option_exchange_segment = "BSE_FNO" if strategy_config.get("instrument") == "1" else "NSE_FNO"
+    option_instrument_type = "OPTIDX" if inst_info["dhan_type"] == "INDEX" else "OPTSTK"
+    strike_step = get_strike_step(strategy_config.get("instrument", "26000"))
+    max_offset = 10 if option_instrument_type == "OPTIDX" else 3
+
+    from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+    to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+    history_cache = {}
+
+    import time as _time
+
+    for leg_index, leg in enumerate(legs):
+        if leg.get("option_type") not in ("CE", "PE"):
+            continue
+
+        expiry_selection = str(leg.get("expiry") or "current_week")
+        expiry_params = ROLLING_EXPIRY_SELECTIONS.get(expiry_selection)
+        if not expiry_params:
+            pricing_info["warnings"].append(
+                f"Leg {leg_index + 1}: expiry '{expiry_selection}' is not supported for rolling option history; using synthetic premiums."
+            )
+            continue
+
+        strike_alias, reason = _resolve_rolling_strike_alias(leg, strike_step, max_offset)
+        if not strike_alias:
+            pricing_info["warnings"].append(f"Leg {leg_index + 1}: {reason}; using synthetic premiums.")
+            continue
+
+        expiry_flag, expiry_code = expiry_params
+        option_side = "CALL" if str(leg.get("option_type", "CE")).upper() == "CE" else "PUT"
+        history_key = (
+            f"{inst_info['dhan_id']}|{option_exchange_segment}|{option_instrument_type}|"
+            f"{expiry_flag}|{expiry_code}|{strike_alias}|{option_side}|{tf_spec.requested}"
+        )
+
+        if history_key not in history_cache:
+            all_dfs = []
+            chunk_start = from_dt
+            last_error = None
+            while chunk_start <= to_dt:
+                chunk_end_exclusive = min(
+                    chunk_start + timedelta(days=ROLLING_OPTION_CHUNK_DAYS), to_dt + timedelta(days=1)
+                )
+                try:
+                    df_chunk = dhan.get_rolling_option_data(
+                        security_id=inst_info["dhan_id"],
+                        exchange_segment=option_exchange_segment,
+                        instrument_type=option_instrument_type,
+                        expiry_flag=expiry_flag,
+                        expiry_code=expiry_code,
+                        strike=strike_alias,
+                        option_type=option_side,
+                        from_date=chunk_start.strftime("%Y-%m-%d"),
+                        to_date=chunk_end_exclusive.strftime("%Y-%m-%d"),
+                        interval=str(tf_spec.fetch),
+                    )
+                    if df_chunk is not None and not df_chunk.empty:
+                        all_dfs.append(df_chunk)
+                except Exception as exc:
+                    last_error = str(exc)
+                    break
+                _time.sleep(0.25)
+                chunk_start = chunk_end_exclusive
+
+            if all_dfs:
+                df_hist = pd.concat(all_dfs).sort_index()
+                df_hist = df_hist[~df_hist.index.duplicated(keep="first")]
+                if tf_spec.derived:
+                    df_hist = _resample_option_history(df_hist, tf_spec.requested)
+                history_cache[history_key] = df_hist
+            else:
+                history_cache[history_key] = pd.DataFrame()
+                warning = (
+                    f"Leg {leg_index + 1}: no rolling option data returned for {strike_alias} {option_side} "
+                    f"({expiry_selection}); using synthetic premiums."
+                )
+                if last_error:
+                    warning += f" Last error: {last_error}"
+                pricing_info["warnings"].append(warning)
+
+        df_hist = history_cache.get(history_key)
+        if df_hist is None or df_hist.empty:
+            continue
+
+        leg["_bt_option_history_key"] = history_key
+        leg["_bt_option_pricing"] = "historical"
+        leg["_bt_option_history_label"] = strike_alias
+        pricing_info["historical_legs"] += 1
+
+    pricing_info["synthetic_legs"] = max(0, len(option_legs) - pricing_info["historical_legs"])
+    strategy_config["_option_history"] = history_cache
+    return pricing_info
+
+
 # ── Backtest ──────────────────────────────────────────────────────
 @app.post("/api/backtest")
 async def api_run_backtest(payload: StrategyPayload, request: Request):
@@ -2265,7 +2461,6 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         print(f"[BACKTEST] Entry conditions: {payload.entry_conditions}")
         print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
         print(f"[BACKTEST] Legs: {payload.legs}")
-        print("[BACKTEST] ⚠️  Using ESTIMATED option premiums (not historical data)")
         print(f"{'=' * 60}")
 
         # 1. Fetch data with segment-aware routing + fallback
@@ -2319,6 +2514,17 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 
         # 2. Build strategy_config
         strategy_config = payload.model_dump()
+        option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
+        if option_pricing["historical_legs"] > 0:
+            print(
+                f"[BACKTEST] Option pricing: historical rolling candles for "
+                f"{option_pricing['historical_legs']} leg(s), synthetic fallback for "
+                f"{option_pricing['synthetic_legs']} leg(s)"
+            )
+        elif any((leg or {}).get("option_type") in ("CE", "PE") for leg in (payload.legs or [])):
+            print("[BACKTEST] ⚠️  Option pricing: synthetic premiums only (no usable rolling historical data)")
+        for warning in option_pricing["warnings"]:
+            print(f"[BACKTEST] ⚠️  {warning}")
 
         # 3. Run backtest
         print("[BACKTEST] Running backtest engine...")
@@ -2373,6 +2579,11 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "fee_pct": getattr(payload, "fee_pct", 0.0),
                 "trailing_sl_pct": getattr(payload, "trailing_sl_pct", 0.0),
                 "deploy_config": getattr(payload, "deploy_config", None),
+                "option_pricing": {
+                    "historical_legs": option_pricing["historical_legs"],
+                    "synthetic_legs": option_pricing["synthetic_legs"],
+                },
+                "option_pricing_warnings": option_pricing["warnings"],
                 "stats": results["stats"],
                 "monthly": results.get("monthly", []),
                 "day_of_week": results.get("day_of_week", []),
@@ -2393,6 +2604,12 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             results["data_range_warning"] = data_range_warning
         if timeframe_warning:
             results["timeframe_warning"] = timeframe_warning
+        if option_pricing["warnings"]:
+            results["option_pricing_warnings"] = option_pricing["warnings"]
+        results["option_pricing"] = {
+            "historical_legs": option_pricing["historical_legs"],
+            "synthetic_legs": option_pricing["synthetic_legs"],
+        }
         results["timeframe_info"] = {
             "requested_minutes": tf_spec.requested,
             "fetch_minutes": tf_spec.fetch,

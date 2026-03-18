@@ -1063,14 +1063,7 @@ class LiveEngine:
         instrument = self.strategy.get("instrument", "26000")
         underlying = ScripMaster.instrument_to_symbol(instrument)
         strike_step = get_strike_step(instrument)
-        expiry = ScripMaster.get_nearest_expiry(underlying)
-        if not expiry:
-            self.log_event("error", f"No expiry found for {underlying} — cannot place order")
-            return
-
-        lot_size = ScripMaster.get_lot_size(underlying, expiry)
-        if lot_size == 0:
-            lot_size = get_lot_size(instrument, self.session_date)
+        session_date_str = self.session_date.strftime("%Y-%m-%d") if self.session_date else None
 
         product_type = self.deploy_config.get("product_type", "INTRADAY")
         # Map common aliases to Dhan API values
@@ -1083,6 +1076,15 @@ class LiveEngine:
         # ── Phase 1: Resolve all strikes (may need premium scan) ──
         leg_plans = []  # (leg_idx, leg, strike, scanned_premium, quantity, opt_type, txn_type)
         for i, leg in enumerate(legs):
+            expiry = ScripMaster.resolve_expiry(underlying, leg.get("expiry"), session_date_str)
+            if not expiry:
+                self.log_event("error", f"No expiry found for {underlying} leg {i + 1} — cannot place order")
+                return
+
+            lot_size = ScripMaster.get_lot_size(underlying, expiry)
+            if lot_size == 0:
+                lot_size = get_lot_size(instrument, self.session_date)
+
             strike_type = leg.get("strike_type", "atm")
             strike_value = leg.get("strike_value", 0)
             opt_type = leg.get("option_type", "CE")
@@ -1109,11 +1111,13 @@ class LiveEngine:
             if self._ws_mode and self._feed:
                 ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
 
-            leg_plans.append((i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id))
+            leg_plans.append(
+                (i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id, expiry, lot_size)
+            )
 
         # ── Phase 2: Fire all leg orders in parallel (asyncio.gather) ──
         async def _place_one_leg(plan):
-            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id = plan
+            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id, expiry, lot_size = plan
             trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
             self.log_event(
                 "entry", f"🦿 Leg {i + 1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
@@ -1143,6 +1147,8 @@ class LiveEngine:
                     txn_type,
                     lots,
                     ws_sec_id,
+                    expiry,
+                    lot_size,
                     order_id,
                     trading_symbol,
                 )
@@ -1159,6 +1165,8 @@ class LiveEngine:
                     txn_type,
                     lots,
                     ws_sec_id,
+                    expiry,
+                    lot_size,
                     None,
                     trading_symbol,
                 )
@@ -1180,6 +1188,8 @@ class LiveEngine:
                 txn_type,
                 lots,
                 ws_sec_id,
+                expiry,
+                lot_size,
                 order_id,
                 trading_symbol,
             ) = res

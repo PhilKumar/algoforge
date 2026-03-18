@@ -35,6 +35,7 @@ LOT_SIZES = {
     "NIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 75), (date(2000, 1, 1), 50)],
     "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2024, 11, 20), 30), (date(2000, 1, 1), 25)],
     "FINNIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 65), (date(2000, 1, 1), 40)],
+    "MIDCPNIFTY": [(date(2026, 1, 1), 50), (date(2024, 11, 20), 75), (date(2000, 1, 1), 75)],
     "SENSEX": [(date(2026, 1, 1), 20), (date(2024, 11, 20), 20), (date(2000, 1, 1), 10)],
 }
 
@@ -45,6 +46,8 @@ def _instrument_family(instrument):
         return "BANKNIFTY"
     if "26017" in token or "FIN" in token:
         return "FINNIFTY"
+    if "26037" in token or "MID" in token:
+        return "MIDCPNIFTY"
     if token == "1" or "SENSEX" in token:
         return "SENSEX"
     if "26000" in token or token == "NIFTY" or "NIFTY" in token:
@@ -57,6 +60,7 @@ def _instrument_label(instrument):
         "NIFTY": "NIFTY",
         "BANKNIFTY": "BANKNIFTY",
         "FINNIFTY": "NIFTY FINSVC",
+        "MIDCPNIFTY": "MIDCPNIFTY",
         "SENSEX": "SENSEX",
     }
     family = _instrument_family(instrument)
@@ -79,6 +83,8 @@ def get_strike_step(instrument):
     """ATM strike rounding: 50 for NIFTY, 100 for BANKNIFTY/SENSEX"""
     if "26009" in str(instrument) or "BANK" in str(instrument).upper():
         return 100
+    elif "26037" in str(instrument) or "MID" in str(instrument).upper():
+        return 25
     elif "1" == str(instrument) or "SENSEX" in str(instrument).upper():
         return 100
     return 50
@@ -510,6 +516,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
     instrument = sc.get("instrument", "26000")
     strike_step = get_strike_step(instrument)
+    option_history_map = sc.get("_option_history", {}) or {}
 
     df_raw = df_raw.copy()
     df_raw["Day_of_Week"] = df_raw.index.dayofweek
@@ -551,7 +558,35 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     )
     print(f"[BT] option_legs={len(option_legs)} instrument={instrument} sqoff={combined_sqoff}")
 
-    def _position_price(position, spot_price):
+    def _history_row(position, ts):
+        history_key = position.get("option_history_key")
+        if not history_key or ts is None:
+            return None
+        history_df = option_history_map.get(history_key)
+        if history_df is None or history_df.empty or ts not in history_df.index:
+            return None
+        row = history_df.loc[ts]
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[-1]
+        return row
+
+    def _history_value(position, ts, field, default=None):
+        row = _history_row(position, ts)
+        if row is None:
+            return default
+        value = row.get(field, default)
+        try:
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    def _position_price(position, spot_price, ts=None, field="close"):
+        if position["is_option"] and position.get("pricing_mode") == "historical":
+            hist_price = _history_value(position, ts, field)
+            if hist_price is not None:
+                return hist_price
         if position["is_option"]:
             return _est_prem(
                 spot_price,
@@ -562,10 +597,21 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             )
         return spot_price
 
-    def _position_snapshots(position, close_spot, high_spot, low_spot):
-        current_price = _position_price(position, close_spot)
-        high_price = _position_price(position, high_spot)
-        low_price = _position_price(position, low_spot)
+    def _position_snapshots(position, ts, close_spot, high_spot, low_spot):
+        if position["is_option"] and position.get("pricing_mode") == "historical":
+            current_price = _position_price(position, close_spot, ts, "close")
+            high_price = _position_price(position, high_spot, ts, "high")
+            low_price = _position_price(position, low_spot, ts, "low")
+            actual_strike = _history_value(position, ts, "strike")
+            if actual_strike is not None:
+                position["strike"] = int(round(actual_strike))
+                position["display_symbol"] = (
+                    f"{position['underlying_symbol']} {position['strike']} {position['option_type']}"
+                )
+        else:
+            current_price = _position_price(position, close_spot)
+            high_price = _position_price(position, high_spot)
+            low_price = _position_price(position, low_spot)
         if position["transaction_type"] == "BUY":
             worst_price = min(current_price, high_price, low_price)
             best_price = max(current_price, high_price, low_price)
@@ -650,6 +696,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         if option_legs:
             for leg_num, leg in enumerate(option_legs, start=1):
                 leg_lots = int(leg.get("lots", base_lots) or base_lots or 1)
+                history_key = leg.get("_bt_option_history_key")
                 strike_used, entry_price, display_symbol, atm_prem = _resolve_option_entry(
                     instrument,
                     leg["option_type"],
@@ -659,6 +706,23 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     trade_date,
                     strike_step,
                 )
+                pricing_mode = "synthetic"
+                if history_key:
+                    history_row = None
+                    history_df = option_history_map.get(history_key)
+                    if history_df is not None and not history_df.empty and entry_ts in history_df.index:
+                        history_row = history_df.loc[entry_ts]
+                        if isinstance(history_row, pd.DataFrame):
+                            history_row = history_row.iloc[-1]
+                    if history_row is not None:
+                        hist_open = history_row.get("open")
+                        hist_strike = history_row.get("strike")
+                        if hist_open is not None and not pd.isna(hist_open):
+                            entry_price = float(hist_open)
+                            pricing_mode = "historical"
+                        if hist_strike is not None and not pd.isna(hist_strike):
+                            strike_used = int(round(float(hist_strike)))
+                            display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
                 positions.append(
                     {
                         "entry_group": trade_group_id,
@@ -670,6 +734,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "entry_spot": entry_spot,
                         "entry_price": entry_price,
                         "display_symbol": display_symbol,
+                        "underlying_symbol": _instrument_label(instrument),
                         "strike": strike_used,
                         "lots": leg_lots,
                         "lot_size": day_lot_size,
@@ -684,6 +749,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "sqoff_time": _parse_time(leg.get("sqoff_time", combined_sqoff.strftime("%H:%M"))),
                         "peak_premium": entry_price,
                         "atm_prem_ref": atm_prem,
+                        "pricing_mode": pricing_mode,
+                        "option_history_key": history_key if pricing_mode == "historical" else None,
                     }
                 )
         else:
@@ -698,6 +765,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     "entry_spot": entry_spot,
                     "entry_price": entry_spot,
                     "display_symbol": _instrument_label(instrument),
+                    "underlying_symbol": _instrument_label(instrument),
                     "strike": None,
                     "lots": base_lots,
                     "lot_size": day_lot_size,
@@ -712,6 +780,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     "sqoff_time": combined_sqoff,
                     "peak_premium": entry_spot,
                     "atm_prem_ref": 0.0,
+                    "pricing_mode": "spot",
+                    "option_history_key": None,
                 }
             )
 
@@ -733,7 +803,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if open_positions and ld is not None and not is_daily:
                 day_open = float(row["open"])
                 _close_selected_positions(
-                    list(open_positions), ts, lambda position, spot=day_open: _position_price(position, spot), "EOD"
+                    list(open_positions),
+                    ts,
+                    lambda position, spot=day_open, exit_ts=ts: _position_price(position, spot, exit_ts, "open"),
+                    "EOD",
                 )
                 exited_this_candle = True
             trades_today = 0
@@ -753,7 +826,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             portfolio_worst_pnl = 0.0
             portfolio_best_pnl = 0.0
             for position in open_positions:
-                snap = _position_snapshots(position, close_spot, high_spot, low_spot)
+                snap = _position_snapshots(position, ts, close_spot, high_spot, low_spot)
                 snapshots[id(position)] = snap
                 portfolio_cur_pnl += _position_pnl(position, snap["current"])
                 portfolio_worst_pnl += _position_pnl(position, snap["worst"])
@@ -797,7 +870,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         _close_selected_positions(
                             list(open_positions),
                             ts,
-                            lambda position, spot=touch_spot: _position_price(position, spot),
+                            lambda position, spot=touch_spot, exit_ts=ts: _position_price(
+                                position, spot, exit_ts, "close"
+                            ),
                             "Touch",
                         )
                         exited_this_candle = True
@@ -811,7 +886,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     _close_selected_positions(
                         list(open_positions),
                         ts,
-                        lambda position, spot=next_open: _position_price(position, spot),
+                        lambda position, spot=next_open, exit_ts=ts: _position_price(position, spot, exit_ts, "open"),
                         "Signal",
                     )
                     exited_this_candle = True
@@ -951,7 +1026,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         _close_selected_positions(
             list(open_positions),
             prev_row.name,
-            lambda position, spot=final_spot: _position_price(position, spot),
+            lambda position, spot=final_spot, exit_ts=prev_row.name: _position_price(position, spot, exit_ts, "close"),
             "EOD/Data",
         )
 

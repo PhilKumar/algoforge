@@ -1079,23 +1079,29 @@ class PaperTradingEngine:
         # Use user-configured lot_size if set, else from ScripMaster
         user_lot_size = int(self.strategy.get("lot_size", 0) or 0)
         symbol = self._get_symbol_name()
-        expiry = ScripMaster.get_nearest_expiry(symbol)
+        session_date_str = self.session_date.strftime("%Y-%m-%d") if self.session_date else None
 
-        if user_lot_size > 0:
-            lot_size = user_lot_size
-        else:
-            lot_size = (
-                ScripMaster.get_lot_size(symbol, expiry) if expiry else get_lot_size(instrument, self.session_date)
-            )
-
-        lots = int(self.strategy.get("lots", 1) or 1)
-
-        self.log_event("info", f"📊 Expiry: {expiry} | Lot size: {lot_size} | Lots: {lots}")
+        default_lots = int(self.strategy.get("lots", 1) or 1)
 
         for i, leg in enumerate(legs):
+            expiry = ScripMaster.resolve_expiry(symbol, leg.get("expiry"), session_date_str)
+            if not expiry:
+                self.log_event("error", f"No expiry found for {symbol} leg {i + 1} — cannot enter trade")
+                continue
+
+            if user_lot_size > 0:
+                lot_size = user_lot_size
+            else:
+                lot_size = (
+                    ScripMaster.get_lot_size(symbol, expiry) if expiry else get_lot_size(instrument, self.session_date)
+                )
+
             option_type = leg.get("option_type", "PE")
             strike_type = leg.get("strike_type", "atm")
             strike_value = leg.get("strike_value", 0)
+            leg_lots = leg.get("lots", default_lots)
+
+            self.log_event("info", f"📊 Leg {i + 1} expiry: {expiry} | Lot size: {lot_size} | Lots: {leg_lots}")
 
             # Calculate strike — handle premium-based types by scanning real LTP
             scanned_premium = 0.0
@@ -1120,8 +1126,6 @@ class PaperTradingEngine:
                 # Fallback to estimation
                 entry_premium = await self._estimate_premium(strike, self.current_spot, option_type, strike_step)
                 self.log_event("warning", f"Using estimated premium: ₹{entry_premium:.2f}")
-
-            leg_lots = leg.get("lots", lots)
 
             option_name = f"{symbol} {strike} {option_type}"
 
