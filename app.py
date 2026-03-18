@@ -267,6 +267,34 @@ def _get_bootstrap_admin_password() -> str:
     return AUTH_PASSWORD
 
 
+def _request_user_id(request: Request) -> int:
+    """Return the authenticated user id from middleware state."""
+    user_id = getattr(request.state, "user_id", 0)
+    return int(user_id or 0)
+
+
+async def _resolve_history_user_id(explicit_user_id: int | None = None, source: dict | None = None) -> int:
+    """Resolve a run-history owner from request context, engine state, or admin fallback."""
+    candidates: list[object] = [explicit_user_id]
+    if isinstance(source, dict):
+        candidates.append(source.get("_user_id"))
+        candidates.append(source.get("user_id"))
+        strategy = source.get("strategy")
+        if isinstance(strategy, dict):
+            candidates.append(strategy.get("_user_id"))
+            candidates.append(strategy.get("user_id"))
+    for candidate in candidates:
+        try:
+            if candidate is not None and str(candidate).strip():
+                return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    admin = await _get_preferred_admin_user()
+    if admin:
+        return int(admin["id"])
+    raise RuntimeError("No user context available for run history persistence")
+
+
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
 # These bridge the old middleware (sync-ish) to the async DB via asyncio
 
@@ -1289,10 +1317,11 @@ async def dashboard_summary(request: Request):
     token = _get_session_token(request)
     if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _request_user_id(request)
 
     # Strategies count
-    strats = _load()
-    runs = _load_runs()
+    strats = await _db_mod.list_strategies(user_id)
+    runs = await _db_mod.list_runs(user_id)
 
     # Active engines
     paper_running = any(e.running for e in paper_engines.values())
@@ -1493,11 +1522,10 @@ async def portfolio_summary(request: Request):
 
 # ── Strategy Versioning ──────────────────────────────────────────
 @app.get("/api/strategies/{sid}/versions")
-async def get_strategy_versions(sid: int):
-    strats = _load()
-    for s in strats:
-        if s.get("id") == sid:
-            return {"versions": s.get("versions", [])}
+async def get_strategy_versions(sid: int, request: Request):
+    strategy = await _db_mod.get_strategy(_request_user_id(request), sid)
+    if strategy:
+        return {"versions": strategy.get("versions", [])}
     raise HTTPException(status_code=404, detail="Strategy not found")
 
 
@@ -1822,9 +1850,10 @@ async def backfill_status():
 
 
 @app.get("/api/portfolio/history")
-async def get_portfolio_history():
+async def get_portfolio_history(request: Request):
     """Return combined historical P&L from real trades + paper runs for monthly/yearly charts."""
     try:
+        user_id = _request_user_id(request)
         daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
 
         # 1) Real trade history from trade_history.json
@@ -1849,8 +1878,8 @@ async def get_portfolio_history():
             daily[date_str]["real_trade_legs"] = entry.get("trade_legs", entry.get("trades", 0))
             daily[date_str]["real_wins"] = entry.get("wins", 0)
 
-        # 2) Paper runs from runs.json
-        runs = _load_runs()
+        # 2) Paper runs from the user's saved history
+        runs = await _db_mod.list_runs(user_id)
         for r in runs:
             if r.get("mode") != "paper":
                 continue
@@ -2207,7 +2236,7 @@ def _fetch_data(
 
 # ── Backtest ──────────────────────────────────────────────────────
 @app.post("/api/backtest")
-async def api_run_backtest(payload: StrategyPayload):
+async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
@@ -2314,11 +2343,7 @@ async def api_run_backtest(payload: StrategyPayload):
 
         # Save the run
         if results.get("status") == "success":
-            runs = _load_runs()
-            # Use max ID to avoid duplicates after deletes
-            max_id = max([r.get("id", 0) for r in runs], default=0)
             run_entry = {
-                "id": max_id + 1,
                 "mode": "backtest",
                 "run_name": payload.run_name,
                 "folder": payload.folder,
@@ -2353,10 +2378,9 @@ async def api_run_backtest(payload: StrategyPayload):
             all_trades = results.get("trades", [])
             run_entry["trades"] = all_trades
             run_entry["equity"] = results.get("equity", [])
-            runs.append(run_entry)
-            _save_runs(runs)
-            results["run_id"] = run_entry["id"]
-            print(f"[BACKTEST] Saved as Run #{run_entry['id']}")
+            saved_run = await _db_mod.create_run_record(_request_user_id(request), run_entry)
+            results["run_id"] = saved_run["id"]
+            print(f"[BACKTEST] Saved as Run #{saved_run['id']}")
 
         if data_range_warning:
             results["data_range_warning"] = data_range_warning
@@ -2374,8 +2398,9 @@ async def api_run_backtest(payload: StrategyPayload):
 
 # ── Live Engine ───────────────────────────────────────────────────
 @app.post("/api/live/start")
-async def live_start(req: LiveStartRequest):
+async def live_start(req: LiveStartRequest, request: Request):
     """Start live auto-trading with full strategy configuration."""
+    user_id = _request_user_id(request)
     # Build strategy dict from the request
     strategy_dict = {}
     if req.strategy_config:
@@ -2400,6 +2425,7 @@ async def live_start(req: LiveStartRequest):
             "tp_type": req.tp_type,
             "poll_interval": 10,
         }
+    strategy_dict["_user_id"] = user_id
 
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
 
@@ -2420,7 +2446,7 @@ async def live_start(req: LiveStartRequest):
                 task = _live_tasks.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
-            _save_live_run_to_history(old_status)
+            await _save_live_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[LIVE] Failed to save old engine {run_id}: {e}")
         live_engines.pop(run_id, None)
@@ -2433,6 +2459,7 @@ async def live_start(req: LiveStartRequest):
         exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
         deploy_config=deploy_config,
     )
+    engine._user_id = user_id
 
     # Inject WebSocket feed if available — starts WS + subscribes index
     if _market_feed and HAS_DHAN_FEED:
@@ -2461,9 +2488,9 @@ async def live_start(req: LiveStartRequest):
                 if ws in ws_clients:
                     ws_clients.remove(ws)
         _check_trade_alerts(run_id, "Auto", event)
-        # Save each closed trade to runs.json for the All Results page
+        # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
-            _save_single_trade_to_history(event["trade"], "live", run_name=run_id)
+            await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
     live_engines[run_id] = engine
@@ -2514,8 +2541,8 @@ async def live_stop(request: Request):
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
 
-    # Persist live run to runs.json (same as paper)
-    _save_live_run_to_history(status_before)
+    # Persist live run to the user's history (same as paper)
+    await _save_live_run_to_history(status_before, explicit_user_id=getattr(engine, "_user_id", None))
 
     # Keep snapshot on Live page so panel persists after stop
     status_before["running"] = False
@@ -2627,14 +2654,14 @@ async def export_live_trades_csv(run_id: str = ""):
 
 # ── Paper Trading (Real Market Data) ──────────────────────────────
 @app.post("/api/paper/start")
-async def paper_start(payload: StrategyPayload):
+async def paper_start(payload: StrategyPayload, request: Request):
     """Start paper trading with real live market data"""
     _crash_log = os.path.join(_HERE, "crash.log")
     with open(_crash_log, "a") as _f:
         _f.write(f"\n[PAPER] paper_start ENTERED at {datetime.now()}\n")
         _f.write(f"[PAPER] payload.instrument={payload.instrument}, run_name={payload.run_name}\n")
     try:
-        return await _paper_start_impl(payload)
+        return await _paper_start_impl(payload, _request_user_id(request))
     except Exception as e:
         import traceback
 
@@ -2647,7 +2674,7 @@ async def paper_start(payload: StrategyPayload):
         raise
 
 
-async def _paper_start_impl(payload: StrategyPayload):
+async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
         "run_name": payload.run_name,
@@ -2671,6 +2698,7 @@ async def _paper_start_impl(payload: StrategyPayload):
         "max_daily_loss": payload.max_daily_loss,
         "combined_sqoff_time": payload.combined_sqoff_time,
     }
+    strategy_dict["_user_id"] = user_id
 
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
@@ -2689,7 +2717,7 @@ async def _paper_start_impl(payload: StrategyPayload):
                 task = _paper_tasks.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
-            _save_paper_run_to_history(old_status)
+            await _save_paper_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[PAPER] Failed to save old engine {run_id}: {e}")
         paper_engines.pop(run_id, None)
@@ -2701,6 +2729,7 @@ async def _paper_start_impl(payload: StrategyPayload):
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
     )
+    engine._user_id = user_id
 
     # Inject WebSocket feed if available — starts WS + subscribes index
     if _market_feed and HAS_DHAN_FEED:
@@ -2730,9 +2759,9 @@ async def _paper_start_impl(payload: StrategyPayload):
                 if ws in ws_clients:
                     ws_clients.remove(ws)
         _check_trade_alerts(run_id, "Paper", event)
-        # Save each closed trade to runs.json for the All Results page
+        # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
-            _save_single_trade_to_history(event["trade"], "paper", run_name=run_id)
+            await _save_single_trade_to_history(event["trade"], "paper", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
     paper_engines[run_id] = engine
@@ -2782,8 +2811,8 @@ async def paper_stop(request: Request):
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
 
-    # Save paper run to runs.json so it persists across restarts
-    _save_paper_run_to_history(status_before)
+    # Save paper run to the user's history so it persists across restarts.
+    await _save_paper_run_to_history(status_before, explicit_user_id=getattr(engine, "_user_id", None))
 
     # Keep snapshot on Live page so panel persists after stop
     status_before["running"] = False
@@ -2855,18 +2884,18 @@ async def live_exit_position(request: Request):
     return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
 
 
-def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") -> None:
-    """Save a single closed trade (paper/live) to runs.json in real-time for All Results."""
+async def _save_single_trade_to_history(
+    trade: dict, mode: str, run_name: str = "", explicit_user_id: int | None = None
+) -> None:
+    """Save a single closed trade (paper/live) to user-scoped run history in real time."""
     try:
+        user_id = await _resolve_history_user_id(explicit_user_id, trade)
         pnl = round(trade.get("pnl", 0), 2)
-        runs = _load_runs()
-        max_id = max((r.get("id", 0) for r in runs), default=0)
         instrument = trade.get("instrument", trade.get("symbol", ""))
         side = trade.get("side", trade.get("trade_side", ""))
         label = mode.title()
         name = run_name or f"{label} {instrument} {side}"
         run_entry = {
-            "id": max_id + 1,
             "mode": mode,
             "run_name": name,
             "instrument": instrument,
@@ -2885,24 +2914,23 @@ def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") ->
             "trades": [trade],
             "created_at": str(datetime.now()),
         }
-        runs.append(run_entry)
-        _save_runs(runs)
-        print(f"[{mode.upper()}] Saved trade to runs.json: {instrument} {side} P&L=₹{pnl}")
+        saved = await _db_mod.create_run_record(user_id, run_entry)
+        print(f"[{mode.upper()}] Saved trade to history as Run #{saved['id']}: {instrument} {side} P&L=₹{pnl}")
     except Exception as e:
         print(f"[{mode.upper()}] Failed to save trade to history: {e}")
 
 
-def _save_paper_run_to_history(status: dict):
-    """Save a completed paper trading run to runs.json for history.
-    Skips if trades were already saved individually via _save_single_trade_to_history."""
+async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None = None):
+    """Save a completed paper trading run to user-scoped history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[PAPER] No closed trades — skipping runs.json")
+            print("[PAPER] No closed trades — skipping history save")
             return
 
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Paper Run")
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(user_id)
         existing = sum(
             1 for r in runs if r.get("mode") == "paper" and r.get("run_name") == run_name and r.get("trade_count") == 1
         )
@@ -2910,15 +2938,12 @@ def _save_paper_run_to_history(status: dict):
             print(f"[PAPER] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
-        max_id = max([r.get("id", 0) for r in runs], default=0)
-
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
         paper_run = {
-            "id": max_id + 1,
             "mode": "paper",
             "run_name": status.get("strategy_name", "Paper Run"),
             "instrument": status.get("instrument", ""),
@@ -2938,7 +2963,6 @@ def _save_paper_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
-            # Strategy details for View modal
             **{
                 k: v
                 for k, v in (status.get("strategy") or {}).items()
@@ -2964,36 +2988,31 @@ def _save_paper_run_to_history(status: dict):
             },
         }
 
-        runs.append(paper_run)
-        _save_runs(runs)
-        print(f"[PAPER] Saved run #{paper_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, paper_run)
+        print(f"[PAPER] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[PAPER] Failed to save run to history: {e}")
 
 
-def _save_scalp_run_to_history(eng) -> None:
-    """Persist a completed scalp session to runs.json so it appears on the Results page."""
+async def _save_scalp_run_to_history(eng, explicit_user_id: int | None = None) -> None:
+    """Persist a completed scalp session to user-scoped run history."""
     try:
         status = eng.get_status()
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[SCALP] No closed trades — skipping runs.json")
+            print("[SCALP] No closed trades — skipping history save")
             return
 
-        runs = _load_runs()
-        max_id = max((r.get("id", 0) for r in runs), default=0)
-
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
-        # Derive a human-readable name from the underlyings traded
         underlyings = list(dict.fromkeys(t.get("underlying", "") for t in closed if t.get("underlying")))
         run_name = "Scalp — " + ", ".join(underlyings) if underlyings else "Scalp Session"
 
         scalp_run = {
-            "id": max_id + 1,
             "mode": "scalp",
             "run_name": run_name,
             "instrument": underlyings[0] if underlyings else "",
@@ -3015,24 +3034,23 @@ def _save_scalp_run_to_history(eng) -> None:
             "created_at": str(datetime.now()),
         }
 
-        runs.append(scalp_run)
-        _save_runs(runs)
-        print(f"[SCALP] Saved run #{scalp_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, scalp_run)
+        print(f"[SCALP] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[SCALP] Failed to save run to history: {e}")
 
 
-def _save_live_run_to_history(status: dict):
-    """Save a completed live (auto) trading run to runs.json for history.
-    Skips if trades were already saved individually via _save_single_trade_to_history."""
+async def _save_live_run_to_history(status: dict, explicit_user_id: int | None = None):
+    """Save a completed live (auto) trading run to user-scoped history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[LIVE] No closed trades — skipping runs.json")
+            print("[LIVE] No closed trades — skipping history save")
             return
 
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Live Run")
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(user_id)
         existing = sum(
             1 for r in runs if r.get("mode") == "live" and r.get("run_name") == run_name and r.get("trade_count") == 1
         )
@@ -3040,15 +3058,12 @@ def _save_live_run_to_history(status: dict):
             print(f"[LIVE] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
-        max_id = max([r.get("id", 0) for r in runs], default=0)
-
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
         live_run = {
-            "id": max_id + 1,
             "mode": "live",
             "run_name": status.get("strategy_name", "Live Run"),
             "instrument": status.get("instrument", ""),
@@ -3068,7 +3083,6 @@ def _save_live_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
-            # Strategy details for View modal
             **{
                 k: v
                 for k, v in (status.get("strategy") or {}).items()
@@ -3094,15 +3108,14 @@ def _save_live_run_to_history(status: dict):
             },
         }
 
-        runs.append(live_run)
-        _save_runs(runs)
-        print(f"[LIVE] Saved run #{live_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, live_run)
+        print(f"[LIVE] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[LIVE] Failed to save run to history: {e}")
 
 
 @app.get("/api/paper/status")
-async def paper_status(run_id: str = ""):
+async def paper_status(request: Request, run_id: str = ""):
     """Get paper trading status. If run_id empty, returns first running engine."""
     if run_id and run_id in paper_engines:
         return paper_engines[run_id].get_status()
@@ -3129,7 +3142,7 @@ async def paper_status(run_id: str = ""):
         "event_log": [],
     }
     try:
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(_request_user_id(request))
         paper_runs = [r for r in runs if r.get("mode") == "paper"]
         if paper_runs:
             last = paper_runs[-1]
@@ -3495,65 +3508,61 @@ def _save_runs(d):
 
 
 @app.get("/api/strategies")
-async def get_strategies():
-    return _load()
+async def get_strategies(request: Request):
+    return await _db_mod.list_strategies(_request_user_id(request))
 
 
 @app.post("/api/strategies")
-async def save_strategy(strategy: dict):
-    strats = _load()
-    max_id = max([s.get("id", 0) for s in strats], default=0)
-    strategy.update(
-        {
-            "id": max_id + 1,
-            "created_at": str(datetime.now()),
-            "version": 1,
-            "versions": [{"version": 1, "saved_at": str(datetime.now()), "changes": "Initial save"}],
-        }
-    )
-    strats.append(strategy)
-    _save(strats)
-    return strategy
+async def save_strategy(strategy: dict, request: Request):
+    now = str(datetime.now())
+    strategy = {
+        **strategy,
+        "created_at": strategy.get("created_at") or now,
+        "updated_at": strategy.get("updated_at") or now,
+        "version": int(strategy.get("version", 1) or 1),
+        "versions": strategy.get("versions") or [{"version": 1, "saved_at": now, "changes": "Initial save"}],
+    }
+    return await _db_mod.create_strategy_record(_request_user_id(request), strategy)
 
 
 @app.delete("/api/strategies/{sid}")
-async def delete_strategy(sid: int):
-    _save([s for s in _load() if s.get("id") != sid])
+async def delete_strategy(sid: int, request: Request):
+    deleted = await _db_mod.delete_strategy_record(_request_user_id(request), sid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Strategy not found")
     return {"deleted": sid}
 
 
 @app.put("/api/strategies/{sid}")
-async def update_strategy(sid: int, updates: dict):
-    strats = _load()
-    for s in strats:
-        if s.get("id") == sid:
-            # Track version history
-            ver = s.get("version", 1) + 1
-            versions = s.get("versions", [])
-            versions.append(
-                {
-                    "version": ver,
-                    "saved_at": str(datetime.now()),
-                    "changes": updates.get("_change_note", f"Updated to v{ver}"),
-                }
-            )
-            # Keep only last 20 versions
-            if len(versions) > 20:
-                versions = versions[-20:]
-            updates.pop("_change_note", None)
-            s.update(updates)
-            s["version"] = ver
-            s["versions"] = versions
-            s["updated_at"] = str(datetime.now())
-            break
-    _save(strats)
+async def update_strategy(sid: int, updates: dict, request: Request):
+    user_id = _request_user_id(request)
+    strategy = await _db_mod.get_strategy(user_id, sid)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    ver = int(strategy.get("version", 1) or 1) + 1
+    versions = list(strategy.get("versions", []))
+    versions.append(
+        {
+            "version": ver,
+            "saved_at": str(datetime.now()),
+            "changes": updates.get("_change_note", f"Updated to v{ver}"),
+        }
+    )
+    if len(versions) > 20:
+        versions = versions[-20:]
+    updates.pop("_change_note", None)
+    strategy.update(updates)
+    strategy["version"] = ver
+    strategy["versions"] = versions
+    strategy["updated_at"] = str(datetime.now())
+    await _db_mod.replace_strategy_record(user_id, sid, strategy)
     return {"updated": sid}
 
 
 # ── Backtest Runs CRUD ────────────────────────────────────────────
 @app.get("/api/runs")
-async def get_runs():
-    runs = _load_runs()
+async def get_runs(request: Request):
+    runs = await _db_mod.list_runs(_request_user_id(request))
     result = []
     for r in runs:
         summary = {k: v for k, v in r.items() if k not in ("trades", "equity")}
@@ -3567,73 +3576,63 @@ async def get_runs():
 
 @app.post("/api/runs/bulk-delete")
 async def bulk_delete_runs(request: Request):
+    user_id = _request_user_id(request)
     body = await request.json()
     ids = body.get("ids", [])
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
-    id_set = set(ids)
-    runs = _load_runs()
-    _save_runs([r for r in runs if r.get("id") not in id_set])
-    return {"deleted": len(id_set)}
+    deleted = await _db_mod.bulk_delete_run_records(user_id, ids)
+    return {"deleted": deleted}
 
 
 @app.post("/api/runs/cleanup-empty")
-async def cleanup_empty_runs():
-    """Remove all 0-trade paper/live runs from runs.json."""
-    runs = _load_runs()
-    before = len(runs)
-    cleaned = [
-        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
-    ]
-    _save_runs(cleaned)
-    removed = before - len(cleaned)
-    return {"removed": removed, "remaining": len(cleaned)}
+async def cleanup_empty_runs(request: Request):
+    """Remove all 0-trade paper/live runs for the current user."""
+    user_id = _request_user_id(request)
+    removed = await _db_mod.cleanup_empty_runs(user_id)
+    remaining = len(await _db_mod.list_runs(user_id))
+    return {"removed": removed, "remaining": remaining}
 
 
 @app.get("/api/runs/{rid}")
-async def get_run(rid: int):
-    runs = _load_runs()
-    for r in runs:
-        if r.get("id") == rid:
-            return r
+async def get_run(rid: int, request: Request):
+    run = await _db_mod.get_run(_request_user_id(request), rid)
+    if run:
+        return run
     raise HTTPException(status_code=404, detail="Run not found")
 
 
 @app.delete("/api/runs/{rid}")
-async def delete_run(rid: int):
-    runs = _load_runs()
-    _save_runs([r for r in runs if r.get("id") != rid])
+async def delete_run(rid: int, request: Request):
+    deleted = await _db_mod.delete_run_record(_request_user_id(request), rid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
     return {"deleted": rid}
 
 
 @app.put("/api/runs/{rid}")
 async def update_run(rid: int, request: Request):
     """Update run metadata (run_name, folder)."""
+    user_id = _request_user_id(request)
     body = await request.json()
-    runs = _load_runs()
-    for r in runs:
-        if r.get("id") == rid:
-            if "run_name" in body:
-                r["run_name"] = str(body["run_name"]).strip()
-            if "folder" in body:
-                r["folder"] = str(body["folder"]).strip()
-            _save_runs(runs)
-            return {"updated": rid, "run_name": r.get("run_name"), "folder": r.get("folder")}
+    run = await _db_mod.get_run(user_id, rid)
+    if run:
+        if "run_name" in body:
+            run["run_name"] = str(body["run_name"]).strip()
+        if "folder" in body:
+            run["folder"] = str(body["folder"]).strip()
+        await _db_mod.replace_run_record(user_id, rid, run)
+        return {"updated": rid, "run_name": run.get("run_name"), "folder": run.get("folder")}
     raise HTTPException(status_code=404, detail="Run not found")
 
 
 @app.get("/api/runs/{rid}/csv")
-async def export_run_csv(rid: int):
+async def export_run_csv(rid: int, request: Request):
     """Export backtest trades to CSV"""
     import csv
     import io
 
-    runs = _load_runs()
-    run = None
-    for r in runs:
-        if r.get("id") == rid:
-            run = r
-            break
+    run = await _db_mod.get_run(_request_user_id(request), rid)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     trades = run.get("trades", [])
@@ -3782,9 +3781,9 @@ async def start_scalp_engine():
 
 
 @app.post("/api/scalp/stop")
-async def stop_scalp_engine():
+async def stop_scalp_engine(request: Request):
     eng = _get_scalp_engine()
-    _save_scalp_run_to_history(eng)
+    await _save_scalp_run_to_history(eng, explicit_user_id=_request_user_id(request))
     eng.stop()
     _notify_scalp_ws()
     return {"status": "stopped"}
@@ -4492,14 +4491,9 @@ async def _start_token_renewal():
     asyncio.create_task(_backfill_in_background())
 
     # Cleanup 0-trade paper/live entries left by prior deploys/restarts
-    runs = _load_runs()
-    before = len(runs)
-    cleaned = [
-        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
-    ]
-    if len(cleaned) < before:
-        _save_runs(cleaned)
-        print(f"🧹 [STARTUP] Removed {before - len(cleaned)} empty 0-trade runs from runs.json")
+    removed = await _db_mod.cleanup_empty_runs()
+    if removed:
+        print(f"🧹 [STARTUP] Removed {removed} empty 0-trade runs from history")
 
     # ── Auto-restore live engines from persisted state ────────
     asyncio.create_task(_restore_live_engines())
@@ -4549,6 +4543,7 @@ async def _restore_live_engines():
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 deploy_config=deploy_config,
             )
+            engine._user_id = strategy.get("_user_id")
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4562,7 +4557,7 @@ async def _restore_live_engines():
             engine._load_state()
             engine.running = True
 
-            async def broadcast(event: dict, _rid=run_id):
+            async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
                 for ws in ws_clients.copy():
                     try:
                         await ws.send_json({"source": "live", "run_id": _rid, **event})
@@ -4570,7 +4565,12 @@ async def _restore_live_engines():
                         if ws in ws_clients:
                             ws_clients.remove(ws)
                 if event.get("type") == "exit" and event.get("trade"):
-                    _save_single_trade_to_history(event["trade"], "live", run_name=_rid)
+                    await _save_single_trade_to_history(
+                        event["trade"],
+                        "live",
+                        run_name=_rid,
+                        explicit_user_id=_user_id,
+                    )
 
             live_engines[run_id] = engine
             _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
@@ -4628,6 +4628,7 @@ async def _restore_paper_engines():
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
             )
+            engine._user_id = strategy.get("_user_id")
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4641,7 +4642,7 @@ async def _restore_paper_engines():
             engine._load_state()
             engine.running = True
 
-            async def broadcast(event: dict, _rid=run_id):
+            async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
                 for ws in ws_clients.copy():
                     try:
                         await ws.send_json({"source": "paper", "run_id": _rid, **event})
@@ -4649,7 +4650,12 @@ async def _restore_paper_engines():
                         if ws in ws_clients:
                             ws_clients.remove(ws)
                 if event.get("type") == "exit" and event.get("trade"):
-                    _save_single_trade_to_history(event["trade"], "paper", run_name=_rid)
+                    await _save_single_trade_to_history(
+                        event["trade"],
+                        "paper",
+                        run_name=_rid,
+                        explicit_user_id=_user_id,
+                    )
 
             paper_engines[run_id] = engine
             _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
@@ -4672,7 +4678,7 @@ async def _shutdown_cleanup():
             status = engine.get_status()
             if engine.running:
                 engine.stop()
-            _save_paper_run_to_history(status)
+            await _save_paper_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
             print(f"🛑 [Shutdown] Saved paper engine: {run_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save paper engine {run_id}: {e}")
@@ -4682,7 +4688,7 @@ async def _shutdown_cleanup():
             status = engine.get_status()
             if engine.running:
                 engine.stop()  # stop() calls _save_state() internally
-            _save_live_run_to_history(status)
+            await _save_live_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
             print(f"🛑 [Shutdown] Saved live engine: {run_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")

@@ -135,14 +135,17 @@ async def migrate():
                         skipped += 1
                         continue
                     cfg_copy = dict(cfg)
-                    folder = cfg_copy.pop("_folder", "")
-                    versions = cfg_copy.pop("_versions", [])
                     now = _now_iso()
-                    await conn.execute(
-                        "INSERT INTO strategies (user_id, name, folder, config, versions, created_at, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (admin_id, name, folder, json.dumps(cfg_copy), json.dumps(versions), now, now),
-                    )
+                    if "_folder" in cfg_copy and "folder" not in cfg_copy:
+                        cfg_copy["folder"] = cfg_copy.pop("_folder")
+                    if "_versions" in cfg_copy and "versions" not in cfg_copy:
+                        cfg_copy["versions"] = cfg_copy.pop("_versions")
+                    cfg_copy["run_name"] = cfg_copy.get("run_name") or name
+                    cfg_copy["name"] = cfg_copy.get("name") or name
+                    cfg_copy["created_at"] = cfg_copy.get("created_at") or now
+                    cfg_copy["updated_at"] = cfg_copy.get("updated_at") or cfg_copy["created_at"]
+                    cfg_copy["version"] = int(cfg_copy.get("version", 1) or 1)
+                    await db.create_strategy_record(admin_id, cfg_copy)
                     count += 1
                 await conn.commit()
                 print(f"✅ Migrated {count} strategies ({skipped} skipped)")
@@ -161,10 +164,7 @@ async def migrate():
                 skipped = 0
                 for run in runs:
                     mode = run.get("mode", "backtest")
-                    strat_name = run.get("strategy_name", run.get("name", ""))
-                    cfg = json.dumps(run.get("config", {}), sort_keys=True)
-                    trades = json.dumps(run.get("trades", []), sort_keys=True)
-                    summary = json.dumps(run.get("summary", {}), sort_keys=True)
+                    strat_name = run.get("run_name") or run.get("strategy_name") or run.get("name", "")
                     trade_count = run.get("trade_count", len(run.get("trades", [])))
                     total_pnl = run.get("total_pnl", 0)
                     created = run.get("created_at", run.get("timestamp", _now_iso()))
@@ -177,11 +177,16 @@ async def migrate():
                     if exists:
                         skipped += 1
                         continue
-                    await conn.execute(
-                        "INSERT INTO runs (user_id, mode, strategy_name, config, trades, summary, trade_count, total_pnl, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (admin_id, mode, strat_name, cfg, trades, summary, trade_count, total_pnl, created),
-                    )
+                    run_payload = dict(run)
+                    run_payload.pop("id", None)
+                    run_payload["mode"] = mode
+                    run_payload["run_name"] = run_payload.get("run_name") or strat_name or f"Run_{count + skipped + 1}"
+                    run_payload["created_at"] = created
+                    run_payload["trade_count"] = trade_count
+                    run_payload["total_pnl"] = total_pnl
+                    if run.get("summary") and "summary" not in run_payload and "stats" not in run_payload:
+                        run_payload["summary"] = run["summary"]
+                    await db.create_run_record(admin_id, run_payload)
                     count += 1
                 await conn.commit()
                 print(f"✅ Migrated {count} runs ({skipped} skipped)")
