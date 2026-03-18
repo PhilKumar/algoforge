@@ -9,6 +9,7 @@ import asyncio
 import csv
 import json
 import os
+import re
 import sys
 import threading
 import time as _time
@@ -581,6 +582,48 @@ class ScripMaster:
         return future[0] if future else ""
 
     @classmethod
+    def resolve_expiry(cls, symbol: str, selection: str = None, from_date: str = None) -> str:
+        """Resolve UI expiry selection to an actual expiry date."""
+        cls.ensure_loaded()
+        expiries = sorted(cls._expiry_cache.get(symbol, []))
+        if not expiries:
+            return ""
+
+        ref_date = from_date or datetime.now().strftime("%Y-%m-%d")
+        future = [expiry for expiry in expiries if expiry >= ref_date]
+        if not future:
+            return ""
+
+        selection = (selection or "current_week").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", selection):
+            if selection in future:
+                return selection
+            return future[0]
+
+        if selection in ("current_week", "next_week"):
+            idx = 0 if selection == "current_week" else 1
+            return future[idx] if idx < len(future) else future[-1]
+
+        # Monthly expiries are the last available expiry in each month bucket.
+        monthlies = []
+        seen_months = set()
+        for expiry in reversed(future):
+            month_key = expiry[:7]
+            if month_key in seen_months:
+                continue
+            seen_months.add(month_key)
+            monthlies.append(expiry)
+        monthlies.reverse()
+        if not monthlies:
+            return future[0]
+
+        if selection in ("current_month", "next_month"):
+            idx = 0 if selection == "current_month" else 1
+            return monthlies[idx] if idx < len(monthlies) else monthlies[-1]
+
+        return future[0]
+
+    @classmethod
     def get_expiries(cls, symbol: str) -> list:
         """Get all available expiry dates for a symbol."""
         cls.ensure_loaded()
@@ -755,6 +798,96 @@ class DhanClient:
         df.sort_index(inplace=True)
 
         print(f"[DHAN] ✅ Got {len(df)} candles: {df.index[0]} → {df.index[-1]}")
+        return df
+
+    def get_rolling_option_data(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        instrument_type: str,
+        expiry_flag: str,
+        expiry_code: int,
+        strike: str,
+        option_type: str,
+        from_date: str,
+        to_date: str,
+        interval: str = "1",
+        required_data: list[str] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Fetch rolling historical option candles for expired/current contracts.
+
+        Dhan supports this on /v2/charts/rollingoption using strike aliases like
+        ATM, ATM+1, ATM-1 and option side CALL / PUT.
+        """
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not set. Edit config.py with your client_id and access_token.")
+
+        valid_intervals = ["1", "5", "15", "25", "60"]
+        if str(interval) not in valid_intervals:
+            raise ValueError(
+                f"Invalid rolling option interval '{interval}'. Dhan API only supports: {', '.join(valid_intervals)}"
+            )
+
+        payload = {
+            "securityId": str(security_id),
+            "exchangeSegment": exchange_segment,
+            "instrument": instrument_type,
+            "expiryFlag": str(expiry_flag or "WEEK").upper(),
+            "expiryCode": int(expiry_code),
+            "strike": str(strike),
+            "drvOptionType": "CALL" if str(option_type).upper() in ("CALL", "CE") else "PUT",
+            "requiredData": required_data or ["open", "high", "low", "close", "volume", "strike", "spot"],
+            "fromDate": from_date,
+            "toDate": to_date,
+            "interval": str(interval),
+        }
+
+        endpoint = f"{self.base_url}/v2/charts/rollingoption"
+        print(
+            f"[DHAN] RollingOption: secId={security_id}, seg={exchange_segment}, type={instrument_type}, "
+            f"expiry={payload['expiryFlag']}:{payload['expiryCode']}, strike={strike}, opt={payload['drvOptionType']}, "
+            f"interval={interval}, {from_date} → {to_date}"
+        )
+
+        if not _circuit_breaker.call_allowed():
+            raise Exception("Dhan API circuit breaker is OPEN — skipping rolling option fetch")
+        try:
+            resp = _request_with_retry("POST", endpoint, headers=self.headers, json=payload, timeout=30)
+        except Exception:
+            _circuit_breaker.record_failure()
+            raise
+        if resp.status_code != 200:
+            _circuit_breaker.record_failure()
+            raise Exception(f"Dhan rolling option API error {resp.status_code}: {resp.text[:500]}")
+        _circuit_breaker.record_success()
+
+        body = resp.json()
+        data = body.get("data", body)
+        leg_key = "ce" if payload["drvOptionType"] == "CALL" else "pe"
+        series = data.get(leg_key)
+        if not isinstance(series, dict) or not series.get("timestamp"):
+            return pd.DataFrame()
+
+        timestamps = series.get("timestamp", [])
+        first_ts = timestamps[0] if timestamps else 0
+        unit = "ms" if first_ts > 1e12 else "s"
+
+        frame = {
+            "timestamp": pd.to_datetime(timestamps, unit=unit) + pd.Timedelta(hours=5, minutes=30),
+        }
+        for field in ("open", "high", "low", "close", "iv", "spot"):
+            if field in series:
+                frame[field] = [float(x) if x is not None else float("nan") for x in series[field]]
+        for field in ("volume", "oi"):
+            if field in series:
+                frame[field] = [int(x) if x is not None else 0 for x in series[field]]
+        if "strike" in series:
+            frame["strike"] = [float(x) if x is not None else float("nan") for x in series["strike"]]
+
+        df = pd.DataFrame(frame)
+        df.set_index("timestamp", inplace=True)
+        df.sort_index(inplace=True)
         return df
 
     def get_nifty_daily(self, from_date: str, to_date: str) -> pd.DataFrame:
