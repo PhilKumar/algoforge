@@ -144,6 +144,48 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_SENSITIVE_USER_FIELDS = frozenset(
+    {
+        "dhan_client_id",
+        "dhan_access_token",
+        "dhan_pin",
+        "dhan_totp_secret",
+    }
+)
+
+
+def _encrypt_user_fields(fields: dict) -> dict:
+    """Encrypt broker credential fields before storing them."""
+    if not fields:
+        return fields
+    encrypted = dict(fields)
+    for key in _SENSITIVE_USER_FIELDS & encrypted.keys():
+        value = encrypted.get(key)
+        if value in (None, ""):
+            encrypted[key] = ""
+            continue
+        from auth import encrypt_value
+
+        encrypted[key] = encrypt_value(str(value))
+    return encrypted
+
+
+def _decrypt_user_row(row: aiosqlite.Row | sqlite3.Row | dict | None) -> dict | None:
+    """Decrypt broker credential fields on read, tolerating legacy plaintext rows."""
+    if not row:
+        return None
+    user = dict(row)
+    for key in _SENSITIVE_USER_FIELDS:
+        value = user.get(key)
+        if not value:
+            user[key] = ""
+            continue
+        from auth import decrypt_value
+
+        user[key] = decrypt_value(value)
+    return user
+
+
 # ── Users ────────────────────────────────────────────────────────
 
 
@@ -166,7 +208,7 @@ async def get_user_by_username(username: str) -> dict | None:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        return _decrypt_user_row(row)
 
 
 async def get_user_by_id(user_id: int) -> dict | None:
@@ -175,7 +217,31 @@ async def get_user_by_id(user_id: int) -> dict | None:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        return _decrypt_user_row(row)
+
+
+async def get_admin_user(preferred_username: str | None = None) -> dict | None:
+    """Fetch the preferred admin account, falling back to any existing admin."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        candidates: list[str | None] = []
+        if preferred_username:
+            candidates.append(preferred_username)
+        if (preferred_username or "").lower() != "admin":
+            candidates.append("admin")
+        for username in candidates:
+            if not username:
+                continue
+            cursor = await db.execute(
+                "SELECT * FROM users WHERE role = 'admin' AND username = ? COLLATE NOCASE ORDER BY id LIMIT 1",
+                (username,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return _decrypt_user_row(row)
+        cursor = await db.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")
+        row = await cursor.fetchone()
+        return _decrypt_user_row(row)
 
 
 async def list_users() -> list[dict]:
@@ -213,6 +279,7 @@ async def update_user(user_id: int, **fields) -> bool:
     bad = set(fields) - _ALLOWED_USER_FIELDS
     if bad:
         raise ValueError(f"Invalid user fields: {bad}")
+    fields = _encrypt_user_fields(fields)
     async with aiosqlite.connect(config.DB_PATH) as db:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         values = list(fields.values()) + [user_id]
@@ -265,6 +332,14 @@ async def delete_session(token: str) -> None:
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
         await db.commit()
+
+
+async def delete_sessions_for_user(user_id: int) -> int:
+    """Remove all sessions for a user. Returns count deleted."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        await db.commit()
+        return cursor.rowcount
 
 
 async def cleanup_expired_sessions() -> int:

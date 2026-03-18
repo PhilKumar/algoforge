@@ -20,6 +20,7 @@ UPSTREAM_CONF="/etc/nginx/conf.d/${APP}-upstream.conf"
 HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=45          # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
+SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"
 
 LOG_TAG="[DEPLOY]"
 
@@ -126,10 +127,15 @@ log "Switching nginx to port $STANDBY_PORT..."
 echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
     | sudo tee "$UPSTREAM_CONF" >/dev/null
 
-# Sync main nginx site config (picks up client_max_body_size, etc.)
+# Sync main nginx site config only when explicitly requested.
+# This avoids clobbering a server-local domain/TLS vhost during deploy.
 if [[ -f "$APP_DIR/deploy/nginx.conf" ]]; then
-    sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
-    log "Synced nginx site config from deploy/nginx.conf"
+    if [[ "$SYNC_SITE_CONFIG" == "1" ]]; then
+        sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
+        log "Synced nginx site config from deploy/nginx.conf"
+    else
+        log "Preserving existing nginx site config (set SYNC_SITE_CONFIG=1 to overwrite)"
+    fi
 fi
 
 if ! sudo nginx -t 2>/dev/null; then

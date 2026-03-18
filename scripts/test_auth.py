@@ -3,27 +3,34 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
+
+import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ["ALGOFORGE_PIN"] = "123456"
 
-import httpx
-import uvicorn
+TEST_DB = Path("/tmp/algoforge-feature-test-auth.db")
+if TEST_DB.exists():
+    TEST_DB.unlink()
+
+os.environ["ALGOFORGE_PIN"] = "123456"
+os.environ["ALGOFORGE_DB"] = str(TEST_DB)
+os.environ["ALGOFORGE_SKIP_STARTUP_JOBS"] = "1"
 
 
 async def main():
-    from app import app
+    import config as app_config
+    from app import _init_database, app
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=8799, log_level="warning")
-    server = uvicorn.Server(config)
-    task = asyncio.create_task(server.serve())
-    await asyncio.sleep(4)
+    admin_name = app_config.ADMIN_USERNAME or "admin"
+    await _init_database()
 
     passed = 0
     failed = 0
 
-    async with httpx.AsyncClient(base_url="http://127.0.0.1:8799", timeout=15) as c:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         # 1. Unauthenticated status
         r = await c.get("/api/auth/status")
         assert r.status_code == 200
@@ -32,10 +39,10 @@ async def main():
         passed += 1
 
         # 2. Login as admin
-        r = await c.post("/api/auth/login", json={"username": "admin", "password": "123456"})
+        r = await c.post("/api/auth/login", json={"username": admin_name, "password": "123456"})
         assert r.status_code == 200, f"Login failed: {r.status_code} {r.text}"
         data = r.json()
-        assert data["username"] == "admin"
+        assert data["username"] == admin_name
         assert data["role"] == "admin"
         print(f"  2. Admin login: PASS ({data})")
         passed += 1
@@ -45,7 +52,7 @@ async def main():
         assert r.status_code == 200
         data = r.json()
         assert data["authenticated"] is True
-        assert data["username"] == "admin"
+        assert data["username"] == admin_name
         assert data["role"] == "admin"
         print(f"  3. Authed status: PASS ({data})")
         passed += 1
@@ -107,52 +114,58 @@ async def main():
         print(" 11. Phil change password: PASS")
         passed += 1
 
-        # 12. Logout and login with new password
-        await c.post("/api/auth/logout")
-        r = await c.post("/api/auth/login", json={"username": "phil", "password": "999999"})
+        # 12. Current session is revoked after password change
+        r = await c.get("/api/auth/status")
         assert r.status_code == 200
-        print(" 12. Login with new password: PASS")
+        assert r.json()["authenticated"] is False
+        print(" 12. Session revoked after password change: PASS")
         passed += 1
 
-        # 13. Legacy PIN login (no username)
+        # 13. Login with new password
+        r = await c.post("/api/auth/login", json={"username": "phil", "password": "999999"})
+        assert r.status_code == 200
+        print(" 13. Login with new password: PASS")
+        passed += 1
+
+        # 14. Legacy PIN login (no username)
         await c.post("/api/auth/logout")
         r = await c.post("/api/auth/login", json={"password": "123456"})
         assert r.status_code == 200
         data = r.json()
-        assert data["username"] == "admin"
-        print(" 13. Legacy PIN login (no username): PASS")
+        assert data["username"] == admin_name
+        print(" 14. Legacy PIN login (no username): PASS")
         passed += 1
 
-        # 14. Wrong password
+        # 15. Wrong password
         await c.post("/api/auth/logout")
-        r = await c.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+        r = await c.post("/api/auth/login", json={"username": admin_name, "password": "wrong"})
         assert r.status_code == 401
-        print(" 14. Wrong password rejected: PASS")
+        print(" 15. Wrong password rejected: PASS")
         passed += 1
 
-        # 15. Admin toggle (disable) user
-        r = await c.post("/api/auth/login", json={"username": "admin", "password": "123456"})
+        # 16. Admin toggle (disable) user
+        r = await c.post("/api/auth/login", json={"username": admin_name, "password": "123456"})
         assert r.status_code == 200
         r = await c.put(f"/api/admin/users/{phil_id}/toggle")
         assert r.status_code == 200
         data = r.json()
         assert data["is_active"] is False
-        print(" 15. Disable user 'phil': PASS")
+        print(" 16. Disable user 'phil': PASS")
         passed += 1
 
-        # 16. Disabled user can't login
+        # 17. Disabled user can't login
         await c.post("/api/auth/logout")
         r = await c.post("/api/auth/login", json={"username": "phil", "password": "999999"})
         assert r.status_code == 403
-        print(" 16. Disabled user login blocked: PASS")
+        print(" 17. Disabled user login blocked: PASS")
         passed += 1
 
     print(f"\n{'=' * 40}")
     print(f"  Results: {passed} passed, {failed} failed")
     print(f"{'=' * 40}")
 
-    server.should_exit = True
-    await task
+    if TEST_DB.exists():
+        TEST_DB.unlink()
 
 
 if __name__ == "__main__":

@@ -115,6 +115,10 @@ async def get_current_user(request: Request) -> dict:
     FastAPI dependency — extracts and validates the session, returns the full user dict.
     Raises 401 if not authenticated.
     """
+    cached_user = getattr(request.state, "current_user", None)
+    if cached_user:
+        return cached_user
+
     token = get_session_token(request)
     session = await validate_session(token)
     if not session:
@@ -122,8 +126,13 @@ async def get_current_user(request: Request) -> dict:
 
     user = await db.get_user_by_id(session["user_id"])
     if not user or not user["is_active"]:
+        if user:
+            await db.delete_sessions_for_user(user["id"])
+        elif session.get("user_id"):
+            await db.delete_session(token)
         raise HTTPException(status_code=401, detail="Account disabled or not found")
 
+    request.state.current_user = user
     return user
 
 

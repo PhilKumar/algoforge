@@ -227,13 +227,14 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engine: Optional["_ScalpEngineClass"] = None
+_SKIP_STARTUP_JOBS = os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS", "").lower() in {"1", "true", "yes"}
 
 ws_clients: List[WebSocket] = []
 
 
 # ── Authentication ────────────────────────────────────────────────
-# Legacy PIN kept as fallback for admin auto-creation on first DB init
-AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or ""
+# Legacy PIN kept as fallback for first-run admin bootstrap only
+AUTH_PASSWORD = (os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or "").strip()
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 
 _redis_client = None
@@ -256,6 +257,16 @@ def _get_redis():
     return _redis_client
 
 
+async def _get_preferred_admin_user() -> dict | None:
+    """Return the configured admin account, with fallback for legacy installs."""
+    return await _db_mod.get_admin_user(config.ADMIN_USERNAME)
+
+
+def _get_bootstrap_admin_password() -> str:
+    """Return the bootstrap admin password for first-run provisioning."""
+    return AUTH_PASSWORD
+
+
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
 # These bridge the old middleware (sync-ish) to the async DB via asyncio
 
@@ -268,6 +279,22 @@ async def _validate_session_async(token: str) -> dict | None:
 def _get_session_token(request: Request) -> str:
     """Extract session token from cookie or Authorization header."""
     return _auth_mod.get_session_token(request)
+
+
+async def _get_page_user(request: Request) -> dict | None:
+    """Resolve the logged-in user for HTML page routes, treating disabled users as logged out."""
+    token = _get_session_token(request)
+    session = await _validate_session_async(token)
+    if not session:
+        return None
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        return None
+    return user
 
 
 @app.middleware("http")
@@ -287,7 +314,18 @@ async def auth_middleware(request: Request, call_next):
     """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
     # Allow login, health, static, and WebSocket without auth
-    if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/api/save-state", "/login", "/"):
+    if path in (
+        "/api/auth/login",
+        "/api/auth/status",
+        "/api/health",
+        "/api/save-state",
+        "/login",
+        "/",
+        "/charts-viewer",
+        "/logo.jpg",
+        "/logo.png",
+        "/favicon.ico",
+    ):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
@@ -296,8 +334,18 @@ async def auth_middleware(request: Request, call_next):
     session = await _validate_session_async(token)
     if not session:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    # Stash user_id on request state for downstream use
-    request.state.user_id = session["user_id"]
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        response = JSONResponse(status_code=401, content={"detail": "Account disabled or not found"})
+        response.delete_cookie("algoforge_session")
+        return response
+    # Stash current user on request state to avoid repeated lookups downstream
+    request.state.user_id = user["id"]
+    request.state.current_user = user
     return await call_next(request)
 
 
@@ -421,9 +469,8 @@ class StrategyPayload(BaseModel):
 # ── Serve Frontend ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
-    token = _get_session_token(request)
-    session = await _validate_session_async(token)
-    if not session:
+    user = await _get_page_user(request)
+    if not user:
         # Serve login page
         login_path = os.path.join(_HERE, "login.html")
         if os.path.exists(login_path):
@@ -519,9 +566,8 @@ def _safe_charts_subpath(*parts: str) -> str | None:
 @app.get("/charts-viewer", response_class=HTMLResponse)
 async def serve_charts_viewer(request: Request):
     """Serve the historical chart viewer page (auth-protected)."""
-    token = _get_session_token(request)
-    session = await _validate_session_async(token)
-    if not session:
+    user = await _get_page_user(request)
+    if not user:
         login_path = os.path.join(_HERE, "login.html")
         if os.path.exists(login_path):
             with open(login_path, encoding="utf-8") as f:
@@ -934,36 +980,48 @@ async def delete_journal(date_str: str):
 
 
 # ── Brute-Force Protection ────────────────────────────────────────
-_login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
-_LOGIN_MAX_ATTEMPTS = 5
-_LOGIN_LOCKOUT_SEC = 300  # 5 minutes
+_login_attempts: dict = defaultdict(list)  # login-key -> [timestamps] (fallback)
+_LOGIN_MAX_ATTEMPTS = config.MAX_LOGIN_ATTEMPTS
+_LOGIN_LOCKOUT_SEC = config.LOGIN_LOCKOUT_MINUTES * 60
 _LOGIN_RL_PREFIX = "algoforge:login:"
 
 
-def _check_login_rate(ip: str):
+def _login_lockout_message() -> str:
+    minutes = config.LOGIN_LOCKOUT_MINUTES
+    return f"Too many failed attempts. Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+
+
+def _login_key(username: str, client_ip: str) -> str:
+    username = (username or "").strip().lower()
+    if username:
+        return f"user:{username}"
+    return f"ip:{client_ip or 'unknown'}"
+
+
+def _check_login_rate(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            key = f"{_LOGIN_RL_PREFIX}{login_key}"
             count = int(r.get(key) or 0)
             if count >= _LOGIN_MAX_ATTEMPTS:
-                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+                raise HTTPException(status_code=429, detail=_login_lockout_message())
             return
         except HTTPException:
             raise
         except Exception as e:
             _logger.warning(f"[Redis] _check_login_rate failed, using in-memory: {e}")
     now = time.time()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_LOCKOUT_SEC]
-    if len(_login_attempts[ip]) >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+    _login_attempts[login_key] = [t for t in _login_attempts[login_key] if now - t < _LOGIN_LOCKOUT_SEC]
+    if len(_login_attempts[login_key]) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail=_login_lockout_message())
 
 
-def _record_failed_login(ip: str):
+def _record_failed_login(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            key = f"{_LOGIN_RL_PREFIX}{login_key}"
             pipe = r.pipeline()
             pipe.incr(key)
             pipe.expire(key, _LOGIN_LOCKOUT_SEC)
@@ -971,47 +1029,49 @@ def _record_failed_login(ip: str):
             return
         except Exception as e:
             _logger.warning(f"[Redis] _record_failed_login failed, using in-memory: {e}")
-    _login_attempts[ip].append(time.time())
+    _login_attempts[login_key].append(time.time())
 
 
-def _clear_login_attempts(ip: str):
+def _clear_login_attempts(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            r.delete(f"{_LOGIN_RL_PREFIX}{ip}")
+            r.delete(f"{_LOGIN_RL_PREFIX}{login_key}")
             return
         except Exception:
             pass
-    _login_attempts.pop(ip, None)
+    _login_attempts.pop(login_key, None)
 
 
 # ── Authentication Endpoints ──────────────────────────────────────
 @app.post("/api/auth/login")
 async def auth_login(request: Request):
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate(ip)
     body = await request.json()
     username = body.get("username", "").strip()
     password = body.get("password", "")
+    login_key = _login_key(username or config.ADMIN_USERNAME, ip)
+    _check_login_rate(login_key)
 
-    # If no username provided, treat as legacy PIN login → look up admin user
-    if not username:
-        username = "admin"
-
-    user = await _db_mod.get_user_by_username(username)
+    # If no username provided, treat as legacy PIN login → look up configured admin user
+    if username:
+        user = await _db_mod.get_user_by_username(username)
+    else:
+        user = await _get_preferred_admin_user()
     if not user:
-        _record_failed_login(ip)
+        _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
     if not _auth_mod.verify_password(password, user["password_hash"]):
-        _record_failed_login(ip)
+        _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Success — create DB session
-    _clear_login_attempts(ip)
+    _clear_login_attempts(login_key)
+    await _db_mod.cleanup_expired_sessions()
     token = await _auth_mod.create_session(user["id"])
     await _db_mod.update_last_login(user["id"])
 
@@ -1043,7 +1103,13 @@ async def auth_status(request: Request):
         return {"authenticated": False}
     user = await _db_mod.get_user_by_id(session["user_id"])
     if not user or not user["is_active"]:
-        return {"authenticated": False}
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        resp = JSONResponse({"authenticated": False})
+        resp.delete_cookie("algoforge_session")
+        return resp
     return {
         "authenticated": True,
         "username": user["username"],
@@ -1111,6 +1177,8 @@ async def admin_toggle_user(user_id: int, request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     new_state = not bool(user["is_active"])
     await _db_mod.set_user_active(user_id, new_state)
+    if not new_state:
+        await _db_mod.delete_sessions_for_user(user_id)
     action = "enabled" if new_state else "disabled"
     _logger.info(f"[Admin] User '{user['username']}' {action} by '{admin['username']}'")
     return {"status": "ok", "user_id": user_id, "is_active": new_state}
@@ -1129,6 +1197,7 @@ async def admin_reset_password(user_id: int, request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     hashed = _auth_mod.hash_password(new_password)
     await _db_mod.update_user(user_id, password_hash=hashed)
+    await _db_mod.delete_sessions_for_user(user_id)
     return {"status": "ok", "message": f"Password reset for '{user['username']}'"}
 
 
@@ -1150,7 +1219,10 @@ async def change_own_password(request: Request):
 
     hashed = _auth_mod.hash_password(new_pw)
     await _db_mod.update_user(user["id"], password_hash=hashed)
-    return {"status": "ok", "message": "Password changed successfully"}
+    await _db_mod.delete_sessions_for_user(user["id"])
+    resp = JSONResponse({"status": "ok", "message": "Password changed. Please log in again."})
+    resp.delete_cookie("algoforge_session")
+    return resp
 
 
 # ── Emergency Stop (Kill Switch) ─────────────────────────────────
@@ -2172,7 +2244,8 @@ async def api_run_backtest(payload: StrategyPayload):
         # 1. Fetch data with segment-aware routing + fallback
         print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
         try:
-            df_raw = _fetch_data(
+            df_raw = await asyncio.to_thread(
+                _fetch_data,
                 instrument=payload.instrument,
                 from_date=from_date,
                 to_date=to_date,
@@ -2222,7 +2295,8 @@ async def api_run_backtest(payload: StrategyPayload):
         # 3. Run backtest
         print("[BACKTEST] Running backtest engine...")
         try:
-            results = run_backtest(
+            results = await asyncio.to_thread(
+                run_backtest,
                 df_raw=df_raw,
                 entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
@@ -4385,14 +4459,17 @@ if _PROMETHEUS_ENABLED:
 async def _init_database():
     """Initialize SQLite database and auto-create admin user if needed."""
     await _db_mod.init_db()
-    # Auto-create admin user on first run (uses ALGOFORGE_PIN as password)
-    admin = await _db_mod.get_user_by_username("admin")
+    await _db_mod.cleanup_expired_sessions()
+    admin = await _get_preferred_admin_user()
     if not admin:
-        pin = AUTH_PASSWORD or "123456"
+        pin = _get_bootstrap_admin_password()
+        if not pin:
+            raise RuntimeError(
+                "No admin account exists. Set ALGOFORGE_PIN or ALGOFORGE_PASSWORD for first-run bootstrap."
+            )
         hashed = _auth_mod.hash_password(pin)
-        admin_name = os.getenv("ADMIN_USERNAME", "admin")
-        uid = await _db_mod.create_user(admin_name, hashed, role="admin")
-        print(f"🔐 [Auth] Created admin user '{admin_name}' (id={uid})")
+        uid = await _db_mod.create_user(config.ADMIN_USERNAME, hashed, role="admin")
+        print(f"🔐 [Auth] Created admin user '{config.ADMIN_USERNAME}' (id={uid})")
     else:
         print(f"🔐 [Auth] Admin user '{admin['username']}' exists (id={admin['id']})")
 
@@ -4400,6 +4477,9 @@ async def _init_database():
 @app.on_event("startup")
 async def _start_token_renewal():
     global _token_renewal_task
+    if _SKIP_STARTUP_JOBS:
+        print("🧪 [Startup] Skipping network-heavy startup jobs (ALGOFORGE_SKIP_STARTUP_JOBS=1)")
+        return
     if config.AUTO_TOKEN_ENABLED:
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
