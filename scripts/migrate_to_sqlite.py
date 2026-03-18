@@ -298,7 +298,7 @@ async def migrate():
 
     # 6. Copy Daily Charts into per-user storage
     charts_src = os.path.join(_ROOT, "Daily Charts")
-    charts_dst = os.path.join(_ROOT, "data", "users", str(admin_id), "charts")
+    charts_dst = os.path.join(config.USER_DATA_ROOT, str(admin_id), "charts")
     copied, skipped = _copy_tree_if_missing(charts_src, charts_dst)
     if copied or skipped:
         print(f"✅ Copied {copied} chart files to per-user storage ({skipped} skipped)")
@@ -306,7 +306,7 @@ async def migrate():
         print("ℹ️  No Daily Charts/ directory found — skipping")
 
     # 7. Copy engine state files into per-user storage
-    state_dst_root = os.path.join(_ROOT, "data", "users", str(admin_id), "engine_state")
+    state_dst_root = os.path.join(config.USER_DATA_ROOT, str(admin_id), "engine_state")
     state_patterns = ("live_state*.json", "paper_state*.json", "scalp_state*.json")
     state_copied = 0
     state_skipped = 0

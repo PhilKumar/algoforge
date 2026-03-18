@@ -141,6 +141,16 @@ async def close_db():
     pass
 
 
+def _connect_sync() -> sqlite3.Connection:
+    """Open a synchronous SQLite connection for thread/off-loop helpers."""
+    if not _initialized:
+        _init_db_sync()
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -242,6 +252,29 @@ async def get_admin_user(preferred_username: str | None = None) -> dict | None:
                 return _decrypt_user_row(row)
         cursor = await db.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")
         row = await cursor.fetchone()
+        return _decrypt_user_row(row)
+
+
+def get_admin_user_sync(preferred_username: str | None = None) -> dict | None:
+    """Synchronous admin lookup for thread-based startup helpers."""
+    with _connect_sync() as db:
+        candidates: list[str | None] = []
+        if preferred_username:
+            candidates.append(preferred_username)
+        if (preferred_username or "").lower() != "admin":
+            candidates.append("admin")
+        for username in candidates:
+            if not username:
+                continue
+            cursor = db.execute(
+                "SELECT * FROM users WHERE role = 'admin' AND username = ? COLLATE NOCASE ORDER BY id LIMIT 1",
+                (username,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return _decrypt_user_row(row)
+        cursor = db.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")
+        row = cursor.fetchone()
         return _decrypt_user_row(row)
 
 
@@ -663,3 +696,255 @@ async def cleanup_empty_runs(user_id: int | None = None) -> int:
         cursor = await db.execute(sql, params)
         await db.commit()
         return cursor.rowcount
+
+
+def _trade_history_data_from_row(row: aiosqlite.Row | sqlite3.Row | dict | None) -> dict | None:
+    if not row:
+        return None
+    data = _json_loads(dict(row).get("data"), {})
+    return data if isinstance(data, dict) else {}
+
+
+async def list_trade_history(user_id: int) -> dict[str, dict]:
+    """Return all persisted real-trade history for a user keyed by date."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT trade_date, data FROM trade_history WHERE user_id = ? ORDER BY trade_date",
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+        history: dict[str, dict] = {}
+        for row in rows:
+            history[str(row["trade_date"])] = _trade_history_data_from_row(row) or {}
+        return history
+
+
+async def get_trade_history_entry(user_id: int, trade_date: str) -> dict | None:
+    """Fetch one persisted real-trade summary for a user/date."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT data FROM trade_history WHERE user_id = ? AND trade_date = ? LIMIT 1",
+            (user_id, trade_date),
+        )
+        row = await cursor.fetchone()
+        return _trade_history_data_from_row(row)
+
+
+async def upsert_trade_history_entry(user_id: int, trade_date: str, data: dict) -> None:
+    """Insert or replace one trade-history date for a user."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id FROM trade_history WHERE user_id = ? AND trade_date = ? LIMIT 1",
+            (user_id, trade_date),
+        )
+        row = await cursor.fetchone()
+        payload = _json_dumps(data or {})
+        if row:
+            await db.execute("UPDATE trade_history SET data = ? WHERE id = ?", (payload, row["id"]))
+        else:
+            await db.execute(
+                "INSERT INTO trade_history (user_id, trade_date, data) VALUES (?, ?, ?)",
+                (user_id, trade_date, payload),
+            )
+        await db.commit()
+
+
+def list_trade_history_sync(user_id: int) -> dict[str, dict]:
+    """Synchronous trade-history loader for thread-based backfill tasks."""
+    with _connect_sync() as conn:
+        cursor = conn.execute(
+            "SELECT trade_date, data FROM trade_history WHERE user_id = ? ORDER BY trade_date",
+            (user_id,),
+        )
+        history: dict[str, dict] = {}
+        for row in cursor.fetchall():
+            history[str(row["trade_date"])] = _trade_history_data_from_row(row) or {}
+        return history
+
+
+def upsert_trade_history_entry_sync(user_id: int, trade_date: str, data: dict) -> None:
+    """Synchronous trade-history upsert for thread-based backfill tasks."""
+    with _connect_sync() as conn:
+        cursor = conn.execute(
+            "SELECT id FROM trade_history WHERE user_id = ? AND trade_date = ? LIMIT 1",
+            (user_id, trade_date),
+        )
+        row = cursor.fetchone()
+        payload = _json_dumps(data or {})
+        if row:
+            conn.execute("UPDATE trade_history SET data = ? WHERE id = ?", (payload, row["id"]))
+        else:
+            conn.execute(
+                "INSERT INTO trade_history (user_id, trade_date, data) VALUES (?, ?, ?)",
+                (user_id, trade_date, payload),
+            )
+        conn.commit()
+
+
+def clear_trade_history_sync(user_id: int) -> int:
+    """Delete all real-trade history rows for a user."""
+    with _connect_sync() as conn:
+        cursor = conn.execute("DELETE FROM trade_history WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cursor.rowcount
+
+
+async def list_journal_entries(user_id: int) -> list[dict]:
+    """Return journal entry summaries for the journal list view."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT entry_date, data FROM journals WHERE user_id = ? ORDER BY entry_date DESC",
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+        entries: list[dict] = []
+        for row in rows:
+            data = _json_loads(dict(row).get("data"), {})
+            if not isinstance(data, dict):
+                data = {}
+            entries.append(
+                {
+                    "date": str(row["entry_date"]),
+                    "asset": data.get("asset", ""),
+                    "grade": data.get("grade", ""),
+                    "strategy": data.get("strategy", ""),
+                }
+            )
+        return entries
+
+
+async def get_journal_entry(user_id: int, entry_date: str) -> dict | None:
+    """Fetch one journal entry for a user/date."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT data FROM journals WHERE user_id = ? AND entry_date = ? LIMIT 1",
+            (user_id, entry_date),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        data = _json_loads(dict(row).get("data"), {})
+        return data if isinstance(data, dict) else {}
+
+
+async def upsert_journal_entry(user_id: int, entry_date: str, data: dict) -> None:
+    """Insert or replace one journal entry for a user/date."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id FROM journals WHERE user_id = ? AND entry_date = ? LIMIT 1",
+            (user_id, entry_date),
+        )
+        row = await cursor.fetchone()
+        payload = _json_dumps(data or {})
+        if row:
+            await db.execute("UPDATE journals SET data = ? WHERE id = ?", (payload, row["id"]))
+        else:
+            await db.execute(
+                "INSERT INTO journals (user_id, entry_date, data) VALUES (?, ?, ?)",
+                (user_id, entry_date, payload),
+            )
+        await db.commit()
+
+
+async def delete_journal_entry(user_id: int, entry_date: str) -> bool:
+    """Delete one journal entry for a user/date."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM journals WHERE user_id = ? AND entry_date = ?",
+            (user_id, entry_date),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+def _trade_id_from_scalp_payload(payload: dict) -> int:
+    try:
+        return int(payload.get("trade_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def list_scalp_trades(user_id: int) -> list[dict]:
+    """Return persisted closed scalp trades for a user."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT trade_data FROM scalp_trades WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+        trades: list[dict] = []
+        for row in rows:
+            payload = _json_loads(dict(row).get("trade_data"), {})
+            if isinstance(payload, dict):
+                trades.append(payload)
+        return trades
+
+
+async def create_scalp_trade(user_id: int, trade: dict) -> None:
+    """Persist one closed scalp trade for a user."""
+    payload = dict(trade or {})
+    created_at = str(
+        payload.get("closed_at")
+        or payload.get("exit_time")
+        or payload.get("created_at")
+        or payload.get("entry_time")
+        or _now_iso()
+    )
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO scalp_trades (user_id, trade_data, created_at) VALUES (?, ?, ?)",
+            (user_id, _json_dumps(payload), created_at),
+        )
+        await db.commit()
+
+
+async def bulk_delete_scalp_trades(user_id: int, trade_ids: list[int]) -> int:
+    """Delete persisted scalp trades for a user by nested trade_id."""
+    ids = {int(tid) for tid in trade_ids if str(tid).strip()}
+    if not ids:
+        return 0
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, trade_data FROM scalp_trades WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+        row_ids = []
+        for row in rows:
+            payload = _json_loads(dict(row).get("trade_data"), {})
+            if isinstance(payload, dict) and _trade_id_from_scalp_payload(payload) in ids:
+                row_ids.append(int(row["id"]))
+        if not row_ids:
+            return 0
+        placeholders = ",".join("?" for _ in row_ids)
+        delete_cursor = await db.execute(
+            f"DELETE FROM scalp_trades WHERE user_id = ? AND id IN ({placeholders})",  # nosec B608
+            [user_id, *row_ids],
+        )
+        await db.commit()
+        return delete_cursor.rowcount
+
+
+async def delete_scalp_trade(user_id: int, trade_id: int) -> bool:
+    """Delete one persisted scalp trade for a user by nested trade_id."""
+    return (await bulk_delete_scalp_trades(user_id, [trade_id])) > 0
+
+
+def get_max_scalp_trade_id_sync(user_id: int) -> int:
+    """Return the max persisted scalp trade_id for a user."""
+    max_trade_id = 0
+    with _connect_sync() as conn:
+        cursor = conn.execute("SELECT trade_data FROM scalp_trades WHERE user_id = ?", (user_id,))
+        for row in cursor.fetchall():
+            payload = _json_loads(dict(row).get("trade_data"), {})
+            if isinstance(payload, dict):
+                max_trade_id = max(max_trade_id, _trade_id_from_scalp_payload(payload))
+    return max_trade_id

@@ -87,6 +87,7 @@ CPR_WIDE_RANGE = 0.5
 
 # ── Multi-Tenant Database & Auth ──────────────────────────
 DB_PATH = os.getenv("ALGOFORGE_DB", os.path.join(os.path.dirname(__file__), "algoforge.db"))
+USER_DATA_ROOT = os.getenv("ALGOFORGE_USER_DATA_ROOT", os.path.join(os.path.dirname(__file__), "data", "users"))
 ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds at rest
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))

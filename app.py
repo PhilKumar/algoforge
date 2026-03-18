@@ -295,6 +295,14 @@ async def _resolve_history_user_id(explicit_user_id: int | None = None, source: 
     raise RuntimeError("No user context available for run history persistence")
 
 
+def _default_history_user_id_sync() -> int:
+    """Resolve the admin user id for sync startup/backfill helpers."""
+    admin = _db_mod.get_admin_user_sync(config.ADMIN_USERNAME)
+    if admin:
+        return int(admin["id"])
+    raise RuntimeError("No admin user available for trade-history persistence")
+
+
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
 # These bridge the old middleware (sync-ish) to the async DB via asyncio
 
@@ -529,6 +537,7 @@ import calendar as _cal
 import re as _re
 
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
+_USER_DATA_ROOT = config.USER_DATA_ROOT
 
 # Build month-name lookup: JAN→1, JANUARY→1, FEB→2, FEBRUARY→2, …
 _MONTH_MAP: dict[str, int] = {}
@@ -580,13 +589,24 @@ def _parse_day_folder(name: str):
     return f"9999-99-{name}", name
 
 
-def _safe_charts_subpath(*parts: str) -> str | None:
-    """Resolve path under CHARTS_DIR; return None if traversal detected."""
+def _user_storage_root(user_id: int) -> str:
+    return os.path.join(_USER_DATA_ROOT, str(int(user_id or 0)))
+
+
+def _user_charts_root(user_id: int) -> str:
+    return os.path.join(_user_storage_root(user_id), "charts")
+
+
+def _safe_charts_subpath(user_id: int, *parts: str, create_root: bool = False) -> str | None:
+    """Resolve path under the current user's charts root; return None on traversal."""
     for p in parts:
         if "/" in p or "\\" in p or ".." in p:
             return None
-    candidate = os.path.join(CHARTS_DIR, *parts)
-    if not os.path.realpath(candidate).startswith(os.path.realpath(CHARTS_DIR)):
+    root = _user_charts_root(user_id)
+    if create_root:
+        os.makedirs(root, exist_ok=True)
+    candidate = os.path.join(root, *parts)
+    if not os.path.realpath(candidate).startswith(os.path.realpath(root)):
         return None
     return candidate
 
@@ -609,16 +629,18 @@ async def serve_charts_viewer(request: Request):
 
 
 @app.get("/api/charts/tree")
-async def charts_tree():
+async def charts_tree(request: Request):
     """Return directory tree adapted to Daily Charts/ folder structure."""
-    print(f"[CHARTS] Scanning CHARTS_DIR: {CHARTS_DIR}")
-    print(f"[CHARTS] Exists: {os.path.isdir(CHARTS_DIR)}")
-    if not os.path.isdir(CHARTS_DIR):
+    user_id = _request_user_id(request)
+    charts_root = _user_charts_root(user_id)
+    print(f"[CHARTS] Scanning user charts dir for user {user_id}: {charts_root}")
+    print(f"[CHARTS] Exists: {os.path.isdir(charts_root)}")
+    if not os.path.isdir(charts_root):
         print("[CHARTS] Directory NOT found – returning empty tree")
         return {"years": {}}
     tree: dict = {}
-    for year in sorted(os.listdir(CHARTS_DIR)):
-        year_path = os.path.join(CHARTS_DIR, year)
+    for year in sorted(os.listdir(charts_root)):
+        year_path = os.path.join(charts_root, year)
         if not os.path.isdir(year_path) or not year.isdigit():
             continue
         months_list = []
@@ -681,9 +703,9 @@ async def charts_tree():
 
 
 @app.get("/api/charts/images/{year}/{month}/{day}")
-async def charts_images(year: str, month: str, day: str):
+async def charts_images(year: str, month: str, day: str, request: Request):
     """Return list of image URLs for a specific date folder."""
-    day_path = _safe_charts_subpath(year, month, day)
+    day_path = _safe_charts_subpath(_request_user_id(request), year, month, day)
     if day_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isdir(day_path):
@@ -699,25 +721,25 @@ async def charts_images(year: str, month: str, day: str):
 
 
 @app.get("/charts-static/{year}/{month}/{day}/{filename}")
-async def serve_chart_image(year: str, month: str, day: str, filename: str):
+async def serve_chart_image(year: str, month: str, day: str, filename: str, request: Request):
     """Serve a single chart image file."""
     safe_name = os.path.basename(filename)
     if not safe_name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         raise HTTPException(status_code=400, detail="Invalid file type")
-    file_path = _safe_charts_subpath(year, month, day, safe_name)
+    file_path = _safe_charts_subpath(_request_user_id(request), year, month, day, safe_name)
     if file_path is None or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(file_path)
 
 
 # ── Chart Upload (Ctrl+V paste) ──────────────────────────────────
-JOURNAL_DIR = os.path.join(_HERE, "journals")
 _ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 @app.post("/api/upload-chart")
 async def upload_chart(
+    request: Request,
     file: UploadFile,
     target_year: str | None = Form(None),
     target_month: str | None = Form(None),
@@ -755,7 +777,7 @@ async def upload_chart(
         month_folder = f"{month_abbr}-{year_str}"
         day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
 
-    day_path = _safe_charts_subpath(year_str, month_folder, day_folder)
+    day_path = _safe_charts_subpath(_request_user_id(request), year_str, month_folder, day_folder, create_root=True)
     if day_path is None:
         raise HTTPException(status_code=400, detail="Invalid target path")
     os.makedirs(day_path, exist_ok=True)
@@ -798,12 +820,12 @@ async def upload_chart(
 
 # ── Delete a chart image ─────────────────────────────────────────
 @app.delete("/api/charts/delete/{year}/{month}/{day}/{filename}")
-async def delete_chart(year: str, month: str, day: str, filename: str):
+async def delete_chart(year: str, month: str, day: str, filename: str, request: Request):
     """Delete a single chart image file."""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _ALLOWED_IMG_EXT:
         raise HTTPException(status_code=400, detail="Invalid file type")
-    file_path = _safe_charts_subpath(year, month, day, filename)
+    file_path = _safe_charts_subpath(_request_user_id(request), year, month, day, filename)
     if file_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isfile(file_path):
@@ -825,7 +847,8 @@ async def rename_chart(year: str, month: str, day: str, filename: str, request: 
     old_ext = os.path.splitext(filename)[1].lower()
     if old_ext not in _ALLOWED_IMG_EXT:
         raise HTTPException(status_code=400, detail="Invalid file type")
-    old_path = _safe_charts_subpath(year, month, day, filename)
+    user_id = _request_user_id(request)
+    old_path = _safe_charts_subpath(user_id, year, month, day, filename)
     if old_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isfile(old_path):
@@ -835,7 +858,7 @@ async def rename_chart(year: str, month: str, day: str, filename: str, request: 
     if not new_base:
         raise HTTPException(status_code=400, detail="Invalid new name")
     new_filename = f"{new_base}{old_ext}"
-    new_path = _safe_charts_subpath(year, month, day, new_filename)
+    new_path = _safe_charts_subpath(user_id, year, month, day, new_filename)
     if new_path is None:
         raise HTTPException(status_code=400, detail="Invalid new path")
     if os.path.exists(new_path):
@@ -858,13 +881,14 @@ async def rename_chart_folder(request: Request):
     new_day = body.get("new_day", "").strip()
     if not all([year, month, old_day, new_day]):
         raise HTTPException(status_code=400, detail="year, month, old_day, new_day required")
-    old_path = _safe_charts_subpath(year, month, old_day)
+    user_id = _request_user_id(request)
+    old_path = _safe_charts_subpath(user_id, year, month, old_day)
     if old_path is None or not os.path.isdir(old_path):
         raise HTTPException(status_code=404, detail="Folder not found")
     safe_new = _re.sub(r"[^\w\s._-]", "", new_day)[:80]
     if not safe_new:
         raise HTTPException(status_code=400, detail="Invalid new name")
-    new_path = _safe_charts_subpath(year, month, safe_new)
+    new_path = _safe_charts_subpath(user_id, year, month, safe_new)
     if new_path is None:
         raise HTTPException(status_code=400, detail="Invalid new path")
     if os.path.exists(new_path):
@@ -883,14 +907,15 @@ async def create_chart_folder(request: Request):
     day_name = body.get("day_name", "").strip()
     if not all([year, month, day_name]):
         raise HTTPException(status_code=400, detail="year, month, day_name required")
+    user_id = _request_user_id(request)
     safe_name = _re.sub(r"[^\w\s._-]", "", day_name)[:80]
     if not safe_name:
         raise HTTPException(status_code=400, detail="Invalid folder name")
     # Ensure year and month directories exist
-    year_path = _safe_charts_subpath(year)
+    year_path = _safe_charts_subpath(user_id, year, create_root=True)
     if year_path is None:
         raise HTTPException(status_code=400, detail="Invalid year")
-    month_path = _safe_charts_subpath(year, month)
+    month_path = _safe_charts_subpath(user_id, year, month, create_root=True)
     if month_path is None:
         raise HTTPException(status_code=400, detail="Invalid month")
     os.makedirs(month_path, exist_ok=True)
@@ -915,7 +940,7 @@ async def reorder_chart_folders(request: Request):
     order = body.get("order", [])  # list of folder names in desired order
     if not all([year, month]) or not isinstance(order, list):
         raise HTTPException(status_code=400, detail="year, month, order[] required")
-    month_path = _safe_charts_subpath(year, month)
+    month_path = _safe_charts_subpath(_request_user_id(request), year, month)
     if month_path is None or not os.path.isdir(month_path):
         raise HTTPException(status_code=404, detail="Month folder not found")
     sort_file = os.path.join(month_path, "_sort_order.json")
@@ -927,47 +952,18 @@ async def reorder_chart_folders(request: Request):
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
 @app.get("/api/journal/list")
-async def list_journals():
+async def list_journals(request: Request):
     """Return list of all journal dates that have entries."""
-    if not os.path.isdir(JOURNAL_DIR):
-        return {"entries": []}
-    entries = []
-    for fname in sorted(os.listdir(JOURNAL_DIR), reverse=True):
-        if not fname.endswith(".json"):
-            continue
-        date_str = fname[:-5]
-        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-            continue
-        fpath = os.path.join(JOURNAL_DIR, fname)
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            # Include summary fields for the list view
-            entries.append(
-                {
-                    "date": date_str,
-                    "asset": data.get("asset", ""),
-                    "grade": data.get("grade", ""),
-                    "strategy": data.get("strategy", ""),
-                }
-            )
-        except Exception:
-            entries.append({"date": date_str, "asset": "", "grade": "", "strategy": ""})
-    return {"entries": entries}
+    return {"entries": await _db_mod.list_journal_entries(_request_user_id(request))}
 
 
 @app.get("/api/journal/{date_str}")
-async def get_journal(date_str: str):
+async def get_journal(date_str: str, request: Request):
     """Load journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not os.path.isfile(journal_file):
-        return {"date": date_str, "data": None}
-    with open(journal_file, "r", encoding="utf-8") as f:
-        return {"date": date_str, "data": json.load(f)}
+    data = await _db_mod.get_journal_entry(_request_user_id(request), date_str)
+    return {"date": date_str, "data": data}
 
 
 @app.put("/api/journal/{date_str}")
@@ -975,35 +971,23 @@ async def save_journal(date_str: str, request: Request):
     """Save journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    os.makedirs(JOURNAL_DIR, exist_ok=True)
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
     body = await request.json()
     # Sanitize: only allow known fields
     allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
     clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
-    with open(journal_file, "w", encoding="utf-8") as f:
-        json.dump(clean, f, indent=2)
+    await _db_mod.upsert_journal_entry(_request_user_id(request), date_str, clean)
     return {"status": "ok", "date": date_str}
 
 
 @app.delete("/api/journal/{date_str}")
-async def delete_journal(date_str: str):
+async def delete_journal(date_str: str, request: Request):
     """Delete a journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format")
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not os.path.isfile(journal_file):
+    deleted = await _db_mod.delete_journal_entry(_request_user_id(request), date_str)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Journal entry not found")
-    os.remove(journal_file)
-    try:
-        localStorage_key = f"cj_journal_{date_str}"
-        print(f"[JOURNAL] Deleted: {journal_file}")
-    except Exception:
-        pass
+    print(f"[JOURNAL] Deleted entry for {_request_user_id(request)}: {date_str}")
     return {"status": "ok", "deleted": date_str}
 
 
@@ -1620,7 +1604,7 @@ async def check_broker():
 
 
 @app.get("/api/broker/trades")
-async def get_broker_trades():
+async def get_broker_trades(request: Request):
     """Fetch executed trades from Dhan broker account"""
     try:
         # Check if credentials are configured
@@ -1634,7 +1618,7 @@ async def get_broker_trades():
         # Auto-persist daily trade summary for portfolio history
         if trades:
             try:
-                _persist_daily_trades(trades)
+                await _persist_daily_trades(trades, _request_user_id(request))
             except Exception as pe:
                 print(f"[TRADE_HISTORY] Persist error: {pe}")
 
@@ -1650,17 +1634,21 @@ async def get_broker_trades():
         }
 
 
-def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
-    """Fetch historical trades from Dhan and backfill trade_history.json.
+def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False, user_id: int | None = None):
+    """Fetch historical trades from Dhan and backfill a user's persisted trade history.
 
     Args:
         from_date: Start date in YYYY-MM-DD format.
         force: If True, overwrite existing dates with fresh data from Dhan.
+        user_id: Trade-history owner. Defaults to the configured admin user.
     """
     import time as _time
 
     try:
-        history = _load_trade_history() if not force else {}
+        owner_id = int(user_id or _default_history_user_id_sync())
+        history = _db_mod.list_trade_history_sync(owner_id) if not force else {}
+        if force:
+            _db_mod.clear_trade_history_sync(owner_id)
         today_str = datetime.now().strftime("%Y-%m-%d")
         existing_dates = set(history.keys())
 
@@ -1744,6 +1732,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
 
         # Compute P&L for each date
         new_dates = 0
+        updated_entries = {}
         for date_str, day_trades in sorted(trades_by_date.items()):
             groups = {}
             for t in day_trades:
@@ -1812,11 +1801,13 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     "mode": "real",
                     "details": details,
                 }
+                updated_entries[date_str] = history[date_str]
                 new_dates += 1
 
-        if new_dates > 0:
-            _save_trade_history(history)
-            print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in trade_history.json")
+        if updated_entries:
+            for date_str, entry in updated_entries.items():
+                _db_mod.upsert_trade_history_entry_sync(owner_id, date_str, entry)
+            print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in SQLite trade history")
         else:
             print("[BACKFILL] No new dates to add (all existing)")
 
@@ -1830,14 +1821,14 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
 
 
 @app.get("/api/portfolio/backfill")
-async def portfolio_backfill(force: bool = False):
+async def portfolio_backfill(request: Request, force: bool = False):
     """Manually trigger historical trade backfill from Dhan.
 
     Args:
         force: If true, re-fetch ALL trades and overwrite existing data.
     """
     try:
-        count = _backfill_trade_history("2024-01-01", force=force)
+        count = _backfill_trade_history("2024-01-01", force=force, user_id=_request_user_id(request))
         return {"status": "success", "new_dates": count, "force": force}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -1856,8 +1847,8 @@ async def get_portfolio_history(request: Request):
         user_id = _request_user_id(request)
         daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
 
-        # 1) Real trade history from trade_history.json
-        real_history = _load_trade_history()
+        # 1) Real trade history from the user's SQLite history
+        real_history = await _db_mod.list_trade_history(user_id)
         for date_str, entry in real_history.items():
             if date_str not in daily:
                 daily[date_str] = {
@@ -3346,26 +3337,10 @@ async def cancel_order(order_id: str):
 # ── Strategy CRUD ─────────────────────────────────────────────────
 STRAT_FILE = "strategies.json"
 RUNS_FILE = "runs.json"
-TRADE_HISTORY_FILE = "trade_history.json"
 
 
-def _load_trade_history():
-    if os.path.exists(TRADE_HISTORY_FILE):
-        try:
-            with open(TRADE_HISTORY_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-
-def _save_trade_history(d):
-    with open(TRADE_HISTORY_FILE, "w") as f:
-        json.dump(d, f, indent=2)
-
-
-def _persist_daily_trades(trades: list):
-    """Auto-save today's real Dhan trade P&L summary to trade_history.json.
+async def _persist_daily_trades(trades: list, user_id: int):
+    """Auto-save today's real Dhan trade P&L summary to SQLite.
 
     Only overwrites existing entry if the new data has MORE trade legs
     (i.e., more complete data from later in the day).
@@ -3433,10 +3408,8 @@ def _persist_daily_trades(trades: list):
     if trade_count == 0:
         return
 
-    history = _load_trade_history()
-
     # Only overwrite if new data has more trade legs (more complete)
-    existing = history.get(today_str, {})
+    existing = await _db_mod.get_trade_history_entry(user_id, today_str) or {}
     existing_legs = existing.get("trade_legs", existing.get("trades", 0))
     if existing_legs > trade_legs:
         print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
@@ -3451,7 +3424,7 @@ def _persist_daily_trades(trades: list):
             if detail["charges"] == 0 and detail["symbol"] in old_details_map:
                 detail["charges"] = old_details_map[detail["symbol"]]
 
-    history[today_str] = {
+    entry = {
         "pnl": round(total_pnl, 2),
         "net_pnl": round(total_pnl - total_charges, 2),
         "charges": round(total_charges, 2),
@@ -3461,7 +3434,7 @@ def _persist_daily_trades(trades: list):
         "mode": "real",
         "details": trade_details,
     }
-    _save_trade_history(history)
+    await _db_mod.upsert_trade_history_entry(user_id, today_str, entry)
     print(
         f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}"
     )
@@ -3666,56 +3639,35 @@ async def export_run_csv(rid: int, request: Request):
     )
 
 
-# ── Scalp Trades CRUD (scalp_trades.json) ──────────────────────────
-_SCALP_FILE = os.path.join(_HERE, "scalp_trades.json")
-
-
-def _load_scalp_trades():
-    if os.path.exists(_SCALP_FILE):
-        try:
-            with open(_SCALP_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def _save_scalp_trades(trades):
-    tmp = _SCALP_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(trades, f, indent=2, default=str)
-    os.replace(tmp, _SCALP_FILE)
-
-
+# ── Scalp Trades CRUD (SQLite-backed) ────────────────────────────
 @app.get("/api/scalp/trades")
-async def get_scalp_trades():
-    """Return all closed scalp trades from scalp_trades.json."""
-    return _load_scalp_trades()
+async def get_scalp_trades(request: Request):
+    """Return all persisted closed scalp trades for the current user."""
+    return await _db_mod.list_scalp_trades(_request_user_id(request))
 
 
 @app.post("/api/scalp/trades/bulk-delete")
 async def bulk_delete_scalp_trades(request: Request):
     """Bulk-delete scalp trades by trade_id list."""
+    user_id = _request_user_id(request)
     body = await request.json()
     ids = body.get("ids", [])
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
-    id_set = set(ids)
-    trades = _load_scalp_trades()
-    _save_scalp_trades([t for t in trades if t.get("trade_id") not in id_set])
-    if _scalp_engine is not None:
+    deleted = await _db_mod.bulk_delete_scalp_trades(user_id, ids)
+    if _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
+        id_set = {int(tid) for tid in ids}
         _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") not in id_set]
     _notify_scalp_ws()
-    return {"deleted": len(id_set)}
+    return {"deleted": deleted}
 
 
 @app.delete("/api/scalp/trades/{tid}")
-async def delete_scalp_trade(tid: int):
-    """Delete a single scalp trade by trade_id (from disk AND engine memory)."""
-    trades = _load_scalp_trades()
-    _save_scalp_trades([t for t in trades if t.get("trade_id") != tid])
-    # Also remove from in-memory engine closed_trades so it doesn't reappear
-    if _scalp_engine is not None:
+async def delete_scalp_trade(tid: int, request: Request):
+    """Delete a single persisted scalp trade by trade_id."""
+    user_id = _request_user_id(request)
+    await _db_mod.delete_scalp_trade(user_id, tid)
+    if _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
         _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") != tid]
     _notify_scalp_ws()
     return {"deleted": tid}
@@ -3724,17 +3676,26 @@ async def delete_scalp_trade(tid: int):
 # ── Scalp Engine (live session, in-memory) ───────────────────────
 
 
-def _get_scalp_engine():
+def _get_scalp_engine(user_id: int | None = None):
     global _scalp_engine
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")
     if _scalp_engine is None:
 
+        async def _persist_closed_trade_async(owner_id: int, trade_dict: dict):
+            try:
+                await _db_mod.create_scalp_trade(owner_id, trade_dict)
+            except Exception as e:
+                print(f"[SCALP] Failed to persist closed trade for user {owner_id}: {e}")
+            finally:
+                _notify_scalp_ws()
+
         def _persist_closed_trade(trade_dict):
-            trades = _load_scalp_trades()
-            trades.append(trade_dict)
-            _save_scalp_trades(trades)
-            _notify_scalp_ws()
+            owner_id = int(getattr(_scalp_engine, "_user_id", 0) or user_id or 0)
+            if owner_id:
+                asyncio.create_task(_persist_closed_trade_async(owner_id, trade_dict))
+            else:
+                print("[SCALP] Skipping closed-trade persistence — no owner user_id available")
             # Telegram alert for every scalp exit (manual, target, SL, sqoff)
             pnl = trade_dict.get("pnl", 0)
             sym = (
@@ -3754,27 +3715,25 @@ def _get_scalp_engine():
             )
 
         _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
-        # Seed trade counter from file so IDs never collide across restarts
-        existing = _load_scalp_trades()
-        if existing:
-            max_id = max(t.get("trade_id", 0) for t in existing)
-            _scalp_engine._trade_counter = max_id
+    if user_id and not getattr(_scalp_engine, "_user_id", None):
+        _scalp_engine._user_id = user_id
+        _scalp_engine._trade_counter = max(_scalp_engine._trade_counter, _db_mod.get_max_scalp_trade_id_sync(user_id))
     return _scalp_engine
 
 
 @app.get("/api/scalp/status")
-async def get_scalp_status():
-    eng = _get_scalp_engine()
+async def get_scalp_status(request: Request):
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
     status = eng.get_status()
-    # Merge in closed trades from file (persist across restarts)
-    file_trades = _load_scalp_trades()
+    file_trades = await _db_mod.list_scalp_trades(user_id)
     status["file_trades"] = list(reversed(file_trades))
     return status
 
 
 @app.post("/api/scalp/start")
-async def start_scalp_engine():
-    eng = _get_scalp_engine()
+async def start_scalp_engine(request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     eng.start()
     _notify_scalp_ws()
     return {"status": "started"}
@@ -3782,8 +3741,9 @@ async def start_scalp_engine():
 
 @app.post("/api/scalp/stop")
 async def stop_scalp_engine(request: Request):
-    eng = _get_scalp_engine()
-    await _save_scalp_run_to_history(eng, explicit_user_id=_request_user_id(request))
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
+    await _save_scalp_run_to_history(eng, explicit_user_id=user_id)
     eng.stop()
     _notify_scalp_ws()
     return {"status": "stopped"}
@@ -3814,7 +3774,7 @@ _last_scalp_entry_ts: float = 0.0
 
 
 @app.post("/api/scalp/entry")
-async def scalp_entry(req: ScalpEntryReq):
+async def scalp_entry(req: ScalpEntryReq, request: Request):
     global _last_scalp_entry_ts
     async with _scalp_entry_lock:
         # Cooldown guard INSIDE lock to prevent race condition
@@ -3822,7 +3782,7 @@ async def scalp_entry(req: ScalpEntryReq):
         if now - _last_scalp_entry_ts < 2.0:
             return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
         _last_scalp_entry_ts = now
-        eng = _get_scalp_engine()
+        eng = _get_scalp_engine(_request_user_id(request))
         try:
             result = await eng.enter_trade(
                 underlying=req.underlying,
@@ -3879,8 +3839,8 @@ async def scalp_entry(req: ScalpEntryReq):
 
 
 @app.post("/api/scalp/exit/{trade_id}")
-async def scalp_exit(trade_id: int):
-    eng = _get_scalp_engine()
+async def scalp_exit(trade_id: int, request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     try:
         result = await eng.exit_trade(trade_id, reason="manual")
         if result.get("status") == "error":
@@ -3893,8 +3853,8 @@ async def scalp_exit(trade_id: int):
 
 
 @app.post("/api/scalp/kill-all")
-async def scalp_kill_all():
-    eng = _get_scalp_engine()
+async def scalp_kill_all(request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     try:
         result = await eng.kill_all_trades()
         closed = result.get("closed", 0)
@@ -3916,8 +3876,8 @@ class ScalpTargetsReq(BaseModel):
 
 
 @app.put("/api/scalp/trades/{trade_id}/targets")
-async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq):
-    eng = _get_scalp_engine()
+async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
     _notify_scalp_ws()
     return result
@@ -4276,7 +4236,7 @@ async def get_expiry_list(symbol: str):
         return {"status": "error", "msg": str(e)}
 
 
-def _refresh_recent_charges(history: dict):
+def _refresh_recent_charges(history: dict, user_id: int):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
 
     The live get_trades() endpoint doesn't return charge fields (stt, sebiTax etc).
@@ -4401,7 +4361,10 @@ def _refresh_recent_charges(history: dict):
                 )
 
         if updated > 0:
-            _save_trade_history(history)
+            for date_str in trades_by_date:
+                entry = history.get(date_str)
+                if entry:
+                    _db_mod.upsert_trade_history_entry_sync(user_id, date_str, entry)
             print(f"📊 [CHARGES] Refreshed charges for {updated} dates")
     except Exception as e:
         print(f"📊 [CHARGES] Refresh failed: {e}")
@@ -4430,15 +4393,23 @@ async def _backfill_in_background():
     _backfill_state["message"] = "Fetching historical trades from Dhan..."
     loop = asyncio.get_event_loop()
     try:
-        history = _load_trade_history()
+        admin = await _get_preferred_admin_user()
+        if not admin:
+            raise RuntimeError("No admin user available for startup trade-history backfill")
+        admin_id = int(admin["id"])
+        history = await _db_mod.list_trade_history(admin_id)
         force = len(history) <= 2
         if force:
             _backfill_state["message"] = "First-run: full backfill in progress..."
             print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
-        count = await loop.run_in_executor(None, lambda: _backfill_trade_history("2024-01-01", force=force))
+        count = await loop.run_in_executor(
+            None,
+            lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id),
+        )
         if not force:
-            loaded = _load_trade_history()
-            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded))
+            loaded = await _db_mod.list_trade_history(admin_id)
+            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded, admin_id))
+            loaded = await _db_mod.list_trade_history(admin_id)
             print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
         else:
             print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
