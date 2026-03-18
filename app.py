@@ -340,7 +340,15 @@ async def auth_middleware(request: Request, call_next):
     """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
     # Allow login, health, static, and WebSocket without auth
-    if path in ("/api/auth/login", "/api/auth/status", "/api/health", "/api/save-state", "/login", "/"):
+    if path in (
+        "/api/auth/login",
+        "/api/auth/status",
+        "/api/health",
+        "/api/save-state",
+        "/login",
+        "/",
+        "/charts-viewer",
+    ):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
