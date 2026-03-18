@@ -39,20 +39,40 @@ LOT_SIZES = {
 }
 
 
+def _instrument_family(instrument):
+    token = str(instrument).upper()
+    if "26009" in token or "BANK" in token:
+        return "BANKNIFTY"
+    if "26017" in token or "FIN" in token:
+        return "FINNIFTY"
+    if token == "1" or "SENSEX" in token:
+        return "SENSEX"
+    if "26000" in token or token == "NIFTY" or "NIFTY" in token:
+        return "NIFTY"
+    return None
+
+
+def _instrument_label(instrument):
+    labels = {
+        "NIFTY": "NIFTY",
+        "BANKNIFTY": "BANKNIFTY",
+        "FINNIFTY": "NIFTY FINSVC",
+        "SENSEX": "SENSEX",
+    }
+    family = _instrument_family(instrument)
+    return labels.get(family, str(instrument))
+
+
 def get_lot_size(instrument, trade_date):
     """Get correct lot size for instrument on a given date"""
-    name = "NIFTY"
-    if "26009" in str(instrument) or "BANK" in str(instrument).upper():
-        name = "BANKNIFTY"
-    elif "26017" in str(instrument) or "FIN" in str(instrument).upper():
-        name = "FINNIFTY"
-    elif "1" == str(instrument) or "SENSEX" in str(instrument).upper():
-        name = "SENSEX"
+    name = _instrument_family(instrument)
+    if name is None:
+        return 1
 
     for cutoff, ls in LOT_SIZES.get(name, [(date(2000, 1, 1), 75)]):
         if trade_date >= cutoff:
             return ls
-    return 75
+    return 1
 
 
 def get_strike_step(instrument):
@@ -77,11 +97,17 @@ def _parse_time(val):
     parts = s.split(":")
     h = int(parts[0])
     m = int(parts[1]) if len(parts) > 1 else 0
+    sec = int(parts[2]) if len(parts) > 2 else 0
     if pm and h < 12:
         h += 12
     elif am and h == 12:
         h = 0
-    return time(h, m)
+    return time(h, m, sec)
+
+
+def _time_to_seconds(val):
+    parsed = _parse_time(val)
+    return parsed.hour * 3600 + parsed.minute * 60 + parsed.second
 
 
 # ── Condition Evaluator ────────────────────────────────────────────
@@ -114,18 +140,28 @@ def eval_condition(row, cond, prev_row=None):
         ts = row.name if hasattr(row, "name") else None
         if ts is None:
             return False
-        cur_minutes = ts.hour * 60 + ts.minute
-        rhs = cond.get("right_time", cond.get("right", "09:15"))
-        parts = str(rhs).split(":")
-        rhs_minutes = int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
-        if op in ("is_below", "crosses_below", "<"):
-            return cur_minutes < rhs_minutes
-        elif op in ("is_above", "crosses_above", ">"):
-            return cur_minutes > rhs_minutes
-        elif op in (">=", "=="):
-            return cur_minutes >= rhs_minutes
+        cur_seconds = ts.hour * 3600 + ts.minute * 60 + ts.second
+        rhs_seconds = _time_to_seconds(cond.get("right_time", cond.get("right", "09:15")))
+        prev_seconds = None
+        if prev_row is not None and hasattr(prev_row, "name") and prev_row.name is not None:
+            prev_ts = prev_row.name
+            if getattr(prev_ts, "date", None) and prev_ts.date() == ts.date():
+                prev_seconds = prev_ts.hour * 3600 + prev_ts.minute * 60 + prev_ts.second
+
+        if op in ("is_below", "<"):
+            return cur_seconds < rhs_seconds
+        elif op in ("is_above", ">"):
+            return cur_seconds > rhs_seconds
+        elif op == ">=":
+            return cur_seconds >= rhs_seconds
         elif op == "<=":
-            return cur_minutes <= rhs_minutes
+            return cur_seconds <= rhs_seconds
+        elif op == "==":
+            return cur_seconds == rhs_seconds
+        elif op == "crosses_above":
+            return prev_seconds is not None and prev_seconds < rhs_seconds <= cur_seconds
+        elif op == "crosses_below":
+            return prev_seconds is not None and prev_seconds > rhs_seconds >= cur_seconds
         return False
 
     # Special: Day Of Week — check if current day is in selected days
@@ -332,8 +368,8 @@ def _trade_duration_str(et, xt):
         return "-"
 
 
-def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=None, fees=0):
-    return {
+def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=None, fees=0, **extra):
+    trade = {
         "id": id_,
         "entry_time": str(et)[:16],
         "exit_time": str(xt)[:16],
@@ -349,6 +385,100 @@ def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=
         "fees": round(fees, 2),
         "duration": _trade_duration_str(et, xt),
     }
+    trade.update(extra)
+    return trade
+
+
+def _resolve_option_entry(instrument, option_type, strike_type, strike_value, entry_spot, trade_date, strike_step):
+    inst_label = _instrument_label(instrument)
+    atm = round(entry_spot / strike_step) * strike_step
+    dte = _dte_weekly(trade_date)
+    base_pct = 0.009 if "BANK" in inst_label else 0.007
+    atm_prem = round(entry_spot * base_pct * math.sqrt(max(0.5, dte) / 3.0), 2)
+
+    if strike_type in ("premium_near", "premium_above", "premium_below") and strike_value > 0:
+        best_strike = atm
+        best_diff = float("inf")
+        for offset in range(-10, 11):
+            test_strike = atm + (offset * strike_step)
+            moneyness = (entry_spot - test_strike) if option_type == "CE" else (test_strike - entry_spot)
+            test_premium = _est_prem_gaussian(atm_prem, moneyness)
+            diff = abs(test_premium - strike_value)
+            if diff < best_diff:
+                best_diff = diff
+                best_strike = test_strike
+        strike_used = int(best_strike)
+        moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
+        entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
+    elif strike_type == "strike_price" and strike_value > 0:
+        strike_used = int(round(strike_value / strike_step) * strike_step)
+        moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
+        entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
+    elif strike_type in ("otm", "itm") and strike_value > 0:
+        offset = int(round(strike_value / strike_step) * strike_step)
+        if strike_type == "otm":
+            strike_used = atm + offset if option_type == "CE" else atm - offset
+            moneyness = -offset
+        else:
+            strike_used = atm - offset if option_type == "CE" else atm + offset
+            moneyness = offset
+        entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
+    elif strike_type == "spot_price" and strike_value != 0:
+        offset = int(round(strike_value / strike_step) * strike_step)
+        strike_used = int(entry_spot + offset) if strike_value > 0 else int(entry_spot - abs(offset))
+        strike_used = int(round(strike_used / strike_step) * strike_step)
+        moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
+        entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
+    else:
+        strike_used = int(atm)
+        entry_premium = atm_prem
+
+    return strike_used, entry_premium, f"{inst_label} {int(strike_used)} {option_type}", atm_prem
+
+
+def _group_trade_records(trades):
+    grouped = {}
+    for trade in trades:
+        group_id = trade.get("entry_group", trade["id"])
+        entry_ts = pd.Timestamp(trade["entry_time"])
+        exit_ts = pd.Timestamp(trade["exit_time"])
+        group = grouped.setdefault(
+            group_id,
+            {
+                "id": group_id,
+                "_entry_ts": entry_ts,
+                "_exit_ts": exit_ts,
+                "pnl": 0.0,
+                "fees": 0.0,
+                "legs": 0,
+                "exit_reason": trade.get("exit_reason", ""),
+            },
+        )
+        group["_entry_ts"] = min(group["_entry_ts"], entry_ts)
+        if exit_ts >= group["_exit_ts"]:
+            group["_exit_ts"] = exit_ts
+            group["exit_reason"] = trade.get("exit_reason", "")
+        group["pnl"] += float(trade.get("pnl", 0) or 0)
+        group["fees"] += float(trade.get("fees", 0) or 0)
+        group["legs"] += 1
+
+    running = 0.0
+    records = []
+    for _, group in sorted(grouped.items(), key=lambda item: (item[1]["_exit_ts"], item[0])):
+        running += group["pnl"]
+        records.append(
+            {
+                "id": group["id"],
+                "entry_time": str(group["_entry_ts"])[:16],
+                "exit_time": str(group["_exit_ts"])[:16],
+                "pnl": round(group["pnl"], 2),
+                "cumulative": round(running, 2),
+                "fees": round(group["fees"], 2),
+                "legs": group["legs"],
+                "exit_reason": group["exit_reason"],
+            }
+        )
+    return records
 
 
 # ── Backtest Runner ────────────────────────────────────────────────
@@ -361,54 +491,32 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     mkt_open = _parse_time(sc.get("market_open", "09:15"))
     mkt_close = _parse_time(sc.get("market_close", "15:25"))
-    lots = int(sc.get("lots", 1))
+    combined_sqoff = _parse_time(sc.get("combined_sqoff_time") or sc.get("market_close", "15:20"))
+    base_lots = int(sc.get("lots", 1) or 1)
     user_lot_size = int(sc.get("lot_size", 0) or 0)
     sl_pct = float(sc.get("stoploss_pct", 0) or 0)
     sl_rupees = float(sc.get("stoploss_rupees", 0) or 0)
     tp_pct = float(sc.get("target_profit_pct", 0) or 0)
     tp_rupees = float(sc.get("target_profit_rupees", 0) or 0)
+    combined_sl_rupees = float(sc.get("combined_sl_rupees", 0) or 0)
+    combined_target_rupees = float(sc.get("combined_target_rupees", 0) or 0)
     fee_pct = float(sc.get("fee_pct", 0) or 0)
     initial_capital = float(sc.get("initial_capital", 500000) or 500000)
     trailing_sl_pct = float(sc.get("trailing_sl_pct", 0) or 0)
     max_tpd = int(sc.get("max_trades_per_day", config.MAX_TRADES_PER_DAY))
+    max_daily_loss = float(sc.get("max_daily_loss", 0) or 0)
     indicators = sc.get("indicators", []) or []
     legs = sc.get("legs", []) or []
+    option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
     instrument = sc.get("instrument", "26000")
     strike_step = get_strike_step(instrument)
 
-    # Option leg
-    has_opt = False
-    ot = None
-    ltxn = "BUY"
-    lsl = 0
-    ltgt = 0
-    ltrail = 0
-    sqoff = mkt_close
-    strike_type = "atm"
-    strike_value = 0
-    if legs and isinstance(legs, list) and len(legs) > 0:
-        leg = legs[0]
-        if leg.get("option_type") in ("CE", "PE"):
-            has_opt = True
-            ot = leg["option_type"]
-            ltxn = leg.get("transaction_type", "BUY")
-            lsl = float(leg.get("sl_pct", 0) or 0)
-            ltgt = float(leg.get("target_pct", 0) or 0)
-            ltrail = float(leg.get("trail_pct", 0) or 0)
-            lots = int(leg.get("lots", 1) or 1)
-            strike_type = leg.get("strike_type", "atm") or "atm"
-            strike_value = float(leg.get("strike_value", 0) or 0)
-            if leg.get("sqoff_time"):
-                sqoff = _parse_time(leg["sqoff_time"])
-
-    # Add day-of-week and time-of-day columns to df
     df_raw = df_raw.copy()
-    df_raw["Day_of_Week"] = df_raw.index.dayofweek  # 0=Mon ... 4=Fri
+    df_raw["Day_of_Week"] = df_raw.index.dayofweek
     df_raw["Day_Name"] = df_raw.index.strftime("%A")
     df_raw["Hour"] = df_raw.index.hour
     df_raw["Minute"] = df_raw.index.minute
     df_raw["Time_HHMM"] = df_raw.index.strftime("%H:%M")
-    # Boolean indicators for conditions
     df_raw["Is_Monday"] = (df_raw.index.dayofweek == 0).astype(float)
     df_raw["Is_Tuesday"] = (df_raw.index.dayofweek == 1).astype(float)
     df_raw["Is_Wednesday"] = (df_raw.index.dayofweek == 2).astype(float)
@@ -417,646 +525,435 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     df = compute_dynamic_indicators(df_raw, indicators)
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
+    entry_earliest = time(9, 20)
 
-    # Entry earliest: 09:20 = skip just the first candle (09:15) for indicator warmup
-    ENTRY_EARLIEST = time(9, 20)
-
-    # P&L starts from 0, not from initial capital
     total_pnl = 0.0
-    peak_total_pnl = 0.0  # for strategy-level trailing SL
+    total_fees = 0.0
+    daily_pnl = 0.0
     trades = []
     equity = []
-    in_trade = False
-    ei = 0.0
-    ep = 0.0
-    et = None
-    slp = 0.0
-    tgtp = 0.0
-    td = 0
+    open_positions = []
+    signal_candle = None
+    trade_entry_time = None
+    trade_group_id = 0
+    strategy_sl_val = 0.0
+    strategy_tp_val = 0.0
+    trade_peak_pnl = 0.0
+    trades_today = 0
+    max_daily_loss_hit = False
     ld = None
-    strike_name = ""
-    trade_qty = 0
-    lot_size = 75
-    atm_prem_ref = 0
-    peak_prem = 0.0
-    total_fees = 0.0
-    signal_candle = None  # OHLC of the candle that triggered entry
+    lot_size = user_lot_size if user_lot_size > 0 else 1
 
     print(
-        f"[BT] open={mkt_open} close={mkt_close} lots={lots} user_lot_size={user_lot_size} sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} sqoff={sqoff}"
+        f"[BT] open={mkt_open} close={mkt_close} lots={base_lots} user_lot_size={user_lot_size} "
+        f"sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} combined_sl=₹{combined_sl_rupees} "
+        f"combined_tp=₹{combined_target_rupees} max_daily_loss=₹{max_daily_loss}"
     )
-    print(f"[BT] opt={has_opt} type={ot} txn={ltxn} sl%={lsl} tgt%={ltgt}")
+    print(f"[BT] option_legs={len(option_legs)} instrument={instrument} sqoff={combined_sqoff}")
+
+    def _position_price(position, spot_price):
+        if position["is_option"]:
+            return _est_prem(
+                spot_price,
+                position["entry_spot"],
+                position["entry_price"],
+                position["option_type"],
+                position["atm_prem_ref"],
+            )
+        return spot_price
+
+    def _position_snapshots(position, close_spot, high_spot, low_spot):
+        current_price = _position_price(position, close_spot)
+        high_price = _position_price(position, high_spot)
+        low_price = _position_price(position, low_spot)
+        if position["transaction_type"] == "BUY":
+            worst_price = min(current_price, high_price, low_price)
+            best_price = max(current_price, high_price, low_price)
+            position["peak_premium"] = max(position["peak_premium"], current_price)
+        else:
+            worst_price = max(current_price, high_price, low_price)
+            best_price = min(current_price, high_price, low_price)
+            position["peak_premium"] = min(position["peak_premium"], current_price)
+        return {"current": current_price, "worst": worst_price, "best": best_price}
+
+    def _position_pnl(position, price):
+        direction = 1 if position["transaction_type"] == "BUY" else -1
+        return (price - position["entry_price"]) * direction * position["qty"]
+
+    def _close_selected_positions(selected_positions, exit_ts, exit_price_fn, reason):
+        nonlocal daily_pnl, open_positions, signal_candle, strategy_sl_val, strategy_tp_val
+        nonlocal total_fees, total_pnl, trade_entry_time, trade_peak_pnl
+
+        selected_ids = {id(position) for position in selected_positions}
+        remaining = []
+        for position in open_positions:
+            if id(position) not in selected_ids:
+                remaining.append(position)
+                continue
+
+            exit_price = float(exit_price_fn(position))
+            raw_pnl = _position_pnl(position, exit_price)
+            fee = _calc_fees((position["entry_price"] + exit_price) * position["qty"], raw_pnl, fee_pct)
+            pnl = raw_pnl - fee
+            total_fees += fee
+            total_pnl += pnl
+            daily_pnl += pnl
+            trades.append(
+                _mk(
+                    len(trades) + 1,
+                    position["entry_time"],
+                    exit_ts,
+                    position["entry_price"],
+                    exit_price,
+                    pnl,
+                    reason,
+                    total_pnl,
+                    position.get("option_type"),
+                    position["display_symbol"],
+                    position["qty"],
+                    position["transaction_type"],
+                    fee,
+                    leg_num=position["leg_num"],
+                    entry_group=position["entry_group"],
+                    symbol=position["display_symbol"],
+                    lots=position["lots"],
+                    lot_size=position["lot_size"],
+                )
+            )
+
+        open_positions = remaining
+        if not open_positions:
+            signal_candle = None
+            trade_entry_time = None
+            strategy_sl_val = 0.0
+            strategy_tp_val = 0.0
+            trade_peak_pnl = 0.0
+
+    def _touch_spot(touch_row):
+        candle_high = float(touch_row.get("high", 0))
+        candle_low = float(touch_row.get("low", 0))
+        for condition in exit_conditions:
+            if condition.get("operator") != "touches":
+                continue
+            rhs_value = _resolve_value(touch_row, condition["right"], condition)
+            if rhs_value is None:
+                continue
+            rhs_float = float(rhs_value)
+            if candle_low <= rhs_float <= candle_high:
+                return rhs_float
+        return None
+
+    def _build_entry_positions(entry_spot, entry_ts, trade_date, day_lot_size):
+        nonlocal strategy_sl_val, strategy_tp_val
+
+        positions = []
+        if option_legs:
+            for leg_num, leg in enumerate(option_legs, start=1):
+                leg_lots = int(leg.get("lots", base_lots) or base_lots or 1)
+                strike_used, entry_price, display_symbol, atm_prem = _resolve_option_entry(
+                    instrument,
+                    leg["option_type"],
+                    leg.get("strike_type", "atm") or "atm",
+                    float(leg.get("strike_value", 0) or 0),
+                    entry_spot,
+                    trade_date,
+                    strike_step,
+                )
+                positions.append(
+                    {
+                        "entry_group": trade_group_id,
+                        "leg_num": leg_num,
+                        "is_option": True,
+                        "option_type": leg["option_type"],
+                        "transaction_type": leg.get("transaction_type", "BUY"),
+                        "entry_time": entry_ts,
+                        "entry_spot": entry_spot,
+                        "entry_price": entry_price,
+                        "display_symbol": display_symbol,
+                        "strike": strike_used,
+                        "lots": leg_lots,
+                        "lot_size": day_lot_size,
+                        "qty": leg_lots * day_lot_size,
+                        "sl_pct": float(leg.get("sl_pct", 0) or 0),
+                        "target_pct": float(leg.get("target_pct", 0) or 0),
+                        "sl_points": float(leg.get("sl_points", 0) or 0),
+                        "target_points": float(leg.get("target_points", 0) or 0),
+                        "sl_rupees": float(leg.get("sl_rupees", 0) or 0),
+                        "target_rupees": float(leg.get("target_rupees", 0) or 0),
+                        "trail_pct": float(leg.get("trail_pct", 0) or 0),
+                        "sqoff_time": _parse_time(leg.get("sqoff_time", combined_sqoff.strftime("%H:%M"))),
+                        "peak_premium": entry_price,
+                        "atm_prem_ref": atm_prem,
+                    }
+                )
+        else:
+            positions.append(
+                {
+                    "entry_group": trade_group_id,
+                    "leg_num": 1,
+                    "is_option": False,
+                    "option_type": None,
+                    "transaction_type": "BUY",
+                    "entry_time": entry_ts,
+                    "entry_spot": entry_spot,
+                    "entry_price": entry_spot,
+                    "display_symbol": _instrument_label(instrument),
+                    "strike": None,
+                    "lots": base_lots,
+                    "lot_size": day_lot_size,
+                    "qty": base_lots * day_lot_size,
+                    "sl_pct": 0.0,
+                    "target_pct": 0.0,
+                    "sl_points": 0.0,
+                    "target_points": 0.0,
+                    "sl_rupees": 0.0,
+                    "target_rupees": 0.0,
+                    "trail_pct": 0.0,
+                    "sqoff_time": combined_sqoff,
+                    "peak_premium": entry_spot,
+                    "atm_prem_ref": 0.0,
+                }
+            )
+
+        entry_notional = sum(position["entry_price"] * position["qty"] for position in positions)
+        sl_rupee_limit = combined_sl_rupees if combined_sl_rupees > 0 else sl_rupees
+        tp_rupee_limit = combined_target_rupees if combined_target_rupees > 0 else tp_rupees
+        strategy_sl_val = sl_rupee_limit if sl_rupee_limit > 0 else entry_notional * sl_pct / 100 if sl_pct > 0 else 0.0
+        strategy_tp_val = tp_rupee_limit if tp_rupee_limit > 0 else entry_notional * tp_pct / 100 if tp_pct > 0 else 0.0
+        return positions
 
     prev_row = None
     prev_prev_row = None
     for ts, row in df.iterrows():
         ct = ts.time()
         cd = ts.date()
+        exited_this_candle = False
 
         if cd != ld:
-            if in_trade and ld is not None and not is_daily:
-                o = float(row["open"])
-                xp = _est_prem(o, ei, ep, ot, atm_prem_ref) if has_opt else o
-                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, o, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                _xp_ = xp if has_opt else o
-                fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        _xp_,
-                        pnl,
-                        "EOD",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
+            if open_positions and ld is not None and not is_daily:
+                day_open = float(row["open"])
+                _close_selected_positions(
+                    list(open_positions), ts, lambda position, spot=day_open: _position_price(position, spot), "EOD"
                 )
-                in_trade = False
-            td = 0
+                exited_this_candle = True
+            trades_today = 0
+            daily_pnl = 0.0
             ld = cd
-            # Reset prev_row at day boundary — prevents stale cross-day signals
-            # (e.g., Tuesday's last candle passing Wednesday's Day_Of_Week filter)
             prev_row = None
             prev_prev_row = None
-            # Update lot size for this date — use user-configured if set, else historical
             lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
-            trade_qty = lots * lot_size
 
-        if not is_daily:
-            if in_trade and ct >= sqoff:
-                c = float(row["close"])
-                xp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
-                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                _xp_ = xp if has_opt else c
-                fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        _xp_,
-                        pnl,
-                        "EOD",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
-                )
-                in_trade = False
-                td += 1
-            if ct < mkt_open or ct >= mkt_close:
-                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
-                prev_prev_row = prev_row
-                prev_row = row
-                continue
+        snapshots = {}
+        if open_positions:
+            close_spot = float(row["close"])
+            high_spot = float(row.get("high", close_spot))
+            low_spot = float(row.get("low", close_spot))
 
-        if in_trade:
-            c = float(row["close"])
-            h = float(row.get("high", c))
-            lo = float(row.get("low", c))
-            cp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
-            # OHLC-based worst-case premium for SL detection
-            if has_opt:
-                cp_at_h = _est_prem(h, ei, ep, ot, atm_prem_ref)
-                cp_at_l = _est_prem(lo, ei, ep, ot, atm_prem_ref)
-                if ltxn == "BUY":
-                    cp_worst = min(cp, cp_at_h, cp_at_l)  # worst for BUY holder
-                    cp_best = max(cp, cp_at_h, cp_at_l)  # best for BUY holder
-                else:
-                    cp_worst = max(cp, cp_at_h, cp_at_l)  # worst for SELL holder
-                    cp_best = min(cp, cp_at_h, cp_at_l)  # best for SELL holder
-            else:
-                cp_worst = lo  # worst for long index
-                cp_best = h  # best for long index
-            # Update peak premium for trailing SL
-            if has_opt:
-                if ltxn == "BUY":
-                    peak_prem = max(peak_prem, cp)
-                else:
-                    peak_prem = min(peak_prem, cp)
-            else:
-                peak_prem = max(peak_prem, c)
-            sh = False
-            th = False
-            trail_hit = False
-            strat_sl_hit = False
-            strat_tp_hit = False
-            strat_trail_hit = False
-            # Leg-level SL uses worst-case (OHLC), TP uses close
-            if has_opt and lsl > 0:
-                sh = (ltxn == "BUY" and cp_worst <= slp) or (ltxn == "SELL" and cp_worst >= slp)
-            elif not has_opt and slp > 0:
-                sh = lo <= slp
-            if has_opt and ltgt > 0:
-                th = (ltxn == "BUY" and cp_best >= tgtp) or (ltxn == "SELL" and cp_best <= tgtp)
-            elif not has_opt and tgtp > 0:
-                th = h >= tgtp
-            # Trailing stop loss check (leg-level)
-            if has_opt and ltrail > 0:
-                if ltxn == "BUY" and cp_worst <= peak_prem * (1 - ltrail / 100):
-                    trail_hit = True
-                elif ltxn == "SELL" and cp_worst >= peak_prem * (1 + ltrail / 100):
-                    trail_hit = True
-            elif not has_opt and ltrail > 0:
-                if lo <= peak_prem * (1 - ltrail / 100):
-                    trail_hit = True
-            # Strategy-level trailing SL on total portfolio P&L
-            if trailing_sl_pct > 0 and peak_total_pnl > 0:
-                cur_trade_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
-                hypothetical_total = total_pnl + cur_trade_pnl
-                if peak_total_pnl - hypothetical_total > peak_total_pnl * trailing_sl_pct / 100:
-                    strat_trail_hit = True
-            # Strategy-level SL/TP (₹ or %) — SL uses worst-case OHLC, TP uses best-case OHLC
-            if sl_rupees > 0 or sl_pct > 0 or tp_rupees > 0 or tp_pct > 0:
-                if has_opt:
-                    cur_pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn)
-                    worst_pnl = _opt_pnl(ep, cp_worst, lots, lot_size, ltxn)
-                    best_pnl = _opt_pnl(ep, cp_best, lots, lot_size, ltxn)
-                else:
-                    cur_pnl = _idx_pnl(ei, c, lots, lot_size)
-                    worst_pnl = _idx_pnl(ei, lo, lots, lot_size)
-                    best_pnl = _idx_pnl(ei, h, lots, lot_size)
-                strat_sl_val = (
-                    sl_rupees
-                    if sl_rupees > 0
-                    else (ep * lots * lot_size * sl_pct / 100)
-                    if (sl_pct > 0 and has_opt)
-                    else (ei * lots * lot_size * sl_pct / 100)
-                    if sl_pct > 0
-                    else 0
-                )
-                strat_tp_val = (
-                    tp_rupees
-                    if tp_rupees > 0
-                    else (ep * lots * lot_size * tp_pct / 100)
-                    if (tp_pct > 0 and has_opt)
-                    else (ei * lots * lot_size * tp_pct / 100)
-                    if tp_pct > 0
-                    else 0
-                )
-                if strat_sl_val > 0 and worst_pnl <= -strat_sl_val:
-                    strat_sl_hit = True
-                if strat_tp_val > 0 and best_pnl >= strat_tp_val:
-                    strat_tp_hit = True
+            portfolio_cur_pnl = 0.0
+            portfolio_worst_pnl = 0.0
+            portfolio_best_pnl = 0.0
+            for position in open_positions:
+                snap = _position_snapshots(position, close_spot, high_spot, low_spot)
+                snapshots[id(position)] = snap
+                portfolio_cur_pnl += _position_pnl(position, snap["current"])
+                portfolio_worst_pnl += _position_pnl(position, snap["worst"])
+                portfolio_best_pnl += _position_pnl(position, snap["best"])
 
-            if strat_sl_hit:
-                # Cap SL exit at exact SL level (matching Quantman: max loss = SL%)
-                qty = lots * lot_size
-                if ltxn == "BUY":
-                    capped_xp = round(ep - strat_sl_val / qty, 2)
-                else:
-                    capped_xp = round(ep + strat_sl_val / qty, 2)
-                pnl = -round(strat_sl_val, 2)
-                fee = _calc_fees((ep + capped_xp) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        ep,
-                        capped_xp,
-                        pnl,
-                        "StrategySL",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
+            trade_peak_pnl = max(trade_peak_pnl, portfolio_cur_pnl)
+
+            if strategy_sl_val > 0 and portfolio_worst_pnl <= -strategy_sl_val:
+                _close_selected_positions(
+                    list(open_positions),
+                    ts,
+                    lambda position, snap_map=snapshots: snap_map[id(position)]["worst"],
+                    "StrategySL",
                 )
-                in_trade = False
-                td += 1
-            elif strat_tp_hit:
-                # Cap TP exit at exact TP level (bracket order fills at TP price)
-                qty = lots * lot_size
-                if ltxn == "BUY":
-                    capped_xp = round(ep + strat_tp_val / qty, 2)
-                else:
-                    capped_xp = round(ep - strat_tp_val / qty, 2)
-                pnl = round(strat_tp_val, 2)
-                fee = _calc_fees((ep + capped_xp) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        ep,
-                        capped_xp,
-                        pnl,
-                        "StrategyTP",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
+                exited_this_candle = True
+            if not exited_this_candle and strategy_tp_val > 0 and portfolio_best_pnl >= strategy_tp_val:
+                _close_selected_positions(
+                    list(open_positions),
+                    ts,
+                    lambda position, snap_map=snapshots: snap_map[id(position)]["best"],
+                    "StrategyTP",
                 )
-                in_trade = False
-                td += 1
-            elif strat_trail_hit:
-                pnl = _opt_pnl(ep, cp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                _xp_ = cp if has_opt else c
-                fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
+                exited_this_candle = True
+            if not exited_this_candle and trailing_sl_pct > 0 and trade_peak_pnl > 0:
+                if portfolio_cur_pnl <= trade_peak_pnl * (1 - trailing_sl_pct / 100):
+                    _close_selected_positions(
+                        list(open_positions),
                         ts,
-                        _ep_,
-                        _xp_,
-                        pnl,
+                        lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
                         "StratTrailSL",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
                     )
-                )
-                in_trade = False
-                td += 1
-            elif sh:
-                xp = slp if has_opt else slp
-                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, xp, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                fee = _calc_fees((_ep_ + xp) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        xp,
-                        pnl,
-                        "StopLoss",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
-                )
-                in_trade = False
-                td += 1
-            elif trail_hit:
-                trail_xp = (
-                    peak_prem * (1 - ltrail / 100)
-                    if (has_opt and ltxn == "BUY") or not has_opt
-                    else peak_prem * (1 + ltrail / 100)
-                )
-                pnl = (
-                    _opt_pnl(ep, trail_xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, trail_xp, lots, lot_size)
-                )
-                _ep_ = ep if has_opt else ei
-                fee = _calc_fees((_ep_ + trail_xp) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        trail_xp,
-                        pnl,
-                        "TrailingSL",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
-                )
-                in_trade = False
-                td += 1
-            elif th:
-                xp = tgtp if has_opt else c
-                pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
-                _ep_ = ep if has_opt else ei
-                _xp_ = xp if has_opt else c
-                fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                pnl -= fee
-                total_fees += fee
-                total_pnl += pnl
-                peak_total_pnl = max(peak_total_pnl, total_pnl)
-                trades.append(
-                    _mk(
-                        len(trades) + 1,
-                        et,
-                        ts,
-                        _ep_,
-                        _xp_,
-                        pnl,
-                        "Target",
-                        total_pnl,
-                        ot,
-                        strike_name,
-                        trade_qty,
-                        ltxn,
-                        fee,
-                    )
-                )
-                in_trade = False
-                td += 1
-            # Touch-based exit: check "touches" conditions on CURRENT row (no 1-candle delay)
-            elif any(c.get("operator") == "touches" for c in exit_conditions):
-                _touch_row = row.copy() if signal_candle else row
+                    exited_this_candle = True
+            if not exited_this_candle and any(condition.get("operator") == "touches" for condition in exit_conditions):
+                touch_row = row.copy() if signal_candle else row
                 if signal_candle:
-                    for _k, _v in signal_candle.items():
-                        _touch_row[_k] = _v
-                if eval_condition_group(_touch_row, exit_conditions, prev_row):
-                    # Find the touched level for exit pricing
-                    touch_price = None
-                    h_val = float(row.get("high", 0))
-                    lo_val = float(row.get("low", 0))
-                    for _tc in exit_conditions:
-                        if _tc.get("operator") == "touches":
-                            _trv = _resolve_value(row, _tc["right"], _tc)
-                            if _trv is not None:
-                                _trv_f = float(_trv)
-                                if lo_val <= _trv_f <= h_val:
-                                    touch_price = _trv_f
-                                    break
-                    if touch_price is not None:
-                        xp = _est_prem(touch_price, ei, ep, ot, atm_prem_ref) if has_opt else touch_price
-                        pnl = (
-                            _opt_pnl(ep, xp, lots, lot_size, ltxn)
-                            if has_opt
-                            else _idx_pnl(ei, touch_price, lots, lot_size)
-                        )
-                        _ep_ = ep if has_opt else ei
-                        _xp_ = xp if has_opt else touch_price
-                        fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                        pnl -= fee
-                        total_fees += fee
-                        total_pnl += pnl
-                        peak_total_pnl = max(peak_total_pnl, total_pnl)
-                        trades.append(
-                            _mk(
-                                len(trades) + 1,
-                                et,
-                                ts,
-                                _ep_,
-                                _xp_,
-                                pnl,
-                                "Touch",
-                                total_pnl,
-                                ot,
-                                strike_name,
-                                trade_qty,
-                                ltxn,
-                                fee,
-                            )
-                        )
-                        in_trade = False
-                        signal_candle = None
-                        td += 1
-            elif prev_row is not None:
-                # Inject Signal Candle values into exit evaluation row
-                _exit_row = prev_row.copy() if signal_candle else prev_row
-                if signal_candle:
-                    for _k, _v in signal_candle.items():
-                        _exit_row[_k] = _v
-                if eval_condition_group(_exit_row, exit_conditions, prev_prev_row):
-                    xo = float(row["open"])
-                    xp = _est_prem(xo, ei, ep, ot, atm_prem_ref) if has_opt else xo
-                    pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, xo, lots, lot_size)
-                    _ep_ = ep if has_opt else ei
-                    _xp_ = xp if has_opt else xo
-                    fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-                    pnl -= fee
-                    total_fees += fee
-                    total_pnl += pnl
-                    peak_total_pnl = max(peak_total_pnl, total_pnl)
-                    trades.append(
-                        _mk(
-                            len(trades) + 1,
-                            et,
+                    for key, value in signal_candle.items():
+                        touch_row[key] = value
+                if eval_condition_group(touch_row, exit_conditions, prev_row):
+                    touch_spot = _touch_spot(touch_row)
+                    if touch_spot is not None:
+                        _close_selected_positions(
+                            list(open_positions),
                             ts,
-                            _ep_,
-                            _xp_,
-                            pnl,
-                            "Signal",
-                            total_pnl,
-                            ot,
-                            strike_name,
-                            trade_qty,
-                            ltxn,
-                            fee,
+                            lambda position, spot=touch_spot: _position_price(position, spot),
+                            "Touch",
                         )
+                        exited_this_candle = True
+            if not exited_this_candle and prev_row is not None:
+                exit_row = prev_row.copy() if signal_candle else prev_row
+                if signal_candle:
+                    for key, value in signal_candle.items():
+                        exit_row[key] = value
+                if eval_condition_group(exit_row, exit_conditions, prev_prev_row):
+                    next_open = float(row["open"])
+                    _close_selected_positions(
+                        list(open_positions),
+                        ts,
+                        lambda position, spot=next_open: _position_price(position, spot),
+                        "Signal",
                     )
-                    in_trade = False
-                    signal_candle = None
-                    td += 1
-        else:
-            if td >= max_tpd:
-                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
-                prev_prev_row = prev_row
-                prev_row = row
-                continue
-            # Only skip the very first 5min candle (09:15) — enter from 09:20
-            if not is_daily and ct < ENTRY_EARLIEST:
-                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
-                prev_prev_row = prev_row
-                prev_row = row
-                continue
+                    exited_this_candle = True
+            if not exited_this_candle and not is_daily and ct >= combined_sqoff:
+                _close_selected_positions(
+                    list(open_positions),
+                    ts,
+                    lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
+                    "SquareOff",
+                )
+                exited_this_candle = True
 
+            if open_positions and not exited_this_candle:
+                leg_exits = []
+                for position in list(open_positions):
+                    snap = snapshots[id(position)]
+                    direction = 1 if position["transaction_type"] == "BUY" else -1
+                    exit_reason = None
+                    exit_price = None
+
+                    if position["trail_pct"] > 0:
+                        threshold = position["peak_premium"] * (
+                            1 - position["trail_pct"] / 100
+                            if position["transaction_type"] == "BUY"
+                            else 1 + position["trail_pct"] / 100
+                        )
+                        if (position["transaction_type"] == "BUY" and snap["worst"] <= threshold) or (
+                            position["transaction_type"] == "SELL" and snap["worst"] >= threshold
+                        ):
+                            exit_reason = "TrailingSL"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["sl_pct"] > 0:
+                        threshold = position["entry_price"] * (
+                            1 - position["sl_pct"] / 100
+                            if position["transaction_type"] == "BUY"
+                            else 1 + position["sl_pct"] / 100
+                        )
+                        if (position["transaction_type"] == "BUY" and snap["worst"] <= threshold) or (
+                            position["transaction_type"] == "SELL" and snap["worst"] >= threshold
+                        ):
+                            exit_reason = "StopLoss"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["target_pct"] > 0:
+                        threshold = position["entry_price"] * (
+                            1 + position["target_pct"] / 100
+                            if position["transaction_type"] == "BUY"
+                            else 1 - position["target_pct"] / 100
+                        )
+                        if (position["transaction_type"] == "BUY" and snap["best"] >= threshold) or (
+                            position["transaction_type"] == "SELL" and snap["best"] <= threshold
+                        ):
+                            exit_reason = "Target"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["sl_points"] > 0:
+                        threshold = position["entry_price"] - position["sl_points"] * direction
+                        if _position_pnl(position, snap["worst"]) <= _position_pnl(position, threshold):
+                            exit_reason = "SL_POINTS"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["target_points"] > 0:
+                        threshold = position["entry_price"] + position["target_points"] * direction
+                        if _position_pnl(position, snap["best"]) >= _position_pnl(position, threshold):
+                            exit_reason = "TARGET_POINTS"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["sl_rupees"] > 0:
+                        threshold = position["entry_price"] - (position["sl_rupees"] / position["qty"]) * direction
+                        if _position_pnl(position, snap["worst"]) <= -position["sl_rupees"]:
+                            exit_reason = "SL_RUPEES"
+                            exit_price = threshold
+
+                    if exit_reason is None and position["target_rupees"] > 0:
+                        threshold = position["entry_price"] + (position["target_rupees"] / position["qty"]) * direction
+                        if _position_pnl(position, snap["best"]) >= position["target_rupees"]:
+                            exit_reason = "TARGET_RUPEES"
+                            exit_price = threshold
+
+                    if exit_reason is None and not is_daily and ct >= position["sqoff_time"]:
+                        exit_reason = "SquareOff"
+                        exit_price = snap["current"]
+
+                    if exit_reason and exit_price is not None:
+                        leg_exits.append((position, exit_price, exit_reason))
+
+                if leg_exits:
+                    for position, exit_price, exit_reason in leg_exits:
+                        _close_selected_positions(
+                            [position],
+                            ts,
+                            lambda _position, price=exit_price: price,
+                            exit_reason,
+                        )
+                    exited_this_candle = True
+
+        if not is_daily and (ct < mkt_open or ct >= mkt_close):
+            equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+            prev_prev_row = prev_row
+            prev_row = row
+            continue
+
+        if not open_positions and not exited_this_candle:
+            daily_loss_hit = max_daily_loss > 0 and daily_pnl <= -max_daily_loss
+            if daily_loss_hit:
+                max_daily_loss_hit = True
+            if trades_today >= max_tpd or daily_loss_hit:
+                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
+                continue
+            if not is_daily and ct < entry_earliest:
+                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
+                continue
             if prev_row is not None and eval_condition_group(prev_row, entry_conditions, prev_prev_row):
-                in_trade = True
-                ei = float(row["open"])
-                et = ts  # Use candle OPEN (matches Quantman entry timing)
-                # Capture signal candle OHLC (prev_row triggered the entry)
+                trade_group_id += 1
+                trade_entry_time = ts
                 signal_candle = {
                     "Signal_Candle_Open": float(prev_row["open"]),
                     "Signal_Candle_High": float(prev_row["high"]),
                     "Signal_Candle_Low": float(prev_row["low"]),
                     "Signal_Candle_Close": float(prev_row["close"]),
                 }
-                lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
-                trade_qty = lots * lot_size
-                atm = round(ei / strike_step) * strike_step
-                # Determine correct instrument label
-                if "26009" in str(instrument) or "BANK" in str(instrument).upper():
-                    inst_label = "BANKNIFTY"
-                elif "1" == str(instrument) or "SENSEX" in str(instrument).upper():
-                    inst_label = "SENSEX"
-                elif "26017" in str(instrument) or "FIN" in str(instrument).upper():
-                    inst_label = "NIFTY FINSVC"
-                elif "26037" in str(instrument) or "MIDCAP" in str(instrument).upper():
-                    inst_label = "NIFTY MIDCAP"
-                else:
-                    inst_label = "NIFTY"
-                strike_name = f"{inst_label} {int(atm)} {ot}" if has_opt else inst_label
-                if has_opt:
-                    # DTE-aware ATM premium estimation (matches real weekly option premiums)
-                    dte = _dte_weekly(cd)
-                    base_pct = 0.009 if "BANK" in inst_label else 0.007
-                    atm_prem = round(ei * base_pct * math.sqrt(max(0.5, dte) / 3.0), 2)
-
-                    print(f"[BT] Entry @ {et}: Spot={ei:.2f}, ATM={atm}, ATM_Premium_Est={atm_prem}, DTE={dte}")
-
-                    # Determine entry premium based on strike selection
-                    if strike_type in ("premium_near", "premium_above", "premium_below") and strike_value > 0:
-                        # Find strike whose premium is closest to target
-                        target_prem = strike_value
-
-                        # Search strikes around ATM (±10 strikes)
-                        best_strike = atm
-                        best_diff = 999999
-
-                        for offset in range(-10, 11):
-                            test_strike = atm + (offset * strike_step)
-                            moneyness = (ei - test_strike) if ot == "CE" else (test_strike - ei)
-
-                            # Use Gaussian extrinsic decay (matches real weekly option pricing)
-                            test_prem = _est_prem_gaussian(atm_prem, moneyness)
-
-                            diff = abs(test_prem - target_prem)
-                            if diff < best_diff:
-                                best_diff = diff
-                                best_strike = test_strike
-
-                        strike_used = int(best_strike)
-                        # Use the actual estimated premium for the selected strike
-                        best_moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
-                        ep = max(1, round(_est_prem_gaussian(atm_prem, best_moneyness), 2))
-                        strike_name = f"{inst_label} {strike_used} {ot}"
-                        print(
-                            f"[BT]   Premium_Near target={target_prem}: Selected {strike_used}, actual_est_premium={ep}"
-                        )
-                    elif strike_type == "strike_price" and strike_value > 0:
-                        strike_used = int(round(strike_value / strike_step) * strike_step)
-                        moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
-                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
-                        strike_name = f"{inst_label} {int(strike_used)} {ot}"
-                        print(f"[BT]   Strike_Price: {strike_used}, Est Premium={ep}")
-                    elif strike_type in ("otm", "itm") and strike_value > 0:
-                        offset = int(round(strike_value / strike_step) * strike_step)
-                        if strike_type == "otm":
-                            strike_used = atm + offset if ot == "CE" else atm - offset
-                            moneyness = -offset  # OTM
-                        else:
-                            strike_used = atm - offset if ot == "CE" else atm + offset
-                            moneyness = offset  # ITM
-                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
-                        strike_name = f"{inst_label} {int(strike_used)} {ot}"
-                        print(f"[BT]   {strike_type.upper()}: {strike_used}, Est Premium={ep}")
-                    elif strike_type == "spot_price" and strike_value != 0:
-                        # Spot ± Offset: offset from current spot price
-                        offset = int(round(strike_value / strike_step) * strike_step)
-                        strike_used = int(ei + offset) if strike_value > 0 else int(ei - abs(offset))
-                        strike_used = int(round(strike_used / strike_step) * strike_step)  # round to nearest strike
-                        moneyness = (ei - strike_used) if ot == "CE" else (strike_used - ei)
-                        ep = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
-                        strike_name = f"{inst_label} {int(strike_used)} {ot}"
-                        print(f"[BT]   Spot±Offset: {strike_used}, Est Premium={ep}")
-                    else:
-                        # Default ATM
-                        strike_used = atm
-                        ep = atm_prem
-                        strike_name = f"{inst_label} {int(strike_used)} {ot}"
-                        print(f"[BT]   ATM: {strike_used}, Est Premium={ep}")
-                    slp = round(ep * (1 - lsl / 100), 2) if lsl > 0 else 0
-                    tgtp = round(ep * (1 + ltgt / 100), 2) if ltgt > 0 else 0
-                    atm_prem_ref = atm_prem  # store for delta estimation during trade
-                    peak_prem = ep  # initialize peak for trailing SL
-                    # Also apply strategy-level SL/TP as absolute ₹ limits on total P&L
-                    # These are checked per-candle below (strategy_sl_rupees / strategy_tp_rupees)
-                else:
-                    ep = ei
-                    # Strategy-level SL/TP for index trades (supports % or ₹)
-                    if sl_rupees > 0:
-                        slp = ei - sl_rupees
-                    elif sl_pct > 0:
-                        slp = ei * (1 - sl_pct / 100)
-                    else:
-                        slp = 0
-                    if tp_rupees > 0:
-                        tgtp = ei + tp_rupees
-                    elif tp_pct > 0:
-                        tgtp = ei * (1 + tp_pct / 100)
-                    else:
-                        tgtp = 0
-                    peak_prem = ei
+                open_positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
+                trade_peak_pnl = 0.0
+                trades_today += 1
 
         equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
         prev_prev_row = prev_row
         prev_row = row
 
-    # Force-close any open trade at end of data
-    if in_trade and prev_row is not None:
-        c = float(prev_row["close"])
-        xp = _est_prem(c, ei, ep, ot, atm_prem_ref) if has_opt else c
-        pnl = _opt_pnl(ep, xp, lots, lot_size, ltxn) if has_opt else _idx_pnl(ei, c, lots, lot_size)
-        _ep_ = ep if has_opt else ei
-        _xp_ = xp if has_opt else c
-        fee = _calc_fees((_ep_ + _xp_) * trade_qty, pnl, fee_pct)
-        pnl -= fee
-        total_fees += fee
-        total_pnl += pnl
-        peak_total_pnl = max(peak_total_pnl, total_pnl)
-        trades.append(
-            _mk(
-                len(trades) + 1,
-                et,
-                prev_row.name,
-                _ep_,
-                _xp_,
-                pnl,
-                "EOD/Data",
-                total_pnl,
-                ot,
-                strike_name,
-                trade_qty,
-                ltxn,
-                fee,
-            )
+    if open_positions and prev_row is not None:
+        final_spot = float(prev_row["close"])
+        _close_selected_positions(
+            list(open_positions),
+            prev_row.name,
+            lambda position, spot=final_spot: _position_price(position, spot),
+            "EOD/Data",
         )
-        in_trade = False
 
     if not trades:
         return {
@@ -1070,111 +967,104 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             "yearly": [],
         }
 
-    pnls = [t["pnl"] for t in trades]
-    ws = [p for p in pnls if p > 0]
-    ls = [p for p in pnls if p <= 0]
-    run = [t["cumulative"] for t in trades]
-    # Max drawdown from cumulative P&L
-    pk = run[0]
-    mdd = 0.0
-    mddv = 0.0
+    summary_trades = _group_trade_records(trades)
+    pnls = [trade["pnl"] for trade in summary_trades]
+    wins = [pnl for pnl in pnls if pnl > 0]
+    losses = [pnl for pnl in pnls if pnl <= 0]
+    run = [trade["cumulative"] for trade in summary_trades]
+
+    peak = run[0]
+    max_drawdown_pct = 0.0
+    max_drawdown_val = 0.0
     dd_days = 0
     max_dd_days = 0
     in_dd = False
     dd_start_idx = 0
-    for i, v in enumerate(run):
-        pk = max(pk, v)
-        ddv = pk - v
-        mddv = max(mddv, ddv)
-        if pk != 0:
-            mdd = max(mdd, ddv / abs(pk) * 100)
-        # Track drawdown days
-        if ddv > 0:
+    for idx, cumulative in enumerate(run):
+        peak = max(peak, cumulative)
+        drawdown_val = peak - cumulative
+        max_drawdown_val = max(max_drawdown_val, drawdown_val)
+        if peak != 0:
+            max_drawdown_pct = max(max_drawdown_pct, drawdown_val / abs(peak) * 100)
+        if drawdown_val > 0:
             if not in_dd:
                 in_dd = True
-                dd_start_idx = i
-            dd_days = i - dd_start_idx + 1
+                dd_start_idx = idx
+            dd_days = idx - dd_start_idx + 1
             max_dd_days = max(max_dd_days, dd_days)
         else:
             in_dd = False
             dd_days = 0
 
-    wst = 0
-    lst = 0
-    cw = 0
-    cl = 0
-    for p in pnls:
-        if p > 0:
-            cw += 1
-            cl = 0
-            wst = max(wst, cw)
+    win_streak = 0
+    loss_streak = 0
+    current_win = 0
+    current_loss = 0
+    for pnl in pnls:
+        if pnl > 0:
+            current_win += 1
+            current_loss = 0
+            win_streak = max(win_streak, current_win)
         else:
-            cl += 1
-            cw = 0
-            lst = max(lst, cl)
+            current_loss += 1
+            current_win = 0
+            loss_streak = max(loss_streak, current_loss)
 
-    # ── Advanced Stats ──────────────────────────────────────
-    # ROI (Return on Capital)
     roi_pct = round(sum(pnls) / initial_capital * 100, 2) if initial_capital > 0 else 0
 
-    # Average trade duration
     durations_min = []
-    for t in trades:
+    for trade in summary_trades:
         try:
-            t1 = pd.Timestamp(t["entry_time"])
-            t2 = pd.Timestamp(t["exit_time"])
-            durations_min.append((t2 - t1).total_seconds() / 60)
-        except:
+            start_ts = pd.Timestamp(trade["entry_time"])
+            end_ts = pd.Timestamp(trade["exit_time"])
+            durations_min.append((end_ts - start_ts).total_seconds() / 60)
+        except Exception:
             pass
     avg_duration_min = round(float(np.mean(durations_min)), 1) if durations_min else 0
     if avg_duration_min < 60:
         avg_duration_str = f"{int(avg_duration_min)}m"
     else:
-        h, m = divmod(int(avg_duration_min), 60)
-        avg_duration_str = f"{h}h {m}m"
+        hours, minutes = divmod(int(avg_duration_min), 60)
+        avg_duration_str = f"{hours}h {minutes}m"
 
-    # Sharpe Ratio (annualized, assuming 252 trading days)
     pnl_arr = np.array(pnls)
     if len(pnl_arr) > 1 and np.std(pnl_arr) > 0:
         sharpe_ratio = round(float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(252)), 2)
     else:
         sharpe_ratio = 0.0
 
-    # Calmar Ratio (annualized return / max drawdown)
-    # Estimate trading period in years from first to last trade
     try:
-        first_dt = pd.Timestamp(trades[0]["entry_time"])
-        last_dt = pd.Timestamp(trades[-1]["exit_time"])
+        first_dt = pd.Timestamp(summary_trades[0]["entry_time"])
+        last_dt = pd.Timestamp(summary_trades[-1]["exit_time"])
         years = max(0.01, (last_dt - first_dt).days / 365.25)
-        ann_return = sum(pnls) / years
-        calmar_ratio = round(ann_return / mddv, 2) if mddv > 0 else 999.0
-    except:
+        annual_return = sum(pnls) / years
+        calmar_ratio = round(annual_return / max_drawdown_val, 2) if max_drawdown_val > 0 else 999.0
+    except Exception:
         calmar_ratio = 0.0
 
-    # Expectancy (average ₹ per trade, weighted by win/loss rate)
-    wr = len(ws) / len(pnls) if pnls else 0
-    lr = 1.0 - wr
-    avg_w = float(np.mean(ws)) if ws else 0
-    avg_l = abs(float(np.mean(ls))) if ls else 0
-    expectancy = round(wr * avg_w - lr * avg_l, 2)
+    win_rate = len(wins) / len(pnls) if pnls else 0
+    avg_win = float(np.mean(wins)) if wins else 0
+    avg_loss = abs(float(np.mean(losses))) if losses else 0
+    expectancy = round(win_rate * avg_win - (1.0 - win_rate) * avg_loss, 2)
 
     stats = {
-        "total_trades": len(trades),
-        "winning_trades": len(ws),
-        "losing_trades": len(ls),
-        "win_rate": round(len(ws) / len(pnls) * 100, 2),
+        "total_trades": len(summary_trades),
+        "closed_legs": len(trades),
+        "winning_trades": len(wins),
+        "losing_trades": len(losses),
+        "win_rate": round(win_rate * 100, 2),
         "total_pnl": round(sum(pnls), 2),
-        "avg_profit": round(float(np.mean(ws)) if ws else 0, 2),
-        "avg_loss": round(float(np.mean(ls)) if ls else 0, 2),
-        "max_drawdown": round(mdd, 2),
-        "max_drawdown_val": round(mddv, 2),
+        "avg_profit": round(avg_win, 2),
+        "avg_loss": round(float(np.mean(losses)) if losses else 0, 2),
+        "max_drawdown": round(max_drawdown_pct, 2),
+        "max_drawdown_val": round(max_drawdown_val, 2),
         "max_drawdown_days": max_dd_days,
         "roi_pct": roi_pct,
-        "profit_factor": round(sum(ws) / abs(sum(ls)) if ls and abs(sum(ls)) > 0 else 999.0, 2),
+        "profit_factor": round(sum(wins) / abs(sum(losses)) if losses and abs(sum(losses)) > 0 else 999.0, 2),
         "max_profit": round(max(pnls), 2),
         "max_loss": round(min(pnls), 2),
-        "win_streak": wst,
-        "loss_streak": lst,
+        "win_streak": win_streak,
+        "loss_streak": loss_streak,
         "risk_per_trade": round(float(np.std(pnls)), 2) if len(pnls) > 1 else 0,
         "sharpe_ratio": sharpe_ratio,
         "calmar_ratio": calmar_ratio,
@@ -1184,45 +1074,49 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         "total_fees": round(total_fees, 2),
         "initial_capital": initial_capital,
         "net_pnl_after_fees": round(sum(pnls), 2),
+        "max_daily_loss_hit": max_daily_loss_hit,
     }
 
     monthly = {}
-    for t in trades:
-        k = str(t["entry_time"])[:7]
-        monthly[k] = monthly.get(k, 0) + t["pnl"]
-    dmap = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
-    dd = {}
-    for t in trades:
+    for trade in summary_trades:
+        month_key = str(trade["entry_time"])[:7]
+        monthly[month_key] = monthly.get(month_key, 0) + trade["pnl"]
+
+    day_map = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
+    day_stats = {}
+    for trade in summary_trades:
         try:
-            dn = dmap[datetime.strptime(str(t["entry_time"])[:10], "%Y-%m-%d").weekday()]
-        except:
-            dn = "Unknown"
-        if dn not in dd:
-            dd[dn] = {"hits": 0, "miss": 0, "profit": 0, "loss": 0}
-        if t["pnl"] > 0:
-            dd[dn]["hits"] += 1
-            dd[dn]["profit"] += t["pnl"]
+            day_name = day_map[datetime.strptime(str(trade["entry_time"])[:10], "%Y-%m-%d").weekday()]
+        except Exception:
+            day_name = "Unknown"
+        if day_name not in day_stats:
+            day_stats[day_name] = {"hits": 0, "miss": 0, "profit": 0, "loss": 0}
+        if trade["pnl"] > 0:
+            day_stats[day_name]["hits"] += 1
+            day_stats[day_name]["profit"] += trade["pnl"]
         else:
-            dd[dn]["miss"] += 1
-            dd[dn]["loss"] += t["pnl"]
-    yd = {}
-    for t in trades:
-        yr = str(t["entry_time"])[:4]
-        if yr not in yd:
-            yd[yr] = {"hits": 0, "miss": 0, "profit": 0, "loss": 0}
-        if t["pnl"] > 0:
-            yd[yr]["hits"] += 1
-            yd[yr]["profit"] += t["pnl"]
+            day_stats[day_name]["miss"] += 1
+            day_stats[day_name]["loss"] += trade["pnl"]
+
+    yearly = {}
+    for trade in summary_trades:
+        year_key = str(trade["entry_time"])[:4]
+        if year_key not in yearly:
+            yearly[year_key] = {"hits": 0, "miss": 0, "profit": 0, "loss": 0}
+        if trade["pnl"] > 0:
+            yearly[year_key]["hits"] += 1
+            yearly[year_key]["profit"] += trade["pnl"]
         else:
-            yd[yr]["miss"] += 1
-            yd[yr]["loss"] += t["pnl"]
+            yearly[year_key]["miss"] += 1
+            yearly[year_key]["loss"] += trade["pnl"]
+
     step = max(1, len(equity) // 800)
     return {
         "status": "success",
         "trades": trades,
         "equity": equity[::step],
         "stats": stats,
-        "monthly": [{"month": k, "pnl": round(v, 2)} for k, v in sorted(monthly.items())],
-        "day_of_week": [{"day": k, **v} for k, v in dd.items()],
-        "yearly": [{"year": k, **v} for k, v in sorted(yd.items())],
+        "monthly": [{"month": key, "pnl": round(value, 2)} for key, value in sorted(monthly.items())],
+        "day_of_week": [{"day": key, **value} for key, value in day_stats.items()],
+        "yearly": [{"year": key, **value} for key, value in sorted(yearly.items())],
     }
