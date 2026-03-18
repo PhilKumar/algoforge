@@ -290,6 +290,17 @@ class LiveEngine:
         except Exception as e:
             print(f"[LIVE] Callback error: {e}")
 
+    def _compute_candle_latency(self, candle_time, now: Optional[datetime] = None) -> float:
+        """Normalize candle latency around session boundaries."""
+        if not isinstance(candle_time, datetime):
+            return 0.0
+        now = now or _now_ist()
+        market_open = getattr(self, "_market_open", time(9, 15))
+        session_open = datetime.combine(now.date(), market_open)
+        if candle_time.date() != now.date() or candle_time < session_open:
+            candle_time = session_open
+        return max(0.0, (now - candle_time).total_seconds())
+
     # ── Diagnostic / Debug ─────────────────────────────────────
     def debug_engine_state(self) -> dict:
         """Return a comprehensive snapshot of engine state for debugging silent failures.
@@ -585,7 +596,7 @@ class LiveEngine:
                 self._update_ui_data(latest_row)
 
                 candle_time = latest_candle.get("timestamp", now)
-                latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
+                latency = self._compute_candle_latency(candle_time, now)
                 self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
 
                 # ── Check entry (Quantman Way — signal → pendingOrder → flush on next candle) ──

@@ -313,6 +313,21 @@ class PaperTradingEngine:
         except Exception as e:
             print(f"[PAPER] Callback error: {e}")
 
+    def _compute_candle_latency(self, candle_time, now: Optional[datetime] = None) -> float:
+        """Normalize candle latency around session boundaries."""
+        if not isinstance(candle_time, datetime):
+            return 0.0
+        now = now or _now_ist()
+        market_open = self.strategy.get("market_open", "09:15")
+        if isinstance(market_open, str):
+            hour, minute = map(int, market_open.split(":"))
+        else:
+            hour, minute = market_open.hour, market_open.minute
+        session_open = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candle_time.date() != now.date() or candle_time < session_open:
+            candle_time = session_open
+        return max(0.0, (now - candle_time).total_seconds())
+
     async def start(self, callback=None):
         """Start the paper trading engine"""
         self.running = True
@@ -562,7 +577,7 @@ class PaperTradingEngine:
                 self._update_ui_data(latest_row)
 
                 candle_time = latest_candle.get("timestamp", now)
-                latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
+                latency = self._compute_candle_latency(candle_time, now)
                 self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
 
                 # Check entry conditions

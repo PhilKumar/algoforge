@@ -76,15 +76,17 @@ class ScalpTrade:
         # Compute absolute target/SL premiums if only % given
         self.target_premium = target_premium
         self.sl_premium = sl_premium
+        self.target_from_pct = target_premium <= 0 and target_pct > 0
+        self.sl_from_pct = sl_premium <= 0 and sl_pct > 0
 
         if entry_premium > 0:
-            if not self.target_premium and target_pct > 0:
+            if self.target_from_pct:
                 if transaction_type == "BUY":
                     self.target_premium = round(entry_premium * (1 + target_pct / 100), 2)
                 else:
                     self.target_premium = round(entry_premium * (1 - target_pct / 100), 2)
 
-            if not self.sl_premium and sl_pct > 0:
+            if self.sl_from_pct:
                 if transaction_type == "BUY":
                     self.sl_premium = round(entry_premium * (1 - sl_pct / 100), 2)
                 else:
@@ -210,6 +212,7 @@ class ScalpEngine:
         self._running: bool = False
         self._task: Optional[asyncio.Task] = None
         self._ws_subs: Dict[int, str] = {}  # trade_id → ws_sec_id
+        self._broker_sync_tasks: Dict[int, asyncio.Task] = {}
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -223,6 +226,9 @@ class ScalpEngine:
         if self._task:
             self._task.cancel()
             self._task = None
+        for task in self._broker_sync_tasks.values():
+            task.cancel()
+        self._broker_sync_tasks.clear()
 
     async def enter_trade(
         self,
@@ -407,9 +413,9 @@ class ScalpEngine:
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
-        # Place broker-side SL/TP safety-net orders (live mode only)
-        if mode == "live" and entry_premium > 0:
-            await self._place_broker_sl_tp(trade)
+        # Arm broker-side SL/TP after the entry fill is confirmed.
+        if mode == "live" and order_id:
+            self._schedule_broker_sync(trade.trade_id)
 
         if not self._running:
             self.start()
@@ -447,9 +453,17 @@ class ScalpEngine:
         for attr in ("target_premium", "sl_premium", "target_rupees", "sl_rupees", "sqoff_time"):
             if attr in kwargs and kwargs[attr] is not None:
                 setattr(trade, attr, kwargs[attr])
+        if "target_premium" in kwargs and kwargs["target_premium"] is not None:
+            trade.target_from_pct = False
+        if "sl_premium" in kwargs and kwargs["sl_premium"] is not None:
+            trade.sl_from_pct = False
         # Sync broker-side SL/TP orders (live mode only)
         if trade.mode == "live" and ("sl_premium" in kwargs or "target_premium" in kwargs):
             await self._modify_broker_sl_tp(trade, **kwargs)
+            needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
+            needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
+            if needs_sl or needs_tp:
+                self._schedule_broker_sync(trade_id)
         self._log("info", f"🎯 Trade {trade_id} targets updated: {kwargs}")
         return {"status": "ok", "trade": trade.to_dict()}
 
@@ -506,10 +520,10 @@ class ScalpEngine:
                         trade.entry_premium = current_prem
                         # Reset grace period so check_exit waits 3s from backfill
                         trade.entry_time = _now_ist()
-                        if not trade.target_premium and trade.target_pct > 0:
+                        if trade.target_from_pct:
                             mult = 1 if trade.transaction_type == "BUY" else -1
                             trade.target_premium = round(current_prem * (1 + mult * trade.target_pct / 100), 2)
-                        if not trade.sl_premium and trade.sl_pct > 0:
+                        if trade.sl_from_pct:
                             mult = -1 if trade.transaction_type == "BUY" else 1
                             trade.sl_premium = round(current_prem * (1 + mult * trade.sl_pct / 100), 2)
                         self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
@@ -586,12 +600,12 @@ class ScalpEngine:
         trade.current_premium = entry_premium
 
         # Compute pct-based targets now that we have an actual entry price
-        if not trade.target_premium and trade.target_pct > 0:
+        if trade.target_from_pct:
             if trade.transaction_type == "BUY":
                 trade.target_premium = round(entry_premium * (1 + trade.target_pct / 100), 2)
             else:
                 trade.target_premium = round(entry_premium * (1 - trade.target_pct / 100), 2)
-        if not trade.sl_premium and trade.sl_pct > 0:
+        if trade.sl_from_pct:
             if trade.transaction_type == "BUY":
                 trade.sl_premium = round(entry_premium * (1 - trade.sl_pct / 100), 2)
             else:
@@ -604,11 +618,111 @@ class ScalpEngine:
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
-        # Place broker-side SL/TP safety-net orders (live mode only)
-        if trade.mode == "live":
-            await self._place_broker_sl_tp(trade)
+        # Arm broker-side SL/TP after the stop-limit entry fill is confirmed.
+        if trade.mode == "live" and order_id:
+            self._schedule_broker_sync(trade.trade_id)
 
-    async def _place_broker_sl_tp(self, trade: ScalpTrade):
+    def _schedule_broker_sync(self, trade_id: int):
+        trade = self.open_trades.get(trade_id)
+        if not trade or trade.mode != "live" or not trade.order_id or trade.order_id == "PAPER":
+            return
+        needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
+        needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
+        if not (needs_sl or needs_tp):
+            return
+        task = self._broker_sync_tasks.get(trade_id)
+        if task and not task.done():
+            return
+        self._broker_sync_tasks[trade_id] = asyncio.create_task(self._verify_fill_and_sync_broker_orders(trade_id))
+
+    async def _verify_fill_and_sync_broker_orders(self, trade_id: int):
+        task = asyncio.current_task()
+        try:
+            trade = self.open_trades.get(trade_id)
+            if not trade or trade.mode != "live" or not trade.order_id:
+                return
+
+            fill = await asyncio.to_thread(self.dhan.verify_order_fill, trade.order_id, 20, 1.0)
+            trade = self.open_trades.get(trade_id)
+            if not trade or trade.status != "open":
+                return
+
+            status = str(fill.get("status", "")).upper()
+            if status == "FILLED":
+                actual = float(fill.get("avg_price") or 0.0)
+                if actual > 0:
+                    old_entry = trade.entry_premium
+                    trade.entry_premium = actual
+                    if trade.current_premium <= 0:
+                        trade.current_premium = actual
+                    if trade.target_from_pct and trade.target_pct > 0:
+                        mult = 1 if trade.transaction_type == "BUY" else -1
+                        trade.target_premium = round(actual * (1 + mult * trade.target_pct / 100), 2)
+                    if trade.sl_from_pct and trade.sl_pct > 0:
+                        mult = -1 if trade.transaction_type == "BUY" else 1
+                        trade.sl_premium = round(actual * (1 + mult * trade.sl_pct / 100), 2)
+                    if abs(actual - old_entry) >= 0.05:
+                        self._log(
+                            "info",
+                            f"📌 Entry fill verified: ₹{actual:.2f} (was ₹{old_entry:.2f}) "
+                            f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+                        )
+            elif status in ("REJECTED", "CANCELLED"):
+                message = fill.get("message", f"Order {status}")
+                self.open_trades.pop(trade_id, None)
+                self._ws_subs.pop(trade_id, None)
+                if not any(t.mode == "live" for t in self.open_trades.values()):
+                    enable_marketfeed_throttle(False)
+                self._log("error", f"❌ Entry order {trade.order_id} {status}: {message}")
+                return
+            else:
+                fallback_entry = float(trade.entry_premium or 0.0)
+                if fallback_entry <= 0:
+                    try:
+                        fallback_entry = float(
+                            await asyncio.to_thread(
+                                self.dhan.get_option_ltp,
+                                trade.underlying,
+                                trade.strike,
+                                trade.expiry,
+                                trade.option_type,
+                            )
+                            or 0.0
+                        )
+                    except Exception:
+                        fallback_entry = 0.0
+                if fallback_entry > 0 and trade.entry_premium <= 0:
+                    trade.entry_premium = fallback_entry
+                    trade.current_premium = fallback_entry
+                    if trade.target_from_pct and trade.target_pct > 0:
+                        mult = 1 if trade.transaction_type == "BUY" else -1
+                        trade.target_premium = round(fallback_entry * (1 + mult * trade.target_pct / 100), 2)
+                    if trade.sl_from_pct and trade.sl_pct > 0:
+                        mult = -1 if trade.transaction_type == "BUY" else 1
+                        trade.sl_premium = round(fallback_entry * (1 + mult * trade.sl_pct / 100), 2)
+                self._log(
+                    "warning",
+                    f"⚠ Entry fill not fully confirmed for trade {trade_id}: {fill.get('message', 'timeout')} "
+                    f"— placing missing broker protection with latest known premium",
+                )
+
+            await self._place_broker_sl_tp(trade)
+        except Exception as e:
+            self._log("error", f"Broker protection sync failed for trade {trade_id}: {e}")
+        finally:
+            current = self._broker_sync_tasks.get(trade_id)
+            if current is task:
+                self._broker_sync_tasks.pop(trade_id, None)
+
+    def _broker_order_error(self, result: Dict[str, Any]) -> str:
+        status = str(result.get("orderStatus", result.get("status", ""))).upper()
+        if status in ("REJECTED", "FAILED", "CANCELLED"):
+            return str(result.get("remarks", result.get("message", result.get("rejectedReason", status))))
+        if not result.get("orderId"):
+            return str(result.get("message", result))
+        return ""
+
+    async def _place_broker_sl_tp(self, trade: ScalpTrade, place_sl: bool = True, place_tp: bool = True):
         """Place SL and/or TP orders on the broker as a safety net (live mode only).
         These protect the position even if the server goes down."""
         if trade.mode != "live" or not trade.entry_premium:
@@ -616,7 +730,7 @@ class ScalpEngine:
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
 
         # ── SL order (Stop-Loss Limit on broker) ──
-        if trade.sl_premium > 0:
+        if place_sl and trade.sl_premium > 0 and not trade.broker_sl_order_id:
             try:
                 if exit_txn == "SELL":
                     sl_price = round(max(0.05, trade.sl_premium * 0.95), 2)
@@ -636,15 +750,18 @@ class ScalpEngine:
                     trigger_price=trade.sl_premium,
                     tag="AF_SC_SL",
                 )
+                err = self._broker_order_error(result)
                 oid = result.get("orderId", "")
-                if oid:
+                if oid and not err:
                     trade.broker_sl_order_id = str(oid)
                     self._log("info", f"🛡️ Broker SL placed: {exit_txn} trigger=₹{trade.sl_premium} orderId={oid}")
+                else:
+                    self._log("error", f"Broker SL placement failed: {err or result}")
             except Exception as e:
                 self._log("error", f"Broker SL placement failed: {e}")
 
         # ── TP order (Limit order on broker) ──
-        if trade.target_premium > 0:
+        if place_tp and trade.target_premium > 0 and not trade.broker_tp_order_id:
             try:
                 result = await asyncio.to_thread(
                     self.dhan.place_option_order,
@@ -659,10 +776,13 @@ class ScalpEngine:
                     price=trade.target_premium,
                     tag="AF_SC_TP",
                 )
+                err = self._broker_order_error(result)
                 oid = result.get("orderId", "")
-                if oid:
+                if oid and not err:
                     trade.broker_tp_order_id = str(oid)
                     self._log("info", f"🎯 Broker TP placed: {exit_txn} limit=₹{trade.target_premium} orderId={oid}")
+                else:
+                    self._log("error", f"Broker TP placement failed: {err or result}")
             except Exception as e:
                 self._log("error", f"Broker TP placement failed: {e}")
 
@@ -702,9 +822,7 @@ class ScalpEngine:
             except Exception as e:
                 self._log("error", f"Broker SL modify failed: {e}")
         elif new_sl is not None and new_sl > 0 and not trade.broker_sl_order_id:
-            # SL was 0 before, now user set one — place new SL order
-            trade.sl_premium = new_sl
-            await self._place_broker_sl_tp(trade)
+            await self._place_broker_sl_tp(trade, place_sl=True, place_tp=False)
 
         if new_tp is not None and trade.broker_tp_order_id:
             try:
@@ -717,8 +835,7 @@ class ScalpEngine:
             except Exception as e:
                 self._log("error", f"Broker TP modify failed: {e}")
         elif new_tp is not None and new_tp > 0 and not trade.broker_tp_order_id:
-            trade.target_premium = new_tp
-            await self._place_broker_sl_tp(trade)
+            await self._place_broker_sl_tp(trade, place_sl=False, place_tp=True)
 
     async def _fetch_all_ltps(self, trades: list) -> dict:
         """Fetch LTPs for all open trades in a single batched API call.
@@ -817,6 +934,10 @@ class ScalpEngine:
         if trade.trade_id not in self.open_trades or trade.status == "closed":
             self._log("info", f"⚠️ Trade {trade.trade_id} already closed, skipping duplicate exit")
             return
+
+        sync_task = self._broker_sync_tasks.pop(trade.trade_id, None)
+        if sync_task and not sync_task.done():
+            sync_task.cancel()
 
         # Cancel pending stop-limit trade — no position to exit
         if trade.status == "pending":
