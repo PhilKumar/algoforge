@@ -102,6 +102,12 @@ class ScalpTrade:
         self.exit_reason: str = ""
         self.exit_order_id: str = ""
         self.pnl: float = 0.0
+        self.broker_order_model: str = ""
+        self.super_order_id: str = ""
+        self.super_order_status: str = ""
+        self.super_filled_qty: int = 0
+        self.super_target_status: str = ""
+        self.super_sl_status: str = ""
         # Broker-side SL/TP order IDs (safety net — placed after entry fills)
         self.broker_sl_order_id: str = ""
         self.broker_tp_order_id: str = ""
@@ -136,18 +142,20 @@ class ScalpTrade:
         except Exception:
             pass
 
-        if self.transaction_type == "BUY":
-            # Target: price reached or exceeded
-            if self.target_premium > 0 and current_prem >= self.target_premium:
-                return "target_hit"
-            # SL: price dropped to or below
-            if self.sl_premium > 0 and current_prem <= self.sl_premium:
-                return "sl_hit"
-        else:  # SELL
-            if self.target_premium > 0 and current_prem <= self.target_premium:
-                return "target_hit"
-            if self.sl_premium > 0 and current_prem >= self.sl_premium:
-                return "sl_hit"
+        # For live Super Orders, broker-native TP/SL manages premium exits.
+        if not (self.mode == "live" and self.super_order_id):
+            if self.transaction_type == "BUY":
+                # Target: price reached or exceeded
+                if self.target_premium > 0 and current_prem >= self.target_premium:
+                    return "target_hit"
+                # SL: price dropped to or below
+                if self.sl_premium > 0 and current_prem <= self.sl_premium:
+                    return "sl_hit"
+            else:  # SELL
+                if self.target_premium > 0 and current_prem <= self.target_premium:
+                    return "target_hit"
+                if self.sl_premium > 0 and current_prem >= self.sl_premium:
+                    return "sl_hit"
 
         # ₹ targets
         if self.target_rupees > 0 and pnl >= self.target_rupees:
@@ -187,6 +195,12 @@ class ScalpTrade:
             "mode": self.mode,
             "entry_limit_price": self.entry_limit_price,
             "entry_limit_max": self.entry_limit_max,
+            "broker_order_model": self.broker_order_model,
+            "super_order_id": self.super_order_id,
+            "super_order_status": self.super_order_status,
+            "super_filled_qty": self.super_filled_qty,
+            "super_target_status": self.super_target_status,
+            "super_sl_status": self.super_sl_status,
             "broker_sl_order_id": self.broker_sl_order_id,
             "broker_tp_order_id": self.broker_tp_order_id,
         }
@@ -256,6 +270,11 @@ class ScalpEngine:
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
         and waits for the premium to enter [limit_price, limit_max] before placing the order."""
         quantity = lots * lot_size
+        if mode == "live" and (target_premium <= 0 or sl_premium <= 0):
+            return {
+                "status": "error",
+                "message": "Live scalp now uses Dhan Super Order and requires both Target Premium and SL Premium",
+            }
 
         # ── Stop-limit entry: create pending trade, no order yet ──
         if entry_limit_price > 0 and entry_limit_max > 0:
@@ -313,6 +332,7 @@ class ScalpEngine:
             # Paper mode: no real order — snapshot current LTP as entry price.
             # Run LTP fetch off the event loop so it never blocks concurrent entries.
             order_id = "PAPER"
+            order_status = "TRADED"
             entry_premium = 0.0
             for _attempt in range(3):
                 try:
@@ -325,49 +345,36 @@ class ScalpEngine:
                 if _attempt < 2:
                     await asyncio.sleep(0.3)  # brief pause between retries
         else:
-            # Place real broker order
+            # Place broker-native Super Order so TP and SL live inside Dhan.
             try:
-                result = self.dhan.place_option_order(
+                result = self.dhan.place_super_order(
                     underlying=underlying,
                     strike_price=strike,
                     option_type=option_type,
                     expiry=expiry,
                     transaction_type=transaction_type,
                     quantity=quantity,
+                    target_price=target_premium,
+                    stop_loss_price=sl_premium,
                     order_type=order_type,
                     product_type="MARGIN" if product_type == "NRML" else product_type,
-                    tag="AF_SCALP",
+                    tag="AF_SCALP_SO",
                 )
                 order_id = result.get("orderId", "")
-                # Dhan may accept the API call (200) but reject on exchange side.
-                # Check for rejection signals in the response.
                 order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
                 if order_status in ("REJECTED", "CANCELLED", "FAILED"):
                     reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
-                    return {"status": "error", "message": f"Order rejected by broker: {reason}"}
+                    return {"status": "error", "message": f"Super Order rejected by broker: {reason}"}
                 if not order_id:
                     return {"status": "error", "message": f"No orderId returned: {result}"}
             except Exception as e:
                 return {"status": "error", "message": str(e)}
 
-            # Verify order was accepted — poll order status once after brief delay
+            # Use a live premium snapshot for immediate UI feedback; sync later replaces it with actual fill.
             try:
-                await asyncio.sleep(0.5)
-                order_book = await asyncio.to_thread(self.dhan.get_order_book)
-                for o in order_book:
-                    if str(o.get("orderId", "")) == str(order_id):
-                        o_status = str(o.get("orderStatus", "")).upper()
-                        if o_status in ("REJECTED", "CANCELLED"):
-                            reason = o.get("rejectedReason", o.get("remarks", "Unknown"))
-                            self._log("error", f"❌ Order {order_id} was {o_status}: {reason}")
-                            return {"status": "error", "message": f"Order {o_status}: {reason}"}
-                        break
-            except Exception as e:
-                self._log("error", f"Order verification failed: {e}")
-                # Continue — the order might still be valid
-
-            # Get fill premium
-            entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
+                entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
+            except Exception:
+                entry_premium = 0.0
 
         self._trade_counter += 1
         trade = ScalpTrade(
@@ -390,6 +397,10 @@ class ScalpEngine:
             order_id=order_id,
             mode=mode,
         )
+        if mode == "live":
+            trade.broker_order_model = "super"
+            trade.super_order_id = str(order_id)
+            trade.super_order_status = order_status
         self.open_trades[self._trade_counter] = trade
 
         # Subscribe to WS feed if available
@@ -412,10 +423,6 @@ class ScalpEngine:
             f"@ ₹{entry_premium:.2f} | orderId={order_id} "
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
-
-        # Arm broker-side SL/TP after the entry fill is confirmed.
-        if mode == "live" and order_id:
-            self._schedule_broker_sync(trade.trade_id)
 
         if not self._running:
             self.start()
@@ -450,6 +457,15 @@ class ScalpEngine:
         trade = self.open_trades.get(trade_id)
         if not trade:
             return {"status": "error", "message": f"Trade {trade_id} not found"}
+        prev_values = {
+            "target_premium": trade.target_premium,
+            "sl_premium": trade.sl_premium,
+            "target_rupees": trade.target_rupees,
+            "sl_rupees": trade.sl_rupees,
+            "sqoff_time": trade.sqoff_time,
+            "target_from_pct": trade.target_from_pct,
+            "sl_from_pct": trade.sl_from_pct,
+        }
         for attr in ("target_premium", "sl_premium", "target_rupees", "sl_rupees", "sqoff_time"):
             if attr in kwargs and kwargs[attr] is not None:
                 setattr(trade, attr, kwargs[attr])
@@ -457,13 +473,27 @@ class ScalpEngine:
             trade.target_from_pct = False
         if "sl_premium" in kwargs and kwargs["sl_premium"] is not None:
             trade.sl_from_pct = False
+        if trade.mode == "live" and self._is_super_order_trade(trade):
+            if trade.target_premium <= 0 or trade.sl_premium <= 0:
+                for key, value in prev_values.items():
+                    setattr(trade, key, value)
+                return {
+                    "status": "error",
+                    "message": "Live Super Order requires both Target Premium and SL Premium",
+                    "trade": trade.to_dict(),
+                }
         # Sync broker-side SL/TP orders (live mode only)
         if trade.mode == "live" and ("sl_premium" in kwargs or "target_premium" in kwargs):
-            await self._modify_broker_sl_tp(trade, **kwargs)
-            needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
-            needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
-            if needs_sl or needs_tp:
-                self._schedule_broker_sync(trade_id)
+            errors = await self._modify_broker_sl_tp(trade, **kwargs)
+            if errors:
+                for key, value in prev_values.items():
+                    setattr(trade, key, value)
+                return {"status": "error", "message": "; ".join(errors), "trade": trade.to_dict()}
+            if not self._is_super_order_trade(trade):
+                needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
+                needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
+                if needs_sl or needs_tp:
+                    self._schedule_broker_sync(trade_id)
         self._log("info", f"🎯 Trade {trade_id} targets updated: {kwargs}")
         return {"status": "ok", "trade": trade.to_dict()}
 
@@ -482,6 +512,7 @@ class ScalpEngine:
         """Poll/WS prices every ~1s and trigger auto-exits."""
         _last_rest_call = 0.0
         _last_ws_health_check = 0.0
+        _last_super_sync = 0.0
         while self._running:
             # Periodic WS health check — every 30s, verify feed is alive
             now_mono = asyncio.get_event_loop().time()
@@ -492,6 +523,12 @@ class ScalpEngine:
                         self._log("info", "📡 WS feed stale — triggering reconnect")
                 except Exception:
                     pass
+            if now_mono - _last_super_sync > 2.0:
+                _last_super_sync = now_mono
+                try:
+                    await self._sync_super_orders()
+                except Exception as e:
+                    self._log("error", f"Super Order monitor sync failed: {e}")
             try:
                 trades = list(self.open_trades.items())
                 if not trades:
@@ -550,20 +587,23 @@ class ScalpEngine:
 
         if trade.mode == "paper":
             order_id = "PAPER"
+            order_status = "TRADED"
             entry_premium = trade.current_premium
         else:
-            # Place real broker order
+            # Place broker-native Super Order once the local trigger range is hit.
             try:
-                result = self.dhan.place_option_order(
+                result = self.dhan.place_super_order(
                     underlying=trade.underlying,
                     strike_price=trade.strike,
                     option_type=trade.option_type,
                     expiry=trade.expiry,
                     transaction_type=trade.transaction_type,
                     quantity=trade.quantity,
+                    target_price=trade.target_premium,
+                    stop_loss_price=trade.sl_premium,
                     order_type="MARKET",
                     product_type="INTRADAY",
-                    tag="AF_SCALP_SL",
+                    tag="AF_SCALP_SO",
                 )
                 order_id = result.get("orderId", "")
                 order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
@@ -582,12 +622,13 @@ class ScalpEngine:
                 self.open_trades.pop(tid, None)
                 return
 
-            # Brief delay then get fill premium
-            await asyncio.sleep(0.5)
-            entry_premium = (
-                self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
-                or trade.current_premium
-            )
+            try:
+                entry_premium = (
+                    self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+                    or trade.current_premium
+                )
+            except Exception:
+                entry_premium = trade.current_premium
 
             # Enable throttle for live trades
             enable_marketfeed_throttle(True)
@@ -598,6 +639,10 @@ class ScalpEngine:
         trade.entry_premium = entry_premium
         trade.entry_time = _now_ist()
         trade.current_premium = entry_premium
+        if trade.mode == "live":
+            trade.broker_order_model = "super"
+            trade.super_order_id = str(order_id)
+            trade.super_order_status = order_status
 
         # Compute pct-based targets now that we have an actual entry price
         if trade.target_from_pct:
@@ -618,13 +663,119 @@ class ScalpEngine:
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
-        # Arm broker-side SL/TP after the stop-limit entry fill is confirmed.
-        if trade.mode == "live" and order_id:
-            self._schedule_broker_sync(trade.trade_id)
+    @staticmethod
+    def _is_super_order_trade(trade: ScalpTrade) -> bool:
+        return trade.mode == "live" and bool(trade.super_order_id)
+
+    @staticmethod
+    def _super_leg_triggered(leg: Dict[str, Any]) -> bool:
+        status = str(leg.get("orderStatus", "")).upper()
+        if status in ("TRIGGERED", "TRADED", "CLOSED"):
+            return True
+        try:
+            return float(leg.get("triggeredQuantity", 0) or 0) > 0
+        except Exception:
+            return False
+
+    async def _sync_super_orders(self):
+        trades = [t for t in self.open_trades.values() if t.status == "open" and self._is_super_order_trade(t)]
+        if not trades:
+            return
+        try:
+            orders = await asyncio.to_thread(self.dhan.get_super_orders)
+        except Exception as e:
+            self._log("error", f"Super Order sync failed: {e}")
+            return
+
+        order_map = {str(o.get("orderId", "")): o for o in orders if o.get("orderId")}
+        for trade in list(trades):
+            order = order_map.get(trade.super_order_id)
+            if not order or trade.trade_id not in self.open_trades:
+                continue
+
+            trade.super_order_status = str(order.get("orderStatus", "")).upper()
+            try:
+                trade.super_filled_qty = int(order.get("filledQty", trade.super_filled_qty) or 0)
+            except Exception:
+                pass
+
+            avg_entry = float(order.get("averageTradedPrice", 0) or 0)
+            if avg_entry > 0:
+                old_entry = trade.entry_premium
+                trade.entry_premium = avg_entry
+                if trade.current_premium <= 0:
+                    trade.current_premium = avg_entry
+                if abs(avg_entry - old_entry) >= 0.05:
+                    self._log(
+                        "info",
+                        f"📌 Super Order fill verified: ₹{avg_entry:.2f} (was ₹{old_entry:.2f}) "
+                        f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+                    )
+
+            leg_map = {
+                str(leg.get("legName", "")).upper(): leg for leg in order.get("legDetails", []) if leg.get("legName")
+            }
+            target_leg = leg_map.get("TARGET_LEG", {})
+            sl_leg = leg_map.get("STOP_LOSS_LEG", {})
+            try:
+                if float(target_leg.get("price", 0) or 0) > 0:
+                    trade.target_premium = float(target_leg.get("price"))
+            except Exception:
+                pass
+            try:
+                if float(sl_leg.get("price", 0) or 0) > 0:
+                    trade.sl_premium = float(sl_leg.get("price"))
+            except Exception:
+                pass
+            trade.super_target_status = str(target_leg.get("orderStatus", "")).upper()
+            trade.super_sl_status = str(sl_leg.get("orderStatus", "")).upper()
+
+            if trade.super_order_status in ("REJECTED", "CANCELLED") and trade.super_filled_qty <= 0:
+                self._log(
+                    "error",
+                    f"❌ Super Order {trade.super_order_id} {trade.super_order_status}: "
+                    f"{order.get('omsErrorDescription', 'entry not accepted')}",
+                )
+                self.open_trades.pop(trade.trade_id, None)
+                self._ws_subs.pop(trade.trade_id, None)
+                continue
+
+            exit_reason = ""
+            exit_premium = 0.0
+            if self._super_leg_triggered(target_leg):
+                exit_reason = "target_hit"
+                exit_premium = float(target_leg.get("price", 0) or trade.target_premium or 0)
+            elif self._super_leg_triggered(sl_leg):
+                exit_reason = "sl_hit"
+                exit_premium = float(sl_leg.get("price", 0) or trade.sl_premium or 0)
+            elif trade.super_order_status == "CLOSED":
+                exit_reason = "broker_closed"
+                exit_premium = float(order.get("ltp", 0) or trade.current_premium or trade.entry_premium or 0)
+
+            if exit_reason:
+                await self._close_trade(
+                    trade,
+                    exit_reason,
+                    skip_broker_exit=True,
+                    exit_prem_override=exit_premium,
+                    exit_order_id_override=trade.super_order_id,
+                )
+
+    async def _cancel_super_order(self, trade: ScalpTrade):
+        if not trade.super_order_id:
+            return
+        try:
+            await asyncio.to_thread(self.dhan.cancel_super_order, trade.super_order_id, "ENTRY_LEG")
+            trade.super_order_status = "CANCELLED"
+            self._log("info", f"🚫 Super Order cancelled: orderId={trade.super_order_id}")
+        except Exception as e:
+            self._log("error", f"Super Order cancel failed ({trade.super_order_id}): {e}")
 
     def _schedule_broker_sync(self, trade_id: int):
         trade = self.open_trades.get(trade_id)
         if not trade or trade.mode != "live" or not trade.order_id or trade.order_id == "PAPER":
+            return
+        if self._is_super_order_trade(trade):
             return
         needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
         needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
@@ -800,11 +951,71 @@ class ScalpEngine:
 
     async def _modify_broker_sl_tp(self, trade: ScalpTrade, **kwargs):
         """Modify broker-side SL/TP orders when user updates targets (live mode only)."""
+        errors = []
         if trade.mode != "live":
-            return
+            return errors
         new_sl = kwargs.get("sl_premium")
         new_tp = kwargs.get("target_premium")
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
+
+        if self._is_super_order_trade(trade):
+            entry_pending = trade.super_filled_qty <= 0 and trade.super_order_status in (
+                "",
+                "TRANSIT",
+                "PENDING",
+                "PART_TRADED",
+            )
+            if entry_pending:
+                try:
+                    resp = await asyncio.to_thread(
+                        self.dhan.modify_super_order,
+                        trade.super_order_id,
+                        "ENTRY_LEG",
+                        order_type="MARKET",
+                        quantity=trade.quantity,
+                        price=0.0,
+                        target_price=trade.target_premium,
+                        stop_loss_price=trade.sl_premium,
+                    )
+                    trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
+                    self._log(
+                        "info",
+                        f"🛡️ Super Order updated before fill: TP=₹{trade.target_premium} SL=₹{trade.sl_premium} "
+                        f"orderId={trade.super_order_id}",
+                    )
+                except Exception as e:
+                    errors.append(f"Super Order modify failed: {e}")
+                    self._log("error", errors[-1])
+                return errors
+
+            if new_tp is not None:
+                try:
+                    resp = await asyncio.to_thread(
+                        self.dhan.modify_super_order,
+                        trade.super_order_id,
+                        "TARGET_LEG",
+                        target_price=new_tp,
+                    )
+                    trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
+                    self._log("info", f"🎯 Super Order TP modified: limit=₹{new_tp} orderId={trade.super_order_id}")
+                except Exception as e:
+                    errors.append(f"Super Order TP modify failed: {e}")
+                    self._log("error", errors[-1])
+
+            if new_sl is not None:
+                try:
+                    resp = await asyncio.to_thread(
+                        self.dhan.modify_super_order,
+                        trade.super_order_id,
+                        "STOP_LOSS_LEG",
+                        stop_loss_price=new_sl,
+                    )
+                    trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
+                    self._log("info", f"🛡️ Super Order SL modified: trigger=₹{new_sl} orderId={trade.super_order_id}")
+                except Exception as e:
+                    errors.append(f"Super Order SL modify failed: {e}")
+                    self._log("error", errors[-1])
+            return errors
 
         if new_sl is not None and trade.broker_sl_order_id:
             try:
@@ -820,7 +1031,8 @@ class ScalpEngine:
                 )
                 self._log("info", f"🛡️ Broker SL modified: trigger=₹{new_sl} orderId={trade.broker_sl_order_id}")
             except Exception as e:
-                self._log("error", f"Broker SL modify failed: {e}")
+                errors.append(f"Broker SL modify failed: {e}")
+                self._log("error", errors[-1])
         elif new_sl is not None and new_sl > 0 and not trade.broker_sl_order_id:
             await self._place_broker_sl_tp(trade, place_sl=True, place_tp=False)
 
@@ -833,9 +1045,11 @@ class ScalpEngine:
                 )
                 self._log("info", f"🎯 Broker TP modified: limit=₹{new_tp} orderId={trade.broker_tp_order_id}")
             except Exception as e:
-                self._log("error", f"Broker TP modify failed: {e}")
+                errors.append(f"Broker TP modify failed: {e}")
+                self._log("error", errors[-1])
         elif new_tp is not None and new_tp > 0 and not trade.broker_tp_order_id:
             await self._place_broker_sl_tp(trade, place_sl=False, place_tp=True)
+        return errors
 
     async def _fetch_all_ltps(self, trades: list) -> dict:
         """Fetch LTPs for all open trades in a single batched API call.
@@ -928,7 +1142,15 @@ class ScalpEngine:
         except Exception:
             return 0.0
 
-    async def _close_trade(self, trade: ScalpTrade, reason: str):
+    async def _close_trade(
+        self,
+        trade: ScalpTrade,
+        reason: str,
+        *,
+        skip_broker_exit: bool = False,
+        exit_prem_override: float = 0.0,
+        exit_order_id_override: str = "",
+    ):
         """Place exit order (or simulate in paper mode) and move trade to closed_trades."""
         # Guard against double-close (race between manual exit and auto-exit monitor)
         if trade.trade_id not in self.open_trades or trade.status == "closed":
@@ -949,15 +1171,56 @@ class ScalpEngine:
             self._log("info", f"🚫 STOP-LIMIT CANCELLED: {trade.underlying} {trade.strike}{trade.option_type}")
             return
 
-        # Cancel broker-side SL/TP orders before placing exit
-        if trade.broker_sl_order_id or trade.broker_tp_order_id:
-            await self._cancel_broker_orders(trade)
-
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
-        exit_order_id = ""
-        if trade.mode == "paper":
+        exit_order_id = exit_order_id_override
+        if skip_broker_exit:
+            exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
+        elif trade.mode == "paper":
             exit_order_id = "PAPER"
+            exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
+        elif self._is_super_order_trade(trade) and trade.super_filled_qty <= 0:
+            try:
+                await self._sync_super_orders()
+            except Exception:
+                pass
+            if trade.trade_id not in self.open_trades or trade.status == "closed":
+                return
+            if trade.super_filled_qty <= 0:
+                await self._cancel_super_order(trade)
+                exit_order_id = trade.super_order_id
+                exit_prem = trade.entry_premium or trade.current_premium or 0.0
+                if reason in ("manual", "kill"):
+                    reason = "cancelled"
+            else:
+                await self._cancel_super_order(trade)
+                try:
+                    ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                    if exit_txn == "SELL":
+                        exit_price = round(max(0.05, ltp * 0.95), 2)
+                    else:
+                        exit_price = round(ltp * 1.05, 2)
+                    self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
+                    result = self.dhan.place_option_order(
+                        underlying=trade.underlying,
+                        strike_price=trade.strike,
+                        option_type=trade.option_type,
+                        expiry=trade.expiry,
+                        transaction_type=exit_txn,
+                        quantity=trade.quantity,
+                        order_type="LIMIT",
+                        product_type="INTRADAY",
+                        price=exit_price,
+                        tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
+                    )
+                    exit_order_id = result.get("orderId", "")
+                except Exception as e:
+                    self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
+                exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         else:
+            if self._is_super_order_trade(trade):
+                await self._cancel_super_order(trade)
+            elif trade.broker_sl_order_id or trade.broker_tp_order_id:
+                await self._cancel_broker_orders(trade)
             try:
                 # Use LIMIT order with aggressive fill price — Dhan converts
                 # F&O MARKET orders to LIMIT with a bad price buffer for SELLs,
@@ -985,8 +1248,7 @@ class ScalpEngine:
                 exit_order_id = result.get("orderId", "")
             except Exception as e:
                 self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
-
-        exit_prem = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+            exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         pnl = trade._compute_pnl(exit_prem)
 
         trade.exit_time = _now_ist()

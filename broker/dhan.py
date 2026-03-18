@@ -928,6 +928,125 @@ class DhanClient:
             tag=tag,
         )
 
+    def place_super_order(
+        self,
+        underlying: str,
+        strike_price: int,
+        option_type: str,
+        expiry: str,
+        transaction_type: str,
+        quantity: int,
+        target_price: float,
+        stop_loss_price: float,
+        order_type: str = "MARKET",
+        product_type: str = "INTRADAY",
+        price: float = 0,
+        trailing_jump: float = 0,
+        tag: str = "AlgoForgeSO",
+    ) -> dict:
+        """Place a Dhan Super Order for an option contract."""
+        security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
+        if not security_id:
+            raise Exception(
+                f"Cannot find security ID for super order: {underlying} {strike_price}{option_type} expiry {expiry}"
+            )
+
+        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        payload = {
+            "dhanClientId": self.client_id,
+            "correlationId": (tag or "AlgoForgeSO")[:30],
+            "transactionType": transaction_type,
+            "exchangeSegment": exchange_seg,
+            "productType": product_type,
+            "orderType": order_type,
+            "securityId": str(security_id),
+            "quantity": int(quantity),
+            "price": round_to_tick(float(price)) if price else 0.0,
+            "targetPrice": round_to_tick(float(target_price)),
+            "stopLossPrice": round_to_tick(float(stop_loss_price)),
+            "trailingJump": round_to_tick(float(trailing_jump)) if trailing_jump else 0.0,
+        }
+        print(f"[DHAN] Super Order payload: {payload}")
+
+        resp = _request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/super/orders",
+            headers=self.headers,
+            json=payload,
+            timeout=10,
+            max_retries=2,
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(f"Super order placement failed {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def modify_super_order(
+        self,
+        order_id: str,
+        leg_name: str,
+        *,
+        order_type: str = None,
+        quantity: int = None,
+        price: float = None,
+        target_price: float = None,
+        stop_loss_price: float = None,
+        trailing_jump: float = None,
+    ) -> dict:
+        """Modify a Dhan Super Order leg."""
+        payload = {
+            "dhanClientId": self.client_id,
+            "orderId": order_id,
+            "legName": leg_name,
+        }
+        if order_type:
+            payload["orderType"] = order_type
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        if price is not None:
+            payload["price"] = round_to_tick(float(price)) if price else 0.0
+        if target_price is not None:
+            payload["targetPrice"] = round_to_tick(float(target_price)) if target_price else 0.0
+        if stop_loss_price is not None:
+            payload["stopLossPrice"] = round_to_tick(float(stop_loss_price)) if stop_loss_price else 0.0
+        if trailing_jump is not None:
+            payload["trailingJump"] = round_to_tick(float(trailing_jump)) if trailing_jump else 0.0
+
+        resp = _request_with_retry(
+            "PUT",
+            f"{self.base_url}/v2/super/orders/{order_id}",
+            headers=self.headers,
+            json=payload,
+            timeout=10,
+            max_retries=2,
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(f"Super order modify failed {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def cancel_super_order(self, order_id: str, leg_name: str = "ENTRY_LEG") -> dict:
+        """Cancel a Dhan Super Order leg. ENTRY_LEG cancels the remaining super order."""
+        resp = _request_with_retry(
+            "DELETE",
+            f"{self.base_url}/v2/super/orders/{order_id}/{leg_name}",
+            headers=self.headers,
+            timeout=10,
+            max_retries=2,
+        )
+        if resp.status_code not in (200, 202):
+            raise Exception(f"Super order cancel failed {resp.status_code}: {resp.text}")
+        try:
+            return resp.json()
+        except Exception:
+            return {"orderId": order_id, "orderStatus": "CANCELLED"}
+
+    def get_super_orders(self) -> list:
+        """Fetch today's Dhan Super Order book."""
+        resp = _request_with_retry("GET", f"{self.base_url}/v2/super/orders", headers=self.headers, timeout=10)
+        if resp.status_code != 200:
+            raise Exception(f"Super order fetch failed {resp.status_code}: {resp.text}")
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
     def get_order_book(self) -> list:
         """Get all orders for the day"""
         resp = _request_with_retry("GET", f"{self.base_url}/v2/orders", headers=self.headers, timeout=10)
