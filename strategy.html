@@ -299,6 +299,7 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   }
   .scalp-toggle.compact { padding: 3px; border-radius: 999px; }
+  .scalp-toggle.inline { border-radius: 10px; }
   .scalp-toggle-btn {
     appearance: none;
     border: 1px solid transparent;
@@ -322,6 +323,19 @@
     font-weight: 700;
     min-height: 36px;
   }
+  .scalp-toggle.inline .scalp-toggle-btn {
+    flex-direction: row;
+    gap: 4px;
+    min-height: 38px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  .scalp-toggle.inline .scalp-toggle-btn strong,
+  .scalp-toggle.inline .scalp-toggle-btn span {
+    font-size: 11px;
+    line-height: 1;
+  }
+  .scalp-toggle.inline .scalp-toggle-btn span { opacity: 0.92; }
   .scalp-toggle-btn:hover {
     color: var(--text);
     background: rgba(255,255,255,0.05);
@@ -3304,14 +3318,14 @@
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
           <input type="hidden" id="scalp-option-type" value="CE">
-          <div id="scalp-option-toggle" class="scalp-toggle">
+          <div id="scalp-option-toggle" class="scalp-toggle inline">
             <button type="button" class="scalp-toggle-btn active" data-value="CE" data-tone="bull" onclick="setScalpOptionType('CE')">
               <strong>CE</strong>
-              <span>Call</span>
+              <span>- Call</span>
             </button>
             <button type="button" class="scalp-toggle-btn" data-value="PE" data-tone="bear" onclick="setScalpOptionType('PE')">
               <strong>PE</strong>
-              <span>Put</span>
+              <span>- Put</span>
             </button>
           </div>
         </div>
