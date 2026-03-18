@@ -2386,7 +2386,7 @@
           <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
         </div>
         <div style="display: flex; gap: 6px; margin-top: 10px;">
-          <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Connect</button>
+          <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Check</button>
           <button id="broker-refresh-btn" onclick="refreshToken()" class="btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
         </div>
       </div>
@@ -4608,7 +4608,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (localStorage.getItem('algoforge_active_tab') === 'builder-page') {
     startBuilderPreview();
   }
-
   // Start clock
   updateClock();
   setInterval(updateClock, 1000);
@@ -5305,10 +5304,7 @@ async function viewRun(id) {
     currentViewingRunId = id;
     lastBacktestPayload = data;
     renderResults(data, data);
-    document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
-    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-    document.getElementById('results-page').classList.add('active-page');
-    document.getElementById('nav-results').classList.add('active');
+    showPage('results-page', document.getElementById('nav-results'));
   } catch(e) { toast('Error loading run', 'danger'); }
 }
 
@@ -6380,16 +6376,19 @@ async function checkBrokerStatus(silent) {
     if (data.status === 'connected') {
       updateBrokerUI(true, 'Dhan Connected', '#22c55e', 'Recheck');
       startBrokerHealthCheck();
-      if (!silent) toast('Broker Connected!', 'success');
+      if (!silent) toast('Broker connection verified', 'success');
       return true;
     } else if (data.status === 'not_configured') {
-      updateBrokerUI(false, 'Not Configured', 'orange', 'Connect');
+      stopBrokerHealthCheck();
+      updateBrokerUI(false, 'Not Configured', 'orange', 'Check');
       if (!silent) toast((data.message || 'Broker not configured'), 'warn');
     } else {
-      updateBrokerUI(false, 'Connection Failed', 'red', 'Reconnect');
+      stopBrokerHealthCheck();
+      updateBrokerUI(false, 'Connection Failed', 'red', 'Retry');
       if (!silent) toast((data.message || 'Connection failed'), 'danger');
     }
   } catch (err) {
+    stopBrokerHealthCheck();
     updateBrokerUI(false, 'Network Error', 'red', 'Retry');
     if (!silent) toast('Network error: ' + err.message, 'danger');
   }
@@ -6401,8 +6400,11 @@ async function toggleBroker() {
   if (!btn) return;
   btn.disabled = true;
   btn.textContent = 'Checking...';
-  await checkBrokerStatus(false);
-  btn.disabled = false;
+  try {
+    await checkBrokerStatus(false);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function refreshToken() {
@@ -6430,12 +6432,12 @@ function startBrokerHealthCheck() {
       const res = await fetch('/api/broker/check', { method: 'POST' });
       const data = await res.json();
       if (data.status !== 'connected') {
-        updateBrokerUI(false, 'Connection Lost', 'orange', 'Reconnect');
+        updateBrokerUI(false, 'Connection Lost', 'orange', 'Retry');
         toast('Broker connection lost', 'warn');
         stopBrokerHealthCheck();
       }
     } catch (err) {
-      updateBrokerUI(false, 'Connection Lost', 'grey', 'Reconnect');
+      updateBrokerUI(false, 'Connection Lost', 'grey', 'Retry');
       stopBrokerHealthCheck();
     }
   }, 30000);
@@ -7544,15 +7546,13 @@ async function copyEditStrategy(runId) {
   try {
     // Switch to builder page
     const builderPage = document.getElementById('builder-page');
-    if (!builderPage) {
+    const builderBtn = document.getElementById('nav-builder');
+    if (!builderPage || !builderBtn) {
       toast('Strategy builder page not found', 'danger');
       return;
     }
 
-    document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active-page'));
-    document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
-    builderPage.classList.add('active-page');
-    document.getElementById('nav-builder').classList.add('active');
+    showPage('builder-page', builderBtn);
 
     // Basic fields
     document.getElementById('run-name-input').value = generateCopyName(p.run_name || 'Strategy');
@@ -7746,10 +7746,7 @@ async function runBacktest() {
   if (!ensureSingleStrategyTimeframe(payload)) return;
 
   // Switch to results page immediately with loading
-  document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('results-page').classList.add('active-page');
-  document.getElementById('nav-results').classList.add('active');
+  showPage('results-page', document.getElementById('nav-results'));
   document.getElementById('results-empty').style.display = 'block';
   document.getElementById('results-content').style.display = 'none';
 
@@ -9248,8 +9245,12 @@ async function loadPortfolioData() {
     let winningTrades = 0;
     let monthlyPnL = {};
     let yearlyPnL = {};
-    const today = new Date();
-    const todayDateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const padDatePart = (value) => String(value).padStart(2, '0');
+    const formatLocalDateKey = (date) => {
+      if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+      return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+    };
+    const todayDateStr = formatLocalDateKey(new Date());
 
     // Helper function to parse various date formats from Dhan
     const parseTradeDate = (trade) => {
@@ -9268,15 +9269,22 @@ async function loadPortfolioData() {
       // Handle string dates
       const dateStr = String(rawDate);
 
-      // Try ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(dateStr);
+      // Try plain YYYY-MM-DD as a local calendar date
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
+      }
+
+      // Try ISO datetime strings
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}[T\s]/)) {
+        const parsedIso = new Date(dateStr);
+        return isNaN(parsedIso.getTime()) ? null : parsedIso;
       }
 
       // Try DD-MM-YYYY format (common in Indian systems)
       if (dateStr.match(/^\d{2}-\d{2}-\d{4}/)) {
-        const [day, month, year] = dateStr.split('-');
-        return new Date(`${year}-${month}-${day}`);
+        const [day, month, year] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
       }
 
       // Fallback: try to parse as-is
@@ -9318,7 +9326,7 @@ async function loadPortfolioData() {
     dhanTrades.forEach(trade => {
       const tradeDate = parseTradeDate(trade);
       if (tradeDate && !isNaN(tradeDate.getTime())) {
-        const dateStr = tradeDate.toISOString().split('T')[0];
+        const dateStr = formatLocalDateKey(tradeDate);
         if (!tradesByDate[dateStr]) tradesByDate[dateStr] = [];
         tradesByDate[dateStr].push(trade);
       }
@@ -9345,8 +9353,8 @@ async function loadPortfolioData() {
     // Today's filled orders from Dhan order book
     const todayOrders = ordersArr.filter(o => {
       if (o.orderStatus !== 'TRADED') return false;
-      const dateStr = ((o.createTime || o.updateTime || '').toString()).substring(0, 10);
-      return dateStr === todayDateStr;
+      const orderDate = parseTradeDate(o);
+      return formatLocalDateKey(orderDate) === todayDateStr;
     });
 
     // Filter today's trades from Dhan with improved date matching
@@ -9355,7 +9363,7 @@ async function loadPortfolioData() {
       if (!tradeDate) return false;
 
       // Compare dates (ignore time component)
-      const tradeDateStr = tradeDate.toISOString().split('T')[0];
+      const tradeDateStr = formatLocalDateKey(tradeDate);
       return tradeDateStr === todayDateStr;
     });
 
@@ -10497,6 +10505,66 @@ fetchRuns = async function() {
     }
   }
 
+  function _chBuildTargetFromDate(dateStr) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+    if (!match) return null;
+    const year = match[1];
+    const monthIdx = Number(match[2]) - 1;
+    const day = match[3];
+    const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][monthIdx];
+    if (!monthAbbr) return null;
+    return {
+      year,
+      monthFolder: monthAbbr + '-' + year,
+      dayFolder: day + '-' + monthAbbr + '-' + year,
+      dateLabel: day + ' ' + monthAbbr + ' ' + year,
+      sortKey: dateStr
+    };
+  }
+
+  function _chFindDayBySortKey(sortKey) {
+    for (const year of Object.keys(_chTree || {})) {
+      const months = _chTree[year] || [];
+      for (const month of months) {
+        const day = (month.days || []).find(entry => entry.sort === sortKey);
+        if (day) {
+          return {
+            year,
+            monthFolder: month.folder,
+            dayFolder: day.folder,
+            dateLabel: day.label + ' ' + year,
+            sortKey: day.sort
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  function _chFindDayByFolders(year, monthFolder, dayFolder) {
+    const months = ((_chTree || {})[year] || []);
+    const month = months.find(entry => entry.folder === monthFolder);
+    if (!month) return null;
+    const day = (month.days || []).find(entry => entry.folder === dayFolder);
+    if (!day) return null;
+    return {
+      year,
+      monthFolder,
+      dayFolder,
+      dateLabel: day.label + ' ' + year,
+      sortKey: day.sort
+    };
+  }
+
+  function _chFindDayButton(meta) {
+    if (!meta) return null;
+    return Array.from(document.querySelectorAll('.chday-btn')).find(btn =>
+      btn.dataset.year === String(meta.year) &&
+      btn.dataset.month === meta.monthFolder &&
+      btn.dataset.day === meta.dayFolder
+    ) || null;
+  }
+
   function _chRenderTree() {
     const el = document.getElementById('ch-tree');
     const years = Object.keys(_chTree).sort().reverse();
@@ -10521,7 +10589,7 @@ fetchRuns = async function() {
         mo.days.forEach((day, di) => {
           h += '<div class="ch-drag-item" draggable="true" data-year="' + year + '" data-month="' + esc(mo.folder) + '" data-folder="' + esc(day.folder) + '" data-idx="' + di + '" style="display:flex;align-items:center;gap:2px;position:relative;">';
           h += '<span class="ch-drag-handle" style="cursor:grab;opacity:0.2;padding:2px 3px;font-size:10px;flex-shrink:0;user-select:none;" title="Drag to reorder">&#9776;</span>';
-          h += '<button class="chday-btn" style="flex:1;" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
+          h += '<button class="chday-btn" data-year="' + esc(year) + '" data-month="' + esc(mo.folder) + '" data-day="' + esc(day.folder) + '" data-sort="' + esc(day.sort) + '" style="flex:1;" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
           h += '<span class="ch-edit-btn" onclick="event.stopPropagation();window._chRenameFolder(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\')" title="Rename" style="cursor:pointer;opacity:0.3;padding:2px 4px;font-size:11px;flex-shrink:0;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">&#9998;</span>';
           h += '</div>';
         });
@@ -10733,7 +10801,12 @@ fetchRuns = async function() {
   function _chRenderImages() {
     const area = document.getElementById('ch-content');
     if (!_chImages.length) {
-      area.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;text-align:center;color:var(--muted);"><div style="font-size:42px;margin-bottom:12px;">📭</div><h3 style="font-family:\'Syne\',sans-serif;font-size:16px;color:var(--text-dim);">No Charts</h3><p style="font-size:12px;color:var(--accent);margin-top:8px;opacity:0.7;">Press Ctrl+V to paste a screenshot</p></div>';
+      let emptyHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;text-align:center;color:var(--muted);">';
+      if (_chDateLabel) {
+        emptyHtml += '<div style="font-family:\'Syne\',sans-serif;font-size:18px;color:var(--text);margin-bottom:8px;">' + _chDateLabel + '</div>';
+      }
+      emptyHtml += '<div style="font-size:42px;margin-bottom:12px;">📭</div><h3 style="font-family:\'Syne\',sans-serif;font-size:16px;color:var(--text-dim);">No Charts</h3><p style="font-size:12px;color:var(--accent);margin-top:8px;opacity:0.7;">Press Ctrl+V to paste a screenshot</p></div>';
+      area.innerHTML = emptyHtml;
       return;
     }
     let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">';
@@ -11016,11 +11089,11 @@ fetchRuns = async function() {
       try {
         const fd = new FormData();
         fd.append('file', imageFile, 'screenshot.png');
-        // If a day folder is selected, upload to that folder instead of today
-        if (_cjCurrentDayMeta) {
-          fd.append('target_year', _cjCurrentDayMeta.year);
-          fd.append('target_month', _cjCurrentDayMeta.monthFolder);
-          fd.append('target_day', _cjCurrentDayMeta.dayFolder);
+        const uploadTarget = _cjCurrentDayMeta || _chBuildTargetFromDate(_cjCurrentDate);
+        if (uploadTarget) {
+          fd.append('target_year', uploadTarget.year);
+          fd.append('target_month', uploadTarget.monthFolder);
+          fd.append('target_day', uploadTarget.dayFolder);
         }
         const r = await fetch('/api/upload-chart', {
           method: 'POST',
@@ -11038,12 +11111,17 @@ fetchRuns = async function() {
         const d = await r.json();
         if (d.status !== 'ok') throw new Error(d.detail || d.message || 'Upload failed');
 
-        const newImg = { name: d.filename, url: d.url };
-        _chImages.push(newImg);
-        _chRenderImages();
-
-        _chLoaded = false;
-        _chLoadTree().then(() => _chLoaded = true);
+        await _chLoadTree();
+        const uploadedDay = _chFindDayByFolders(d.year, d.month_folder, d.day_folder);
+        if (uploadedDay) {
+          const uploadedBtn = _chFindDayButton(uploadedDay);
+          await window._chSelectDay(uploadedDay.year, uploadedDay.monthFolder, uploadedDay.dayFolder, uploadedDay.dateLabel, uploadedDay.sortKey, uploadedBtn);
+        } else {
+          _cjCurrentDayMeta = { year: d.year, monthFolder: d.month_folder, dayFolder: d.day_folder };
+          _chDateLabel = (uploadTarget && uploadTarget.dateLabel) || _chDateLabel;
+          _chImages = [{ name: d.filename, url: d.url }];
+          _chRenderImages();
+        }
 
         toast.textContent = '✅ Chart saved: ' + d.filename;
       } catch(err) {
@@ -11115,10 +11193,23 @@ fetchRuns = async function() {
     _cjScheduleSave();
   };
 
-  window._cjSelectEntry = function(dateStr) {
+  window._cjSelectEntry = async function(dateStr) {
     _cjCurrentDate = dateStr;
-    _cjLoadJournal(dateStr);
+    const matchingDay = _chFindDayBySortKey(dateStr);
+    if (matchingDay) {
+      const matchingBtn = _chFindDayButton(matchingDay);
+      await window._chSelectDay(matchingDay.year, matchingDay.monthFolder, matchingDay.dayFolder, matchingDay.dateLabel, matchingDay.sortKey, matchingBtn);
+      return;
+    }
+
+    _cjCurrentDayMeta = null;
+    _chImages = [];
+    const derivedTarget = _chBuildTargetFromDate(dateStr);
+    _chDateLabel = derivedTarget ? derivedTarget.dateLabel : dateStr;
+    _chRenderImages();
+    await _cjLoadJournal(dateStr);
     document.getElementById('cj-date-label').textContent = dateStr;
+    document.querySelectorAll('.chday-btn.active').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.cj-entry-item').forEach(el => {
       el.classList.toggle('active', el.dataset.date === dateStr);
     });
