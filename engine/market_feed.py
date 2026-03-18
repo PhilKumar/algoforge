@@ -270,6 +270,7 @@ class LiveMarketFeed:
         # Reconnect state
         self._reconnect_lock = threading.Lock()
         self._reconnecting = False
+        self._connected_at: Optional[datetime] = None
         self._last_tick_time: Optional[datetime] = None
         self._reconnect_count = 0
 
@@ -542,6 +543,8 @@ class LiveMarketFeed:
     def stop(self):
         """Stop the WebSocket feed."""
         self._running = False
+        self._connected_at = None
+        self._last_tick_time = None
         if self._feed:
             try:
                 self._feed.close_connection()
@@ -561,10 +564,22 @@ class LiveMarketFeed:
 
     @property
     def last_tick_age_seconds(self) -> float:
-        """Seconds since the last tick was received. Returns -1 if no ticks yet."""
-        if self._last_tick_time is None:
+        """Seconds since the last real tick was received.
+
+        Before the first market tick of the day, age is anchored to market open
+        rather than the raw WebSocket connect time so pre-open connections don't
+        look thousands of seconds stale at 09:16.
+        """
+        now = _now_ist()
+        if self._last_tick_time is not None:
+            return (now - self._last_tick_time).total_seconds()
+        if self._connected_at is None:
             return -1.0
-        return (_now_ist() - self._last_tick_time).total_seconds()
+        session_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        if now < session_open:
+            return -1.0
+        anchor = self._connected_at if self._connected_at > session_open else session_open
+        return max(0.0, (now - anchor).total_seconds())
 
     def check_health(self) -> bool:
         """
@@ -587,8 +602,9 @@ class LiveMarketFeed:
 
     def _on_connect(self, ws):
         self._reconnecting = False
-        self._last_tick_time = _now_ist()
-        print(f"[FEED] ✅ WebSocket connected at {_now_ist().strftime('%H:%M:%S')}")
+        self._connected_at = _now_ist()
+        self._last_tick_time = None
+        print(f"[FEED] ✅ WebSocket connected at {self._connected_at.strftime('%H:%M:%S')}")
 
     def _on_close(self, ws):
         print(f"[FEED] ⚠ WebSocket closed at {_now_ist().strftime('%H:%M:%S')}")
