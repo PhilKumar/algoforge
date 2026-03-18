@@ -2103,7 +2103,8 @@ async def api_run_backtest(payload: StrategyPayload):
         # 1. Fetch data with segment-aware routing + fallback
         print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
         try:
-            df_raw = _fetch_data(
+            df_raw = await asyncio.to_thread(
+                _fetch_data,
                 instrument=payload.instrument,
                 from_date=from_date,
                 to_date=to_date,
@@ -2154,7 +2155,8 @@ async def api_run_backtest(payload: StrategyPayload):
         # 3. Run backtest
         print("[BACKTEST] Running backtest engine...")
         try:
-            results = run_backtest(
+            results = await asyncio.to_thread(
+                run_backtest,
                 df_raw=df_raw,
                 entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
@@ -2172,7 +2174,7 @@ async def api_run_backtest(payload: StrategyPayload):
 
         # Save the run
         if results.get("status") == "success":
-            runs = _load_runs()
+            runs = await asyncio.to_thread(_load_runs)
             # Use max ID to avoid duplicates after deletes
             max_id = max([r.get("id", 0) for r in runs], default=0)
             run_entry = {
@@ -2220,7 +2222,7 @@ async def api_run_backtest(payload: StrategyPayload):
             run_entry["trades"] = all_trades
             run_entry["equity"] = results.get("equity", [])
             runs.append(run_entry)
-            _save_runs(runs)
+            await asyncio.to_thread(_save_runs, runs)
             results["run_id"] = run_entry["id"]
             print(f"[BACKTEST] Saved as Run #{run_entry['id']}")
 
