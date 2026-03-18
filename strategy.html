@@ -300,13 +300,6 @@
   }
   .scalp-toggle.compact { padding: 3px; border-radius: 999px; }
   .scalp-toggle.inline { border-radius: 10px; }
-  .scalp-toggle-match {
-    display: flex;
-    justify-content: center;
-  }
-  .scalp-toggle-match .scalp-toggle {
-    width: min(100%, calc(100% - 108px));
-  }
   .scalp-toggle-btn {
     appearance: none;
     border: 1px solid transparent;
@@ -343,9 +336,6 @@
     line-height: 1;
   }
   .scalp-toggle.inline .scalp-toggle-btn span { opacity: 0.92; }
-  @media (max-width: 760px) {
-    .scalp-toggle-match .scalp-toggle { width: 100%; }
-  }
   .scalp-toggle-btn:hover {
     color: var(--text);
     background: rgba(255,255,255,0.05);
@@ -3616,17 +3606,15 @@
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
           <input type="hidden" id="scalp-option-type" value="CE">
-          <div class="scalp-toggle-match">
-            <div id="scalp-option-toggle" class="scalp-toggle inline">
-              <button type="button" class="scalp-toggle-btn active" data-value="CE" data-tone="bull" onclick="setScalpOptionType('CE')">
-                <strong>CE</strong>
-                <span>- Call</span>
-              </button>
-              <button type="button" class="scalp-toggle-btn" data-value="PE" data-tone="bear" onclick="setScalpOptionType('PE')">
-                <strong>PE</strong>
-                <span>- Put</span>
-              </button>
-            </div>
+          <div id="scalp-option-toggle" class="scalp-toggle inline">
+            <button type="button" class="scalp-toggle-btn active" data-value="CE" data-tone="bull" onclick="setScalpOptionType('CE')">
+              <strong>CE</strong>
+              <span>- Call</span>
+            </button>
+            <button type="button" class="scalp-toggle-btn" data-value="PE" data-tone="bear" onclick="setScalpOptionType('PE')">
+              <strong>PE</strong>
+              <span>- Put</span>
+            </button>
           </div>
         </div>
         <div>
