@@ -134,7 +134,55 @@ python3 scripts/load_test_ws.py \
 
 Expected result: every probe line should report `PASS` with `isolated=True`.
 
-## 5. Production Cutover On Lightsail
+## 5. Staging On Lightsail
+
+Use a separate worktree and service for staging so `feature/multi-tenant` never mutates the live production checkout.
+
+Target staging URL:
+
+```text
+https://staging.philforge.in
+```
+
+### DNS
+
+Create an `A` record:
+
+- Host: `staging`
+- Value: `13.205.229.208`
+
+### First-Time Server Setup
+
+On the Lightsail box:
+
+```bash
+ssh ec2-user@13.205.229.208
+cd /home/ec2-user/algoforge
+bash deploy/setup-staging.sh
+```
+
+That creates:
+
+- `/home/ec2-user/algoforge-staging` as a dedicated `feature/multi-tenant` worktree
+- `/home/ec2-user/algoforge-staging/.env.staging`
+- `algoforge-staging.service`
+- an HTTP bootstrap Nginx vhost for `staging.philforge.in`
+
+Edit `/home/ec2-user/algoforge-staging/.env.staging`, then rerun:
+
+```bash
+cd /home/ec2-user/algoforge
+ENABLE_TLS=1 LETSENCRYPT_EMAIL=you@example.com bash deploy/setup-staging.sh
+```
+
+Then use future staging updates with:
+
+```bash
+cd /home/ec2-user/algoforge-staging
+bash deploy/deploy-staging.sh
+```
+
+## 6. Production Cutover On Lightsail
 
 These steps assume the current production server is the AWS Lightsail host and the app directory is `/home/ec2-user/algoforge`.
 
@@ -207,7 +255,7 @@ Then verify in the browser:
 6. Saved Strategies / Results / Charts / Journal / Scalp data remain isolated
 7. Light and dark mode still render correctly on Builder, Live, Scalp, and Charts
 
-## 6. Daily Ops
+## 7. Daily Ops
 
 Check backups:
 
@@ -228,7 +276,7 @@ WebSocket/user-isolation probe on staging:
 python3 scripts/load_test_ws.py --base-url https://staging.example.com --credential admin:... --credential usera:...
 ```
 
-## 7. Rollback
+## 8. Rollback
 
 If cutover fails:
 
@@ -248,7 +296,7 @@ sudo nginx -t && sudo nginx -s reload
 
 Use the preserved JSON files and backup archive if you need to roll data back as well.
 
-## 8. Merge Readiness
+## 9. Merge Readiness
 
 Do not merge to `main` until all of these are true:
 

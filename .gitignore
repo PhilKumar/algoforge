@@ -1,5 +1,6 @@
 # Environment variables - NEVER commit credentials!
 .env
+.env.staging
 .env.local
 .env.*.local
 
