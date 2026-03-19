@@ -64,19 +64,21 @@ class LiveEngine:
     - Tracks positions, P&L and order status
     """
 
-    def __init__(self, dhan: DhanClient = None, run_id: str = None):
+    def __init__(self, dhan: DhanClient = None, run_id: str = None, state_dir: str | None = None):
         self.dhan = dhan or DhanClient()
         self.running = False
         self.session_date = None
         self.mode = "auto"  # "auto" for real orders
         self.run_id = run_id  # Unique ID for multi-engine support
+        base_state_dir = state_dir or _STATE_DIR
+        os.makedirs(base_state_dir, exist_ok=True)
 
         # Per-instance state file for persistence
         if run_id:
             safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
-            self._state_file = os.path.join(_STATE_DIR, f"live_state_{safe_id}.json")
+            self._state_file = os.path.join(base_state_dir, f"live_state_{safe_id}.json")
         else:
-            self._state_file = os.path.join(_STATE_DIR, "live_state.json")
+            self._state_file = os.path.join(base_state_dir, "live_state.json")
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None  # LiveMarketFeed instance

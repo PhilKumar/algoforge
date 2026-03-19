@@ -9,6 +9,8 @@ Fixed:
 import asyncio
 import inspect
 import json
+from html import escape as _escape_html
+from urllib.parse import quote as _url_quote
 
 try:
     import orjson as _orjson
@@ -55,7 +57,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import auth as _auth_mod
 import config
+import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.live import LiveEngine
@@ -144,11 +148,71 @@ if os.path.exists("static"):
 # Initialize custom client ONCE and pass to engine
 dhan = DhanClient()
 
-# ── Multi-Engine Registries (keyed by run_id) ────────────────
-# Allows running multiple strategies simultaneously
-live_engines: Dict[str, LiveEngine] = {}  # run_id → engine instance
-paper_engines: Dict[str, PaperTradingEngine] = {}  # run_id → engine instance
-_live_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
+# ── Multi-Engine Registries (scoped by user_id, then run_id) ────
+live_engines: Dict[int, Dict[str, LiveEngine]] = defaultdict(dict)
+paper_engines: Dict[int, Dict[str, PaperTradingEngine]] = defaultdict(dict)
+_live_tasks: Dict[int, Dict[str, asyncio.Task]] = defaultdict(dict)
+_paper_tasks: Dict[int, Dict[str, asyncio.Task]] = defaultdict(dict)
+
+
+def _registry_bucket(registry: dict, user_id: int) -> dict:
+    return registry.setdefault(int(user_id), {})
+
+
+def _iter_registry_items(registry: dict):
+    for owner_id, bucket in registry.items():
+        for run_id, engine in bucket.items():
+            yield int(owner_id), run_id, engine
+
+
+def _get_engine_owner_id(engine) -> int:
+    try:
+        return int(getattr(engine, "_user_id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _find_user_engine(registry: dict, user_id: int, run_id: str = ""):
+    bucket = _registry_bucket(registry, user_id)
+    if run_id:
+        return run_id, bucket.get(run_id)
+    for candidate_run_id, engine in bucket.items():
+        if getattr(engine, "running", False):
+            return candidate_run_id, engine
+    return "", None
+
+
+def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
+    return [engine.get_status() for engine in _registry_bucket(registry, user_id).values() if engine.running]
+
+
+def _any_running(registry: dict, user_id: int | None = None) -> bool:
+    if user_id is None:
+        return any(engine.running for _, _, engine in _iter_registry_items(registry))
+    return any(engine.running for engine in _registry_bucket(registry, user_id).values())
+
+
+def _engine_state_dir(user_id: int, create: bool = True) -> str:
+    state_dir = os.path.join(config.USER_DATA_ROOT, str(int(user_id or 0)), "engine_state")
+    if create:
+        os.makedirs(state_dir, exist_ok=True)
+    return state_dir
+
+
+def _iter_user_state_files(prefix: str):
+    if not os.path.isdir(config.USER_DATA_ROOT):
+        return
+    for user_folder in sorted(os.listdir(config.USER_DATA_ROOT)):
+        if not str(user_folder).isdigit():
+            continue
+        user_id = int(user_folder)
+        state_dir = _engine_state_dir(user_id, create=False)
+        if not os.path.isdir(state_dir):
+            continue
+        for fname in os.listdir(state_dir):
+            if fname.startswith(prefix) and fname.endswith(".json"):
+                yield user_id, state_dir, fname, os.path.join(state_dir, fname)
+
 
 # Backfill status — read by /api/backfill/status
 _backfill_state: Dict[str, object] = {
@@ -156,41 +220,54 @@ _backfill_state: Dict[str, object] = {
     "message": "",
     "new_dates": 0,
 }
-_paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
-# Stopped engine snapshots — persist on Live page after stop, keyed by run_id
-_STOPPED_ENGINES_FILE = "stopped_engines.json"
-_stopped_engines: Dict[str, dict] = {}
+# Stopped engine snapshots — persisted per user under engine_state/
+_stopped_engines: Dict[int, Dict[str, dict]] = {}
 
 
-def _load_stopped_engines():
-    global _stopped_engines
-    if os.path.exists(_STOPPED_ENGINES_FILE):
+def _stopped_engines_file(user_id: int) -> str:
+    return os.path.join(_engine_state_dir(user_id), "stopped_engines.json")
+
+
+def _load_stopped_engines(user_id: int) -> dict:
+    cached = _stopped_engines.get(int(user_id))
+    if cached is not None:
+        return cached
+    data: dict = {}
+    file_path = _stopped_engines_file(user_id)
+    if os.path.exists(file_path):
         try:
-            with open(_STOPPED_ENGINES_FILE, "r") as f:
-                _stopped_engines = json.load(f)
+            with open(file_path, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
         except Exception:
-            _stopped_engines = {}
+            data = {}
+    _stopped_engines[int(user_id)] = data
+    return data
 
 
-def _save_stopped_engines():
+def _save_stopped_engines(user_id: int):
     try:
-        tmp = _STOPPED_ENGINES_FILE + ".tmp"
+        data = _stopped_engines.get(int(user_id), {})
+        file_path = _stopped_engines_file(user_id)
+        tmp = file_path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(_stopped_engines, f, indent=2, default=str)
-        os.replace(tmp, _STOPPED_ENGINES_FILE)
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp, file_path)
     except Exception:
         pass
 
-
-# Load on import
-_load_stopped_engines()
 
 # Trade state tracker for Telegram alerts (keyed by run_id)
 _alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
 
 
-def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
+def _alert_state_key(user_id: int | None, run_id: str) -> str:
+    return f"{int(user_id or 0)}:{run_id}"
+
+
+def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int | None = None):
     """Detect trade entry/exit from engine status updates and fire Telegram alerts."""
     if event.get("type") in ("status", "price_update"):
         return  # Skip non-status-change events
@@ -198,7 +275,8 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
     closed_trades = event.get("closed_trades", [])
     positions = event.get("positions", [])
     total_pnl = event.get("total_pnl", 0)
-    prev = _alert_state.get(run_id, {"in_trade": False, "closed_count": 0})
+    state_key = _alert_state_key(user_id, run_id)
+    prev = _alert_state.get(state_key, {"in_trade": False, "closed_count": 0})
 
     # Detect entry: was not in trade, now in trade
     if in_trade and not prev["in_trade"]:
@@ -227,26 +305,34 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
             )
             alerter.alert("Trade Exit", body, level=level)
 
-    _alert_state[run_id] = {"in_trade": in_trade, "closed_count": new_count}
+    _alert_state[state_key] = {"in_trade": in_trade, "closed_count": new_count}
 
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
-_scalp_engine: Optional["_ScalpEngineClass"] = None
+_scalp_engines: Dict[int, "_ScalpEngineClass"] = {}
+_SKIP_STARTUP_JOBS = os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS", "").lower() in {"1", "true", "yes"}
 
-ws_clients: List[WebSocket] = []
+ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
+
+
+def _user_ws_clients(user_id: int) -> List[WebSocket]:
+    return ws_clients.setdefault(int(user_id), [])
+
+
+async def _broadcast_user_ws_json(user_id: int, payload: dict):
+    for ws in _user_ws_clients(user_id).copy():
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            if ws in _user_ws_clients(user_id):
+                _user_ws_clients(user_id).remove(ws)
 
 
 # ── Authentication ────────────────────────────────────────────────
-AUTH_PASSWORD = os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD")
-if not AUTH_PASSWORD:
-    raise RuntimeError(
-        "[FATAL] ALGOFORGE_PIN environment variable is not set. "
-        "The server refuses to start without an explicit PIN. "
-        "Set it in your .env file: ALGOFORGE_PIN=<your-pin>"
-    )
+# Legacy PIN kept as fallback for first-run admin bootstrap only
+AUTH_PASSWORD = (os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or "").strip()
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
-_SESSION_FILE = os.path.join(_HERE, ".sessions.json")
 
 _redis_client = None
 _redis_checked = False
@@ -268,67 +354,236 @@ def _get_redis():
     return _redis_client
 
 
-def _load_sessions() -> dict:
-    """Load sessions from shared file (works across workers)."""
-    try:
-        if os.path.exists(_SESSION_FILE):
-            with open(_SESSION_FILE, "r") as f:
-                data = json.loads(f.read())
-            # Clean expired sessions
-            now = datetime.now().isoformat()
-            return {k: v for k, v in data.items() if v > now}
-    except Exception:
-        pass
-    return {}
+async def _get_preferred_admin_user() -> dict | None:
+    """Return the configured admin account, with fallback for legacy installs."""
+    return await _db_mod.get_admin_user(config.ADMIN_USERNAME)
 
 
-def _save_sessions(sessions: dict):
-    """Persist sessions to shared file (atomic write via tmp + os.replace)."""
-    import tempfile
+def _get_bootstrap_admin_password() -> str:
+    """Return the bootstrap admin password for first-run provisioning."""
+    return AUTH_PASSWORD
 
-    try:
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(_SESSION_FILE), suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(sessions))
-        os.replace(tmp_path, _SESSION_FILE)
-    except Exception:
-        # Remove tmp file if os.replace failed
+
+def _request_user_id(request: Request) -> int:
+    """Return the authenticated user id from middleware state."""
+    user_id = getattr(request.state, "user_id", 0)
+    return int(user_id or 0)
+
+
+async def _resolve_history_user_id(explicit_user_id: int | None = None, source: dict | None = None) -> int:
+    """Resolve a run-history owner from request context, engine state, or admin fallback."""
+    candidates: list[object] = [explicit_user_id]
+    if isinstance(source, dict):
+        candidates.append(source.get("_user_id"))
+        candidates.append(source.get("user_id"))
+        strategy = source.get("strategy")
+        if isinstance(strategy, dict):
+            candidates.append(strategy.get("_user_id"))
+            candidates.append(strategy.get("user_id"))
+    for candidate in candidates:
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+            if candidate is not None and str(candidate).strip():
+                return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    admin = await _get_preferred_admin_user()
+    if admin:
+        return int(admin["id"])
+    raise RuntimeError("No user context available for run history persistence")
 
 
-def _create_session() -> str:
-    sessions = _load_sessions()
-    token = secrets.token_hex(32)
-    sessions[token] = (datetime.now() + timedelta(hours=24)).isoformat()
-    _save_sessions(sessions)
-    return token
+def _default_history_user_id_sync() -> int:
+    """Resolve the admin user id for sync startup/backfill helpers."""
+    admin = _db_mod.get_admin_user_sync(config.ADMIN_USERNAME)
+    if admin:
+        return int(admin["id"])
+    raise RuntimeError("No admin user available for trade-history persistence")
 
 
-def _validate_session(token: str) -> bool:
+def _user_broker_credentials(user: dict | None) -> tuple[str, str, str, str]:
+    if not user:
+        return "", "", "", ""
+    return (
+        str(user.get("dhan_client_id", "") or "").strip(),
+        str(user.get("dhan_access_token", "") or "").strip(),
+        str(user.get("dhan_pin", "") or "").strip(),
+        str(user.get("dhan_totp_secret", "") or "").strip(),
+    )
+
+
+def _user_broker_fields(user: dict | None) -> tuple[str, str]:
+    client_id, access_token, _, _ = _user_broker_credentials(user)
+    return client_id, access_token
+
+
+def _user_broker_auto_refresh_ready(user: dict | None) -> bool:
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
+    return bool(client_id and access_token and pin and totp)
+
+
+def _persist_user_access_token_sync(user_id: int, access_token: str) -> None:
+    token = str(access_token or "").strip()
     if not token:
-        return False
-    sessions = _load_sessions()
-    exp_str = sessions.get(token)
-    if not exp_str:
-        return False
-    if datetime.now() > datetime.fromisoformat(exp_str):
-        sessions.pop(token, None)
-        _save_sessions(sessions)
-        return False
-    return True
+        return
+    _db_mod.update_user_sync(int(user_id), dhan_access_token=token)
+
+
+def _broker_not_configured_message(user: dict | None, source: str) -> str:
+    if source == "partial":
+        return "Broker credentials are incomplete for this user. Add both Client ID and Access Token."
+    if user and user.get("role") == "admin":
+        return "Dhan API credentials not configured. Add user broker credentials or keep the admin .env fallback configured."
+    return "Broker credentials are not configured for this user."
+
+
+def _looks_like_broker_auth_error(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(
+        part in text
+        for part in (
+            "authentication failed",
+            "invalid token",
+            "dh-906",
+            "unauthorized",
+            "api returned 400",
+        )
+    )
+
+
+def _mask_value(value: str, *, prefix: int = 3, suffix: int = 2) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= prefix + suffix:
+        return "•" * len(text)
+    return f"{text[:prefix]}{'•' * max(4, len(text) - (prefix + suffix))}{text[-suffix:]}"
+
+
+def _trade_mode_value(trade) -> str:
+    if isinstance(trade, dict):
+        return str(trade.get("mode", "") or "").lower()
+    return str(getattr(trade, "mode", "") or "").lower()
+
+
+def _user_broker_settings_lock(user_id: int) -> tuple[bool, str]:
+    if _any_running(live_engines, user_id):
+        return True, "Stop live strategies before editing broker credentials."
+    eng = _scalp_engines.get(int(user_id))
+    if eng:
+        live_scalp_open = any(_trade_mode_value(trade) == "live" for trade in getattr(eng, "open_trades", {}).values())
+        if live_scalp_open:
+            return True, "Close live scalp trades before editing broker credentials."
+    return False, ""
+
+
+def _broker_profile_payload(user: dict | None) -> dict:
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
+    _, source = _resolve_user_broker_client(user)
+    locked, lock_reason = _user_broker_settings_lock(int(user["id"])) if user else (False, "")
+    return {
+        "configured": bool(client_id and access_token),
+        "partial": bool((client_id and not access_token) or (access_token and not client_id)),
+        "source": source,
+        "client_id": client_id,
+        "client_id_masked": _mask_value(client_id),
+        "access_token_saved": bool(access_token),
+        "pin_saved": bool(pin),
+        "totp_saved": bool(totp),
+        "auto_refresh_ready": bool(client_id and access_token and pin and totp),
+        "encryption_ready": bool(config.ENCRYPTION_KEY),
+        "manage_locked": locked,
+        "manage_lock_reason": lock_reason,
+    }
+
+
+def _resolve_user_broker_client(
+    user: dict | None,
+    *,
+    allow_admin_fallback: bool = True,
+) -> tuple[DhanClient | None, str]:
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
+    if client_id and access_token:
+        token_update_cb = None
+        if user and user.get("id"):
+            user_id = int(user["id"])
+
+            def _token_update_cb(new_token: str, *, _user_id: int = user_id) -> None:
+                _persist_user_access_token_sync(_user_id, new_token)
+
+            token_update_cb = _token_update_cb
+        return (
+            DhanClient(
+                client_id=client_id,
+                access_token=access_token,
+                pin=pin,
+                totp_secret=totp,
+                token_update_cb=token_update_cb,
+            ),
+            "user",
+        )
+    if client_id or access_token:
+        return None, "partial"
+    if allow_admin_fallback and user and user.get("role") == "admin" and dhan._is_configured():
+        return dhan, "global"
+    return None, "missing"
+
+
+async def _request_broker_context(
+    request: Request,
+    *,
+    allow_admin_fallback: bool = True,
+) -> tuple[dict, DhanClient | None, str]:
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        user = await _auth_mod.get_current_user(request)
+    broker_client, source = _resolve_user_broker_client(user, allow_admin_fallback=allow_admin_fallback)
+    return user, broker_client, source
+
+
+def _engine_status_summary(engine, run_id: str, default_mode: str) -> dict:
+    try:
+        status = engine.get_status() or {}
+    except Exception:
+        status = {}
+    return {
+        "run_id": run_id,
+        "mode": status.get("mode") or default_mode,
+        "strategy_name": status.get("strategy_name") or run_id,
+        "instrument": status.get("instrument") or "",
+        "in_trade": bool(status.get("in_trade")),
+        "trades_today": int(status.get("trades_today") or 0),
+        "total_pnl": float(status.get("total_pnl") or 0),
+    }
+
+
+# ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
+# These bridge the old middleware (sync-ish) to the async DB via asyncio
+
+
+async def _validate_session_async(token: str) -> dict | None:
+    """Validate session token via DB. Returns session dict or None."""
+    return await _auth_mod.validate_session(token)
 
 
 def _get_session_token(request: Request) -> str:
-    """Extract session token from cookie or Authorization header"""
-    token = request.cookies.get("algoforge_session", "")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    return token
+    """Extract session token from cookie or Authorization header."""
+    return _auth_mod.get_session_token(request)
+
+
+async def _get_page_user(request: Request) -> dict | None:
+    """Resolve the logged-in user for HTML page routes, treating disabled users as logged out."""
+    token = _get_session_token(request)
+    session = await _validate_session_async(token)
+    if not session:
+        return None
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        return None
+    return user
 
 
 @app.middleware("http")
@@ -356,13 +611,30 @@ async def auth_middleware(request: Request, call_next):
         "/login",
         "/",
         "/charts-viewer",
+        "/logo.jpg",
+        "/logo.png",
+        "/favicon.ico",
     ):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
+    # Admin routes have their own Depends() guard, but still need basic session check
     token = _get_session_token(request)
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        response = JSONResponse(status_code=401, content={"detail": "Account disabled or not found"})
+        response.delete_cookie("algoforge_session")
+        return response
+    # Stash current user on request state to avoid repeated lookups downstream
+    request.state.user_id = user["id"]
+    request.state.current_user = user
     return await call_next(request)
 
 
@@ -497,17 +769,30 @@ class StrategyPayload(BaseModel):
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
 
 
+def _render_login_page() -> HTMLResponse:
+    login_path = os.path.join(_HERE, "login.html")
+    if not os.path.exists(login_path):
+        return HTMLResponse("<h2>login.html not found</h2>")
+    with open(login_path, encoding="utf-8") as f:
+        login_html = f.read()
+    referral_url = config.DHAN_REFERRAL_URL
+    referral_qr_url = (
+        f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={_url_quote(referral_url, safe='')}"
+        if referral_url
+        else ""
+    )
+    login_html = login_html.replace("__DHAN_REFERRAL_URL__", _escape_html(referral_url or "#", quote=True))
+    login_html = login_html.replace("__DHAN_REFERRAL_QR_URL__", _escape_html(referral_qr_url, quote=True))
+    login_html = login_html.replace("__DHAN_REFERRAL_HIDDEN_CLASS__", "" if referral_url else " hidden")
+    return HTMLResponse(login_html)
+
+
 # ── Serve Frontend ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
-    token = _get_session_token(request)
-    if not _validate_session(token):
-        # Serve login page
-        login_path = os.path.join(_HERE, "login.html")
-        if os.path.exists(login_path):
-            with open(login_path, encoding="utf-8") as f:
-                return HTMLResponse(f.read())
-        return HTMLResponse("<h2>login.html not found</h2>")
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategy.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
@@ -532,6 +817,7 @@ import calendar as _cal
 import re as _re
 
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
+_USER_DATA_ROOT = config.USER_DATA_ROOT
 
 # Build month-name lookup: JAN→1, JANUARY→1, FEB→2, FEBRUARY→2, …
 _MONTH_MAP: dict[str, int] = {}
@@ -583,13 +869,24 @@ def _parse_day_folder(name: str):
     return f"9999-99-{name}", name
 
 
-def _safe_charts_subpath(*parts: str) -> str | None:
-    """Resolve path under CHARTS_DIR; return None if traversal detected."""
+def _user_storage_root(user_id: int) -> str:
+    return os.path.join(_USER_DATA_ROOT, str(int(user_id or 0)))
+
+
+def _user_charts_root(user_id: int) -> str:
+    return os.path.join(_user_storage_root(user_id), "charts")
+
+
+def _safe_charts_subpath(user_id: int, *parts: str, create_root: bool = False) -> str | None:
+    """Resolve path under the current user's charts root; return None on traversal."""
     for p in parts:
         if "/" in p or "\\" in p or ".." in p:
             return None
-    candidate = os.path.join(CHARTS_DIR, *parts)
-    if not os.path.realpath(candidate).startswith(os.path.realpath(CHARTS_DIR)):
+    root = _user_charts_root(user_id)
+    if create_root:
+        os.makedirs(root, exist_ok=True)
+    candidate = os.path.join(root, *parts)
+    if not os.path.realpath(candidate).startswith(os.path.realpath(root)):
         return None
     return candidate
 
@@ -597,13 +894,9 @@ def _safe_charts_subpath(*parts: str) -> str | None:
 @app.get("/charts-viewer", response_class=HTMLResponse)
 async def serve_charts_viewer(request: Request):
     """Serve the historical chart viewer page (auth-protected)."""
-    token = _get_session_token(request)
-    if not _validate_session(token):
-        login_path = os.path.join(_HERE, "login.html")
-        if os.path.exists(login_path):
-            with open(login_path, encoding="utf-8") as f:
-                return HTMLResponse(f.read())
-        return HTMLResponse("<h2>login.html not found</h2>")
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
     html_path = os.path.join(_HERE, "charts.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
@@ -612,16 +905,18 @@ async def serve_charts_viewer(request: Request):
 
 
 @app.get("/api/charts/tree")
-async def charts_tree():
+async def charts_tree(request: Request):
     """Return directory tree adapted to Daily Charts/ folder structure."""
-    print(f"[CHARTS] Scanning CHARTS_DIR: {CHARTS_DIR}")
-    print(f"[CHARTS] Exists: {os.path.isdir(CHARTS_DIR)}")
-    if not os.path.isdir(CHARTS_DIR):
+    user_id = _request_user_id(request)
+    charts_root = _user_charts_root(user_id)
+    print(f"[CHARTS] Scanning user charts dir for user {user_id}: {charts_root}")
+    print(f"[CHARTS] Exists: {os.path.isdir(charts_root)}")
+    if not os.path.isdir(charts_root):
         print("[CHARTS] Directory NOT found – returning empty tree")
         return {"years": {}}
     tree: dict = {}
-    for year in sorted(os.listdir(CHARTS_DIR)):
-        year_path = os.path.join(CHARTS_DIR, year)
+    for year in sorted(os.listdir(charts_root)):
+        year_path = os.path.join(charts_root, year)
         if not os.path.isdir(year_path) or not year.isdigit():
             continue
         months_list = []
@@ -684,9 +979,9 @@ async def charts_tree():
 
 
 @app.get("/api/charts/images/{year}/{month}/{day}")
-async def charts_images(year: str, month: str, day: str):
+async def charts_images(year: str, month: str, day: str, request: Request):
     """Return list of image URLs for a specific date folder."""
-    day_path = _safe_charts_subpath(year, month, day)
+    day_path = _safe_charts_subpath(_request_user_id(request), year, month, day)
     if day_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isdir(day_path):
@@ -702,25 +997,25 @@ async def charts_images(year: str, month: str, day: str):
 
 
 @app.get("/charts-static/{year}/{month}/{day}/{filename}")
-async def serve_chart_image(year: str, month: str, day: str, filename: str):
+async def serve_chart_image(year: str, month: str, day: str, filename: str, request: Request):
     """Serve a single chart image file."""
     safe_name = os.path.basename(filename)
     if not safe_name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         raise HTTPException(status_code=400, detail="Invalid file type")
-    file_path = _safe_charts_subpath(year, month, day, safe_name)
+    file_path = _safe_charts_subpath(_request_user_id(request), year, month, day, safe_name)
     if file_path is None or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(file_path)
 
 
 # ── Chart Upload (Ctrl+V paste) ──────────────────────────────────
-JOURNAL_DIR = os.path.join(_HERE, "journals")
 _ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 @app.post("/api/upload-chart")
 async def upload_chart(
+    request: Request,
     file: UploadFile,
     target_year: str | None = Form(None),
     target_month: str | None = Form(None),
@@ -758,7 +1053,7 @@ async def upload_chart(
         month_folder = f"{month_abbr}-{year_str}"
         day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
 
-    day_path = _safe_charts_subpath(year_str, month_folder, day_folder)
+    day_path = _safe_charts_subpath(_request_user_id(request), year_str, month_folder, day_folder, create_root=True)
     if day_path is None:
         raise HTTPException(status_code=400, detail="Invalid target path")
     os.makedirs(day_path, exist_ok=True)
@@ -801,12 +1096,12 @@ async def upload_chart(
 
 # ── Delete a chart image ─────────────────────────────────────────
 @app.delete("/api/charts/delete/{year}/{month}/{day}/{filename}")
-async def delete_chart(year: str, month: str, day: str, filename: str):
+async def delete_chart(year: str, month: str, day: str, filename: str, request: Request):
     """Delete a single chart image file."""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _ALLOWED_IMG_EXT:
         raise HTTPException(status_code=400, detail="Invalid file type")
-    file_path = _safe_charts_subpath(year, month, day, filename)
+    file_path = _safe_charts_subpath(_request_user_id(request), year, month, day, filename)
     if file_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isfile(file_path):
@@ -828,7 +1123,8 @@ async def rename_chart(year: str, month: str, day: str, filename: str, request: 
     old_ext = os.path.splitext(filename)[1].lower()
     if old_ext not in _ALLOWED_IMG_EXT:
         raise HTTPException(status_code=400, detail="Invalid file type")
-    old_path = _safe_charts_subpath(year, month, day, filename)
+    user_id = _request_user_id(request)
+    old_path = _safe_charts_subpath(user_id, year, month, day, filename)
     if old_path is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.isfile(old_path):
@@ -838,7 +1134,7 @@ async def rename_chart(year: str, month: str, day: str, filename: str, request: 
     if not new_base:
         raise HTTPException(status_code=400, detail="Invalid new name")
     new_filename = f"{new_base}{old_ext}"
-    new_path = _safe_charts_subpath(year, month, day, new_filename)
+    new_path = _safe_charts_subpath(user_id, year, month, day, new_filename)
     if new_path is None:
         raise HTTPException(status_code=400, detail="Invalid new path")
     if os.path.exists(new_path):
@@ -861,13 +1157,14 @@ async def rename_chart_folder(request: Request):
     new_day = body.get("new_day", "").strip()
     if not all([year, month, old_day, new_day]):
         raise HTTPException(status_code=400, detail="year, month, old_day, new_day required")
-    old_path = _safe_charts_subpath(year, month, old_day)
+    user_id = _request_user_id(request)
+    old_path = _safe_charts_subpath(user_id, year, month, old_day)
     if old_path is None or not os.path.isdir(old_path):
         raise HTTPException(status_code=404, detail="Folder not found")
     safe_new = _re.sub(r"[^\w\s._-]", "", new_day)[:80]
     if not safe_new:
         raise HTTPException(status_code=400, detail="Invalid new name")
-    new_path = _safe_charts_subpath(year, month, safe_new)
+    new_path = _safe_charts_subpath(user_id, year, month, safe_new)
     if new_path is None:
         raise HTTPException(status_code=400, detail="Invalid new path")
     if os.path.exists(new_path):
@@ -886,14 +1183,15 @@ async def create_chart_folder(request: Request):
     day_name = body.get("day_name", "").strip()
     if not all([year, month, day_name]):
         raise HTTPException(status_code=400, detail="year, month, day_name required")
+    user_id = _request_user_id(request)
     safe_name = _re.sub(r"[^\w\s._-]", "", day_name)[:80]
     if not safe_name:
         raise HTTPException(status_code=400, detail="Invalid folder name")
     # Ensure year and month directories exist
-    year_path = _safe_charts_subpath(year)
+    year_path = _safe_charts_subpath(user_id, year, create_root=True)
     if year_path is None:
         raise HTTPException(status_code=400, detail="Invalid year")
-    month_path = _safe_charts_subpath(year, month)
+    month_path = _safe_charts_subpath(user_id, year, month, create_root=True)
     if month_path is None:
         raise HTTPException(status_code=400, detail="Invalid month")
     os.makedirs(month_path, exist_ok=True)
@@ -918,7 +1216,7 @@ async def reorder_chart_folders(request: Request):
     order = body.get("order", [])  # list of folder names in desired order
     if not all([year, month]) or not isinstance(order, list):
         raise HTTPException(status_code=400, detail="year, month, order[] required")
-    month_path = _safe_charts_subpath(year, month)
+    month_path = _safe_charts_subpath(_request_user_id(request), year, month)
     if month_path is None or not os.path.isdir(month_path):
         raise HTTPException(status_code=404, detail="Month folder not found")
     sort_file = os.path.join(month_path, "_sort_order.json")
@@ -930,47 +1228,18 @@ async def reorder_chart_folders(request: Request):
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
 @app.get("/api/journal/list")
-async def list_journals():
+async def list_journals(request: Request):
     """Return list of all journal dates that have entries."""
-    if not os.path.isdir(JOURNAL_DIR):
-        return {"entries": []}
-    entries = []
-    for fname in sorted(os.listdir(JOURNAL_DIR), reverse=True):
-        if not fname.endswith(".json"):
-            continue
-        date_str = fname[:-5]
-        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-            continue
-        fpath = os.path.join(JOURNAL_DIR, fname)
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            # Include summary fields for the list view
-            entries.append(
-                {
-                    "date": date_str,
-                    "asset": data.get("asset", ""),
-                    "grade": data.get("grade", ""),
-                    "strategy": data.get("strategy", ""),
-                }
-            )
-        except Exception:
-            entries.append({"date": date_str, "asset": "", "grade": "", "strategy": ""})
-    return {"entries": entries}
+    return {"entries": await _db_mod.list_journal_entries(_request_user_id(request))}
 
 
 @app.get("/api/journal/{date_str}")
-async def get_journal(date_str: str):
+async def get_journal(date_str: str, request: Request):
     """Load journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not os.path.isfile(journal_file):
-        return {"date": date_str, "data": None}
-    with open(journal_file, "r", encoding="utf-8") as f:
-        return {"date": date_str, "data": json.load(f)}
+    data = await _db_mod.get_journal_entry(_request_user_id(request), date_str)
+    return {"date": date_str, "data": data}
 
 
 @app.put("/api/journal/{date_str}")
@@ -978,69 +1247,84 @@ async def save_journal(date_str: str, request: Request):
     """Save journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    os.makedirs(JOURNAL_DIR, exist_ok=True)
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
     body = await request.json()
     # Sanitize: only allow known fields
     allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
     clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
-    with open(journal_file, "w", encoding="utf-8") as f:
-        json.dump(clean, f, indent=2)
+    await _db_mod.upsert_journal_entry(_request_user_id(request), date_str, clean)
     return {"status": "ok", "date": date_str}
 
 
 @app.delete("/api/journal/{date_str}")
-async def delete_journal(date_str: str):
+async def delete_journal(date_str: str, request: Request):
     """Delete a journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format")
-    journal_file = os.path.join(JOURNAL_DIR, f"{date_str}.json")
-    if not os.path.realpath(journal_file).startswith(os.path.realpath(JOURNAL_DIR)):
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not os.path.isfile(journal_file):
+    deleted = await _db_mod.delete_journal_entry(_request_user_id(request), date_str)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Journal entry not found")
-    os.remove(journal_file)
-    try:
-        localStorage_key = f"cj_journal_{date_str}"
-        print(f"[JOURNAL] Deleted: {journal_file}")
-    except Exception:
-        pass
+    print(f"[JOURNAL] Deleted entry for {_request_user_id(request)}: {date_str}")
     return {"status": "ok", "deleted": date_str}
 
 
 # ── Brute-Force Protection ────────────────────────────────────────
-_login_attempts: dict = defaultdict(list)  # ip -> [timestamps] (fallback)
-_LOGIN_MAX_ATTEMPTS = 5
-_LOGIN_LOCKOUT_SEC = 300  # 5 minutes
+_login_attempts: dict = defaultdict(list)  # login-key -> [timestamps] (fallback)
+_LOGIN_MAX_ATTEMPTS = config.MAX_LOGIN_ATTEMPTS
+_LOGIN_LOCKOUT_SEC = config.LOGIN_LOCKOUT_MINUTES * 60
 _LOGIN_RL_PREFIX = "algoforge:login:"
+_LEGACY_PIN_LENGTH = 6
 
 
-def _check_login_rate(ip: str):
+def _password_policy_message(label: str = "Password") -> str:
+    return f"{label} must be at least 8 characters, or exactly 6 digits for PIN mode"
+
+
+def _is_valid_account_password(password: str) -> bool:
+    password = str(password or "")
+    return bool(_re.fullmatch(rf"\d{{{_LEGACY_PIN_LENGTH}}}", password)) or len(password) >= 8
+
+
+def _require_valid_account_password(password: str, label: str = "Password") -> None:
+    if not _is_valid_account_password(password):
+        raise HTTPException(status_code=400, detail=_password_policy_message(label))
+
+
+def _login_lockout_message() -> str:
+    minutes = config.LOGIN_LOCKOUT_MINUTES
+    return f"Too many failed attempts. Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+
+
+def _login_key(username: str, client_ip: str) -> str:
+    username = (username or "").strip().lower()
+    if username:
+        return f"user:{username}"
+    return f"ip:{client_ip or 'unknown'}"
+
+
+def _check_login_rate(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            key = f"{_LOGIN_RL_PREFIX}{login_key}"
             count = int(r.get(key) or 0)
             if count >= _LOGIN_MAX_ATTEMPTS:
-                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+                raise HTTPException(status_code=429, detail=_login_lockout_message())
             return
         except HTTPException:
             raise
         except Exception as e:
             _logger.warning(f"[Redis] _check_login_rate failed, using in-memory: {e}")
     now = time.time()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_LOCKOUT_SEC]
-    if len(_login_attempts[ip]) >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 5 minutes.")
+    _login_attempts[login_key] = [t for t in _login_attempts[login_key] if now - t < _LOGIN_LOCKOUT_SEC]
+    if len(_login_attempts[login_key]) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail=_login_lockout_message())
 
 
-def _record_failed_login(ip: str):
+def _record_failed_login(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            key = f"{_LOGIN_RL_PREFIX}{ip}"
+            key = f"{_LOGIN_RL_PREFIX}{login_key}"
             pipe = r.pipeline()
             pipe.incr(key)
             pipe.expire(key, _LOGIN_LOCKOUT_SEC)
@@ -1048,55 +1332,334 @@ def _record_failed_login(ip: str):
             return
         except Exception as e:
             _logger.warning(f"[Redis] _record_failed_login failed, using in-memory: {e}")
-    _login_attempts[ip].append(time.time())
+    _login_attempts[login_key].append(time.time())
 
 
-def _clear_login_attempts(ip: str):
+def _clear_login_attempts(login_key: str):
     r = _get_redis()
     if r is not None:
         try:
-            r.delete(f"{_LOGIN_RL_PREFIX}{ip}")
+            r.delete(f"{_LOGIN_RL_PREFIX}{login_key}")
             return
         except Exception:
             pass
-    _login_attempts.pop(ip, None)
+    _login_attempts.pop(login_key, None)
 
 
 # ── Authentication Endpoints ──────────────────────────────────────
 @app.post("/api/auth/login")
 async def auth_login(request: Request):
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate(ip)
     body = await request.json()
+    username = body.get("username", "").strip()
     password = body.get("password", "")
-    if password == AUTH_PASSWORD:
-        _clear_login_attempts(ip)
-        token = _create_session()
-        resp = JSONResponse({"status": "ok", "message": "Login successful"})
-        # secure=True only when behind HTTPS; current setup is HTTP-only
-        is_https = request.headers.get("x-forwarded-proto") == "https"
-        resp.set_cookie("algoforge_session", token, max_age=86400, httponly=True, samesite="lax", secure=is_https)
-        return resp
-    _record_failed_login(ip)
-    raise HTTPException(status_code=401, detail="Invalid password")
+    login_key = _login_key(username or config.ADMIN_USERNAME, ip)
+    _check_login_rate(login_key)
+
+    # If no username provided, treat as legacy PIN login → look up configured admin user
+    if username:
+        user = await _db_mod.get_user_by_username(username)
+    else:
+        user = await _get_preferred_admin_user()
+    if not user:
+        _record_failed_login(login_key)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(login_key)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Success — create DB session
+    _clear_login_attempts(login_key)
+    await _db_mod.cleanup_expired_sessions()
+    token = await _auth_mod.create_session(user["id"])
+    await _db_mod.update_last_login(user["id"])
+
+    resp = JSONResponse(
+        {
+            "status": "ok",
+            "message": "Login successful",
+            "username": user["username"],
+            "role": user["role"],
+        }
+    )
+    is_https = request.headers.get("x-forwarded-proto") == "https"
+    resp.set_cookie(
+        "algoforge_session",
+        token,
+        max_age=config.SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=is_https,
+    )
+    return resp
 
 
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
     token = _get_session_token(request)
-    valid = _validate_session(token)
-    return {"authenticated": valid}
+    session = await _validate_session_async(token)
+    if not session:
+        return {"authenticated": False}
+    user = await _db_mod.get_user_by_id(session["user_id"])
+    if not user or not user["is_active"]:
+        if user:
+            await _db_mod.delete_sessions_for_user(user["id"])
+        elif token:
+            await _db_mod.delete_session(token)
+        resp = JSONResponse({"authenticated": False})
+        resp.delete_cookie("algoforge_session")
+        return resp
+    return {
+        "authenticated": True,
+        "username": user["username"],
+        "role": user["role"],
+        "user_id": user["id"],
+    }
 
 
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
     token = _get_session_token(request)
-    sessions = _load_sessions()
-    sessions.pop(token, None)
-    _save_sessions(sessions)
+    await _auth_mod.destroy_session(token)
     resp = JSONResponse({"status": "ok"})
     resp.delete_cookie("algoforge_session")
     return resp
+
+
+# ── Admin Routes ──────────────────────────────────────────────────
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(request: Request):
+    """List all users (admin only)."""
+    await _auth_mod.require_admin(request)
+    users = await _db_mod.list_users()
+    return {"users": users}
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(request: Request):
+    """Create a new user (admin only)."""
+    admin = await _auth_mod.require_admin(request)
+    body = await request.json()
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    role = body.get("role", "user")
+    email = body.get("email", "").strip() or None
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if role not in ("admin", "user"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
+    _require_valid_account_password(password)
+
+    # Check if username already exists
+    existing = await _db_mod.get_user_by_username(username)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Username '{username}' already taken")
+
+    hashed = _auth_mod.hash_password(password)
+    user_id = await _db_mod.create_user(username, hashed, role=role, email=email)
+    _logger.info(f"[Admin] User '{username}' created by '{admin['username']}' (id={user_id})")
+    return {"status": "ok", "user_id": user_id, "username": username, "role": role}
+
+
+@app.put("/api/admin/users/{user_id}/toggle")
+async def admin_toggle_user(user_id: int, request: Request):
+    """Enable or disable a user account (admin only)."""
+    admin = await _auth_mod.require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot disable your own account")
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_state = not bool(user["is_active"])
+    await _db_mod.set_user_active(user_id, new_state)
+    if not new_state:
+        await _db_mod.delete_sessions_for_user(user_id)
+    action = "enabled" if new_state else "disabled"
+    _logger.info(f"[Admin] User '{user['username']}' {action} by '{admin['username']}'")
+    return {"status": "ok", "user_id": user_id, "is_active": new_state}
+
+
+@app.put("/api/admin/users/{user_id}/password")
+async def admin_reset_password(user_id: int, request: Request):
+    """Reset a user's password (admin only)."""
+    await _auth_mod.require_admin(request)
+    body = await request.json()
+    new_password = body.get("password", "")
+    _require_valid_account_password(new_password)
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    hashed = _auth_mod.hash_password(new_password)
+    await _db_mod.update_user(user_id, password_hash=hashed)
+    await _db_mod.delete_sessions_for_user(user_id)
+    return {"status": "ok", "message": f"Password reset for '{user['username']}'"}
+
+
+# ── User Self-Service Routes ─────────────────────────────────────
+
+
+@app.put("/api/user/password")
+async def change_own_password(request: Request):
+    """Change your own password."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    current = body.get("current_password", "")
+    new_pw = body.get("new_password", "")
+
+    if not _auth_mod.verify_password(current, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    _require_valid_account_password(new_pw, "New password")
+
+    hashed = _auth_mod.hash_password(new_pw)
+    await _db_mod.update_user(user["id"], password_hash=hashed)
+    await _db_mod.delete_sessions_for_user(user["id"])
+    resp = JSONResponse({"status": "ok", "message": "Password changed. Please log in again."})
+    resp.delete_cookie("algoforge_session")
+    return resp
+
+
+@app.get("/api/user/profile")
+async def get_user_profile(request: Request):
+    """Return authenticated user profile + broker settings metadata."""
+    user = await _auth_mod.get_current_user(request)
+    return {
+        "status": "ok",
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "email": user.get("email"),
+            "role": user["role"],
+            "is_active": bool(user.get("is_active", 1)),
+            "created_at": user.get("created_at"),
+            "last_login": user.get("last_login"),
+        },
+        "broker": _broker_profile_payload(user),
+    }
+
+
+@app.put("/api/user/broker")
+async def update_own_broker_settings(request: Request):
+    """Create or update stored broker credentials for the current user."""
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+    if not _auth_mod.encryption_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Broker credential storage is disabled until ENCRYPTION_KEY is configured on the server.",
+        )
+
+    body = await request.json()
+    client_id_input = body.get("client_id")
+    access_token_input = body.get("access_token")
+    pin_input = body.get("pin")
+    totp_input = body.get("totp_secret")
+
+    current_client_id = str(user.get("dhan_client_id", "") or "").strip()
+    current_access_token = str(user.get("dhan_access_token", "") or "").strip()
+    current_pin = str(user.get("dhan_pin", "") or "").strip()
+    current_totp = str(user.get("dhan_totp_secret", "") or "").strip()
+
+    new_client_id = current_client_id if client_id_input is None else str(client_id_input or "").strip()
+    new_access_token = current_access_token if access_token_input is None else str(access_token_input or "").strip()
+    new_pin = current_pin if pin_input is None else str(pin_input or "").strip()
+    new_totp = current_totp if totp_input is None else str(totp_input or "").strip()
+
+    if not (new_client_id or new_access_token or new_pin or new_totp):
+        raise HTTPException(status_code=400, detail="Provide broker credentials to save, or use Clear to remove them.")
+    if bool(new_client_id) != bool(new_access_token):
+        raise HTTPException(status_code=400, detail="Both Client ID and Access Token are required together.")
+    if (new_pin or new_totp) and not (new_client_id and new_access_token):
+        raise HTTPException(
+            status_code=400, detail="PIN/TOTP can only be saved together with Client ID and Access Token."
+        )
+
+    await _db_mod.update_user(
+        user["id"],
+        dhan_client_id=new_client_id,
+        dhan_access_token=new_access_token,
+        dhan_pin=new_pin,
+        dhan_totp_secret=new_totp,
+    )
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {
+        "status": "ok",
+        "message": "Broker credentials saved.",
+        "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.delete("/api/user/broker")
+async def clear_own_broker_settings(request: Request):
+    """Remove stored broker credentials for the current user."""
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+
+    cleared_fields = {key: str() for key in ("dhan_client_id", "dhan_access_token", "dhan_pin", "dhan_totp_secret")}
+    await _db_mod.update_user(user["id"], **cleared_fields)
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {
+        "status": "ok",
+        "message": "Stored broker credentials cleared.",
+        "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.get("/api/admin/engines")
+async def admin_list_engine_status(request: Request):
+    """Summarize running engines across users (admin only)."""
+    await _auth_mod.require_admin(request)
+    known_users = {int(user["id"]): user for user in await _db_mod.list_users()}
+    owner_ids = sorted(set(known_users) | set(paper_engines) | set(live_engines) | set(_scalp_engines))
+    rows: list[dict] = []
+
+    for owner_id in owner_ids:
+        user = known_users.get(owner_id) or {
+            "id": owner_id,
+            "username": f"User {owner_id}",
+            "role": "user",
+            "is_active": True,
+        }
+        paper_runs = [
+            _engine_status_summary(engine, run_id, "paper")
+            for run_id, engine in _registry_bucket(paper_engines, owner_id).items()
+            if getattr(engine, "running", False)
+        ]
+        live_runs = [
+            _engine_status_summary(engine, run_id, "live")
+            for run_id, engine in _registry_bucket(live_engines, owner_id).items()
+            if getattr(engine, "running", False)
+        ]
+        scalp_engine = _scalp_engines.get(owner_id)
+        scalp_open = list(getattr(scalp_engine, "open_trades", {}).values()) if scalp_engine else []
+        scalp_live_open = sum(1 for trade in scalp_open if _trade_mode_value(trade) == "live")
+        rows.append(
+            {
+                "user_id": owner_id,
+                "username": user["username"],
+                "role": user.get("role", "user"),
+                "is_active": bool(user.get("is_active", 1)),
+                "paper_running": len(paper_runs),
+                "live_running": len(live_runs),
+                "scalp_running": bool(scalp_engine and getattr(scalp_engine, "_running", False)),
+                "scalp_open_trades": len(scalp_open),
+                "scalp_live_open_trades": scalp_live_open,
+                "paper_runs": paper_runs,
+                "live_runs": live_runs,
+            }
+        )
+
+    return {"status": "ok", "users": rows}
 
 
 # ── Emergency Stop (Kill Switch) ─────────────────────────────────
@@ -1104,48 +1667,62 @@ async def auth_logout(request: Request):
 async def emergency_stop(request: Request):
     """Kill switch: stop ALL running strategies immediately"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     results = {}
     stopped_count = 0
-    # Stop all paper engines
-    for run_id, engine in list(paper_engines.items()):
-        try:
-            if engine.running:
-                engine.stop()
-                results[f"paper:{run_id}"] = "stopped"
-                stopped_count += 1
-            else:
-                results[f"paper:{run_id}"] = "not_running"
-        except Exception as e:
-            results[f"paper:{run_id}"] = f"error: {str(e)}"
+    user = getattr(request.state, "current_user", {}) or {}
+    caller_id = _request_user_id(request)
+    if user.get("role") == "admin":
+        target_user_ids = sorted(set(paper_engines) | set(live_engines))
+    else:
+        target_user_ids = [caller_id]
 
-    # Stop all live engines
-    for run_id, engine in list(live_engines.items()):
-        try:
-            if engine.running:
-                engine.stop()
-                results[f"live:{run_id}"] = "stopped"
-                stopped_count += 1
-            else:
-                results[f"live:{run_id}"] = "not_running"
-        except Exception as e:
-            results[f"live:{run_id}"] = f"error: {str(e)}"
+    # Stop all paper engines for target users
+    for owner_id in target_user_ids:
+        paper_bucket = _registry_bucket(paper_engines, owner_id)
+        for run_id, engine in list(paper_bucket.items()):
+            try:
+                if engine.running:
+                    engine.stop()
+                    results[f"paper:{owner_id}:{run_id}"] = "stopped"
+                    stopped_count += 1
+                else:
+                    results[f"paper:{owner_id}:{run_id}"] = "not_running"
+                _alert_state.pop(_alert_state_key(owner_id, run_id), None)
+            except Exception as e:
+                results[f"paper:{owner_id}:{run_id}"] = f"error: {str(e)}"
 
-    # Cancel all background tasks
-    for name, tasks_dict in [("live", _live_tasks), ("paper", _paper_tasks)]:
-        for run_id, task_ref in list(tasks_dict.items()):
-            if task_ref and not task_ref.done():
-                task_ref.cancel()
-                try:
-                    await task_ref
-                except asyncio.CancelledError:
-                    pass
-    _live_tasks.clear()
-    _paper_tasks.clear()
-    live_engines.clear()
-    paper_engines.clear()
+    # Stop all live engines for target users
+    for owner_id in target_user_ids:
+        live_bucket = _registry_bucket(live_engines, owner_id)
+        for run_id, engine in list(live_bucket.items()):
+            try:
+                if engine.running:
+                    engine.stop()
+                    results[f"live:{owner_id}:{run_id}"] = "stopped"
+                    stopped_count += 1
+                else:
+                    results[f"live:{owner_id}:{run_id}"] = "not_running"
+                _alert_state.pop(_alert_state_key(owner_id, run_id), None)
+            except Exception as e:
+                results[f"live:{owner_id}:{run_id}"] = f"error: {str(e)}"
+
+    # Cancel background tasks and clear registries for target users
+    for owner_id in target_user_ids:
+        for tasks_dict in (_live_tasks, _paper_tasks):
+            task_bucket = _registry_bucket(tasks_dict, owner_id)
+            for _, task_ref in list(task_bucket.items()):
+                if task_ref and not task_ref.done():
+                    task_ref.cancel()
+                    try:
+                        await task_ref
+                    except asyncio.CancelledError:
+                        pass
+            task_bucket.clear()
+        _registry_bucket(live_engines, owner_id).clear()
+        _registry_bucket(paper_engines, owner_id).clear()
 
     return {
         "status": "ok",
@@ -1161,18 +1738,19 @@ async def emergency_stop(request: Request):
 async def dashboard_summary(request: Request):
     """Aggregated dashboard data for the homepage"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _request_user_id(request)
 
     # Strategies count
-    strats = _load()
-    runs = _load_runs()
+    strats = await _db_mod.list_strategies(user_id)
+    runs = await _db_mod.list_runs(user_id)
 
     # Active engines
-    paper_running = any(e.running for e in paper_engines.values())
-    live_running = any(e.running for e in live_engines.values())
-    paper_statuses = [e.get_status() for e in paper_engines.values() if e.running]
-    live_statuses = [e.get_status() for e in live_engines.values() if e.running]
+    paper_statuses = _running_statuses_for_user(paper_engines, user_id)
+    live_statuses = _running_statuses_for_user(live_engines, user_id)
+    paper_running = bool(paper_statuses)
+    live_running = bool(live_statuses)
 
     # Today's P&L from engines (+ history for idle engines)
     paper_pnl_val = 0
@@ -1236,7 +1814,7 @@ async def dashboard_summary(request: Request):
 async def validate_strategy(request: Request):
     """Deep validation of strategy before deployment"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     body = await request.json()
@@ -1337,13 +1915,17 @@ async def validate_strategy(request: Request):
 async def portfolio_summary(request: Request):
     """Aggregated portfolio: balance + positions + unrealized P&L in one call"""
     token = _get_session_token(request)
-    if not _validate_session(token):
+    if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     result = {"funds": None, "positions": [], "unrealized_pnl": 0, "total_value": 0, "errors": []}
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        result["errors"].append(_broker_not_configured_message(user, source))
+        return result
     # Funds
     try:
-        funds = await asyncio.to_thread(dhan.get_funds)
+        funds = await asyncio.to_thread(broker_client.get_funds)
         result["funds"] = funds
         if isinstance(funds, dict):
             result["total_value"] = float(funds.get("availabelBalance", funds.get("available_balance", 0)))
@@ -1352,7 +1934,7 @@ async def portfolio_summary(request: Request):
 
     # Positions + unrealized P&L
     try:
-        positions = await asyncio.to_thread(dhan.get_positions)
+        positions = await asyncio.to_thread(broker_client.get_positions)
         result["positions"] = positions
         unrealized = 0
         for pos in positions if isinstance(positions, list) else []:
@@ -1367,11 +1949,10 @@ async def portfolio_summary(request: Request):
 
 # ── Strategy Versioning ──────────────────────────────────────────
 @app.get("/api/strategies/{sid}/versions")
-async def get_strategy_versions(sid: int):
-    strats = _load()
-    for s in strats:
-        if s.get("id") == sid:
-            return {"versions": s.get("versions", [])}
+async def get_strategy_versions(sid: int, request: Request):
+    strategy = await _db_mod.get_strategy(_request_user_id(request), sid)
+    if strategy:
+        return {"versions": strategy.get("versions", [])}
     raise HTTPException(status_code=404, detail="Strategy not found")
 
 
@@ -1384,7 +1965,7 @@ async def health():
         "dhan_configured": (
             config.DHAN_CLIENT_ID != "YOUR_CLIENT_ID_HERE" and config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"
         ),
-        "live_running": any(e.running for e in live_engines.values()),
+        "live_running": _any_running(live_engines),
     }
 
 
@@ -1394,14 +1975,14 @@ async def save_state(request: Request):
     if request.client.host not in ("127.0.0.1", "::1"):
         return JSONResponse(status_code=403, content={"error": "localhost only"})
     saved = []
-    for run_id, engine in live_engines.items():
+    for owner_id, run_id, engine in _iter_registry_items(live_engines):
         if engine.running:
             engine._save_state()
-            saved.append(run_id)
-    for run_id, engine in paper_engines.items():
+            saved.append(f"live:{owner_id}:{run_id}")
+    for owner_id, run_id, engine in _iter_registry_items(paper_engines):
         if engine.running:
             engine._save_state()
-            saved.append(f"paper:{run_id}")
+            saved.append(f"paper:{owner_id}:{run_id}")
     return {"status": "ok", "saved": saved}
 
 
@@ -1412,42 +1993,93 @@ async def token_status():
 
 
 @app.post("/api/refresh-token")
-async def refresh_token():
-    """Force-regenerate the Dhan access token via TOTP."""
+async def refresh_token(request: Request):
+    """Force-refresh the current broker token for this user or the admin fallback."""
     try:
-        new_tok = auto_generate_token()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {
+                "status": "not_configured",
+                "message": _broker_not_configured_message(user, source),
+            }
+
+        new_tok = await asyncio.to_thread(broker_client.refresh_access_token, force=True)
         if new_tok:
-            return {"status": "ok", "message": "Token refreshed successfully"}
-        return {"status": "error", "message": "Token generation failed — check TOTP secret"}
+            fresh_user = await _db_mod.get_user_by_id(user["id"]) if user else None
+            return {
+                "status": "ok",
+                "message": "Token refreshed successfully",
+                "source": source,
+                "broker": _broker_profile_payload(fresh_user or user),
+            }
+
+        if source == "user":
+            if _user_broker_auto_refresh_ready(user):
+                message = "User broker token refresh failed. Re-save your Dhan broker credentials and try again."
+            else:
+                message = "Save Dhan PIN and TOTP Secret in Account Settings to enable per-user token refresh."
+            return {"status": "error", "message": message, "source": source}
+
+        return {"status": "error", "message": "Token generation failed — check TOTP secret", "source": source}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 # ── Broker Connection Validation ──────────────────────────────────
 @app.post("/api/broker/check")
-async def check_broker():
+async def check_broker(request: Request):
     """Check if broker connection is active and valid"""
     try:
-        # Check if credentials are configured (not default placeholders)
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please update .env file.",
+                "message": _broker_not_configured_message(user, source),
             }
 
+        auto_refresh_ready = _user_broker_auto_refresh_ready(user)
+
         # Test connection by fetching account funds
-        funds = dhan.get_funds()
+        funds = await asyncio.to_thread(broker_client.get_funds)
+        available_balance = float(funds.get("availabelBalance", 0) or 0) if isinstance(funds, dict) else 0.0
 
         if funds and isinstance(funds, dict):
-            # Valid response - connection is working
-            available_balance = float(funds.get("availabelBalance", 0) or 0)
+            try:
+                market_probe = await asyncio.to_thread(broker_client.get_ltp_multi, {"IDX_I": [13]})
+                market_ok = isinstance(market_probe, dict) and bool(market_probe.get("IDX_I"))
+                if not market_ok:
+                    raise RuntimeError("Market data probe returned no instruments")
+            except Exception as probe_error:
+                probe_msg = str(probe_error)
+                status = "auth_error" if _looks_like_broker_auth_error(probe_msg) else "marketdata_error"
+                if status == "auth_error":
+                    if auto_refresh_ready:
+                        message = "Market-data auth failed even after auto-refresh. Re-save your Dhan credentials."
+                    else:
+                        message = "Market-data auth failed. Save Dhan PIN and TOTP Secret in Account Settings for auto-refresh."
+                else:
+                    message = f"Funds loaded, but market-data probe failed: {probe_msg[:140]}"
+                return {
+                    "status": status,
+                    "broker": "Dhan",
+                    "message": message,
+                    "source": source,
+                    "available_balance": available_balance,
+                    "funds": funds,
+                    "market_data_ok": False,
+                    "auto_refresh_ready": auto_refresh_ready,
+                }
+
             return {
                 "status": "connected",
                 "broker": "Dhan",
                 "message": "Broker connection active",
+                "source": source,
                 "available_balance": available_balance,
                 "funds": funds,
+                "market_data_ok": True,
+                "auto_refresh_ready": auto_refresh_ready,
             }
         else:
             # No data returned
@@ -1455,7 +2087,21 @@ async def check_broker():
 
     except Exception as e:
         error_msg = str(e)
-        if "401" in error_msg or "Unauthorized" in error_msg:
+        if _looks_like_broker_auth_error(error_msg):
+            auto_refresh_ready = _user_broker_auto_refresh_ready(user if "user" in locals() else None)
+            detail = (
+                "Invalid broker credentials or expired token."
+                if auto_refresh_ready
+                else "Invalid broker credentials or expired token. Save Dhan PIN and TOTP Secret for auto-refresh."
+            )
+            return {
+                "status": "auth_error",
+                "broker": "Dhan",
+                "message": detail,
+                "source": source if "source" in locals() else "missing",
+                "auto_refresh_ready": auto_refresh_ready,
+            }
+        elif "401" in error_msg or "Unauthorized" in error_msg:
             return {"status": "error", "broker": "Dhan", "message": "Invalid API credentials (401 Unauthorized)"}
         elif "403" in error_msg or "Forbidden" in error_msg:
             return {"status": "error", "broker": "Dhan", "message": "Access forbidden - check API permissions (403)"}
@@ -1466,25 +2112,29 @@ async def check_broker():
 
 
 @app.get("/api/broker/trades")
-async def get_broker_trades():
+async def get_broker_trades(request: Request):
     """Fetch executed trades from Dhan broker account"""
     try:
-        # Check if credentials are configured
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
-            return {"status": "not_configured", "message": "Dhan API credentials not configured", "trades": []}
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {
+                "status": "not_configured",
+                "message": _broker_not_configured_message(user, source),
+                "trades": [],
+            }
 
         # Fetch trades from Dhan API
-        trades_result = dhan.get_trades()
+        trades_result = await asyncio.to_thread(broker_client.get_trades)
         trades = trades_result if isinstance(trades_result, list) else []
 
         # Auto-persist daily trade summary for portfolio history
         if trades:
             try:
-                _persist_daily_trades(trades)
+                await _persist_daily_trades(trades, _request_user_id(request))
             except Exception as pe:
                 print(f"[TRADE_HISTORY] Persist error: {pe}")
 
-        return {"status": "success", "broker": "Dhan", "count": len(trades), "trades": trades}
+        return {"status": "success", "broker": "Dhan", "source": source, "count": len(trades), "trades": trades}
 
     except Exception as e:
         error_msg = str(e)
@@ -1496,17 +2146,27 @@ async def get_broker_trades():
         }
 
 
-def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
-    """Fetch historical trades from Dhan and backfill trade_history.json.
+def _backfill_trade_history(
+    from_date: str = "2024-01-01",
+    force: bool = False,
+    user_id: int | None = None,
+    broker_client: DhanClient | None = None,
+):
+    """Fetch historical trades from Dhan and backfill a user's persisted trade history.
 
     Args:
         from_date: Start date in YYYY-MM-DD format.
         force: If True, overwrite existing dates with fresh data from Dhan.
+        user_id: Trade-history owner. Defaults to the configured admin user.
     """
     import time as _time
 
     try:
-        history = _load_trade_history() if not force else {}
+        client = broker_client or dhan
+        owner_id = int(user_id or _default_history_user_id_sync())
+        history = _db_mod.list_trade_history_sync(owner_id) if not force else {}
+        if force:
+            _db_mod.clear_trade_history_sync(owner_id)
         today_str = datetime.now().strftime("%Y-%m-%d")
         existing_dates = set(history.keys())
 
@@ -1519,20 +2179,20 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
         page = 0
         consecutive_empty = 0
         while page < MAX_PAGES:
-            result = dhan.get_trade_history(from_date, today_str, page)
+            result = client.get_trade_history(from_date, today_str, page)
 
             # Handle rate-limit: retry with exponential backoff
-            if result == dhan.RATE_LIMITED:
+            if result == client.RATE_LIMITED:
                 retried = False
                 for attempt in range(1, RATE_LIMIT_RETRIES + 1):
                     wait = 2**attempt  # 2, 4, 8 seconds
                     print(f"[BACKFILL] Rate limited on page {page}, retry {attempt}/{RATE_LIMIT_RETRIES} after {wait}s")
                     _time.sleep(wait)
-                    result = dhan.get_trade_history(from_date, today_str, page)
-                    if result != dhan.RATE_LIMITED:
+                    result = client.get_trade_history(from_date, today_str, page)
+                    if result != client.RATE_LIMITED:
                         retried = True
                         break
-                if not retried and result == dhan.RATE_LIMITED:
+                if not retried and result == client.RATE_LIMITED:
                     print(f"[BACKFILL] Rate limit persists after {RATE_LIMIT_RETRIES} retries on page {page}, stopping")
                     break
 
@@ -1590,6 +2250,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
 
         # Compute P&L for each date
         new_dates = 0
+        updated_entries = {}
         for date_str, day_trades in sorted(trades_by_date.items()):
             groups = {}
             for t in day_trades:
@@ -1658,11 +2319,13 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
                     "mode": "real",
                     "details": details,
                 }
+                updated_entries[date_str] = history[date_str]
                 new_dates += 1
 
-        if new_dates > 0:
-            _save_trade_history(history)
-            print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in trade_history.json")
+        if updated_entries:
+            for date_str, entry in updated_entries.items():
+                _db_mod.upsert_trade_history_entry_sync(owner_id, date_str, entry)
+            print(f"[BACKFILL] {'Refreshed' if force else 'Added'} {new_dates} dates in SQLite trade history")
         else:
             print("[BACKFILL] No new dates to add (all existing)")
 
@@ -1676,14 +2339,23 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False):
 
 
 @app.get("/api/portfolio/backfill")
-async def portfolio_backfill(force: bool = False):
+async def portfolio_backfill(request: Request, force: bool = False):
     """Manually trigger historical trade backfill from Dhan.
 
     Args:
         force: If true, re-fetch ALL trades and overwrite existing data.
     """
     try:
-        count = _backfill_trade_history("2024-01-01", force=force)
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source)}
+        count = await asyncio.to_thread(
+            _backfill_trade_history,
+            "2024-01-01",
+            force,
+            _request_user_id(request),
+            broker_client,
+        )
         return {"status": "success", "new_dates": count, "force": force}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -1696,13 +2368,14 @@ async def backfill_status():
 
 
 @app.get("/api/portfolio/history")
-async def get_portfolio_history():
+async def get_portfolio_history(request: Request):
     """Return combined historical P&L from real trades + paper runs for monthly/yearly charts."""
     try:
+        user_id = _request_user_id(request)
         daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
 
-        # 1) Real trade history from trade_history.json
-        real_history = _load_trade_history()
+        # 1) Real trade history from the user's SQLite history
+        real_history = await _db_mod.list_trade_history(user_id)
         for date_str, entry in real_history.items():
             if date_str not in daily:
                 daily[date_str] = {
@@ -1723,8 +2396,8 @@ async def get_portfolio_history():
             daily[date_str]["real_trade_legs"] = entry.get("trade_legs", entry.get("trades", 0))
             daily[date_str]["real_wins"] = entry.get("wins", 0)
 
-        # 2) Paper runs from runs.json
-        runs = _load_runs()
+        # 2) Paper runs from the user's saved history
+        runs = await _db_mod.list_runs(user_id)
         for r in runs:
             if r.get("mode") != "paper":
                 continue
@@ -1843,19 +2516,19 @@ async def get_portfolio_history():
 
 
 @app.post("/api/broker/connect")
-async def connect_broker():
+async def connect_broker(request: Request):
     """Establish and validate broker connection"""
     try:
-        # Check if credentials are configured (not default placeholders)
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please add them to .env file.",
+                "message": _broker_not_configured_message(user, source),
             }
 
         # Test connection by attempting to fetch account funds
-        funds = dhan.get_funds()
+        funds = await asyncio.to_thread(broker_client.get_funds)
 
         if funds and isinstance(funds, dict):
             # Successfully connected and validated
@@ -1863,8 +2536,9 @@ async def connect_broker():
                 "status": "connected",
                 "broker": "Dhan",
                 "message": "Successfully connected to Dhan broker",
+                "source": source,
                 "available_balance": funds.get("availabelBalance", 0),
-                "client_id": config.DHAN_CLIENT_ID,
+                "client_id": broker_client.client_id,
             }
         else:
             # Connection made but no valid data
@@ -2280,7 +2954,7 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
 
 # ── Backtest ──────────────────────────────────────────────────────
 @app.post("/api/backtest")
-async def api_run_backtest(payload: StrategyPayload):
+async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
@@ -2388,11 +3062,7 @@ async def api_run_backtest(payload: StrategyPayload):
 
         # Save the run
         if results.get("status") == "success":
-            runs = await asyncio.to_thread(_load_runs)
-            # Use max ID to avoid duplicates after deletes
-            max_id = max([r.get("id", 0) for r in runs], default=0)
             run_entry = {
-                "id": max_id + 1,
                 "mode": "backtest",
                 "run_name": payload.run_name,
                 "folder": payload.folder,
@@ -2449,10 +3119,9 @@ async def api_run_backtest(payload: StrategyPayload):
             all_trades = results.get("trades", [])
             run_entry["trades"] = all_trades
             run_entry["equity"] = results.get("equity", [])
-            runs.append(run_entry)
-            await asyncio.to_thread(_save_runs, runs)
-            results["run_id"] = run_entry["id"]
-            print(f"[BACKTEST] Saved as Run #{run_entry['id']}")
+            saved_run = await _db_mod.create_run_record(_request_user_id(request), run_entry)
+            results["run_id"] = saved_run["id"]
+            print(f"[BACKTEST] Saved as Run #{saved_run['id']}")
 
         if data_range_warning:
             results["data_range_warning"] = data_range_warning
@@ -2484,8 +3153,16 @@ async def api_run_backtest(payload: StrategyPayload):
 
 # ── Live Engine ───────────────────────────────────────────────────
 @app.post("/api/live/start")
-async def live_start(req: LiveStartRequest):
+async def live_start(req: LiveStartRequest, request: Request):
     """Start live auto-trading with full strategy configuration."""
+    user_id = _request_user_id(request)
+    user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
+    broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    if not broker_client:
+        return {"status": "error", "message": _broker_not_configured_message(user, broker_source)}
+    live_bucket = _registry_bucket(live_engines, user_id)
+    live_task_bucket = _registry_bucket(_live_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     try:
         tf_spec = resolve_strategy_timeframe((req.strategy_config or {}).get("indicators", req.indicators))
     except ValueError as tf_err:
@@ -2520,6 +3197,7 @@ async def live_start(req: LiveStartRequest):
             "poll_interval": 10,
         }
     strategy_dict["timeframe_minutes"] = tf_spec.requested
+    strategy_dict["_user_id"] = user_id
     strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
 
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
@@ -2528,32 +3206,33 @@ async def live_start(req: LiveStartRequest):
     run_id = strategy_dict.get("run_name", "live") or "live"
 
     # Clear any stopped snapshot for this run_id
-    _stopped_engines.pop(run_id, None)
-    _save_stopped_engines()
+    stopped_engines.pop(run_id, None)
+    _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
-    old_engine = live_engines.get(run_id)
+    old_engine = live_bucket.get(run_id)
     if old_engine:
         try:
             old_status = old_engine.get_status()
             if old_engine.running:
                 old_engine.stop()
-                task = _live_tasks.pop(run_id, None)
+                task = live_task_bucket.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
-            _save_live_run_to_history(old_status)
+            await _save_live_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[LIVE] Failed to save old engine {run_id}: {e}")
-        live_engines.pop(run_id, None)
+        live_bucket.pop(run_id, None)
 
     # Create a new engine instance for this strategy
-    engine = LiveEngine(dhan, run_id=run_id)
+    engine = LiveEngine(broker_client, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
         deploy_config=deploy_config,
     )
+    engine._user_id = user_id
 
     # Inject WebSocket feed if available — starts WS + subscribes index
     if _market_feed and HAS_DHAN_FEED:
@@ -2572,23 +3251,18 @@ async def live_start(req: LiveStartRequest):
     engine.in_trade = False
     engine.trades_today = 0
 
-    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
 
     async def broadcast(event: dict):
-        for ws in ws_clients.copy():
-            try:
-                await ws.send_json({"source": "live", "run_id": run_id, **event})
-            except Exception:
-                if ws in ws_clients:
-                    ws_clients.remove(ws)
-        _check_trade_alerts(run_id, "Auto", event)
-        # Save each closed trade to runs.json for the All Results page
+        await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
+        _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+        # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
-            _save_single_trade_to_history(event["trade"], "live", run_name=run_id)
+            await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
-    live_engines[run_id] = engine
-    _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    live_bucket[run_id] = engine
+    live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     # Persist config + state immediately so it survives server restarts
     engine.session_date = date.today()
@@ -2600,6 +3274,10 @@ async def live_start(req: LiveStartRequest):
 
 @app.post("/api/live/stop")
 async def live_stop(request: Request):
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
+    live_task_bucket = _registry_bucket(_live_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
@@ -2609,13 +3287,13 @@ async def live_stop(request: Request):
 
     # If no run_id, stop the first (or only) running engine
     if not run_id:
-        running = [rid for rid, e in live_engines.items() if e.running]
+        running = [rid for rid, e in live_bucket.items() if e.running]
         if running:
             run_id = running[0]
         else:
             return {"status": "not_running"}
 
-    engine = live_engines.get(run_id)
+    engine = live_bucket.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
 
@@ -2623,28 +3301,28 @@ async def live_stop(request: Request):
     status_before = engine.get_status()
 
     engine.stop()
-    task = _live_tasks.pop(run_id, None)
+    task = live_task_bucket.pop(run_id, None)
     if task and not task.done():
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
-    live_engines.pop(run_id, None)
+    live_bucket.pop(run_id, None)
 
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
 
-    # Persist live run to runs.json (same as paper)
-    _save_live_run_to_history(status_before)
+    # Persist live run to the user's history (same as paper)
+    await _save_live_run_to_history(status_before, explicit_user_id=getattr(engine, "_user_id", None))
 
     # Keep snapshot on Live page so panel persists after stop
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "auto"
-    _stopped_engines[run_id] = status_before
-    _save_stopped_engines()
-    _alert_state.pop(run_id, None)
+    stopped_engines[run_id] = status_before
+    _save_stopped_engines(user_id)
+    _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
     trades = len(status_before.get("closed_trades", []))
@@ -2658,12 +3336,14 @@ async def live_stop(request: Request):
 
 
 @app.get("/api/live/status")
-async def live_status(run_id: str = ""):
+async def live_status(request: Request, run_id: str = ""):
     """Get live engine status. If run_id empty, returns first running engine."""
-    if run_id and run_id in live_engines:
-        return live_engines[run_id].get_status()
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
+    if run_id and run_id in live_bucket:
+        return live_bucket[run_id].get_status()
     # Return first running engine's status
-    for rid, engine in live_engines.items():
+    for rid, engine in live_bucket.items():
         if engine.running:
             return engine.get_status()
     # Nothing running — return idle status
@@ -2685,31 +3365,34 @@ async def live_status(run_id: str = ""):
 
 
 @app.get("/api/live/debug")
-async def live_debug(run_id: str = ""):
+async def live_debug(request: Request, run_id: str = ""):
     """Deep diagnostic of live engine state — call when trades aren't triggering."""
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
     engine = None
-    if run_id and run_id in live_engines:
-        engine = live_engines[run_id]
+    if run_id and run_id in live_bucket:
+        engine = live_bucket[run_id]
     else:
-        for e in live_engines.values():
+        for e in live_bucket.values():
             if e.running:
                 engine = e
                 break
     if not engine:
-        return {"error": "No live engine running", "engines": list(live_engines.keys())}
+        return {"error": "No live engine running", "engines": list(live_bucket.keys())}
     return engine.debug_engine_state()
 
 
 @app.get("/api/live/trades/csv")
-async def export_live_trades_csv(run_id: str = ""):
+async def export_live_trades_csv(request: Request, run_id: str = ""):
     """Export live auto-trading trades to CSV"""
     import csv as csv_mod
     import io
 
-    engine = live_engines.get(run_id) if run_id else None
+    live_bucket = _registry_bucket(live_engines, _request_user_id(request))
+    engine = live_bucket.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
-        for e in live_engines.values():
+        for e in live_bucket.values():
             if e.closed_trades:
                 engine = e
                 break
@@ -2748,14 +3431,14 @@ async def export_live_trades_csv(run_id: str = ""):
 
 # ── Paper Trading (Real Market Data) ──────────────────────────────
 @app.post("/api/paper/start")
-async def paper_start(payload: StrategyPayload):
+async def paper_start(payload: StrategyPayload, request: Request):
     """Start paper trading with real live market data"""
     _crash_log = os.path.join(_HERE, "crash.log")
     with open(_crash_log, "a") as _f:
         _f.write(f"\n[PAPER] paper_start ENTERED at {datetime.now()}\n")
         _f.write(f"[PAPER] payload.instrument={payload.instrument}, run_name={payload.run_name}\n")
     try:
-        return await _paper_start_impl(payload)
+        return await _paper_start_impl(payload, _request_user_id(request))
     except Exception as e:
         import traceback
 
@@ -2768,7 +3451,10 @@ async def paper_start(payload: StrategyPayload):
         raise
 
 
-async def _paper_start_impl(payload: StrategyPayload):
+async def _paper_start_impl(payload: StrategyPayload, user_id: int):
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     try:
         tf_spec = resolve_strategy_timeframe(payload.indicators)
     except ValueError as tf_err:
@@ -2806,36 +3492,38 @@ async def _paper_start_impl(payload: StrategyPayload):
         "timeframe_minutes": tf_spec.requested,
         "fetch_timeframe_minutes": tf_spec.fetch,
     }
+    strategy_dict["_user_id"] = user_id
 
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
 
     # Clear any stopped snapshot for this run_id
-    _stopped_engines.pop(run_id, None)
-    _save_stopped_engines()
+    stopped_engines.pop(run_id, None)
+    _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
-    old_engine = paper_engines.get(run_id)
+    old_engine = paper_bucket.get(run_id)
     if old_engine:
         try:
             old_status = old_engine.get_status()
             if old_engine.running:
                 old_engine.stop()
-                task = _paper_tasks.pop(run_id, None)
+                task = paper_task_bucket.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
-            _save_paper_run_to_history(old_status)
+            await _save_paper_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[PAPER] Failed to save old engine {run_id}: {e}")
-        paper_engines.pop(run_id, None)
+        paper_bucket.pop(run_id, None)
 
     # Create a new engine instance for this strategy
-    engine = PaperTradingEngine(dhan, run_id=run_id)
+    engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
     )
+    engine._user_id = user_id
 
     # Inject WebSocket feed if available — starts WS + subscribes index
     if _market_feed and HAS_DHAN_FEED:
@@ -2855,23 +3543,18 @@ async def _paper_start_impl(payload: StrategyPayload):
     engine.trades_today = 0
 
     # Broadcast updates to WebSocket clients + Telegram alerts
-    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
 
     async def broadcast(event: dict):
-        for ws in ws_clients.copy():
-            try:
-                await ws.send_json({"source": "paper", "run_id": run_id, **event})
-            except Exception:
-                if ws in ws_clients:
-                    ws_clients.remove(ws)
-        _check_trade_alerts(run_id, "Paper", event)
-        # Save each closed trade to runs.json for the All Results page
+        await _broadcast_user_ws_json(user_id, {"source": "paper", "run_id": run_id, **event})
+        _check_trade_alerts(run_id, "Paper", event, user_id=user_id)
+        # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
-            _save_single_trade_to_history(event["trade"], "paper", run_name=run_id)
+            await _save_single_trade_to_history(event["trade"], "paper", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
-    paper_engines[run_id] = engine
-    _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    paper_bucket[run_id] = engine
+    paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
@@ -2880,6 +3563,10 @@ async def _paper_start_impl(payload: StrategyPayload):
 @app.post("/api/paper/stop")
 async def paper_stop(request: Request):
     """Stop paper trading and persist results to runs.json"""
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
@@ -2889,13 +3576,13 @@ async def paper_stop(request: Request):
 
     # If no run_id, stop the first (or only) running engine
     if not run_id:
-        running = [rid for rid, e in paper_engines.items() if e.running]
+        running = [rid for rid, e in paper_bucket.items() if e.running]
         if running:
             run_id = running[0]
         else:
             return {"status": "not_running"}
 
-    engine = paper_engines.get(run_id)
+    engine = paper_bucket.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
 
@@ -2904,7 +3591,7 @@ async def paper_stop(request: Request):
 
     engine.stop()
 
-    task = _paper_tasks.pop(run_id, None)
+    task = paper_task_bucket.pop(run_id, None)
     if task and not task.done():
         task.cancel()
         try:
@@ -2912,21 +3599,21 @@ async def paper_stop(request: Request):
         except asyncio.CancelledError:
             pass
 
-    paper_engines.pop(run_id, None)
+    paper_bucket.pop(run_id, None)
 
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
 
-    # Save paper run to runs.json so it persists across restarts
-    _save_paper_run_to_history(status_before)
+    # Save paper run to the user's history so it persists across restarts.
+    await _save_paper_run_to_history(status_before, explicit_user_id=getattr(engine, "_user_id", None))
 
     # Keep snapshot on Live page so panel persists after stop
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "paper"
-    _stopped_engines[run_id] = status_before
-    _save_stopped_engines()
-    _alert_state.pop(run_id, None)
+    stopped_engines[run_id] = status_before
+    _save_stopped_engines(user_id)
+    _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
     trades = len(status_before.get("closed_trades", []))
@@ -2940,14 +3627,16 @@ async def paper_stop(request: Request):
 @app.post("/api/paper/exit-position")
 async def paper_exit_position(request: Request):
     """Force-exit an open position in a running paper engine."""
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
     body = await request.json()
     run_id = body.get("run_id", "")
     pos_index = body.get("position_index", 0)
 
-    engine = paper_engines.get(run_id)
+    engine = paper_bucket.get(run_id)
     if not engine:
         # Try first running engine
-        for rid, eng in paper_engines.items():
+        for rid, eng in paper_bucket.items():
             if eng.running:
                 engine = eng
                 run_id = rid
@@ -2967,13 +3656,15 @@ async def paper_exit_position(request: Request):
 @app.post("/api/live/exit-position")
 async def live_exit_position(request: Request):
     """Force-exit an open position in a running live engine."""
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
     body = await request.json()
     run_id = body.get("run_id", "")
     pos_index = body.get("position_index", 0)
 
-    engine = live_engines.get(run_id)
+    engine = live_bucket.get(run_id)
     if not engine:
-        for rid, eng in live_engines.items():
+        for rid, eng in live_bucket.items():
             if eng.running:
                 engine = eng
                 run_id = rid
@@ -2990,18 +3681,18 @@ async def live_exit_position(request: Request):
     return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
 
 
-def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") -> None:
-    """Save a single closed trade (paper/live) to runs.json in real-time for All Results."""
+async def _save_single_trade_to_history(
+    trade: dict, mode: str, run_name: str = "", explicit_user_id: int | None = None
+) -> None:
+    """Save a single closed trade (paper/live) to user-scoped run history in real time."""
     try:
+        user_id = await _resolve_history_user_id(explicit_user_id, trade)
         pnl = round(trade.get("pnl", 0), 2)
-        runs = _load_runs()
-        max_id = max((r.get("id", 0) for r in runs), default=0)
         instrument = trade.get("instrument", trade.get("symbol", ""))
         side = trade.get("side", trade.get("trade_side", ""))
         label = mode.title()
         name = run_name or f"{label} {instrument} {side}"
         run_entry = {
-            "id": max_id + 1,
             "mode": mode,
             "run_name": name,
             "instrument": instrument,
@@ -3020,24 +3711,23 @@ def _save_single_trade_to_history(trade: dict, mode: str, run_name: str = "") ->
             "trades": [trade],
             "created_at": str(datetime.now()),
         }
-        runs.append(run_entry)
-        _save_runs(runs)
-        print(f"[{mode.upper()}] Saved trade to runs.json: {instrument} {side} P&L=₹{pnl}")
+        saved = await _db_mod.create_run_record(user_id, run_entry)
+        print(f"[{mode.upper()}] Saved trade to history as Run #{saved['id']}: {instrument} {side} P&L=₹{pnl}")
     except Exception as e:
         print(f"[{mode.upper()}] Failed to save trade to history: {e}")
 
 
-def _save_paper_run_to_history(status: dict):
-    """Save a completed paper trading run to runs.json for history.
-    Skips if trades were already saved individually via _save_single_trade_to_history."""
+async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None = None):
+    """Save a completed paper trading run to user-scoped history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[PAPER] No closed trades — skipping runs.json")
+            print("[PAPER] No closed trades — skipping history save")
             return
 
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Paper Run")
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(user_id)
         existing = sum(
             1 for r in runs if r.get("mode") == "paper" and r.get("run_name") == run_name and r.get("trade_count") == 1
         )
@@ -3045,15 +3735,12 @@ def _save_paper_run_to_history(status: dict):
             print(f"[PAPER] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
-        max_id = max([r.get("id", 0) for r in runs], default=0)
-
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
         paper_run = {
-            "id": max_id + 1,
             "mode": "paper",
             "run_name": status.get("strategy_name", "Paper Run"),
             "instrument": status.get("instrument", ""),
@@ -3073,7 +3760,6 @@ def _save_paper_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
-            # Strategy details for View modal
             **{
                 k: v
                 for k, v in (status.get("strategy") or {}).items()
@@ -3099,36 +3785,31 @@ def _save_paper_run_to_history(status: dict):
             },
         }
 
-        runs.append(paper_run)
-        _save_runs(runs)
-        print(f"[PAPER] Saved run #{paper_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, paper_run)
+        print(f"[PAPER] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[PAPER] Failed to save run to history: {e}")
 
 
-def _save_scalp_run_to_history(eng) -> None:
-    """Persist a completed scalp session to runs.json so it appears on the Results page."""
+async def _save_scalp_run_to_history(eng, explicit_user_id: int | None = None) -> None:
+    """Persist a completed scalp session to user-scoped run history."""
     try:
         status = eng.get_status()
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[SCALP] No closed trades — skipping runs.json")
+            print("[SCALP] No closed trades — skipping history save")
             return
 
-        runs = _load_runs()
-        max_id = max((r.get("id", 0) for r in runs), default=0)
-
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
-        # Derive a human-readable name from the underlyings traded
         underlyings = list(dict.fromkeys(t.get("underlying", "") for t in closed if t.get("underlying")))
         run_name = "Scalp — " + ", ".join(underlyings) if underlyings else "Scalp Session"
 
         scalp_run = {
-            "id": max_id + 1,
             "mode": "scalp",
             "run_name": run_name,
             "instrument": underlyings[0] if underlyings else "",
@@ -3150,24 +3831,23 @@ def _save_scalp_run_to_history(eng) -> None:
             "created_at": str(datetime.now()),
         }
 
-        runs.append(scalp_run)
-        _save_runs(runs)
-        print(f"[SCALP] Saved run #{scalp_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, scalp_run)
+        print(f"[SCALP] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[SCALP] Failed to save run to history: {e}")
 
 
-def _save_live_run_to_history(status: dict):
-    """Save a completed live (auto) trading run to runs.json for history.
-    Skips if trades were already saved individually via _save_single_trade_to_history."""
+async def _save_live_run_to_history(status: dict, explicit_user_id: int | None = None):
+    """Save a completed live (auto) trading run to user-scoped history."""
     try:
         closed = status.get("closed_trades", [])
         if not closed:
-            print("[LIVE] No closed trades — skipping runs.json")
+            print("[LIVE] No closed trades — skipping history save")
             return
 
+        user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Live Run")
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(user_id)
         existing = sum(
             1 for r in runs if r.get("mode") == "live" and r.get("run_name") == run_name and r.get("trade_count") == 1
         )
@@ -3175,15 +3855,12 @@ def _save_live_run_to_history(status: dict):
             print(f"[LIVE] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
-        max_id = max([r.get("id", 0) for r in runs], default=0)
-
         total_pnl = round(sum(t.get("pnl", 0) for t in closed), 2)
         winners = [t for t in closed if t.get("pnl", 0) > 0]
         losers = [t for t in closed if t.get("pnl", 0) <= 0]
         win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0
 
         live_run = {
-            "id": max_id + 1,
             "mode": "live",
             "run_name": status.get("strategy_name", "Live Run"),
             "instrument": status.get("instrument", ""),
@@ -3203,7 +3880,6 @@ def _save_live_run_to_history(status: dict):
             },
             "trades": closed,
             "created_at": str(datetime.now()),
-            # Strategy details for View modal
             **{
                 k: v
                 for k, v in (status.get("strategy") or {}).items()
@@ -3229,21 +3905,22 @@ def _save_live_run_to_history(status: dict):
             },
         }
 
-        runs.append(live_run)
-        _save_runs(runs)
-        print(f"[LIVE] Saved run #{live_run['id']} to runs.json: {len(closed)} trades, P&L=₹{total_pnl}")
+        saved = await _db_mod.create_run_record(user_id, live_run)
+        print(f"[LIVE] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
     except Exception as e:
         print(f"[LIVE] Failed to save run to history: {e}")
 
 
 @app.get("/api/paper/status")
-async def paper_status(run_id: str = ""):
+async def paper_status(request: Request, run_id: str = ""):
     """Get paper trading status. If run_id empty, returns first running engine."""
-    if run_id and run_id in paper_engines:
-        return paper_engines[run_id].get_status()
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    if run_id and run_id in paper_bucket:
+        return paper_bucket[run_id].get_status()
 
     # Return first running engine's status
-    for rid, engine in paper_engines.items():
+    for rid, engine in paper_bucket.items():
         if engine.running:
             return engine.get_status()
 
@@ -3264,7 +3941,7 @@ async def paper_status(run_id: str = ""):
         "event_log": [],
     }
     try:
-        runs = _load_runs()
+        runs = await _db_mod.list_runs(_request_user_id(request))
         paper_runs = [r for r in runs if r.get("mode") == "paper"]
         if paper_runs:
             last = paper_runs[-1]
@@ -3283,12 +3960,14 @@ async def paper_status(run_id: str = ""):
 
 # ── Combined Engines Status (Multi-Strategy Monitor) ─────────────
 @app.get("/api/engines/all")
-async def engines_all():
-    """Return status of ALL running engines (paper + live) for multi-strategy Live page."""
+async def engines_all(request: Request):
+    """Return status of the current user's running engines for the Live page."""
+    user_id = _request_user_id(request)
     engines = []
+    stopped_engines = _load_stopped_engines(user_id)
 
     # Add all paper engines
-    for run_id, engine in paper_engines.items():
+    for run_id, engine in _registry_bucket(paper_engines, user_id).items():
         if engine.running:
             st = engine.get_status()
             st["run_id"] = run_id
@@ -3296,7 +3975,7 @@ async def engines_all():
             engines.append(st)
 
     # Add all live engines
-    for run_id, engine in live_engines.items():
+    for run_id, engine in _registry_bucket(live_engines, user_id).items():
         if engine.running:
             st = engine.get_status()
             st["run_id"] = run_id
@@ -3305,7 +3984,7 @@ async def engines_all():
 
     # Add stopped engine snapshots (persisted panels)
     active_ids = {e["run_id"] for e in engines}
-    for run_id, snapshot in _stopped_engines.items():
+    for run_id, snapshot in stopped_engines.items():
         if run_id not in active_ids:
             engines.append(snapshot)
 
@@ -3315,15 +3994,17 @@ async def engines_all():
 @app.post("/api/engines/dismiss")
 async def engines_dismiss(request: Request):
     """Remove a stopped engine snapshot from the Live page."""
+    user_id = _request_user_id(request)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
     except Exception:
         pass
     run_id = body.get("run_id", "")
-    if run_id and run_id in _stopped_engines:
-        _stopped_engines.pop(run_id)
-        _save_stopped_engines()
+    if run_id and run_id in stopped_engines:
+        stopped_engines.pop(run_id)
+        _save_stopped_engines(user_id)
         return {"status": "dismissed", "run_id": run_id}
     return {"status": "not_found", "run_id": run_id}
 
@@ -3357,13 +4038,15 @@ def _ws_serialize(payload: dict) -> bytes:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    # Authenticate WebSocket via session cookie
+    # Authenticate WebSocket via session cookie (DB-backed)
     token = ws.cookies.get("algoforge_session", "")
-    if not _validate_session(token):
+    session = await _validate_session_async(token)
+    if not session:
         await ws.close(code=4001, reason="Unauthorized")
         return
+    user_id = int(session["user_id"])
     await ws.accept()
-    ws_clients.append(ws)
+    _user_ws_clients(user_id).append(ws)
 
     scalp_evt = _get_scalp_ws_event()
     engine_tick = 0  # counter: send full engine status every 20 cycles (~5s)
@@ -3379,9 +4062,10 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Scalp status — every cycle (250ms)
             scalp_data = None
-            if _HAS_SCALP and _scalp_engine is not None:
+            scalp_engine = _scalp_engines.get(int(user_id))
+            if _HAS_SCALP and scalp_engine is not None:
                 try:
-                    scalp_data = _scalp_engine.get_status()
+                    scalp_data = scalp_engine.get_status()
                 except Exception:
                     pass
 
@@ -3394,8 +4078,12 @@ async def websocket_endpoint(ws: WebSocket):
             engine_tick += 1
             if engine_tick >= 20:
                 engine_tick = 0
-                paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
-                live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
+                paper_sts = {
+                    rid: e.get_status() for rid, e in _registry_bucket(paper_engines, user_id).items() if e.running
+                }
+                live_sts = {
+                    rid: e.get_status() for rid, e in _registry_bucket(live_engines, user_id).items() if e.running
+                }
                 payload["paper_engines"] = paper_sts
                 payload["live_engines"] = live_sts
                 payload["paper_running"] = any(s.get("running") for s in paper_sts.values())
@@ -3403,8 +4091,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
-        if ws in ws_clients:
-            ws_clients.remove(ws)
+        if ws in _user_ws_clients(user_id):
+            _user_ws_clients(user_id).remove(ws)
 
 
 # ── Orders / Positions / Funds ────────────────────────────────────
@@ -3412,8 +4100,11 @@ async def websocket_endpoint(ws: WebSocket):
 async def place_order(req: OrderRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.place_order(
+        return broker_client.place_order(
             security_id=req.security_id,
             exchange_segment=req.exchange_segment,
             transaction_type=req.transaction_type,
@@ -3431,35 +4122,47 @@ async def place_order(req: OrderRequest, request: Request):
 
 
 @app.get("/api/orders")
-async def get_orders():
+async def get_orders(request: Request):
     try:
-        orders = dhan.get_order_book()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
+        orders = broker_client.get_order_book()
         return {"status": "success", "data": orders if isinstance(orders, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
 
 @app.get("/api/positions")
-async def get_positions():
+async def get_positions(request: Request):
     try:
-        positions = dhan.get_positions()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
+        positions = broker_client.get_positions()
         return {"status": "success", "data": positions if isinstance(positions, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
 
 @app.get("/api/funds")
-async def get_funds():
+async def get_funds(request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.get_funds()
+        return broker_client.get_funds()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/orders/{order_id}")
-async def cancel_order(order_id: str):
+async def cancel_order(order_id: str, request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.cancel_order(order_id)
+        return broker_client.cancel_order(order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3467,26 +4170,10 @@ async def cancel_order(order_id: str):
 # ── Strategy CRUD ─────────────────────────────────────────────────
 STRAT_FILE = "strategies.json"
 RUNS_FILE = "runs.json"
-TRADE_HISTORY_FILE = "trade_history.json"
 
 
-def _load_trade_history():
-    if os.path.exists(TRADE_HISTORY_FILE):
-        try:
-            with open(TRADE_HISTORY_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-
-def _save_trade_history(d):
-    with open(TRADE_HISTORY_FILE, "w") as f:
-        json.dump(d, f, indent=2)
-
-
-def _persist_daily_trades(trades: list):
-    """Auto-save today's real Dhan trade P&L summary to trade_history.json.
+async def _persist_daily_trades(trades: list, user_id: int):
+    """Auto-save today's real Dhan trade P&L summary to SQLite.
 
     Only overwrites existing entry if the new data has MORE trade legs
     (i.e., more complete data from later in the day).
@@ -3554,10 +4241,8 @@ def _persist_daily_trades(trades: list):
     if trade_count == 0:
         return
 
-    history = _load_trade_history()
-
     # Only overwrite if new data has more trade legs (more complete)
-    existing = history.get(today_str, {})
+    existing = await _db_mod.get_trade_history_entry(user_id, today_str) or {}
     existing_legs = existing.get("trade_legs", existing.get("trades", 0))
     if existing_legs > trade_legs:
         print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
@@ -3572,7 +4257,7 @@ def _persist_daily_trades(trades: list):
             if detail["charges"] == 0 and detail["symbol"] in old_details_map:
                 detail["charges"] = old_details_map[detail["symbol"]]
 
-    history[today_str] = {
+    entry = {
         "pnl": round(total_pnl, 2),
         "net_pnl": round(total_pnl - total_charges, 2),
         "charges": round(total_charges, 2),
@@ -3582,7 +4267,7 @@ def _persist_daily_trades(trades: list):
         "mode": "real",
         "details": trade_details,
     }
-    _save_trade_history(history)
+    await _db_mod.upsert_trade_history_entry(user_id, today_str, entry)
     print(
         f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}"
     )
@@ -3629,65 +4314,61 @@ def _save_runs(d):
 
 
 @app.get("/api/strategies")
-async def get_strategies():
-    return _load()
+async def get_strategies(request: Request):
+    return await _db_mod.list_strategies(_request_user_id(request))
 
 
 @app.post("/api/strategies")
-async def save_strategy(strategy: dict):
-    strats = _load()
-    max_id = max([s.get("id", 0) for s in strats], default=0)
-    strategy.update(
-        {
-            "id": max_id + 1,
-            "created_at": str(datetime.now()),
-            "version": 1,
-            "versions": [{"version": 1, "saved_at": str(datetime.now()), "changes": "Initial save"}],
-        }
-    )
-    strats.append(strategy)
-    _save(strats)
-    return strategy
+async def save_strategy(strategy: dict, request: Request):
+    now = str(datetime.now())
+    strategy = {
+        **strategy,
+        "created_at": strategy.get("created_at") or now,
+        "updated_at": strategy.get("updated_at") or now,
+        "version": int(strategy.get("version", 1) or 1),
+        "versions": strategy.get("versions") or [{"version": 1, "saved_at": now, "changes": "Initial save"}],
+    }
+    return await _db_mod.create_strategy_record(_request_user_id(request), strategy)
 
 
 @app.delete("/api/strategies/{sid}")
-async def delete_strategy(sid: int):
-    _save([s for s in _load() if s.get("id") != sid])
+async def delete_strategy(sid: int, request: Request):
+    deleted = await _db_mod.delete_strategy_record(_request_user_id(request), sid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Strategy not found")
     return {"deleted": sid}
 
 
 @app.put("/api/strategies/{sid}")
-async def update_strategy(sid: int, updates: dict):
-    strats = _load()
-    for s in strats:
-        if s.get("id") == sid:
-            # Track version history
-            ver = s.get("version", 1) + 1
-            versions = s.get("versions", [])
-            versions.append(
-                {
-                    "version": ver,
-                    "saved_at": str(datetime.now()),
-                    "changes": updates.get("_change_note", f"Updated to v{ver}"),
-                }
-            )
-            # Keep only last 20 versions
-            if len(versions) > 20:
-                versions = versions[-20:]
-            updates.pop("_change_note", None)
-            s.update(updates)
-            s["version"] = ver
-            s["versions"] = versions
-            s["updated_at"] = str(datetime.now())
-            break
-    _save(strats)
+async def update_strategy(sid: int, updates: dict, request: Request):
+    user_id = _request_user_id(request)
+    strategy = await _db_mod.get_strategy(user_id, sid)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    ver = int(strategy.get("version", 1) or 1) + 1
+    versions = list(strategy.get("versions", []))
+    versions.append(
+        {
+            "version": ver,
+            "saved_at": str(datetime.now()),
+            "changes": updates.get("_change_note", f"Updated to v{ver}"),
+        }
+    )
+    if len(versions) > 20:
+        versions = versions[-20:]
+    updates.pop("_change_note", None)
+    strategy.update(updates)
+    strategy["version"] = ver
+    strategy["versions"] = versions
+    strategy["updated_at"] = str(datetime.now())
+    await _db_mod.replace_strategy_record(user_id, sid, strategy)
     return {"updated": sid}
 
 
 # ── Backtest Runs CRUD ────────────────────────────────────────────
 @app.get("/api/runs")
-async def get_runs():
-    runs = _load_runs()
+async def get_runs(request: Request):
+    runs = await _db_mod.list_runs(_request_user_id(request))
     result = []
     for r in runs:
         summary = {k: v for k, v in r.items() if k not in ("trades", "equity")}
@@ -3701,73 +4382,63 @@ async def get_runs():
 
 @app.post("/api/runs/bulk-delete")
 async def bulk_delete_runs(request: Request):
+    user_id = _request_user_id(request)
     body = await request.json()
     ids = body.get("ids", [])
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
-    id_set = set(ids)
-    runs = _load_runs()
-    _save_runs([r for r in runs if r.get("id") not in id_set])
-    return {"deleted": len(id_set)}
+    deleted = await _db_mod.bulk_delete_run_records(user_id, ids)
+    return {"deleted": deleted}
 
 
 @app.post("/api/runs/cleanup-empty")
-async def cleanup_empty_runs():
-    """Remove all 0-trade paper/live runs from runs.json."""
-    runs = _load_runs()
-    before = len(runs)
-    cleaned = [
-        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
-    ]
-    _save_runs(cleaned)
-    removed = before - len(cleaned)
-    return {"removed": removed, "remaining": len(cleaned)}
+async def cleanup_empty_runs(request: Request):
+    """Remove all 0-trade paper/live runs for the current user."""
+    user_id = _request_user_id(request)
+    removed = await _db_mod.cleanup_empty_runs(user_id)
+    remaining = len(await _db_mod.list_runs(user_id))
+    return {"removed": removed, "remaining": remaining}
 
 
 @app.get("/api/runs/{rid}")
-async def get_run(rid: int):
-    runs = _load_runs()
-    for r in runs:
-        if r.get("id") == rid:
-            return r
+async def get_run(rid: int, request: Request):
+    run = await _db_mod.get_run(_request_user_id(request), rid)
+    if run:
+        return run
     raise HTTPException(status_code=404, detail="Run not found")
 
 
 @app.delete("/api/runs/{rid}")
-async def delete_run(rid: int):
-    runs = _load_runs()
-    _save_runs([r for r in runs if r.get("id") != rid])
+async def delete_run(rid: int, request: Request):
+    deleted = await _db_mod.delete_run_record(_request_user_id(request), rid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
     return {"deleted": rid}
 
 
 @app.put("/api/runs/{rid}")
 async def update_run(rid: int, request: Request):
     """Update run metadata (run_name, folder)."""
+    user_id = _request_user_id(request)
     body = await request.json()
-    runs = _load_runs()
-    for r in runs:
-        if r.get("id") == rid:
-            if "run_name" in body:
-                r["run_name"] = str(body["run_name"]).strip()
-            if "folder" in body:
-                r["folder"] = str(body["folder"]).strip()
-            _save_runs(runs)
-            return {"updated": rid, "run_name": r.get("run_name"), "folder": r.get("folder")}
+    run = await _db_mod.get_run(user_id, rid)
+    if run:
+        if "run_name" in body:
+            run["run_name"] = str(body["run_name"]).strip()
+        if "folder" in body:
+            run["folder"] = str(body["folder"]).strip()
+        await _db_mod.replace_run_record(user_id, rid, run)
+        return {"updated": rid, "run_name": run.get("run_name"), "folder": run.get("folder")}
     raise HTTPException(status_code=404, detail="Run not found")
 
 
 @app.get("/api/runs/{rid}/csv")
-async def export_run_csv(rid: int):
+async def export_run_csv(rid: int, request: Request):
     """Export backtest trades to CSV"""
     import csv
     import io
 
-    runs = _load_runs()
-    run = None
-    for r in runs:
-        if r.get("id") == rid:
-            run = r
-            break
+    run = await _db_mod.get_run(_request_user_id(request), rid)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     trades = run.get("trades", [])
@@ -3801,57 +4472,38 @@ async def export_run_csv(rid: int):
     )
 
 
-# ── Scalp Trades CRUD (scalp_trades.json) ──────────────────────────
-_SCALP_FILE = os.path.join(_HERE, "scalp_trades.json")
-
-
-def _load_scalp_trades():
-    if os.path.exists(_SCALP_FILE):
-        try:
-            with open(_SCALP_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def _save_scalp_trades(trades):
-    tmp = _SCALP_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(trades, f, indent=2, default=str)
-    os.replace(tmp, _SCALP_FILE)
-
-
+# ── Scalp Trades CRUD (SQLite-backed) ────────────────────────────
 @app.get("/api/scalp/trades")
-async def get_scalp_trades():
-    """Return all closed scalp trades from scalp_trades.json."""
-    return _load_scalp_trades()
+async def get_scalp_trades(request: Request):
+    """Return all persisted closed scalp trades for the current user."""
+    return await _db_mod.list_scalp_trades(_request_user_id(request))
 
 
 @app.post("/api/scalp/trades/bulk-delete")
 async def bulk_delete_scalp_trades(request: Request):
     """Bulk-delete scalp trades by trade_id list."""
+    user_id = _request_user_id(request)
     body = await request.json()
     ids = body.get("ids", [])
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
-    id_set = set(ids)
-    trades = _load_scalp_trades()
-    _save_scalp_trades([t for t in trades if t.get("trade_id") not in id_set])
-    if _scalp_engine is not None:
-        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") not in id_set]
+    deleted = await _db_mod.bulk_delete_scalp_trades(user_id, ids)
+    eng = _scalp_engines.get(int(user_id))
+    if eng is not None:
+        id_set = {int(tid) for tid in ids}
+        eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") not in id_set]
     _notify_scalp_ws()
-    return {"deleted": len(id_set)}
+    return {"deleted": deleted}
 
 
 @app.delete("/api/scalp/trades/{tid}")
-async def delete_scalp_trade(tid: int):
-    """Delete a single scalp trade by trade_id (from disk AND engine memory)."""
-    trades = _load_scalp_trades()
-    _save_scalp_trades([t for t in trades if t.get("trade_id") != tid])
-    # Also remove from in-memory engine closed_trades so it doesn't reappear
-    if _scalp_engine is not None:
-        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") != tid]
+async def delete_scalp_trade(tid: int, request: Request):
+    """Delete a single persisted scalp trade by trade_id."""
+    user_id = _request_user_id(request)
+    await _db_mod.delete_scalp_trade(user_id, tid)
+    eng = _scalp_engines.get(int(user_id))
+    if eng is not None:
+        eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") != tid]
     _notify_scalp_ws()
     return {"deleted": tid}
 
@@ -3859,17 +4511,28 @@ async def delete_scalp_trade(tid: int):
 # ── Scalp Engine (live session, in-memory) ───────────────────────
 
 
-def _get_scalp_engine():
-    global _scalp_engine
+def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")
-    if _scalp_engine is None:
+    owner_id = int(user_id or 0)
+    if owner_id <= 0:
+        raise HTTPException(status_code=400, detail="Missing scalp engine user context")
+    eng = _scalp_engines.get(owner_id)
+    if eng is None:
+
+        async def _persist_closed_trade_async(owner_id: int, trade_dict: dict):
+            try:
+                await _db_mod.create_scalp_trade(owner_id, trade_dict)
+            except Exception as e:
+                print(f"[SCALP] Failed to persist closed trade for user {owner_id}: {e}")
+            finally:
+                _notify_scalp_ws()
 
         def _persist_closed_trade(trade_dict):
-            trades = _load_scalp_trades()
-            trades.append(trade_dict)
-            _save_scalp_trades(trades)
-            _notify_scalp_ws()
+            if owner_id:
+                asyncio.create_task(_persist_closed_trade_async(owner_id, trade_dict))
+            else:
+                print("[SCALP] Skipping closed-trade persistence — no owner user_id available")
             # Telegram alert for every scalp exit (manual, target, SL, sqoff)
             pnl = trade_dict.get("pnl", 0)
             sym = (
@@ -3888,37 +4551,38 @@ def _get_scalp_engine():
                 level=level,
             )
 
-        _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
-        # Seed trade counter from file so IDs never collide across restarts
-        existing = _load_scalp_trades()
-        if existing:
-            max_id = max(t.get("trade_id", 0) for t in existing)
-            _scalp_engine._trade_counter = max_id
-    return _scalp_engine
+        eng = _ScalpEngineClass(broker_client or dhan, _market_feed, on_trade_close=_persist_closed_trade)
+        eng._user_id = owner_id
+        eng._trade_counter = max(eng._trade_counter, _db_mod.get_max_scalp_trade_id_sync(owner_id))
+        _scalp_engines[owner_id] = eng
+    elif broker_client is not None:
+        eng.dhan = broker_client
+    return eng
 
 
 @app.get("/api/scalp/status")
-async def get_scalp_status():
-    eng = _get_scalp_engine()
+async def get_scalp_status(request: Request):
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
     status = eng.get_status()
-    # Merge in closed trades from file (persist across restarts)
-    file_trades = _load_scalp_trades()
+    file_trades = await _db_mod.list_scalp_trades(user_id)
     status["file_trades"] = list(reversed(file_trades))
     return status
 
 
 @app.post("/api/scalp/start")
-async def start_scalp_engine():
-    eng = _get_scalp_engine()
+async def start_scalp_engine(request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     eng.start()
     _notify_scalp_ws()
     return {"status": "started"}
 
 
 @app.post("/api/scalp/stop")
-async def stop_scalp_engine():
-    eng = _get_scalp_engine()
-    _save_scalp_run_to_history(eng)
+async def stop_scalp_engine(request: Request):
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
+    await _save_scalp_run_to_history(eng, explicit_user_id=user_id)
     eng.stop()
     _notify_scalp_ws()
     return {"status": "stopped"}
@@ -3944,20 +4608,31 @@ class ScalpEntryReq(BaseModel):
     entry_limit_max: float = 0.0
 
 
-_scalp_entry_lock = asyncio.Lock()
-_last_scalp_entry_ts: float = 0.0
+_scalp_entry_locks: Dict[int, asyncio.Lock] = {}
+_last_scalp_entry_ts: Dict[int, float] = {}
+
+
+def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
+    return _scalp_entry_locks.setdefault(int(user_id), asyncio.Lock())
 
 
 @app.post("/api/scalp/entry")
-async def scalp_entry(req: ScalpEntryReq):
-    global _last_scalp_entry_ts
-    async with _scalp_entry_lock:
+async def scalp_entry(req: ScalpEntryReq, request: Request):
+    user_id = _request_user_id(request)
+    lock = _get_scalp_entry_lock(user_id)
+    async with lock:
         # Cooldown guard INSIDE lock to prevent race condition
         now = asyncio.get_event_loop().time()
-        if now - _last_scalp_entry_ts < 2.0:
+        last_ts = _last_scalp_entry_ts.get(user_id, 0.0)
+        if now - last_ts < 2.0:
             return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
-        _last_scalp_entry_ts = now
-        eng = _get_scalp_engine()
+        _last_scalp_entry_ts[user_id] = now
+        broker_client = None
+        if str(req.mode or "live").lower() == "live":
+            user, broker_client, source = await _request_broker_context(request)
+            if not broker_client:
+                return {"status": "error", "message": _broker_not_configured_message(user, source)}
+        eng = _get_scalp_engine(user_id, broker_client=broker_client)
         try:
             result = await eng.enter_trade(
                 underlying=req.underlying,
@@ -4014,8 +4689,8 @@ async def scalp_entry(req: ScalpEntryReq):
 
 
 @app.post("/api/scalp/exit/{trade_id}")
-async def scalp_exit(trade_id: int):
-    eng = _get_scalp_engine()
+async def scalp_exit(trade_id: int, request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     try:
         result = await eng.exit_trade(trade_id, reason="manual")
         if result.get("status") == "error":
@@ -4028,8 +4703,8 @@ async def scalp_exit(trade_id: int):
 
 
 @app.post("/api/scalp/kill-all")
-async def scalp_kill_all():
-    eng = _get_scalp_engine()
+async def scalp_kill_all(request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     try:
         result = await eng.kill_all_trades()
         closed = result.get("closed", 0)
@@ -4051,35 +4726,37 @@ class ScalpTargetsReq(BaseModel):
 
 
 @app.put("/api/scalp/trades/{trade_id}/targets")
-async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq):
-    eng = _get_scalp_engine()
+async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Request):
+    eng = _get_scalp_engine(_request_user_id(request))
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
     _notify_scalp_ws()
     return result
 
 
 @app.get("/api/option-ltp")
-async def get_option_ltp(underlying: str, strike: int, expiry: str, option_type: str):
+async def get_option_ltp(request: Request, underlying: str, strike: int, expiry: str, option_type: str):
     """Get live LTP for a specific option contract."""
-    if not dhan._is_configured():
+    _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
         return {"status": "error", "message": "Broker not configured"}
     try:
-        ltp = dhan.get_option_ltp(underlying, strike, expiry, option_type)
+        ltp = broker_client.get_option_ltp(underlying, strike, expiry, option_type)
         return {"status": "ok", "ltp": ltp}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/paper/trades/csv")
-async def export_paper_trades_csv(run_id: str = ""):
+async def export_paper_trades_csv(request: Request, run_id: str = ""):
     """Export paper trading trades to CSV"""
     import csv
     import io
 
-    engine = paper_engines.get(run_id) if run_id else None
+    paper_bucket = _registry_bucket(paper_engines, _request_user_id(request))
+    engine = paper_bucket.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
-        for e in paper_engines.values():
+        for e in paper_bucket.values():
             if e.closed_trades:
                 engine = e
                 break
@@ -4183,7 +4860,7 @@ def _get_prev_close():
 
 
 @app.get("/api/ticker")
-async def get_ticker():
+async def get_ticker(request: Request):
     """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
     global _ticker_cache
 
@@ -4192,7 +4869,11 @@ async def get_ticker():
         return _ticker_cache["data"]
 
     # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
-    if dhan._is_configured():
+    _, broker_client, _ = await _request_broker_context(request)
+    ticker_client = (
+        broker_client if broker_client and broker_client._is_configured() else (dhan if dhan._is_configured() else None)
+    )
+    if ticker_client:
         try:
             print("[TICKER] Fetching from Dhan OHLC API...")
 
@@ -4220,7 +4901,7 @@ async def get_ticker():
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
 
-            all_data = dhan.get_ohlc_multi(segments)
+            all_data = ticker_client.get_ohlc_multi(segments)
 
             idx = all_data.get("IDX_I", {})
             fno = all_data.get("NSE_FNO", {})
@@ -4411,7 +5092,7 @@ async def get_expiry_list(symbol: str):
         return {"status": "error", "msg": str(e)}
 
 
-def _refresh_recent_charges(history: dict):
+def _refresh_recent_charges(history: dict, user_id: int, broker_client: DhanClient | None = None):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
 
     The live get_trades() endpoint doesn't return charge fields (stt, sebiTax etc).
@@ -4420,6 +5101,7 @@ def _refresh_recent_charges(history: dict):
     import time as _time
 
     try:
+        client = broker_client or dhan
         today = datetime.now()
         yesterday = today - timedelta(days=1)
         # Check last 3 days (in case of weekends)
@@ -4438,7 +5120,7 @@ def _refresh_recent_charges(history: dict):
         to_date = max(dates_to_check)
         print(f"📊 [CHARGES] Refreshing charges for {dates_to_check}...")
 
-        result = dhan.get_trade_history(from_date, to_date, 0)
+        result = client.get_trade_history(from_date, to_date, 0)
         if not isinstance(result, list) or not result:
             print(f"📊 [CHARGES] No historical data available yet for {from_date} to {to_date}")
             return
@@ -4448,7 +5130,7 @@ def _refresh_recent_charges(history: dict):
         page = 1
         while len(result) >= 20:  # Dhan page size
             _time.sleep(0.3)
-            result = dhan.get_trade_history(from_date, to_date, page)
+            result = client.get_trade_history(from_date, to_date, page)
             if not isinstance(result, list) or not result:
                 break
             all_trades.extend(result)
@@ -4536,7 +5218,10 @@ def _refresh_recent_charges(history: dict):
                 )
 
         if updated > 0:
-            _save_trade_history(history)
+            for date_str in trades_by_date:
+                entry = history.get(date_str)
+                if entry:
+                    _db_mod.upsert_trade_history_entry_sync(user_id, date_str, entry)
             print(f"📊 [CHARGES] Refreshed charges for {updated} dates")
     except Exception as e:
         print(f"📊 [CHARGES] Refresh failed: {e}")
@@ -4565,15 +5250,26 @@ async def _backfill_in_background():
     _backfill_state["message"] = "Fetching historical trades from Dhan..."
     loop = asyncio.get_event_loop()
     try:
-        history = _load_trade_history()
+        admin = await _get_preferred_admin_user()
+        if not admin:
+            raise RuntimeError("No admin user available for startup trade-history backfill")
+        admin_id = int(admin["id"])
+        broker_client, source = _resolve_user_broker_client(admin, allow_admin_fallback=True)
+        if not broker_client:
+            raise RuntimeError(_broker_not_configured_message(admin, source))
+        history = await _db_mod.list_trade_history(admin_id)
         force = len(history) <= 2
         if force:
             _backfill_state["message"] = "First-run: full backfill in progress..."
             print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
-        count = await loop.run_in_executor(None, lambda: _backfill_trade_history("2024-01-01", force=force))
+        count = await loop.run_in_executor(
+            None,
+            lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id, broker_client=broker_client),
+        )
         if not force:
-            loaded = _load_trade_history()
-            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded))
+            loaded = await _db_mod.list_trade_history(admin_id)
+            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded, admin_id, broker_client))
+            loaded = await _db_mod.list_trade_history(admin_id)
             print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
         else:
             print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
@@ -4590,8 +5286,30 @@ if _PROMETHEUS_ENABLED:
 
 
 @app.on_event("startup")
+async def _init_database():
+    """Initialize SQLite database and auto-create admin user if needed."""
+    await _db_mod.init_db()
+    await _db_mod.cleanup_expired_sessions()
+    admin = await _get_preferred_admin_user()
+    if not admin:
+        pin = _get_bootstrap_admin_password()
+        if not pin:
+            raise RuntimeError(
+                "No admin account exists. Set ALGOFORGE_PIN or ALGOFORGE_PASSWORD for first-run bootstrap."
+            )
+        hashed = _auth_mod.hash_password(pin)
+        uid = await _db_mod.create_user(config.ADMIN_USERNAME, hashed, role="admin")
+        print(f"🔐 [Auth] Created admin user '{config.ADMIN_USERNAME}' (id={uid})")
+    else:
+        print(f"🔐 [Auth] Admin user '{admin['username']}' exists (id={admin['id']})")
+
+
+@app.on_event("startup")
 async def _start_token_renewal():
     global _token_renewal_task
+    if _SKIP_STARTUP_JOBS:
+        print("🧪 [Startup] Skipping network-heavy startup jobs (ALGOFORGE_SKIP_STARTUP_JOBS=1)")
+        return
     if config.AUTO_TOKEN_ENABLED:
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
@@ -4604,14 +5322,9 @@ async def _start_token_renewal():
     asyncio.create_task(_backfill_in_background())
 
     # Cleanup 0-trade paper/live entries left by prior deploys/restarts
-    runs = _load_runs()
-    before = len(runs)
-    cleaned = [
-        r for r in runs if r.get("mode") == "backtest" or len(r.get("trades") or []) > 0 or r.get("trade_count", 0) > 0
-    ]
-    if len(cleaned) < before:
-        _save_runs(cleaned)
-        print(f"🧹 [STARTUP] Removed {before - len(cleaned)} empty 0-trade runs from runs.json")
+    removed = await _db_mod.cleanup_empty_runs()
+    if removed:
+        print(f"🧹 [STARTUP] Removed {removed} empty 0-trade runs from history")
 
     # ── Auto-restore live engines from persisted state ────────
     asyncio.create_task(_restore_live_engines())
@@ -4625,14 +5338,10 @@ async def _restore_live_engines():
     import json as _json
     from datetime import date as date_type
 
-    _here = os.path.dirname(__file__) or "."
     today = str(date_type.today())
     restored = 0
 
-    for fname in os.listdir(_here):
-        if not fname.startswith("live_state_") or not fname.endswith(".json"):
-            continue
-        fpath = os.path.join(_here, fname)
+    for user_id, state_dir, fname, fpath in _iter_user_state_files("live_state_"):
         try:
             with open(fpath, "r") as f:
                 state = _json.load(f)
@@ -4647,20 +5356,32 @@ async def _restore_live_engines():
             exit_conditions = state.get("exit_conditions", [])
             deploy_config = state.get("deploy_config", {})
             run_id = strategy.get("run_name", "live") or "live"
+            live_bucket = _registry_bucket(live_engines, user_id)
+            live_task_bucket = _registry_bucket(_live_tasks, user_id)
 
             # Skip if an engine with this run_id already exists
-            if run_id in live_engines:
+            if run_id in live_bucket:
                 print(f"🔄 [Restore] Engine '{run_id}' already running — skipping")
                 continue
 
             # Reconstruct engine with full config
-            engine = LiveEngine(dhan, run_id=run_id)
+            user = await _db_mod.get_user_by_id(user_id)
+            broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+            if not broker_client:
+                print(
+                    f"🔄 [Restore] Skipping live restore for user {user_id} / {fname}: "
+                    f"{_broker_not_configured_message(user, broker_source)}"
+                )
+                continue
+
+            engine = LiveEngine(broker_client, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 deploy_config=deploy_config,
             )
+            engine._user_id = int(strategy.get("_user_id") or user_id)
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4674,18 +5395,18 @@ async def _restore_live_engines():
             engine._load_state()
             engine.running = True
 
-            async def broadcast(event: dict, _rid=run_id):
-                for ws in ws_clients.copy():
-                    try:
-                        await ws.send_json({"source": "live", "run_id": _rid, **event})
-                    except Exception:
-                        if ws in ws_clients:
-                            ws_clients.remove(ws)
+            async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
+                await _broadcast_user_ws_json(_user_id, {"source": "live", "run_id": _rid, **event})
                 if event.get("type") == "exit" and event.get("trade"):
-                    _save_single_trade_to_history(event["trade"], "live", run_name=_rid)
+                    await _save_single_trade_to_history(
+                        event["trade"],
+                        "live",
+                        run_name=_rid,
+                        explicit_user_id=_user_id,
+                    )
 
-            live_engines[run_id] = engine
-            _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            live_bucket[run_id] = engine
+            live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
             restored += 1
             print(f"✅ [Restore] Live engine '{run_id}' restored and started")
 
@@ -4701,14 +5422,10 @@ async def _restore_paper_engines():
     import json as _json
     from datetime import date as date_type
 
-    _here = os.path.dirname(__file__) or "."
     today = str(date_type.today())
     restored = 0
 
-    for fname in os.listdir(_here):
-        if not fname.startswith("paper_state_") or not fname.endswith(".json"):
-            continue
-        fpath = os.path.join(_here, fname)
+    for user_id, state_dir, fname, fpath in _iter_user_state_files("paper_state_"):
         try:
             with open(fpath, "r") as f:
                 state = _json.load(f)
@@ -4728,18 +5445,21 @@ async def _restore_paper_engines():
                 continue
 
             run_id = strategy.get("run_name", "paper") or "paper"
+            paper_bucket = _registry_bucket(paper_engines, user_id)
+            paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
 
             # Skip if already running
-            if run_id in paper_engines:
+            if run_id in paper_bucket:
                 print(f"🔄 [Restore] Paper engine '{run_id}' already running — skipping")
                 continue
 
-            engine = PaperTradingEngine(dhan, run_id=run_id)
+            engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
             )
+            engine._user_id = int(strategy.get("_user_id") or user_id)
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4753,18 +5473,18 @@ async def _restore_paper_engines():
             engine._load_state()
             engine.running = True
 
-            async def broadcast(event: dict, _rid=run_id):
-                for ws in ws_clients.copy():
-                    try:
-                        await ws.send_json({"source": "paper", "run_id": _rid, **event})
-                    except Exception:
-                        if ws in ws_clients:
-                            ws_clients.remove(ws)
+            async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
+                await _broadcast_user_ws_json(_user_id, {"source": "paper", "run_id": _rid, **event})
                 if event.get("type") == "exit" and event.get("trade"):
-                    _save_single_trade_to_history(event["trade"], "paper", run_name=_rid)
+                    await _save_single_trade_to_history(
+                        event["trade"],
+                        "paper",
+                        run_name=_rid,
+                        explicit_user_id=_user_id,
+                    )
 
-            paper_engines[run_id] = engine
-            _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            paper_bucket[run_id] = engine
+            paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
             restored += 1
             print(f"✅ [Restore] Paper engine '{run_id}' restored and started")
 
@@ -4778,29 +5498,38 @@ async def _restore_paper_engines():
 @app.on_event("shutdown")
 async def _shutdown_cleanup():
     """Save all running engine results and clean up."""
+    # Save all running scalp engines
+    for owner_id, engine in list(_scalp_engines.items()):
+        try:
+            await _save_scalp_run_to_history(engine, explicit_user_id=owner_id)
+            engine.stop()
+            print(f"🛑 [Shutdown] Saved scalp engine: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save scalp engine {owner_id}: {e}")
     # Save all running paper engines
-    for run_id, engine in list(paper_engines.items()):
+    for owner_id, run_id, engine in list(_iter_registry_items(paper_engines)):
         try:
             status = engine.get_status()
             if engine.running:
                 engine.stop()
-            _save_paper_run_to_history(status)
-            print(f"🛑 [Shutdown] Saved paper engine: {run_id}")
+            await _save_paper_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
+            print(f"🛑 [Shutdown] Saved paper engine: {owner_id}:{run_id}")
         except Exception as e:
-            print(f"🛑 [Shutdown] Failed to save paper engine {run_id}: {e}")
+            print(f"🛑 [Shutdown] Failed to save paper engine {owner_id}:{run_id}: {e}")
     # Save all running live engines (state file for auto-restore + runs.json for history)
-    for run_id, engine in list(live_engines.items()):
+    for owner_id, run_id, engine in list(_iter_registry_items(live_engines)):
         try:
             status = engine.get_status()
             if engine.running:
                 engine.stop()  # stop() calls _save_state() internally
-            _save_live_run_to_history(status)
-            print(f"🛑 [Shutdown] Saved live engine: {run_id}")
+            await _save_live_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
+            print(f"🛑 [Shutdown] Saved live engine: {owner_id}:{run_id}")
         except Exception as e:
-            print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")
+            print(f"🛑 [Shutdown] Failed to save live engine {owner_id}:{run_id}: {e}")
     shutdown_feed()
     await alerter.shutdown()
-    print("🛑 [MarketFeed] WebSocket feed shut down")
+    await _db_mod.close_db()
+    print("🛑 [Shutdown] MarketFeed + DB closed")
 
 
 # ── Feed Status ───────────────────────────────────────────────────

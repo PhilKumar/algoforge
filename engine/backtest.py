@@ -454,7 +454,7 @@ def _calc_fees(turnover, pnl, fee_pct=0):
     if fee_pct > 0:
         return abs(turnover) * fee_pct / 100.0
     # Realistic charges (per-leg, simplified for backtest)
-    brokerage = 40  # flat per order (entry + exit = ₹80 total, but we call once per trade)
+    brokerage = 80  # flat per order, charged once here for the full entry+exit trade
     stt = abs(turnover) * 0.0125 / 100  # sell-side STT on options
     exchange_txn = abs(turnover) * 0.053 / 100
     gst = (brokerage + exchange_txn) * 0.18

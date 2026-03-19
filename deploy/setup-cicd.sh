@@ -14,11 +14,18 @@ echo "╚═══════════════════════�
 
 APP_DIR="/home/ec2-user/algoforge"
 BLUE_PORT=8000
+SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
+SITE_CONF="/etc/nginx/conf.d/algoforge.conf"
 
 # ── 1. Install systemd template service ──────────────────────
 echo "==> Installing algoforge@.service template..."
 sudo cp "$APP_DIR/deploy/algoforge.service" /etc/systemd/system/algoforge@.service
+echo "==> Installing backup service + timer..."
+sudo cp "$APP_DIR/deploy/algoforge-backup.service" /etc/systemd/system/algoforge-backup.service
+sudo cp "$APP_DIR/deploy/algoforge-backup.timer" /etc/systemd/system/algoforge-backup.timer
 sudo systemctl daemon-reload
+mkdir -p "$APP_DIR/backups"
+sudo systemctl enable --now algoforge-backup.timer
 
 # ── 2. Stop old monolithic service (if running) ──────────────
 if systemctl is-active --quiet algoforge 2>/dev/null; then
@@ -33,8 +40,15 @@ echo "upstream algoforge_backend { server 127.0.0.1:${BLUE_PORT}; }" \
     | sudo tee /etc/nginx/conf.d/algoforge-upstream.conf >/dev/null
 
 # ── 4. Install new nginx site config ─────────────────────────
-echo "==> Installing nginx site config..."
-sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/algoforge.conf
+if [[ ! -f "$SITE_CONF" ]]; then
+    echo "==> Installing nginx site config (first-time setup)..."
+    sudo cp "$APP_DIR/deploy/nginx.conf" "$SITE_CONF"
+elif [[ "$SYNC_SITE_CONFIG" == "1" ]]; then
+    echo "==> Syncing nginx site config from deploy/nginx.conf..."
+    sudo cp "$APP_DIR/deploy/nginx.conf" "$SITE_CONF"
+else
+    echo "==> Preserving existing nginx site config (set SYNC_SITE_CONFIG=1 to overwrite)"
+fi
 sudo nginx -t && sudo nginx -s reload
 echo "    Nginx config OK and reloaded."
 
@@ -52,4 +66,5 @@ echo ""
 echo "==> DONE! AlgoForge blue-green is ready."
 echo "    Active: port $BLUE_PORT"
 echo "    State:  ~/.algoforge-active-port"
-echo "    Test:   curl http://127.0.0.1:${BLUE_PORT}/health"
+echo "    Test:   curl http://127.0.0.1:${BLUE_PORT}/api/health"
+echo "    Backup: systemctl list-timers algoforge-backup.timer"

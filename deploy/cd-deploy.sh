@@ -127,12 +127,15 @@ log "Switching nginx to port $STANDBY_PORT..."
 echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
     | sudo tee "$UPSTREAM_CONF" >/dev/null
 
-# Keep the server's domain/TLS vhost unless an explicit sync is requested.
-if [[ "$SYNC_SITE_CONFIG" == "1" && -f "$APP_DIR/deploy/nginx.conf" ]]; then
-    sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
-    log "Synced nginx site config from deploy/nginx.conf"
-else
-    log "Keeping existing nginx site config (SYNC_SITE_CONFIG=$SYNC_SITE_CONFIG)"
+# Sync main nginx site config only when explicitly requested.
+# This avoids clobbering a server-local domain/TLS vhost during deploy.
+if [[ -f "$APP_DIR/deploy/nginx.conf" ]]; then
+    if [[ "$SYNC_SITE_CONFIG" == "1" ]]; then
+        sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
+        log "Synced nginx site config from deploy/nginx.conf"
+    else
+        log "Preserving existing nginx site config (set SYNC_SITE_CONFIG=1 to overwrite)"
+    fi
 fi
 
 if ! sudo nginx -t 2>/dev/null; then

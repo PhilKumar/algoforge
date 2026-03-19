@@ -84,3 +84,15 @@ RSI_PERIOD = 14
 CPR_NARROW_RANGE = 0.2
 CPR_MODERATE_RANGE = 0.5
 CPR_WIDE_RANGE = 0.5
+
+# ── Multi-Tenant Database & Auth ──────────────────────────
+DB_PATH = os.getenv("ALGOFORGE_DB", os.path.join(os.path.dirname(__file__), "algoforge.db"))
+USER_DATA_ROOT = os.getenv("ALGOFORGE_USER_DATA_ROOT", os.path.join(os.path.dirname(__file__), "data", "users"))
+ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds at rest
+SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
+MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
+LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
+BACKUP_ROOT = os.getenv("ALGOFORGE_BACKUP_ROOT", os.path.join(os.path.dirname(__file__), "backups"))
+BACKUP_RETENTION_DAYS = int(os.getenv("ALGOFORGE_BACKUP_RETENTION_DAYS", "14"))
+DHAN_REFERRAL_URL = (os.getenv("DHAN_REFERRAL_URL", "") or "").strip()

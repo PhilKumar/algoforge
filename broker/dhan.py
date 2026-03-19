@@ -15,7 +15,7 @@ import threading
 import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 import httpx
 import pandas as pd
@@ -29,7 +29,7 @@ import config
 #  Token Auto-Refresh on DH-906 "Invalid Token"
 # ══════════════════════════════════════════════════════════════
 _token_refresh_lock = threading.Lock()
-_last_token_refresh: float = 0.0
+_last_token_refresh: dict[str, float] = {}
 
 
 def _is_invalid_token_response(resp) -> bool:
@@ -76,15 +76,23 @@ def _notify_token_event(success: bool, detail: str = "") -> None:
         pass
 
 
-def _try_refresh_token() -> bool:
-    """Attempt to regenerate the Dhan access token via TOTP.
-    Returns True if a new token was obtained. Thread-safe with a cooldown."""
+def _reserve_refresh_slot(refresh_key: str, *, force: bool = False, cooldown_sec: float = 30.0) -> bool:
+    """Guard token refresh attempts with a per-key cooldown."""
     global _last_token_refresh
     with _token_refresh_lock:
-        # Cooldown: don't retry within 30s of last refresh attempt
-        if _time.time() - _last_token_refresh < 30:
+        now = _time.time()
+        last = float(_last_token_refresh.get(refresh_key, 0.0) or 0.0)
+        if not force and now - last < cooldown_sec:
             return False
-        _last_token_refresh = _time.time()
+        _last_token_refresh[refresh_key] = now
+        return True
+
+
+def _try_refresh_token(*, force: bool = False) -> bool:
+    """Attempt to regenerate the Dhan access token via TOTP.
+    Returns True if a new token was obtained. Thread-safe with a cooldown."""
+    if not _reserve_refresh_slot("global", force=force):
+        return False
     try:
         from token_manager import auto_generate_token
 
@@ -197,6 +205,8 @@ async def _async_request_with_retry(
     timeout: float = 10.0,
     max_retries: int = 3,
     base_delay: float = 0.3,
+    allow_token_refresh: bool = True,
+    refresh_token_func: Optional[Callable[[], str | None]] = None,
 ) -> httpx.Response:
     """
     Async HTTP request with exponential backoff on transient failures.
@@ -214,11 +224,15 @@ async def _async_request_with_retry(
                 json=json_data,
                 timeout=timeout,
             )
-            if _is_invalid_token_response(resp):
+            if allow_token_refresh and _is_invalid_token_response(resp):
                 _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → Invalid Token (400), refreshing...")
-                refreshed = await asyncio.to_thread(_try_refresh_token)
-                if refreshed:
-                    headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
+                new_token = None
+                if refresh_token_func:
+                    new_token = await asyncio.to_thread(refresh_token_func)
+                elif await asyncio.to_thread(_try_refresh_token):
+                    new_token = config.DHAN_ACCESS_TOKEN
+                if new_token:
+                    headers = {**headers, "access-token": new_token}
                     continue
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
@@ -276,6 +290,8 @@ def _request_with_retry(
     timeout: int = 30,
     max_retries: int = 3,
     base_delay: float = 1.0,
+    allow_token_refresh: bool = True,
+    refresh_token_func: Optional[Callable[[], str | None]] = None,
 ) -> "requests.Response":
     """
     Execute an HTTP request with exponential backoff on transient failures.
@@ -286,10 +302,13 @@ def _request_with_retry(
     for attempt in range(max_retries):
         try:
             resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
-            if _is_invalid_token_response(resp):
+            if allow_token_refresh and _is_invalid_token_response(resp):
                 _dhan_log.warning(f"[DHAN] {method} {url} → Invalid Token (400), refreshing...")
-                if _try_refresh_token():
-                    headers = {**headers, "access-token": config.DHAN_ACCESS_TOKEN}
+                new_token = refresh_token_func() if refresh_token_func else None
+                if not new_token and _try_refresh_token():
+                    new_token = config.DHAN_ACCESS_TOKEN
+                if new_token:
+                    headers = {**headers, "access-token": new_token}
                     continue
             if resp.status_code not in _RETRYABLE_STATUSES:
                 return resp
@@ -647,9 +666,20 @@ class ScripMaster:
 
 
 class DhanClient:
-    def __init__(self, client_id: str = None, access_token: str = None):
+    def __init__(
+        self,
+        client_id: str = None,
+        access_token: str = None,
+        pin: str = None,
+        totp_secret: str = None,
+        token_update_cb: Optional[Callable[[str], None]] = None,
+    ):
         self.client_id = client_id or config.DHAN_CLIENT_ID
         self._fixed_token = access_token  # None means "use config dynamically"
+        self._pin = str(pin or "").strip()
+        self._totp_secret = str(totp_secret or "").strip()
+        self._token_update_cb = token_update_cb
+        self._allow_token_refresh = access_token is None or bool(self._pin and self._totp_secret)
         self.base_url = config.DHAN_BASE_URL
         self.data_url = config.DHAN_DATA_URL
 
@@ -667,6 +697,62 @@ class DhanClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+
+    @property
+    def auto_refresh_ready(self) -> bool:
+        return bool(self.client_id and self._pin and self._totp_secret)
+
+    def _persist_refreshed_token(self, access_token: str) -> None:
+        token = str(access_token or "").strip()
+        if not token:
+            return
+        self._fixed_token = token
+        if not self._token_update_cb:
+            return
+        try:
+            self._token_update_cb(token)
+        except Exception as exc:
+            _dhan_log.warning(f"[DHAN] Failed to persist refreshed token for {self.client_id}: {exc}")
+
+    def refresh_access_token(self, *, force: bool = False) -> str | None:
+        """Refresh the broker access token and return the new token on success."""
+        if self._fixed_token is None:
+            if _try_refresh_token(force=force):
+                return config.DHAN_ACCESS_TOKEN
+            return None
+
+        refresh_key = f"user:{self.client_id or 'unknown'}"
+        if not _reserve_refresh_slot(refresh_key, force=force):
+            return None
+
+        try:
+            if self.auto_refresh_ready:
+                from token_manager import generate_access_token
+
+                result = generate_access_token(self.client_id, self._pin, self._totp_secret)
+            elif force and self.client_id and self._fixed_token:
+                from token_manager import renew_access_token
+
+                result = renew_access_token(self.client_id, self._fixed_token)
+            else:
+                return None
+        except Exception as exc:
+            _dhan_log.error(f"[DHAN] Token refresh error for {self.client_id}: {exc}")
+            return None
+
+        if result and result.get("success") and result.get("accessToken"):
+            new_token = str(result["accessToken"]).strip()
+            self._persist_refreshed_token(new_token)
+            _dhan_log.info(f"[DHAN] Refreshed fixed token for client {self.client_id}")
+            return new_token
+
+        error = (result or {}).get("error", "unknown token refresh error")
+        _dhan_log.warning(f"[DHAN] Token refresh failed for {self.client_id}: {error}")
+        return None
+
+    def _cache_key(self, scope: str) -> str:
+        """Partition cache entries by broker account to avoid cross-user bleed-through."""
+        return f"{scope}:{self.client_id or 'unknown'}"
 
     def _is_configured(self) -> bool:
         return (
@@ -753,7 +839,15 @@ class DhanClient:
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker is OPEN — skipping candle fetch")
         try:
-            resp = _request_with_retry("POST", endpoint, headers=self.headers, json=payload, timeout=30)
+            resp = _request_with_retry(
+                "POST",
+                endpoint,
+                headers=self.headers,
+                json=payload,
+                timeout=30,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
         except Exception as e:
             _circuit_breaker.record_failure()
             raise
@@ -853,7 +947,15 @@ class DhanClient:
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker is OPEN — skipping rolling option fetch")
         try:
-            resp = _request_with_retry("POST", endpoint, headers=self.headers, json=payload, timeout=30)
+            resp = _request_with_retry(
+                "POST",
+                endpoint,
+                headers=self.headers,
+                json=payload,
+                timeout=30,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
         except Exception:
             _circuit_breaker.record_failure()
             raise
@@ -958,6 +1060,8 @@ class DhanClient:
                 headers=self.headers,
                 json=payload,
                 timeout=10,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
             )
         except Exception as e:
             _circuit_breaker.record_failure()
@@ -1108,6 +1212,8 @@ class DhanClient:
             json=payload,
             timeout=10,
             max_retries=2,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 201):
             raise Exception(f"Super order placement failed {resp.status_code}: {resp.text}")
@@ -1151,6 +1257,8 @@ class DhanClient:
             json=payload,
             timeout=10,
             max_retries=2,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 201):
             raise Exception(f"Super order modify failed {resp.status_code}: {resp.text}")
@@ -1164,6 +1272,8 @@ class DhanClient:
             headers=self.headers,
             timeout=10,
             max_retries=2,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 202):
             raise Exception(f"Super order cancel failed {resp.status_code}: {resp.text}")
@@ -1174,7 +1284,14 @@ class DhanClient:
 
     def get_super_orders(self) -> list:
         """Fetch today's Dhan Super Order book."""
-        resp = _request_with_retry("GET", f"{self.base_url}/v2/super/orders", headers=self.headers, timeout=10)
+        resp = _request_with_retry(
+            "GET",
+            f"{self.base_url}/v2/super/orders",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
         if resp.status_code != 200:
             raise Exception(f"Super order fetch failed {resp.status_code}: {resp.text}")
         data = resp.json()
@@ -1182,7 +1299,14 @@ class DhanClient:
 
     def get_order_book(self) -> list:
         """Get all orders for the day"""
-        resp = _request_with_retry("GET", f"{self.base_url}/v2/orders", headers=self.headers, timeout=10)
+        resp = _request_with_retry(
+            "GET",
+            f"{self.base_url}/v2/orders",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
         if resp.status_code != 200:
             raise Exception(f"Order book failed: {resp.text}")
         data = resp.json()
@@ -1201,7 +1325,14 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not configured")
 
         try:
-            resp = _request_with_retry("GET", f"{self.base_url}/v2/trades", headers=self.headers, timeout=10)
+            resp = _request_with_retry(
+                "GET",
+                f"{self.base_url}/v2/trades",
+                headers=self.headers,
+                timeout=10,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
 
             print(f"[DHAN] get_trades status: {resp.status_code}")
 
@@ -1250,9 +1381,9 @@ class DhanClient:
             resp = _http_session.get(url, headers=self.headers, timeout=15)
 
             # Auto-refresh token if expired
-            if _is_invalid_token_response(resp):
+            if self._allow_token_refresh and _is_invalid_token_response(resp):
                 _dhan_log.warning("[DHAN] get_trade_history → Invalid Token (400), refreshing...")
-                if _try_refresh_token():
+                if self.refresh_access_token():
                     resp = _http_session.get(url, headers=self.headers, timeout=15)
 
             print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
@@ -1281,13 +1412,26 @@ class DhanClient:
 
     def cancel_order(self, order_id: str) -> dict:
         resp = _request_with_retry(
-            "DELETE", f"{self.base_url}/v2/orders/{order_id}", headers=self.headers, timeout=10, max_retries=2
+            "DELETE",
+            f"{self.base_url}/v2/orders/{order_id}",
+            headers=self.headers,
+            timeout=10,
+            max_retries=2,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         return resp.json()
 
     def get_positions(self) -> list:
         """Get current open positions"""
-        resp = _request_with_retry("GET", f"{self.base_url}/v2/positions", headers=self.headers, timeout=10)
+        resp = _request_with_retry(
+            "GET",
+            f"{self.base_url}/v2/positions",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
         if resp.status_code != 200:
             raise Exception(f"Positions fetch failed: {resp.text}")
         return resp.json().get("data", [])
@@ -1298,7 +1442,14 @@ class DhanClient:
             raise ConnectionError("Dhan credentials not configured")
 
         try:
-            resp = _request_with_retry("GET", f"{self.base_url}/v2/fundlimit", headers=self.headers, timeout=10)
+            resp = _request_with_retry(
+                "GET",
+                f"{self.base_url}/v2/fundlimit",
+                headers=self.headers,
+                timeout=10,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
 
             print(f"[DHAN] get_funds status: {resp.status_code}")
 
@@ -1339,6 +1490,8 @@ class DhanClient:
             headers=self.headers,
             json=payload,
             timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code != 200:
             raise Exception(f"LTP fetch failed: {resp.text}")
@@ -1362,6 +1515,8 @@ class DhanClient:
             headers=self.headers,
             json=payload,
             timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code != 200:
             raise Exception(f"LTP fetch failed: {resp.text}")
@@ -1385,6 +1540,8 @@ class DhanClient:
             headers=self.headers,
             json=payload,
             timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code != 200:
             raise Exception(f"OHLC fetch failed: {resp.text}")
@@ -1407,6 +1564,8 @@ class DhanClient:
             headers=self.headers,
             json=payload,
             timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code != 200:
             raise Exception(f"Quote fetch failed: {resp.text}")
@@ -1473,6 +1632,8 @@ class DhanClient:
             json=payload,
             timeout=10,
             max_retries=2,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 201):
             raise Exception(f"Order modify failed: {resp.text}")
@@ -1481,7 +1642,14 @@ class DhanClient:
     def get_order_status(self, order_id: str) -> dict:
         """Get status of a specific order"""
         try:
-            resp = _request_with_retry("GET", f"{self.base_url}/v2/orders/{order_id}", headers=self.headers, timeout=10)
+            resp = _request_with_retry(
+                "GET",
+                f"{self.base_url}/v2/orders/{order_id}",
+                headers=self.headers,
+                timeout=10,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
             if resp.status_code != 200:
                 return {"orderStatus": "UNKNOWN"}
             return resp.json()
@@ -1560,20 +1728,22 @@ class DhanClient:
     # ──────────────────────────────────────────────────────────
     def get_positions_cached(self, ttl: float = 5.0) -> list:
         """Get positions with TTL cache (avoid hammering API)."""
-        cached = _api_cache.get("positions")
+        cache_key = self._cache_key("positions")
+        cached = _api_cache.get(cache_key)
         if cached is not None:
             return cached
         result = self.get_positions()
-        _api_cache.set("positions", result, ttl)
+        _api_cache.set(cache_key, result, ttl)
         return result
 
     def get_funds_cached(self, ttl: float = 10.0) -> dict:
         """Get funds with TTL cache."""
-        cached = _api_cache.get("funds")
+        cache_key = self._cache_key("funds")
+        cached = _api_cache.get(cache_key)
         if cached is not None:
             return cached
         result = self.get_funds()
-        _api_cache.set("funds", result, ttl)
+        _api_cache.set(cache_key, result, ttl)
         return result
 
     def get_ltp_cached(self, security_ids: list, exchange_segment: str = "NSE_EQ", ttl: float = 3.0) -> dict:
@@ -1628,6 +1798,8 @@ class DhanClient:
                 headers=self.headers,
                 json_data=payload,
                 timeout=10.0,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
             )
         except Exception:
             _circuit_breaker.record_failure()
@@ -1709,6 +1881,8 @@ class DhanClient:
             f"{self.base_url}/v2/orders/{order_id}",
             headers=self.headers,
             timeout=10.0,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         return resp.json()
 
@@ -1727,6 +1901,8 @@ class DhanClient:
             headers=self.headers,
             json_data=payload,
             timeout=10.0,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code != 200:
             raise Exception(f"LTP fetch failed: {resp.text}")
