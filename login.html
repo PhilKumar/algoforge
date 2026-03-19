@@ -36,7 +36,7 @@
     border-top: 1px solid rgba(255,255,255,0.15);
     border-radius: 28px;
     padding: 44px 36px 36px;
-    width: 380px;
+    width: 404px;
     max-width: 92vw;
     backdrop-filter: blur(40px) saturate(1.4);
     box-shadow: 0 0 1px rgba(255,255,255,0.1), 0 0 60px rgba(0,200,150,0.04), 0 30px 80px rgba(0,0,0,0.5);
@@ -74,7 +74,7 @@
   }
 
   .auth-field {
-    width: 100%; max-width: 260px;
+    width: 100%; max-width: 282px;
     margin: 0 auto 14px;
     position: relative; z-index: 1;
   }
@@ -90,7 +90,7 @@
     padding: 14px 18px;
     outline: none;
     transition: all 0.2s ease;
-    text-align: center;
+    text-align: left;
     letter-spacing: 0.5px;
   }
   .auth-field input::placeholder {
@@ -118,7 +118,7 @@
     position: relative;
   }
   .secret-wrap input {
-    padding-right: 78px;
+    padding-right: 74px;
   }
   .password-toggle {
     position: absolute;
@@ -129,12 +129,14 @@
     background: transparent;
     color: var(--muted);
     font-family: 'Outfit', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.3px;
     cursor: pointer;
-    padding: 6px 10px;
+    min-width: 50px;
+    padding: 6px 8px;
     border-radius: 10px;
+    text-align: center;
   }
   .password-toggle:hover {
     color: var(--text);
@@ -147,7 +149,7 @@
 
   .mode-switch-row {
     width: 100%;
-    max-width: 260px;
+    max-width: 282px;
     margin: 0 auto 16px;
     display: flex;
     justify-content: center;
@@ -263,7 +265,7 @@
 
   .unlock-actions {
     width: 100%;
-    max-width: 260px;
+    max-width: 282px;
     margin: 0 auto;
     position: relative;
     z-index: 1;

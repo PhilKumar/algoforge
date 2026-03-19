@@ -1275,6 +1275,8 @@
     .leg-grid { grid-template-columns: 1fr 1fr !important; }
     .exit-grid { grid-template-columns: 1fr 1fr !important; }
     .modal-grid { grid-template-columns: 1fr !important; }
+    .settings-form-grid { grid-template-columns: 1fr !important; }
+    .settings-form-grid label { white-space: normal; }
     .combined-pnl-bar { flex-direction: column; gap: 10px; }
     .combined-pnl-bar input { width: 100%; }
     .add-leg-row { flex-direction: column; }
@@ -1527,7 +1529,11 @@
   .settings-shell {
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
-    gap: 16px;
+    gap: 18px;
+  }
+  .account-modal-panel {
+    width: 820px;
+    max-width: min(820px, 92vw);
   }
   .settings-section {
     background: linear-gradient(155deg, rgba(18,26,42,0.58) 0%, rgba(12,18,32,0.46) 100%);
@@ -1573,6 +1579,20 @@
     font-size: 11px;
     color: var(--muted);
     line-height: 1.55;
+  }
+  .settings-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .settings-form-grid.settings-form-grid-single {
+    grid-template-columns: 1fr;
+    margin-top: 14px;
+  }
+  .settings-form-grid label {
+    white-space: nowrap;
+    font-size: 11px;
+    letter-spacing: 0.45px;
   }
   .settings-status-line {
     margin-top: 10px;
@@ -4013,7 +4033,7 @@
 </div>
 
 <div class="modal-overlay" id="account-modal" onclick="if(event.target===this)closeAccountModal()">
-  <div class="modal" style="width: 760px;">
+  <div class="modal account-modal-panel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
       <h3 style="margin:0;display:flex;align-items:center;gap:8px;"><span id="account-modal-ico"></span> Account Settings</h3>
       <button class="modal-close" onclick="closeAccountModal()">Close</button>
@@ -4067,7 +4087,7 @@
 
       <div class="settings-section">
         <h4><span id="account-password-ico"></span> Change Password</h4>
-        <div class="modal-grid">
+        <div class="settings-form-grid">
           <div>
             <label for="account-current-password">Current Password</label>
             <input type="password" id="account-current-password" autocomplete="current-password">
@@ -4077,7 +4097,7 @@
             <input type="password" id="account-new-password" autocomplete="new-password">
           </div>
         </div>
-        <div class="modal-grid" style="grid-template-columns:1fr; margin-top:14px;">
+        <div class="settings-form-grid settings-form-grid-single">
           <div>
             <label for="account-confirm-password">Confirm New Password</label>
             <input type="password" id="account-confirm-password" autocomplete="new-password">
