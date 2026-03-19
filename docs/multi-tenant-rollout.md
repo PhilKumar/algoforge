@@ -35,6 +35,7 @@ SESSION_TTL_HOURS=24
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=5
 ENCRYPTION_KEY=generated_fernet_key_here
+DHAN_REFERRAL_URL=https://your_dhan_referral_link_here
 ```
 
 Generate `ENCRYPTION_KEY` with:
@@ -48,6 +49,7 @@ Notes:
 - `ALGOFORGE_PIN` or `ALGOFORGE_PASSWORD` is only used for first-run admin bootstrap when no admin user exists yet.
 - Once the admin user exists in SQLite, changing `ALGOFORGE_PIN` does not reset that account.
 - Per-user broker credential storage is blocked unless `ENCRYPTION_KEY` is set.
+- `DHAN_REFERRAL_URL` is optional. When set, the login page shows an external CTA to open a new Dhan account.
 
 ## 3. Local Or Staging Bring-Up
 

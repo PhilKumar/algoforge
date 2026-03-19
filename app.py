@@ -9,6 +9,7 @@ Fixed:
 import asyncio
 import inspect
 import json
+from html import escape as _escape_html
 
 try:
     import orjson as _orjson
@@ -714,17 +715,24 @@ class StrategyPayload(BaseModel):
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
 
 
+def _render_login_page() -> HTMLResponse:
+    login_path = os.path.join(_HERE, "login.html")
+    if not os.path.exists(login_path):
+        return HTMLResponse("<h2>login.html not found</h2>")
+    with open(login_path, encoding="utf-8") as f:
+        login_html = f.read()
+    referral_url = config.DHAN_REFERRAL_URL
+    login_html = login_html.replace("__DHAN_REFERRAL_URL__", _escape_html(referral_url or "#", quote=True))
+    login_html = login_html.replace("__DHAN_REFERRAL_HIDDEN_CLASS__", "" if referral_url else " hidden")
+    return HTMLResponse(login_html)
+
+
 # ── Serve Frontend ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
     user = await _get_page_user(request)
     if not user:
-        # Serve login page
-        login_path = os.path.join(_HERE, "login.html")
-        if os.path.exists(login_path):
-            with open(login_path, encoding="utf-8") as f:
-                return HTMLResponse(f.read())
-        return HTMLResponse("<h2>login.html not found</h2>")
+        return _render_login_page()
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategy.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
@@ -828,11 +836,7 @@ async def serve_charts_viewer(request: Request):
     """Serve the historical chart viewer page (auth-protected)."""
     user = await _get_page_user(request)
     if not user:
-        login_path = os.path.join(_HERE, "login.html")
-        if os.path.exists(login_path):
-            with open(login_path, encoding="utf-8") as f:
-                return HTMLResponse(f.read())
-        return HTMLResponse("<h2>login.html not found</h2>")
+        return _render_login_page()
     html_path = os.path.join(_HERE, "charts.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
