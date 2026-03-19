@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
-from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe
+from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe, yesterday_candle
 from engine.live import LiveEngine
 from engine.paper_trading import PaperTradingEngine
 from engine.timeframes import drop_incomplete_candle, next_entry_ready_at, resolve_strategy_timeframe
@@ -87,6 +87,42 @@ class CprRegressionTests(unittest.TestCase):
         self.assertLessEqual(row["bc"], row["tc"])
         self.assertAlmostEqual(float(row["bc"]), 106.6666666667, places=4)
         self.assertAlmostEqual(float(row["tc"]), 110.0, places=4)
+
+    def test_intraday_cpr_does_not_leak_same_day_levels_into_last_historical_session(self):
+        df = _make_ohlcv("2025-03-03 09:15", [100, 101, 102, 103], freq="5min")
+
+        result = cpr(df)
+
+        self.assertTrue(pd.isna(result.iloc[-1]["bc"]))
+        self.assertTrue(pd.isna(result.iloc[-1]["tc"]))
+
+    def test_higher_timeframe_cpr_does_not_leak_same_bar_levels_into_last_historical_bar(self):
+        df = pd.DataFrame(
+            {
+                "open": [119.0, 116.0, 111.0, 107.0],
+                "high": [120.0, 118.0, 116.0, 112.0],
+                "low": [110.0, 108.0, 104.0, 100.0],
+                "close": [118.0, 114.0, 109.0, 105.0],
+            },
+            index=pd.date_range("2025-03-03 08:00", periods=4, freq="1h"),
+        )
+
+        result = cpr_timeframe(df, timeframe="4H")
+
+        self.assertTrue(pd.isna(result.iloc[-1]["bc"]))
+        self.assertTrue(pd.isna(result.iloc[-1]["tc"]))
+
+
+class YesterdayRegressionTests(unittest.TestCase):
+    def test_yesterday_candle_does_not_leak_same_day_values_into_last_historical_session(self):
+        df = _make_ohlcv("2025-03-03 09:15", [100, 101, 102, 103], freq="5min")
+
+        result = yesterday_candle(df)
+
+        self.assertTrue(pd.isna(result.iloc[-1]["yesterday_high"]))
+        self.assertTrue(pd.isna(result.iloc[-1]["yesterday_low"]))
+        self.assertTrue(pd.isna(result.iloc[-1]["yesterday_close"]))
+        self.assertTrue(pd.isna(result.iloc[-1]["yesterday_open"]))
 
 
 class DummyBroker:
