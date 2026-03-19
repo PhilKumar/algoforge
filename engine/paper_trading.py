@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
+from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
@@ -1111,6 +1112,8 @@ class PaperTradingEngine:
         user_lot_size = int(self.strategy.get("lot_size", 0) or 0)
         symbol = self._get_symbol_name()
         session_date_str = self.session_date.strftime("%Y-%m-%d") if self.session_date else None
+        entry_spot = float(self.current_spot)
+        entry_time = self.current_time or _now_ist()
 
         default_lots = int(self.strategy.get("lots", 1) or 1)
 
@@ -1139,11 +1142,11 @@ class PaperTradingEngine:
             if strike_type in ("premium_near", "premium_above", "premium_below") and expiry:
                 mode = strike_type.split("_")[1]  # "near", "above", "below"
                 strike, scanned_premium = await self._find_premium_strike(
-                    symbol, expiry, option_type, float(strike_value), self.current_spot, strike_step, mode=mode
+                    symbol, expiry, option_type, float(strike_value), entry_spot, strike_step, mode=mode
                 )
                 self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
             else:
-                strike = self._calculate_strike(leg, self.current_spot, strike_step)
+                strike = self._calculate_strike(leg, entry_spot, strike_step)
 
             # Get entry premium — reuse from scan if available, else fetch fresh
             entry_premium = scanned_premium if scanned_premium > 0 else 0.0
@@ -1155,7 +1158,7 @@ class PaperTradingEngine:
 
             if entry_premium <= 0:
                 # Fallback to estimation
-                entry_premium = await self._estimate_premium(strike, self.current_spot, option_type, strike_step)
+                entry_premium = await self._estimate_premium(strike, entry_spot, option_type, strike_step)
                 self.log_event("warning", f"Using estimated premium: ₹{entry_premium:.2f}")
 
             option_name = f"{symbol} {strike} {option_type}"
@@ -1168,8 +1171,8 @@ class PaperTradingEngine:
                 "option_type": option_type,
                 "strike": strike,
                 "expiry": expiry,
-                "entry_time": self.current_time,
-                "entry_spot": self.current_spot,
+                "entry_time": entry_time,
+                "entry_spot": entry_spot,
                 "entry_premium": entry_premium,
                 "current_premium": entry_premium,
                 "lots": leg_lots,
@@ -1250,7 +1253,7 @@ class PaperTradingEngine:
         """
         from broker.dhan import ScripMaster
 
-        atm = round(spot / strike_step) * strike_step
+        atm = round_to_nearest_step(spot, strike_step)
         exchange_seg = "BSE_FNO" if symbol == "SENSEX" else "NSE_FNO"
 
         # ── 1. Resolve security IDs for all strikes ────────────────────────
@@ -1389,7 +1392,7 @@ class PaperTradingEngine:
 
     def _calculate_strike(self, leg: dict, spot: float, strike_step: int) -> int:
         """Calculate strike price based on strike_type"""
-        atm = round(spot / strike_step) * strike_step
+        atm = round_to_nearest_step(spot, strike_step)
 
         strike_type = leg.get("strike_type", "atm")
         strike_value = leg.get("strike_value", 0)
@@ -1398,16 +1401,16 @@ class PaperTradingEngine:
         if strike_type == "atm":
             return int(atm)
         elif strike_type == "strike_price":
-            return int(round(strike_value / strike_step) * strike_step)
+            return round_to_nearest_step(strike_value, strike_step)
         elif strike_type == "otm":
-            offset = int(round(strike_value / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
             return int(atm + offset if option_type == "CE" else atm - offset)
         elif strike_type == "itm":
-            offset = int(round(strike_value / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
             return int(atm - offset if option_type == "CE" else atm + offset)
         elif strike_type == "spot_price":
-            offset = int(round(strike_value / strike_step) * strike_step)
-            return int(round((spot + offset) / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
+            return round_to_nearest_step(spot + offset, strike_step)
         else:
             return int(atm)
 
@@ -1416,7 +1419,7 @@ class PaperTradingEngine:
         Estimate premium for an option.
         TODO: Replace with actual option chain fetch from Dhan API
         """
-        atm = round(spot / strike_step) * strike_step
+        atm = round_to_nearest_step(spot, strike_step)
         moneyness = (spot - strike) if option_type == "CE" else (strike - spot)
 
         # Base ATM premium (0.5% - 0.6% of spot)
