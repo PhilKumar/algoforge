@@ -61,6 +61,7 @@ from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, g
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
+from engine.strike_utils import round_half_up
 from engine.timeframes import (
     INTRADAY_CHUNK_DAYS,
     MAX_INTRADAY_HISTORY_DAYS,
@@ -2086,7 +2087,7 @@ def _resolve_rolling_strike_alias(leg: dict, strike_step: int, max_offset: int) 
         return "ATM", None
 
     if strike_type in ("otm", "itm"):
-        offset_steps = int(round(abs(strike_value) / strike_step)) if strike_step > 0 else 0
+        offset_steps = round_half_up(abs(strike_value) / strike_step) if strike_step > 0 else 0
         if offset_steps == 0:
             return "ATM", None
         signed_steps = offset_steps if strike_type == "otm" else -offset_steps
@@ -2097,7 +2098,7 @@ def _resolve_rolling_strike_alias(leg: dict, strike_step: int, max_offset: int) 
         return _format_rolling_strike(signed_steps), None
 
     if strike_type == "spot_price":
-        offset_steps = int(round(strike_value / strike_step)) if strike_step > 0 else 0
+        offset_steps = round_half_up(strike_value / strike_step) if strike_step > 0 else 0
         if abs(offset_steps) > max_offset:
             return None, f"rolling options support up to ATM±{max_offset}, requested spot offset {offset_steps}"
         return _format_rolling_strike(offset_steps), None
@@ -2230,11 +2231,15 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
                 chunk_start = chunk_end_exclusive
 
             if all_dfs:
-                df_hist = pd.concat(all_dfs).sort_index()
-                df_hist = df_hist[~df_hist.index.duplicated(keep="first")]
+                df_hist_raw = pd.concat(all_dfs).sort_index()
+                df_hist_raw = df_hist_raw[~df_hist_raw.index.duplicated(keep="first")]
+                df_hist_exec = df_hist_raw
                 if tf_spec.derived:
-                    df_hist = _resample_option_history(df_hist, tf_spec.requested)
-                history_cache[history_key] = df_hist
+                    df_hist_exec = _resample_option_history(df_hist_raw, tf_spec.requested)
+                history_cache[history_key] = {
+                    "raw": df_hist_raw,
+                    "execution": df_hist_exec,
+                }
             else:
                 history_cache[history_key] = pd.DataFrame()
                 warning = (

@@ -34,6 +34,7 @@ import config
 from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
+from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
@@ -1109,6 +1110,8 @@ class LiveEngine:
         underlying = ScripMaster.instrument_to_symbol(instrument)
         strike_step = get_strike_step(instrument)
         session_date_str = self.session_date.strftime("%Y-%m-%d") if self.session_date else None
+        entry_spot = float(self.current_spot)
+        entry_time = self.current_time or _now_ist()
 
         product_type = self.deploy_config.get("product_type", "INTRADAY")
         # Map common aliases to Dhan API values
@@ -1145,11 +1148,11 @@ class LiveEngine:
             ):
                 mode = strike_type.split("_")[1]
                 strike, scanned_premium = await self._find_premium_strike(
-                    underlying, expiry, opt_type, float(strike_value), self.current_spot, strike_step, mode=mode
+                    underlying, expiry, opt_type, float(strike_value), entry_spot, strike_step, mode=mode
                 )
                 self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
             else:
-                strike = self._calculate_strike(leg, self.current_spot, strike_step)
+                strike = self._calculate_strike(leg, entry_spot, strike_step)
 
             # Early WebSocket subscription BEFORE order (so LTP arrives faster)
             ws_sec_id = None
@@ -1249,9 +1252,9 @@ class LiveEngine:
                 try:
                     entry_premium = await self.dhan.async_get_option_ltp(
                         underlying, strike, expiry, opt_type
-                    ) or self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+                    ) or self._estimate_premium(strike, entry_spot, opt_type, strike_step)
                 except Exception:
-                    entry_premium = self._estimate_premium(strike, self.current_spot, opt_type, strike_step)
+                    entry_premium = self._estimate_premium(strike, entry_spot, opt_type, strike_step)
 
             position = {
                 "id": len(self.positions) + len(self.closed_trades) + 1,
@@ -1262,8 +1265,8 @@ class LiveEngine:
                 "option_type": opt_type,
                 "strike": strike,
                 "expiry": expiry,
-                "entry_time": self.current_time,
-                "entry_spot": self.current_spot,
+                "entry_time": entry_time,
+                "entry_spot": entry_spot,
                 "entry_premium": entry_premium,
                 "current_premium": entry_premium,
                 "lots": lots,
@@ -1611,7 +1614,7 @@ class LiveEngine:
     # ── Helpers ───────────────────────────────────────────────
     def _calculate_strike(self, leg: dict, spot: float, strike_step: int) -> int:
         """Calculate strike price based on leg configuration."""
-        atm = round(spot / strike_step) * strike_step
+        atm = round_to_nearest_step(spot, strike_step)
         strike_type = leg.get("strike_type", "atm")
         strike_value = leg.get("strike_value", 0)
         option_type = leg.get("option_type", "CE")
@@ -1619,16 +1622,16 @@ class LiveEngine:
         if strike_type == "atm":
             return int(atm)
         elif strike_type == "strike_price":
-            return int(round(strike_value / strike_step) * strike_step)
+            return round_to_nearest_step(strike_value, strike_step)
         elif strike_type == "otm":
-            offset = int(round(strike_value / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
             return int(atm + offset if option_type == "CE" else atm - offset)
         elif strike_type == "itm":
-            offset = int(round(strike_value / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
             return int(atm - offset if option_type == "CE" else atm + offset)
         elif strike_type == "spot_price":
-            offset = int(round(strike_value / strike_step) * strike_step)
-            return int(round((spot + offset) / strike_step) * strike_step)
+            offset = round_to_nearest_step(strike_value, strike_step)
+            return round_to_nearest_step(spot + offset, strike_step)
         return int(atm)
 
     async def _find_premium_strike(
@@ -1651,7 +1654,7 @@ class LiveEngine:
         """
         from broker.dhan import ScripMaster
 
-        atm = round(spot / strike_step) * strike_step
+        atm = round_to_nearest_step(spot, strike_step)
         exchange_seg = "BSE_FNO" if symbol == "SENSEX" else "NSE_FNO"
 
         # ── 1. Resolve security IDs for all strikes ────────────────────────

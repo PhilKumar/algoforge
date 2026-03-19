@@ -18,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
 from engine.indicators import compute_dynamic_indicators
+from engine.strike_utils import round_to_nearest_step
 
 
 def _dte_weekly(d):
@@ -397,7 +398,7 @@ def _mk(id_, et, xt, ep, xp, pnl, reason, cum, ot=None, strike=None, qty=0, txn=
 
 def _resolve_option_entry(instrument, option_type, strike_type, strike_value, entry_spot, trade_date, strike_step):
     inst_label = _instrument_label(instrument)
-    atm = round(entry_spot / strike_step) * strike_step
+    atm = round_to_nearest_step(entry_spot, strike_step)
     dte = _dte_weekly(trade_date)
     base_pct = 0.009 if "BANK" in inst_label else 0.007
     atm_prem = round(entry_spot * base_pct * math.sqrt(max(0.5, dte) / 3.0), 2)
@@ -417,11 +418,11 @@ def _resolve_option_entry(instrument, option_type, strike_type, strike_value, en
         moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
         entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
     elif strike_type == "strike_price" and strike_value > 0:
-        strike_used = int(round(strike_value / strike_step) * strike_step)
+        strike_used = round_to_nearest_step(strike_value, strike_step)
         moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
         entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
     elif strike_type in ("otm", "itm") and strike_value > 0:
-        offset = int(round(strike_value / strike_step) * strike_step)
+        offset = round_to_nearest_step(strike_value, strike_step)
         if strike_type == "otm":
             strike_used = atm + offset if option_type == "CE" else atm - offset
             moneyness = -offset
@@ -430,9 +431,9 @@ def _resolve_option_entry(instrument, option_type, strike_type, strike_value, en
             moneyness = offset
         entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
     elif strike_type == "spot_price" and strike_value != 0:
-        offset = int(round(strike_value / strike_step) * strike_step)
+        offset = round_to_nearest_step(strike_value, strike_step)
         strike_used = int(entry_spot + offset) if strike_value > 0 else int(entry_spot - abs(offset))
-        strike_used = int(round(strike_used / strike_step) * strike_step)
+        strike_used = round_to_nearest_step(strike_used, strike_step)
         moneyness = (entry_spot - strike_used) if option_type == "CE" else (strike_used - entry_spot)
         entry_premium = max(1, round(_est_prem_gaussian(atm_prem, moneyness), 2))
     else:
@@ -551,11 +552,25 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     )
     print(f"[BT] option_legs={len(option_legs)} instrument={instrument} sqoff={combined_sqoff}")
 
-    def _history_row(position, ts):
+    raw_price_df = df_raw.copy().sort_index()
+    raw_day_cache = {trade_date: day_df for trade_date, day_df in raw_price_df.groupby(raw_price_df.index.date)}
+
+    def _history_frame(position, raw=False):
         history_key = position.get("option_history_key")
-        if not history_key or ts is None:
+        if not history_key:
             return None
-        history_df = option_history_map.get(history_key)
+        history_obj = option_history_map.get(history_key)
+        if isinstance(history_obj, dict):
+            history_df = history_obj.get("raw" if raw else "execution")
+            if history_df is None:
+                history_df = history_obj.get("execution") or history_obj.get("raw")
+            return history_df
+        return history_obj
+
+    def _history_row(position, ts, raw=False):
+        if ts is None:
+            return None
+        history_df = _history_frame(position, raw=raw)
         if history_df is None or history_df.empty or ts not in history_df.index:
             return None
         row = history_df.loc[ts]
@@ -563,8 +578,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             row = row.iloc[-1]
         return row
 
-    def _history_value(position, ts, field, default=None):
-        row = _history_row(position, ts)
+    def _history_value(position, ts, field, default=None, raw=False):
+        row = _history_row(position, ts, raw=raw)
         if row is None:
             return default
         value = row.get(field, default)
@@ -574,6 +589,33 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             return float(value)
         except Exception:
             return default
+
+    def _raw_row_at_or_after(trade_date, trigger_time):
+        if is_daily:
+            return None, None
+        day_df = raw_day_cache.get(trade_date)
+        if day_df is None or day_df.empty:
+            return None, None
+        mask = pd.Index(day_df.index.time) >= trigger_time
+        if not mask.any():
+            return None, None
+        raw_match = day_df.loc[mask]
+        if raw_match.empty:
+            return None, None
+        raw_ts = raw_match.index[0]
+        return raw_ts, raw_match.iloc[0]
+
+    def _sqoff_exit_snapshot(position, trade_date, trigger_time, fallback_ts, fallback_price):
+        raw_ts, raw_row = _raw_row_at_or_after(trade_date, trigger_time)
+        if raw_ts is None or raw_row is None:
+            return fallback_ts, fallback_price
+
+        raw_spot = float(raw_row.get("close", raw_row.get("open", fallback_price)))
+        if position["is_option"] and position.get("pricing_mode") == "historical":
+            hist_price = _history_value(position, raw_ts, "close", raw=True)
+            if hist_price is not None:
+                return raw_ts, hist_price
+        return raw_ts, _position_price(position, raw_spot, raw_ts, "close")
 
     def _position_price(position, spot_price, ts=None, field="close"):
         if position["is_option"] and position.get("pricing_mode") == "historical":
@@ -702,7 +744,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 pricing_mode = "synthetic"
                 if history_key:
                     history_row = None
-                    history_df = option_history_map.get(history_key)
+                    history_df = _history_frame({"option_history_key": history_key})
                     if history_df is not None and not history_df.empty and entry_ts in history_df.index:
                         history_row = history_df.loc[entry_ts]
                         if isinstance(history_row, pd.DataFrame):
@@ -869,25 +911,31 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                             "Touch",
                         )
                         exited_this_candle = True
-            if not exited_this_candle and prev_row is not None:
-                exit_row = prev_row.copy() if signal_candle else prev_row
+            if not exited_this_candle:
+                exit_row = row.copy() if signal_candle else row
                 if signal_candle:
                     for key, value in signal_candle.items():
                         exit_row[key] = value
-                if eval_condition_group(exit_row, exit_conditions, prev_prev_row):
-                    next_open = float(row["open"])
+                if eval_condition_group(exit_row, exit_conditions, prev_row):
                     _close_selected_positions(
                         list(open_positions),
                         ts,
-                        lambda position, spot=next_open, exit_ts=ts: _position_price(position, spot, exit_ts, "open"),
+                        lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
                         "Signal",
                     )
                     exited_this_candle = True
             if not exited_this_candle and not is_daily and ct >= combined_sqoff:
+                sqoff_price_map = {
+                    id(position): _sqoff_exit_snapshot(
+                        position, cd, combined_sqoff, ts, snapshots[id(position)]["current"]
+                    )
+                    for position in open_positions
+                }
+                exit_ts = min(snapshot[0] for snapshot in sqoff_price_map.values())
                 _close_selected_positions(
                     list(open_positions),
-                    ts,
-                    lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
+                    exit_ts,
+                    lambda position, snapshot_map=sqoff_price_map: snapshot_map[id(position)][1],
                     "SquareOff",
                 )
                 exited_this_candle = True
@@ -962,7 +1010,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
                     if exit_reason is None and not is_daily and ct >= position["sqoff_time"]:
                         exit_reason = "SquareOff"
-                        exit_price = snap["current"]
+                        _, exit_price = _sqoff_exit_snapshot(position, cd, position["sqoff_time"], ts, snap["current"])
 
                     if exit_reason and exit_price is not None:
                         leg_exits.append((position, exit_price, exit_reason))
@@ -1016,12 +1064,36 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     if open_positions and prev_row is not None:
         final_spot = float(prev_row["close"])
-        _close_selected_positions(
-            list(open_positions),
-            prev_row.name,
-            lambda position, spot=final_spot, exit_ts=prev_row.name: _position_price(position, spot, exit_ts, "close"),
-            "EOD/Data",
-        )
+        if not is_daily:
+            final_closures = []
+            for position in list(open_positions):
+                fallback_price = _position_price(position, final_spot, prev_row.name, "close")
+                exit_ts, exit_price = _sqoff_exit_snapshot(
+                    position,
+                    prev_row.name.date(),
+                    position.get("sqoff_time", combined_sqoff),
+                    prev_row.name,
+                    fallback_price,
+                )
+                exit_reason = "SquareOff" if exit_ts != prev_row.name else "EOD/Data"
+                final_closures.append((position, exit_ts, exit_price, exit_reason))
+
+            for position, exit_ts, exit_price, exit_reason in final_closures:
+                _close_selected_positions(
+                    [position],
+                    exit_ts,
+                    lambda _position, price=exit_price: price,
+                    exit_reason,
+                )
+        else:
+            _close_selected_positions(
+                list(open_positions),
+                prev_row.name,
+                lambda position, spot=final_spot, exit_ts=prev_row.name: _position_price(
+                    position, spot, exit_ts, "close"
+                ),
+                "EOD/Data",
+            )
 
     if not trades:
         return {
