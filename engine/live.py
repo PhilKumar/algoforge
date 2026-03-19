@@ -39,6 +39,7 @@ from engine.timeframes import (
     describe_timeframe,
     drop_incomplete_candle,
     next_entry_ready_at,
+    resample_ohlcv,
     resolve_strategy_timeframe,
 )
 
@@ -113,6 +114,7 @@ class LiveEngine:
         self.current_spot = 0.0
         self.current_time: Optional[datetime] = None
         self.candle_buffer = pd.DataFrame()
+        self._latest_raw_candles = pd.DataFrame()
         self.current_candle: dict = {}
         self.current_indicators: dict = {}
         self._prev_row = None
@@ -466,6 +468,7 @@ class LiveEngine:
             """Called from WebSocket thread when a candle closes."""
             self._latest_candle_df = df
             self._latest_candle = candle
+            self._latest_raw_candles = df.tail(500).copy()
             loop.call_soon_threadsafe(self._candle_event.set)
 
         # Bootstrap history for indicator warm-up
@@ -488,6 +491,7 @@ class LiveEngine:
         # ── Immediately populate UI data from bootstrap history ──
         if not history_df.empty:
             try:
+                self._latest_raw_candles = history_df.tail(500).copy()
                 df_init = compute_dynamic_indicators(
                     history_df.copy(),
                     indicators,
@@ -769,6 +773,86 @@ class LiveEngine:
         except Exception:
             pass
 
+    def _get_touch_raw_snapshot(self) -> pd.DataFrame:
+        """Return the latest raw candle snapshot, including the forming candle when possible."""
+        tf_spec = self._get_timeframe_spec()
+        instrument = self.strategy.get("instrument", "26000")
+
+        if self._ws_mode and self._feed:
+            try:
+                snapshot = self._feed.get_candle_snapshot(instrument, tf_spec.fetch, include_current=True)
+            except Exception:
+                snapshot = pd.DataFrame()
+            if snapshot is not None and not snapshot.empty:
+                return snapshot.sort_index().copy()
+
+        if isinstance(self._latest_raw_candles, pd.DataFrame) and not self._latest_raw_candles.empty:
+            return self._latest_raw_candles.sort_index().copy()
+
+        return pd.DataFrame()
+
+    def _build_live_touch_row(self, row: pd.Series) -> pd.Series:
+        """Overlay live OHLC values onto the last closed indicator row for touch exits."""
+        live_row = row.copy()
+        tf_spec = self._get_timeframe_spec()
+        touch_ts = self.current_time or _now_ist()
+        raw_snapshot = self._get_touch_raw_snapshot()
+        intrabar_row = None
+
+        if not raw_snapshot.empty:
+            try:
+                if tf_spec.requested == tf_spec.fetch:
+                    intrabar_df = raw_snapshot
+                else:
+                    intrabar_df = resample_ohlcv(
+                        raw_snapshot,
+                        tf_spec.requested,
+                        source_timeframe_minutes=tf_spec.fetch,
+                        drop_incomplete=False,
+                    )
+                if not intrabar_df.empty:
+                    intrabar_row = intrabar_df.iloc[-1]
+            except Exception:
+                intrabar_row = None
+
+        intrabar_values = intrabar_row.to_dict() if intrabar_row is not None else dict(self.current_candle or {})
+        if self.current_spot > 0 and "close" not in intrabar_values:
+            intrabar_values["close"] = self.current_spot
+
+        for key in ("open", "high", "low", "close", "volume", "oi"):
+            value = intrabar_values.get(key)
+            if value is None:
+                continue
+            try:
+                if pd.isna(value):
+                    continue
+            except Exception:
+                pass
+            live_row[key] = value
+
+        if self.current_spot > 0:
+            live_row["close"] = float(self.current_spot)
+
+        live_row["current_open"] = live_row.get("open")
+        live_row["current_high"] = live_row.get("high")
+        live_row["current_low"] = live_row.get("low")
+        live_row["current_close"] = live_row.get("close")
+        live_row["current_volume"] = live_row.get("volume", 0)
+        live_row["time_of_day"] = touch_ts.time()
+        live_row["Day_Of_Week"] = touch_ts.weekday()
+        live_row["Day_of_Week"] = touch_ts.weekday()
+        live_row["Day_Name"] = touch_ts.strftime("%A")
+        live_row["Hour"] = touch_ts.hour
+        live_row["Minute"] = touch_ts.minute
+        live_row["Time_HHMM"] = touch_ts.strftime("%H:%M")
+        live_row["Is_Monday"] = float(touch_ts.weekday() == 0)
+        live_row["Is_Tuesday"] = float(touch_ts.weekday() == 1)
+        live_row["Is_Wednesday"] = float(touch_ts.weekday() == 2)
+        live_row["Is_Thursday"] = float(touch_ts.weekday() == 3)
+        live_row["Is_Friday"] = float(touch_ts.weekday() == 4)
+        live_row.name = touch_ts
+        return live_row
+
     # ── Pending Order Management (Quantman Way) ──────────────
     def _clear_pending_order(self):
         """Clear pending order state."""
@@ -1040,6 +1124,7 @@ class LiveEngine:
             default_timeframe_minutes=execution_timeframe,
             source_timeframe_minutes=tf_spec.fetch,
         )
+        self._latest_raw_candles = df_raw.tail(500).copy()
 
         # Store current candle + indicators for UI
         if not df.empty:
@@ -1618,7 +1703,7 @@ class LiveEngine:
 
         # Touch-based exit — evaluated on CURRENT row (no 1-candle delay)
         if any(c.get("operator") == "touches" for c in self.exit_conditions):
-            _touch_row = row.copy() if self._signal_candle else row
+            _touch_row = self._build_live_touch_row(row)
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():
                     _touch_row[_k] = _v

@@ -171,11 +171,14 @@ class CandleAggregator:
         """Get the currently forming (incomplete) candle."""
         return self._current.copy() if self._current else None
 
-    def to_dataframe(self) -> pd.DataFrame:
+    def to_dataframe(self, include_current: bool = False) -> pd.DataFrame:
         """Convert completed candles to DataFrame with timestamp index."""
-        if not self.candles:
+        rows = list(self.candles)
+        if include_current and self._current is not None:
+            rows.append(self._current.copy())
+        if not rows:
             return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-        df = pd.DataFrame(self.candles)
+        df = pd.DataFrame(rows)
         df.set_index("timestamp", inplace=True)
         df.sort_index(inplace=True)
         return df
@@ -390,6 +393,32 @@ class LiveMarketFeed:
         if agg and callback in agg.on_candle_close:
             agg.on_candle_close.remove(callback)
             print(f"[FEED] Removed callback from aggregator: {agg_key}")
+
+    def get_current_candle(self, instrument_id: str, timeframe: int) -> Optional[dict]:
+        """Get the currently forming candle for an instrument/timeframe, if available."""
+        info = self.INDEX_MAP.get(instrument_id)
+        if not info:
+            return None
+        sec_id_int = int(info[0])
+        label = self._index_sec_ids.get(sec_id_int, f"IDX_{instrument_id}")
+        agg_key = f"{label}_{timeframe}m"
+        agg = self._aggregators.get(agg_key)
+        if not agg:
+            return None
+        return agg.get_current()
+
+    def get_candle_snapshot(self, instrument_id: str, timeframe: int, *, include_current: bool = False) -> pd.DataFrame:
+        """Get a candle DataFrame snapshot for an instrument/timeframe."""
+        info = self.INDEX_MAP.get(instrument_id)
+        if not info:
+            return pd.DataFrame()
+        sec_id_int = int(info[0])
+        label = self._index_sec_ids.get(sec_id_int, f"IDX_{instrument_id}")
+        agg_key = f"{label}_{timeframe}m"
+        agg = self._aggregators.get(agg_key)
+        if not agg:
+            return pd.DataFrame()
+        return agg.to_dataframe(include_current=include_current)
 
     # ── LTP Access ────────────────────────────────────────────
 
