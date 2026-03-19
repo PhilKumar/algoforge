@@ -6,8 +6,12 @@ Fixed:
   - Added: SMA, MACD, Bollinger Bands, VWAP, ATR, Stochastic RSI, ADX
 """
 
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
+
+from engine.timeframes import resample_ohlcv, resolve_strategy_timeframe
 
 
 def _clean(s):
@@ -522,61 +526,102 @@ def orb(df: pd.DataFrame, window_minutes: int = 15, market_open_str: str = "09:1
     return result
 
 
-def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.DataFrame:
-    """
-    Takes the raw Dhan DataFrame and the list of indicators from the UI
-    (e.g., ['EMA_14_5m', 'Supertrend_10_3.0_5m']) and computes them dynamically.
-    """
-    df = df.copy()
+def _extract_indicator_timeframe(ind_string: str) -> int | None:
+    if not isinstance(ind_string, str) or "_" not in ind_string:
+        return None
+    for part in reversed(ind_string.split("_")):
+        if part.endswith("m") and part[:-1].isdigit():
+            return int(part[:-1])
+    return None
 
-    # 1. Always calculate basic candle data so 'current_close' works
-    df = yesterday_candle(df)
-    df["time_of_day"] = df.index.time
 
-    # Always expose current candle OHLC + Volume columns
-    df["current_open"] = df["open"]
-    df["current_high"] = df["high"]
-    df["current_low"] = df["low"]
-    df["current_close"] = df["close"]
-    df["current_volume"] = df["volume"]
+def _infer_timeframe_minutes(df: pd.DataFrame) -> int | None:
+    if df is None or df.empty or len(df.index) < 2:
+        return None
+    diffs = df.index.to_series().diff().dropna().dt.total_seconds().div(60)
+    diffs = diffs[diffs > 0]
+    if diffs.empty:
+        return None
+    return int(round(float(diffs.mode().iloc[0])))
 
-    # Always expose Previous Day columns (from yesterday_candle)
-    df["Yesterday_Open"] = df["yesterday_open"]
-    df["Yesterday_High"] = df["yesterday_high"]
-    df["Yesterday_Low"] = df["yesterday_low"]
-    df["Yesterday_Close"] = df["yesterday_close"]
 
-    # 2. Loop through whatever the user selected in the UI
+def _attach_execution_context(df: pd.DataFrame) -> pd.DataFrame:
+    result = yesterday_candle(df.copy())
+    result["time_of_day"] = result.index.time
+    result["Day_of_Week"] = result.index.dayofweek
+    result["Day_Name"] = result.index.strftime("%A")
+    result["Hour"] = result.index.hour
+    result["Minute"] = result.index.minute
+    result["Time_HHMM"] = result.index.strftime("%H:%M")
+    result["Is_Monday"] = (result.index.dayofweek == 0).astype(float)
+    result["Is_Tuesday"] = (result.index.dayofweek == 1).astype(float)
+    result["Is_Wednesday"] = (result.index.dayofweek == 2).astype(float)
+    result["Is_Thursday"] = (result.index.dayofweek == 3).astype(float)
+    result["Is_Friday"] = (result.index.dayofweek == 4).astype(float)
+
+    result["current_open"] = result["open"]
+    result["current_high"] = result["high"]
+    result["current_low"] = result["low"]
+    result["current_close"] = result["close"]
+    result["current_volume"] = result["volume"] if "volume" in result.columns else 0
+
+    result["Yesterday_Open"] = result["yesterday_open"]
+    result["Yesterday_High"] = result["yesterday_high"]
+    result["Yesterday_Low"] = result["yesterday_low"]
+    result["Yesterday_Close"] = result["yesterday_close"]
+    return result
+
+
+def _align_to_execution_index(
+    frame_df: pd.DataFrame,
+    frame_minutes: int,
+    execution_index: pd.Index,
+    execution_minutes: int,
+) -> pd.DataFrame:
+    if frame_df.empty:
+        return pd.DataFrame(index=execution_index)
+    if frame_minutes == execution_minutes:
+        return frame_df.reindex(execution_index)
+
+    aligned = frame_df.sort_index().copy()
+    aligned.index = aligned.index + pd.to_timedelta(frame_minutes, unit="m")
+    execution_close_index = execution_index + pd.to_timedelta(execution_minutes, unit="m")
+    union_index = aligned.index.union(execution_close_index)
+    aligned = aligned.reindex(union_index).sort_index().ffill().reindex(execution_close_index)
+    aligned.index = execution_index
+    return aligned
+
+
+def _compute_indicator_columns(df: pd.DataFrame, ui_indicators: list, *, assign_generic: bool) -> pd.DataFrame:
+    frame = df.copy()
+
     for ind_string in ui_indicators:
         parts = ind_string.split("_")
         name = parts[0]
 
-        # Calculate EMA
         if name == "EMA":
             period = int(parts[1])
-            df[ind_string] = ema(df["close"], period)
+            frame[ind_string] = ema(frame["close"], period)
 
-        # Calculate SMA
         elif name == "SMA":
             period = int(parts[1])
-            df[ind_string] = sma(df["close"], period)
+            frame[ind_string] = sma(frame["close"], period)
 
-        # Calculate RSI
         elif name == "RSI":
             period = int(parts[1])
-            df[ind_string] = rsi(df["close"], period)
+            frame[ind_string] = rsi(frame["close"], period)
 
-        # Calculate MACD
         elif name == "MACD":
             fast = int(parts[1]) if len(parts) > 1 else 12
             slow = int(parts[2]) if len(parts) > 2 else 26
             sig = int(parts[3]) if len(parts) > 3 else 9
-            macd_df = macd(df["close"], fast, slow, sig)
-            df["MACD_line"] = macd_df["macd_line"]
-            df["MACD_signal"] = macd_df["macd_signal"]
-            df["MACD_histogram"] = macd_df["macd_histogram"]
+            macd_df = macd(frame["close"], fast, slow, sig)
+            if assign_generic:
+                frame["MACD_line"] = macd_df["macd_line"]
+                frame["MACD_signal"] = macd_df["macd_signal"]
+                frame["MACD_histogram"] = macd_df["macd_histogram"]
             _assign_indicator_outputs(
-                df,
+                frame,
                 ind_string,
                 {
                     "line": macd_df["macd_line"],
@@ -586,17 +631,17 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
                 primary_key="line",
             )
 
-        # Calculate Bollinger Bands
         elif name == "BB":
             period = int(parts[1]) if len(parts) > 1 else 20
             std = float(parts[2]) if len(parts) > 2 else 2.0
-            bb_df = bollinger_bands(df["close"], period, std)
-            df["BB_upper"] = bb_df["bb_upper"]
-            df["BB_middle"] = bb_df["bb_middle"]
-            df["BB_lower"] = bb_df["bb_lower"]
-            df["BB_width"] = bb_df["bb_width"]
+            bb_df = bollinger_bands(frame["close"], period, std)
+            if assign_generic:
+                frame["BB_upper"] = bb_df["bb_upper"]
+                frame["BB_middle"] = bb_df["bb_middle"]
+                frame["BB_lower"] = bb_df["bb_lower"]
+                frame["BB_width"] = bb_df["bb_width"]
             _assign_indicator_outputs(
-                df,
+                frame,
                 ind_string,
                 {
                     "upper": bb_df["bb_upper"],
@@ -607,24 +652,25 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
                 primary_key="middle",
             )
 
-        # Calculate VWAP
         elif name == "VWAP":
-            df["VWAP"] = vwap(df)
-            df[ind_string] = df["VWAP"]
+            if assign_generic:
+                frame["VWAP"] = vwap(frame)
+                frame[ind_string] = frame["VWAP"]
+            else:
+                frame[ind_string] = vwap(frame)
 
-        # Calculate ATR
         elif name == "ATR":
             period = int(parts[1]) if len(parts) > 1 else 14
-            df[ind_string] = atr(df, period)
+            frame[ind_string] = atr(frame, period)
 
-        # Calculate Stochastic RSI
         elif name == "StochRSI":
             period = int(parts[1]) if len(parts) > 1 else 14
-            srsi = stochastic_rsi(df["close"], period)
-            df["StochRSI_K"] = srsi["stoch_rsi_k"]
-            df["StochRSI_D"] = srsi["stoch_rsi_d"]
+            srsi = stochastic_rsi(frame["close"], period)
+            if assign_generic:
+                frame["StochRSI_K"] = srsi["stoch_rsi_k"]
+                frame["StochRSI_D"] = srsi["stoch_rsi_d"]
             _assign_indicator_outputs(
-                df,
+                frame,
                 ind_string,
                 {
                     "K": srsi["stoch_rsi_k"],
@@ -633,47 +679,53 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
                 primary_key="K",
             )
 
-        # Calculate ADX
         elif name == "ADX":
             period = int(parts[1]) if len(parts) > 1 else 14
-            adx_df = adx(df, period)
-            df["ADX"] = adx_df["ADX"]
-            df["ADX_plus_di"] = adx_df["ADX_plus_di"]
-            df["ADX_minus_di"] = adx_df["ADX_minus_di"]
-            df[ind_string] = adx_df["ADX"]
-            df[f"{ind_string}_plus_di"] = adx_df["ADX_plus_di"]
-            df[f"{ind_string}_minus_di"] = adx_df["ADX_minus_di"]
+            adx_df = adx(frame, period)
+            if assign_generic:
+                frame["ADX"] = adx_df["ADX"]
+                frame["ADX_plus_di"] = adx_df["ADX_plus_di"]
+                frame["ADX_minus_di"] = adx_df["ADX_minus_di"]
+            frame[ind_string] = adx_df["ADX"]
+            frame[f"{ind_string}_plus_di"] = adx_df["ADX_plus_di"]
+            frame[f"{ind_string}_minus_di"] = adx_df["ADX_minus_di"]
 
-        # Calculate Supertrend
         elif name == "Supertrend":
             period = int(parts[1])
             multiplier = float(parts[2])
-            st_df = supertrend(df, period=period, multiplier=multiplier)
-            df[ind_string] = st_df["supertrend"]
+            st_df = supertrend(frame, period=period, multiplier=multiplier)
+            if assign_generic:
+                frame["supertrend_dir"] = st_df["supertrend_dir"]
+            frame[ind_string] = st_df["supertrend"]
 
-        # Calculate CPR
         elif name == "CPR":
-            narrow_pct = float(parts[1]) if len(parts) > 1 else 0.2
-            moderate_pct = float(parts[2]) if len(parts) > 2 else 0.5
-            # Optional timeframe: CPR_0.2_0.5_W → weekly, CPR_0.2_0.5_4H → 4-hour
-            tf = parts[3] if len(parts) > 3 else "D"
+            # Supported formats:
+            #   CPR_0.2_0.5       -> daily CPR with explicit thresholds
+            #   CPR_0.2_0.5_W     -> weekly CPR with explicit thresholds
+            #   CPR_5m            -> legacy builder id, use default thresholds on execution frame
+            if len(parts) > 1 and parts[1].endswith("m"):
+                narrow_pct = 0.2
+                moderate_pct = 0.5
+                tf = "D"
+            else:
+                narrow_pct = float(parts[1]) if len(parts) > 1 else 0.2
+                moderate_pct = float(parts[2]) if len(parts) > 2 else 0.5
+                tf = parts[3] if len(parts) > 3 else "D"
             tf_upper = tf.upper()
-            # Prefix for multi-timeframe: CPR_W_Pivot, CPR_4H_R1, etc.
             tf_prefix = f"CPR_{tf_upper}_" if tf_upper != "D" else "CPR_"
 
             if tf_upper in ("4H", "W", "M", "ME"):
-                df = cpr_timeframe(df, timeframe=tf_upper, narrow_pct=narrow_pct, moderate_pct=moderate_pct)
+                frame = cpr_timeframe(frame, timeframe=tf_upper, narrow_pct=narrow_pct, moderate_pct=moderate_pct)
             else:
-                df = cpr(df, narrow_pct=narrow_pct, moderate_pct=moderate_pct, wide_pct=moderate_pct)
+                frame = cpr(frame, narrow_pct=narrow_pct, moderate_pct=moderate_pct, wide_pct=moderate_pct)
 
-            df[f"{tf_prefix}Pivot"] = df["pivot"]
-            df[f"{tf_prefix}TC"] = df["tc"]
-            df[f"{tf_prefix}BC"] = df["bc"]
-            df[f"{tf_prefix}width_pct"] = df["cpr_width_pct"]
-            df[f"{tf_prefix}is_narrow"] = df["cpr_type"] == "narrow"
-            df[f"{tf_prefix}is_moderate"] = df["cpr_type"] == "moderate"
-            df[f"{tf_prefix}is_wide"] = df["cpr_type"] == "wide"
-            # Support & Resistance levels (full + half)
+            frame[f"{tf_prefix}Pivot"] = frame["pivot"]
+            frame[f"{tf_prefix}TC"] = frame["tc"]
+            frame[f"{tf_prefix}BC"] = frame["bc"]
+            frame[f"{tf_prefix}width_pct"] = frame["cpr_width_pct"]
+            frame[f"{tf_prefix}is_narrow"] = frame["cpr_type"] == "narrow"
+            frame[f"{tf_prefix}is_moderate"] = frame["cpr_type"] == "moderate"
+            frame[f"{tf_prefix}is_wide"] = frame["cpr_type"] == "wide"
             for lvl in [
                 "R0.5",
                 "R1",
@@ -696,30 +748,100 @@ def compute_dynamic_indicators(df: pd.DataFrame, ui_indicators: list) -> pd.Data
                 "S4.5",
                 "S5",
             ]:
-                df[f"{tf_prefix}{lvl}"] = df[lvl]
-            # Backward compat: keep CPR_ prefix columns for daily
+                frame[f"{tf_prefix}{lvl}"] = frame[lvl]
             if tf_upper == "D":
-                df["CPR_Pivot"] = df["pivot"]
-                df["CPR_TC"] = df["tc"]
-                df["CPR_BC"] = df["bc"]
-            df[ind_string] = df["pivot"]
+                frame["CPR_Pivot"] = frame["pivot"]
+                frame["CPR_TC"] = frame["tc"]
+                frame["CPR_BC"] = frame["bc"]
+            frame[ind_string] = frame["pivot"]
 
-        # Calculate ORB (Opening Range Breakout)
         elif name == "ORB":
-            # Parse: ORB_15min → window_minutes=15
             window_str = parts[1] if len(parts) > 1 else "15min"
             window_minutes = int(window_str.replace("min", ""))
-            df = orb(df, window_minutes=window_minutes)
-            df["ORB_Breakout_Up"] = df["ORB_is_breakout_up"]
-            df["ORB_Breakout_Down"] = df["ORB_is_breakout_down"]
-            df["ORB_Inside"] = df["ORB_is_inside"]
+            frame = orb(frame, window_minutes=window_minutes)
+            frame["ORB_Breakout_Up"] = frame["ORB_is_breakout_up"]
+            frame["ORB_Breakout_Down"] = frame["ORB_is_breakout_down"]
+            frame["ORB_Inside"] = frame["ORB_is_inside"]
 
-        # Current Candle & Previous Day — already computed above, just skip
         elif name in ("Current", "Previous"):
             pass
 
-        # Signal Candle — trade-context indicator, populated at runtime by engines
         elif name == "Signal":
             pass
 
-    return df
+    return frame
+
+
+def compute_dynamic_indicators(
+    df: pd.DataFrame,
+    ui_indicators: list,
+    default_timeframe_minutes: int = 5,
+    source_timeframe_minutes: int | None = None,
+) -> pd.DataFrame:
+    """
+    Compute indicators across one or more strategy timeframes and align them to the
+    execution timeframe using last-closed-candle semantics.
+    """
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    raw_df = df.copy().sort_index()
+    source_tf = source_timeframe_minutes or _infer_timeframe_minutes(raw_df) or default_timeframe_minutes
+    tf_spec = resolve_strategy_timeframe(ui_indicators, default=default_timeframe_minutes)
+    execution_tf = tf_spec.requested
+
+    if _is_intraday(raw_df) and execution_tf != source_tf:
+        execution_df = resample_ohlcv(
+            raw_df,
+            execution_tf,
+            source_timeframe_minutes=source_tf,
+            drop_incomplete=True,
+        )
+    else:
+        execution_df = raw_df.copy()
+
+    result = _attach_execution_context(execution_df)
+
+    grouped_indicators: dict[int | None, list[str]] = defaultdict(list)
+    for ind_string in ui_indicators or []:
+        grouped_indicators[_extract_indicator_timeframe(ind_string)].append(ind_string)
+
+    execution_group = grouped_indicators.pop(execution_tf, [])
+    execution_group.extend(grouped_indicators.pop(None, []))
+    if execution_group:
+        execution_with_indicators = _compute_indicator_columns(result.copy(), execution_group, assign_generic=True)
+        for column in execution_with_indicators.columns:
+            result[column] = execution_with_indicators[column]
+
+    for frame_tf, indicators in grouped_indicators.items():
+        if frame_tf is None:
+            continue
+        if _is_intraday(raw_df) and frame_tf != source_tf:
+            frame_df = resample_ohlcv(
+                raw_df,
+                frame_tf,
+                source_timeframe_minutes=source_tf,
+                drop_incomplete=True,
+            )
+        else:
+            frame_df = raw_df.copy()
+
+        if frame_df.empty:
+            continue
+
+        base_columns = set(frame_df.columns)
+        frame_with_indicators = _compute_indicator_columns(frame_df, indicators, assign_generic=False)
+        added_columns = [col for col in frame_with_indicators.columns if col not in base_columns]
+        if not added_columns:
+            continue
+
+        aligned = _align_to_execution_index(
+            frame_with_indicators[added_columns],
+            frame_tf,
+            result.index,
+            execution_tf,
+        )
+        for column in aligned.columns:
+            result[column] = aligned[column]
+
+    return result

@@ -66,7 +66,6 @@ from engine.timeframes import (
     MAX_INTRADAY_HISTORY_DAYS,
     derived_timeframe_warning,
     describe_timeframe,
-    resample_ohlcv,
     resolve_strategy_timeframe,
 )
 
@@ -1947,11 +1946,9 @@ def _fetch_data(
     instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5"
 ) -> pd.DataFrame:
     """
-    Fetches OHLCV candles from Dhan API at specified interval.
-    - Native Dhan intervals are fetched directly.
-    - Derived intervals (e.g. 3m, 30m) fetch the closest exact lower native interval
-      and are resampled locally.
-    - For date ranges > 5 years: automatically falls back to daily candles.
+    Fetch OHLCV candles from Dhan at the requested raw interval.
+    Mixed/derived strategy timeframes are handled later inside indicator computation;
+    this function should return the raw candles exactly as fetched from Dhan.
     """
     inst_info = INSTRUMENT_MAP.get(instrument)
     if not inst_info:
@@ -1966,9 +1963,7 @@ def _fetch_data(
 
     # Auto-detect: if range exceeds Dhan intraday history window, use daily candles.
     use_daily = day_span > INTRADAY_MAX_DAYS
-    requested_interval = 5 if str(candle_interval).upper() == "D" else int(candle_interval)
-    tf_spec = resolve_strategy_timeframe([f"Current_Candle_{requested_interval}m"])
-    effective_interval = "D" if use_daily else str(tf_spec.fetch)
+    effective_interval = "D" if use_daily else str(candle_interval)
 
     if use_daily:
         print(
@@ -1978,7 +1973,7 @@ def _fetch_data(
 
     print(
         f"[DATA] Instrument={instrument} ({inst_info['name']}), DhanID={inst_info['dhan_id']}, "
-        f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else describe_timeframe(tf_spec)}, "
+        f"Segment={inst_info['dhan_seg']}, Interval={'Daily' if use_daily else f'{effective_interval}m raw'}, "
         f"From={from_date}, To={to_date}, Span={day_span}d"
     )
 
@@ -2068,16 +2063,8 @@ def _fetch_data(
     # Remove duplicates (overlapping chunk boundaries)
     df = df[~df.index.duplicated(keep="first")]
 
-    if tf_spec.derived:
-        before = len(df)
-        df = resample_ohlcv(df, tf_spec.requested)
-        print(
-            f"[DATA] Resampled {tf_spec.fetch}m → {tf_spec.requested}m: "
-            f"{before} raw candles → {len(df)} derived candles"
-        )
-
     print(
-        f"[DATA] ✅ Total: {len(df)} {'daily' if use_daily else describe_timeframe(tf_spec)} candles across {chunk_num} chunks, "
+        f"[DATA] ✅ Total: {len(df)} {'daily' if use_daily else f'{effective_interval}m raw'} candles across {chunk_num} chunks, "
         f"{df.index[0]} → {df.index[-1]}"
     )
     return df
@@ -2283,7 +2270,7 @@ async def api_run_backtest(payload: StrategyPayload):
             tf_spec = resolve_strategy_timeframe(payload.indicators)
         except ValueError as tf_err:
             return {"status": "error", "message": str(tf_err)}
-        candle_interval = str(tf_spec.requested)
+        candle_interval = str(tf_spec.fetch)
 
         print(f"\n{'=' * 60}")
         print(f"[BACKTEST] Run: {payload.run_name}")
@@ -2346,6 +2333,8 @@ async def api_run_backtest(payload: StrategyPayload):
 
         # 2. Build strategy_config
         strategy_config = payload.model_dump()
+        strategy_config["timeframe_minutes"] = tf_spec.requested
+        strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
         option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
         if option_pricing["historical_legs"] > 0:
             print(
@@ -2451,6 +2440,7 @@ async def api_run_backtest(payload: StrategyPayload):
             "requested_minutes": tf_spec.requested,
             "fetch_minutes": tf_spec.fetch,
             "derived": tf_spec.derived,
+            "all_frames": list(tf_spec.all_frames),
         }
 
         return results
@@ -2497,6 +2487,7 @@ async def live_start(req: LiveStartRequest):
             "poll_interval": 10,
         }
     strategy_dict["timeframe_minutes"] = tf_spec.requested
+    strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
 
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
 
@@ -2772,6 +2763,7 @@ async def _paper_start_impl(payload: StrategyPayload):
         "max_daily_loss": payload.max_daily_loss,
         "combined_sqoff_time": payload.combined_sqoff_time,
         "timeframe_minutes": tf_spec.requested,
+        "fetch_timeframe_minutes": tf_spec.fetch,
     }
 
     # Generate run_id from strategy name

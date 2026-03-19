@@ -7061,11 +7061,26 @@ function getSelectedStrategyTimeframes(indicators) {
   return Array.from(frames).sort((a, b) => a - b);
 }
 
+let lastMixedTimeframeHint = '';
+
 function ensureSingleStrategyTimeframe(payload) {
   const frames = getSelectedStrategyTimeframes(payload.indicators);
-  if (frames.length <= 1) return true;
-  toast(`Mixed indicator timeframes are not supported yet: ${frames.map(f => `${f}m`).join(', ')}`, 'warn', 7000);
-  return false;
+  if (frames.length <= 1) {
+    lastMixedTimeframeHint = '';
+    return true;
+  }
+  const hintKey = frames.join(',');
+  if (lastMixedTimeframeHint !== hintKey) {
+    const executionFrame = `${frames[0]}m`;
+    const higherFrames = frames.slice(1).map(f => `${f}m`).join(', ');
+    toast(
+      `Mixed timeframes enabled: ${executionFrame} execution with ${higherFrames} higher-timeframe indicators.`,
+      'info',
+      6000
+    );
+    lastMixedTimeframeHint = hintKey;
+  }
+  return true;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -7097,7 +7112,7 @@ async function runBacktest() {
 
   let countdown = 10;
   const emptyDiv = document.getElementById('results-empty');
-  emptyDiv.innerHTML = '<div style="text-align:center;"><div style="font-size:48px;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace;" id="bt-cd">' + countdown + '</div><div style="color:var(--muted);margin-top:8px;">Fetching 5-min candles & running backtest...</div><div style="margin-top:12px;"><div style="width:200px;height:4px;background:var(--card2);border-radius:2px;margin:0 auto;overflow:hidden;"><div id="bt-pr" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 1s linear;"></div></div></div></div>';
+  emptyDiv.innerHTML = '<div style="text-align:center;"><div style="font-size:48px;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace;" id="bt-cd">' + countdown + '</div><div style="color:var(--muted);margin-top:8px;">Fetching candles & running backtest...</div><div style="margin-top:12px;"><div style="width:200px;height:4px;background:var(--card2);border-radius:2px;margin:0 auto;overflow:hidden;"><div id="bt-pr" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 1s linear;"></div></div></div></div>';
   const cdI = setInterval(() => {
     countdown--;
     const el = document.getElementById('bt-cd');

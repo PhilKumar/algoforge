@@ -518,19 +518,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     strike_step = get_strike_step(instrument)
     option_history_map = sc.get("_option_history", {}) or {}
 
-    df_raw = df_raw.copy()
-    df_raw["Day_of_Week"] = df_raw.index.dayofweek
-    df_raw["Day_Name"] = df_raw.index.strftime("%A")
-    df_raw["Hour"] = df_raw.index.hour
-    df_raw["Minute"] = df_raw.index.minute
-    df_raw["Time_HHMM"] = df_raw.index.strftime("%H:%M")
-    df_raw["Is_Monday"] = (df_raw.index.dayofweek == 0).astype(float)
-    df_raw["Is_Tuesday"] = (df_raw.index.dayofweek == 1).astype(float)
-    df_raw["Is_Wednesday"] = (df_raw.index.dayofweek == 2).astype(float)
-    df_raw["Is_Thursday"] = (df_raw.index.dayofweek == 3).astype(float)
-    df_raw["Is_Friday"] = (df_raw.index.dayofweek == 4).astype(float)
-
-    df = compute_dynamic_indicators(df_raw, indicators)
+    df = compute_dynamic_indicators(
+        df_raw.copy(),
+        indicators,
+        default_timeframe_minutes=int(sc.get("timeframe_minutes", 5) or 5),
+        source_timeframe_minutes=int(sc.get("fetch_timeframe_minutes", 0) or 0) or None,
+    )
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
     entry_earliest = time(9, 20)
 
