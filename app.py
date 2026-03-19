@@ -4617,12 +4617,13 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
 
 
 @app.get("/api/option-ltp")
-async def get_option_ltp(underlying: str, strike: int, expiry: str, option_type: str):
+async def get_option_ltp(request: Request, underlying: str, strike: int, expiry: str, option_type: str):
     """Get live LTP for a specific option contract."""
-    if not dhan._is_configured():
+    _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
         return {"status": "error", "message": "Broker not configured"}
     try:
-        ltp = dhan.get_option_ltp(underlying, strike, expiry, option_type)
+        ltp = broker_client.get_option_ltp(underlying, strike, expiry, option_type)
         return {"status": "ok", "ltp": ltp}
     except Exception as e:
         return {"status": "error", "message": str(e)}
