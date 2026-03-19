@@ -4,9 +4,13 @@ set -euo pipefail
 APP_DIR="/home/ec2-user/algoforge"
 VENV="$APP_DIR/venv"
 LOG_TAG="[ROLLOUT]"
+LOCK_FILE="$HOME/.algoforge-deploy.lock"
 
 log() { echo "$LOG_TAG $(date '+%H:%M:%S') $*"; }
 die() { log "ERROR: $*"; exit 1; }
+
+exec 9>"$LOCK_FILE"
+flock 9
 
 [[ -d "$APP_DIR" ]] || die "App dir not found: $APP_DIR"
 [[ -x "$VENV/bin/python" ]] || die "Virtualenv python not found: $VENV/bin/python"

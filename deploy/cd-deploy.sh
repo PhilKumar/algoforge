@@ -21,12 +21,19 @@ HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=45          # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
+LOCK_FILE="$HOME/.algoforge-deploy.lock"
 
 LOG_TAG="[DEPLOY]"
 
 # ── Helpers ───────────────────────────────────────────────────
 log()  { echo "$LOG_TAG $(date '+%H:%M:%S') $*"; }
 die()  { log "ERROR: $*"; exit 1; }
+
+# Serialize all deploy/cutover activity on the server. This prevents a manual
+# rollout and the GitHub Actions deploy workflow from swapping/stopping ports
+# at the same time.
+exec 9>"$LOCK_FILE"
+flock 9
 
 health_check() {
     local port=$1
