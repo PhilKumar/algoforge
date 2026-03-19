@@ -172,6 +172,58 @@ class LiveEngine:
                 f"Strategy TP: ₹{self._tp_rupees:,.0f}" if self._tp_rupees > 0 else f"Strategy TP: {self._tp_pct}%",
             )
 
+    def _position_unrealized_pnl(self, position: dict, current_premium: float | None = None) -> float:
+        premium = float(
+            current_premium
+            if current_premium is not None
+            else position.get("current_premium", position.get("entry_premium", 0.0)) or 0.0
+        )
+        direction = 1 if position.get("transaction_type") == "BUY" else -1
+        quantity = int(position.get("quantity") or (position.get("lots", 0) * position.get("lot_size", 0)))
+        return (premium - float(position.get("entry_premium", 0.0))) * direction * quantity
+
+    def _portfolio_unrealized_pnl(self) -> float:
+        return sum(
+            self._position_unrealized_pnl(position) for position in self.positions if position.get("status") != "closed"
+        )
+
+    def _set_strategy_thresholds(self, positions: List[dict]):
+        entry_notional = sum(
+            float(position.get("entry_premium", 0.0))
+            * int(position.get("quantity") or (position.get("lots", 0) * position.get("lot_size", 0)))
+            for position in positions
+        )
+        self.trade_entry_prem = round(entry_notional, 2)
+
+        if self._sl_rupees > 0:
+            self.strat_sl_val = self._sl_rupees
+        elif self._sl_pct > 0:
+            self.strat_sl_val = entry_notional * self._sl_pct / 100.0
+        else:
+            self.strat_sl_val = 0.0
+
+        if self._tp_rupees > 0:
+            self.strat_tp_val = self._tp_rupees
+        elif self._tp_pct > 0:
+            self.strat_tp_val = entry_notional * self._tp_pct / 100.0
+        else:
+            self.strat_tp_val = 0.0
+
+    def _check_strategy_exit(self) -> Optional[str]:
+        if not self.positions:
+            return None
+        if self.strat_sl_val <= 0 and self.strat_tp_val <= 0:
+            return None
+
+        portfolio_pnl = self._portfolio_unrealized_pnl()
+        if self.strat_sl_val > 0 and portfolio_pnl <= -self.strat_sl_val:
+            self.log_event("exit", f"Strategy SL hit: PnL ₹{portfolio_pnl:,.0f} <= -₹{self.strat_sl_val:,.0f}")
+            return "STRATEGY_SL"
+        if self.strat_tp_val > 0 and portfolio_pnl >= self.strat_tp_val:
+            self.log_event("exit", f"Strategy TP hit: PnL ₹{portfolio_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
+            return "STRATEGY_TP"
+        return None
+
     # ── STATE PERSISTENCE ─────────────────────────────────────
     def _save_state(self):
         """Persist full engine config + trading state to disk so it survives restarts."""
@@ -575,12 +627,21 @@ class LiveEngine:
                                 (current_premium - pos["entry_premium"]) * direction * pos["lots"] * pos["lot_size"], 2
                             )
 
-                        # Check exit conditions
-                        latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                        if latest_row is not None:
-                            exit_reason = self._check_exit_conditions(pos, latest_row, pos["current_premium"])
-                            if exit_reason:
-                                await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
+                    latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                    if latest_row is not None:
+                        strategy_exit = self._check_strategy_exit()
+                        if strategy_exit:
+                            for pos in list(self.positions):
+                                if pos.get("status") == "closed":
+                                    continue
+                                await self._exit_position(pos, strategy_exit, pos.get("current_premium", 0.0), callback)
+                        else:
+                            for pos in list(self.positions):
+                                if pos.get("status") == "closed":
+                                    continue
+                                exit_reason = self._check_exit_conditions(pos, latest_row, pos["current_premium"])
+                                if exit_reason:
+                                    await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
 
                 # ── Wait for candle close event ──
                 try:
@@ -1026,10 +1087,20 @@ class LiveEngine:
                 (current_premium - pos["entry_premium"]) * direction * pos["lots"] * pos["lot_size"], 2
             )
 
-            # Check exit conditions
-            exit_reason = self._check_exit_conditions(pos, latest_row, current_premium)
-            if exit_reason:
-                await self._exit_position(pos, exit_reason, current_premium, callback)
+        strategy_exit = self._check_strategy_exit()
+        if strategy_exit:
+            for pos in list(self.positions):
+                if pos.get("status") == "closed":
+                    continue
+                await self._exit_position(pos, strategy_exit, pos.get("current_premium", 0.0), callback)
+        else:
+            for pos in list(self.positions):
+                if pos.get("status") == "closed":
+                    continue
+                current_premium = pos.get("current_premium", 0.0)
+                exit_reason = self._check_exit_conditions(pos, latest_row, current_premium)
+                if exit_reason:
+                    await self._exit_position(pos, exit_reason, current_premium, callback)
 
         # ── Check entry conditions (REST mode — same Quantman Way logic) ──
         max_trades = self.strategy.get("max_trades_per_day", 1)
@@ -1440,25 +1511,7 @@ class LiveEngine:
             self.in_trade = True
             self.trades_today += 1
 
-            # Compute strategy-level SL/TP based on first leg entry
-            pos0 = entered_positions[0]
-            ep0 = pos0["entry_premium"]
-            qty0 = pos0["lots"] * pos0["lot_size"]
-            self.trade_entry_prem = ep0
-
-            if self._sl_rupees > 0:
-                self.strat_sl_val = self._sl_rupees
-            elif self._sl_pct > 0:
-                self.strat_sl_val = ep0 * qty0 * self._sl_pct / 100
-            else:
-                self.strat_sl_val = 0
-
-            if self._tp_rupees > 0:
-                self.strat_tp_val = self._tp_rupees
-            elif self._tp_pct > 0:
-                self.strat_tp_val = ep0 * qty0 * self._tp_pct / 100
-            else:
-                self.strat_tp_val = 0
+            self._set_strategy_thresholds(entered_positions)
 
             if self.strat_sl_val > 0:
                 self.log_event("info", f"🛡️ Strategy SL: ₹{self.strat_sl_val:,.0f}")
@@ -1617,20 +1670,6 @@ class LiveEngine:
             pos["peak_premium"] = max(pos.get("peak_premium", pos["entry_premium"]), current_premium)
         else:
             pos["peak_premium"] = min(pos.get("peak_premium", pos["entry_premium"]), current_premium)
-
-        # ── Strategy-level SL/TP (₹ amounts) — checked FIRST ──
-        if self.strat_sl_val > 0 or self.strat_tp_val > 0:
-            ep = pos["entry_premium"]
-            qty = pos["lots"] * pos["lot_size"]
-            direction = 1 if pos["transaction_type"] == "BUY" else -1
-            cur_pnl = (current_premium - ep) * direction * qty
-
-            if self.strat_sl_val > 0 and cur_pnl <= -self.strat_sl_val:
-                self.log_event("exit", f"Strategy SL hit: PnL ₹{cur_pnl:,.0f} <= -₹{self.strat_sl_val:,.0f}")
-                return "STRATEGY_SL"
-            if self.strat_tp_val > 0 and cur_pnl >= self.strat_tp_val:
-                self.log_event("exit", f"Strategy TP hit: PnL ₹{cur_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
-                return "STRATEGY_TP"
 
         # Trailing stop loss
         trail_pct = pos.get("trail_pct", 0)

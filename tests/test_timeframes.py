@@ -237,5 +237,89 @@ class PaperTouchExitTests(unittest.TestCase):
         self.assertEqual(reason, "TOUCH_EXIT")
 
 
+class PortfolioStrategyExitTests(unittest.TestCase):
+    def test_live_strategy_exit_uses_combined_open_position_pnl(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="portfolio-live")
+        engine.strat_sl_val = 90.0
+        engine.positions = [
+            {
+                "status": "open",
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 50.0,
+                "lots": 1,
+                "lot_size": 1,
+                "quantity": 1,
+            },
+            {
+                "status": "open",
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 50.0,
+                "lots": 1,
+                "lot_size": 1,
+                "quantity": 1,
+            },
+        ]
+
+        self.assertEqual(engine._check_strategy_exit(), "STRATEGY_SL")
+
+    def test_live_strategy_thresholds_use_combined_entry_notional(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="portfolio-live")
+        engine._sl_pct = 10.0
+        engine._tp_pct = 20.0
+        engine._set_strategy_thresholds(
+            [
+                {"entry_premium": 100.0, "lots": 1, "lot_size": 50, "quantity": 50},
+                {"entry_premium": 120.0, "lots": 1, "lot_size": 50, "quantity": 50},
+            ]
+        )
+
+        self.assertEqual(engine.trade_entry_prem, 11000.0)
+        self.assertEqual(engine.strat_sl_val, 1100.0)
+        self.assertEqual(engine.strat_tp_val, 2200.0)
+
+    def test_paper_strategy_exit_uses_combined_open_position_pnl(self):
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper")
+        engine.strat_tp_val = 90.0
+        engine.positions = [
+            {
+                "status": "open",
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 145.0,
+                "lots": 1,
+                "lot_size": 1,
+            },
+            {
+                "status": "open",
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 145.0,
+                "lots": 1,
+                "lot_size": 1,
+            },
+        ]
+
+        self.assertEqual(engine._check_strategy_exit(), "STRATEGY_TP")
+
+    def test_paper_strategy_close_uses_actual_exit_premium(self):
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper")
+        engine.current_time = pd.Timestamp("2026-03-19 09:25").to_pydatetime()
+        position = {
+            "status": "open",
+            "transaction_type": "BUY",
+            "entry_premium": 100.0,
+            "lots": 1,
+            "lot_size": 1,
+            "leg_num": 1,
+        }
+        engine.positions = [position]
+
+        engine._close_position(position, "STRATEGY_TP", 110.0)
+
+        self.assertEqual(engine.closed_trades[-1]["pnl"], 10.0)
+
+
 if __name__ == "__main__":
     unittest.main()

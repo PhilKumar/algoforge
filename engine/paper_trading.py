@@ -149,6 +149,9 @@ class PaperTradingEngine:
                 "closed_trades": self.closed_trades,
                 "trades_today": self.trades_today,
                 "daily_pnl": self.daily_pnl,
+                "strat_sl_val": self.strat_sl_val,
+                "strat_tp_val": self.strat_tp_val,
+                "trade_entry_prem": self.trade_entry_prem,
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
                 "current_candle": self.current_candle,
@@ -241,6 +244,9 @@ class PaperTradingEngine:
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
             self.daily_pnl = state.get("daily_pnl", 0.0)
+            self.strat_sl_val = state.get("strat_sl_val", 0.0)
+            self.strat_tp_val = state.get("strat_tp_val", 0.0)
+            self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
             self.current_spot = state.get("current_spot", 0.0)
             self.current_candle = state.get("current_candle", {})
             self.current_indicators = state.get("current_indicators", {})
@@ -305,6 +311,57 @@ class PaperTradingEngine:
             self.log_event("info", f"Strategy SL: ₹{sl_rupees:,.0f}" if sl_rupees > 0 else f"Strategy SL: {sl_pct}%")
         if tp_rupees > 0 or tp_pct > 0:
             self.log_event("info", f"Strategy TP: ₹{tp_rupees:,.0f}" if tp_rupees > 0 else f"Strategy TP: {tp_pct}%")
+
+    def _position_unrealized_pnl(self, position: dict, current_premium: float | None = None) -> float:
+        premium = float(
+            current_premium
+            if current_premium is not None
+            else position.get("current_premium", position.get("entry_premium", 0.0)) or 0.0
+        )
+        direction = 1 if position.get("transaction_type") == "BUY" else -1
+        quantity = int(position.get("lots", 0) * position.get("lot_size", 0))
+        return (premium - float(position.get("entry_premium", 0.0))) * direction * quantity
+
+    def _portfolio_unrealized_pnl(self) -> float:
+        return sum(
+            self._position_unrealized_pnl(position) for position in self.positions if position.get("status") != "closed"
+        )
+
+    def _set_strategy_thresholds(self, positions: list[dict]):
+        entry_notional = sum(
+            float(position.get("entry_premium", 0.0)) * int(position.get("lots", 0) * position.get("lot_size", 0))
+            for position in positions
+        )
+        self.trade_entry_prem = round(entry_notional, 2)
+
+        if self._sl_rupees > 0:
+            self.strat_sl_val = self._sl_rupees
+        elif self._sl_pct > 0:
+            self.strat_sl_val = entry_notional * self._sl_pct / 100.0
+        else:
+            self.strat_sl_val = 0.0
+
+        if self._tp_rupees > 0:
+            self.strat_tp_val = self._tp_rupees
+        elif self._tp_pct > 0:
+            self.strat_tp_val = entry_notional * self._tp_pct / 100.0
+        else:
+            self.strat_tp_val = 0.0
+
+    def _check_strategy_exit(self) -> Optional[str]:
+        if not self.positions:
+            return None
+        if self.strat_sl_val <= 0 and self.strat_tp_val <= 0:
+            return None
+
+        portfolio_pnl = self._portfolio_unrealized_pnl()
+        if self.strat_sl_val > 0 and portfolio_pnl <= -self.strat_sl_val:
+            self.log_event("exit", f"Strategy SL hit: PnL ₹{portfolio_pnl:,.0f} <= -₹{self.strat_sl_val:,.0f}")
+            return "STRATEGY_SL"
+        if self.strat_tp_val > 0 and portfolio_pnl >= self.strat_tp_val:
+            self.log_event("exit", f"Strategy TP hit: PnL ₹{portfolio_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
+            return "STRATEGY_TP"
+        return None
 
     def log_event(self, event_type: str, message: str, data: dict = None):
         """Log an event with timestamp"""
@@ -560,14 +617,23 @@ class PaperTradingEngine:
                                 * position["lot_size"]
                             )
 
-                        # Check exit conditions against current row (last known)
-                        latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                        if latest_row is not None:
-                            exit_triggered = self._check_exit_conditions(
-                                position, latest_row, position["current_premium"]
-                            )
-                            if exit_triggered:
-                                self._close_position(position, exit_triggered, position["current_premium"])
+                    latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                    if latest_row is not None:
+                        strategy_exit = self._check_strategy_exit()
+                        if strategy_exit:
+                            for position in list(self.positions):
+                                if position.get("status") == "closed":
+                                    continue
+                                self._close_position(position, strategy_exit, position.get("current_premium", 0.0))
+                        else:
+                            for position in list(self.positions):
+                                if position.get("status") == "closed":
+                                    continue
+                                exit_triggered = self._check_exit_conditions(
+                                    position, latest_row, position["current_premium"]
+                                )
+                                if exit_triggered:
+                                    self._close_position(position, exit_triggered, position["current_premium"])
 
                 # ── Execute pending entry only after the next candle boundary ──
                 if self._entry_signal_pending and not self.in_trade and self._pending_entry_is_ready(_now_ist()):
@@ -911,12 +977,20 @@ class PaperTradingEngine:
                 (current_premium - position["entry_premium"]) * direction * position["lots"] * position["lot_size"]
             )
 
-            # Check exit conditions
-            exit_triggered = self._check_exit_conditions(position, latest_row, current_premium)
-
-            if exit_triggered:
-                reason = exit_triggered
-                self._close_position(position, reason, current_premium)
+        strategy_exit = self._check_strategy_exit()
+        if strategy_exit:
+            for position in list(self.positions):
+                if position.get("status") == "closed":
+                    continue
+                self._close_position(position, strategy_exit, position.get("current_premium", 0.0))
+        else:
+            for position in list(self.positions):
+                if position.get("status") == "closed":
+                    continue
+                current_premium = position.get("current_premium", 0.0)
+                exit_triggered = self._check_exit_conditions(position, latest_row, current_premium)
+                if exit_triggered:
+                    self._close_position(position, exit_triggered, current_premium)
 
         # Check entry conditions (if not in trade)
         max_trades = self.strategy.get("max_trades_per_day", 1)
@@ -1095,26 +1169,12 @@ class PaperTradingEngine:
             return position.get("current_premium", position["entry_premium"])
 
     def _check_exit_conditions(self, position: dict, row: pd.Series, current_premium: float) -> Optional[str]:
-        """Check if any exit condition is met (strategy-level + leg-level + signal)"""
+        """Check if any leg-level or signal-based exit condition is met."""
         # Update peak premium for trailing SL
         if position["transaction_type"] == "BUY":
             position["peak_premium"] = max(position.get("peak_premium", position["entry_premium"]), current_premium)
         else:
             position["peak_premium"] = min(position.get("peak_premium", position["entry_premium"]), current_premium)
-
-        # ── Strategy-level SL/TP (₹ amounts) — checked FIRST ──
-        if self.strat_sl_val > 0 or self.strat_tp_val > 0:
-            ep = position["entry_premium"]
-            qty = position["lots"] * position["lot_size"]
-            direction = 1 if position["transaction_type"] == "BUY" else -1
-            cur_pnl = (current_premium - ep) * direction * qty
-
-            if self.strat_sl_val > 0 and cur_pnl <= -self.strat_sl_val:
-                self.log_event("exit", f"Strategy SL hit: PnL ₹{cur_pnl:,.0f} <= -₹{self.strat_sl_val:,.0f}")
-                return "STRATEGY_SL"
-            if self.strat_tp_val > 0 and cur_pnl >= self.strat_tp_val:
-                self.log_event("exit", f"Strategy TP hit: PnL ₹{cur_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
-                return "STRATEGY_TP"
 
         # Trailing stop loss check (takes priority over static SL)
         trail_pct = position.get("trail_pct", 0)
@@ -1336,30 +1396,13 @@ class PaperTradingEngine:
                 {"premium": entry_premium, "lots": leg_lots, "lot_size": lot_size, "strike": strike, "expiry": expiry},
             )
 
-            # Set strategy-level SL/TP based on entry premium
-            self.trade_entry_prem = entry_premium
-            qty = leg_lots * lot_size
-            if self._sl_rupees > 0:
-                self.strat_sl_val = self._sl_rupees
-            elif self._sl_pct > 0:
-                self.strat_sl_val = entry_premium * qty * self._sl_pct / 100
-            else:
-                self.strat_sl_val = 0
-
-            if self._tp_rupees > 0:
-                self.strat_tp_val = self._tp_rupees
-            elif self._tp_pct > 0:
-                self.strat_tp_val = entry_premium * qty * self._tp_pct / 100
-            else:
-                self.strat_tp_val = 0
-
-            if self.strat_sl_val > 0:
-                self.log_event("info", f"🛡️ Strategy SL: ₹{self.strat_sl_val:,.0f}")
-            if self.strat_tp_val > 0:
-                self.log_event("info", f"🎯 Strategy TP: ₹{self.strat_tp_val:,.0f}")
-
         self.in_trade = True
         self.trades_today += 1
+        self._set_strategy_thresholds(self.positions)
+        if self.strat_sl_val > 0:
+            self.log_event("info", f"🛡️ Strategy SL: ₹{self.strat_sl_val:,.0f}")
+        if self.strat_tp_val > 0:
+            self.log_event("info", f"🎯 Strategy TP: ₹{self.strat_tp_val:,.0f}")
         self._save_state()  # Persist after trade entry
 
     async def _find_premium_strike(
@@ -1475,7 +1518,7 @@ class PaperTradingEngine:
         return strike
 
     def _close_position(self, position: dict, reason: str, exit_premium: float):
-        """Close a position and calculate P&L. Cap at SL/TP level for strategy exits."""
+        """Close a position and calculate realized P&L from the actual exit premium."""
         position["status"] = "closed"
         position["exit_time"] = self.current_time
         position["exit_reason"] = reason
@@ -1483,16 +1526,7 @@ class PaperTradingEngine:
         direction = 1 if position["transaction_type"] == "BUY" else -1
         qty = position["lots"] * position["lot_size"]
         ep = position["entry_premium"]
-
-        # Cap PnL at exact strategy SL/TP level
-        if reason == "STRATEGY_TP" and self.strat_tp_val > 0:
-            pnl = round(self.strat_tp_val, 2)
-            exit_premium = round(ep + self.strat_tp_val / qty * direction, 2)
-        elif reason == "STRATEGY_SL" and self.strat_sl_val > 0:
-            pnl = -round(self.strat_sl_val, 2)
-            exit_premium = round(ep - self.strat_sl_val / qty * direction, 2)
-        else:
-            pnl = round((exit_premium - ep) * direction * qty, 2)
+        pnl = round((exit_premium - ep) * direction * qty, 2)
 
         position["exit_premium"] = exit_premium
         position["pnl"] = pnl
