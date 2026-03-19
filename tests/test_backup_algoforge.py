@@ -75,6 +75,55 @@ class BackupAlgoForgeTests(unittest.TestCase):
             self.assertIn("algoforge-backup/legacy/strategies.json", names)
             self.assertIn("algoforge-backup/legacy/journals/2026-03-19.json", names)
 
+    def test_backup_archive_allows_legacy_only_when_db_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "missing.db"
+            user_data_root = root / "user-data"
+            backup_root = root / "backups"
+
+            (root / "strategies.json").write_text('{"Demo": {"name": "Demo"}}', encoding="utf-8")
+            user_data_root.mkdir(parents=True, exist_ok=True)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "ALGOFORGE_DB": str(db_path),
+                    "ALGOFORGE_USER_DATA_ROOT": str(user_data_root),
+                    "ALGOFORGE_BACKUP_ROOT": str(backup_root),
+                    "ALGOFORGE_BACKUP_MIN_FREE_MB": "0",
+                }
+            )
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--output-dir",
+                    str(backup_root),
+                    "--include-legacy",
+                    "--legacy-root",
+                    str(root),
+                ],
+                cwd=str(REPO_ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            payload = json.loads(proc.stdout)
+            archive_path = Path(payload["archive"])
+            self.assertTrue(archive_path.exists())
+
+            with tarfile.open(archive_path, "r:gz") as tf:
+                names = set(tf.getnames())
+                manifest = json.loads(tf.extractfile("algoforge-backup/manifest.json").read().decode("utf-8"))
+
+            self.assertNotIn("algoforge-backup/algoforge.db", names)
+            self.assertIn("algoforge-backup/legacy/strategies.json", names)
+            self.assertFalse(manifest["db_present"])
+
 
 if __name__ == "__main__":
     unittest.main()

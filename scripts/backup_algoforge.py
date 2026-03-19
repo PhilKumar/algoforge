@@ -84,9 +84,9 @@ def _tree_items(path: Path) -> int:
     return sum(1 for _ in path.rglob("*"))
 
 
-def _snapshot_db(src_path: Path, dest_path: Path) -> None:
+def _snapshot_db(src_path: Path, dest_path: Path) -> bool:
     if not src_path.exists():
-        raise FileNotFoundError(f"Database not found: {src_path}")
+        return False
     src = sqlite3.connect(src_path)
     try:
         dest = sqlite3.connect(dest_path)
@@ -96,6 +96,7 @@ def _snapshot_db(src_path: Path, dest_path: Path) -> None:
             dest.close()
     finally:
         src.close()
+    return True
 
 
 def _discover_legacy_sources(root: Path) -> list[tuple[Path, str]]:
@@ -134,6 +135,7 @@ def _ensure_free_space(output_dir: Path, required_bytes: int, min_free_mb: int) 
 def _write_manifest(
     path: Path,
     db_src: Path,
+    db_present: bool,
     user_data_src: Path,
     archive_name: str,
     user_data_items: int,
@@ -144,6 +146,7 @@ def _write_manifest(
         "created_at_utc": _now_utc().isoformat(),
         "hostname": socket.gethostname(),
         "db_source": str(db_src),
+        "db_present": db_present,
         "user_data_source": str(user_data_src),
         "archive_name": archive_name,
         "user_data_items": user_data_items,
@@ -156,12 +159,14 @@ def _write_manifest(
 def _build_archive(
     archive_path: Path,
     db_snapshot_path: Path,
+    db_present: bool,
     manifest_path: Path,
     user_data_src: Path,
     legacy_sources: list[tuple[Path, str]],
 ) -> None:
     with tarfile.open(archive_path, "w:gz") as tf:
-        tf.add(db_snapshot_path, arcname="algoforge-backup/algoforge.db")
+        if db_present:
+            tf.add(db_snapshot_path, arcname="algoforge-backup/algoforge.db")
         tf.add(manifest_path, arcname="algoforge-backup/manifest.json")
 
         if user_data_src.exists():
@@ -238,17 +243,18 @@ def main() -> int:
         tmp_dir = Path(tmp_root)
         db_dest = tmp_dir / "algoforge.db"
         manifest_path = tmp_dir / "manifest.json"
-        _snapshot_db(db_src, db_dest)
+        db_present = _snapshot_db(db_src, db_dest)
         _write_manifest(
             manifest_path,
             db_src,
+            db_present,
             user_data_src,
             archive_path.name,
             _tree_items(user_data_src),
             legacy_sources,
             disk_budget,
         )
-        _build_archive(archive_path, db_dest, manifest_path, user_data_src, legacy_sources)
+        _build_archive(archive_path, db_dest, db_present, manifest_path, user_data_src, legacy_sources)
 
     _update_latest_symlink(output_dir, archive_path)
     removed = _prune_old_archives(output_dir, args.retention_days)
