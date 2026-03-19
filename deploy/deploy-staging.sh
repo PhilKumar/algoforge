@@ -26,6 +26,9 @@ source "$STAGING_DIR/venv/bin/activate"
 pip install -q --disable-pip-version-check -r "$STAGING_DIR/requirements.txt"
 
 log "Running migration..."
+set -a
+source "$STAGING_DIR/.env.staging"
+set +a
 python3 "$STAGING_DIR/scripts/migrate_to_sqlite.py"
 
 log "Restarting $SERVICE_NAME..."

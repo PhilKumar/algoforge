@@ -66,6 +66,9 @@ sudo nginx -t
 sudo nginx -s reload
 
 log "Running SQLite migration in staging worktree..."
+set -a
+source "$STAGING_DIR/.env.staging"
+set +a
 python3 "$STAGING_DIR/scripts/migrate_to_sqlite.py"
 
 log "Starting staging service..."
