@@ -952,6 +952,7 @@
     background: rgba(255,255,255,0.85) !important;
     border-color: rgba(0,0,0,0.1) !important;
     color: #047857 !important;
+    font-weight: 800 !important;
   }
   [data-theme="light"] #scalp-margin { color: #b45309 !important; }
   /* Strike stepper buttons */
@@ -1015,9 +1016,11 @@
     color: var(--text);
     scrollbar-color: rgba(0,0,0,0.15) transparent;
   }
+  [data-theme="light"] #scalp-event-log span[style*="color:var("],
+  [data-theme="light"] #scalp-event-log span[style*="color: var("] { font-weight: 700; }
   /* Session P&L in status bar */
-  [data-theme="light"] #scalp-session-pnl { color: var(--muted); }
-  [data-theme="light"] #scalp-status-label { color: var(--muted); }
+  [data-theme="light"] #scalp-session-pnl { color: var(--muted); font-weight: 800; }
+  [data-theme="light"] #scalp-status-label { color: var(--muted); font-weight: 700; }
   [data-theme="light"] .scalp-toggle {
     background: rgba(255,255,255,0.96);
     border-color: rgba(15,23,42,0.08);
@@ -1084,6 +1087,28 @@
   [data-theme="light"] .text-pos, [data-theme="light"] .positive { color: #047857 !important; }
   [data-theme="light"] .text-neg, [data-theme="light"] .negative { color: #be123c !important; }
   [data-theme="light"] .text-warn { color: #b45309 !important; }
+  [data-theme="light"] .text-pos,
+  [data-theme="light"] .positive,
+  [data-theme="light"] .text-neg,
+  [data-theme="light"] .negative,
+  [data-theme="light"] .text-warn,
+  [data-theme="light"] .text-accent,
+  [data-theme="light"] [style*="color: var(--success)"],
+  [data-theme="light"] [style*="color:var(--success)"],
+  [data-theme="light"] [style*="color: var(--green)"],
+  [data-theme="light"] [style*="color:var(--green)"],
+  [data-theme="light"] [style*="color: var(--danger)"],
+  [data-theme="light"] [style*="color:var(--danger)"],
+  [data-theme="light"] [style*="color: var(--red)"],
+  [data-theme="light"] [style*="color:var(--red)"],
+  [data-theme="light"] [style*="color: var(--warn)"],
+  [data-theme="light"] [style*="color:var(--warn)"],
+  [data-theme="light"] [style*="color: var(--accent)"],
+  [data-theme="light"] [style*="color:var(--accent)"],
+  [data-theme="light"] [style*="color: var(--accent2)"],
+  [data-theme="light"] [style*="color:var(--accent2)"] {
+    font-weight: 700;
+  }
   /* ── Premium Light: Active Trade Row Glow ── */
   [data-theme="light"] #scalp-active-body tr {
     border-bottom: 1px solid rgba(241,245,249,1) !important;
@@ -1837,7 +1862,12 @@
   [data-theme="light"] .ticker-cell:hover { background: rgba(15,23,42,0.02); }
   [data-theme="light"] .tc-label { color: #64748b; }
   [data-theme="light"] .tc-price { color: #0f172a; }
+  [data-theme="light"] .topbar-ticker .tc-price { font-weight: 700; }
+  [data-theme="light"] .topbar-ticker .tc-change { font-weight: 700; }
+  [data-theme="light"] .topbar-ticker [style*="color: var(--"],
+  [data-theme="light"] .topbar-ticker [style*="color:var(--"] { font-weight: 800 !important; }
   [data-theme="light"] .topbar-clock { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); color: #475569; }
+  [data-theme="light"] #clock-time { font-weight: 800 !important; }
   [data-theme="light"] .topbar-user-chip { background: rgba(248,250,252,0.86); border-color: rgba(15,23,42,0.06); color: #0f172a; }
   [data-theme="light"] .topbar-user-chip:hover { background: rgba(241,245,249,0.95); }
   [data-theme="light"] .topbar-user-role { color: #047857; }

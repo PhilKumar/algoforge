@@ -218,6 +218,28 @@ async def main():
         }
         return base.get(self.client_id, 99.5)
 
+    def fake_get_ohlc_multi(self, segments):
+        nifty_map = {
+            "global-client": 24025.0,
+            "phil-client": 25175.0,
+            "beta-client": 23350.0,
+        }
+        nifty = nifty_map.get(self.client_id, 24500.0)
+        ce = round(nifty / 200, 2)
+        pe = round((nifty / 200) + 12, 2)
+        return {
+            "IDX_I": {
+                "13": {"last_price": nifty, "ohlc": {"close": nifty - 100}},
+                "25": {"last_price": nifty + 1200, "ohlc": {"close": nifty + 1080}},
+                "49": {"last_price": nifty - 300, "ohlc": {"close": nifty - 360}},
+                "51": {"last_price": 80000 + (nifty - 24000) * 2, "ohlc": {"close": 79850 + (nifty - 24000) * 2}},
+            },
+            "NSE_FNO": {
+                "900001": {"last_price": ce, "ohlc": {"close": ce - 8}},
+                "900002": {"last_price": pe, "ohlc": {"close": pe - 6}},
+            },
+        }
+
     dhan_module.DhanClient.get_funds = fake_get_funds
     dhan_module.DhanClient.get_positions = fake_get_positions
     dhan_module.DhanClient.get_trades = fake_get_trades
@@ -225,6 +247,7 @@ async def main():
     dhan_module.DhanClient.place_order = fake_place_order
     dhan_module.DhanClient.cancel_order = fake_cancel_order
     dhan_module.DhanClient.get_option_ltp = fake_get_option_ltp
+    dhan_module.DhanClient.get_ohlc_multi = fake_get_ohlc_multi
 
     # Verify cache partitioning first.
     client_a = dhan_module.DhanClient(client_id="alpha-client", access_token="alpha-token-12345678901234567890")
@@ -238,11 +261,18 @@ async def main():
     app_module._ScalpEngineClass = DummyScalpEngine
     app_module._HAS_SCALP = True
     app_module._market_feed = None
+    app_module._fetch_nse_vix = lambda: {"price": 12.4, "prev_close": 11.8}
+    app_module.ScripMaster.ensure_loaded = classmethod(lambda cls: None)
+    app_module.ScripMaster.get_nearest_expiry = classmethod(lambda cls, symbol, from_date=None: "2026-03-26")
+    app_module.ScripMaster.lookup = classmethod(
+        lambda cls, symbol, strike, expiry, option_type: "900001" if option_type == "CE" else "900002"
+    )
     app_module.live_engines.clear()
     app_module._live_tasks.clear()
     app_module._scalp_engines.clear()
     app_module._scalp_entry_locks.clear()
     app_module._last_scalp_entry_ts.clear()
+    app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
 
     passed = 0
 
@@ -310,6 +340,16 @@ async def main():
         passed += 1
         print("  5. Option LTP endpoint uses per-user broker client: PASS")
 
+        app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
+        r = await phil_client.get("/api/ticker")
+        assert r.status_code == 200, r.text
+        ticker = r.json()
+        assert ticker["status"] == "ok"
+        assert ticker["source"] == "dhan"
+        assert ticker["nifty"]["price"] == 25175.0
+        passed += 1
+        print("  6. Ticker endpoint uses per-user broker client: PASS")
+
         r = await phil_client.post(
             "/api/orders/place",
             json={
@@ -322,26 +362,35 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["client_id"] == "phil-client"
         passed += 1
-        print("  6. Order placement uses per-user broker client: PASS")
+        print("  7. Order placement uses per-user broker client: PASS")
 
         r = await admin_client.get("/api/orders")
         assert r.status_code == 200, r.text
         assert r.json()["data"][0]["orderId"] == "global-client-ORDER"
         passed += 1
-        print("  7. Admin order book still uses global fallback: PASS")
+        print("  8. Admin order book still uses global fallback: PASS")
 
         r = await admin_client.get("/api/option-ltp?underlying=NIFTY&strike=23000&expiry=2026-03-26&option_type=CE")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "ok"
         assert r.json()["ltp"] == 101.25
         passed += 1
-        print("  8. Admin option LTP still uses global broker fallback: PASS")
+        print("  9. Admin option LTP still uses global broker fallback: PASS")
+
+        app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
+        r = await admin_client.get("/api/ticker")
+        assert r.status_code == 200, r.text
+        ticker = r.json()
+        assert ticker["status"] == "ok"
+        assert ticker["nifty"]["price"] == 24025.0
+        passed += 1
+        print(" 10. Admin ticker still uses global broker fallback: PASS")
 
         r = await nobroker_client.get("/api/option-ltp?underlying=NIFTY&strike=23000&expiry=2026-03-26&option_type=CE")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print("  9. Option LTP refuses users without broker creds: PASS")
+        print(" 11. Option LTP refuses users without broker creds: PASS")
 
         r = await phil_client.post(
             "/api/live/start",
@@ -351,7 +400,7 @@ async def main():
         assert r.json()["status"] == "started"
         assert app_module.live_engines[phil_id]["Phil Live"].dhan.client_id == "phil-client"
         passed += 1
-        print(" 10. Live engine startup injects user broker client: PASS")
+        print(" 12. Live engine startup injects user broker client: PASS")
 
         r = await nobroker_client.post(
             "/api/live/start",
@@ -362,7 +411,7 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print(" 11. Live engine refuses users without broker creds: PASS")
+        print(" 13. Live engine refuses users without broker creds: PASS")
 
         scalp_body = {
             "underlying": "NIFTY",
@@ -379,25 +428,25 @@ async def main():
         assert r.json()["status"] == "ok"
         assert app_module._scalp_engines[phil_id].dhan.client_id == "phil-client"
         passed += 1
-        print(" 12. Phil scalp engine uses per-user broker client: PASS")
+        print(" 14. Phil scalp engine uses per-user broker client: PASS")
 
         r = await admin_client.post("/api/scalp/entry", json=scalp_body)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "ok"
         assert app_module._scalp_engines[admin_id].dhan.client_id == "global-client"
         passed += 1
-        print(" 13. Admin scalp engine uses global broker fallback: PASS")
+        print(" 15. Admin scalp engine uses global broker fallback: PASS")
 
         assert phil_id in app_module._scalp_engines and admin_id in app_module._scalp_engines
         assert app_module._scalp_engines[phil_id] is not app_module._scalp_engines[admin_id]
         passed += 1
-        print(" 14. Scalp engines are isolated per user: PASS")
+        print(" 16. Scalp engines are isolated per user: PASS")
 
         r = await nobroker_client.post("/api/scalp/entry", json=scalp_body)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print(" 15. Live scalp entry refuses users without broker creds: PASS")
+        print(" 17. Live scalp entry refuses users without broker creds: PASS")
 
         r = await phil_client.get("/api/user/profile")
         assert r.status_code == 200, r.text
@@ -409,7 +458,7 @@ async def main():
         assert profile["broker"]["client_id"] == "phil-client"
         assert profile["broker"]["access_token_saved"] is True
         passed += 1
-        print(" 16. User profile exposes safe broker metadata: PASS")
+        print(" 18. User profile exposes safe broker metadata: PASS")
 
         r = await admin_client.get("/api/user/profile")
         assert r.status_code == 200, r.text
@@ -417,7 +466,7 @@ async def main():
         assert admin_profile["broker"]["source"] == "global"
         assert admin_profile["broker"]["configured"] is False
         passed += 1
-        print(" 17. Admin profile reflects global broker fallback: PASS")
+        print(" 19. Admin profile reflects global broker fallback: PASS")
 
         r = await nobroker_client.put(
             "/api/user/broker",
@@ -436,7 +485,7 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "not_configured"
         passed += 1
-        print(" 18. User broker self-service save and clear works: PASS")
+        print(" 20. User broker self-service save and clear works: PASS")
 
         r = await phil_client.put(
             "/api/user/broker",
@@ -446,7 +495,7 @@ async def main():
         r = await phil_client.delete("/api/user/broker")
         assert r.status_code == 409, r.text
         passed += 1
-        print(" 19. Active live workflows lock broker credential edits: PASS")
+        print(" 21. Active live workflows lock broker credential edits: PASS")
 
         r = await admin_client.get("/api/admin/engines")
         assert r.status_code == 200, r.text
@@ -455,7 +504,7 @@ async def main():
         assert rows[phil_id]["scalp_open_trades"] == 1
         assert rows[admin_id]["scalp_open_trades"] == 1
         passed += 1
-        print(" 20. Admin engine summary is user-scoped: PASS")
+        print(" 22. Admin engine summary is user-scoped: PASS")
 
     print(f"\n{'=' * 40}")
     print(f"  Results: {passed} passed, 0 failed")

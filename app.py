@@ -4743,7 +4743,7 @@ def _get_prev_close():
 
 
 @app.get("/api/ticker")
-async def get_ticker():
+async def get_ticker(request: Request):
     """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
     global _ticker_cache
 
@@ -4752,7 +4752,11 @@ async def get_ticker():
         return _ticker_cache["data"]
 
     # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
-    if dhan._is_configured():
+    _, broker_client, _ = await _request_broker_context(request)
+    ticker_client = (
+        broker_client if broker_client and broker_client._is_configured() else (dhan if dhan._is_configured() else None)
+    )
+    if ticker_client:
         try:
             print("[TICKER] Fetching from Dhan OHLC API...")
 
@@ -4780,7 +4784,7 @@ async def get_ticker():
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
 
-            all_data = dhan.get_ohlc_multi(segments)
+            all_data = ticker_client.get_ohlc_multi(segments)
 
             idx = all_data.get("IDX_I", {})
             fno = all_data.get("NSE_FNO", {})
