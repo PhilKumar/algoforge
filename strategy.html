@@ -4849,11 +4849,59 @@ async function resetAdminUserPassword(userId, username) {
 // ══════════════════════════════════════════════════════════════
 //  NAVIGATION & INIT
 // ══════════════════════════════════════════════════════════════
-function showPage(id, btn) {
+const NAV_BUTTON_MAP = {
+  'dashboard-page': 'nav-dashboard',
+  'portfolio-page': 'nav-portfolio',
+  'builder-page': 'nav-builder',
+  'results-page': 'nav-results',
+  'live-page': 'nav-live',
+  'scalp-page': 'nav-scalp',
+  'charts-page': 'nav-charts',
+};
+
+function buildNavState(page, extra = {}) {
+  const state = { page };
+  if (extra && typeof extra === 'object') Object.assign(state, extra);
+  return state;
+}
+
+function navHashForState(state) {
+  const page = state?.page || 'dashboard-page';
+  if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0) {
+    return `#results-page/${Number(state.runId)}`;
+  }
+  return `#${page}`;
+}
+
+function navStateFromLocation() {
+  const raw = String(location.hash || '').replace(/^#/, '').trim();
+  if (!raw) return null;
+  const [page, runIdRaw] = raw.split('/');
+  if (!page || !document.getElementById(page)) return null;
+  const state = { page };
+  const runId = Number(runIdRaw);
+  if (page === 'results-page' && Number.isFinite(runId) && runId > 0) state.runId = runId;
+  return state;
+}
+
+async function applyNavState(state) {
+  const page = (state && state.page && document.getElementById(state.page)) ? state.page : 'dashboard-page';
+  const btn = document.getElementById(NAV_BUTTON_MAP[page] || '');
+  showPage(page, btn, { pushHistory: false, historyState: state });
+  if (page === 'live-page') startLiveMonitor();
+  if (page === 'scalp-page') initScalpPage();
+  if (page === 'charts-page') initChartsPage();
+  if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
+    await viewRun(Number(state.runId), { pushHistory: false });
+  }
+}
+
+function showPage(id, btn, options = {}) {
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active-page');
-  if (btn) btn.classList.add('active');
+  const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
+  if (activeBtn) activeBtn.classList.add('active');
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
   // Stop scalp polling when leaving scalp page
@@ -4865,6 +4913,14 @@ function showPage(id, btn) {
   if (id === 'dashboard-page') loadDashboardSummary();
   // Persist active tab across page refresh
   try { localStorage.setItem('algoforge_active_tab', id); } catch(e) {}
+  if (options.pushHistory !== false) {
+    const navState = buildNavState(id, options.historyState || {});
+    const nextHash = navHashForState(navState);
+    const currentState = history.state || {};
+    if (currentState.page !== navState.page || currentState.runId !== navState.runId || location.hash !== nextHash) {
+      history.pushState(navState, '', nextHash);
+    }
+  }
 }
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 
@@ -4978,39 +5034,26 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(updateTicker, 30000);
   setInterval(loadPortfolioData, 60000); // Refresh portfolio every minute
 
-  // Restore active tab from previous session
+  // Restore active tab from URL or previous session and seed browser history.
   try {
     const savedTab = localStorage.getItem('algoforge_active_tab');
-    if (savedTab && document.getElementById(savedTab)) {
-      const tabMap = {
-        'dashboard-page': 'nav-dashboard',
-        'portfolio-page': 'nav-portfolio',
-        'builder-page': 'nav-builder',
-        'results-page': 'nav-results',
-        'live-page': 'nav-live',
-        'scalp-page': 'nav-scalp',
-        'charts-page': 'nav-charts'
-      };
-      const btnId = tabMap[savedTab];
-      if (btnId) {
-        showPage(savedTab, document.getElementById(btnId));
-        if (savedTab === 'live-page') startLiveMonitor();
-        if (savedTab === 'builder-page') startBuilderPreview();
-        if (savedTab === 'scalp-page') initScalpPage();
-        if (savedTab === 'charts-page') initChartsPage();
-      }
-    }
+    const initialState =
+      history.state ||
+      navStateFromLocation() ||
+      (savedTab && document.getElementById(savedTab) ? buildNavState(savedTab) : buildNavState('dashboard-page'));
+    history.replaceState(initialState, '', navHashForState(initialState));
+    applyNavState(initialState);
   } catch(e) {}
-
-  // Start builder preview only when Builder is the active page
-  if (localStorage.getItem('algoforge_active_tab') === 'builder-page') {
-    startBuilderPreview();
-  }
   // Start clock
   updateClock();
   setInterval(updateClock, 1000);
   // Load expiry dates
   loadExpiryDates();
+});
+
+window.addEventListener('popstate', (event) => {
+  const state = event.state || navStateFromLocation() || buildNavState('dashboard-page');
+  applyNavState(state);
 });
 
 
@@ -5694,7 +5737,7 @@ async function viewRunModal(id) {
   } catch(e) { toast('Error loading run', 'danger'); }
 }
 
-async function viewRun(id) {
+async function viewRun(id, options = {}) {
   try {
     const res = await fetch('/api/runs/' + id);
     const data = await res.json();
@@ -5702,7 +5745,8 @@ async function viewRun(id) {
     currentViewingRunId = id;
     lastBacktestPayload = data;
     renderResults(data, data);
-    showPage('results-page', document.getElementById('nav-results'));
+    const historyState = Object.assign({}, options.historyState || {}, { runId: id });
+    showPage('results-page', document.getElementById('nav-results'), Object.assign({}, options, { historyState }));
   } catch(e) { toast('Error loading run', 'danger'); }
 }
 
