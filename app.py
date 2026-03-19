@@ -10,6 +10,7 @@ import asyncio
 import inspect
 import json
 from html import escape as _escape_html
+from urllib.parse import quote as _url_quote
 
 try:
     import orjson as _orjson
@@ -722,7 +723,13 @@ def _render_login_page() -> HTMLResponse:
     with open(login_path, encoding="utf-8") as f:
         login_html = f.read()
     referral_url = config.DHAN_REFERRAL_URL
+    referral_qr_url = (
+        f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={_url_quote(referral_url, safe='')}"
+        if referral_url
+        else ""
+    )
     login_html = login_html.replace("__DHAN_REFERRAL_URL__", _escape_html(referral_url or "#", quote=True))
+    login_html = login_html.replace("__DHAN_REFERRAL_QR_URL__", _escape_html(referral_qr_url, quote=True))
     login_html = login_html.replace("__DHAN_REFERRAL_HIDDEN_CLASS__", "" if referral_url else " hidden")
     return HTMLResponse(login_html)
 
