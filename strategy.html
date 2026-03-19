@@ -4105,6 +4105,16 @@
             <input type="text" id="account-broker-token" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved token">
           </div>
         </div>
+        <div class="modal-grid" style="margin-top:-4px;">
+          <div>
+            <label for="account-broker-pin">Dhan PIN</label>
+            <input type="password" id="account-broker-pin" class="mono-field" autocomplete="new-password" spellcheck="false" placeholder="Optional: save for token auto-refresh">
+          </div>
+          <div>
+            <label for="account-broker-totp">TOTP Secret</label>
+            <input type="password" id="account-broker-totp" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Optional: save for token auto-refresh">
+          </div>
+        </div>
         <div class="settings-hint" id="account-broker-hint">
           Save your own Dhan Client ID and Access Token here. This only affects your account on the multi-tenant branch.
         </div>
@@ -4435,6 +4445,8 @@ async function loadUserProfile(silent = true) {
     document.getElementById('account-profile-login').textContent = formatDateTimeLabel(user.last_login);
     document.getElementById('account-broker-client-id').value = broker.client_id || '';
     document.getElementById('account-broker-token').value = '';
+    document.getElementById('account-broker-pin').value = '';
+    document.getElementById('account-broker-totp').value = '';
 
     let chipTone = 'warn';
     let chipText = 'Broker Missing';
@@ -4446,7 +4458,7 @@ async function loadUserProfile(silent = true) {
       chipText = 'Broker Partial';
     } else if (broker.configured) {
       chipTone = 'success';
-      chipText = broker.source === 'global' ? 'Admin Global Broker' : 'Broker Stored';
+      chipText = broker.source === 'global' ? 'Admin Global Broker' : (broker.auto_refresh_ready ? 'Broker + Auto-Refresh' : 'Broker Stored');
     } else if (broker.source === 'global') {
       chipTone = 'success';
       chipText = 'Admin Global Broker';
@@ -4455,22 +4467,29 @@ async function loadUserProfile(silent = true) {
 
     const statusLine = document.getElementById('account-broker-status-line');
     const sourceLabel = broker.source === 'user' ? 'stored per-user credentials' : broker.source === 'global' ? 'admin .env fallback' : 'no active broker source';
-    statusLine.innerHTML = `Source: <strong>${escapeHtml(sourceLabel)}</strong>${broker.access_token_saved ? ' • token saved' : ''}`;
+    const brokerBits = [`Source: <strong>${escapeHtml(sourceLabel)}</strong>`];
+    if (broker.access_token_saved) brokerBits.push('token saved');
+    if (broker.pin_saved) brokerBits.push('PIN saved');
+    if (broker.totp_saved) brokerBits.push('TOTP saved');
+    if (broker.auto_refresh_ready) brokerBits.push('<strong>auto-refresh ready</strong>');
+    statusLine.innerHTML = brokerBits.join(' • ');
 
     const hint = document.getElementById('account-broker-hint');
     if (!broker.encryption_ready) {
       hint.textContent = 'This server does not have ENCRYPTION_KEY configured yet, so stored broker credentials are intentionally blocked until encrypted-at-rest storage is available.';
     } else if (broker.manage_locked) {
       hint.textContent = broker.manage_lock_reason || 'Broker settings are locked while live broker workflows are active.';
+    } else if (broker.auto_refresh_ready) {
+      hint.textContent = 'This account has stored Dhan PIN + TOTP Secret, so expired market-data tokens can auto-refresh. Leave Access Token, PIN, and TOTP blank to keep the current saved values.';
     } else if (_authUser && _authUser.role === 'admin' && broker.source === 'global' && !broker.configured) {
       hint.textContent = 'Admin fallback is currently coming from the server .env broker configuration. Saving credentials here will switch this account to stored per-user broker settings.';
     } else {
-      hint.textContent = 'Save your own Dhan Client ID and Access Token here. Leave the Access Token blank to keep the currently saved token.';
+      hint.textContent = 'Save your own Dhan Client ID and Access Token here. Add Dhan PIN + TOTP Secret too if you want this user to auto-refresh expired tokens. Leave any secret field blank to keep the currently saved value.';
     }
 
     const locked = !!broker.manage_locked || !broker.encryption_ready;
     document.getElementById('account-broker-save-btn').disabled = locked;
-    document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved);
+    document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved && !broker.pin_saved && !broker.totp_saved);
     if (!silent) toast('Account settings loaded', 'success', 2200);
   } catch (e) {
     if (!silent) toast(e.message || 'Failed to load account settings', 'danger');
@@ -4480,12 +4499,41 @@ async function loadUserProfile(silent = true) {
 async function saveBrokerSettings() {
   const clientId = document.getElementById('account-broker-client-id').value.trim();
   const accessToken = document.getElementById('account-broker-token').value.trim();
-  if (!clientId) {
+  const pin = document.getElementById('account-broker-pin').value.trim();
+  const totpSecret = document.getElementById('account-broker-totp').value.trim();
+  const existingBroker = _userProfile?.broker || {};
+  const existingClientId = String(existingBroker.client_id || '').trim();
+  const effectiveClientId = clientId || existingClientId;
+  const effectiveTokenPresent = !!accessToken || !!existingBroker.access_token_saved;
+  const effectivePinPresent = !!pin || !!existingBroker.pin_saved;
+  const effectiveTotpPresent = !!totpSecret || !!existingBroker.totp_saved;
+
+  if (!effectiveClientId) {
     toast('Enter a Dhan Client ID', 'warn');
     return;
   }
-  const body = { client_id: clientId };
+  if (!effectiveTokenPresent) {
+    toast('Enter an Access Token, or keep an already saved token.', 'warn');
+    return;
+  }
+  if (clientId && existingClientId && clientId !== existingClientId && !accessToken) {
+    toast('Enter a new Access Token when changing the Dhan Client ID.', 'warn');
+    return;
+  }
+  if ((pin || totpSecret) && !(effectivePinPresent && effectiveTotpPresent)) {
+    toast('Save both Dhan PIN and TOTP Secret together to enable auto-refresh.', 'warn');
+    return;
+  }
+
+  const body = {};
+  if (clientId) body.client_id = clientId;
   if (accessToken) body.access_token = accessToken;
+  if (pin) body.pin = pin;
+  if (totpSecret) body.totp_secret = totpSecret;
+  if (!Object.keys(body).length) {
+    toast('Enter at least one broker field to update.', 'warn');
+    return;
+  }
   try {
     const res = await fetch('/api/user/broker', {
       method: 'PUT',
@@ -6762,6 +6810,14 @@ async function checkBrokerStatus(silent) {
       startBrokerHealthCheck();
       if (!silent) toast('Broker connection verified', 'success');
       return true;
+    } else if (data.status === 'auth_error') {
+      stopBrokerHealthCheck();
+      updateBrokerUI(false, 'Token Refresh Needed', 'red', 'Retry');
+      if (!silent) toast((data.message || 'Broker token is invalid'), 'danger');
+    } else if (data.status === 'marketdata_error') {
+      stopBrokerHealthCheck();
+      updateBrokerUI(false, 'Market Data Failed', 'orange', 'Retry');
+      if (!silent) toast((data.message || 'Market data probe failed'), 'warn');
     } else if (data.status === 'not_configured') {
       stopBrokerHealthCheck();
       updateBrokerUI(false, 'Not Configured', 'orange', 'Check');
@@ -6799,6 +6855,7 @@ async function refreshToken() {
     const data = await res.json();
     if (data.status === 'ok') {
       toast('Token refreshed!', 'success');
+      await loadUserProfile(true);
       await checkBrokerStatus(false);
     } else {
       toast(data.message || 'Token refresh failed', 'danger');

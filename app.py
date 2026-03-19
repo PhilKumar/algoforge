@@ -400,13 +400,32 @@ def _default_history_user_id_sync() -> int:
     raise RuntimeError("No admin user available for trade-history persistence")
 
 
-def _user_broker_fields(user: dict | None) -> tuple[str, str]:
+def _user_broker_credentials(user: dict | None) -> tuple[str, str, str, str]:
     if not user:
-        return "", ""
+        return "", "", "", ""
     return (
         str(user.get("dhan_client_id", "") or "").strip(),
         str(user.get("dhan_access_token", "") or "").strip(),
+        str(user.get("dhan_pin", "") or "").strip(),
+        str(user.get("dhan_totp_secret", "") or "").strip(),
     )
+
+
+def _user_broker_fields(user: dict | None) -> tuple[str, str]:
+    client_id, access_token, _, _ = _user_broker_credentials(user)
+    return client_id, access_token
+
+
+def _user_broker_auto_refresh_ready(user: dict | None) -> bool:
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
+    return bool(client_id and access_token and pin and totp)
+
+
+def _persist_user_access_token_sync(user_id: int, access_token: str) -> None:
+    token = str(access_token or "").strip()
+    if not token:
+        return
+    _db_mod.update_user_sync(int(user_id), dhan_access_token=token)
 
 
 def _broker_not_configured_message(user: dict | None, source: str) -> str:
@@ -415,6 +434,20 @@ def _broker_not_configured_message(user: dict | None, source: str) -> str:
     if user and user.get("role") == "admin":
         return "Dhan API credentials not configured. Add user broker credentials or keep the admin .env fallback configured."
     return "Broker credentials are not configured for this user."
+
+
+def _looks_like_broker_auth_error(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(
+        part in text
+        for part in (
+            "authentication failed",
+            "invalid token",
+            "dh-906",
+            "unauthorized",
+            "api returned 400",
+        )
+    )
 
 
 def _mask_value(value: str, *, prefix: int = 3, suffix: int = 2) -> str:
@@ -444,7 +477,7 @@ def _user_broker_settings_lock(user_id: int) -> tuple[bool, str]:
 
 
 def _broker_profile_payload(user: dict | None) -> dict:
-    client_id, access_token = _user_broker_fields(user)
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
     _, source = _resolve_user_broker_client(user)
     locked, lock_reason = _user_broker_settings_lock(int(user["id"])) if user else (False, "")
     return {
@@ -454,6 +487,9 @@ def _broker_profile_payload(user: dict | None) -> dict:
         "client_id": client_id,
         "client_id_masked": _mask_value(client_id),
         "access_token_saved": bool(access_token),
+        "pin_saved": bool(pin),
+        "totp_saved": bool(totp),
+        "auto_refresh_ready": bool(client_id and access_token and pin and totp),
         "encryption_ready": bool(config.ENCRYPTION_KEY),
         "manage_locked": locked,
         "manage_lock_reason": lock_reason,
@@ -465,9 +501,26 @@ def _resolve_user_broker_client(
     *,
     allow_admin_fallback: bool = True,
 ) -> tuple[DhanClient | None, str]:
-    client_id, access_token = _user_broker_fields(user)
+    client_id, access_token, pin, totp = _user_broker_credentials(user)
     if client_id and access_token:
-        return DhanClient(client_id=client_id, access_token=access_token), "user"
+        token_update_cb = None
+        if user and user.get("id"):
+            user_id = int(user["id"])
+
+            def _token_update_cb(new_token: str, *, _user_id: int = user_id) -> None:
+                _persist_user_access_token_sync(_user_id, new_token)
+
+            token_update_cb = _token_update_cb
+        return (
+            DhanClient(
+                client_id=client_id,
+                access_token=access_token,
+                pin=pin,
+                totp_secret=totp,
+                token_update_cb=token_update_cb,
+            ),
+            "user",
+        )
     if client_id or access_token:
         return None, "partial"
     if allow_admin_fallback and user and user.get("role") == "admin" and dhan._is_configured():
@@ -1940,13 +1993,34 @@ async def token_status():
 
 
 @app.post("/api/refresh-token")
-async def refresh_token():
-    """Force-regenerate the Dhan access token via TOTP."""
+async def refresh_token(request: Request):
+    """Force-refresh the current broker token for this user or the admin fallback."""
     try:
-        new_tok = auto_generate_token()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {
+                "status": "not_configured",
+                "message": _broker_not_configured_message(user, source),
+            }
+
+        new_tok = await asyncio.to_thread(broker_client.refresh_access_token, force=True)
         if new_tok:
-            return {"status": "ok", "message": "Token refreshed successfully"}
-        return {"status": "error", "message": "Token generation failed — check TOTP secret"}
+            fresh_user = await _db_mod.get_user_by_id(user["id"]) if user else None
+            return {
+                "status": "ok",
+                "message": "Token refreshed successfully",
+                "source": source,
+                "broker": _broker_profile_payload(fresh_user or user),
+            }
+
+        if source == "user":
+            if _user_broker_auto_refresh_ready(user):
+                message = "User broker token refresh failed. Re-save your Dhan broker credentials and try again."
+            else:
+                message = "Save Dhan PIN and TOTP Secret in Account Settings to enable per-user token refresh."
+            return {"status": "error", "message": message, "source": source}
+
+        return {"status": "error", "message": "Token generation failed — check TOTP secret", "source": source}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1964,12 +2038,39 @@ async def check_broker(request: Request):
                 "message": _broker_not_configured_message(user, source),
             }
 
+        auto_refresh_ready = _user_broker_auto_refresh_ready(user)
+
         # Test connection by fetching account funds
         funds = await asyncio.to_thread(broker_client.get_funds)
+        available_balance = float(funds.get("availabelBalance", 0) or 0) if isinstance(funds, dict) else 0.0
 
         if funds and isinstance(funds, dict):
-            # Valid response - connection is working
-            available_balance = float(funds.get("availabelBalance", 0) or 0)
+            try:
+                market_probe = await asyncio.to_thread(broker_client.get_ltp_multi, {"IDX_I": [13]})
+                market_ok = isinstance(market_probe, dict) and bool(market_probe.get("IDX_I"))
+                if not market_ok:
+                    raise RuntimeError("Market data probe returned no instruments")
+            except Exception as probe_error:
+                probe_msg = str(probe_error)
+                status = "auth_error" if _looks_like_broker_auth_error(probe_msg) else "marketdata_error"
+                if status == "auth_error":
+                    if auto_refresh_ready:
+                        message = "Market-data auth failed even after auto-refresh. Re-save your Dhan credentials."
+                    else:
+                        message = "Market-data auth failed. Save Dhan PIN and TOTP Secret in Account Settings for auto-refresh."
+                else:
+                    message = f"Funds loaded, but market-data probe failed: {probe_msg[:140]}"
+                return {
+                    "status": status,
+                    "broker": "Dhan",
+                    "message": message,
+                    "source": source,
+                    "available_balance": available_balance,
+                    "funds": funds,
+                    "market_data_ok": False,
+                    "auto_refresh_ready": auto_refresh_ready,
+                }
+
             return {
                 "status": "connected",
                 "broker": "Dhan",
@@ -1977,6 +2078,8 @@ async def check_broker(request: Request):
                 "source": source,
                 "available_balance": available_balance,
                 "funds": funds,
+                "market_data_ok": True,
+                "auto_refresh_ready": auto_refresh_ready,
             }
         else:
             # No data returned
@@ -1984,7 +2087,21 @@ async def check_broker(request: Request):
 
     except Exception as e:
         error_msg = str(e)
-        if "401" in error_msg or "Unauthorized" in error_msg:
+        if _looks_like_broker_auth_error(error_msg):
+            auto_refresh_ready = _user_broker_auto_refresh_ready(user if "user" in locals() else None)
+            detail = (
+                "Invalid broker credentials or expired token."
+                if auto_refresh_ready
+                else "Invalid broker credentials or expired token. Save Dhan PIN and TOTP Secret for auto-refresh."
+            )
+            return {
+                "status": "auth_error",
+                "broker": "Dhan",
+                "message": detail,
+                "source": source if "source" in locals() else "missing",
+                "auto_refresh_ready": auto_refresh_ready,
+            }
+        elif "401" in error_msg or "Unauthorized" in error_msg:
             return {"status": "error", "broker": "Dhan", "message": "Invalid API credentials (401 Unauthorized)"}
         elif "403" in error_msg or "Forbidden" in error_msg:
             return {"status": "error", "broker": "Dhan", "message": "Access forbidden - check API permissions (403)"}

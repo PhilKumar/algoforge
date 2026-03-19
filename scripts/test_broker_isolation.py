@@ -185,6 +185,7 @@ async def main():
     import app as app_module
     import broker.dhan as dhan_module
     import db
+    import token_manager as token_manager_module
     from app import _init_database, app
 
     await _init_database()
@@ -240,6 +241,27 @@ async def main():
             },
         }
 
+    def fake_get_ltp_multi(self, segments):
+        if self.client_id == "stale-client":
+            raise Exception(
+                'LTP fetch failed: {"data":{"808":"Authentication Failed - Client ID or Token invalid"},"status":"failed"}'
+            )
+        return fake_get_ohlc_multi(self, segments)
+
+    def fake_generate_access_token(client_id, pin, totp_secret):
+        return {
+            "success": True,
+            "accessToken": f"{client_id}-fresh-token-12345678901234567890",
+            "expiryTime": "2099-12-31T23:59:59",
+        }
+
+    def fake_renew_access_token(client_id, current_token):
+        return {
+            "success": True,
+            "accessToken": f"{client_id}-renewed-token-12345678901234567890",
+            "expiryTime": "2099-12-31T23:59:59",
+        }
+
     dhan_module.DhanClient.get_funds = fake_get_funds
     dhan_module.DhanClient.get_positions = fake_get_positions
     dhan_module.DhanClient.get_trades = fake_get_trades
@@ -247,7 +269,10 @@ async def main():
     dhan_module.DhanClient.place_order = fake_place_order
     dhan_module.DhanClient.cancel_order = fake_cancel_order
     dhan_module.DhanClient.get_option_ltp = fake_get_option_ltp
+    dhan_module.DhanClient.get_ltp_multi = fake_get_ltp_multi
     dhan_module.DhanClient.get_ohlc_multi = fake_get_ohlc_multi
+    token_manager_module.generate_access_token = fake_generate_access_token
+    token_manager_module.renew_access_token = fake_renew_access_token
 
     # Verify cache partitioning first.
     client_a = dhan_module.DhanClient(client_id="alpha-client", access_token="alpha-token-12345678901234567890")
@@ -255,6 +280,18 @@ async def main():
     funds_a = client_a.get_funds_cached()
     funds_b = client_b.get_funds_cached()
     assert funds_a["availabelBalance"] != funds_b["availabelBalance"]
+
+    refreshed_tokens: list[str] = []
+    refreshable_client = dhan_module.DhanClient(
+        client_id="alpha-client",
+        access_token="alpha-stale-token-12345678901234567890",
+        pin="246810",
+        totp_secret="JBSWY3DPEHPK3PXP",
+        token_update_cb=refreshed_tokens.append,
+    )
+    refreshed = refreshable_client.refresh_access_token(force=True)
+    assert refreshed == "alpha-client-fresh-token-12345678901234567890"
+    assert refreshed_tokens == [refreshed]
 
     # Replace live/scalp engines with lightweight test doubles.
     app_module.LiveEngine = DummyLiveEngine
@@ -275,6 +312,8 @@ async def main():
     app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
 
     passed = 0
+    passed += 1
+    print("  1. DhanClient can refresh fixed per-user tokens: PASS")
 
     transport = httpx.ASGITransport(app=app)
     async with (
@@ -297,6 +336,8 @@ async def main():
             phil_id,
             dhan_client_id="phil-client",
             dhan_access_token="phil-token-12345678901234567890",
+            dhan_pin="246810",
+            dhan_totp_secret="JBSWY3DPEHPK3PXP",
         )
 
         assert await _login(phil_client, "phil", "654321") == phil_id
@@ -309,7 +350,7 @@ async def main():
         assert r.json()["source"] == "global"
         assert r.json()["available_balance"] == 111111.0
         passed += 1
-        print("  1. Admin broker check uses global fallback: PASS")
+        print("  2. Admin broker check uses global fallback: PASS")
 
         r = await phil_client.post("/api/broker/check")
         assert r.status_code == 200, r.text
@@ -317,13 +358,13 @@ async def main():
         assert r.json()["source"] == "user"
         assert r.json()["available_balance"] == 222222.0
         passed += 1
-        print("  2. User broker check uses per-user credentials: PASS")
+        print("  3. User broker check uses per-user credentials: PASS")
 
         r = await nobroker_client.post("/api/broker/check")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "not_configured"
         passed += 1
-        print("  3. Non-admin without creds does not inherit global broker: PASS")
+        print("  4. Non-admin without creds does not inherit global broker: PASS")
 
         r = await phil_client.get("/api/portfolio/summary")
         assert r.status_code == 200, r.text
@@ -331,14 +372,14 @@ async def main():
         assert summary["funds"]["availabelBalance"] == 222222.0
         assert summary["positions"][0]["symbol"] == "phil-client"
         passed += 1
-        print("  4. Portfolio summary uses per-user broker account: PASS")
+        print("  5. Portfolio summary uses per-user broker account: PASS")
 
         r = await phil_client.get("/api/option-ltp?underlying=NIFTY&strike=23000&expiry=2026-03-26&option_type=CE")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "ok"
         assert r.json()["ltp"] == 222.5
         passed += 1
-        print("  5. Option LTP endpoint uses per-user broker client: PASS")
+        print("  6. Option LTP endpoint uses per-user broker client: PASS")
 
         app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
         r = await phil_client.get("/api/ticker")
@@ -348,7 +389,7 @@ async def main():
         assert ticker["source"] == "dhan"
         assert ticker["nifty"]["price"] == 25175.0
         passed += 1
-        print("  6. Ticker endpoint uses per-user broker client: PASS")
+        print("  7. Ticker endpoint uses per-user broker client: PASS")
 
         r = await phil_client.post(
             "/api/orders/place",
@@ -362,20 +403,20 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["client_id"] == "phil-client"
         passed += 1
-        print("  7. Order placement uses per-user broker client: PASS")
+        print("  8. Order placement uses per-user broker client: PASS")
 
         r = await admin_client.get("/api/orders")
         assert r.status_code == 200, r.text
         assert r.json()["data"][0]["orderId"] == "global-client-ORDER"
         passed += 1
-        print("  8. Admin order book still uses global fallback: PASS")
+        print("  9. Admin order book still uses global fallback: PASS")
 
         r = await admin_client.get("/api/option-ltp?underlying=NIFTY&strike=23000&expiry=2026-03-26&option_type=CE")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "ok"
         assert r.json()["ltp"] == 101.25
         passed += 1
-        print("  9. Admin option LTP still uses global broker fallback: PASS")
+        print(" 10. Admin option LTP still uses global broker fallback: PASS")
 
         app_module._ticker_cache = {"data": None, "timestamp": 0, "ttl": 30}
         r = await admin_client.get("/api/ticker")
@@ -384,13 +425,13 @@ async def main():
         assert ticker["status"] == "ok"
         assert ticker["nifty"]["price"] == 24025.0
         passed += 1
-        print(" 10. Admin ticker still uses global broker fallback: PASS")
+        print(" 11. Admin ticker still uses global broker fallback: PASS")
 
         r = await nobroker_client.get("/api/option-ltp?underlying=NIFTY&strike=23000&expiry=2026-03-26&option_type=CE")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print(" 11. Option LTP refuses users without broker creds: PASS")
+        print(" 12. Option LTP refuses users without broker creds: PASS")
 
         r = await phil_client.post(
             "/api/live/start",
@@ -400,7 +441,7 @@ async def main():
         assert r.json()["status"] == "started"
         assert app_module.live_engines[phil_id]["Phil Live"].dhan.client_id == "phil-client"
         passed += 1
-        print(" 12. Live engine startup injects user broker client: PASS")
+        print(" 13. Live engine startup injects user broker client: PASS")
 
         r = await nobroker_client.post(
             "/api/live/start",
@@ -411,7 +452,7 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print(" 13. Live engine refuses users without broker creds: PASS")
+        print(" 14. Live engine refuses users without broker creds: PASS")
 
         scalp_body = {
             "underlying": "NIFTY",
@@ -428,25 +469,25 @@ async def main():
         assert r.json()["status"] == "ok"
         assert app_module._scalp_engines[phil_id].dhan.client_id == "phil-client"
         passed += 1
-        print(" 14. Phil scalp engine uses per-user broker client: PASS")
+        print(" 15. Phil scalp engine uses per-user broker client: PASS")
 
         r = await admin_client.post("/api/scalp/entry", json=scalp_body)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "ok"
         assert app_module._scalp_engines[admin_id].dhan.client_id == "global-client"
         passed += 1
-        print(" 15. Admin scalp engine uses global broker fallback: PASS")
+        print(" 16. Admin scalp engine uses global broker fallback: PASS")
 
         assert phil_id in app_module._scalp_engines and admin_id in app_module._scalp_engines
         assert app_module._scalp_engines[phil_id] is not app_module._scalp_engines[admin_id]
         passed += 1
-        print(" 16. Scalp engines are isolated per user: PASS")
+        print(" 17. Scalp engines are isolated per user: PASS")
 
         r = await nobroker_client.post("/api/scalp/entry", json=scalp_body)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "error"
         passed += 1
-        print(" 17. Live scalp entry refuses users without broker creds: PASS")
+        print(" 18. Live scalp entry refuses users without broker creds: PASS")
 
         r = await phil_client.get("/api/user/profile")
         assert r.status_code == 200, r.text
@@ -457,8 +498,11 @@ async def main():
         assert profile["broker"]["source"] == "user"
         assert profile["broker"]["client_id"] == "phil-client"
         assert profile["broker"]["access_token_saved"] is True
+        assert profile["broker"]["pin_saved"] is True
+        assert profile["broker"]["totp_saved"] is True
+        assert profile["broker"]["auto_refresh_ready"] is True
         passed += 1
-        print(" 18. User profile exposes safe broker metadata: PASS")
+        print(" 19. User profile exposes safe broker metadata: PASS")
 
         r = await admin_client.get("/api/user/profile")
         assert r.status_code == 200, r.text
@@ -466,7 +510,7 @@ async def main():
         assert admin_profile["broker"]["source"] == "global"
         assert admin_profile["broker"]["configured"] is False
         passed += 1
-        print(" 19. Admin profile reflects global broker fallback: PASS")
+        print(" 20. Admin profile reflects global broker fallback: PASS")
 
         r = await nobroker_client.put(
             "/api/user/broker",
@@ -485,7 +529,7 @@ async def main():
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "not_configured"
         passed += 1
-        print(" 20. User broker self-service save and clear works: PASS")
+        print(" 21. User broker self-service save and clear works: PASS")
 
         r = await phil_client.put(
             "/api/user/broker",
@@ -495,7 +539,7 @@ async def main():
         r = await phil_client.delete("/api/user/broker")
         assert r.status_code == 409, r.text
         passed += 1
-        print(" 21. Active live workflows lock broker credential edits: PASS")
+        print(" 22. Active live workflows lock broker credential edits: PASS")
 
         r = await admin_client.get("/api/admin/engines")
         assert r.status_code == 200, r.text
@@ -504,7 +548,30 @@ async def main():
         assert rows[phil_id]["scalp_open_trades"] == 1
         assert rows[admin_id]["scalp_open_trades"] == 1
         passed += 1
-        print(" 22. Admin engine summary is user-scoped: PASS")
+        print(" 23. Admin engine summary is user-scoped: PASS")
+
+        r = await phil_client.post("/api/refresh-token")
+        assert r.status_code == 200, r.text
+        refreshed_payload = r.json()
+        assert refreshed_payload["status"] == "ok"
+        assert refreshed_payload["source"] == "user"
+        refreshed_user = await db.get_user_by_id(phil_id)
+        assert refreshed_user["dhan_access_token"] == "phil-client-fresh-token-12345678901234567890"
+        passed += 1
+        print(" 24. User refresh endpoint persists a refreshed token: PASS")
+
+        await db.update_user(
+            nobroker_id,
+            dhan_client_id="stale-client",
+            dhan_access_token="stale-token-12345678901234567890",
+        )
+        r = await nobroker_client.post("/api/broker/check")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "auth_error"
+        assert r.json()["market_data_ok"] is False
+        assert r.json()["auto_refresh_ready"] is False
+        passed += 1
+        print(" 25. Broker check detects market-data auth failures: PASS")
 
     print(f"\n{'=' * 40}")
     print(f"  Results: {passed} passed, 0 failed")

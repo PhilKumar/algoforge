@@ -344,6 +344,22 @@ async def update_user(user_id: int, **fields) -> bool:
         return True
 
 
+def update_user_sync(user_id: int, **fields) -> bool:
+    """Synchronous user update helper for thread/off-loop broker callbacks."""
+    if not fields:
+        return False
+    bad = set(fields) - _ALLOWED_USER_FIELDS
+    if bad:
+        raise ValueError(f"Invalid user fields: {bad}")
+    fields = _encrypt_user_fields(fields)
+    with _connect_sync() as db:
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [user_id]
+        db.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)  # nosec B608
+        db.commit()
+        return True
+
+
 async def set_user_active(user_id: int, is_active: bool) -> bool:
     """Enable or disable a user account."""
     return await update_user(user_id, is_active=int(is_active))
