@@ -14,7 +14,8 @@ STAGING_PORT=8002
 log() { echo "[STAGING-DEPLOY] $(date '+%H:%M:%S') $*"; }
 die() { log "ERROR: $*"; exit 1; }
 
-[[ -d "$STAGING_DIR/.git" ]] || die "Staging worktree not found at $STAGING_DIR"
+git -C "$STAGING_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+  die "Staging worktree not found at $STAGING_DIR"
 
 log "Updating staging worktree..."
 git -C "$STAGING_DIR" fetch origin

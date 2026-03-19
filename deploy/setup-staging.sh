@@ -26,7 +26,7 @@ die() { log "ERROR: $*"; exit 1; }
 log "Fetching latest refs from origin..."
 git -C "$APP_REPO" fetch origin
 
-if [[ ! -d "$STAGING_DIR/.git" ]]; then
+if ! git -C "$STAGING_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     log "Creating staging worktree at $STAGING_DIR for branch $BRANCH..."
     git -C "$APP_REPO" worktree add "$STAGING_DIR" "$BRANCH" || \
       git -C "$APP_REPO" worktree add -b "$BRANCH" "$STAGING_DIR" "origin/$BRANCH"
