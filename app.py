@@ -23,7 +23,9 @@ import sys
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -4832,7 +4834,7 @@ def _fetch_nse_vix() -> dict:
 
 
 def _get_prev_close():
-    """Get previous day close for indices. Cached per day. Uses yfinance (once/day)."""
+    """Get previous trading-day close for indices. Cached per day. Uses yfinance (once/day)."""
     from datetime import date
 
     today = date.today()
@@ -4844,12 +4846,18 @@ def _get_prev_close():
         result = {}
         for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex")]:
             hist = yf.Ticker(sym).history(period="5d")
-            if len(hist) >= 2:
-                result[key] = float(hist["Close"].iloc[-2])
-                result[f"{key}_ltp"] = float(hist["Close"].iloc[-1])
-            elif len(hist) == 1:
-                result[key] = float(hist["Close"].iloc[0])
-                result[f"{key}_ltp"] = float(hist["Close"].iloc[0])
+            hist = hist.dropna(subset=["Close"])
+            if hist.empty:
+                continue
+            latest_close = float(hist["Close"].iloc[-1])
+            latest_bar = hist.index[-1]
+            latest_bar_date = latest_bar.date() if hasattr(latest_bar, "date") else today
+            if len(hist) >= 2 and latest_bar_date >= today:
+                prev_close = float(hist["Close"].iloc[-2])
+            else:
+                prev_close = latest_close
+            result[key] = prev_close
+            result[f"{key}_ltp"] = latest_close
         _prev_close_cache["data"] = result
         _prev_close_cache["date"] = str(today)
         print(f"[TICKER] Prev close from yfinance (cached for today): {result}")
@@ -4857,6 +4865,16 @@ def _get_prev_close():
     except Exception as e:
         print(f"[TICKER] Prev close fetch failed: {e}")
         return {}
+
+
+def _is_cash_market_closed_ist() -> bool:
+    """True outside normal Indian cash-market hours (used for after-hours ticker fallback)."""
+
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if now.weekday() >= 5:
+        return True
+    current = now.time()
+    return current < dt_time(9, 15) or current > dt_time(15, 30)
 
 
 @app.get("/api/ticker")
@@ -4965,18 +4983,29 @@ async def get_ticker(request: Request):
                 bn_chg, bn_pct = _chg_from_ohlc(banknifty_ltp, idx, 25)
                 mc_chg, mc_pct = _chg_from_ohlc(midcpnifty_ltp, idx, 49)
 
-                # If Dhan didn't provide prev close, try yfinance as fallback
-                if n_chg == 0 and n_pct == 0 and nifty_ltp > 0:
-                    prev = _get_prev_close()
+                # Dhan's after-hours prev-close can flatten change to 0.00.
+                # Outside market hours, prefer yfinance previous close for NIFTY/SENSEX.
+                prev = (
+                    _get_prev_close()
+                    if (_is_cash_market_closed_ist() or (nifty_ltp > 0 and n_chg == 0 and n_pct == 0))
+                    else {}
+                )
 
-                    def _chg_yf(ltp, key):
-                        pc = prev.get(key, 0)
-                        if pc > 0:
-                            return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
-                        return 0, 0
+                def _chg_yf(ltp, key, fallback_chg=0, fallback_pct=0):
+                    pc = prev.get(key, 0)
+                    if pc > 0 and ltp > 0:
+                        return round(ltp - pc, 2), round(((ltp - pc) / pc) * 100, 2)
+                    return fallback_chg, fallback_pct
 
-                    n_chg, n_pct = _chg_yf(nifty_ltp, "nifty")
-                    s_chg, s_pct = _chg_yf(sensex_ltp, "sensex")
+                if prev:
+                    if _is_cash_market_closed_ist():
+                        n_chg, n_pct = _chg_yf(nifty_ltp, "nifty", n_chg, n_pct)
+                        s_chg, s_pct = _chg_yf(sensex_ltp, "sensex", s_chg, s_pct)
+                    else:
+                        if nifty_ltp > 0 and n_chg == 0 and n_pct == 0:
+                            n_chg, n_pct = _chg_yf(nifty_ltp, "nifty", n_chg, n_pct)
+                        if sensex_ltp > 0 and s_chg == 0 and s_pct == 0:
+                            s_chg, s_pct = _chg_yf(sensex_ltp, "sensex", s_chg, s_pct)
 
                 # VIX from NSE India (yfinance ^INDIAVIX delisted)
                 vix_data = _fetch_nse_vix()
