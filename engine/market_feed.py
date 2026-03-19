@@ -45,7 +45,13 @@ import pandas as pd
 
 import config
 from broker.dhan import DhanClient, ScripMaster
-from engine.timeframes import aligned_candle_start, get_fetch_timeframe, is_supported_timeframe, resample_ohlcv
+from engine.timeframes import (
+    aligned_candle_start,
+    drop_incomplete_candle,
+    get_fetch_timeframe,
+    is_supported_timeframe,
+    resample_ohlcv,
+)
 
 # Try importing dhanhq MarketFeed, fall back gracefully
 _DHAN_FEED_V2 = False  # True = v2.2.0+ MarketFeed (dhan_context), False = v2.0.x DhanFeed (client_id, access_token)
@@ -776,6 +782,11 @@ class LiveMarketFeed:
 
             if df_raw.empty:
                 print(f"[FEED] Bootstrap returned empty data for {instrument_id}")
+                return df_raw
+
+            df_raw = drop_incomplete_candle(df_raw, int(fetch_tf), _now_ist())
+            if df_raw.empty:
+                print(f"[FEED] Bootstrap dropped incomplete latest candle for {instrument_id}")
                 return df_raw
 
             # Resample if needed
