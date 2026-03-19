@@ -55,6 +55,14 @@ class DummyBroker:
     pass
 
 
+class DummyFeed:
+    def __init__(self, snapshot: pd.DataFrame):
+        self.snapshot = snapshot
+
+    def get_candle_snapshot(self, instrument_id: str, timeframe: int, include_current: bool = False) -> pd.DataFrame:
+        return self.snapshot.copy()
+
+
 class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_pending_order_waits_until_next_candle_open_plus_one_second(self):
         engine = LiveEngine(dhan=DummyBroker(), run_id="timing-test")
@@ -90,6 +98,69 @@ class PaperPendingEntryTimingTests(unittest.TestCase):
 
         self.assertFalse(engine._pending_entry_is_ready(pd.Timestamp("2026-03-19 09:20:00").to_pydatetime()))
         self.assertTrue(engine._pending_entry_is_ready(pd.Timestamp("2026-03-19 09:20:01").to_pydatetime()))
+
+
+class LiveTouchExitTests(unittest.TestCase):
+    def test_live_touch_exit_uses_forming_execution_candle(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="touch-live")
+        engine.strategy = {"instrument": "26000", "timeframe_minutes": 3, "indicators": []}
+        engine.exit_conditions = [
+            {"left": "current_close", "operator": "touches", "right": "number", "right_number_value": 104}
+        ]
+        engine.current_time = pd.Timestamp("2026-03-19 09:22:30").to_pydatetime()
+        engine.current_spot = 102.0
+        engine._ws_mode = True
+        engine._feed = DummyFeed(
+            pd.DataFrame(
+                {
+                    "open": [101.0, 102.0],
+                    "high": [105.0, 103.0],
+                    "low": [100.0, 101.0],
+                    "close": [103.0, 102.0],
+                    "volume": [100, 120],
+                },
+                index=pd.to_datetime(["2026-03-19 09:21:00", "2026-03-19 09:22:00"]),
+            )
+        )
+        row = pd.Series(
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 90},
+            name=pd.Timestamp("2026-03-19 09:18:00"),
+        )
+        pos = {"transaction_type": "BUY", "entry_premium": 100.0, "peak_premium": 100.0, "lots": 1, "lot_size": 1}
+
+        reason = engine._check_exit_conditions(pos, row, 100.0)
+
+        self.assertEqual(reason, "TOUCH_EXIT")
+
+
+class PaperTouchExitTests(unittest.TestCase):
+    def test_paper_touch_exit_uses_latest_raw_snapshot_in_rest_mode(self):
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="touch-paper")
+        engine.strategy = {"instrument": "26000", "timeframe_minutes": 3, "indicators": []}
+        engine.exit_conditions = [
+            {"left": "current_close", "operator": "touches", "right": "number", "right_number_value": 104}
+        ]
+        engine.current_time = pd.Timestamp("2026-03-19 09:22:30").to_pydatetime()
+        engine.current_spot = 102.0
+        engine._latest_raw_candles = pd.DataFrame(
+            {
+                "open": [101.0, 102.0],
+                "high": [105.0, 103.0],
+                "low": [100.0, 101.0],
+                "close": [103.0, 102.0],
+                "volume": [100, 120],
+            },
+            index=pd.to_datetime(["2026-03-19 09:21:00", "2026-03-19 09:22:00"]),
+        )
+        row = pd.Series(
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 90},
+            name=pd.Timestamp("2026-03-19 09:18:00"),
+        )
+        position = {"transaction_type": "BUY", "entry_premium": 100.0, "peak_premium": 100.0, "lots": 1, "lot_size": 1}
+
+        reason = engine._check_exit_conditions(position, row, 100.0)
+
+        self.assertEqual(reason, "TOUCH_EXIT")
 
 
 if __name__ == "__main__":
