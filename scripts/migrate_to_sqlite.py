@@ -307,7 +307,7 @@ async def migrate():
 
     # 7. Copy engine state files into per-user storage
     state_dst_root = os.path.join(config.USER_DATA_ROOT, str(admin_id), "engine_state")
-    state_patterns = ("live_state*.json", "paper_state*.json", "scalp_state*.json")
+    state_patterns = ("live_state*.json", "paper_state*.json", "paper_history*.json", "scalp_state*.json")
     state_copied = 0
     state_skipped = 0
     for pattern in state_patterns:

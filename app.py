@@ -146,11 +146,71 @@ if os.path.exists("static"):
 # Initialize custom client ONCE and pass to engine
 dhan = DhanClient()
 
-# ── Multi-Engine Registries (keyed by run_id) ────────────────
-# Allows running multiple strategies simultaneously
-live_engines: Dict[str, LiveEngine] = {}  # run_id → engine instance
-paper_engines: Dict[str, PaperTradingEngine] = {}  # run_id → engine instance
-_live_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
+# ── Multi-Engine Registries (scoped by user_id, then run_id) ────
+live_engines: Dict[int, Dict[str, LiveEngine]] = defaultdict(dict)
+paper_engines: Dict[int, Dict[str, PaperTradingEngine]] = defaultdict(dict)
+_live_tasks: Dict[int, Dict[str, asyncio.Task]] = defaultdict(dict)
+_paper_tasks: Dict[int, Dict[str, asyncio.Task]] = defaultdict(dict)
+
+
+def _registry_bucket(registry: dict, user_id: int) -> dict:
+    return registry.setdefault(int(user_id), {})
+
+
+def _iter_registry_items(registry: dict):
+    for owner_id, bucket in registry.items():
+        for run_id, engine in bucket.items():
+            yield int(owner_id), run_id, engine
+
+
+def _get_engine_owner_id(engine) -> int:
+    try:
+        return int(getattr(engine, "_user_id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _find_user_engine(registry: dict, user_id: int, run_id: str = ""):
+    bucket = _registry_bucket(registry, user_id)
+    if run_id:
+        return run_id, bucket.get(run_id)
+    for candidate_run_id, engine in bucket.items():
+        if getattr(engine, "running", False):
+            return candidate_run_id, engine
+    return "", None
+
+
+def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
+    return [engine.get_status() for engine in _registry_bucket(registry, user_id).values() if engine.running]
+
+
+def _any_running(registry: dict, user_id: int | None = None) -> bool:
+    if user_id is None:
+        return any(engine.running for _, _, engine in _iter_registry_items(registry))
+    return any(engine.running for engine in _registry_bucket(registry, user_id).values())
+
+
+def _engine_state_dir(user_id: int, create: bool = True) -> str:
+    state_dir = os.path.join(config.USER_DATA_ROOT, str(int(user_id or 0)), "engine_state")
+    if create:
+        os.makedirs(state_dir, exist_ok=True)
+    return state_dir
+
+
+def _iter_user_state_files(prefix: str):
+    if not os.path.isdir(config.USER_DATA_ROOT):
+        return
+    for user_folder in sorted(os.listdir(config.USER_DATA_ROOT)):
+        if not str(user_folder).isdigit():
+            continue
+        user_id = int(user_folder)
+        state_dir = _engine_state_dir(user_id, create=False)
+        if not os.path.isdir(state_dir):
+            continue
+        for fname in os.listdir(state_dir):
+            if fname.startswith(prefix) and fname.endswith(".json"):
+                yield user_id, state_dir, fname, os.path.join(state_dir, fname)
+
 
 # Backfill status — read by /api/backfill/status
 _backfill_state: Dict[str, object] = {
@@ -158,41 +218,54 @@ _backfill_state: Dict[str, object] = {
     "message": "",
     "new_dates": 0,
 }
-_paper_tasks: Dict[str, asyncio.Task] = {}  # run_id → asyncio task
 
-# Stopped engine snapshots — persist on Live page after stop, keyed by run_id
-_STOPPED_ENGINES_FILE = "stopped_engines.json"
-_stopped_engines: Dict[str, dict] = {}
+# Stopped engine snapshots — persisted per user under engine_state/
+_stopped_engines: Dict[int, Dict[str, dict]] = {}
 
 
-def _load_stopped_engines():
-    global _stopped_engines
-    if os.path.exists(_STOPPED_ENGINES_FILE):
+def _stopped_engines_file(user_id: int) -> str:
+    return os.path.join(_engine_state_dir(user_id), "stopped_engines.json")
+
+
+def _load_stopped_engines(user_id: int) -> dict:
+    cached = _stopped_engines.get(int(user_id))
+    if cached is not None:
+        return cached
+    data: dict = {}
+    file_path = _stopped_engines_file(user_id)
+    if os.path.exists(file_path):
         try:
-            with open(_STOPPED_ENGINES_FILE, "r") as f:
-                _stopped_engines = json.load(f)
+            with open(file_path, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
         except Exception:
-            _stopped_engines = {}
+            data = {}
+    _stopped_engines[int(user_id)] = data
+    return data
 
 
-def _save_stopped_engines():
+def _save_stopped_engines(user_id: int):
     try:
-        tmp = _STOPPED_ENGINES_FILE + ".tmp"
+        data = _stopped_engines.get(int(user_id), {})
+        file_path = _stopped_engines_file(user_id)
+        tmp = file_path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(_stopped_engines, f, indent=2, default=str)
-        os.replace(tmp, _STOPPED_ENGINES_FILE)
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp, file_path)
     except Exception:
         pass
 
-
-# Load on import
-_load_stopped_engines()
 
 # Trade state tracker for Telegram alerts (keyed by run_id)
 _alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
 
 
-def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
+def _alert_state_key(user_id: int | None, run_id: str) -> str:
+    return f"{int(user_id or 0)}:{run_id}"
+
+
+def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int | None = None):
     """Detect trade entry/exit from engine status updates and fire Telegram alerts."""
     if event.get("type") in ("status", "price_update"):
         return  # Skip non-status-change events
@@ -200,7 +273,8 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
     closed_trades = event.get("closed_trades", [])
     positions = event.get("positions", [])
     total_pnl = event.get("total_pnl", 0)
-    prev = _alert_state.get(run_id, {"in_trade": False, "closed_count": 0})
+    state_key = _alert_state_key(user_id, run_id)
+    prev = _alert_state.get(state_key, {"in_trade": False, "closed_count": 0})
 
     # Detect entry: was not in trade, now in trade
     if in_trade and not prev["in_trade"]:
@@ -229,7 +303,7 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict):
             )
             alerter.alert("Trade Exit", body, level=level)
 
-    _alert_state[run_id] = {"in_trade": in_trade, "closed_count": new_count}
+    _alert_state[state_key] = {"in_trade": in_trade, "closed_count": new_count}
 
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
@@ -237,7 +311,20 @@ _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engine: Optional["_ScalpEngineClass"] = None
 _SKIP_STARTUP_JOBS = os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS", "").lower() in {"1", "true", "yes"}
 
-ws_clients: List[WebSocket] = []
+ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
+
+
+def _user_ws_clients(user_id: int) -> List[WebSocket]:
+    return ws_clients.setdefault(int(user_id), [])
+
+
+async def _broadcast_user_ws_json(user_id: int, payload: dict):
+    for ws in _user_ws_clients(user_id).copy():
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            if ws in _user_ws_clients(user_id):
+                _user_ws_clients(user_id).remove(ws)
 
 
 # ── Authentication ────────────────────────────────────────────────
@@ -1269,43 +1356,57 @@ async def emergency_stop(request: Request):
 
     results = {}
     stopped_count = 0
-    # Stop all paper engines
-    for run_id, engine in list(paper_engines.items()):
-        try:
-            if engine.running:
-                engine.stop()
-                results[f"paper:{run_id}"] = "stopped"
-                stopped_count += 1
-            else:
-                results[f"paper:{run_id}"] = "not_running"
-        except Exception as e:
-            results[f"paper:{run_id}"] = f"error: {str(e)}"
+    user = getattr(request.state, "current_user", {}) or {}
+    caller_id = _request_user_id(request)
+    if user.get("role") == "admin":
+        target_user_ids = sorted(set(paper_engines) | set(live_engines))
+    else:
+        target_user_ids = [caller_id]
 
-    # Stop all live engines
-    for run_id, engine in list(live_engines.items()):
-        try:
-            if engine.running:
-                engine.stop()
-                results[f"live:{run_id}"] = "stopped"
-                stopped_count += 1
-            else:
-                results[f"live:{run_id}"] = "not_running"
-        except Exception as e:
-            results[f"live:{run_id}"] = f"error: {str(e)}"
+    # Stop all paper engines for target users
+    for owner_id in target_user_ids:
+        paper_bucket = _registry_bucket(paper_engines, owner_id)
+        for run_id, engine in list(paper_bucket.items()):
+            try:
+                if engine.running:
+                    engine.stop()
+                    results[f"paper:{owner_id}:{run_id}"] = "stopped"
+                    stopped_count += 1
+                else:
+                    results[f"paper:{owner_id}:{run_id}"] = "not_running"
+                _alert_state.pop(_alert_state_key(owner_id, run_id), None)
+            except Exception as e:
+                results[f"paper:{owner_id}:{run_id}"] = f"error: {str(e)}"
 
-    # Cancel all background tasks
-    for name, tasks_dict in [("live", _live_tasks), ("paper", _paper_tasks)]:
-        for run_id, task_ref in list(tasks_dict.items()):
-            if task_ref and not task_ref.done():
-                task_ref.cancel()
-                try:
-                    await task_ref
-                except asyncio.CancelledError:
-                    pass
-    _live_tasks.clear()
-    _paper_tasks.clear()
-    live_engines.clear()
-    paper_engines.clear()
+    # Stop all live engines for target users
+    for owner_id in target_user_ids:
+        live_bucket = _registry_bucket(live_engines, owner_id)
+        for run_id, engine in list(live_bucket.items()):
+            try:
+                if engine.running:
+                    engine.stop()
+                    results[f"live:{owner_id}:{run_id}"] = "stopped"
+                    stopped_count += 1
+                else:
+                    results[f"live:{owner_id}:{run_id}"] = "not_running"
+                _alert_state.pop(_alert_state_key(owner_id, run_id), None)
+            except Exception as e:
+                results[f"live:{owner_id}:{run_id}"] = f"error: {str(e)}"
+
+    # Cancel background tasks and clear registries for target users
+    for owner_id in target_user_ids:
+        for tasks_dict in (_live_tasks, _paper_tasks):
+            task_bucket = _registry_bucket(tasks_dict, owner_id)
+            for _, task_ref in list(task_bucket.items()):
+                if task_ref and not task_ref.done():
+                    task_ref.cancel()
+                    try:
+                        await task_ref
+                    except asyncio.CancelledError:
+                        pass
+            task_bucket.clear()
+        _registry_bucket(live_engines, owner_id).clear()
+        _registry_bucket(paper_engines, owner_id).clear()
 
     return {
         "status": "ok",
@@ -1330,10 +1431,10 @@ async def dashboard_summary(request: Request):
     runs = await _db_mod.list_runs(user_id)
 
     # Active engines
-    paper_running = any(e.running for e in paper_engines.values())
-    live_running = any(e.running for e in live_engines.values())
-    paper_statuses = [e.get_status() for e in paper_engines.values() if e.running]
-    live_statuses = [e.get_status() for e in live_engines.values() if e.running]
+    paper_statuses = _running_statuses_for_user(paper_engines, user_id)
+    live_statuses = _running_statuses_for_user(live_engines, user_id)
+    paper_running = bool(paper_statuses)
+    live_running = bool(live_statuses)
 
     # Today's P&L from engines (+ history for idle engines)
     paper_pnl_val = 0
@@ -1544,7 +1645,7 @@ async def health():
         "dhan_configured": (
             config.DHAN_CLIENT_ID != "YOUR_CLIENT_ID_HERE" and config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"
         ),
-        "live_running": any(e.running for e in live_engines.values()),
+        "live_running": _any_running(live_engines),
     }
 
 
@@ -1554,14 +1655,14 @@ async def save_state(request: Request):
     if request.client.host not in ("127.0.0.1", "::1"):
         return JSONResponse(status_code=403, content={"error": "localhost only"})
     saved = []
-    for run_id, engine in live_engines.items():
+    for owner_id, run_id, engine in _iter_registry_items(live_engines):
         if engine.running:
             engine._save_state()
-            saved.append(run_id)
-    for run_id, engine in paper_engines.items():
+            saved.append(f"live:{owner_id}:{run_id}")
+    for owner_id, run_id, engine in _iter_registry_items(paper_engines):
         if engine.running:
             engine._save_state()
-            saved.append(f"paper:{run_id}")
+            saved.append(f"paper:{owner_id}:{run_id}")
     return {"status": "ok", "saved": saved}
 
 
@@ -2650,6 +2751,9 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 async def live_start(req: LiveStartRequest, request: Request):
     """Start live auto-trading with full strategy configuration."""
     user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
+    live_task_bucket = _registry_bucket(_live_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     try:
         tf_spec = resolve_strategy_timeframe((req.strategy_config or {}).get("indicators", req.indicators))
     except ValueError as tf_err:
@@ -2693,26 +2797,26 @@ async def live_start(req: LiveStartRequest, request: Request):
     run_id = strategy_dict.get("run_name", "live") or "live"
 
     # Clear any stopped snapshot for this run_id
-    _stopped_engines.pop(run_id, None)
-    _save_stopped_engines()
+    stopped_engines.pop(run_id, None)
+    _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
-    old_engine = live_engines.get(run_id)
+    old_engine = live_bucket.get(run_id)
     if old_engine:
         try:
             old_status = old_engine.get_status()
             if old_engine.running:
                 old_engine.stop()
-                task = _live_tasks.pop(run_id, None)
+                task = live_task_bucket.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
             await _save_live_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[LIVE] Failed to save old engine {run_id}: {e}")
-        live_engines.pop(run_id, None)
+        live_bucket.pop(run_id, None)
 
     # Create a new engine instance for this strategy
-    engine = LiveEngine(dhan, run_id=run_id)
+    engine = LiveEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
@@ -2738,23 +2842,18 @@ async def live_start(req: LiveStartRequest, request: Request):
     engine.in_trade = False
     engine.trades_today = 0
 
-    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
 
     async def broadcast(event: dict):
-        for ws in ws_clients.copy():
-            try:
-                await ws.send_json({"source": "live", "run_id": run_id, **event})
-            except Exception:
-                if ws in ws_clients:
-                    ws_clients.remove(ws)
-        _check_trade_alerts(run_id, "Auto", event)
+        await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
+        _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
         # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
-    live_engines[run_id] = engine
-    _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    live_bucket[run_id] = engine
+    live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     # Persist config + state immediately so it survives server restarts
     engine.session_date = date.today()
@@ -2766,6 +2865,10 @@ async def live_start(req: LiveStartRequest, request: Request):
 
 @app.post("/api/live/stop")
 async def live_stop(request: Request):
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
+    live_task_bucket = _registry_bucket(_live_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
@@ -2775,13 +2878,13 @@ async def live_stop(request: Request):
 
     # If no run_id, stop the first (or only) running engine
     if not run_id:
-        running = [rid for rid, e in live_engines.items() if e.running]
+        running = [rid for rid, e in live_bucket.items() if e.running]
         if running:
             run_id = running[0]
         else:
             return {"status": "not_running"}
 
-    engine = live_engines.get(run_id)
+    engine = live_bucket.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
 
@@ -2789,14 +2892,14 @@ async def live_stop(request: Request):
     status_before = engine.get_status()
 
     engine.stop()
-    task = _live_tasks.pop(run_id, None)
+    task = live_task_bucket.pop(run_id, None)
     if task and not task.done():
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
-    live_engines.pop(run_id, None)
+    live_bucket.pop(run_id, None)
 
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
@@ -2808,9 +2911,9 @@ async def live_stop(request: Request):
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "auto"
-    _stopped_engines[run_id] = status_before
-    _save_stopped_engines()
-    _alert_state.pop(run_id, None)
+    stopped_engines[run_id] = status_before
+    _save_stopped_engines(user_id)
+    _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
     trades = len(status_before.get("closed_trades", []))
@@ -2824,12 +2927,14 @@ async def live_stop(request: Request):
 
 
 @app.get("/api/live/status")
-async def live_status(run_id: str = ""):
+async def live_status(request: Request, run_id: str = ""):
     """Get live engine status. If run_id empty, returns first running engine."""
-    if run_id and run_id in live_engines:
-        return live_engines[run_id].get_status()
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
+    if run_id and run_id in live_bucket:
+        return live_bucket[run_id].get_status()
     # Return first running engine's status
-    for rid, engine in live_engines.items():
+    for rid, engine in live_bucket.items():
         if engine.running:
             return engine.get_status()
     # Nothing running — return idle status
@@ -2851,31 +2956,34 @@ async def live_status(run_id: str = ""):
 
 
 @app.get("/api/live/debug")
-async def live_debug(run_id: str = ""):
+async def live_debug(request: Request, run_id: str = ""):
     """Deep diagnostic of live engine state — call when trades aren't triggering."""
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
     engine = None
-    if run_id and run_id in live_engines:
-        engine = live_engines[run_id]
+    if run_id and run_id in live_bucket:
+        engine = live_bucket[run_id]
     else:
-        for e in live_engines.values():
+        for e in live_bucket.values():
             if e.running:
                 engine = e
                 break
     if not engine:
-        return {"error": "No live engine running", "engines": list(live_engines.keys())}
+        return {"error": "No live engine running", "engines": list(live_bucket.keys())}
     return engine.debug_engine_state()
 
 
 @app.get("/api/live/trades/csv")
-async def export_live_trades_csv(run_id: str = ""):
+async def export_live_trades_csv(request: Request, run_id: str = ""):
     """Export live auto-trading trades to CSV"""
     import csv as csv_mod
     import io
 
-    engine = live_engines.get(run_id) if run_id else None
+    live_bucket = _registry_bucket(live_engines, _request_user_id(request))
+    engine = live_bucket.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
-        for e in live_engines.values():
+        for e in live_bucket.values():
             if e.closed_trades:
                 engine = e
                 break
@@ -2935,6 +3043,9 @@ async def paper_start(payload: StrategyPayload, request: Request):
 
 
 async def _paper_start_impl(payload: StrategyPayload, user_id: int):
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     try:
         tf_spec = resolve_strategy_timeframe(payload.indicators)
     except ValueError as tf_err:
@@ -2978,26 +3089,26 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     run_id = strategy_dict.get("run_name", "paper") or "paper"
 
     # Clear any stopped snapshot for this run_id
-    _stopped_engines.pop(run_id, None)
-    _save_stopped_engines()
+    stopped_engines.pop(run_id, None)
+    _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
-    old_engine = paper_engines.get(run_id)
+    old_engine = paper_bucket.get(run_id)
     if old_engine:
         try:
             old_status = old_engine.get_status()
             if old_engine.running:
                 old_engine.stop()
-                task = _paper_tasks.pop(run_id, None)
+                task = paper_task_bucket.pop(run_id, None)
                 if task and not task.done():
                     task.cancel()
             await _save_paper_run_to_history(old_status, explicit_user_id=getattr(old_engine, "_user_id", None))
         except Exception as e:
             print(f"[PAPER] Failed to save old engine {run_id}: {e}")
-        paper_engines.pop(run_id, None)
+        paper_bucket.pop(run_id, None)
 
     # Create a new engine instance for this strategy
-    engine = PaperTradingEngine(dhan, run_id=run_id)
+    engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
@@ -3023,23 +3134,18 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     engine.trades_today = 0
 
     # Broadcast updates to WebSocket clients + Telegram alerts
-    _alert_state[run_id] = {"in_trade": False, "closed_count": 0}
+    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
 
     async def broadcast(event: dict):
-        for ws in ws_clients.copy():
-            try:
-                await ws.send_json({"source": "paper", "run_id": run_id, **event})
-            except Exception:
-                if ws in ws_clients:
-                    ws_clients.remove(ws)
-        _check_trade_alerts(run_id, "Paper", event)
+        await _broadcast_user_ws_json(user_id, {"source": "paper", "run_id": run_id, **event})
+        _check_trade_alerts(run_id, "Paper", event, user_id=user_id)
         # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "paper", run_name=run_id, explicit_user_id=user_id)
 
     # Store engine and start task
-    paper_engines[run_id] = engine
-    _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    paper_bucket[run_id] = engine
+    paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
@@ -3048,6 +3154,10 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
 @app.post("/api/paper/stop")
 async def paper_stop(request: Request):
     """Stop paper trading and persist results to runs.json"""
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
@@ -3057,13 +3167,13 @@ async def paper_stop(request: Request):
 
     # If no run_id, stop the first (or only) running engine
     if not run_id:
-        running = [rid for rid, e in paper_engines.items() if e.running]
+        running = [rid for rid, e in paper_bucket.items() if e.running]
         if running:
             run_id = running[0]
         else:
             return {"status": "not_running"}
 
-    engine = paper_engines.get(run_id)
+    engine = paper_bucket.get(run_id)
     if not engine:
         return {"status": "not_found", "run_id": run_id}
 
@@ -3072,7 +3182,7 @@ async def paper_stop(request: Request):
 
     engine.stop()
 
-    task = _paper_tasks.pop(run_id, None)
+    task = paper_task_bucket.pop(run_id, None)
     if task and not task.done():
         task.cancel()
         try:
@@ -3080,7 +3190,7 @@ async def paper_stop(request: Request):
         except asyncio.CancelledError:
             pass
 
-    paper_engines.pop(run_id, None)
+    paper_bucket.pop(run_id, None)
 
     # Delete state file so engine doesn't auto-restore on next startup
     engine._delete_state_file()
@@ -3092,9 +3202,9 @@ async def paper_stop(request: Request):
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "paper"
-    _stopped_engines[run_id] = status_before
-    _save_stopped_engines()
-    _alert_state.pop(run_id, None)
+    stopped_engines[run_id] = status_before
+    _save_stopped_engines(user_id)
+    _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
     pnl = round(status_before.get("total_pnl", 0), 2)
     trades = len(status_before.get("closed_trades", []))
@@ -3108,14 +3218,16 @@ async def paper_stop(request: Request):
 @app.post("/api/paper/exit-position")
 async def paper_exit_position(request: Request):
     """Force-exit an open position in a running paper engine."""
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
     body = await request.json()
     run_id = body.get("run_id", "")
     pos_index = body.get("position_index", 0)
 
-    engine = paper_engines.get(run_id)
+    engine = paper_bucket.get(run_id)
     if not engine:
         # Try first running engine
-        for rid, eng in paper_engines.items():
+        for rid, eng in paper_bucket.items():
             if eng.running:
                 engine = eng
                 run_id = rid
@@ -3135,13 +3247,15 @@ async def paper_exit_position(request: Request):
 @app.post("/api/live/exit-position")
 async def live_exit_position(request: Request):
     """Force-exit an open position in a running live engine."""
+    user_id = _request_user_id(request)
+    live_bucket = _registry_bucket(live_engines, user_id)
     body = await request.json()
     run_id = body.get("run_id", "")
     pos_index = body.get("position_index", 0)
 
-    engine = live_engines.get(run_id)
+    engine = live_bucket.get(run_id)
     if not engine:
-        for rid, eng in live_engines.items():
+        for rid, eng in live_bucket.items():
             if eng.running:
                 engine = eng
                 run_id = rid
@@ -3391,11 +3505,13 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
 @app.get("/api/paper/status")
 async def paper_status(request: Request, run_id: str = ""):
     """Get paper trading status. If run_id empty, returns first running engine."""
-    if run_id and run_id in paper_engines:
-        return paper_engines[run_id].get_status()
+    user_id = _request_user_id(request)
+    paper_bucket = _registry_bucket(paper_engines, user_id)
+    if run_id and run_id in paper_bucket:
+        return paper_bucket[run_id].get_status()
 
     # Return first running engine's status
-    for rid, engine in paper_engines.items():
+    for rid, engine in paper_bucket.items():
         if engine.running:
             return engine.get_status()
 
@@ -3435,12 +3551,14 @@ async def paper_status(request: Request, run_id: str = ""):
 
 # ── Combined Engines Status (Multi-Strategy Monitor) ─────────────
 @app.get("/api/engines/all")
-async def engines_all():
-    """Return status of ALL running engines (paper + live) for multi-strategy Live page."""
+async def engines_all(request: Request):
+    """Return status of the current user's running engines for the Live page."""
+    user_id = _request_user_id(request)
     engines = []
+    stopped_engines = _load_stopped_engines(user_id)
 
     # Add all paper engines
-    for run_id, engine in paper_engines.items():
+    for run_id, engine in _registry_bucket(paper_engines, user_id).items():
         if engine.running:
             st = engine.get_status()
             st["run_id"] = run_id
@@ -3448,7 +3566,7 @@ async def engines_all():
             engines.append(st)
 
     # Add all live engines
-    for run_id, engine in live_engines.items():
+    for run_id, engine in _registry_bucket(live_engines, user_id).items():
         if engine.running:
             st = engine.get_status()
             st["run_id"] = run_id
@@ -3457,7 +3575,7 @@ async def engines_all():
 
     # Add stopped engine snapshots (persisted panels)
     active_ids = {e["run_id"] for e in engines}
-    for run_id, snapshot in _stopped_engines.items():
+    for run_id, snapshot in stopped_engines.items():
         if run_id not in active_ids:
             engines.append(snapshot)
 
@@ -3467,15 +3585,17 @@ async def engines_all():
 @app.post("/api/engines/dismiss")
 async def engines_dismiss(request: Request):
     """Remove a stopped engine snapshot from the Live page."""
+    user_id = _request_user_id(request)
+    stopped_engines = _load_stopped_engines(user_id)
     body = {}
     try:
         body = await request.json()
     except Exception:
         pass
     run_id = body.get("run_id", "")
-    if run_id and run_id in _stopped_engines:
-        _stopped_engines.pop(run_id)
-        _save_stopped_engines()
+    if run_id and run_id in stopped_engines:
+        stopped_engines.pop(run_id)
+        _save_stopped_engines(user_id)
         return {"status": "dismissed", "run_id": run_id}
     return {"status": "not_found", "run_id": run_id}
 
@@ -3515,8 +3635,9 @@ async def websocket_endpoint(ws: WebSocket):
     if not session:
         await ws.close(code=4001, reason="Unauthorized")
         return
+    user_id = int(session["user_id"])
     await ws.accept()
-    ws_clients.append(ws)
+    _user_ws_clients(user_id).append(ws)
 
     scalp_evt = _get_scalp_ws_event()
     engine_tick = 0  # counter: send full engine status every 20 cycles (~5s)
@@ -3532,7 +3653,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Scalp status — every cycle (250ms)
             scalp_data = None
-            if _HAS_SCALP and _scalp_engine is not None:
+            if _HAS_SCALP and _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
                 try:
                     scalp_data = _scalp_engine.get_status()
                 except Exception:
@@ -3547,8 +3668,12 @@ async def websocket_endpoint(ws: WebSocket):
             engine_tick += 1
             if engine_tick >= 20:
                 engine_tick = 0
-                paper_sts = {rid: e.get_status() for rid, e in paper_engines.items()}
-                live_sts = {rid: e.get_status() for rid, e in live_engines.items()}
+                paper_sts = {
+                    rid: e.get_status() for rid, e in _registry_bucket(paper_engines, user_id).items() if e.running
+                }
+                live_sts = {
+                    rid: e.get_status() for rid, e in _registry_bucket(live_engines, user_id).items() if e.running
+                }
                 payload["paper_engines"] = paper_sts
                 payload["live_engines"] = live_sts
                 payload["paper_running"] = any(s.get("running") for s in paper_sts.values())
@@ -3556,8 +3681,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
-        if ws in ws_clients:
-            ws_clients.remove(ws)
+        if ws in _user_ws_clients(user_id):
+            _user_ws_clients(user_id).remove(ws)
 
 
 # ── Orders / Positions / Funds ────────────────────────────────────
@@ -4179,15 +4304,16 @@ async def get_option_ltp(underlying: str, strike: int, expiry: str, option_type:
 
 
 @app.get("/api/paper/trades/csv")
-async def export_paper_trades_csv(run_id: str = ""):
+async def export_paper_trades_csv(request: Request, run_id: str = ""):
     """Export paper trading trades to CSV"""
     import csv
     import io
 
-    engine = paper_engines.get(run_id) if run_id else None
+    paper_bucket = _registry_bucket(paper_engines, _request_user_id(request))
+    engine = paper_bucket.get(run_id) if run_id else None
     if not engine:
         # Find first engine with trades
-        for e in paper_engines.values():
+        for e in paper_bucket.values():
             if e.closed_trades:
                 engine = e
                 break
@@ -4761,14 +4887,10 @@ async def _restore_live_engines():
     import json as _json
     from datetime import date as date_type
 
-    _here = os.path.dirname(__file__) or "."
     today = str(date_type.today())
     restored = 0
 
-    for fname in os.listdir(_here):
-        if not fname.startswith("live_state_") or not fname.endswith(".json"):
-            continue
-        fpath = os.path.join(_here, fname)
+    for user_id, state_dir, fname, fpath in _iter_user_state_files("live_state_"):
         try:
             with open(fpath, "r") as f:
                 state = _json.load(f)
@@ -4783,21 +4905,23 @@ async def _restore_live_engines():
             exit_conditions = state.get("exit_conditions", [])
             deploy_config = state.get("deploy_config", {})
             run_id = strategy.get("run_name", "live") or "live"
+            live_bucket = _registry_bucket(live_engines, user_id)
+            live_task_bucket = _registry_bucket(_live_tasks, user_id)
 
             # Skip if an engine with this run_id already exists
-            if run_id in live_engines:
+            if run_id in live_bucket:
                 print(f"🔄 [Restore] Engine '{run_id}' already running — skipping")
                 continue
 
             # Reconstruct engine with full config
-            engine = LiveEngine(dhan, run_id=run_id)
+            engine = LiveEngine(dhan, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 deploy_config=deploy_config,
             )
-            engine._user_id = strategy.get("_user_id")
+            engine._user_id = int(strategy.get("_user_id") or user_id)
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4812,12 +4936,7 @@ async def _restore_live_engines():
             engine.running = True
 
             async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
-                for ws in ws_clients.copy():
-                    try:
-                        await ws.send_json({"source": "live", "run_id": _rid, **event})
-                    except Exception:
-                        if ws in ws_clients:
-                            ws_clients.remove(ws)
+                await _broadcast_user_ws_json(_user_id, {"source": "live", "run_id": _rid, **event})
                 if event.get("type") == "exit" and event.get("trade"):
                     await _save_single_trade_to_history(
                         event["trade"],
@@ -4826,8 +4945,8 @@ async def _restore_live_engines():
                         explicit_user_id=_user_id,
                     )
 
-            live_engines[run_id] = engine
-            _live_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            live_bucket[run_id] = engine
+            live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
             restored += 1
             print(f"✅ [Restore] Live engine '{run_id}' restored and started")
 
@@ -4843,14 +4962,10 @@ async def _restore_paper_engines():
     import json as _json
     from datetime import date as date_type
 
-    _here = os.path.dirname(__file__) or "."
     today = str(date_type.today())
     restored = 0
 
-    for fname in os.listdir(_here):
-        if not fname.startswith("paper_state_") or not fname.endswith(".json"):
-            continue
-        fpath = os.path.join(_here, fname)
+    for user_id, state_dir, fname, fpath in _iter_user_state_files("paper_state_"):
         try:
             with open(fpath, "r") as f:
                 state = _json.load(f)
@@ -4870,19 +4985,21 @@ async def _restore_paper_engines():
                 continue
 
             run_id = strategy.get("run_name", "paper") or "paper"
+            paper_bucket = _registry_bucket(paper_engines, user_id)
+            paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
 
             # Skip if already running
-            if run_id in paper_engines:
+            if run_id in paper_bucket:
                 print(f"🔄 [Restore] Paper engine '{run_id}' already running — skipping")
                 continue
 
-            engine = PaperTradingEngine(dhan, run_id=run_id)
+            engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
                 exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
             )
-            engine._user_id = strategy.get("_user_id")
+            engine._user_id = int(strategy.get("_user_id") or user_id)
 
             # Inject WebSocket feed if available
             if _market_feed and HAS_DHAN_FEED:
@@ -4897,12 +5014,7 @@ async def _restore_paper_engines():
             engine.running = True
 
             async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
-                for ws in ws_clients.copy():
-                    try:
-                        await ws.send_json({"source": "paper", "run_id": _rid, **event})
-                    except Exception:
-                        if ws in ws_clients:
-                            ws_clients.remove(ws)
+                await _broadcast_user_ws_json(_user_id, {"source": "paper", "run_id": _rid, **event})
                 if event.get("type") == "exit" and event.get("trade"):
                     await _save_single_trade_to_history(
                         event["trade"],
@@ -4911,8 +5023,8 @@ async def _restore_paper_engines():
                         explicit_user_id=_user_id,
                     )
 
-            paper_engines[run_id] = engine
-            _paper_tasks[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            paper_bucket[run_id] = engine
+            paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
             restored += 1
             print(f"✅ [Restore] Paper engine '{run_id}' restored and started")
 
@@ -4927,25 +5039,25 @@ async def _restore_paper_engines():
 async def _shutdown_cleanup():
     """Save all running engine results and clean up."""
     # Save all running paper engines
-    for run_id, engine in list(paper_engines.items()):
+    for owner_id, run_id, engine in list(_iter_registry_items(paper_engines)):
         try:
             status = engine.get_status()
             if engine.running:
                 engine.stop()
             await _save_paper_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
-            print(f"🛑 [Shutdown] Saved paper engine: {run_id}")
+            print(f"🛑 [Shutdown] Saved paper engine: {owner_id}:{run_id}")
         except Exception as e:
-            print(f"🛑 [Shutdown] Failed to save paper engine {run_id}: {e}")
+            print(f"🛑 [Shutdown] Failed to save paper engine {owner_id}:{run_id}: {e}")
     # Save all running live engines (state file for auto-restore + runs.json for history)
-    for run_id, engine in list(live_engines.items()):
+    for owner_id, run_id, engine in list(_iter_registry_items(live_engines)):
         try:
             status = engine.get_status()
             if engine.running:
                 engine.stop()  # stop() calls _save_state() internally
             await _save_live_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
-            print(f"🛑 [Shutdown] Saved live engine: {run_id}")
+            print(f"🛑 [Shutdown] Saved live engine: {owner_id}:{run_id}")
         except Exception as e:
-            print(f"🛑 [Shutdown] Failed to save live engine {run_id}: {e}")
+            print(f"🛑 [Shutdown] Failed to save live engine {owner_id}:{run_id}: {e}")
     shutdown_feed()
     await alerter.shutdown()
     await _db_mod.close_db()
