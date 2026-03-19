@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import config
 from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
-from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
+from engine.backtest import eval_condition_group, get_lot_size, get_sell_option_margin_per_lot, get_strike_step
 from engine.indicators import compute_dynamic_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
@@ -109,6 +109,12 @@ class LiveEngine:
         self._sl_rupees = 0.0
         self._tp_pct = 0.0
         self._tp_rupees = 0.0
+        self.initial_capital = 0.0
+        self._enforce_capital = False
+        self._capital_buffer_pct = 0.0
+        self._sell_option_margin_per_lot = 0.0
+        self.capital_rejections = 0
+        self.last_capital_check: dict = {}
 
         # Market data
         self.current_spot = 0.0
@@ -147,6 +153,13 @@ class LiveEngine:
         self._sl_rupees = float(strategy.get("stoploss_rupees", 0) or 0)
         self._tp_pct = float(strategy.get("target_profit_pct", 0) or 0)
         self._tp_rupees = float(strategy.get("target_profit_rupees", 0) or 0)
+        self.initial_capital = float(strategy.get("initial_capital", 0) or 0)
+        self._enforce_capital = bool(strategy.get("enforce_capital", False))
+        self._capital_buffer_pct = min(99.0, max(0.0, float(strategy.get("capital_buffer_pct", 0) or 0)))
+        self._sell_option_margin_per_lot = get_sell_option_margin_per_lot(
+            strategy.get("instrument", "26000"),
+            strategy.get("sell_option_margin_per_lot", 0),
+        )
 
         # Pre-parse market hours once (avoid per-tick string parsing)
         mo = strategy.get("market_open", "09:15")
@@ -224,6 +237,87 @@ class LiveEngine:
             return "STRATEGY_TP"
         return None
 
+    @staticmethod
+    def _extract_available_balance(funds: dict) -> float:
+        if not isinstance(funds, dict):
+            return 0.0
+        for key in (
+            "availabelBalance",
+            "availableBalance",
+            "available_balance",
+            "availableMargin",
+            "available_margin",
+            "netMarginAvailable",
+        ):
+            value = funds.get(key)
+            try:
+                if value is not None:
+                    return max(0.0, float(value))
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    def _capital_required_for_entry(
+        self, transaction_type: str, entry_premium: float, lots: int, quantity: int
+    ) -> float:
+        if transaction_type == "SELL":
+            return float(lots) * self._sell_option_margin_per_lot
+        return max(0.0, float(entry_premium)) * float(quantity)
+
+    def _capital_limit(self, available_capital: float) -> float:
+        return max(0.0, float(available_capital)) * max(0.0, 1.0 - self._capital_buffer_pct / 100.0)
+
+    async def _can_enter_trade(self, planned_entries: list[dict]) -> bool:
+        if not self._enforce_capital:
+            self.last_capital_check = {"enforced": False, "passed": True}
+            return True
+
+        required_capital = sum(
+            self._capital_required_for_entry(
+                entry.get("transaction_type", "BUY"),
+                float(entry.get("entry_premium", 0.0) or 0.0),
+                int(entry.get("lots", 0) or 0),
+                int(entry.get("quantity", 0) or 0),
+            )
+            for entry in planned_entries
+        )
+
+        try:
+            funds = await self.dhan.async_get_funds()
+        except Exception as exc:
+            self.capital_rejections += 1
+            self.last_capital_check = {
+                "enforced": True,
+                "passed": False,
+                "required": round(required_capital, 2),
+                "available": 0.0,
+                "limit": 0.0,
+                "reason": f"funds_fetch_failed: {exc}",
+            }
+            self.log_event("error", f"Capital check failed: unable to fetch broker funds ({exc})")
+            return False
+
+        available_capital = self._extract_available_balance(funds)
+        capital_limit = self._capital_limit(available_capital)
+        passed = required_capital <= capital_limit + 1e-9
+        self.last_capital_check = {
+            "enforced": True,
+            "passed": passed,
+            "required": round(required_capital, 2),
+            "available": round(available_capital, 2),
+            "limit": round(capital_limit, 2),
+            "buffer_pct": self._capital_buffer_pct,
+            "mode": "broker",
+        }
+        if not passed:
+            self.capital_rejections += 1
+            self.log_event(
+                "warning",
+                f"Capital check blocked entry: required ₹{required_capital:,.0f} > usable ₹{capital_limit:,.0f}",
+            )
+            return False
+        return True
+
     # ── STATE PERSISTENCE ─────────────────────────────────────
     def _save_state(self):
         """Persist full engine config + trading state to disk so it survives restarts."""
@@ -244,6 +338,8 @@ class LiveEngine:
                 "strat_sl_val": self.strat_sl_val,
                 "strat_tp_val": self.strat_tp_val,
                 "trade_entry_prem": self.trade_entry_prem,
+                "capital_rejections": self.capital_rejections,
+                "last_capital_check": self.last_capital_check,
                 # Market data snapshot
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
@@ -304,6 +400,8 @@ class LiveEngine:
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
+            self.capital_rejections = state.get("capital_rejections", 0)
+            self.last_capital_check = state.get("last_capital_check", {}) or {}
 
             # Restore market data snapshot
             self.current_spot = state.get("current_spot", 0.0)
@@ -1312,7 +1410,7 @@ class LiveEngine:
         sqoff_on_fail = self.deploy_config.get("sqoff_on_fail", "no") == "yes"
 
         # ── Phase 1: Resolve all strikes (may need premium scan) ──
-        leg_plans = []  # (leg_idx, leg, strike, scanned_premium, quantity, opt_type, txn_type)
+        leg_plans = []  # (leg_idx, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size)
         for i, leg in enumerate(legs):
             expiry = ScripMaster.resolve_expiry(underlying, leg.get("expiry"), session_date_str)
             if not expiry:
@@ -1344,22 +1442,43 @@ class LiveEngine:
             else:
                 strike = self._calculate_strike(leg, entry_spot, strike_step)
 
-            # Early WebSocket subscription BEFORE order (so LTP arrives faster)
-            ws_sec_id = None
-            if self._ws_mode and self._feed:
-                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
+            leg_plans.append((i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size))
 
-            leg_plans.append(
-                (i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id, expiry, lot_size)
+        capital_plans = []
+        for plan in leg_plans:
+            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
+            preview_premium = scanned_premium if scanned_premium > 0 else 0.0
+            if preview_premium <= 0:
+                try:
+                    preview_premium = await self.dhan.async_get_option_ltp(underlying, strike, expiry, opt_type)
+                except Exception:
+                    preview_premium = 0.0
+            if preview_premium <= 0:
+                preview_premium = self._estimate_premium(strike, entry_spot, opt_type, strike_step)
+            capital_plans.append(
+                {
+                    "leg_num": i + 1,
+                    "transaction_type": txn_type,
+                    "entry_premium": preview_premium,
+                    "lots": lots,
+                    "quantity": quantity,
+                    "lot_size": lot_size,
+                }
             )
+
+        if not await self._can_enter_trade(capital_plans):
+            return
 
         # ── Phase 2: Fire all leg orders in parallel (asyncio.gather) ──
         async def _place_one_leg(plan):
-            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, ws_sec_id, expiry, lot_size = plan
+            i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
+            ws_sec_id = None
             trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
             self.log_event(
                 "entry", f"🦿 Leg {i + 1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
             )
+            if self._ws_mode and self._feed:
+                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
             try:
                 result = await self.dhan.async_place_option_order(
                     underlying=underlying,
@@ -1953,6 +2072,8 @@ class LiveEngine:
             "current_time": str(self.current_time) if self.current_time else None,
             "trades_today": self.trades_today,
             "daily_pnl": round(self.daily_pnl, 2),
+            "capital_rejections": self.capital_rejections,
+            "last_capital_check": self.last_capital_check,
             "positions": positions_out,
             "closed_trades": closed_out,
             "total_pnl": round(total_pnl, 2),
