@@ -1439,13 +1439,14 @@
     border: 1px solid var(--border);
     border-radius: 9px;
     overflow: hidden;
-    flex-shrink: 1;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .ticker-cell {
     padding: 5px 13px;
     text-align: center;
-    min-width: 86px;
+    flex: 1 1 104px;
+    min-width: 104px;
     border-right: 1px solid rgba(255,255,255,0.035);
     transition: background 0.15s;
     cursor: default;
@@ -1469,9 +1470,12 @@
   }
   .ticker-cell .tc-change {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     margin-top: 2px;
+    line-height: 1.05;
+    letter-spacing: -0.15px;
+    white-space: nowrap;
   }
   .topbar-right {
     display: flex;
