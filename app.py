@@ -481,6 +481,7 @@ class StrategyPayload(BaseModel):
     combined_sqoff_time: str = "15:20"
     fee_pct: float = 0.0
     trailing_sl_pct: float = 0.0
+    execution_profile: str = "auto"
     spread_bps: float = Field(default=0.0, ge=0)
     entry_slippage_bps: float = Field(default=0.0, ge=0)
     exit_slippage_bps: float = Field(default=0.0, ge=0)
@@ -2416,6 +2417,7 @@ async def api_run_backtest(payload: StrategyPayload):
                 "combined_sqoff_time": getattr(payload, "combined_sqoff_time", "15:20") or "15:20",
                 "fee_pct": getattr(payload, "fee_pct", 0.0),
                 "trailing_sl_pct": getattr(payload, "trailing_sl_pct", 0.0),
+                "execution_profile": getattr(payload, "execution_profile", "auto"),
                 "spread_bps": getattr(payload, "spread_bps", 0.0),
                 "entry_slippage_bps": getattr(payload, "entry_slippage_bps", 0.0),
                 "exit_slippage_bps": getattr(payload, "exit_slippage_bps", 0.0),

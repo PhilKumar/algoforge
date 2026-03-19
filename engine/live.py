@@ -35,7 +35,12 @@ from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
 from engine.strike_utils import round_to_nearest_step
-from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
+from engine.timeframes import (
+    describe_timeframe,
+    drop_incomplete_candle,
+    next_entry_ready_at,
+    resolve_strategy_timeframe,
+)
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -637,7 +642,9 @@ class LiveEngine:
                     if self._pending_order:
                         po = self._pending_order
                         # Double-trigger guard
-                        if self._last_processed_candle_time == po.get("signal_candle_time"):
+                        if not self._is_pending_order_ready(po, now):
+                            pass
+                        elif self._last_processed_candle_time == po.get("signal_candle_time"):
                             self.log_event("debug", "Duplicate pending order for already-processed candle — discarding")
                             self._clear_pending_order()
                         else:
@@ -651,10 +658,11 @@ class LiveEngine:
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
                         entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
                         if entry_sig:
-                            candle_time = latest_candle.get("timestamp", now)
+                            ready_at = self._pending_order_ready_at(strategy_candle_time)
                             self._pending_order = {
                                 "signal_candle_time": strategy_candle_time,
                                 "created_at": _now_ist(),
+                                "ready_at": ready_at,
                                 "row": latest_row,
                                 "attempts": 0,
                                 "retry_at": None,
@@ -668,7 +676,7 @@ class LiveEngine:
                             }
                             self.log_event(
                                 "signal",
-                                f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open (1st second)",
+                                f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open @ {ready_at.strftime('%H:%M:%S')}",
                             )
                 elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
                     # Signal exists but can't execute — log WHY and clear
@@ -768,6 +776,14 @@ class LiveEngine:
         self._entry_signal_pending = False
         self._signal_candle = None
 
+    def _pending_order_ready_at(self, signal_candle_time: datetime) -> datetime:
+        return next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested)
+
+    @staticmethod
+    def _is_pending_order_ready(pending_order: dict, now: datetime) -> bool:
+        ready_at = pending_order.get("ready_at")
+        return ready_at is None or now >= ready_at
+
     async def _flush_pending_order(self, row: pd.Series, callback=None):
         """Execute the pending order with retry-once logic.
         Returns True if entry succeeded, False otherwise."""
@@ -852,6 +868,9 @@ class LiveEngine:
         if po.get("retry_at") and now < po["retry_at"]:
             return  # Wait for retry window
 
+        if not self._is_pending_order_ready(po, now):
+            return
+
         # ── FIRE THE ORDER ──
         latest_row = po.get("row")
         if latest_row is None:
@@ -896,10 +915,17 @@ class LiveEngine:
             self.log_event("error", f"Data fetch error: {e}")
             return
 
-        latest_row = df.iloc[-1]
+        execution_timeframe = self._get_timeframe_spec().requested
+        eval_df = drop_incomplete_candle(df, execution_timeframe, now)
+        if eval_df.empty:
+            if callback:
+                await self._emit(callback, self.get_status())
+            return
+
+        latest_row = eval_df.iloc[-1]
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
-        prev_row = df.iloc[-2] if len(df) >= 2 else self._prev_row
+        prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else self._prev_row
 
         # ── Manage open positions ──
         for pos in list(self.positions):
@@ -932,6 +958,8 @@ class LiveEngine:
                 # Retry timing check
                 if po.get("retry_at") and now < po["retry_at"]:
                     pass  # Wait for retry window
+                elif not self._is_pending_order_ready(po, now):
+                    pass
                 elif self._last_processed_candle_time == po.get("signal_candle_time"):
                     self.log_event("debug", "Double-trigger blocked (REST mode)")
                     self._clear_pending_order()
@@ -941,9 +969,12 @@ class LiveEngine:
             elif is_new_strategy_candle:
                 entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
                 if entry_sig:
+                    signal_candle_time = latest_row.name if hasattr(latest_row, "name") else now
+                    ready_at = self._pending_order_ready_at(signal_candle_time)
                     self._pending_order = {
-                        "signal_candle_time": latest_row.name if hasattr(latest_row, "name") else now,
+                        "signal_candle_time": signal_candle_time,
                         "created_at": now,
+                        "ready_at": ready_at,
                         "row": latest_row,
                         "attempts": 0,
                         "retry_at": None,
@@ -955,7 +986,10 @@ class LiveEngine:
                         "Signal_Candle_Low": float(latest_row["low"]),
                         "Signal_Candle_Close": float(latest_row["close"]),
                     }
-                    self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT poll (REST mode)")
+                    self.log_event(
+                        "signal",
+                        f"⚡ ENTRY SIGNAL — will enter on or after {ready_at.strftime('%H:%M:%S')} (REST mode)",
+                    )
         elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
             reason = (
                 "in_trade=True"

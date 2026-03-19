@@ -35,7 +35,12 @@ from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
 from engine.strike_utils import round_to_nearest_step
-from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
+from engine.timeframes import (
+    describe_timeframe,
+    drop_incomplete_candle,
+    next_entry_ready_at,
+    resolve_strategy_timeframe,
+)
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -107,6 +112,8 @@ class PaperTradingEngine:
         self.current_candle = {}  # Latest OHLCV candle for UI
         self._prev_row = None  # Previous candle row for crossover detection
         self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle
+        self._pending_entry_ready_at = None  # Earliest timestamp when the pending entry may execute
+        self._pending_signal_candle_time = None
         self._signal_candle = None  # OHLC of the candle that triggered entry signal
         self._condition_debug = {}  # Last condition evaluation details for UI
         self._last_strategy_candle_time = None  # Last closed execution-timeframe candle seen
@@ -331,6 +338,26 @@ class PaperTradingEngine:
             candle_time = session_open
         return max(0.0, (now - candle_time).total_seconds())
 
+    def _arm_pending_entry(self, signal_candle_time: datetime, latest_row: pd.Series) -> None:
+        self._entry_signal_pending = True
+        self._pending_signal_candle_time = signal_candle_time
+        self._pending_entry_ready_at = next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested)
+        self._signal_candle = {
+            "Signal_Candle_Open": float(latest_row["open"]),
+            "Signal_Candle_High": float(latest_row["high"]),
+            "Signal_Candle_Low": float(latest_row["low"]),
+            "Signal_Candle_Close": float(latest_row["close"]),
+        }
+
+    def _clear_pending_entry(self) -> None:
+        self._entry_signal_pending = False
+        self._pending_entry_ready_at = None
+        self._pending_signal_candle_time = None
+        self._signal_candle = None
+
+    def _pending_entry_is_ready(self, now: datetime) -> bool:
+        return self._pending_entry_ready_at is not None and now >= self._pending_entry_ready_at
+
     async def start(self, callback=None):
         """Start the paper trading engine"""
         self.running = True
@@ -538,12 +565,12 @@ class PaperTradingEngine:
                             if exit_triggered:
                                 self._close_position(position, exit_triggered, position["current_premium"])
 
-                # ── Execute pending entry immediately (no wait) ──
-                if self._entry_signal_pending and not self.in_trade:
+                # ── Execute pending entry only after the next candle boundary ──
+                if self._entry_signal_pending and not self.in_trade and self._pending_entry_is_ready(_now_ist()):
                     max_trades = self.strategy.get("max_trades_per_day", 1)
                     daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
                     if self.trades_today < max_trades and not daily_loss_hit:
-                        self._entry_signal_pending = False
+                        self._clear_pending_entry()
                         latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
                         if latest_row is not None:
                             self.log_event(
@@ -614,11 +641,12 @@ class PaperTradingEngine:
                 if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
                     # Execute pending signal from previous candle (enter on THIS candle's open)
                     if self._entry_signal_pending:
-                        self._entry_signal_pending = False
-                        self.log_event(
-                            "entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (next candle open)"
-                        )
-                        await self._enter_trade(latest_row)
+                        if self._pending_entry_is_ready(now):
+                            self._clear_pending_entry()
+                            self.log_event(
+                                "entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (next candle open)"
+                            )
+                            await self._enter_trade(latest_row)
                     else:
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
                         entry_triggered, cond_details = debug_condition_group(
@@ -631,16 +659,10 @@ class PaperTradingEngine:
                             "conditions": cond_details,
                         }
                         if entry_triggered:
-                            self._entry_signal_pending = True
-                            self._signal_candle = {
-                                "Signal_Candle_Open": float(latest_row["open"]),
-                                "Signal_Candle_High": float(latest_row["high"]),
-                                "Signal_Candle_Low": float(latest_row["low"]),
-                                "Signal_Candle_Close": float(latest_row["close"]),
-                            }
+                            self._arm_pending_entry(strategy_candle_time, latest_row)
                             self.log_event(
                                 "signal",
-                                f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open",
+                                f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
                             )
                 elif self.in_trade:
                     self._condition_debug = {"gate": "in_trade", "conditions": []}
@@ -779,7 +801,14 @@ class PaperTradingEngine:
             return
 
         # Get latest closed strategy candle for condition evaluation
-        latest_row = df.iloc[-1]
+        execution_timeframe = self._get_timeframe_spec().requested
+        eval_df = drop_incomplete_candle(df, execution_timeframe, now)
+        if eval_df.empty:
+            if callback:
+                await self._emit_callback(callback, self.get_status())
+            return
+
+        latest_row = eval_df.iloc[-1]
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
 
@@ -814,11 +843,14 @@ class PaperTradingEngine:
         elif self.trades_today < max_trades and not self.in_trade:
             # Execute pending signal from previous tick (enter on THIS candle)
             if self._entry_signal_pending:
-                self._entry_signal_pending = False
-                self.log_event("entry", "🚀 Executing pending entry (next candle open)")
-                await self._enter_trade(latest_row)
+                if self._pending_entry_is_ready(now):
+                    self._clear_pending_entry()
+                    self.log_event(
+                        "entry", f"🚀 Executing pending entry @ {now.strftime('%H:%M:%S')} (next candle open)"
+                    )
+                    await self._enter_trade(latest_row)
             elif is_new_strategy_candle:
-                prev_row = df.iloc[-2] if len(df) >= 2 else None
+                prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else None
                 entry_triggered, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
                 self._condition_debug = {
                     "time": now.strftime("%H:%M:%S"),
@@ -827,14 +859,11 @@ class PaperTradingEngine:
                     "conditions": cond_details,
                 }
                 if entry_triggered:
-                    self._entry_signal_pending = True
-                    self._signal_candle = {
-                        "Signal_Candle_Open": float(latest_row["open"]),
-                        "Signal_Candle_High": float(latest_row["high"]),
-                        "Signal_Candle_Low": float(latest_row["low"]),
-                        "Signal_Candle_Close": float(latest_row["close"]),
-                    }
-                    self.log_event("signal", "⚡ ENTRY SIGNAL — will enter on NEXT candle open")
+                    self._arm_pending_entry(strategy_candle_time, latest_row)
+                    self.log_event(
+                        "signal",
+                        f"⚡ ENTRY SIGNAL — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
+                    )
         elif self.in_trade:
             self._condition_debug = {"gate": "in_trade", "conditions": []}
         elif self.trades_today >= max_trades:

@@ -21,6 +21,7 @@ NATIVE_DHAN_INTERVALS: tuple[DhanInterval, ...] = (1, 5, 15, 25, 60)
 MAX_INTRADAY_HISTORY_DAYS = 365 * 5
 INTRADAY_CHUNK_DAYS = 90
 SESSION_OFFSET_MINUTES = 15  # NSE session anchors at 09:15 IST
+ENTRY_BUFFER_SECONDS = 1
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,32 @@ def aligned_candle_start(
     elapsed_seconds = (ts - anchor).total_seconds()
     slot_index = int(elapsed_seconds // (timeframe_minutes * 60))
     return anchor + timedelta(minutes=slot_index * timeframe_minutes)
+
+
+def candle_close_time(candle_start: datetime, timeframe_minutes: int) -> datetime:
+    return candle_start + timedelta(minutes=timeframe_minutes)
+
+
+def is_candle_closed(candle_start: datetime, timeframe_minutes: int, now: datetime) -> bool:
+    return now >= candle_close_time(candle_start, timeframe_minutes)
+
+
+def next_entry_ready_at(
+    signal_candle_start: datetime,
+    timeframe_minutes: int,
+    *,
+    buffer_seconds: int = ENTRY_BUFFER_SECONDS,
+) -> datetime:
+    return candle_close_time(signal_candle_start, timeframe_minutes) + timedelta(seconds=buffer_seconds)
+
+
+def drop_incomplete_candle(df: pd.DataFrame, timeframe_minutes: int, now: datetime) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    last_start = df.index[-1]
+    if not is_candle_closed(last_start, timeframe_minutes, now):
+        return df.iloc[:-1].copy()
+    return df.copy()
 
 
 def resample_ohlcv(
