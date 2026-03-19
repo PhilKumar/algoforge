@@ -174,7 +174,8 @@ class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
 
 class PaperPendingEntryTimingTests(unittest.TestCase):
     def test_paper_pending_entry_arms_for_next_candle_open_plus_one_second(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="timing-test")
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="timing-test")
         engine.strategy = {"timeframe_minutes": 5, "indicators": []}
         signal_ts = pd.Timestamp("2026-03-19 09:15").to_pydatetime()
         latest_row = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5})
@@ -220,7 +221,8 @@ class LiveTouchExitTests(unittest.TestCase):
 
 class PaperTouchExitTests(unittest.TestCase):
     def test_paper_touch_exit_uses_latest_raw_snapshot_in_rest_mode(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="touch-paper")
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="touch-paper")
         engine.strategy = {"instrument": "26000", "timeframe_minutes": 3, "indicators": []}
         engine.exit_conditions = [
             {"left": "current_high", "operator": "touches", "right": "number", "right_number_value": 104}
@@ -291,7 +293,8 @@ class PortfolioStrategyExitTests(unittest.TestCase):
         self.assertEqual(engine.strat_tp_val, 2200.0)
 
     def test_paper_strategy_exit_uses_combined_open_position_pnl(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-exit")
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-exit")
         engine.strat_tp_val = 90.0
         engine.positions = [
             {
@@ -315,7 +318,8 @@ class PortfolioStrategyExitTests(unittest.TestCase):
         self.assertEqual(engine._check_strategy_exit(), "STRATEGY_TP")
 
     def test_paper_strategy_close_uses_actual_exit_premium(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-close")
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-close")
         engine._history_file = "/tmp/paper_history_portfolio-paper.json"
         engine.current_time = pd.Timestamp("2026-03-19 09:25").to_pydatetime()
         position = {
@@ -365,7 +369,8 @@ class CapitalGatingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.last_capital_check["required"], 100000.0)
 
     async def test_paper_capital_check_blocks_unaffordable_portfolio(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="capital-paper")
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="capital-paper")
         engine.initial_capital = 1000.0
         engine._enforce_capital = True
         engine._capital_buffer_pct = 0.0
