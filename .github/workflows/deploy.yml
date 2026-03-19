@@ -4,8 +4,9 @@
 name: Deploy AlgoForge
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Playwright E2E"]
+    types: [completed]
   workflow_dispatch:        # manual trigger from GitHub UI
 
 env:
@@ -18,11 +19,21 @@ concurrency:
 
 jobs:
   deploy:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Configure SSH
         run: |
@@ -39,9 +50,10 @@ jobs:
 
       - name: Run zero-downtime deploy
         run: |
+          TARGET_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
           set +e
           SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -T"
-          ssh $SSH_OPTS deploy-target "cd ~/algoforge && git fetch origin main && git reset --hard origin/main && bash deploy/cd-deploy.sh" \
+          ssh $SSH_OPTS deploy-target "cd ~/algoforge && git fetch origin main && git checkout main && git reset --hard ${TARGET_SHA} && bash deploy/cd-deploy.sh" \
             2>deploy-stderr.log | tee deploy-stdout.log
           rc=${PIPESTATUS[0]}
           set -e
@@ -52,7 +64,7 @@ jobs:
 
           if [ "$rc" -eq 255 ] && grep -Eq 'Broken pipe|Connection .* closed|timed out|banner exchange' deploy-stderr.log; then
             echo "SSH transport dropped during deploy. Verifying remote state..."
-            ssh $SSH_OPTS deploy-target "REMOTE_HEAD=\$(git -C ~/algoforge rev-parse HEAD); ACTIVE_PORT=\$(cat ~/.algoforge-active-port); test \"\$REMOTE_HEAD\" = \"${GITHUB_SHA}\" && curl -sf http://127.0.0.1:\${ACTIVE_PORT}/api/health >/dev/null"
+            ssh $SSH_OPTS deploy-target "REMOTE_HEAD=\$(git -C ~/algoforge rev-parse HEAD); ACTIVE_PORT=\$(cat ~/.algoforge-active-port); test \"\$REMOTE_HEAD\" = \"${TARGET_SHA}\" && curl -sf http://127.0.0.1:\${ACTIVE_PORT}/api/health >/dev/null"
             echo "Remote deploy verified after SSH disconnect."
             exit 0
           fi
@@ -62,9 +74,10 @@ jobs:
 
       - name: Verify deployment
         run: |
+          TARGET_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
           SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -T"
           for i in $(seq 1 10); do
-            if ssh $SSH_OPTS deploy-target "REMOTE_HEAD=\$(git -C ~/algoforge rev-parse HEAD); ACTIVE_PORT=\$(cat ~/.algoforge-active-port); test \"\$REMOTE_HEAD\" = \"${GITHUB_SHA}\" && curl -sf http://127.0.0.1:\${ACTIVE_PORT}/api/health >/dev/null && echo \" ✅ Health OK on port \${ACTIVE_PORT}\""; then
+            if ssh $SSH_OPTS deploy-target "REMOTE_HEAD=\$(git -C ~/algoforge rev-parse HEAD); ACTIVE_PORT=\$(cat ~/.algoforge-active-port); test \"\$REMOTE_HEAD\" = \"${TARGET_SHA}\" && curl -sf http://127.0.0.1:\${ACTIVE_PORT}/api/health >/dev/null && echo \" ✅ Health OK on port \${ACTIVE_PORT}\""; then
               exit 0
             fi
             sleep 3
