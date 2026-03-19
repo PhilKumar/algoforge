@@ -44,6 +44,8 @@ This suite contains **two production-grade trading platforms** that share a comm
 
 Both platforms provide a unified workflow: **Strategy Builder → Backtest → Paper Trade → Go Live → Scalp**.
 
+> Feature branch note: `feature/multi-tenant` adds SQLite-backed multi-user auth, per-user broker isolation, admin controls, and backup tooling for AlgoForge. Use [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md) for staging and production cutover on that branch.
+
 ---
 
 ## 🏗 System Architecture
@@ -84,7 +86,7 @@ graph TD
 
     subgraph DATA["💾 Data Layer"]
         PG["PostgreSQL / TimescaleDB<br/>candles hypertable<br/>1m · 3m · 5m OHLCV<br/>(optional — CryptoForge)"]
-        JSON_FILES["JSON Persistence<br/>strategies.json<br/>runs.json · scalp_trades.json"]
+        JSON_FILES["SQLite + Per-user Files<br/>algoforge.db<br/>data/users/*"]
         PROM["Prometheus Metrics<br/>/metrics endpoint<br/>(optional)"]
     end
 
@@ -145,10 +147,10 @@ Browser → Nginx (TCP-tuned) → Uvicorn (ASGI) → FastAPI Router
 | **Paper Trading** | Real-time simulated fills using live market data — zero risk, full realism |
 | **Live Trading** | Authenticated broker REST API orders with fill verification + retry logic |
 | **Scalp Mode** | Hybrid manual/auto engine — manual entry, auto exit on target/SL/sqoff time |
-| **WebSocket Feed** | Sub-second P&amp;L and trade log broadcast to all connected clients |
+| **WebSocket Feed** | Sub-second P&amp;L and trade log broadcast to the owning user's connected clients |
 | **Alerting** | Fire-and-forget async alerts via **Telegram** and **Discord** on orders, errors, and signals |
 | **Multi-Engine** | Run multiple concurrent live/paper engines keyed by `run_id` |
-| **PIN Auth** | Session-based PIN authentication — server refuses to start without `*_PIN` env var |
+| **Session Auth** | Username + password auth on `feature/multi-tenant`; legacy PIN only for first-run admin bootstrap |
 | **Graceful Shutdown** | `atexit` hook auto-saves all running engine states to `runs.json` |
 
 ### AlgoForge-Specific
@@ -281,7 +283,7 @@ uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2
 ```
 
-Open **http://localhost:8000** and log in with your PIN.
+Open **http://localhost:8000** and log in with your configured username + password. On first boot of `feature/multi-tenant`, the admin account is bootstrapped from `ADMIN_USERNAME` plus `ALGOFORGE_PIN` or `ALGOFORGE_PASSWORD`.
 
 > **Backtesting without credentials:** AlgoForge backtests automatically fall back to Yahoo Finance data. CryptoForge backtests fall back to Binance public OHLCV.
 
@@ -305,7 +307,12 @@ DHAN_TOTP_SECRET=your_totp_base32_secret
 APP_HOST=127.0.0.1
 APP_PORT=8000
 DEBUG=false
-ALGOFORGE_PIN=your_secure_pin      # required — server won't start without this
+ADMIN_USERNAME=admin
+ALGOFORGE_PIN=bootstrap_admin_password
+ALGOFORGE_DB=/home/ec2-user/algoforge/algoforge.db
+ALGOFORGE_USER_DATA_ROOT=/home/ec2-user/algoforge/data/users
+ALGOFORGE_BACKUP_ROOT=/home/ec2-user/algoforge/backups
+ENCRYPTION_KEY=generated_fernet_key
 
 # ── Alerts (optional) ────────────────────────────────
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
@@ -446,6 +453,8 @@ prev_candle · yesterday_high · yesterday_low · pivot · bc · tc
 ---
 
 ## 🖥 Production Deployment
+
+For the multi-tenant AlgoForge branch, use the staged rollout guide in [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md). It covers bootstrap env vars, migration, UAT, load testing, backup timer setup, and rollback.
 
 ### Infrastructure Overview
 

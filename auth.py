@@ -49,7 +49,7 @@ def _get_fernet():
         return _fernet
     key = config.ENCRYPTION_KEY
     if not key:
-        _logger.warning("[Auth] ENCRYPTION_KEY not set — broker credentials will be stored in plaintext")
+        _logger.warning("[Auth] ENCRYPTION_KEY not set — stored broker credentials are disabled")
         return None
     from cryptography.fernet import Fernet
 
