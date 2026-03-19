@@ -126,9 +126,19 @@ class YesterdayRegressionTests(unittest.TestCase):
 
 
 class DummyBroker:
-    def __init__(self, funds: dict | None = None, option_ltp: float = 100.0):
+    def __init__(
+        self,
+        funds: dict | None = None,
+        option_ltp: float = 100.0,
+        place_order_results: list[dict] | None = None,
+        verify_results: list[dict] | None = None,
+    ):
         self.funds = funds or {"availabelBalance": 0.0}
         self.option_ltp = option_ltp
+        self.place_order_results = list(place_order_results or [])
+        self.verify_results = list(verify_results or [])
+        self.cancelled_orders = []
+        self.placed_orders = []
 
     async def async_get_funds(self):
         return self.funds
@@ -138,6 +148,27 @@ class DummyBroker:
 
     def get_option_ltp(self, *args, **kwargs):
         return self.option_ltp
+
+    async def async_place_option_order(self, **kwargs):
+        self.placed_orders.append(kwargs)
+        if self.place_order_results:
+            return self.place_order_results.pop(0)
+        return {"orderId": f"ORD{len(self.placed_orders)}"}
+
+    async def async_verify_order_fill(self, order_id: str, max_wait_sec: int = 15):
+        if self.verify_results:
+            return self.verify_results.pop(0)
+        return {
+            "order_id": order_id,
+            "status": "FILLED",
+            "filled_qty": 0,
+            "avg_price": self.option_ltp,
+            "message": "Order filled successfully",
+        }
+
+    async def async_cancel_order(self, order_id: str):
+        self.cancelled_orders.append(order_id)
+        return {"orderId": order_id, "status": "CANCELLED"}
 
 
 class DummyFeed:
@@ -383,6 +414,188 @@ class CapitalGatingTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(allowed)
         self.assertEqual(engine.capital_rejections, 1)
         self.assertFalse(engine.last_capital_check["passed"])
+
+
+class LiveOrderVerificationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_entry_uses_verified_broker_fill_price(self):
+        broker = DummyBroker(
+            option_ltp=100.0,
+            place_order_results=[{"orderId": "ENTRY1"}],
+            verify_results=[{"status": "FILLED", "filled_qty": 50, "avg_price": 101.25}],
+        )
+        engine = LiveEngine(dhan=broker, run_id="verify-entry")
+        engine.strategy = {
+            "run_name": "Verify Entry",
+            "instrument": "26000",
+            "legs": [{"transaction_type": "BUY", "option_type": "CE", "strike_type": "atm", "lots": 1}],
+        }
+        engine.deploy_config = {"product_type": "MIS", "entry_order": "MARKET"}
+        engine.current_spot = 22000.0
+        engine.current_time = pd.Timestamp("2026-03-19 09:20:01").to_pydatetime()
+        engine.session_date = engine.current_time.date()
+
+        with (
+            patch.object(engine, "_can_enter_trade", AsyncMock(return_value=True)),
+            patch("engine.live.ScripMaster.resolve_expiry", return_value="2026-03-26"),
+            patch("engine.live.ScripMaster.get_lot_size", return_value=50),
+        ):
+            await engine._enter_trade(pd.Series({"open": 22000.0}))
+
+        self.assertTrue(engine.in_trade)
+        self.assertEqual(len(engine.positions), 1)
+        self.assertAlmostEqual(engine.positions[0]["entry_premium"], 101.25)
+        self.assertTrue(engine.positions[0]["entry_fill_verified"])
+        self.assertEqual(engine.last_order_verification["status"], "FILLED")
+
+    async def test_live_entry_timeout_does_not_open_position(self):
+        broker = DummyBroker(
+            option_ltp=100.0,
+            place_order_results=[{"orderId": "ENTRY1"}],
+            verify_results=[{"status": "TIMEOUT", "filled_qty": 0, "avg_price": 0.0, "message": "pending"}],
+        )
+        engine = LiveEngine(dhan=broker, run_id="verify-entry-timeout")
+        engine.strategy = {
+            "run_name": "Verify Entry Timeout",
+            "instrument": "26000",
+            "legs": [{"transaction_type": "BUY", "option_type": "CE", "strike_type": "atm", "lots": 1}],
+        }
+        engine.deploy_config = {"product_type": "MIS", "entry_order": "MARKET"}
+        engine.current_spot = 22000.0
+        engine.current_time = pd.Timestamp("2026-03-19 09:20:01").to_pydatetime()
+        engine.session_date = engine.current_time.date()
+
+        with (
+            patch.object(engine, "_can_enter_trade", AsyncMock(return_value=True)),
+            patch("engine.live.ScripMaster.resolve_expiry", return_value="2026-03-26"),
+            patch("engine.live.ScripMaster.get_lot_size", return_value=50),
+        ):
+            await engine._enter_trade(pd.Series({"open": 22000.0}))
+
+        self.assertFalse(engine.in_trade)
+        self.assertEqual(len(engine.positions), 0)
+        self.assertEqual(engine.order_verification_failures, 1)
+        self.assertIn("ENTRY1", broker.cancelled_orders)
+
+    async def test_live_exit_uses_verified_broker_fill_price(self):
+        broker = DummyBroker(
+            place_order_results=[{"orderId": "EXIT1"}],
+            verify_results=[{"status": "FILLED", "filled_qty": 50, "avg_price": 118.5}],
+        )
+        engine = LiveEngine(dhan=broker, run_id="verify-exit")
+        engine.deploy_config = {"product_type": "MIS", "exit_order": "MARKET"}
+        engine.current_time = pd.Timestamp("2026-03-19 09:25:00").to_pydatetime()
+        position = {
+            "leg_num": 1,
+            "status": "open",
+            "transaction_type": "BUY",
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "strike": 22000,
+            "expiry": "2026-03-26",
+            "entry_premium": 100.0,
+            "current_premium": 120.0,
+            "quantity": 50,
+            "lots": 1,
+            "lot_size": 50,
+            "trading_symbol": "NIFTY 22000CE 2026-03-26",
+        }
+        engine.positions = [position]
+        engine.in_trade = True
+
+        await engine._exit_position(position, "EXIT_SIGNAL", 120.0)
+
+        self.assertFalse(engine.in_trade)
+        self.assertEqual(len(engine.positions), 0)
+        self.assertAlmostEqual(engine.closed_trades[-1]["exit_premium"], 118.5)
+        self.assertEqual(engine.last_order_verification["status"], "FILLED")
+
+    async def test_live_exit_timeout_marks_position_for_retry(self):
+        broker = DummyBroker(
+            place_order_results=[{"orderId": "EXIT1"}],
+            verify_results=[{"status": "TIMEOUT", "filled_qty": 0, "avg_price": 0.0, "message": "pending"}],
+        )
+        engine = LiveEngine(dhan=broker, run_id="verify-exit-timeout")
+        engine.deploy_config = {"product_type": "MIS", "exit_order": "MARKET"}
+        engine.current_time = pd.Timestamp("2026-03-19 09:25:00").to_pydatetime()
+        position = {
+            "leg_num": 1,
+            "status": "open",
+            "transaction_type": "BUY",
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "strike": 22000,
+            "expiry": "2026-03-26",
+            "entry_premium": 100.0,
+            "current_premium": 120.0,
+            "quantity": 50,
+            "lots": 1,
+            "lot_size": 50,
+            "trading_symbol": "NIFTY 22000CE 2026-03-26",
+        }
+        engine.positions = [position]
+        engine.in_trade = True
+
+        await engine._exit_position(position, "EXIT_SIGNAL", 120.0)
+
+        self.assertTrue(engine.in_trade)
+        self.assertEqual(len(engine.positions), 1)
+        self.assertEqual(engine.positions[0]["_force_exit_reason"], "EXIT_SIGNAL")
+        self.assertIn("EXIT1", broker.cancelled_orders)
+
+
+class PaperExecutionRealismTests(unittest.TestCase):
+    def test_paper_execution_costs_make_entry_and_exit_worse_for_longs(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-realism")
+        engine.configure(
+            {
+                "run_name": "Paper Realism",
+                "instrument": "26000",
+                "execution_profile": "manual",
+                "spread_bps": 0.0,
+                "entry_slippage_bps": 100.0,
+                "exit_slippage_bps": 100.0,
+            },
+            [],
+            [],
+        )
+
+        self.assertAlmostEqual(engine._apply_execution_costs(100.0, "BUY", "entry"), 101.0)
+        self.assertAlmostEqual(engine._apply_execution_costs(110.0, "BUY", "exit"), 108.9)
+
+    def test_paper_close_uses_adjusted_exit_fill_price(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-realism-close")
+        engine.configure(
+            {
+                "run_name": "Paper Realism Close",
+                "instrument": "26000",
+                "execution_profile": "manual",
+                "spread_bps": 0.0,
+                "entry_slippage_bps": 0.0,
+                "exit_slippage_bps": 100.0,
+            },
+            [],
+            [],
+        )
+        engine.current_time = pd.Timestamp("2026-03-19 09:25").to_pydatetime()
+        position = {
+            "status": "open",
+            "transaction_type": "BUY",
+            "entry_premium": 100.0,
+            "quantity": 1,
+            "lots": 1,
+            "lot_size": 1,
+            "leg_num": 1,
+        }
+        engine.positions = [position]
+
+        with patch.object(engine, "_save_trade_history"):
+            engine._close_position(position, "TARGET", 110.0)
+
+        self.assertAlmostEqual(engine.closed_trades[-1]["exit_quote_premium"], 110.0)
+        self.assertAlmostEqual(engine.closed_trades[-1]["exit_premium"], 108.9)
+        self.assertAlmostEqual(engine.closed_trades[-1]["pnl"], 8.9)
 
 
 if __name__ == "__main__":

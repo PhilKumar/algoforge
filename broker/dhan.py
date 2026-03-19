@@ -1497,27 +1497,50 @@ class DhanClient:
         """
         import time as _t
 
+        def _to_int(value, default=0):
+            try:
+                if value is None or value == "":
+                    return default
+                return int(float(value))
+            except Exception:
+                return default
+
+        def _to_float(value, default=0.0):
+            try:
+                if value is None or value == "":
+                    return default
+                return float(value)
+            except Exception:
+                return default
+
         start = _t.time()
         last_status = {}
         while _t.time() - start < max_wait_sec:
             status = self.get_order_status(order_id)
             last_status = status
             os = status.get("orderStatus", status.get("status", "UNKNOWN")).upper()
+            filled_qty = _to_int(status.get("filledQty", status.get("tradedQuantity", status.get("quantity", 0))), 0)
+            requested_qty = _to_int(status.get("quantity", status.get("orderQuantity", 0)), 0)
+            avg_price = _to_float(status.get("averagePrice", status.get("price", 0)), 0.0)
             # Terminal states
-            if os in ("TRADED", "FILLED", "COMPLETE"):
+            if os in ("TRADED", "FILLED", "COMPLETE") or (requested_qty > 0 and filled_qty >= requested_qty):
                 return {
                     "order_id": order_id,
                     "status": "FILLED",
-                    "filled_qty": status.get("filledQty", status.get("tradedQuantity", status.get("quantity", 0))),
-                    "avg_price": status.get("averagePrice", status.get("price", 0)),
+                    "raw_status": os,
+                    "requested_qty": requested_qty,
+                    "filled_qty": filled_qty or requested_qty,
+                    "avg_price": avg_price,
                     "message": "Order filled successfully",
                 }
             if os in ("REJECTED", "CANCELLED"):
                 return {
                     "order_id": order_id,
                     "status": os,
-                    "filled_qty": 0,
-                    "avg_price": 0,
+                    "raw_status": os,
+                    "requested_qty": requested_qty,
+                    "filled_qty": filled_qty,
+                    "avg_price": avg_price,
                     "message": status.get("rejectionReason", status.get("omsErrorDescription", f"Order {os}")),
                 }
             _t.sleep(poll_interval)
@@ -1525,8 +1548,10 @@ class DhanClient:
         return {
             "order_id": order_id,
             "status": "TIMEOUT",
-            "filled_qty": last_status.get("filledQty", 0),
-            "avg_price": last_status.get("averagePrice", 0),
+            "raw_status": str(last_status.get("orderStatus", last_status.get("status", "UNKNOWN"))).upper(),
+            "requested_qty": _to_int(last_status.get("quantity", last_status.get("orderQuantity", 0)), 0),
+            "filled_qty": _to_int(last_status.get("filledQty", last_status.get("tradedQuantity", 0)), 0),
+            "avg_price": _to_float(last_status.get("averagePrice", last_status.get("price", 0)), 0.0),
             "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}",
         }
 
