@@ -40,6 +40,14 @@ LOT_SIZES = {
     "SENSEX": [(date(2026, 1, 1), 20), (date(2024, 11, 20), 20), (date(2000, 1, 1), 10)],
 }
 
+SELL_OPTION_MARGIN_PER_LOT = {
+    "NIFTY": 100000.0,
+    "BANKNIFTY": 150000.0,
+    "FINNIFTY": 85000.0,
+    "MIDCPNIFTY": 80000.0,
+    "SENSEX": 75000.0,
+}
+
 
 def _instrument_family(instrument):
     token = str(instrument).upper()
@@ -89,6 +97,15 @@ def get_strike_step(instrument):
     elif "1" == str(instrument) or "SENSEX" in str(instrument).upper():
         return 100
     return 50
+
+
+def get_sell_option_margin_per_lot(instrument, override=0):
+    if override and float(override) > 0:
+        return float(override)
+    family = _instrument_family(instrument)
+    if family is None:
+        return 100000.0
+    return float(SELL_OPTION_MARGIN_PER_LOT.get(family, 100000.0))
 
 
 # ── Time Parser ────────────────────────────────────────────────────
@@ -518,6 +535,14 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     instrument = sc.get("instrument", "26000")
     strike_step = get_strike_step(instrument)
     option_history_map = sc.get("_option_history", {}) or {}
+    spread_bps = max(0.0, float(sc.get("spread_bps", 0) or 0))
+    entry_slippage_bps = max(0.0, float(sc.get("entry_slippage_bps", 0) or 0))
+    exit_slippage_bps = max(0.0, float(sc.get("exit_slippage_bps", 0) or 0))
+    entry_delay_candles = max(0, int(sc.get("entry_delay_candles", 0) or 0))
+    signal_exit_delay_candles = max(0, int(sc.get("signal_exit_delay_candles", 0) or 0))
+    enforce_capital = bool(sc.get("enforce_capital", False))
+    capital_buffer_pct = min(99.0, max(0.0, float(sc.get("capital_buffer_pct", 0) or 0)))
+    sell_option_margin_per_lot = get_sell_option_margin_per_lot(instrument, sc.get("sell_option_margin_per_lot", 0))
 
     df = compute_dynamic_indicators(
         df_raw.copy(),
@@ -544,6 +569,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     max_daily_loss_hit = False
     ld = None
     lot_size = user_lot_size if user_lot_size > 0 else 1
+    capital_rejections = 0
+    reserved_capital = 0.0
+    pending_entry = None
+    pending_signal_exit = None
 
     print(
         f"[BT] open={mkt_open} close={mkt_close} lots={base_lots} user_lot_size={user_lot_size} "
@@ -551,6 +580,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         f"combined_tp=₹{combined_target_rupees} max_daily_loss=₹{max_daily_loss}"
     )
     print(f"[BT] option_legs={len(option_legs)} instrument={instrument} sqoff={combined_sqoff}")
+    print(
+        f"[BT] spread={spread_bps}bps entry_slip={entry_slippage_bps}bps exit_slip={exit_slippage_bps}bps "
+        f"entry_delay={entry_delay_candles} signal_exit_delay={signal_exit_delay_candles} "
+        f"capital_check={enforce_capital} buffer={capital_buffer_pct}%"
+    )
 
     raw_price_df = df_raw.copy().sort_index()
     raw_day_cache = {trade_date: day_df for trade_date, day_df in raw_price_df.groupby(raw_price_df.index.date)}
@@ -626,7 +660,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             return _est_prem(
                 spot_price,
                 position["entry_spot"],
-                position["entry_price"],
+                position.get("model_entry_price", position["entry_price"]),
                 position["option_type"],
                 position["atm_prem_ref"],
             )
@@ -661,9 +695,31 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         direction = 1 if position["transaction_type"] == "BUY" else -1
         return (price - position["entry_price"]) * direction * position["qty"]
 
+    def _apply_execution_costs(price, transaction_type, stage):
+        base_price = max(0.05, float(price))
+        half_spread = spread_bps / 20000.0
+        slip_bps = entry_slippage_bps if stage == "entry" else exit_slippage_bps
+        adverse_move = half_spread + (slip_bps / 10000.0)
+        if transaction_type == "BUY":
+            multiplier = 1.0 + adverse_move if stage == "entry" else max(0.0, 1.0 - adverse_move)
+        else:
+            multiplier = max(0.0, 1.0 - adverse_move) if stage == "entry" else 1.0 + adverse_move
+        return max(0.05, round(base_price * multiplier, 4))
+
+    def _capital_required(position):
+        if position["is_option"] and position["transaction_type"] == "SELL":
+            return float(position["lots"]) * sell_option_margin_per_lot
+        return float(position["entry_price"]) * float(position["qty"])
+
+    def _free_capital():
+        return max(0.0, initial_capital + total_pnl - reserved_capital)
+
+    def _capital_limit():
+        return _free_capital() * max(0.0, 1.0 - capital_buffer_pct / 100.0)
+
     def _close_selected_positions(selected_positions, exit_ts, exit_price_fn, reason):
         nonlocal daily_pnl, open_positions, signal_candle, strategy_sl_val, strategy_tp_val
-        nonlocal total_fees, total_pnl, trade_entry_time, trade_peak_pnl
+        nonlocal total_fees, total_pnl, trade_entry_time, trade_peak_pnl, reserved_capital, pending_signal_exit
 
         selected_ids = {id(position) for position in selected_positions}
         remaining = []
@@ -672,13 +728,15 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 remaining.append(position)
                 continue
 
-            exit_price = float(exit_price_fn(position))
+            market_exit_price = float(exit_price_fn(position))
+            exit_price = _apply_execution_costs(market_exit_price, position["transaction_type"], "exit")
             raw_pnl = _position_pnl(position, exit_price)
             fee = _calc_fees((position["entry_price"] + exit_price) * position["qty"], raw_pnl, fee_pct)
             pnl = raw_pnl - fee
             total_fees += fee
             total_pnl += pnl
             daily_pnl += pnl
+            reserved_capital = max(0.0, reserved_capital - float(position.get("capital_required", 0.0) or 0.0))
             trades.append(
                 _mk(
                     len(trades) + 1,
@@ -709,6 +767,32 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             strategy_sl_val = 0.0
             strategy_tp_val = 0.0
             trade_peak_pnl = 0.0
+            pending_signal_exit = None
+
+    def _open_entry_positions(candidate_positions):
+        nonlocal open_positions, trades_today, trade_peak_pnl, reserved_capital, capital_rejections
+        nonlocal signal_candle, trade_entry_time, pending_entry, pending_signal_exit
+
+        required_capital = 0.0
+        for position in candidate_positions:
+            position["capital_required"] = _capital_required(position)
+            required_capital += position["capital_required"]
+
+        if enforce_capital and required_capital > _capital_limit() + 1e-9:
+            capital_rejections += 1
+            signal_candle = None
+            trade_entry_time = None
+            pending_entry = None
+            pending_signal_exit = None
+            return False
+
+        reserved_capital += required_capital
+        open_positions = candidate_positions
+        trades_today += 1
+        trade_peak_pnl = 0.0
+        pending_entry = None
+        pending_signal_exit = None
+        return True
 
     def _touch_spot(touch_row):
         candle_high = float(touch_row.get("high", 0))
@@ -767,7 +851,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "transaction_type": leg.get("transaction_type", "BUY"),
                         "entry_time": entry_ts,
                         "entry_spot": entry_spot,
-                        "entry_price": entry_price,
+                        "entry_price": _apply_execution_costs(
+                            entry_price,
+                            leg.get("transaction_type", "BUY"),
+                            "entry",
+                        ),
+                        "model_entry_price": entry_price,
                         "display_symbol": display_symbol,
                         "underlying_symbol": _instrument_label(instrument),
                         "strike": strike_used,
@@ -798,7 +887,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     "transaction_type": "BUY",
                     "entry_time": entry_ts,
                     "entry_spot": entry_spot,
-                    "entry_price": entry_spot,
+                    "entry_price": _apply_execution_costs(entry_spot, "BUY", "entry"),
+                    "model_entry_price": entry_spot,
                     "display_symbol": _instrument_label(instrument),
                     "underlying_symbol": _instrument_label(instrument),
                     "strike": None,
@@ -850,6 +940,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             prev_row = None
             prev_prev_row = None
             lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
+            pending_entry = None
 
         snapshots = {}
         if open_positions:
@@ -911,12 +1002,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                             "Touch",
                         )
                         exited_this_candle = True
-            if not exited_this_candle:
-                exit_row = row.copy() if signal_candle else row
-                if signal_candle:
-                    for key, value in signal_candle.items():
-                        exit_row[key] = value
-                if eval_condition_group(exit_row, exit_conditions, prev_row):
+            if not exited_this_candle and pending_signal_exit:
+                pending_signal_exit["remaining"] -= 1
+                if pending_signal_exit["remaining"] <= 0:
                     _close_selected_positions(
                         list(open_positions),
                         ts,
@@ -924,6 +1012,22 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "Signal",
                     )
                     exited_this_candle = True
+            if not exited_this_candle and not pending_signal_exit:
+                exit_row = row.copy() if signal_candle else row
+                if signal_candle:
+                    for key, value in signal_candle.items():
+                        exit_row[key] = value
+                if eval_condition_group(exit_row, exit_conditions, prev_row):
+                    if signal_exit_delay_candles > 0:
+                        pending_signal_exit = {"remaining": signal_exit_delay_candles}
+                    else:
+                        _close_selected_positions(
+                            list(open_positions),
+                            ts,
+                            lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
+                            "Signal",
+                        )
+                        exited_this_candle = True
             if not exited_this_candle and not is_daily and ct >= combined_sqoff:
                 sqoff_price_map = {
                     id(position): _sqoff_exit_snapshot(
@@ -1045,18 +1149,32 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 prev_prev_row = prev_row
                 prev_row = row
                 continue
+            if pending_entry is not None:
+                pending_entry["remaining"] -= 1
+                if pending_entry["remaining"] <= 0:
+                    signal_candle = dict(pending_entry["signal_candle"])
+                    trade_entry_time = ts
+                    _open_entry_positions(_build_entry_positions(float(row["open"]), ts, cd, lot_size))
+                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
+                continue
             if prev_row is not None and eval_condition_group(prev_row, entry_conditions, prev_prev_row):
                 trade_group_id += 1
-                trade_entry_time = ts
-                signal_candle = {
+                next_signal_candle = {
                     "Signal_Candle_Open": float(prev_row["open"]),
                     "Signal_Candle_High": float(prev_row["high"]),
                     "Signal_Candle_Low": float(prev_row["low"]),
                     "Signal_Candle_Close": float(prev_row["close"]),
                 }
-                open_positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
-                trade_peak_pnl = 0.0
-                trades_today += 1
+                if entry_delay_candles > 0:
+                    pending_entry = {"remaining": entry_delay_candles, "signal_candle": next_signal_candle}
+                    signal_candle = dict(next_signal_candle)
+                    trade_entry_time = ts
+                else:
+                    signal_candle = dict(next_signal_candle)
+                    trade_entry_time = ts
+                    _open_entry_positions(_build_entry_positions(float(row["open"]), ts, cd, lot_size))
 
         equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
         prev_prev_row = prev_row
@@ -1101,7 +1219,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             "message": "No trades generated.",
             "trades": [],
             "equity": equity[-500:],
-            "stats": {},
+            "stats": {
+                "capital_rejections": capital_rejections,
+                "max_daily_loss_hit": max_daily_loss_hit,
+            },
             "monthly": [],
             "day_of_week": [],
             "yearly": [],
@@ -1215,6 +1336,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         "initial_capital": initial_capital,
         "net_pnl_after_fees": round(sum(pnls), 2),
         "max_daily_loss_hit": max_daily_loss_hit,
+        "capital_rejections": capital_rejections,
     }
 
     monthly = {}

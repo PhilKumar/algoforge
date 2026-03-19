@@ -481,6 +481,14 @@ class StrategyPayload(BaseModel):
     combined_sqoff_time: str = "15:20"
     fee_pct: float = 0.0
     trailing_sl_pct: float = 0.0
+    spread_bps: float = Field(default=0.0, ge=0)
+    entry_slippage_bps: float = Field(default=0.0, ge=0)
+    exit_slippage_bps: float = Field(default=0.0, ge=0)
+    entry_delay_candles: int = Field(default=0, ge=0, le=25)
+    signal_exit_delay_candles: int = Field(default=0, ge=0, le=25)
+    enforce_capital: bool = False
+    capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
+    sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
 
 
 # ── Serve Frontend ────────────────────────────────────────────────
@@ -2408,6 +2416,14 @@ async def api_run_backtest(payload: StrategyPayload):
                 "combined_sqoff_time": getattr(payload, "combined_sqoff_time", "15:20") or "15:20",
                 "fee_pct": getattr(payload, "fee_pct", 0.0),
                 "trailing_sl_pct": getattr(payload, "trailing_sl_pct", 0.0),
+                "spread_bps": getattr(payload, "spread_bps", 0.0),
+                "entry_slippage_bps": getattr(payload, "entry_slippage_bps", 0.0),
+                "exit_slippage_bps": getattr(payload, "exit_slippage_bps", 0.0),
+                "entry_delay_candles": getattr(payload, "entry_delay_candles", 0),
+                "signal_exit_delay_candles": getattr(payload, "signal_exit_delay_candles", 0),
+                "enforce_capital": getattr(payload, "enforce_capital", False),
+                "capital_buffer_pct": getattr(payload, "capital_buffer_pct", 0.0),
+                "sell_option_margin_per_lot": getattr(payload, "sell_option_margin_per_lot", 0.0),
                 "deploy_config": getattr(payload, "deploy_config", None),
                 "option_pricing": {
                     "historical_legs": option_pricing["historical_legs"],
