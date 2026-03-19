@@ -4359,6 +4359,20 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function escapeJsSingleQuoted(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 function formatDateTimeLabel(value) {
   if (!value) return '—';
   const dt = new Date(value);
@@ -5333,15 +5347,17 @@ function _buildRunsTable(runs, opts = {}) {
 
   runs.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-    const instName = getInstrumentName(r.instrument);
+    const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
     const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
-    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${r.folder}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
+    const safeRunName = escapeHtml(r.run_name || 'Unnamed');
+    const safeRunTitle = escapeAttr(r.run_name || 'Unnamed');
+    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
       ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
-      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${(r.run_name||'Unnamed').replace(/"/g,'&quot;')}">${_truncName(r.run_name, 18)}</td>
-      <td style="padding: 10px;">${instName || '-'}</td>
-      <td style="padding: 10px; font-size: 12px;">${r.from_date || ''} → ${r.to_date || ''}</td>
+      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
+      <td style="padding: 10px;">${instName}</td>
+      <td style="padding: 10px; font-size: 12px;">${escapeHtml(r.from_date || '')} → ${escapeHtml(r.to_date || '')}</td>
       <td style="padding: 10px; font-weight: 600;">${r.trade_count || 0}</td>
       <td style="padding: 10px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
       <td style="padding: 10px;">${folderBadge}</td>
@@ -5365,7 +5381,7 @@ function _showRenameInline(id) {
   const currentName = run?.run_name || 'Unnamed';
   const html = `<div style="font-size:13px;">
     <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">New name:</label>
-    <input type="text" id="rn-inp-${id}" value="${currentName.replace(/"/g, '&quot;')}" style="width:100%;padding:8px;font-size:13px;" onkeydown="if(event.key==='Enter'){renameRun(${id})}">
+    <input type="text" id="rn-inp-${id}" value="${escapeAttr(currentName)}" style="width:100%;padding:8px;font-size:13px;" onkeydown="if(event.key==='Enter'){renameRun(${id})}">
   </div>`;
   customConfirm(html, { title: 'Rename Run', okText: 'Save', danger: false }).then(ok => {
     if (ok) renameRun(id);
@@ -5421,7 +5437,7 @@ async function bulkMoveToFolder() {
   if (!ids.length) return;
   let folders = ['Scalping', 'Intraday', 'Swing', 'Positional', 'Experimental', 'Hedging'];
   try { const res = await fetch('/api/strategies'); const strats = await res.json(); const extra = [...new Set(strats.map(s => s.folder).filter(Boolean))]; folders = [...new Set([...folders, ...extra])]; } catch(e) {}
-  let optionsHtml = '<option value="">— No Folder —</option>' + folders.map(f => `<option value="${f}">${f}</option>`).join('') + '<option value="__custom__">+ Custom Folder</option>';
+  let optionsHtml = '<option value="">— No Folder —</option>' + folders.map(f => `<option value="${escapeAttr(f)}">${escapeHtml(f)}</option>`).join('') + '<option value="__custom__">+ Custom Folder</option>';
   const html = `<div style="font-size:13px;">
     <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Move <strong>${ids.length}</strong> run(s) to folder:</label>
     <select id="bulk-move-sel" onchange="if(this.value==='__custom__'){document.getElementById('bulk-move-custom').style.display='block'}else{document.getElementById('bulk-move-custom').style.display='none'}" style="width:100%;padding:8px;font-size:13px;margin-bottom:8px;">${optionsHtml}</select>
@@ -5617,9 +5633,9 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
         <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}></td>
         <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
         <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
-        <td style="padding: 10px; font-weight: 600; color: var(--accent);">${runName}</td>
-        <td style="padding: 10px;">${t.underlying || '—'}</td>
-        <td style="padding: 10px; font-size: 12px;">${t.exit_reason || '—'}</td>
+        <td style="padding: 10px; font-weight: 600; color: var(--accent);">${escapeHtml(runName)}</td>
+        <td style="padding: 10px;">${escapeHtml(t.underlying || '—')}</td>
+        <td style="padding: 10px; font-size: 12px;">${escapeHtml(t.exit_reason || '—')}</td>
         <td style="padding: 10px; font-weight: 600;">1</td>
         <td style="padding: 10px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(pnl)}</td>
         <td style="padding: 10px; font-family: 'JetBrains Mono'; font-size: 12px; color: var(--muted);">${fmtTime(t.entry_time)}</td>
@@ -5676,7 +5692,7 @@ function _renderPortfolioPaperRuns(runs) {
 
   pageData.forEach(r => {
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-    const instName = getInstrumentName(r.instrument);
+    const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
     const _fmtPT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
     const pEntryTime = _fmtPT(r.first_entry_time || r.created_at);
     const pExitTime = _fmtPT(r.last_exit_time);
@@ -5684,8 +5700,8 @@ function _renderPortfolioPaperRuns(runs) {
     html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 8px 6px;"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}></td>
       <td style="padding: 8px 6px; color: var(--muted); font-size: 11px;">#${r.id}</td>
-      <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 160px;" onclick="viewRun(${r.id})" title="${(r.run_name||'Unnamed').replace(/"/g,'&quot;')}">${_truncName(r.run_name, 18)}</td>
-      <td style="padding: 8px 6px;">${instName || '-'}</td>
+      <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 160px;" onclick="viewRun(${r.id})" title="${escapeAttr(r.run_name || 'Unnamed')}">${escapeHtml(_truncName(r.run_name, 18))}</td>
+      <td style="padding: 8px 6px;">${instName}</td>
       <td style="padding: 8px 6px; font-weight: 600;">${r.trade_count || 0}</td>
       <td style="padding: 8px 6px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
       <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${pEntryTime}</td>
@@ -5764,7 +5780,7 @@ function viewScalpTrade(tid) {
     if (!t) { toast('Trade not found', 'danger'); return; }
     const pnl = (t.pnl || 0).toFixed(2);
     const pnlColor = t.pnl >= 0 ? 'var(--success)' : 'var(--danger)';
-    const row = (label, val) => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">${label}</span><div style="font-weight:600;margin-top:2px;">${val}</div></div>`;
+    const row = (label, val) => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(label)}</span><div style="font-weight:600;margin-top:2px;">${escapeHtml(val)}</div></div>`;
     const html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;font-size:13px;">
       ${row('Symbol', t.symbol || '—')}
       ${row('Type', `${t.transaction_type || ''} ${t.option_type || ''}`)}
@@ -6310,14 +6326,14 @@ function _renderScalpHistoryPage() {
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
         <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
-        <td style="padding:7px 10px;font-size:12px;">${t.underlying||''} ${t.strike||''}${t.option_type||''}</td>
-        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${t.transaction_type||''}</span></td>
+        <td style="padding:7px 10px;font-size:12px;">${escapeHtml(t.underlying||'')} ${escapeHtml(t.strike||'')}${escapeHtml(t.option_type||'')}</td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${escapeHtml(t.transaction_type||'')}</span></td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.exit_premium||0).toFixed(2)}</td>
-        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;" title="Entry: ${entryTime}&#10;Exit: ${exitTime}">${entryTime} → ${exitTime}</td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;" title="Entry: ${escapeAttr(entryTime)}&#10;Exit: ${escapeAttr(exitTime)}">${escapeHtml(entryTime)} → ${escapeHtml(exitTime)}</td>
         <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${lotsStr}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
-        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${(t.exit_reason||'').replace(/_/g,' ')}</td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${escapeHtml((t.exit_reason||'').replace(/_/g,' '))}</td>
         <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
         <td style="padding:7px 6px;text-align:center;">
           <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
@@ -6449,7 +6465,7 @@ function _buildScalpActiveRow(t) {
     ? ` <span title="${t.super_order_id ? 'Dhan Super Order active' : 'SL/TP placed on broker'}" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">${t.super_order_id ? 'SO' : '🛡️'}</span>`
     : '';
   return `<tr data-tid="${t.trade_id}" data-status="open" style="border-bottom:1px solid rgba(255,255,255,0.03);">
-    <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span>${brokerBadge}</td>
+    <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${brokerBadge}</td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
@@ -6550,8 +6566,8 @@ function _renderScalpStatus(data) {
       const colors = { entry: 'var(--green)', exit: 'var(--green)', stop: 'var(--danger)', error: 'var(--danger)', info: 'var(--accent)' };
       logEl.innerHTML = events.map(e =>
         `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
-          <span style="color:var(--muted);margin-right:6px;">${e.time}</span>
-          <span style="color:${colors[e.type]||'var(--text-dim)'};">${e.message}</span>
+          <span style="color:var(--muted);margin-right:6px;">${escapeHtml(e.time || '')}</span>
+          <span style="color:${colors[e.type]||'var(--text-dim)'};">${escapeHtml(e.message || '')}</span>
         </div>`
       ).join('');
     }
@@ -6968,10 +6984,11 @@ async function fetchStrategies() {
     let html = '';
     Object.keys(groups).sort().forEach(folder => {
       const items = groups[folder].reverse();
+      const safeFolder = escapeHtml(folder);
       html += `<div style="margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.fold-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';">
           <span class="fold-arrow" style="color: var(--muted); font-size: 11px;">▶</span>
-          <span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 5px 14px; border-radius: 5px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">${folder}</span>
+          <span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 5px 14px; border-radius: 5px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">${safeFolder}</span>
           <span style="color: var(--muted); font-size: 12px;">${items.length} strateg${items.length > 1 ? 'ies' : 'y'}</span>
         </div>
         <div style="display: none;">
@@ -6980,14 +6997,14 @@ async function fetchStrategies() {
             <tbody>`;
       items.forEach(s => {
         const dateStr = new Date(s.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const instName = s.instrument === '26000' ? 'NIFTY' : (s.instrument === '26009' ? 'BNIFTY' : s.instrument);
+        const instName = escapeHtml(s.instrument === '26000' ? 'NIFTY' : (s.instrument === '26009' ? 'BNIFTY' : s.instrument));
         const legCount = (s.legs || []).length;
         html += `<tr style="border-bottom: 1px solid var(--border); font-size: 13px;">
           <td style="padding: 10px 0; color: var(--muted); width: 6%">${s.id}</td>
-          <td style="padding: 10px 0; font-weight: 600; color: var(--accent); cursor: pointer; width: 28%" onclick="viewStrategy(${s.id})">${s.run_name}</td>
+          <td style="padding: 10px 0; font-weight: 600; color: var(--accent); cursor: pointer; width: 28%" onclick="viewStrategy(${s.id})">${escapeHtml(s.run_name || 'Unnamed')}</td>
           <td style="padding: 10px 0; width: 16%"><span style="background: var(--card2); padding: 3px 8px; border-radius: 3px; font-size: 12px; display: block">${instName}</span></td>
           <td style="padding: 10px 0; color: var(--muted); width: 10%; text-align: center">${legCount}</td>
-          <td style="padding: 10px 0; color: var(--muted); font-size: 12px; width: 20%">${dateStr}</td>
+          <td style="padding: 10px 0; color: var(--muted); font-size: 12px; width: 20%">${escapeHtml(dateStr)}</td>
           <td style="padding: 10px 0; width: 20%;">
             <button class="btn btn-sm" onclick="viewStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px; margin-right: 3px;">View</button>
             <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: rgb(52,211,153); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
@@ -7007,29 +7024,46 @@ function showDetailsModal(data, title) {
   const entryConds = data.entry_conditions || [];
   const exitConds = data.exit_conditions || [];
   const inds = data.indicators || [];
+  const safeRunName = escapeHtml(data.run_name || '-');
+  const safeFolder = escapeHtml(data.folder || 'Intraday');
+  const safeInstName = escapeHtml(instName);
+  const safeOrderType = escapeHtml((data.deploy_config || {}).product_type || data.product_type || 'MIS');
 
   const chipStyle = "display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-family:'JetBrains Mono', monospace;margin:0 6px 6px 0;white-space:nowrap;";
 
   const condRightVal = (c) => c.right === 'number' ? c.right_number_value : c.right === 'days' ? (c.right_days || []).join(', ') : c.right === 'time' ? (c.right_time || '') : c.right;
+  const strikeLabel = (l) => {
+    const sv = l.strike_value || '';
+    const st = l.strike_type || 'atm';
+    return st === 'atm' ? 'ATM'
+      : st === 'premium_above' ? `Premium Above ₹${sv}`
+      : st === 'premium_below' ? `Premium Below ₹${sv}`
+      : st === 'premium_near' ? `Premium ~₹${sv}`
+      : st === 'otm' ? `OTM +${sv}`
+      : st === 'itm' ? `ITM -${sv}`
+      : st === 'strike_price' ? `Strike ${sv}`
+      : st === 'spot_price' ? `Spot ± ${sv}`
+      : String(st).toUpperCase();
+  };
 
   let html = `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-      <div><span style="color: var(--muted); font-size: 11px;">Run Name</span><div style="font-weight: 600;">${data.run_name || '-'}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Folder</span><div><span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;">${data.folder || 'Intraday'}</span></div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Instrument</span><div style="font-weight: 600;">${instName}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Run Name</span><div style="font-weight: 600;">${safeRunName}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Folder</span><div><span style="background: rgba(168,85,247,0.12); color: var(--purple); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;">${safeFolder}</span></div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Instrument</span><div style="font-weight: 600;">${safeInstName}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Lots × Size</span><div style="font-weight: 600;">${data.lots || 1} × ${data.lot_size || _getLotSizeForInstrument(data.instrument)}</div></div>
-      ${data.from_date ? `<div><span style="color: var(--muted); font-size: 11px;">Period</span><div style="font-weight: 600;">${data.from_date} → ${data.to_date || '-'}</div></div>` : ''}
+      ${data.from_date ? `<div><span style="color: var(--muted); font-size: 11px;">Period</span><div style="font-weight: 600;">${escapeHtml(data.from_date)} → ${escapeHtml(data.to_date || '-')}</div></div>` : ''}
       <div><span style="color: var(--muted); font-size: 11px;">Strategy SL</span><div style="font-weight: 600;">${data.sl_type === 'rupees' ? '₹' + (data.stoploss_rupees || 0) : (data.stoploss_pct || 0) + '%'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Target Profit</span><div style="font-weight: 600;">${data.tp_type === 'rupees' ? '₹' + (data.target_profit_rupees || 0) : (data.target_profit_pct || 0) + '%'}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${data.market_open || '09:15'} — ${data.market_close || '15:25'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${escapeHtml(data.market_open || '09:15')} — ${escapeHtml(data.market_close || '15:25')}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Max Trades/Day</span><div style="font-weight: 600;">${data.max_trades_per_day || '—'}</div></div>
-      <div><span style="color: var(--muted); font-size: 11px;">Order Type</span><div style="font-weight: 600;">${(data.deploy_config || {}).product_type || data.product_type || 'MIS'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Order Type</span><div style="font-weight: 600;">${safeOrderType}</div></div>
     </div>`;
 
   // Indicators
   if (inds.length > 0) {
     html += `<div style="margin-bottom: 14px;"><span style="color: var(--muted); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Indicators (${inds.length})</span><div style="display:flex;flex-wrap:wrap;">`;
-    inds.forEach(i => { html += `<span style="${chipStyle} background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.22);">${i}</span>`; });
+    inds.forEach(i => { html += `<span style="${chipStyle} background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.22);">${escapeHtml(i)}</span>`; });
     html += `</div></div>`;
   }
 
@@ -7038,7 +7072,7 @@ function showDetailsModal(data, title) {
     html += `<div style="margin-bottom: 14px;"><span style="color: var(--accent); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Entry Conditions (${entryConds.length})</span><div style="display:flex;flex-wrap:wrap;align-items:center;">`;
     entryConds.forEach((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      html += `<span style="${chipStyle} background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--accent);">${c.operator}</span> ${condRightVal(c)}</span>`;
+      html += `<span style="${chipStyle} background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.24);"><span style="color: var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color: var(--accent);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condRightVal(c))}</span>`;
     });
     html += `</div></div>`;
   }
@@ -7048,7 +7082,7 @@ function showDetailsModal(data, title) {
     html += `<div style="margin-bottom: 14px;"><span style="color: var(--warn); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Exit Conditions (${exitConds.length})</span><div style="display:flex;flex-wrap:wrap;align-items:center;">`;
     exitConds.forEach((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      html += `<span style="${chipStyle} background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.24);"><span style="color: var(--muted);">${logic}</span> ${c.left} <span style="color: var(--warn);">${c.operator}</span> ${condRightVal(c)}</span>`;
+      html += `<span style="${chipStyle} background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.24);"><span style="color: var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color: var(--warn);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condRightVal(c))}</span>`;
     });
     html += `</div></div>`;
   }
@@ -7059,8 +7093,8 @@ function showDetailsModal(data, title) {
     legs.forEach((l, i) => {
       const color = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--purple)');
       html += `<div style="padding: 6px 10px; background: rgba(0,0,0,0.15); border-left: 3px solid ${color}; border-radius: 4px; margin-bottom: 5px; font-size: 12px;">
-        <span style="font-weight: 700; color: ${color};">${l.transaction_type} ${l.option_type}</span>
-        <span style="color: var(--muted); margin-left: 8px;">Strike: ${(()=>{const sv=l.strike_value||'';const st=l.strike_type||'atm';return st==='atm'?'ATM':st==='premium_above'?`Premium Above ₹${sv}`:st==='premium_below'?`Premium Below ₹${sv}`:st==='premium_near'?`Premium ~₹${sv}`:st==='otm'?`OTM +${sv}`:st==='itm'?`ITM -${sv}`:st==='strike_price'?`Strike ${sv}`:st==='spot_price'?`Spot ± ${sv}`:st.toUpperCase()})()}</span>
+        <span style="font-weight: 700; color: ${color};">${escapeHtml(l.transaction_type || '')} ${escapeHtml(l.option_type || '')}</span>
+        <span style="color: var(--muted); margin-left: 8px;">Strike: ${escapeHtml(strikeLabel(l))}</span>
         <span style="color: var(--muted); margin-left: 8px;">Lots: ${l.lots || 1}</span>
         ${l.sl_pct ? `<span style="color:var(--danger);margin-left:8px;">SL:${l.sl_pct}%</span>` : ''}
         ${l.target_pct ? `<span style="color:var(--success);margin-left:8px;">TP:${l.target_pct}%</span>` : ''}
@@ -9358,6 +9392,7 @@ function renderLiveTabs() {
   _liveEngines.forEach((eng, idx) => {
     const active = idx === _selectedLiveTab;
     const name = eng.strategy_name || eng.run_id || 'Strategy';
+    const safeName = escapeHtml(name);
     const mode = eng.mode === 'auto' ? ICO.bot(13) : ICO.memo(13);
     const pnl = round2(eng.total_pnl || 0);
     const running = eng.running;
@@ -9373,7 +9408,7 @@ function renderLiveTabs() {
 
     html += `<div class="live-tab-item" onclick="selectLiveTab(${idx})" style="cursor:pointer;padding:8px 14px;${borderStyle}${bgStyle}transition:all 0.15s;display:flex;flex-direction:column;gap:2px;min-width:130px;" onmouseenter="this.style.background='rgba(99,102,241,0.05)'" onmouseleave="this.style.background='${active ? 'rgba(99,102,241,0.08)' : ''}'">
       <div style="display:flex;align-items:center;gap:4px;">
-        ${statusDot}<span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${name}</span>
+        ${statusDot}<span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${safeName}</span>
         <span style="font-size:10px;">${mode}</span>
       </div>
       <div style="font-size:13px;font-weight:700;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'};">₹${pnl.toFixed(2)}</div>
@@ -9395,6 +9430,9 @@ function renderLivePanel(d, idx) {
   const name = d.strategy_name || d.run_id || 'Strategy';
   const mode = d.mode || 'paper';
   const runId = d.run_id || '';
+  const safeName = escapeHtml(name);
+  const safeRunIdJs = escapeJsSingleQuoted(runId);
+  const safeModeJs = escapeJsSingleQuoted(mode);
 
   // Status badge
   let badgeHtml, statusText, statusColor;
@@ -9427,7 +9465,8 @@ function renderLivePanel(d, idx) {
     const indRows = Object.entries(d.current_indicators || {});
     signalHtml = [...ohlcvRows, ...indRows].map(([k, v]) => {
       const isInd = !['current','open','high','low','close','volume','openInterest'].includes(k);
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 16px;color:${isInd?'var(--text)':'var(--muted)'};${isInd?'':'padding-left:28px;'}">${k}</td><td style="padding:7px 16px;text-align:right;font-family:'JetBrains Mono';font-size:12px;color:${isInd?'var(--accent2)':'var(--text)'};">${typeof v==='number'?v.toLocaleString('en-IN'):(v??'—')}</td></tr>`;
+      const displayValue = typeof v === 'number' ? v.toLocaleString('en-IN') : String(v ?? '—');
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 16px;color:${isInd?'var(--text)':'var(--muted)'};${isInd?'':'padding-left:28px;'}">${escapeHtml(k)}</td><td style="padding:7px 16px;text-align:right;font-family:'JetBrains Mono';font-size:12px;color:${isInd?'var(--accent2)':'var(--text)'};">${escapeHtml(displayValue)}</td></tr>`;
     }).join('');
   }
 
@@ -9440,7 +9479,7 @@ function renderLivePanel(d, idx) {
     posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
       const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${p.symbol||p.trading_symbol||'—'}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${p.transaction_type}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${exitApi}','${runId.replace(/'/g,"\\'")}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:#f87171;border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:#f87171;border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
     }).join('');
   }
 
@@ -9451,7 +9490,10 @@ function renderLivePanel(d, idx) {
   if (!events.length) {
     evtHtml = '<div class="live-event-empty">No events yet.</div>';
   } else {
-    evtHtml = events.map(e => `<div class="live-event-line"><span style="color:var(--muted);">[${e.time}]</span> <span style="color:${evtColors[e.type]||'var(--text)'};">[${e.type.toUpperCase()}]</span> ${e.message}</div>`).join('');
+    evtHtml = events.map(e => {
+      const typeKey = String(e.type || '').toLowerCase();
+      return `<div class="live-event-line"><span style="color:var(--muted);">[${escapeHtml(e.time || '')}]</span> <span style="color:${evtColors[typeKey]||'var(--text)'};">[${escapeHtml(String(e.type || '').toUpperCase())}]</span> ${escapeHtml(e.message || '')}</div>`;
+    }).join('');
   }
 
   // Condition Debug
@@ -9461,7 +9503,7 @@ function renderLivePanel(d, idx) {
     const gate = cdebug.gate;
     const conds = cdebug.conditions || [];
     if (gate !== 'evaluating') {
-      condDebugHtml = `<div style="padding:8px 12px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono';">⏸ Skipping entry: <span style="color:var(--warn);">${gate}</span></div>`;
+      condDebugHtml = `<div style="padding:8px 12px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono';">⏸ Skipping entry: <span style="color:var(--warn);">${escapeHtml(gate)}</span></div>`;
     } else {
       const overall = cdebug.overall;
       const timeStr = cdebug.time || '';
@@ -9470,16 +9512,16 @@ function renderLivePanel(d, idx) {
         const color = c.result ? 'var(--success)' : 'var(--danger)';
         return `<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:5px 8px;font-size:11px;">${icon}</td>
-          <td style="padding:5px 8px;font-size:11px;color:var(--text);">${c.condition}</td>
-          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${c.left_value}</td>
-          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${c.right_value}</td>
+          <td style="padding:5px 8px;font-size:11px;color:var(--text);">${escapeHtml(c.condition || '')}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${escapeHtml(c.left_value ?? '')}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:right;font-family:'JetBrains Mono';color:var(--accent2);">${escapeHtml(c.right_value ?? '')}</td>
           <td style="padding:5px 8px;font-size:11px;text-align:center;color:${color};font-weight:700;">${c.result?'PASS':'FAIL'}</td>
         </tr>`;
       }).join('');
       const overallColor = overall ? 'var(--success)' : 'var(--danger)';
       const overallLabel = overall ? '✅ ALL MET — signal pending' : '❌ NOT MET';
       condDebugHtml = `
-        <div style="padding:8px 12px;font-size:11px;color:var(--muted);">Last check: ${timeStr} — Result: <span style="color:${overallColor};font-weight:700;">${overallLabel}</span></div>
+        <div style="padding:8px 12px;font-size:11px;color:var(--muted);">Last check: ${escapeHtml(timeStr)} — Result: <span style="color:${overallColor};font-weight:700;">${escapeHtml(overallLabel)}</span></div>
         <table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:var(--card2);"><th style="padding:5px 8px;text-align:left;color:var(--muted);font-size:10px;"></th><th style="padding:5px 8px;text-align:left;color:var(--muted);font-size:10px;">CONDITION</th><th style="padding:5px 8px;text-align:right;color:var(--muted);font-size:10px;">LEFT</th><th style="padding:5px 8px;text-align:right;color:var(--muted);font-size:10px;">RIGHT</th><th style="padding:5px 8px;text-align:center;color:var(--muted);font-size:10px;">RESULT</th></tr></thead>
           <tbody>${rows}</tbody>
@@ -9503,15 +9545,15 @@ function renderLivePanel(d, idx) {
     closedHtml = closedSlice.map(t => {
       const pnl = round2(t.pnl || 0);
       const fmtTime = (ts) => { if (!ts) return '—'; const ss = String(ts); const m = ss.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : ss.slice(-8); };
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;">${t.symbol||t.trading_symbol||'—'}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${fmtTime(t.entry_time)}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${fmtTime(t.exit_time)}</td><td style="padding:8px 12px;text-align:right;color:${t.transaction_type==='BUY'?'var(--success)':'var(--danger)'}">${t.transaction_type||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.entry_premium||t.entry_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.exit_premium||t.exit_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${t.lots||t.quantity||'—'}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${t.exit_reason||t.reason||'—'}</td></tr>`;
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;">${escapeHtml(t.symbol||t.trading_symbol||'—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTime(t.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTime(t.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${t.transaction_type==='BUY'?'var(--success)':'var(--danger)'}">${escapeHtml(t.transaction_type||'—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.entry_premium||t.entry_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.exit_premium||t.exit_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(t.lots||t.quantity||'—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(t.exit_reason||t.reason||'—')}</td></tr>`;
     }).join('');
   }
   const closedPagHtml = closedTotal > _LIVE_TRADES_PER_PAGE ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--border);">
     <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Showing ${closedStart+1}–${Math.min(closedStart+_LIVE_TRADES_PER_PAGE, closedTotal)} of ${closedTotal}</span>
     <div style="display:flex;gap:3px;">
-      <button class="btn" onclick="_goLiveClosedPage('${runId.replace(/'/g,"\\'")}',${closedPage-1})" style="font-size:11px;padding:5px 10px;" ${closedPage<=1?'disabled':''}>‹</button>
+      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}',${closedPage-1})" style="font-size:11px;padding:5px 10px;" ${closedPage<=1?'disabled':''}>‹</button>
       <span style="font-size:11px;padding:5px 8px;color:var(--muted);">Page ${closedPage} / ${closedTotalPages}</span>
-      <button class="btn" onclick="_goLiveClosedPage('${runId.replace(/'/g,"\\'")}',${closedPage+1})" style="font-size:11px;padding:5px 10px;" ${closedPage>=closedTotalPages?'disabled':''}>›</button>
+      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}',${closedPage+1})" style="font-size:11px;padding:5px 10px;" ${closedPage>=closedTotalPages?'disabled':''}>›</button>
     </div>
   </div>` : '';
 
@@ -9528,17 +9570,17 @@ function renderLivePanel(d, idx) {
   if (entryConds.length || exitConds.length || legs.length) {
     let entryChips = entryConds.map((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      return `<span style="${chipS}background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.24);"><span style="color:var(--muted);">${logic}</span> ${c.left} <span style="color:var(--accent);">${c.operator}</span> ${condVal(c)}</span>`;
+      return `<span style="${chipS}background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.24);"><span style="color:var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--accent);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
     }).join('');
     let exitChips = exitConds.map((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      return `<span style="${chipS}background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);"><span style="color:var(--muted);">${logic}</span> ${c.left} <span style="color:var(--warn);">${c.operator}</span> ${condVal(c)}</span>`;
+      return `<span style="${chipS}background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);"><span style="color:var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--warn);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
     }).join('');
     let legsChips = legs.map(l => {
       const lc = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--accent2)');
       const _sv = l.strike_value || ''; const _st = l.strike_type || 'atm';
       const _stLabel = _st==='atm'?'ATM':_st==='premium_above'?`Prem≥${_sv}`:_st==='premium_below'?`Prem≤${_sv}`:_st==='premium_near'?`Prem~${_sv}`:_st==='otm'?`OTM+${_sv}`:_st==='itm'?`ITM-${_sv}`:_st==='strike_price'?`@${_sv}`:_st==='spot_price'?`Spot±${_sv}`:_st.toUpperCase();
-      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${l.transaction_type} ${l.option_type}</span> ${_stLabel}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
+      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${escapeHtml(l.transaction_type || '')} ${escapeHtml(l.option_type || '')}</span> ${escapeHtml(_stLabel)}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
     }).join('');
 
     conditionsHtml = `
@@ -9553,14 +9595,14 @@ function renderLivePanel(d, idx) {
   <!-- Header bar -->
   <div class="live-panel-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:${conditionsHtml ? 'none' : '1px solid var(--border)'};">
     <div style="display:flex;align-items:center;gap:12px;">
-      <div style="font-size:18px;font-weight:700;color:var(--text);">${name}</div>
+      <div style="font-size:18px;font-weight:700;color:var(--text);">${safeName}</div>
       ${badgeHtml}
     </div>
     <div class="live-panel-actions" style="display:flex;gap:8px;">
-      <button class="btn" onclick="viewRunningStrategy('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
-      ${running ? `<button class="btn" onclick="stopEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
-      ${!running && runId ? `<button class="btn" onclick="restartEngine('${runId.replace(/'/g,"\\'")}','${mode}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
-      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${runId.replace(/'/g,"\\'")}') " style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
+      <button class="btn" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
+      ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
+      ${!running && runId ? `<button class="btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
+      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${safeRunIdJs}') " style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
       <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
     </div>
   </div>
@@ -9591,7 +9633,7 @@ function renderLivePanel(d, idx) {
     </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
       <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Order Type</div>
-      <div style="font-size:16px;font-weight:700;color:${(strat.deploy_config || {}).product_type === 'NORMAL' ? 'var(--accent2)' : 'var(--purple)'};">${(strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS'}</div>
+      <div style="font-size:16px;font-weight:700;color:${(strat.deploy_config || {}).product_type === 'NORMAL' ? 'var(--accent2)' : 'var(--purple)'};">${escapeHtml((strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS')}</div>
     </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
       <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Status</div>
@@ -9602,10 +9644,10 @@ function renderLivePanel(d, idx) {
   <div class="live-panel-main" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:8px 28px 20px;">
     <!-- Left: Signal / Indicator table -->
     <div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-weight:700;font-size:14px;">${instLabel}</span>
-        <span style="font-size:11px;color:var(--muted);">${candleTime}</span>
-      </div>
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:700;font-size:14px;">${escapeHtml(instLabel)}</span>
+          <span style="font-size:11px;color:var(--muted);">${escapeHtml(candleTime)}</span>
+        </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:var(--card2);"><th style="padding:8px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:11px;">Field</th><th style="padding:8px 16px;text-align:right;color:var(--muted);font-weight:600;font-size:11px;">Value</th></tr></thead>
         <tbody>${signalHtml}</tbody>
@@ -10419,7 +10461,7 @@ function updateMoodFromRuns() {
       const last10 = sorted.slice(0, 10).reverse();
       dotsEl.innerHTML = last10.map(r => {
         const w = (r.total_pnl || 0) > 0;
-        return '<span style="width:8px;height:8px;border-radius:50%;background:' + (w ? 'var(--success)' : 'rgba(239,68,68,0.4)') + ';display:inline-block;" title="' + (r.run_name || 'Run') + ': ₹' + (r.total_pnl || 0).toFixed(0) + '"></span>';
+        return '<span style="width:8px;height:8px;border-radius:50%;background:' + (w ? 'var(--success)' : 'rgba(239,68,68,0.4)') + ';display:inline-block;" title="' + escapeAttr((r.run_name || 'Run') + ': ₹' + (r.total_pnl || 0).toFixed(0)) + '"></span>';
       }).join('');
     }
 
@@ -10463,7 +10505,7 @@ function populateCompareDropdowns() {
     selA.innerHTML = '<option value="">Select Run A</option>';
     selB.innerHTML = '<option value="">Select Run B</option>';
     runs.forEach(r => {
-      const opt = `<option value="${r.id}">${r.name} (₹${r.pnl})</option>`;
+      const opt = `<option value="${r.id}">${escapeHtml(r.name)} (₹${escapeHtml(r.pnl)})</option>`;
       selA.innerHTML += opt;
       selB.innerHTML += opt;
     });
@@ -10511,8 +10553,8 @@ function compareBacktests() {
     let tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="border-bottom:2px solid var(--border);">
         <th style="padding:10px;text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;">Metric</th>
-        <th style="padding:10px;text-align:right;color:var(--accent);font-size:12px;font-weight:700;">${runA.run_name || 'Run A'}</th>
-        <th style="padding:10px;text-align:right;color:var(--accent2);font-size:12px;font-weight:700;">${runB.run_name || 'Run B'}</th>
+        <th style="padding:10px;text-align:right;color:var(--accent);font-size:12px;font-weight:700;">${escapeHtml(runA.run_name || 'Run A')}</th>
+        <th style="padding:10px;text-align:right;color:var(--accent2);font-size:12px;font-weight:700;">${escapeHtml(runB.run_name || 'Run B')}</th>
       </tr></thead><tbody>`;
     tableHtml += _cmpMetric('Total P&L', pnlA, pnlB, { fmtFn: fmt, colorFn: pnlColor, higherBetter: true });
     tableHtml += _cmpMetric('Total Trades', sA.total_trades||0, sB.total_trades||0, { fmtFn: v => v });
@@ -11057,7 +11099,6 @@ fetchRuns = async function() {
       el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">No charts found.<br>Add images to <code style="color:var(--accent);font-size:11px;">Daily Charts/</code></div>';
       return;
     }
-    const esc = s => s.replace(/'/g, "\\'");
     let h = '';
     years.forEach((year, yi) => {
       const months = _chTree[year];
@@ -11069,21 +11110,21 @@ fetchRuns = async function() {
       months.forEach((mo, mi) => {
         const moo = yi === 0 && mi === 0 ? ' open' : '';
         h += '<div>';
-        h += '<button class="chtree-toggle' + moo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="mo-label">' + mo.label + '</span><span class="cnt">' + mo.days.length + '</span></button>';
+        h += '<button class="chtree-toggle' + moo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="mo-label">' + escapeHtml(mo.label) + '</span><span class="cnt">' + mo.days.length + '</span></button>';
         h += '<div class="chtree-children' + moo + '">';
         mo.days.forEach((day, di) => {
-          h += '<div class="ch-drag-item" draggable="true" data-year="' + year + '" data-month="' + esc(mo.folder) + '" data-folder="' + esc(day.folder) + '" data-idx="' + di + '" style="display:flex;align-items:center;gap:2px;position:relative;">';
+          h += '<div class="ch-drag-item" draggable="true" data-year="' + escapeAttr(year) + '" data-month="' + escapeAttr(mo.folder) + '" data-folder="' + escapeAttr(day.folder) + '" data-idx="' + di + '" style="display:flex;align-items:center;gap:2px;position:relative;">';
           h += '<span class="ch-drag-handle" style="cursor:grab;opacity:0.2;padding:2px 3px;font-size:10px;flex-shrink:0;user-select:none;" title="Drag to reorder">&#9776;</span>';
-          h += '<button class="chday-btn" data-year="' + esc(year) + '" data-month="' + esc(mo.folder) + '" data-day="' + esc(day.folder) + '" data-sort="' + esc(day.sort) + '" style="flex:1;" onclick="window._chSelectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',\'' + esc(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + day.label + '</button>';
-          h += '<span class="ch-edit-btn" onclick="event.stopPropagation();window._chRenameFolder(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\')" title="Rename" style="cursor:pointer;opacity:0.3;padding:2px 4px;font-size:11px;flex-shrink:0;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">&#9998;</span>';
+          h += '<button class="chday-btn" data-year="' + escapeAttr(year) + '" data-month="' + escapeAttr(mo.folder) + '" data-day="' + escapeAttr(day.folder) + '" data-sort="' + escapeAttr(day.sort) + '" style="flex:1;" onclick="window._chSelectDay(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\',\'' + escapeJsSingleQuoted(day.label + ' ' + year) + '\',\'' + escapeJsSingleQuoted(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + escapeHtml(day.label) + '</button>';
+          h += '<span class="ch-edit-btn" onclick="event.stopPropagation();window._chRenameFolder(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\')" title="Rename" style="cursor:pointer;opacity:0.3;padding:2px 4px;font-size:11px;flex-shrink:0;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">&#9998;</span>';
           h += '</div>';
         });
         // Add new folder button at end of month
-        h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);" onclick="window._chCreateFolder(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\')">+ New folder</button>';
+        h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);" onclick="window._chCreateFolder(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\')">+ New folder</button>';
         h += '</div></div>';
       });
       // Add new month/folder button at year level
-      h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);margin-top:2px;" onclick="window._chCreateMonthFolder(\'' + esc(year) + '\')">+ New month folder</button>';
+      h += '<button class="chday-btn" style="opacity:0.5;font-style:italic;border:1px dashed var(--border);margin-top:2px;" onclick="window._chCreateMonthFolder(\'' + escapeJsSingleQuoted(year) + '\')">+ New month folder</button>';
       h += '</div></div>';
     });
     el.innerHTML = h;
@@ -11101,8 +11142,8 @@ fetchRuns = async function() {
     const container = document.getElementById('ch-folder-modal-fields');
     container.innerHTML = fields.map(f =>
       `<div style="margin-bottom:14px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;">${f.label}</label>
-        <input type="text" id="ch-inp-${f.id}" value="${(f.value||'').replace(/"/g,'&quot;')}" placeholder="${f.placeholder||''}"
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(f.label)}</label>
+        <input type="text" id="ch-inp-${f.id}" value="${escapeAttr(f.value||'')}" placeholder="${escapeAttr(f.placeholder||'')}"
           style="width:100%;padding:10px 14px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Outfit',sans-serif;font-size:14px;">
       </div>`
     ).join('');
@@ -11274,7 +11315,7 @@ fetchRuns = async function() {
       _chImages = (d.images || []).map((name, i) => ({ name, url: d.urls[i] }));
       _chRenderImages();
     } catch (e) {
-      area.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;color:var(--red);"><h3>Failed to load</h3><p>' + e.message + '</p></div>';
+      area.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;color:var(--red);"><h3>Failed to load</h3><p>' + escapeHtml(e.message || 'Unknown error') + '</p></div>';
     }
     _cjLoadJournal(sortKey);
     // Highlight in entries list
@@ -11288,23 +11329,23 @@ fetchRuns = async function() {
     if (!_chImages.length) {
       let emptyHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;text-align:center;color:var(--muted);">';
       if (_chDateLabel) {
-        emptyHtml += '<div style="font-family:\'Syne\',sans-serif;font-size:18px;color:var(--text);margin-bottom:8px;">' + _chDateLabel + '</div>';
+        emptyHtml += '<div style="font-family:\'Syne\',sans-serif;font-size:18px;color:var(--text);margin-bottom:8px;">' + escapeHtml(_chDateLabel) + '</div>';
       }
       emptyHtml += '<div style="font-size:42px;margin-bottom:12px;">📭</div><h3 style="font-family:\'Syne\',sans-serif;font-size:16px;color:var(--text-dim);">No Charts</h3><p style="font-size:12px;color:var(--accent);margin-top:8px;opacity:0.7;">Press Ctrl+V to paste a screenshot</p></div>';
       area.innerHTML = emptyHtml;
       return;
     }
     let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">';
-    h += '<div><div style="font-family:\'Syne\',sans-serif;font-size:20px;font-weight:700;">' + _chDateLabel + '</div>';
+    h += '<div><div style="font-family:\'Syne\',sans-serif;font-size:20px;font-weight:700;">' + escapeHtml(_chDateLabel) + '</div>';
     h += '<div style="font-size:12px;color:var(--muted);margin-top:2px;">Press Ctrl+V to add more charts</div></div>';
     h += '<span style="background:rgba(0,191,165,0.12);border:1px solid rgba(0,191,165,0.25);color:var(--accent);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">' + _chImages.length + ' chart' + (_chImages.length > 1 ? 's' : '') + '</span>';
     h += '</div><div class="ch-grid">';
     _chImages.forEach((img, i) => {
-      const eName = img.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const safeName = escapeHtml(img.name || '');
       h += '<div class="ch-card">';
       h += '<button class="ch-delete-btn" title="Delete chart" onclick="event.stopPropagation();window._chDeleteChart(' + i + ')">✕</button>';
-      h += '<div onclick="window._chOpenLB(' + i + ')" style="cursor:pointer;"><img src="' + img.url + '" alt="' + eName + '" loading="lazy"></div>';
-      h += '<div class="ch-card-info"><span class="ch-card-name" title="Click to rename" onclick="event.stopPropagation();window._chRenameChart(' + i + ')">' + img.name + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div>';
+      h += '<div onclick="window._chOpenLB(' + i + ')" style="cursor:pointer;"><img src="' + escapeAttr(img.url || '') + '" alt="' + escapeAttr(img.name || '') + '" loading="lazy"></div>';
+      h += '<div class="ch-card-info"><span class="ch-card-name" title="Click to rename" onclick="event.stopPropagation();window._chRenameChart(' + i + ')">' + safeName + '</span><span class="ch-card-idx">#' + (i + 1) + '</span></div>';
       h += '</div>';
     });
     h += '</div>';

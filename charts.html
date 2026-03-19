@@ -501,6 +501,29 @@ let lbIndex = 0;
 // ── Init ──
 document.addEventListener('DOMContentLoaded', loadTree);
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function escapeJsSingleQuoted(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 async function loadTree() {
   try {
     const r = await fetch('/api/charts/tree', { credentials: 'same-origin' });
@@ -544,15 +567,14 @@ function renderTree() {
       html += '<div class="tree-month">';
       html += '<button class="tree-toggle' + monthOpen + '" onclick="toggleTree(this)">';
       html += '<span class="arrow">▶</span>';
-      html += '<span class="month-label">' + mo.label + '</span>';
+      html += '<span class="month-label">' + escapeHtml(mo.label) + '</span>';
       html += '<span class="count">' + mo.days.length + '</span>';
       html += '</button>';
       html += '<div class="tree-children' + monthOpen + '">';
 
       mo.days.forEach(day => {
-        const esc = (s) => s.replace(/'/g, "\\'");
-        html += '<button class="day-btn" onclick="selectDay(\'' + esc(year) + '\',\'' + esc(mo.folder) + '\',\'' + esc(day.folder) + '\',\'' + esc(day.label + ' ' + year) + '\',this)">';
-        html += '<span class="day-icon">📄</span> ' + day.label;
+        html += '<button class="day-btn" onclick="selectDay(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\',\'' + escapeJsSingleQuoted(day.label + ' ' + year) + '\',this)">';
+        html += '<span class="day-icon">📄</span> ' + escapeHtml(day.label);
         html += '</button>';
       });
 
@@ -592,7 +614,7 @@ async function selectDay(year, monthFolder, dayFolder, dateLabel, btn) {
     }));
     renderImages();
   } catch (e) {
-    area.innerHTML = '<div class="empty-state"><h3 style="color:var(--red);">Failed to load</h3><p>' + e.message + '</p></div>';
+    area.innerHTML = '<div class="empty-state"><h3 style="color:var(--red);">Failed to load</h3><p>' + escapeHtml(e.message || 'Unknown error') + '</p></div>';
   }
 }
 
@@ -605,7 +627,7 @@ function renderImages() {
   }
 
   let html = '<div class="content-header">';
-  html += '<div><div class="content-title">' + currentDateLabel + '</div>';
+  html += '<div><div class="content-title">' + escapeHtml(currentDateLabel) + '</div>';
   html += '<div class="content-subtitle">Historical trading charts</div></div>';
   html += '<span class="badge">' + currentImages.length + ' chart' + (currentImages.length > 1 ? 's' : '') + '</span>';
   html += '</div>';
@@ -613,9 +635,9 @@ function renderImages() {
 
   currentImages.forEach((img, i) => {
     html += '<div class="chart-card" onclick="openLightbox(' + i + ')">';
-    html += '<img src="' + img.url + '" alt="' + img.name + '" loading="lazy">';
+    html += '<img src="' + escapeAttr(img.url || '') + '" alt="' + escapeAttr(img.name || '') + '" loading="lazy">';
     html += '<div class="chart-card-info">';
-    html += '<span class="chart-card-name" title="' + img.name + '">' + img.name + '</span>';
+    html += '<span class="chart-card-name" title="' + escapeAttr(img.name || '') + '">' + escapeHtml(img.name || '') + '</span>';
     html += '<span class="chart-card-idx">#' + (i + 1) + '</span>';
     html += '</div></div>';
   });
