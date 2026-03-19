@@ -308,7 +308,7 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int 
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
-_scalp_engine: Optional["_ScalpEngineClass"] = None
+_scalp_engines: Dict[int, "_ScalpEngineClass"] = {}
 _SKIP_STARTUP_JOBS = os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS", "").lower() in {"1", "true", "yes"}
 
 ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
@@ -396,6 +396,50 @@ def _default_history_user_id_sync() -> int:
     if admin:
         return int(admin["id"])
     raise RuntimeError("No admin user available for trade-history persistence")
+
+
+def _user_broker_fields(user: dict | None) -> tuple[str, str]:
+    if not user:
+        return "", ""
+    return (
+        str(user.get("dhan_client_id", "") or "").strip(),
+        str(user.get("dhan_access_token", "") or "").strip(),
+    )
+
+
+def _broker_not_configured_message(user: dict | None, source: str) -> str:
+    if source == "partial":
+        return "Broker credentials are incomplete for this user. Add both Client ID and Access Token."
+    if user and user.get("role") == "admin":
+        return "Dhan API credentials not configured. Add user broker credentials or keep the admin .env fallback configured."
+    return "Broker credentials are not configured for this user."
+
+
+def _resolve_user_broker_client(
+    user: dict | None,
+    *,
+    allow_admin_fallback: bool = True,
+) -> tuple[DhanClient | None, str]:
+    client_id, access_token = _user_broker_fields(user)
+    if client_id and access_token:
+        return DhanClient(client_id=client_id, access_token=access_token), "user"
+    if client_id or access_token:
+        return None, "partial"
+    if allow_admin_fallback and user and user.get("role") == "admin" and dhan._is_configured():
+        return dhan, "global"
+    return None, "missing"
+
+
+async def _request_broker_context(
+    request: Request,
+    *,
+    allow_admin_fallback: bool = True,
+) -> tuple[dict, DhanClient | None, str]:
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        user = await _auth_mod.get_current_user(request)
+    broker_client, source = _resolve_user_broker_client(user, allow_admin_fallback=allow_admin_fallback)
+    return user, broker_client, source
 
 
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
@@ -1603,9 +1647,13 @@ async def portfolio_summary(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     result = {"funds": None, "positions": [], "unrealized_pnl": 0, "total_value": 0, "errors": []}
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        result["errors"].append(_broker_not_configured_message(user, source))
+        return result
     # Funds
     try:
-        funds = await asyncio.to_thread(dhan.get_funds)
+        funds = await asyncio.to_thread(broker_client.get_funds)
         result["funds"] = funds
         if isinstance(funds, dict):
             result["total_value"] = float(funds.get("availabelBalance", funds.get("available_balance", 0)))
@@ -1614,7 +1662,7 @@ async def portfolio_summary(request: Request):
 
     # Positions + unrealized P&L
     try:
-        positions = await asyncio.to_thread(dhan.get_positions)
+        positions = await asyncio.to_thread(broker_client.get_positions)
         result["positions"] = positions
         unrealized = 0
         for pos in positions if isinstance(positions, list) else []:
@@ -1686,19 +1734,19 @@ async def refresh_token():
 
 # ── Broker Connection Validation ──────────────────────────────────
 @app.post("/api/broker/check")
-async def check_broker():
+async def check_broker(request: Request):
     """Check if broker connection is active and valid"""
     try:
-        # Check if credentials are configured (not default placeholders)
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please update .env file.",
+                "message": _broker_not_configured_message(user, source),
             }
 
         # Test connection by fetching account funds
-        funds = dhan.get_funds()
+        funds = await asyncio.to_thread(broker_client.get_funds)
 
         if funds and isinstance(funds, dict):
             # Valid response - connection is working
@@ -1707,6 +1755,7 @@ async def check_broker():
                 "status": "connected",
                 "broker": "Dhan",
                 "message": "Broker connection active",
+                "source": source,
                 "available_balance": available_balance,
                 "funds": funds,
             }
@@ -1730,12 +1779,16 @@ async def check_broker():
 async def get_broker_trades(request: Request):
     """Fetch executed trades from Dhan broker account"""
     try:
-        # Check if credentials are configured
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
-            return {"status": "not_configured", "message": "Dhan API credentials not configured", "trades": []}
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {
+                "status": "not_configured",
+                "message": _broker_not_configured_message(user, source),
+                "trades": [],
+            }
 
         # Fetch trades from Dhan API
-        trades_result = dhan.get_trades()
+        trades_result = await asyncio.to_thread(broker_client.get_trades)
         trades = trades_result if isinstance(trades_result, list) else []
 
         # Auto-persist daily trade summary for portfolio history
@@ -1745,7 +1798,7 @@ async def get_broker_trades(request: Request):
             except Exception as pe:
                 print(f"[TRADE_HISTORY] Persist error: {pe}")
 
-        return {"status": "success", "broker": "Dhan", "count": len(trades), "trades": trades}
+        return {"status": "success", "broker": "Dhan", "source": source, "count": len(trades), "trades": trades}
 
     except Exception as e:
         error_msg = str(e)
@@ -1757,7 +1810,12 @@ async def get_broker_trades(request: Request):
         }
 
 
-def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False, user_id: int | None = None):
+def _backfill_trade_history(
+    from_date: str = "2024-01-01",
+    force: bool = False,
+    user_id: int | None = None,
+    broker_client: DhanClient | None = None,
+):
     """Fetch historical trades from Dhan and backfill a user's persisted trade history.
 
     Args:
@@ -1768,6 +1826,7 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False, 
     import time as _time
 
     try:
+        client = broker_client or dhan
         owner_id = int(user_id or _default_history_user_id_sync())
         history = _db_mod.list_trade_history_sync(owner_id) if not force else {}
         if force:
@@ -1784,20 +1843,20 @@ def _backfill_trade_history(from_date: str = "2024-01-01", force: bool = False, 
         page = 0
         consecutive_empty = 0
         while page < MAX_PAGES:
-            result = dhan.get_trade_history(from_date, today_str, page)
+            result = client.get_trade_history(from_date, today_str, page)
 
             # Handle rate-limit: retry with exponential backoff
-            if result == dhan.RATE_LIMITED:
+            if result == client.RATE_LIMITED:
                 retried = False
                 for attempt in range(1, RATE_LIMIT_RETRIES + 1):
                     wait = 2**attempt  # 2, 4, 8 seconds
                     print(f"[BACKFILL] Rate limited on page {page}, retry {attempt}/{RATE_LIMIT_RETRIES} after {wait}s")
                     _time.sleep(wait)
-                    result = dhan.get_trade_history(from_date, today_str, page)
-                    if result != dhan.RATE_LIMITED:
+                    result = client.get_trade_history(from_date, today_str, page)
+                    if result != client.RATE_LIMITED:
                         retried = True
                         break
-                if not retried and result == dhan.RATE_LIMITED:
+                if not retried and result == client.RATE_LIMITED:
                     print(f"[BACKFILL] Rate limit persists after {RATE_LIMIT_RETRIES} retries on page {page}, stopping")
                     break
 
@@ -1951,7 +2010,16 @@ async def portfolio_backfill(request: Request, force: bool = False):
         force: If true, re-fetch ALL trades and overwrite existing data.
     """
     try:
-        count = _backfill_trade_history("2024-01-01", force=force, user_id=_request_user_id(request))
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source)}
+        count = await asyncio.to_thread(
+            _backfill_trade_history,
+            "2024-01-01",
+            force,
+            _request_user_id(request),
+            broker_client,
+        )
         return {"status": "success", "new_dates": count, "force": force}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -2112,19 +2180,19 @@ async def get_portfolio_history(request: Request):
 
 
 @app.post("/api/broker/connect")
-async def connect_broker():
+async def connect_broker(request: Request):
     """Establish and validate broker connection"""
     try:
-        # Check if credentials are configured (not default placeholders)
-        if config.DHAN_CLIENT_ID == "YOUR_CLIENT_ID_HERE" or config.DHAN_ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
             return {
                 "status": "not_configured",
                 "broker": "Dhan",
-                "message": "Dhan API credentials not configured. Please add them to .env file.",
+                "message": _broker_not_configured_message(user, source),
             }
 
         # Test connection by attempting to fetch account funds
-        funds = dhan.get_funds()
+        funds = await asyncio.to_thread(broker_client.get_funds)
 
         if funds and isinstance(funds, dict):
             # Successfully connected and validated
@@ -2132,8 +2200,9 @@ async def connect_broker():
                 "status": "connected",
                 "broker": "Dhan",
                 "message": "Successfully connected to Dhan broker",
+                "source": source,
                 "available_balance": funds.get("availabelBalance", 0),
-                "client_id": config.DHAN_CLIENT_ID,
+                "client_id": broker_client.client_id,
             }
         else:
             # Connection made but no valid data
@@ -2751,6 +2820,10 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 async def live_start(req: LiveStartRequest, request: Request):
     """Start live auto-trading with full strategy configuration."""
     user_id = _request_user_id(request)
+    user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
+    broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    if not broker_client:
+        return {"status": "error", "message": _broker_not_configured_message(user, broker_source)}
     live_bucket = _registry_bucket(live_engines, user_id)
     live_task_bucket = _registry_bucket(_live_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
@@ -2816,7 +2889,7 @@ async def live_start(req: LiveStartRequest, request: Request):
         live_bucket.pop(run_id, None)
 
     # Create a new engine instance for this strategy
-    engine = LiveEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
+    engine = LiveEngine(broker_client, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
@@ -3653,9 +3726,10 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Scalp status — every cycle (250ms)
             scalp_data = None
-            if _HAS_SCALP and _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
+            scalp_engine = _scalp_engines.get(int(user_id))
+            if _HAS_SCALP and scalp_engine is not None:
                 try:
-                    scalp_data = _scalp_engine.get_status()
+                    scalp_data = scalp_engine.get_status()
                 except Exception:
                     pass
 
@@ -3690,8 +3764,11 @@ async def websocket_endpoint(ws: WebSocket):
 async def place_order(req: OrderRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.place_order(
+        return broker_client.place_order(
             security_id=req.security_id,
             exchange_segment=req.exchange_segment,
             transaction_type=req.transaction_type,
@@ -3709,35 +3786,47 @@ async def place_order(req: OrderRequest, request: Request):
 
 
 @app.get("/api/orders")
-async def get_orders():
+async def get_orders(request: Request):
     try:
-        orders = dhan.get_order_book()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
+        orders = broker_client.get_order_book()
         return {"status": "success", "data": orders if isinstance(orders, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
 
 @app.get("/api/positions")
-async def get_positions():
+async def get_positions(request: Request):
     try:
-        positions = dhan.get_positions()
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
+        positions = broker_client.get_positions()
         return {"status": "success", "data": positions if isinstance(positions, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
 
 
 @app.get("/api/funds")
-async def get_funds():
+async def get_funds(request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.get_funds()
+        return broker_client.get_funds()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/orders/{order_id}")
-async def cancel_order(order_id: str):
+async def cancel_order(order_id: str, request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return dhan.cancel_order(order_id)
+        return broker_client.cancel_order(order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4063,9 +4152,10 @@ async def bulk_delete_scalp_trades(request: Request):
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
     deleted = await _db_mod.bulk_delete_scalp_trades(user_id, ids)
-    if _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
+    eng = _scalp_engines.get(int(user_id))
+    if eng is not None:
         id_set = {int(tid) for tid in ids}
-        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") not in id_set]
+        eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") not in id_set]
     _notify_scalp_ws()
     return {"deleted": deleted}
 
@@ -4075,8 +4165,9 @@ async def delete_scalp_trade(tid: int, request: Request):
     """Delete a single persisted scalp trade by trade_id."""
     user_id = _request_user_id(request)
     await _db_mod.delete_scalp_trade(user_id, tid)
-    if _scalp_engine is not None and getattr(_scalp_engine, "_user_id", None) == user_id:
-        _scalp_engine.closed_trades = [t for t in _scalp_engine.closed_trades if t.get("trade_id") != tid]
+    eng = _scalp_engines.get(int(user_id))
+    if eng is not None:
+        eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") != tid]
     _notify_scalp_ws()
     return {"deleted": tid}
 
@@ -4084,11 +4175,14 @@ async def delete_scalp_trade(tid: int, request: Request):
 # ── Scalp Engine (live session, in-memory) ───────────────────────
 
 
-def _get_scalp_engine(user_id: int | None = None):
-    global _scalp_engine
+def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")
-    if _scalp_engine is None:
+    owner_id = int(user_id or 0)
+    if owner_id <= 0:
+        raise HTTPException(status_code=400, detail="Missing scalp engine user context")
+    eng = _scalp_engines.get(owner_id)
+    if eng is None:
 
         async def _persist_closed_trade_async(owner_id: int, trade_dict: dict):
             try:
@@ -4099,7 +4193,6 @@ def _get_scalp_engine(user_id: int | None = None):
                 _notify_scalp_ws()
 
         def _persist_closed_trade(trade_dict):
-            owner_id = int(getattr(_scalp_engine, "_user_id", 0) or user_id or 0)
             if owner_id:
                 asyncio.create_task(_persist_closed_trade_async(owner_id, trade_dict))
             else:
@@ -4122,11 +4215,13 @@ def _get_scalp_engine(user_id: int | None = None):
                 level=level,
             )
 
-        _scalp_engine = _ScalpEngineClass(dhan, _market_feed, on_trade_close=_persist_closed_trade)
-    if user_id and not getattr(_scalp_engine, "_user_id", None):
-        _scalp_engine._user_id = user_id
-        _scalp_engine._trade_counter = max(_scalp_engine._trade_counter, _db_mod.get_max_scalp_trade_id_sync(user_id))
-    return _scalp_engine
+        eng = _ScalpEngineClass(broker_client or dhan, _market_feed, on_trade_close=_persist_closed_trade)
+        eng._user_id = owner_id
+        eng._trade_counter = max(eng._trade_counter, _db_mod.get_max_scalp_trade_id_sync(owner_id))
+        _scalp_engines[owner_id] = eng
+    elif broker_client is not None:
+        eng.dhan = broker_client
+    return eng
 
 
 @app.get("/api/scalp/status")
@@ -4177,20 +4272,31 @@ class ScalpEntryReq(BaseModel):
     entry_limit_max: float = 0.0
 
 
-_scalp_entry_lock = asyncio.Lock()
-_last_scalp_entry_ts: float = 0.0
+_scalp_entry_locks: Dict[int, asyncio.Lock] = {}
+_last_scalp_entry_ts: Dict[int, float] = {}
+
+
+def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
+    return _scalp_entry_locks.setdefault(int(user_id), asyncio.Lock())
 
 
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq, request: Request):
-    global _last_scalp_entry_ts
-    async with _scalp_entry_lock:
+    user_id = _request_user_id(request)
+    lock = _get_scalp_entry_lock(user_id)
+    async with lock:
         # Cooldown guard INSIDE lock to prevent race condition
         now = asyncio.get_event_loop().time()
-        if now - _last_scalp_entry_ts < 2.0:
+        last_ts = _last_scalp_entry_ts.get(user_id, 0.0)
+        if now - last_ts < 2.0:
             return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
-        _last_scalp_entry_ts = now
-        eng = _get_scalp_engine(_request_user_id(request))
+        _last_scalp_entry_ts[user_id] = now
+        broker_client = None
+        if str(req.mode or "live").lower() == "live":
+            user, broker_client, source = await _request_broker_context(request)
+            if not broker_client:
+                return {"status": "error", "message": _broker_not_configured_message(user, source)}
+        eng = _get_scalp_engine(user_id, broker_client=broker_client)
         try:
             result = await eng.enter_trade(
                 underlying=req.underlying,
@@ -4645,7 +4751,7 @@ async def get_expiry_list(symbol: str):
         return {"status": "error", "msg": str(e)}
 
 
-def _refresh_recent_charges(history: dict, user_id: int):
+def _refresh_recent_charges(history: dict, user_id: int, broker_client: DhanClient | None = None):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
 
     The live get_trades() endpoint doesn't return charge fields (stt, sebiTax etc).
@@ -4654,6 +4760,7 @@ def _refresh_recent_charges(history: dict, user_id: int):
     import time as _time
 
     try:
+        client = broker_client or dhan
         today = datetime.now()
         yesterday = today - timedelta(days=1)
         # Check last 3 days (in case of weekends)
@@ -4672,7 +4779,7 @@ def _refresh_recent_charges(history: dict, user_id: int):
         to_date = max(dates_to_check)
         print(f"📊 [CHARGES] Refreshing charges for {dates_to_check}...")
 
-        result = dhan.get_trade_history(from_date, to_date, 0)
+        result = client.get_trade_history(from_date, to_date, 0)
         if not isinstance(result, list) or not result:
             print(f"📊 [CHARGES] No historical data available yet for {from_date} to {to_date}")
             return
@@ -4682,7 +4789,7 @@ def _refresh_recent_charges(history: dict, user_id: int):
         page = 1
         while len(result) >= 20:  # Dhan page size
             _time.sleep(0.3)
-            result = dhan.get_trade_history(from_date, to_date, page)
+            result = client.get_trade_history(from_date, to_date, page)
             if not isinstance(result, list) or not result:
                 break
             all_trades.extend(result)
@@ -4806,6 +4913,9 @@ async def _backfill_in_background():
         if not admin:
             raise RuntimeError("No admin user available for startup trade-history backfill")
         admin_id = int(admin["id"])
+        broker_client, source = _resolve_user_broker_client(admin, allow_admin_fallback=True)
+        if not broker_client:
+            raise RuntimeError(_broker_not_configured_message(admin, source))
         history = await _db_mod.list_trade_history(admin_id)
         force = len(history) <= 2
         if force:
@@ -4813,11 +4923,11 @@ async def _backfill_in_background():
             print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
         count = await loop.run_in_executor(
             None,
-            lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id),
+            lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id, broker_client=broker_client),
         )
         if not force:
             loaded = await _db_mod.list_trade_history(admin_id)
-            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded, admin_id))
+            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded, admin_id, broker_client))
             loaded = await _db_mod.list_trade_history(admin_id)
             print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
         else:
@@ -4914,7 +5024,16 @@ async def _restore_live_engines():
                 continue
 
             # Reconstruct engine with full config
-            engine = LiveEngine(dhan, run_id=run_id, state_dir=state_dir)
+            user = await _db_mod.get_user_by_id(user_id)
+            broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+            if not broker_client:
+                print(
+                    f"🔄 [Restore] Skipping live restore for user {user_id} / {fname}: "
+                    f"{_broker_not_configured_message(user, broker_source)}"
+                )
+                continue
+
+            engine = LiveEngine(broker_client, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
@@ -5038,6 +5157,14 @@ async def _restore_paper_engines():
 @app.on_event("shutdown")
 async def _shutdown_cleanup():
     """Save all running engine results and clean up."""
+    # Save all running scalp engines
+    for owner_id, engine in list(_scalp_engines.items()):
+        try:
+            await _save_scalp_run_to_history(engine, explicit_user_id=owner_id)
+            engine.stop()
+            print(f"🛑 [Shutdown] Saved scalp engine: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save scalp engine {owner_id}: {e}")
     # Save all running paper engines
     for owner_id, run_id, engine in list(_iter_registry_items(paper_engines)):
         try:
