@@ -31,6 +31,7 @@ ALGOFORGE_DB=/home/ec2-user/algoforge/algoforge.db
 ALGOFORGE_USER_DATA_ROOT=/home/ec2-user/algoforge/data/users
 ALGOFORGE_BACKUP_ROOT=/home/ec2-user/algoforge/backups
 ALGOFORGE_BACKUP_RETENTION_DAYS=14
+ALGOFORGE_BACKUP_MIN_FREE_MB=1024
 SESSION_TTL_HOURS=24
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=5
@@ -204,11 +205,11 @@ These steps assume the current production server is the AWS Lightsail host and t
 
 ```bash
 cd /home/ec2-user/algoforge
-git fetch origin
-git checkout feature/multi-tenant
-mkdir -p backups/manual
-python3 scripts/backup_algoforge.py --output-dir backups/manual
+python3 scripts/backup_algoforge.py --output-dir backups/manual --include-legacy
 ```
+
+This backup path streams large folders directly into the archive instead of staging a full duplicate copy.
+If the instance does not have enough free disk to create a safe local archive, it aborts early instead of filling the box and destabilizing SSH/Nginx.
 
 ### Update `.env`
 
@@ -218,6 +219,7 @@ Set these explicitly on the server:
 - `ALGOFORGE_DB`
 - `ALGOFORGE_USER_DATA_ROOT`
 - `ALGOFORGE_BACKUP_ROOT`
+- `ALGOFORGE_BACKUP_MIN_FREE_MB`
 - `ENCRYPTION_KEY`
 - existing Dhan/global broker values if admin fallback is still needed
 
@@ -250,6 +252,24 @@ bash deploy/cd-deploy.sh
 ```
 
 `SYNC_SITE_CONFIG=0` is intentional. It preserves the existing server-local Nginx vhost unless you explicitly want the repo config to overwrite it.
+
+### Safe One-Command Production Rollout
+
+On a production box that already has the repo and venv in place, prefer:
+
+```bash
+cd /home/ec2-user/algoforge
+bash deploy/rollout-main.sh
+```
+
+That script:
+
+- updates the checkout to latest `main`
+- ensures the required multi-tenant env keys exist
+- creates a pre-cutover backup with legacy data included
+- runs migration before and after blue-green deploy
+- installs/enables the backup timer
+- verifies health and active port at the end
 
 ### Post-Deploy Verification
 

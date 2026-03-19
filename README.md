@@ -313,6 +313,7 @@ ALGOFORGE_PIN=bootstrap_admin_password
 ALGOFORGE_DB=/home/ec2-user/algoforge/algoforge.db
 ALGOFORGE_USER_DATA_ROOT=/home/ec2-user/algoforge/data/users
 ALGOFORGE_BACKUP_ROOT=/home/ec2-user/algoforge/backups
+ALGOFORGE_BACKUP_MIN_FREE_MB=1024
 ENCRYPTION_KEY=generated_fernet_key
 
 # ── Alerts (optional) ────────────────────────────────
