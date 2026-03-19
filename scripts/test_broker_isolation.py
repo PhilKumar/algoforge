@@ -369,6 +369,64 @@ async def main():
         passed += 1
         print(" 12. Live scalp entry refuses users without broker creds: PASS")
 
+        r = await phil_client.get("/api/user/profile")
+        assert r.status_code == 200, r.text
+        profile = r.json()
+        assert profile["status"] == "ok"
+        assert profile["user"]["username"] == "phil"
+        assert profile["broker"]["configured"] is True
+        assert profile["broker"]["source"] == "user"
+        assert profile["broker"]["client_id"] == "phil-client"
+        assert profile["broker"]["access_token_saved"] is True
+        passed += 1
+        print(" 13. User profile exposes safe broker metadata: PASS")
+
+        r = await admin_client.get("/api/user/profile")
+        assert r.status_code == 200, r.text
+        admin_profile = r.json()
+        assert admin_profile["broker"]["source"] == "global"
+        assert admin_profile["broker"]["configured"] is False
+        passed += 1
+        print(" 14. Admin profile reflects global broker fallback: PASS")
+
+        r = await nobroker_client.put(
+            "/api/user/broker",
+            json={"client_id": "beta-client", "access_token": "beta-token-12345678901234567890"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["broker"]["configured"] is True
+        r = await nobroker_client.post("/api/broker/check")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "connected"
+        assert r.json()["source"] == "user"
+        r = await nobroker_client.delete("/api/user/broker")
+        assert r.status_code == 200, r.text
+        assert r.json()["broker"]["configured"] is False
+        r = await nobroker_client.post("/api/broker/check")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "not_configured"
+        passed += 1
+        print(" 15. User broker self-service save and clear works: PASS")
+
+        r = await phil_client.put(
+            "/api/user/broker",
+            json={"client_id": "phil-client", "access_token": "phil-token-override-12345678901234567890"},
+        )
+        assert r.status_code == 409, r.text
+        r = await phil_client.delete("/api/user/broker")
+        assert r.status_code == 409, r.text
+        passed += 1
+        print(" 16. Active live workflows lock broker credential edits: PASS")
+
+        r = await admin_client.get("/api/admin/engines")
+        assert r.status_code == 200, r.text
+        rows = {int(row["user_id"]): row for row in r.json()["users"]}
+        assert rows[phil_id]["live_running"] == 1
+        assert rows[phil_id]["scalp_open_trades"] == 1
+        assert rows[admin_id]["scalp_open_trades"] == 1
+        passed += 1
+        print(" 17. Admin engine summary is user-scoped: PASS")
+
     print(f"\n{'=' * 40}")
     print(f"  Results: {passed} passed, 0 failed")
     print(f"{'=' * 40}")

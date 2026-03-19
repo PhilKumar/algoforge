@@ -415,6 +415,48 @@ def _broker_not_configured_message(user: dict | None, source: str) -> str:
     return "Broker credentials are not configured for this user."
 
 
+def _mask_value(value: str, *, prefix: int = 3, suffix: int = 2) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= prefix + suffix:
+        return "•" * len(text)
+    return f"{text[:prefix]}{'•' * max(4, len(text) - (prefix + suffix))}{text[-suffix:]}"
+
+
+def _trade_mode_value(trade) -> str:
+    if isinstance(trade, dict):
+        return str(trade.get("mode", "") or "").lower()
+    return str(getattr(trade, "mode", "") or "").lower()
+
+
+def _user_broker_settings_lock(user_id: int) -> tuple[bool, str]:
+    if _any_running(live_engines, user_id):
+        return True, "Stop live strategies before editing broker credentials."
+    eng = _scalp_engines.get(int(user_id))
+    if eng:
+        live_scalp_open = any(_trade_mode_value(trade) == "live" for trade in getattr(eng, "open_trades", {}).values())
+        if live_scalp_open:
+            return True, "Close live scalp trades before editing broker credentials."
+    return False, ""
+
+
+def _broker_profile_payload(user: dict | None) -> dict:
+    client_id, access_token = _user_broker_fields(user)
+    _, source = _resolve_user_broker_client(user)
+    locked, lock_reason = _user_broker_settings_lock(int(user["id"])) if user else (False, "")
+    return {
+        "configured": bool(client_id and access_token),
+        "partial": bool((client_id and not access_token) or (access_token and not client_id)),
+        "source": source,
+        "client_id": client_id,
+        "client_id_masked": _mask_value(client_id),
+        "access_token_saved": bool(access_token),
+        "manage_locked": locked,
+        "manage_lock_reason": lock_reason,
+    }
+
+
 def _resolve_user_broker_client(
     user: dict | None,
     *,
@@ -440,6 +482,22 @@ async def _request_broker_context(
         user = await _auth_mod.get_current_user(request)
     broker_client, source = _resolve_user_broker_client(user, allow_admin_fallback=allow_admin_fallback)
     return user, broker_client, source
+
+
+def _engine_status_summary(engine, run_id: str, default_mode: str) -> dict:
+    try:
+        status = engine.get_status() or {}
+    except Exception:
+        status = {}
+    return {
+        "run_id": run_id,
+        "mode": status.get("mode") or default_mode,
+        "strategy_name": status.get("strategy_name") or run_id,
+        "instrument": status.get("instrument") or "",
+        "in_trade": bool(status.get("in_trade")),
+        "trades_today": int(status.get("trades_today") or 0),
+        "total_pnl": float(status.get("total_pnl") or 0),
+    }
 
 
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
@@ -1388,6 +1446,138 @@ async def change_own_password(request: Request):
     resp = JSONResponse({"status": "ok", "message": "Password changed. Please log in again."})
     resp.delete_cookie("algoforge_session")
     return resp
+
+
+@app.get("/api/user/profile")
+async def get_user_profile(request: Request):
+    """Return authenticated user profile + broker settings metadata."""
+    user = await _auth_mod.get_current_user(request)
+    return {
+        "status": "ok",
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "email": user.get("email"),
+            "role": user["role"],
+            "is_active": bool(user.get("is_active", 1)),
+            "created_at": user.get("created_at"),
+            "last_login": user.get("last_login"),
+        },
+        "broker": _broker_profile_payload(user),
+    }
+
+
+@app.put("/api/user/broker")
+async def update_own_broker_settings(request: Request):
+    """Create or update stored broker credentials for the current user."""
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+
+    body = await request.json()
+    client_id_input = body.get("client_id")
+    access_token_input = body.get("access_token")
+    pin_input = body.get("pin")
+    totp_input = body.get("totp_secret")
+
+    current_client_id = str(user.get("dhan_client_id", "") or "").strip()
+    current_access_token = str(user.get("dhan_access_token", "") or "").strip()
+    current_pin = str(user.get("dhan_pin", "") or "").strip()
+    current_totp = str(user.get("dhan_totp_secret", "") or "").strip()
+
+    new_client_id = current_client_id if client_id_input is None else str(client_id_input or "").strip()
+    new_access_token = current_access_token if access_token_input is None else str(access_token_input or "").strip()
+    new_pin = current_pin if pin_input is None else str(pin_input or "").strip()
+    new_totp = current_totp if totp_input is None else str(totp_input or "").strip()
+
+    if not (new_client_id or new_access_token or new_pin or new_totp):
+        raise HTTPException(status_code=400, detail="Provide broker credentials to save, or use Clear to remove them.")
+    if bool(new_client_id) != bool(new_access_token):
+        raise HTTPException(status_code=400, detail="Both Client ID and Access Token are required together.")
+    if (new_pin or new_totp) and not (new_client_id and new_access_token):
+        raise HTTPException(
+            status_code=400, detail="PIN/TOTP can only be saved together with Client ID and Access Token."
+        )
+
+    await _db_mod.update_user(
+        user["id"],
+        dhan_client_id=new_client_id,
+        dhan_access_token=new_access_token,
+        dhan_pin=new_pin,
+        dhan_totp_secret=new_totp,
+    )
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {
+        "status": "ok",
+        "message": "Broker credentials saved.",
+        "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.delete("/api/user/broker")
+async def clear_own_broker_settings(request: Request):
+    """Remove stored broker credentials for the current user."""
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+
+    cleared_fields = {key: str() for key in ("dhan_client_id", "dhan_access_token", "dhan_pin", "dhan_totp_secret")}
+    await _db_mod.update_user(user["id"], **cleared_fields)
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {
+        "status": "ok",
+        "message": "Stored broker credentials cleared.",
+        "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.get("/api/admin/engines")
+async def admin_list_engine_status(request: Request):
+    """Summarize running engines across users (admin only)."""
+    await _auth_mod.require_admin(request)
+    known_users = {int(user["id"]): user for user in await _db_mod.list_users()}
+    owner_ids = sorted(set(known_users) | set(paper_engines) | set(live_engines) | set(_scalp_engines))
+    rows: list[dict] = []
+
+    for owner_id in owner_ids:
+        user = known_users.get(owner_id) or {
+            "id": owner_id,
+            "username": f"User {owner_id}",
+            "role": "user",
+            "is_active": True,
+        }
+        paper_runs = [
+            _engine_status_summary(engine, run_id, "paper")
+            for run_id, engine in _registry_bucket(paper_engines, owner_id).items()
+            if getattr(engine, "running", False)
+        ]
+        live_runs = [
+            _engine_status_summary(engine, run_id, "live")
+            for run_id, engine in _registry_bucket(live_engines, owner_id).items()
+            if getattr(engine, "running", False)
+        ]
+        scalp_engine = _scalp_engines.get(owner_id)
+        scalp_open = list(getattr(scalp_engine, "open_trades", {}).values()) if scalp_engine else []
+        scalp_live_open = sum(1 for trade in scalp_open if _trade_mode_value(trade) == "live")
+        rows.append(
+            {
+                "user_id": owner_id,
+                "username": user["username"],
+                "role": user.get("role", "user"),
+                "is_active": bool(user.get("is_active", 1)),
+                "paper_running": len(paper_runs),
+                "live_running": len(live_runs),
+                "scalp_running": bool(scalp_engine and getattr(scalp_engine, "_running", False)),
+                "scalp_open_trades": len(scalp_open),
+                "scalp_live_open_trades": scalp_live_open,
+                "paper_runs": paper_runs,
+                "live_runs": live_runs,
+            }
+        )
+
+    return {"status": "ok", "users": rows}
 
 
 # ── Emergency Stop (Kill Switch) ─────────────────────────────────

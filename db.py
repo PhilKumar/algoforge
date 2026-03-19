@@ -283,10 +283,29 @@ async def list_users() -> list[dict]:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, username, email, role, is_active, created_at, last_login FROM users ORDER BY id"
+            "SELECT id, username, email, role, is_active, created_at, last_login, dhan_client_id, dhan_access_token "
+            "FROM users ORDER BY id"
         )
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        users: list[dict] = []
+        for row in rows:
+            full_user = _decrypt_user_row(row) or {}
+            client_id = str(full_user.get("dhan_client_id", "") or "").strip()
+            access_token = str(full_user.get("dhan_access_token", "") or "").strip()
+            users.append(
+                {
+                    "id": full_user.get("id"),
+                    "username": full_user.get("username"),
+                    "email": full_user.get("email"),
+                    "role": full_user.get("role"),
+                    "is_active": full_user.get("is_active"),
+                    "created_at": full_user.get("created_at"),
+                    "last_login": full_user.get("last_login"),
+                    "broker_configured": bool(client_id and access_token),
+                    "broker_partial": bool((client_id and not access_token) or (access_token and not client_id)),
+                }
+            )
+        return users
 
 
 _ALLOWED_USER_FIELDS = frozenset(

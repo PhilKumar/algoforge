@@ -1266,6 +1266,40 @@
     align-items: center;
     gap: 6px;
   }
+  .topbar-user-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .topbar-user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    padding: 0 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .topbar-user-chip:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: var(--border-hi);
+  }
+  .topbar-user-name {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .topbar-user-role {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
   .topbar-icon-btn {
     background: rgba(255,255,255,0.04);
     border: 1px solid var(--border);
@@ -1285,6 +1319,181 @@
     color: var(--text);
     border-color: var(--border-hi);
   }
+  .settings-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+    gap: 16px;
+  }
+  .settings-section {
+    background: linear-gradient(155deg, rgba(18,26,42,0.58) 0%, rgba(12,18,32,0.46) 100%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .settings-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .settings-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .settings-meta-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 11px 12px;
+  }
+  .settings-meta-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .settings-meta-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .settings-hint {
+    margin-top: 7px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .settings-status-line {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .settings-status-line strong { color: var(--text); }
+  .settings-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+  }
+  .status-chip.success { background: rgba(34,197,94,0.12); color: #86efac; border-color: rgba(34,197,94,0.22); }
+  .status-chip.warn { background: rgba(245,158,11,0.14); color: #fcd34d; border-color: rgba(245,158,11,0.24); }
+  .status-chip.danger { background: rgba(239,68,68,0.14); color: #fca5a5; border-color: rgba(239,68,68,0.22); }
+  .admin-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+  .admin-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .admin-summary-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .admin-summary-card .n {
+    display: block;
+    font-size: 20px;
+    font-weight: 800;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .admin-create-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 0.9fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+  .admin-table-wrap {
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: auto;
+    max-height: 52vh;
+    background: rgba(10,15,28,0.78);
+  }
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 820px;
+  }
+  .admin-table th,
+  .admin-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    text-align: left;
+    vertical-align: top;
+    font-size: 12px;
+  }
+  .admin-table th {
+    position: sticky;
+    top: 0;
+    background: rgba(12,18,32,0.96);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    font-size: 10px;
+    z-index: 1;
+  }
+  .admin-table tr:last-child td { border-bottom: none; }
+  .admin-user-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .admin-user-sub {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .admin-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .admin-action-btn {
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .admin-action-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: var(--border-hi);
+  }
+  .admin-empty-state {
+    padding: 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .mono-field { font-family: 'JetBrains Mono', monospace; }
 
   /* ═══ EXPIRY BAR ═══ */
   .expiry-bar {
@@ -1404,8 +1613,34 @@
   [data-theme="light"] .tc-label { color: #64748b; }
   [data-theme="light"] .tc-price { color: #0f172a; }
   [data-theme="light"] .topbar-clock { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); color: #475569; }
+  [data-theme="light"] .topbar-user-chip { background: rgba(248,250,252,0.86); border-color: rgba(15,23,42,0.06); color: #0f172a; }
+  [data-theme="light"] .topbar-user-chip:hover { background: rgba(241,245,249,0.95); }
+  [data-theme="light"] .topbar-user-role { color: #047857; }
   [data-theme="light"] .topbar-icon-btn { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); color: #64748b; }
   [data-theme="light"] .topbar-icon-btn:hover { background: rgba(15,23,42,0.06); color: #0f172a; }
+  [data-theme="light"] .settings-section,
+  [data-theme="light"] .admin-summary-card,
+  [data-theme="light"] .settings-meta-card {
+    background: rgba(248,250,252,0.9);
+    border-color: rgba(15,23,42,0.06);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  [data-theme="light"] .settings-meta-value,
+  [data-theme="light"] .settings-section h4,
+  [data-theme="light"] .admin-action-btn { color: #0f172a; }
+  [data-theme="light"] .admin-action-btn {
+    background: rgba(248,250,252,0.92);
+    border-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .admin-action-btn:hover { background: rgba(241,245,249,0.96); }
+  [data-theme="light"] .admin-table-wrap { background: rgba(255,255,255,0.96); border-color: rgba(15,23,42,0.08); }
+  [data-theme="light"] .admin-table th { background: rgba(248,250,252,0.98); color: #64748b; }
+  [data-theme="light"] .admin-table td { border-bottom-color: rgba(15,23,42,0.05); color: #0f172a; }
+  [data-theme="light"] .admin-user-sub,
+  [data-theme="light"] .settings-hint,
+  [data-theme="light"] .settings-status-line,
+  [data-theme="light"] .settings-meta-label,
+  [data-theme="light"] .admin-empty-state { color: #64748b; }
   [data-theme="light"] .expiry-bar { background: rgba(248,250,252,0.95); border-color: rgba(15,23,42,0.04); }
   [data-theme="light"] .expiry-chip span { color: #0f172a; }
   /* ── Premium Light: Nav Bar ── */
@@ -1433,12 +1668,17 @@
     .nav-bar { border-radius: 0 0 12px 12px; }
     .expiry-bar { flex-wrap: wrap; gap: 8px; padding: 8px 14px; }
     .expiry-chip { font-size: 12px; padding: 5px 12px; }
+    .settings-shell,
+    .admin-create-grid,
+    .admin-summary-grid { grid-template-columns: 1fr; }
+    .admin-toolbar { flex-direction: column; }
   }
   @media (max-width: 480px) {
     .topbar-brand-text { font-size: 15px; }
     .topbar-brand-sub { display: none; }
     .topbar-brand img { height: 32px; }
     .topbar-clock .clock-date-text { display: none; }
+    .topbar-user-role { display: none; }
   }
 
   /* ── Semantic color utilities ── */
@@ -1483,8 +1723,18 @@
       gap: 6px;
     }
     .topbar-ticker { display: none !important; }
-    .topbar-right { width: 100%; justify-content: space-between; }
+    .topbar-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
     .topbar-clock { font-size: 11px; }
+    .topbar-actions { width: 100%; justify-content: space-between; }
+    .topbar-user-meta { min-width: 0; flex: 1; }
+    .topbar-user-chip { min-width: 0; max-width: 100%; }
+    .topbar-user-name {
+      display: inline-block;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .topbar-brand-text { font-size: 14px; }
     .topbar-brand-sub { display: none; }
     .topbar-brand img { height: 30px; }
@@ -1683,6 +1933,7 @@
     }
     .modal-grid { grid-template-columns: 1fr !important; }
     .modal h3 { font-size: 16px; }
+    .settings-meta-grid { grid-template-columns: 1fr; }
 
     /* Deploy modal: stack label + control vertically */
     #deploy-modal .modal div[style*="display: flex"][style*="gap: 20px"][style*="margin-bottom"] {
@@ -2035,8 +2286,15 @@
       <span id="clock-time" style="font-weight: 700; color: var(--accent);">--:--:--</span>
     </div>
     <div class="topbar-actions">
+      <div class="topbar-user-meta">
+        <button class="topbar-user-chip" id="account-btn" onclick="openAccountModal()" title="Account Settings">
+          <span class="topbar-user-name" id="topbar-username">Account</span>
+          <span class="topbar-user-role" id="topbar-user-role">USER</span>
+        </button>
+        <button class="topbar-icon-btn" id="admin-btn" onclick="openAdminModal()" title="Admin Console" style="display:none;"></button>
+      </div>
       <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></button>
-      <button class="topbar-icon-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
+      <button class="topbar-icon-btn" id="logout-btn" onclick="logoutUser()" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
     </div>
   </div>
 </div>
@@ -3489,6 +3747,134 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="account-modal" onclick="if(event.target===this)closeAccountModal()">
+  <div class="modal" style="width: 760px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
+      <h3 style="margin:0;display:flex;align-items:center;gap:8px;"><span id="account-modal-ico"></span> Account Settings</h3>
+      <button class="modal-close" onclick="closeAccountModal()">Close</button>
+    </div>
+    <div class="settings-shell">
+      <div class="settings-section">
+        <h4><span id="account-summary-ico"></span> Profile</h4>
+        <div class="settings-meta-grid">
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Username</div>
+            <div class="settings-meta-value" id="account-profile-username">--</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Role</div>
+            <div class="settings-meta-value" id="account-profile-role">--</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Created</div>
+            <div class="settings-meta-value" id="account-profile-created">--</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Last Login</div>
+            <div class="settings-meta-value" id="account-profile-login">--</div>
+          </div>
+        </div>
+
+        <h4 style="margin-top:8px;"><span id="account-broker-ico"></span> Broker Credentials</h4>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="status-chip warn" id="account-broker-status-chip">Loading</span>
+          <span class="settings-status-line" id="account-broker-status-line" style="margin-top:0;">Checking stored broker settings...</span>
+        </div>
+        <div class="modal-grid" style="margin-top:14px;">
+          <div>
+            <label for="account-broker-client-id">Dhan Client ID</label>
+            <input type="text" id="account-broker-client-id" class="mono-field" autocomplete="off" spellcheck="false" placeholder="1103301511">
+          </div>
+          <div>
+            <label for="account-broker-token">Access Token</label>
+            <input type="text" id="account-broker-token" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved token">
+          </div>
+        </div>
+        <div class="settings-hint" id="account-broker-hint">
+          Save your own Dhan Client ID and Access Token here. This only affects your account on the multi-tenant branch.
+        </div>
+        <div class="settings-actions-row">
+          <button class="btn" id="account-broker-save-btn" onclick="saveBrokerSettings()">Save Broker Credentials</button>
+          <button class="btn" id="account-broker-check-btn" onclick="checkBrokerFromSettings()" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
+          <button class="btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4><span id="account-password-ico"></span> Change Password</h4>
+        <div class="modal-grid">
+          <div>
+            <label for="account-current-password">Current Password</label>
+            <input type="password" id="account-current-password" autocomplete="current-password">
+          </div>
+          <div>
+            <label for="account-new-password">New Password</label>
+            <input type="password" id="account-new-password" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="modal-grid" style="grid-template-columns:1fr; margin-top:14px;">
+          <div>
+            <label for="account-confirm-password">Confirm New Password</label>
+            <input type="password" id="account-confirm-password" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="settings-hint">
+          Password changes revoke the current session immediately. You will be asked to log in again after the update succeeds.
+        </div>
+        <div class="settings-actions-row">
+          <button class="btn" id="account-password-save-btn" onclick="changeOwnPasswordFromSettings()">Update Password</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="admin-modal" onclick="if(event.target===this)closeAdminModal()">
+  <div class="modal" style="width: 980px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
+      <h3 style="margin:0;display:flex;align-items:center;gap:8px;"><span id="admin-modal-ico"></span> Admin Console</h3>
+      <button class="modal-close" onclick="closeAdminModal()">Close</button>
+    </div>
+    <div class="admin-toolbar">
+      <div style="flex:1;">
+        <div class="admin-summary-grid" id="admin-summary-grid">
+          <div class="admin-summary-card"><div class="settings-meta-label">Users</div><span class="n" id="admin-summary-users">--</span></div>
+          <div class="admin-summary-card"><div class="settings-meta-label">Active</div><span class="n" id="admin-summary-active">--</span></div>
+          <div class="admin-summary-card"><div class="settings-meta-label">Live Runs</div><span class="n" id="admin-summary-live">--</span></div>
+          <div class="admin-summary-card"><div class="settings-meta-label">Scalp Open</div><span class="n" id="admin-summary-scalp">--</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section" style="margin-bottom:16px;">
+      <h4><span id="admin-create-ico"></span> Create User</h4>
+      <div class="admin-create-grid">
+        <div>
+          <label for="admin-create-username">Username</label>
+          <input type="text" id="admin-create-username" autocomplete="off" spellcheck="false">
+        </div>
+        <div>
+          <label for="admin-create-password">Password</label>
+          <input type="password" id="admin-create-password" autocomplete="new-password">
+        </div>
+        <div>
+          <label for="admin-create-role">Role</label>
+          <select id="admin-create-role">
+            <option value="user" selected>User</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <button class="btn" onclick="createAdminUser()">Create User</button>
+      </div>
+      <div class="settings-hint">Accounts are isolated by user id on this branch. Broker credentials are managed by the user from Account Settings.</div>
+    </div>
+
+    <div class="admin-table-wrap">
+      <div id="admin-users-list" class="admin-empty-state">Loading users...</div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ══════════════════════════════════════════════════════════════
 //  SVG ICON SYSTEM — Modern trading platform icons
@@ -3559,6 +3945,22 @@ const ICO = {
   Object.keys(map).forEach(k => { const el = document.getElementById('ico-' + k); if (el) el.innerHTML = map[k]; });
 })();
 
+(function initShellIcons() {
+  const iconMap = {
+    'admin-btn': ICO.shield(16),
+    'account-modal-ico': ICO.gear(18),
+    'account-summary-ico': ICO.clip(16),
+    'account-broker-ico': ICO.money(16),
+    'account-password-ico': ICO.shield(16),
+    'admin-modal-ico': ICO.shield(18),
+    'admin-create-ico': ICO.brain(16),
+  };
+  Object.entries(iconMap).forEach(([id, iconHtml]) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = iconHtml;
+  });
+})();
+
 // ══════════════════════════════════════════════════════════════
 //  CUSTOM CONFIRM DIALOG (replaces native browser confirm)
 // ══════════════════════════════════════════════════════════════
@@ -3612,6 +4014,433 @@ function customConfirm(message, options = {}) {
 
     if (!options.prompt) cancelBtn.focus();
   });
+}
+
+let _authUser = null;
+let _userProfile = null;
+let _adminUsers = [];
+let _adminEngineRows = [];
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatDateTimeLabel(value) {
+  if (!value) return '—';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return String(value);
+  return dt.toLocaleString('en-IN', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function applyStatusChip(el, text, tone) {
+  if (!el) return;
+  el.className = `status-chip ${tone || 'warn'}`;
+  el.textContent = text;
+}
+
+function createStatusChip(text, tone) {
+  const chip = document.createElement('span');
+  chip.className = `status-chip ${tone || 'warn'}`;
+  chip.textContent = text;
+  return chip;
+}
+
+async function logoutUser() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  location.reload();
+}
+
+async function loadAuthContext() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    if (!data.authenticated) {
+      location.reload();
+      return;
+    }
+    _authUser = data;
+    document.getElementById('topbar-username').textContent = data.username || 'Account';
+    document.getElementById('topbar-user-role').textContent = String(data.role || 'user').toUpperCase();
+    const adminBtn = document.getElementById('admin-btn');
+    if (adminBtn) adminBtn.style.display = data.role === 'admin' ? '' : 'none';
+  } catch (e) {
+    console.warn('Auth context failed:', e);
+  }
+}
+
+function openAccountModal() {
+  document.getElementById('account-modal').classList.add('open');
+  document.getElementById('account-current-password').value = '';
+  document.getElementById('account-new-password').value = '';
+  document.getElementById('account-confirm-password').value = '';
+  loadUserProfile(true);
+}
+
+function closeAccountModal() {
+  document.getElementById('account-modal').classList.remove('open');
+}
+
+async function loadUserProfile(silent = true) {
+  try {
+    const res = await fetch('/api/user/profile');
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to load profile');
+    _userProfile = data;
+    const user = data.user || {};
+    const broker = data.broker || {};
+
+    document.getElementById('account-profile-username').textContent = user.username || '—';
+    document.getElementById('account-profile-role').textContent = String(user.role || 'user').toUpperCase();
+    document.getElementById('account-profile-created').textContent = formatDateTimeLabel(user.created_at);
+    document.getElementById('account-profile-login').textContent = formatDateTimeLabel(user.last_login);
+    document.getElementById('account-broker-client-id').value = broker.client_id || '';
+    document.getElementById('account-broker-token').value = '';
+
+    let chipTone = 'warn';
+    let chipText = 'Broker Missing';
+    if (broker.partial) {
+      chipTone = 'danger';
+      chipText = 'Broker Partial';
+    } else if (broker.configured) {
+      chipTone = 'success';
+      chipText = broker.source === 'global' ? 'Admin Global Broker' : 'Broker Stored';
+    } else if (broker.source === 'global') {
+      chipTone = 'success';
+      chipText = 'Admin Global Broker';
+    }
+    applyStatusChip(document.getElementById('account-broker-status-chip'), chipText, chipTone);
+
+    const statusLine = document.getElementById('account-broker-status-line');
+    const sourceLabel = broker.source === 'user' ? 'stored per-user credentials' : broker.source === 'global' ? 'admin .env fallback' : 'no active broker source';
+    statusLine.innerHTML = `Source: <strong>${escapeHtml(sourceLabel)}</strong>${broker.access_token_saved ? ' • token saved' : ''}`;
+
+    const hint = document.getElementById('account-broker-hint');
+    if (broker.manage_locked) {
+      hint.textContent = broker.manage_lock_reason || 'Broker settings are locked while live broker workflows are active.';
+    } else if (_authUser && _authUser.role === 'admin' && broker.source === 'global' && !broker.configured) {
+      hint.textContent = 'Admin fallback is currently coming from the server .env broker configuration. Saving credentials here will switch this account to stored per-user broker settings.';
+    } else {
+      hint.textContent = 'Save your own Dhan Client ID and Access Token here. Leave the Access Token blank to keep the currently saved token.';
+    }
+
+    const locked = !!broker.manage_locked;
+    document.getElementById('account-broker-save-btn').disabled = locked;
+    document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved);
+    if (!silent) toast('Account settings loaded', 'success', 2200);
+  } catch (e) {
+    if (!silent) toast(e.message || 'Failed to load account settings', 'danger');
+  }
+}
+
+async function saveBrokerSettings() {
+  const clientId = document.getElementById('account-broker-client-id').value.trim();
+  const accessToken = document.getElementById('account-broker-token').value.trim();
+  if (!clientId) {
+    toast('Enter a Dhan Client ID', 'warn');
+    return;
+  }
+  const body = { client_id: clientId };
+  if (accessToken) body.access_token = accessToken;
+  try {
+    const res = await fetch('/api/user/broker', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to save broker credentials');
+    toast(data.message || 'Broker credentials saved', 'success');
+    await loadUserProfile(true);
+    await checkBrokerStatus(true);
+  } catch (e) {
+    toast(e.message || 'Failed to save broker credentials', 'danger');
+  }
+}
+
+async function clearBrokerSettings() {
+  const ok = await customConfirm(
+    'Clear the stored broker credentials for this account?<br><span style="font-size:11px;">Live broker workflows must be stopped first.</span>',
+    { title: 'Clear Broker Credentials', icon: ICO.trash(28), okText: 'Clear', danger: true }
+  );
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/user/broker', { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to clear broker credentials');
+    toast(data.message || 'Stored broker credentials cleared', 'warn');
+    await loadUserProfile(true);
+    await checkBrokerStatus(true);
+  } catch (e) {
+    toast(e.message || 'Failed to clear broker credentials', 'danger');
+  }
+}
+
+async function checkBrokerFromSettings() {
+  const ok = await checkBrokerStatus(false);
+  await loadUserProfile(true);
+  if (!ok && _userProfile?.broker?.partial) {
+    toast('Save both Client ID and Access Token before testing the broker connection.', 'warn');
+  }
+}
+
+async function changeOwnPasswordFromSettings() {
+  const currentPassword = document.getElementById('account-current-password').value;
+  const newPassword = document.getElementById('account-new-password').value;
+  const confirmPassword = document.getElementById('account-confirm-password').value;
+  if (!currentPassword || !newPassword) {
+    toast('Enter both current and new password', 'warn');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    toast('New password and confirmation do not match', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch('/api/user/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Password change failed');
+    toast(data.message || 'Password changed', 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    toast(e.message || 'Password change failed', 'danger');
+  }
+}
+
+function closeAdminModal() {
+  document.getElementById('admin-modal').classList.remove('open');
+}
+
+async function openAdminModal() {
+  if (!_authUser || _authUser.role !== 'admin') {
+    toast('Admin access only', 'danger');
+    return;
+  }
+  document.getElementById('admin-modal').classList.add('open');
+  await loadAdminConsole(true);
+}
+
+async function loadAdminConsole(silent = true) {
+  try {
+    const [usersRes, enginesRes] = await Promise.all([
+      fetch('/api/admin/users'),
+      fetch('/api/admin/engines'),
+    ]);
+    const usersData = await usersRes.json();
+    const enginesData = await enginesRes.json();
+    if (!usersRes.ok) throw new Error(usersData.detail || usersData.message || 'Failed to load users');
+    if (!enginesRes.ok) throw new Error(enginesData.detail || enginesData.message || 'Failed to load engine status');
+    _adminUsers = usersData.users || [];
+    _adminEngineRows = enginesData.users || [];
+    renderAdminSummary(_adminUsers, _adminEngineRows);
+    renderAdminUsers(_adminUsers, _adminEngineRows);
+    if (!silent) toast('Admin console refreshed', 'success', 2200);
+  } catch (e) {
+    const container = document.getElementById('admin-users-list');
+    if (container) container.textContent = e.message || 'Failed to load admin console';
+    if (!silent) toast(e.message || 'Failed to load admin console', 'danger');
+  }
+}
+
+function renderAdminSummary(users, engineRows) {
+  const totalUsers = users.length;
+  const activeUsers = users.filter(u => !!u.is_active).length;
+  const liveRunning = engineRows.reduce((sum, row) => sum + Number(row.live_running || 0), 0);
+  const scalpOpen = engineRows.reduce((sum, row) => sum + Number(row.scalp_open_trades || 0), 0);
+  document.getElementById('admin-summary-users').textContent = totalUsers;
+  document.getElementById('admin-summary-active').textContent = activeUsers;
+  document.getElementById('admin-summary-live').textContent = liveRunning;
+  document.getElementById('admin-summary-scalp').textContent = scalpOpen;
+}
+
+function renderAdminUsers(users, engineRows) {
+  const container = document.getElementById('admin-users-list');
+  if (!container) return;
+  if (!users.length) {
+    container.className = 'admin-empty-state';
+    container.textContent = 'No users found.';
+    return;
+  }
+
+  const engineMap = new Map(engineRows.map(row => [Number(row.user_id), row]));
+  container.className = '';
+  container.innerHTML = '';
+
+  const table = document.createElement('table');
+  table.className = 'admin-table';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>User</th><th>Broker</th><th>Engines</th><th>Actions</th></tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+
+  users.forEach(user => {
+    const row = document.createElement('tr');
+    const engine = engineMap.get(Number(user.id)) || {};
+
+    const userCell = document.createElement('td');
+    userCell.className = 'admin-user-cell';
+    const nameLine = document.createElement('div');
+    nameLine.style.display = 'flex';
+    nameLine.style.alignItems = 'center';
+    nameLine.style.gap = '8px';
+    const nameStrong = document.createElement('strong');
+    nameStrong.textContent = user.username;
+    nameLine.appendChild(nameStrong);
+    nameLine.appendChild(createStatusChip(user.role === 'admin' ? 'Admin' : 'User', user.role === 'admin' ? 'success' : 'warn'));
+    nameLine.appendChild(createStatusChip(user.is_active ? 'Active' : 'Disabled', user.is_active ? 'success' : 'danger'));
+    userCell.appendChild(nameLine);
+
+    const meta1 = document.createElement('div');
+    meta1.className = 'admin-user-sub';
+    meta1.textContent = `Created: ${formatDateTimeLabel(user.created_at)}`;
+    userCell.appendChild(meta1);
+    const meta2 = document.createElement('div');
+    meta2.className = 'admin-user-sub';
+    meta2.textContent = `Last login: ${formatDateTimeLabel(user.last_login)}`;
+    userCell.appendChild(meta2);
+    row.appendChild(userCell);
+
+    const brokerCell = document.createElement('td');
+    brokerCell.className = 'admin-user-cell';
+    const brokerChip = user.broker_configured
+      ? createStatusChip('Configured', 'success')
+      : user.broker_partial
+        ? createStatusChip('Partial', 'danger')
+        : createStatusChip('Missing', 'warn');
+    brokerCell.appendChild(brokerChip);
+    const brokerMeta = document.createElement('div');
+    brokerMeta.className = 'admin-user-sub';
+    brokerMeta.textContent = user.broker_configured
+      ? 'User-managed broker credentials saved'
+      : user.broker_partial
+        ? 'Client ID / token pair incomplete'
+        : 'No stored broker credentials';
+    brokerCell.appendChild(brokerMeta);
+    row.appendChild(brokerCell);
+
+    const engineCell = document.createElement('td');
+    engineCell.className = 'admin-user-cell';
+    const engineSummary = document.createElement('div');
+    engineSummary.style.display = 'flex';
+    engineSummary.style.flexWrap = 'wrap';
+    engineSummary.style.gap = '8px';
+    engineSummary.appendChild(createStatusChip(`Paper ${engine.paper_running || 0}`, Number(engine.paper_running || 0) > 0 ? 'success' : 'warn'));
+    engineSummary.appendChild(createStatusChip(`Live ${engine.live_running || 0}`, Number(engine.live_running || 0) > 0 ? 'success' : 'warn'));
+    engineSummary.appendChild(createStatusChip(`Scalp ${engine.scalp_open_trades || 0}`, Number(engine.scalp_open_trades || 0) > 0 ? 'success' : 'warn'));
+    engineCell.appendChild(engineSummary);
+    const liveRuns = Array.isArray(engine.live_runs) ? engine.live_runs : [];
+    const paperRuns = Array.isArray(engine.paper_runs) ? engine.paper_runs : [];
+    const engineMeta = document.createElement('div');
+    engineMeta.className = 'admin-user-sub';
+    const runNames = [...paperRuns, ...liveRuns].map(run => run.strategy_name || run.run_id).filter(Boolean);
+    engineMeta.textContent = runNames.length ? `Active runs: ${runNames.join(', ')}` : 'No active paper/live runs';
+    engineCell.appendChild(engineMeta);
+    row.appendChild(engineCell);
+
+    const actionsCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'admin-action-row';
+    if (_authUser && Number(user.id) === Number(_authUser.user_id)) {
+      actions.appendChild(createStatusChip('Current Account', 'warn'));
+    } else {
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'admin-action-btn';
+      toggleBtn.textContent = user.is_active ? 'Disable' : 'Enable';
+      toggleBtn.addEventListener('click', () => toggleAdminUser(Number(user.id)));
+      actions.appendChild(toggleBtn);
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'admin-action-btn';
+      resetBtn.textContent = 'Reset Password';
+      resetBtn.addEventListener('click', () => resetAdminUserPassword(Number(user.id), user.username));
+      actions.appendChild(resetBtn);
+    }
+    actionsCell.appendChild(actions);
+    row.appendChild(actionsCell);
+
+    tbody.appendChild(row);
+  });
+
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+async function createAdminUser() {
+  const username = document.getElementById('admin-create-username').value.trim();
+  const password = document.getElementById('admin-create-password').value;
+  const role = document.getElementById('admin-create-role').value;
+  if (!username || !password) {
+    toast('Enter username and password', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to create user');
+    toast(`User "${username}" created`, 'success');
+    document.getElementById('admin-create-username').value = '';
+    document.getElementById('admin-create-password').value = '';
+    document.getElementById('admin-create-role').value = 'user';
+    await loadAdminConsole(true);
+  } catch (e) {
+    toast(e.message || 'Failed to create user', 'danger');
+  }
+}
+
+async function toggleAdminUser(userId) {
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/toggle`, { method: 'PUT' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to update user state');
+    toast(data.is_active ? 'User enabled' : 'User disabled', data.is_active ? 'success' : 'warn');
+    await loadAdminConsole(true);
+  } catch (e) {
+    toast(e.message || 'Failed to update user state', 'danger');
+  }
+}
+
+async function resetAdminUserPassword(userId, username) {
+  const password = await customConfirm(
+    `Enter a new password for <strong>${escapeHtml(username)}</strong>:`,
+    { title: 'Reset Password', icon: ICO.shield(24), okText: 'Reset', prompt: true, promptValue: '' }
+  );
+  if (password == null) return;
+  if (!password) {
+    toast('Password cannot be empty', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to reset password');
+    toast(data.message || `Password reset for ${username}`, 'success');
+  } catch (e) {
+    toast(e.message || 'Failed to reset password', 'danger');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3733,6 +4562,7 @@ function restoreExecutionSettings(source) {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadAuthContext();
   document.getElementById('run-name-input').value = 'Strategy_' + generateRandomID();
   applyExecutionProfile(true);
   renderIndicatorFields();
@@ -3754,19 +4584,23 @@ document.addEventListener('DOMContentLoaded', () => {
         'portfolio-page': 'nav-portfolio',
         'builder-page': 'nav-builder',
         'results-page': 'nav-results',
-        'live-page': 'nav-live'
+        'live-page': 'nav-live',
+        'scalp-page': 'nav-scalp',
+        'charts-page': 'nav-charts'
       };
       const btnId = tabMap[savedTab];
       if (btnId) {
         showPage(savedTab, document.getElementById(btnId));
         if (savedTab === 'live-page') startLiveMonitor();
         if (savedTab === 'builder-page') startBuilderPreview();
+        if (savedTab === 'scalp-page') initScalpPage();
+        if (savedTab === 'charts-page') initChartsPage();
       }
     }
   } catch(e) {}
 
-  // Start builder preview by default (builder is the default page)
-  if (!localStorage.getItem('algoforge_active_tab') || localStorage.getItem('algoforge_active_tab') === 'builder-page') {
+  // Start builder preview only when Builder is the active page
+  if (localStorage.getItem('algoforge_active_tab') === 'builder-page') {
     startBuilderPreview();
   }
 
@@ -5537,7 +6371,7 @@ async function checkBrokerStatus(silent) {
     const res = await fetch('/api/broker/check', { method: 'POST' });
     const data = await res.json();
     if (data.status === 'connected') {
-      updateBrokerUI(true, 'Dhan Connected', '#22c55e', 'Disconnect');
+      updateBrokerUI(true, 'Dhan Connected', '#22c55e', 'Recheck');
       startBrokerHealthCheck();
       if (!silent) toast('Broker Connected!', 'success');
       return true;
@@ -5560,16 +6394,7 @@ async function toggleBroker() {
   if (!btn) return;
   btn.disabled = true;
   btn.textContent = 'Checking...';
-
-  if (isBrokerConnected) {
-    // Disconnect
-    stopBrokerHealthCheck();
-    updateBrokerUI(false, 'Disconnected', 'grey', 'Connect');
-    toast('Broker disconnected', 'info');
-  } else {
-    // Connect — check real status
-    await checkBrokerStatus(false);
-  }
+  await checkBrokerStatus(false);
   btn.disabled = false;
 }
 
