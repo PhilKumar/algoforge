@@ -73,12 +73,12 @@
     margin-bottom: 20px;
   }
 
-  .username-field {
+  .auth-field {
     width: 100%; max-width: 260px;
-    margin: 0 auto 20px;
+    margin: 0 auto 14px;
     position: relative; z-index: 1;
   }
-  .username-field input {
+  .auth-field input {
     width: 100%;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
@@ -93,30 +93,89 @@
     text-align: center;
     letter-spacing: 0.5px;
   }
-  .username-field input::placeholder {
+  .auth-field input::placeholder {
     color: var(--muted);
     font-weight: 400;
   }
-  .username-field input:focus {
+  .auth-field input:focus {
     border-color: rgba(0,200,150,0.4);
     box-shadow: 0 0 12px rgba(0,200,150,0.15);
     background: rgba(255,255,255,0.06);
   }
-  [data-theme="light"] .username-field input {
+  [data-theme="light"] .auth-field input {
     background: rgba(248,250,252,0.8);
     border: 1px solid rgba(15,23,42,0.1);
     color: #0f172a;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
-  [data-theme="light"] .username-field input::placeholder { color: #94a3b8; }
-  [data-theme="light"] .username-field input:focus {
+  [data-theme="light"] .auth-field input::placeholder { color: #94a3b8; }
+  [data-theme="light"] .auth-field input:focus {
     border-color: rgba(5,150,105,0.4);
     box-shadow: 0 0 10px rgba(5,150,105,0.12);
   }
 
+  .secret-wrap {
+    position: relative;
+  }
+  .secret-wrap input {
+    padding-right: 78px;
+  }
+  .password-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 10px;
+  }
+  .password-toggle:hover {
+    color: var(--text);
+    background: rgba(255,255,255,0.06);
+  }
+  [data-theme="light"] .password-toggle:hover {
+    color: #0f172a;
+    background: rgba(15,23,42,0.06);
+  }
+
+  .mode-switch-row {
+    width: 100%;
+    max-width: 260px;
+    margin: 0 auto 16px;
+    display: flex;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  .mode-switch-btn {
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    padding: 0;
+  }
+  .mode-switch-btn:hover { text-decoration: underline; }
+  [data-theme="light"] .mode-switch-btn { color: #047857; }
+
+  .auth-field.hidden,
+  .pin-section.hidden {
+    display: none;
+  }
+
   .pin-dots {
     display: flex; justify-content: center; gap: 12px;
-    margin-bottom: 28px;
+    margin-bottom: 18px;
     position: relative; z-index: 1;
   }
   .pin-dot {
@@ -195,12 +254,46 @@
     font-size: 12px;
     color: var(--muted);
     min-height: 20px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
     transition: all 0.3s ease;
     position: relative; z-index: 1;
   }
   .unlock-status.error { color: var(--danger); }
   .unlock-status.success { color: #22c55e; }
+
+  .unlock-actions {
+    width: 100%;
+    max-width: 260px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+  .unlock-btn {
+    width: 100%;
+    border: 1px solid rgba(0,200,150,0.35);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(0,200,150,0.28), rgba(0,200,150,0.16));
+    color: #eafff8;
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    box-shadow: 0 10px 24px rgba(0,200,150,0.14);
+  }
+  .unlock-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(0,200,150,0.18);
+  }
+  .unlock-btn:active { transform: translateY(0); }
+  .unlock-btn:disabled {
+    cursor: wait;
+    opacity: 0.7;
+    transform: none;
+    box-shadow: none;
+  }
 
   .unlock-footer {
     color: rgba(255,255,255,0.2);
@@ -226,7 +319,6 @@
   }
   .unlock-pulse { animation: unlockPulse 0.5s ease; }
 
-  /* ══ Premium Light Mode ══ */
   [data-theme="light"] body {
     background: #f8fafc;
     background-image:
@@ -277,6 +369,12 @@
   }
   [data-theme="light"] .key.fn { color: #64748b; background: rgba(248,250,252,0.5); }
   [data-theme="light"] .unlock-status { color: #64748b; }
+  [data-theme="light"] .unlock-btn {
+    background: linear-gradient(180deg, rgba(5,150,105,0.14), rgba(5,150,105,0.09));
+    border-color: rgba(5,150,105,0.25);
+    color: #065f46;
+    box-shadow: 0 12px 24px rgba(5,150,105,0.08);
+  }
   [data-theme="light"] .unlock-footer { color: rgba(15,23,42,0.25); }
 </style>
 </head>
@@ -287,64 +385,84 @@
   <div class="unlock-title">AlgoForge</div>
   <div class="unlock-sub">Sign in to continue</div>
 
-  <div class="username-field">
+  <div class="auth-field">
     <input type="text" id="username-input" placeholder="Username" autocomplete="username" spellcheck="false" autofocus>
   </div>
 
-  <div class="pin-dots" id="pin-dots">
-    <div class="pin-dot" data-i="0"></div>
-    <div class="pin-dot" data-i="1"></div>
-    <div class="pin-dot" data-i="2"></div>
-    <div class="pin-dot" data-i="3"></div>
-    <div class="pin-dot" data-i="4"></div>
-    <div class="pin-dot" data-i="5"></div>
+  <div class="auth-field" id="password-field">
+    <div class="secret-wrap">
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password">
+      <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">Show</button>
+    </div>
   </div>
 
-  <div class="unlock-status" id="unlock-status">Enter username &amp; PIN</div>
-
-  <div class="keypad" id="keypad">
-    <button class="key" data-val="1">1</button>
-    <button class="key" data-val="2">2</button>
-    <button class="key" data-val="3">3</button>
-    <button class="key" data-val="4">4</button>
-    <button class="key" data-val="5">5</button>
-    <button class="key" data-val="6">6</button>
-    <button class="key" data-val="7">7</button>
-    <button class="key" data-val="8">8</button>
-    <button class="key" data-val="9">9</button>
-    <button class="key fn" data-val="clear">&#x2715;</button>
-    <button class="key" data-val="0">0</button>
-    <button class="key fn" data-val="back">&#x232b;</button>
+  <div class="mode-switch-row">
+    <button type="button" class="mode-switch-btn" id="mode-switch-btn">Use 6-digit PIN instead</button>
   </div>
 
-  <div class="unlock-footer">Session-secured &middot; Auto-locks after 24h</div>
+  <div class="pin-section hidden" id="pin-section">
+    <div class="pin-dots" id="pin-dots">
+      <div class="pin-dot" data-i="0"></div>
+      <div class="pin-dot" data-i="1"></div>
+      <div class="pin-dot" data-i="2"></div>
+      <div class="pin-dot" data-i="3"></div>
+      <div class="pin-dot" data-i="4"></div>
+      <div class="pin-dot" data-i="5"></div>
+    </div>
+
+    <div class="keypad" id="keypad">
+      <button type="button" class="key" data-val="1">1</button>
+      <button type="button" class="key" data-val="2">2</button>
+      <button type="button" class="key" data-val="3">3</button>
+      <button type="button" class="key" data-val="4">4</button>
+      <button type="button" class="key" data-val="5">5</button>
+      <button type="button" class="key" data-val="6">6</button>
+      <button type="button" class="key" data-val="7">7</button>
+      <button type="button" class="key" data-val="8">8</button>
+      <button type="button" class="key" data-val="9">9</button>
+      <button type="button" class="key fn" data-val="clear">&#x2715;</button>
+      <button type="button" class="key" data-val="0">0</button>
+      <button type="button" class="key fn" data-val="back">&#x232b;</button>
+    </div>
+  </div>
+
+  <div class="unlock-status" id="unlock-status">Enter username &amp; password</div>
+
+  <div class="unlock-actions">
+    <button type="button" class="unlock-btn" id="unlock-btn">Unlock</button>
+  </div>
+
+  <div class="unlock-footer">Password login supported &middot; 6-digit PIN optional &middot; Auto-locks after 24h</div>
 </div>
 
 <script>
-// Restore saved theme
 try {
   const saved = localStorage.getItem('algoforge_theme');
   if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
-} catch(e) {}
+} catch (e) {}
 
 const PIN_LENGTH = 6;
+const PASSWORD_MODE = 'password';
+const PIN_MODE = 'pin';
 let pin = '';
 let locked = false;
+let loginMode = PASSWORD_MODE;
 
 const dots = document.querySelectorAll('.pin-dot');
 const status = document.getElementById('unlock-status');
 const card = document.getElementById('unlock-card');
 const usernameInput = document.getElementById('username-input');
+const passwordInput = document.getElementById('password-input');
+const passwordField = document.getElementById('password-field');
+const passwordToggle = document.getElementById('password-toggle');
+const pinSection = document.getElementById('pin-section');
+const modeSwitchBtn = document.getElementById('mode-switch-btn');
+const unlockBtn = document.getElementById('unlock-btn');
+const keypad = document.getElementById('keypad');
 
-// Focus management: move to keypad after username, Enter skips to PIN
-usernameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    usernameInput.blur(); // focus moves to keypad (keyboard digits)
-    status.textContent = 'Now enter your PIN';
-    status.className = 'unlock-status';
-  }
-});
+function baseStatusMessage() {
+  return loginMode === PIN_MODE ? 'Enter username & 6-digit PIN' : 'Enter username & password';
+}
 
 function updateDots() {
   dots.forEach((dot, i) => {
@@ -353,39 +471,103 @@ function updateDots() {
   });
 }
 
+function resetSecrets(clearPassword = true) {
+  pin = '';
+  updateDots();
+  if (clearPassword) passwordInput.value = '';
+}
+
+function setIdleStatus() {
+  status.textContent = baseStatusMessage();
+  status.className = 'unlock-status';
+  unlockBtn.disabled = false;
+}
+
+function setMode(mode, focus = true) {
+  loginMode = mode === PIN_MODE ? PIN_MODE : PASSWORD_MODE;
+  passwordField.classList.toggle('hidden', loginMode === PIN_MODE);
+  pinSection.classList.toggle('hidden', loginMode !== PIN_MODE);
+  modeSwitchBtn.textContent = loginMode === PIN_MODE ? 'Use password instead' : 'Use 6-digit PIN instead';
+  unlockBtn.textContent = loginMode === PIN_MODE ? 'Unlock with PIN' : 'Unlock';
+  resetSecrets(loginMode === PIN_MODE);
+  locked = false;
+  setIdleStatus();
+  if (!focus) return;
+  if (!usernameInput.value.trim()) usernameInput.focus();
+  else if (loginMode === PASSWORD_MODE) passwordInput.focus();
+  else usernameInput.blur();
+}
+
+function showValidationError(msg, focusEl = null) {
+  status.textContent = msg;
+  status.className = 'unlock-status error';
+  card.classList.add('shake');
+  unlockBtn.disabled = false;
+  setTimeout(() => {
+    card.classList.remove('shake');
+    if (focusEl) focusEl.focus();
+  }, 400);
+}
+
 function setError(msg) {
   status.textContent = msg;
   status.className = 'unlock-status error';
-  dots.forEach(d => { d.classList.remove('filled'); d.classList.add('error'); });
+  if (loginMode === PIN_MODE) {
+    dots.forEach(d => {
+      d.classList.remove('filled');
+      d.classList.add('error');
+    });
+  }
   card.classList.add('shake');
   setTimeout(() => {
     card.classList.remove('shake');
-    pin = '';
-    updateDots();
-    status.textContent = 'Enter username & PIN';
-    status.className = 'unlock-status';
+    resetSecrets(true);
     locked = false;
+    setIdleStatus();
+    if (loginMode === PASSWORD_MODE) passwordInput.focus();
   }, 800);
 }
 
 function setSuccess() {
   status.textContent = 'Unlocked! Redirecting...';
   status.className = 'unlock-status success';
-  dots.forEach(d => { d.classList.remove('filled'); d.classList.add('success'); });
+  if (loginMode === PIN_MODE) {
+    dots.forEach(d => {
+      d.classList.remove('filled');
+      d.classList.add('success');
+    });
+  }
   card.classList.add('unlock-pulse');
 }
 
 async function tryUnlock() {
   if (locked) return;
+  const username = usernameInput.value.trim();
+  const secret = loginMode === PIN_MODE ? pin : passwordInput.value;
+
+  if (!username) {
+    showValidationError('Enter username first', usernameInput);
+    return;
+  }
+  if (!secret) {
+    showValidationError(loginMode === PIN_MODE ? 'Enter your 6-digit PIN' : 'Enter your password', loginMode === PASSWORD_MODE ? passwordInput : null);
+    return;
+  }
+  if (loginMode === PIN_MODE && pin.length !== PIN_LENGTH) {
+    showValidationError('PIN must be exactly 6 digits');
+    return;
+  }
+
   locked = true;
   status.textContent = 'Verifying...';
   status.className = 'unlock-status';
+  unlockBtn.disabled = true;
+
   try {
-    const username = usernameInput.value.trim();
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, password: pin })
+      body: JSON.stringify({ username, password: secret })
     });
     if (res.ok) {
       setSuccess();
@@ -400,6 +582,7 @@ async function tryUnlock() {
 }
 
 function addDigit(d) {
+  if (loginMode !== PIN_MODE) return;
   if (locked || pin.length >= PIN_LENGTH) return;
   pin += d;
   updateDots();
@@ -409,18 +592,50 @@ function addDigit(d) {
 }
 
 function removeDigit() {
+  if (loginMode !== PIN_MODE) return;
   if (locked || pin.length === 0) return;
   pin = pin.slice(0, -1);
   updateDots();
 }
 
 function clearAll() {
-  if (locked) return;
+  if (loginMode !== PIN_MODE || locked) return;
   pin = '';
   updateDots();
 }
 
-document.getElementById('keypad').addEventListener('click', (e) => {
+usernameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (loginMode === PIN_MODE) {
+      usernameInput.blur();
+      status.textContent = 'Now enter your 6-digit PIN';
+      status.className = 'unlock-status';
+    } else {
+      passwordInput.focus();
+    }
+  }
+});
+
+passwordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    tryUnlock();
+  }
+});
+
+passwordToggle.addEventListener('click', () => {
+  const nextType = passwordInput.type === 'password' ? 'text' : 'password';
+  passwordInput.type = nextType;
+  passwordToggle.textContent = nextType === 'password' ? 'Show' : 'Hide';
+  passwordToggle.setAttribute('aria-label', nextType === 'password' ? 'Show password' : 'Hide password');
+});
+
+modeSwitchBtn.addEventListener('click', () => {
+  setMode(loginMode === PIN_MODE ? PASSWORD_MODE : PIN_MODE);
+});
+
+keypad.addEventListener('click', (e) => {
   const btn = e.target.closest('.key');
   if (!btn) return;
   const val = btn.dataset.val;
@@ -430,12 +645,16 @@ document.getElementById('keypad').addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  // Don't capture digits when username input is focused
-  if (document.activeElement === usernameInput) return;
+  if (loginMode !== PIN_MODE) return;
+  if (document.activeElement === usernameInput || document.activeElement === passwordInput) return;
   if (e.key >= '0' && e.key <= '9') addDigit(e.key);
   else if (e.key === 'Backspace') removeDigit();
+  else if (e.key === 'Enter' && pin.length === PIN_LENGTH) tryUnlock();
   else if (e.key === 'Escape') clearAll();
 });
+
+unlockBtn.addEventListener('click', tryUnlock);
+setMode(PASSWORD_MODE, false);
 </script>
 </body>
 </html>

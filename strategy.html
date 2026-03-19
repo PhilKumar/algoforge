@@ -4248,10 +4248,14 @@ function customConfirm(message, options = {}) {
     // Prompt mode: show input with prefill
     if (options.prompt) {
       inputEl.style.display = 'block';
+      inputEl.type = options.promptType || 'text';
+      inputEl.placeholder = options.promptPlaceholder || '';
       inputEl.value = options.promptValue || '';
       setTimeout(() => { inputEl.focus(); inputEl.select(); }, 60);
     } else {
       inputEl.style.display = 'none';
+      inputEl.type = 'text';
+      inputEl.placeholder = '';
       inputEl.value = '';
     }
 
@@ -4319,6 +4323,14 @@ function createStatusChip(text, tone) {
   chip.className = `status-chip ${tone || 'warn'}`;
   chip.textContent = text;
   return chip;
+}
+
+const PASSWORD_POLICY_HINT = 'Use at least 8 characters, or exactly 6 digits for PIN mode.';
+
+function validatePasswordRule(password, label = 'Password') {
+  const value = String(password || '');
+  if (/^\d{6}$/.test(value) || value.length >= 8) return '';
+  return `${label} must be at least 8 characters, or exactly 6 digits for PIN mode.`;
 }
 
 async function logoutUser() {
@@ -4476,6 +4488,11 @@ async function changeOwnPasswordFromSettings() {
   }
   if (newPassword !== confirmPassword) {
     toast('New password and confirmation do not match', 'warn');
+    return;
+  }
+  const passwordError = validatePasswordRule(newPassword, 'New password');
+  if (passwordError) {
+    toast(passwordError, 'warn');
     return;
   }
   try {
@@ -4659,6 +4676,11 @@ async function createAdminUser() {
     toast('Enter username and password', 'warn');
     return;
   }
+  const passwordError = validatePasswordRule(password);
+  if (passwordError) {
+    toast(passwordError, 'warn');
+    return;
+  }
   try {
     const res = await fetch('/api/admin/users', {
       method: 'POST',
@@ -4691,12 +4713,25 @@ async function toggleAdminUser(userId) {
 
 async function resetAdminUserPassword(userId, username) {
   const password = await customConfirm(
-    `Enter a new password for <strong>${escapeHtml(username)}</strong>:`,
-    { title: 'Reset Password', icon: ICO.shield(24), okText: 'Reset', prompt: true, promptValue: '' }
+    `Enter a new password for <strong>${escapeHtml(username)}</strong>:<br><span style="font-size:11px;color:var(--muted);">${escapeHtml(PASSWORD_POLICY_HINT)}</span>`,
+    {
+      title: 'Reset Password',
+      icon: ICO.shield(24),
+      okText: 'Reset',
+      prompt: true,
+      promptType: 'password',
+      promptPlaceholder: '8+ characters or 6-digit PIN',
+      promptValue: ''
+    }
   );
   if (password == null) return;
   if (!password) {
     toast('Password cannot be empty', 'warn');
+    return;
+  }
+  const passwordError = validatePasswordRule(password);
+  if (passwordError) {
+    toast(passwordError, 'warn');
     return;
   }
   try {

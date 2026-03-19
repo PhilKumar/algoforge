@@ -1208,6 +1208,21 @@ _login_attempts: dict = defaultdict(list)  # login-key -> [timestamps] (fallback
 _LOGIN_MAX_ATTEMPTS = config.MAX_LOGIN_ATTEMPTS
 _LOGIN_LOCKOUT_SEC = config.LOGIN_LOCKOUT_MINUTES * 60
 _LOGIN_RL_PREFIX = "algoforge:login:"
+_LEGACY_PIN_LENGTH = 6
+
+
+def _password_policy_message(label: str = "Password") -> str:
+    return f"{label} must be at least 8 characters, or exactly 6 digits for PIN mode"
+
+
+def _is_valid_account_password(password: str) -> bool:
+    password = str(password or "")
+    return bool(_re.fullmatch(rf"\d{{{_LEGACY_PIN_LENGTH}}}", password)) or len(password) >= 8
+
+
+def _require_valid_account_password(password: str, label: str = "Password") -> None:
+    if not _is_valid_account_password(password):
+        raise HTTPException(status_code=400, detail=_password_policy_message(label))
 
 
 def _login_lockout_message() -> str:
@@ -1376,8 +1391,7 @@ async def admin_create_user(request: Request):
         raise HTTPException(status_code=400, detail="Username and password are required")
     if role not in ("admin", "user"):
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
-    if len(password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    _require_valid_account_password(password)
 
     # Check if username already exists
     existing = await _db_mod.get_user_by_username(username)
@@ -1414,8 +1428,7 @@ async def admin_reset_password(user_id: int, request: Request):
     await _auth_mod.require_admin(request)
     body = await request.json()
     new_password = body.get("password", "")
-    if len(new_password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    _require_valid_account_password(new_password)
     user = await _db_mod.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1438,8 +1451,7 @@ async def change_own_password(request: Request):
 
     if not _auth_mod.verify_password(current, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
-    if len(new_pw) < 4:
-        raise HTTPException(status_code=400, detail="New password must be at least 4 characters")
+    _require_valid_account_password(new_pw, "New password")
 
     hashed = _auth_mod.hash_password(new_pw)
     await _db_mod.update_user(user["id"], password_hash=hashed)
