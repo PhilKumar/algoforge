@@ -143,16 +143,19 @@ fi
 sudo nginx -s reload
 log "Nginx reloaded. New traffic → port $STANDBY_PORT"
 
-# ── 6. Drain old connections ─────────────────────────────────
+# ── 6. Persist new active port before drain/old-stop ─────────
+#  If the SSH control session drops after cutover, later verification should
+#  still read the correct active port instead of the drained old one.
+echo "$STANDBY_PORT" > "$PORT_FILE"
+log "Active port state updated → $STANDBY_PORT"
+
+# ── 7. Drain old connections ─────────────────────────────────
 log "Draining old connections for ${DRAIN_TIMEOUT}s..."
 sleep "$DRAIN_TIMEOUT"
 
-# ── 7. Stop old instance ─────────────────────────────────────
+# ── 8. Stop old instance ─────────────────────────────────────
 log "Stopping old instance on port $ACTIVE_PORT..."
 sudo systemctl stop "${APP}@${ACTIVE_PORT}" 2>/dev/null || true
-
-# ── 8. Persist new active port ────────────────────────────────
-echo "$STANDBY_PORT" > "$PORT_FILE"
 
 log "═══════════════════════════════════════════════"
 log "  DEPLOY COMPLETE — $APP active on port $STANDBY_PORT"
