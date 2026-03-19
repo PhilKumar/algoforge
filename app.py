@@ -466,6 +466,11 @@ class LiveStartRequest(BaseModel):
     target_profit_pct: float = Field(default=0.0, ge=0)
     target_profit_rupees: float = Field(default=0.0, ge=0)
     tp_type: str = "pct"
+    initial_capital: float = Field(default=500000.0, gt=0)
+    execution_profile: str = "auto"
+    enforce_capital: bool = False
+    capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
+    sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
 
 
 class OrderRequest(BaseModel):
@@ -2671,6 +2676,11 @@ async def live_start(req: LiveStartRequest, request: Request):
             "target_profit_pct": req.target_profit_pct,
             "target_profit_rupees": req.target_profit_rupees,
             "tp_type": req.tp_type,
+            "initial_capital": req.initial_capital,
+            "execution_profile": req.execution_profile,
+            "enforce_capital": req.enforce_capital,
+            "capital_buffer_pct": req.capital_buffer_pct,
+            "sell_option_margin_per_lot": req.sell_option_margin_per_lot,
             "poll_interval": 10,
         }
     strategy_dict["timeframe_minutes"] = tf_spec.requested
@@ -2949,6 +2959,11 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "target_profit_pct": payload.target_profit_pct,
         "target_profit_rupees": payload.target_profit_rupees,
         "tp_type": payload.tp_type,
+        "initial_capital": payload.initial_capital,
+        "execution_profile": payload.execution_profile,
+        "enforce_capital": payload.enforce_capital,
+        "capital_buffer_pct": payload.capital_buffer_pct,
+        "sell_option_margin_per_lot": payload.sell_option_margin_per_lot,
         "max_daily_loss": payload.max_daily_loss,
         "combined_sqoff_time": payload.combined_sqoff_time,
         "timeframe_minutes": tf_spec.requested,

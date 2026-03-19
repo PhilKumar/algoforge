@@ -126,7 +126,18 @@ class YesterdayRegressionTests(unittest.TestCase):
 
 
 class DummyBroker:
-    pass
+    def __init__(self, funds: dict | None = None, option_ltp: float = 100.0):
+        self.funds = funds or {"availabelBalance": 0.0}
+        self.option_ltp = option_ltp
+
+    async def async_get_funds(self):
+        return self.funds
+
+    async def async_get_option_ltp(self, *args, **kwargs):
+        return self.option_ltp
+
+    def get_option_ltp(self, *args, **kwargs):
+        return self.option_ltp
 
 
 class DummyFeed:
@@ -280,7 +291,7 @@ class PortfolioStrategyExitTests(unittest.TestCase):
         self.assertEqual(engine.strat_tp_val, 2200.0)
 
     def test_paper_strategy_exit_uses_combined_open_position_pnl(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper")
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-exit")
         engine.strat_tp_val = 90.0
         engine.positions = [
             {
@@ -304,7 +315,8 @@ class PortfolioStrategyExitTests(unittest.TestCase):
         self.assertEqual(engine._check_strategy_exit(), "STRATEGY_TP")
 
     def test_paper_strategy_close_uses_actual_exit_premium(self):
-        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper")
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="portfolio-paper-close")
+        engine._history_file = "/tmp/paper_history_portfolio-paper.json"
         engine.current_time = pd.Timestamp("2026-03-19 09:25").to_pydatetime()
         position = {
             "status": "open",
@@ -316,9 +328,56 @@ class PortfolioStrategyExitTests(unittest.TestCase):
         }
         engine.positions = [position]
 
-        engine._close_position(position, "STRATEGY_TP", 110.0)
+        with patch.object(engine, "_save_trade_history"):
+            engine._close_position(position, "STRATEGY_TP", 110.0)
 
         self.assertEqual(engine.closed_trades[-1]["pnl"], 10.0)
+
+
+class CapitalGatingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_capital_check_blocks_unaffordable_long_entry(self):
+        engine = LiveEngine(dhan=DummyBroker({"availabelBalance": 1000.0}), run_id="capital-live")
+        engine.strategy = {"instrument": "26000"}
+        engine._enforce_capital = True
+        engine._capital_buffer_pct = 0.0
+        engine._sell_option_margin_per_lot = 100000.0
+
+        allowed = await engine._can_enter_trade(
+            [{"transaction_type": "BUY", "entry_premium": 30.0, "lots": 1, "quantity": 50, "lot_size": 50}]
+        )
+
+        self.assertFalse(allowed)
+        self.assertEqual(engine.capital_rejections, 1)
+        self.assertFalse(engine.last_capital_check["passed"])
+
+    async def test_live_capital_check_uses_margin_for_short_option(self):
+        engine = LiveEngine(dhan=DummyBroker({"availabelBalance": 90000.0}), run_id="capital-live")
+        engine.strategy = {"instrument": "26000"}
+        engine._enforce_capital = True
+        engine._capital_buffer_pct = 0.0
+        engine._sell_option_margin_per_lot = 100000.0
+
+        allowed = await engine._can_enter_trade(
+            [{"transaction_type": "SELL", "entry_premium": 10.0, "lots": 1, "quantity": 50, "lot_size": 50}]
+        )
+
+        self.assertFalse(allowed)
+        self.assertEqual(engine.last_capital_check["required"], 100000.0)
+
+    async def test_paper_capital_check_blocks_unaffordable_portfolio(self):
+        engine = PaperTradingEngine(dhan=DummyBroker(), run_id="capital-paper")
+        engine.initial_capital = 1000.0
+        engine._enforce_capital = True
+        engine._capital_buffer_pct = 0.0
+        engine._sell_option_margin_per_lot = 100000.0
+
+        allowed = engine._can_enter_trade(
+            [{"transaction_type": "BUY", "entry_premium": 30.0, "lots": 1, "lot_size": 50}]
+        )
+
+        self.assertFalse(allowed)
+        self.assertEqual(engine.capital_rejections, 1)
+        self.assertFalse(engine.last_capital_check["passed"])
 
 
 if __name__ == "__main__":

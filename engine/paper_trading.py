@@ -32,7 +32,13 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from broker.dhan import DhanClient, ScripMaster
-from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
+from engine.backtest import (
+    debug_condition_group,
+    eval_condition_group,
+    get_lot_size,
+    get_sell_option_margin_per_lot,
+    get_strike_step,
+)
 from engine.indicators import compute_dynamic_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
@@ -104,6 +110,12 @@ class PaperTradingEngine:
         self.strat_sl_val = 0.0  # e.g. 13000 (20% of 250*260)
         self.strat_tp_val = 0.0  # e.g. 6600
         self.trade_entry_prem = 0.0  # entry premium for strategy-level PnL calc
+        self.initial_capital = 500000.0
+        self._enforce_capital = False
+        self._capital_buffer_pct = 0.0
+        self._sell_option_margin_per_lot = 0.0
+        self.capital_rejections = 0
+        self.last_capital_check = {}
 
         # Live data
         self.current_spot = 0.0
@@ -152,6 +164,8 @@ class PaperTradingEngine:
                 "strat_sl_val": self.strat_sl_val,
                 "strat_tp_val": self.strat_tp_val,
                 "trade_entry_prem": self.trade_entry_prem,
+                "capital_rejections": self.capital_rejections,
+                "last_capital_check": self.last_capital_check,
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
                 "current_candle": self.current_candle,
@@ -247,6 +261,8 @@ class PaperTradingEngine:
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
+            self.capital_rejections = state.get("capital_rejections", 0)
+            self.last_capital_check = state.get("last_capital_check", {}) or {}
             self.current_spot = state.get("current_spot", 0.0)
             self.current_candle = state.get("current_candle", {})
             self.current_indicators = state.get("current_indicators", {})
@@ -305,6 +321,13 @@ class PaperTradingEngine:
         self._sl_rupees = sl_rupees
         self._tp_pct = tp_pct
         self._tp_rupees = tp_rupees
+        self.initial_capital = float(strategy.get("initial_capital", 500000.0) or 500000.0)
+        self._enforce_capital = bool(strategy.get("enforce_capital", False))
+        self._capital_buffer_pct = min(99.0, max(0.0, float(strategy.get("capital_buffer_pct", 0) or 0)))
+        self._sell_option_margin_per_lot = get_sell_option_margin_per_lot(
+            strategy.get("instrument", "26000"),
+            strategy.get("sell_option_margin_per_lot", 0),
+        )
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         if sl_rupees > 0 or sl_pct > 0:
@@ -362,6 +385,55 @@ class PaperTradingEngine:
             self.log_event("exit", f"Strategy TP hit: PnL ₹{portfolio_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
             return "STRATEGY_TP"
         return None
+
+    def _capital_required_for_entry(
+        self, transaction_type: str, entry_premium: float, lots: int, lot_size: int
+    ) -> float:
+        if transaction_type == "SELL":
+            return float(lots) * self._sell_option_margin_per_lot
+        quantity = int(lots) * int(lot_size)
+        return max(0.0, float(entry_premium)) * float(quantity)
+
+    def _capital_limit(self, available_capital: float) -> float:
+        return max(0.0, float(available_capital)) * max(0.0, 1.0 - self._capital_buffer_pct / 100.0)
+
+    def _paper_available_capital(self) -> float:
+        return max(0.0, self.initial_capital + float(self.daily_pnl))
+
+    def _can_enter_trade(self, planned_positions: list[dict]) -> bool:
+        if not self._enforce_capital:
+            self.last_capital_check = {"enforced": False, "passed": True}
+            return True
+
+        required_capital = sum(
+            self._capital_required_for_entry(
+                position.get("transaction_type", "BUY"),
+                float(position.get("entry_premium", 0.0) or 0.0),
+                int(position.get("lots", 0) or 0),
+                int(position.get("lot_size", 0) or 0),
+            )
+            for position in planned_positions
+        )
+        available_capital = self._paper_available_capital()
+        capital_limit = self._capital_limit(available_capital)
+        passed = required_capital <= capital_limit + 1e-9
+        self.last_capital_check = {
+            "enforced": True,
+            "passed": passed,
+            "required": round(required_capital, 2),
+            "available": round(available_capital, 2),
+            "limit": round(capital_limit, 2),
+            "buffer_pct": self._capital_buffer_pct,
+            "mode": "paper",
+        }
+        if not passed:
+            self.capital_rejections += 1
+            self.log_event(
+                "warning",
+                f"Capital check blocked paper entry: required ₹{required_capital:,.0f} > usable ₹{capital_limit:,.0f}",
+            )
+            return False
+        return True
 
     def log_event(self, event_type: str, message: str, data: dict = None):
         """Log an event with timestamp"""
@@ -1305,6 +1377,7 @@ class PaperTradingEngine:
         entry_time = self.current_time or _now_ist()
 
         default_lots = int(self.strategy.get("lots", 1) or 1)
+        planned_positions = []
 
         for i, leg in enumerate(legs):
             expiry = ScripMaster.resolve_expiry(symbol, leg.get("expiry"), session_date_str)
@@ -1351,36 +1424,48 @@ class PaperTradingEngine:
                 self.log_event("warning", f"Using estimated premium: ₹{entry_premium:.2f}")
 
             option_name = f"{symbol} {strike} {option_type}"
+            planned_positions.append(
+                {
+                    "id": len(self.positions) + len(self.closed_trades) + len(planned_positions) + 1,
+                    "leg_num": i + 1,
+                    "symbol": option_name,
+                    "transaction_type": leg["transaction_type"],
+                    "option_type": option_type,
+                    "strike": strike,
+                    "expiry": expiry,
+                    "entry_time": entry_time,
+                    "entry_spot": entry_spot,
+                    "entry_premium": entry_premium,
+                    "current_premium": entry_premium,
+                    "lots": leg_lots,
+                    "lot_size": lot_size,
+                    "sl_pct": leg.get("sl_pct", 0),
+                    "target_pct": leg.get("target_pct", 0),
+                    "sl_points": leg.get("sl_points", 0),
+                    "target_points": leg.get("target_points", 0),
+                    "sl_rupees": leg.get("sl_rupees", 0),
+                    "target_rupees": leg.get("target_rupees", 0),
+                    "trail_pct": leg.get("trail_pct", 0),
+                    "sqoff_time": leg.get("sqoff_time", "15:20"),
+                    "unrealized_pnl": 0,
+                    "peak_premium": entry_premium,
+                    "status": "open",
+                    "ws_sec_id": None,
+                }
+            )
 
-            position = {
-                "id": len(self.positions) + len(self.closed_trades) + 1,
-                "leg_num": i + 1,
-                "symbol": option_name,
-                "transaction_type": leg["transaction_type"],
-                "option_type": option_type,
-                "strike": strike,
-                "expiry": expiry,
-                "entry_time": entry_time,
-                "entry_spot": entry_spot,
-                "entry_premium": entry_premium,
-                "current_premium": entry_premium,
-                "lots": leg_lots,
-                "lot_size": lot_size,
-                "sl_pct": leg.get("sl_pct", 0),
-                "target_pct": leg.get("target_pct", 0),
-                "sl_points": leg.get("sl_points", 0),
-                "target_points": leg.get("target_points", 0),
-                "sl_rupees": leg.get("sl_rupees", 0),
-                "target_rupees": leg.get("target_rupees", 0),
-                "trail_pct": leg.get("trail_pct", 0),
-                "sqoff_time": leg.get("sqoff_time", "15:20"),
-                "unrealized_pnl": 0,
-                "peak_premium": entry_premium,  # for trailing SL
-                "status": "open",
-                "ws_sec_id": None,  # Will be set if WebSocket mode
-            }
+        if not planned_positions:
+            self.log_event("warning", "No legs could be planned — cannot enter trade")
+            return
 
-            # Subscribe option to WebSocket feed for instant LTP tracking
+        if not self._can_enter_trade(planned_positions):
+            return
+
+        for position in planned_positions:
+            option_type = position["option_type"]
+            strike = position["strike"]
+            expiry = position["expiry"]
+
             if self._ws_mode and self._feed and expiry:
                 ws_sec_id = self._feed.subscribe_option(symbol, int(strike), expiry, option_type)
                 if ws_sec_id:
@@ -1389,11 +1474,16 @@ class PaperTradingEngine:
                     self.log_event("info", f"⚡ Option subscribed to WebSocket: sec_id={ws_sec_id}")
 
             self.positions.append(position)
-
             self.log_event(
                 "entry",
-                f"📝 Leg {i + 1}: {leg['transaction_type']} {symbol} {strike} {option_type} @ ₹{entry_premium:.2f}",
-                {"premium": entry_premium, "lots": leg_lots, "lot_size": lot_size, "strike": strike, "expiry": expiry},
+                f"📝 Leg {position['leg_num']}: {position['transaction_type']} {symbol} {strike} {option_type} @ ₹{position['entry_premium']:.2f}",
+                {
+                    "premium": position["entry_premium"],
+                    "lots": position["lots"],
+                    "lot_size": position["lot_size"],
+                    "strike": strike,
+                    "expiry": expiry,
+                },
             )
 
         self.in_trade = True
@@ -1633,6 +1723,9 @@ class PaperTradingEngine:
             "current_spot": self.current_spot,
             "current_time": str(self.current_time) if self.current_time else None,
             "trades_today": self.trades_today,
+            "daily_pnl": round(self.daily_pnl, 2),
+            "capital_rejections": self.capital_rejections,
+            "last_capital_check": self.last_capital_check,
             "positions": self.positions,
             "closed_trades": self.closed_trades,
             "total_pnl": round(total_pnl, 2),
