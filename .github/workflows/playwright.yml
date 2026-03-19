@@ -63,6 +63,7 @@ jobs:
       # ── Run Playwright tests ──
       - name: Run Playwright tests
         env:
+          E2E_USERNAME: "admin"
           E2E_PIN: "123456"
         working-directory: e2e-tests
         run: npx playwright test --project=algoforge
