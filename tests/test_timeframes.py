@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
-from engine.indicators import compute_dynamic_indicators
+from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe
 from engine.live import LiveEngine
 from engine.paper_trading import PaperTradingEngine
 from engine.timeframes import drop_incomplete_candle, next_entry_ready_at, resolve_strategy_timeframe
@@ -49,6 +49,44 @@ class TimeframeRegressionTests(unittest.TestCase):
         raw = _make_ohlcv("2026-03-19 09:10", [100, 101], freq="5min")
         trimmed = drop_incomplete_candle(raw, 5, pd.Timestamp("2026-03-19 09:16").to_pydatetime())
         self.assertEqual(list(trimmed.index.strftime("%H:%M")), ["09:10"])
+
+
+class CprRegressionTests(unittest.TestCase):
+    def test_daily_cpr_normalizes_bc_below_tc(self):
+        df = pd.DataFrame(
+            {
+                "open": [111.0, 112.0],
+                "high": [120.0, 121.0],
+                "low": [100.0, 101.0],
+                "close": [105.0, 110.0],
+            },
+            index=pd.to_datetime(["2030-01-02", "2030-01-03"]),
+        )
+
+        result = cpr(df)
+        row = result.loc[pd.Timestamp("2030-01-03")]
+
+        self.assertLessEqual(row["bc"], row["tc"])
+        self.assertAlmostEqual(float(row["bc"]), 106.6666666667, places=4)
+        self.assertAlmostEqual(float(row["tc"]), 110.0, places=4)
+
+    def test_higher_timeframe_cpr_normalizes_bc_below_tc(self):
+        df = pd.DataFrame(
+            {
+                "open": [119.0, 116.0, 111.0, 107.0, 110.0, 111.0, 112.0, 113.0],
+                "high": [120.0, 118.0, 116.0, 112.0, 114.0, 115.0, 116.0, 117.0],
+                "low": [110.0, 108.0, 104.0, 100.0, 109.0, 110.0, 111.0, 112.0],
+                "close": [118.0, 114.0, 109.0, 105.0, 111.0, 112.0, 113.0, 114.0],
+            },
+            index=pd.date_range("2030-01-02 08:00", periods=8, freq="1h"),
+        )
+
+        result = cpr_timeframe(df, timeframe="4H")
+        row = result.loc[pd.Timestamp("2030-01-02 12:00")]
+
+        self.assertLessEqual(row["bc"], row["tc"])
+        self.assertAlmostEqual(float(row["bc"]), 106.6666666667, places=4)
+        self.assertAlmostEqual(float(row["tc"]), 110.0, places=4)
 
 
 class DummyBroker:

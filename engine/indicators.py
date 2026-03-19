@@ -248,7 +248,11 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
     daily["pivot"] = (daily["high"] + daily["low"] + daily["close"]) / 3
     daily["bc"] = (daily["high"] + daily["low"]) / 2
     daily["tc"] = daily["pivot"] * 2 - daily["bc"]
-    daily["cpr_range"] = (daily["tc"] - daily["bc"]).abs()
+    lower_band = daily[["bc", "tc"]].min(axis=1)
+    upper_band = daily[["bc", "tc"]].max(axis=1)
+    daily["bc"] = lower_band
+    daily["tc"] = upper_band
+    daily["cpr_range"] = daily["tc"] - daily["bc"]
     daily["cpr_width_pct"] = daily["cpr_range"] / daily["close"].replace(0, np.nan) * 100
 
     # Floor Pivot Support & Resistance Levels
@@ -368,7 +372,11 @@ def cpr_timeframe(
     bars["pivot"] = (bars["high"] + bars["low"] + bars["close"]) / 3
     bars["bc"] = (bars["high"] + bars["low"]) / 2
     bars["tc"] = bars["pivot"] * 2 - bars["bc"]
-    bars["cpr_range"] = (bars["tc"] - bars["bc"]).abs()
+    lower_band = bars[["bc", "tc"]].min(axis=1)
+    upper_band = bars[["bc", "tc"]].max(axis=1)
+    bars["bc"] = lower_band
+    bars["tc"] = upper_band
+    bars["cpr_range"] = bars["tc"] - bars["bc"]
     bars["cpr_width_pct"] = bars["cpr_range"] / bars["close"].replace(0, np.nan) * 100
 
     bars["R1"] = bars["pivot"] * 2 - bars["low"]
