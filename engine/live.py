@@ -34,7 +34,7 @@ import config
 from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
 from engine.backtest import eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
-from engine.timeframes import describe_timeframe, resample_ohlcv, resolve_strategy_timeframe
+from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -116,6 +116,7 @@ class LiveEngine:
         # ── "Quantman Way" — 1-second candle-boundary execution ──
         self._pending_order: Optional[dict] = None  # Rich signal context for next-candle entry
         self._last_processed_candle_time: Optional[datetime] = None  # Double-trigger guard
+        self._last_strategy_candle_time: Optional[datetime] = None  # Last closed execution-timeframe candle seen
 
         # Logging
         self.event_log: List[dict] = []
@@ -436,7 +437,9 @@ class LiveEngine:
         from engine.indicators import compute_dynamic_indicators
 
         instrument = self.strategy.get("instrument", "26000")
-        timeframe = self._get_timeframe()
+        tf_spec = self._get_timeframe_spec()
+        execution_timeframe = tf_spec.requested
+        fetch_timeframe = tf_spec.fetch
 
         # Set up candle-close event (asyncio-safe from thread)
         loop = asyncio.get_event_loop()
@@ -449,25 +452,35 @@ class LiveEngine:
             loop.call_soon_threadsafe(self._candle_event.set)
 
         # Bootstrap history for indicator warm-up
-        history_df = self._feed.bootstrap_history(instrument, timeframe, days=7)
+        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=7)
         indicators = self.strategy.get("indicators", [])
 
         self._feed.set_candle_config(
             instrument_id=instrument,
-            timeframe=timeframe,
+            timeframe=fetch_timeframe,
             callback=_on_candle_close,
             history_df=history_df,
         )
 
-        self.log_event("info", f"📊 Candle aggregation: {timeframe}m ({len(history_df)} historical candles)")
+        if tf_spec.mixed or tf_spec.derived:
+            agg_label = f"{fetch_timeframe}m raw -> {execution_timeframe}m strategy"
+        else:
+            agg_label = f"{execution_timeframe}m"
+        self.log_event("info", f"📊 Candle aggregation: {agg_label} ({len(history_df)} historical candles)")
 
         # ── Immediately populate UI data from bootstrap history ──
         if not history_df.empty:
             try:
-                df_init = compute_dynamic_indicators(history_df.copy(), indicators)
+                df_init = compute_dynamic_indicators(
+                    history_df.copy(),
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                )
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
+                    self._last_strategy_candle_time = df_init.index[-1]
                     self._update_ui_data(df_init.iloc[-1])
                     self.log_event("info", f"📈 Initial UI data: spot={self.current_spot:.2f}")
             except Exception as e:
@@ -574,20 +587,34 @@ class LiveEngine:
                 if candle_df is None or candle_df.empty:
                     continue
 
-                df_with_indicators = compute_dynamic_indicators(candle_df, indicators)
+                df_with_indicators = compute_dynamic_indicators(
+                    candle_df,
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                )
                 self.candle_buffer = df_with_indicators
 
                 if df_with_indicators.empty:
                     continue
 
                 latest_row = df_with_indicators.iloc[-1]
+                strategy_candle_time = latest_row.name
+                if self._last_strategy_candle_time == strategy_candle_time:
+                    if callback:
+                        await self._emit(callback, self.get_status())
+                    continue
+
                 self.current_spot = float(latest_row.get("close", self.current_spot))
 
                 self._update_ui_data(latest_row)
 
-                candle_time = latest_candle.get("timestamp", now)
-                latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
-                self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
+                candle_close_time = strategy_candle_time + timedelta(minutes=execution_timeframe)
+                latency = self._compute_candle_latency(candle_close_time, now)
+                self.log_event(
+                    "candle",
+                    f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
+                )
 
                 # ── Check entry (Quantman Way — signal → pendingOrder → flush on next candle) ──
                 max_trades = self.strategy.get("max_trades_per_day", 1)
@@ -614,7 +641,7 @@ class LiveEngine:
                         if entry_sig:
                             candle_time = latest_candle.get("timestamp", now)
                             self._pending_order = {
-                                "signal_candle_time": candle_time,
+                                "signal_candle_time": strategy_candle_time,
                                 "created_at": _now_ist(),
                                 "row": latest_row,
                                 "attempts": 0,
@@ -629,7 +656,7 @@ class LiveEngine:
                             }
                             self.log_event(
                                 "signal",
-                                f"⚡ ENTRY SIGNAL @ candle {candle_time} — will enter on NEXT candle open (1st second)",
+                                f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open (1st second)",
                             )
                 elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
                     # Signal exists but can't execute — log WHY and clear
@@ -646,6 +673,7 @@ class LiveEngine:
                     self._clear_pending_order()
 
                 self._prev_row = latest_row
+                self._last_strategy_candle_time = strategy_candle_time
 
                 if callback:
                     await self._emit(callback, self.get_status())
@@ -857,7 +885,9 @@ class LiveEngine:
             return
 
         latest_row = df.iloc[-1]
-        prev_row = df.iloc[-2] if len(df) >= 2 else None
+        strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
+        is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
+        prev_row = df.iloc[-2] if len(df) >= 2 else self._prev_row
 
         # ── Manage open positions ──
         for pos in list(self.positions):
@@ -896,7 +926,7 @@ class LiveEngine:
                 else:
                     self.log_event("entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (REST mode)")
                     await self._flush_pending_order(latest_row, callback)
-            else:
+            elif is_new_strategy_candle:
                 entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
                 if entry_sig:
                     self._pending_order = {
@@ -927,7 +957,9 @@ class LiveEngine:
             self.log_event("warning", f"⚠ Pending order cleared (REST): {reason}")
             self._clear_pending_order()
 
-        self._prev_row = latest_row
+        if is_new_strategy_candle:
+            self._prev_row = latest_row
+            self._last_strategy_candle_time = strategy_candle_time
 
         # Send status update
         if callback:
@@ -937,7 +969,7 @@ class LiveEngine:
     async def _fetch_live_data(self) -> pd.DataFrame:
         """Fetch live candle data with indicators applied."""
         tf_spec = self._get_timeframe_spec()
-        timeframe = tf_spec.requested
+        execution_timeframe = tf_spec.requested
 
         instrument = self.strategy.get("instrument", "26000")
         from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -955,11 +987,13 @@ class LiveEngine:
             candle_type=str(tf_spec.fetch),
         )
 
-        if tf_spec.derived and not df_raw.empty:
-            df_raw = resample_ohlcv(df_raw, timeframe)
-
         indicators = self.strategy.get("indicators", [])
-        df = compute_dynamic_indicators(df_raw, indicators)
+        df = compute_dynamic_indicators(
+            df_raw,
+            indicators,
+            default_timeframe_minutes=execution_timeframe,
+            source_timeframe_minutes=tf_spec.fetch,
+        )
 
         # Store current candle + indicators for UI
         if not df.empty:

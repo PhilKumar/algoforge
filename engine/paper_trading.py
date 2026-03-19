@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import debug_condition_group, eval_condition_group, get_lot_size, get_strike_step
 from engine.indicators import compute_dynamic_indicators
-from engine.timeframes import describe_timeframe, resample_ohlcv, resolve_strategy_timeframe
+from engine.timeframes import describe_timeframe, resolve_strategy_timeframe
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -108,6 +108,7 @@ class PaperTradingEngine:
         self._entry_signal_pending = False  # True = signal fired, enter on NEXT candle
         self._signal_candle = None  # OHLC of the candle that triggered entry signal
         self._condition_debug = {}  # Last condition evaluation details for UI
+        self._last_strategy_candle_time = None  # Last closed execution-timeframe candle seen
 
         # Logging
         self.event_log = []
@@ -378,7 +379,9 @@ class PaperTradingEngine:
         from engine.indicators import compute_dynamic_indicators
 
         instrument = self.strategy.get("instrument", "26000")
-        timeframe = self._get_timeframe()
+        tf_spec = self._get_timeframe_spec()
+        execution_timeframe = tf_spec.requested
+        fetch_timeframe = tf_spec.fetch
 
         # Set up candle-close event (asyncio-safe from thread)
         loop = asyncio.get_event_loop()
@@ -393,25 +396,35 @@ class PaperTradingEngine:
 
         # Configure candle aggregation on the feed
         # First bootstrap with historical data for indicator warm-up
-        history_df = self._feed.bootstrap_history(instrument, timeframe, days=7)
+        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=7)
         indicators = self.strategy.get("indicators", [])
 
         self._feed.set_candle_config(
             instrument_id=instrument,
-            timeframe=timeframe,
+            timeframe=fetch_timeframe,
             callback=_on_candle_close,
             history_df=history_df,
         )
 
-        self.log_event("info", f"📊 Candle aggregation: {timeframe}m (including {len(history_df)} historical candles)")
+        if tf_spec.mixed or tf_spec.derived:
+            agg_label = f"{fetch_timeframe}m raw -> {execution_timeframe}m strategy"
+        else:
+            agg_label = f"{execution_timeframe}m"
+        self.log_event("info", f"📊 Candle aggregation: {agg_label} (including {len(history_df)} historical candles)")
 
         # ── Immediately populate UI data from bootstrap history ──
         if not history_df.empty:
             try:
-                df_init = compute_dynamic_indicators(history_df.copy(), indicators)
+                df_init = compute_dynamic_indicators(
+                    history_df.copy(),
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                )
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
+                    self._last_strategy_candle_time = df_init.index[-1]
                     self._update_ui_data(df_init.iloc[-1])
                     self.log_event("info", f"📈 Initial UI data: spot={self.current_spot:.2f}")
             except Exception as e:
@@ -544,27 +557,39 @@ class PaperTradingEngine:
 
                 # ── Candle closed! Evaluate conditions ──
                 candle_df = self._latest_candle_df
-                latest_candle = self._latest_candle
-
                 if candle_df is None or candle_df.empty:
                     continue
 
                 # Compute indicators on the full candle history
-                df_with_indicators = compute_dynamic_indicators(candle_df, indicators)
+                df_with_indicators = compute_dynamic_indicators(
+                    candle_df,
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                )
                 self.candle_buffer = df_with_indicators
 
                 if df_with_indicators.empty:
                     continue
 
                 latest_row = df_with_indicators.iloc[-1]
+                strategy_candle_time = latest_row.name
+                if self._last_strategy_candle_time == strategy_candle_time:
+                    if callback:
+                        await self._emit_callback(callback, self.get_status())
+                    continue
+
                 self.current_spot = float(latest_row.get("close", self.current_spot))
 
                 # Store candle + indicators for UI
                 self._update_ui_data(latest_row)
 
-                candle_time = latest_candle.get("timestamp", now)
-                latency = (now - candle_time).total_seconds() if isinstance(candle_time, datetime) else 0
-                self.log_event("candle", f"🕯️ {timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)")
+                candle_close_time = strategy_candle_time + timedelta(minutes=execution_timeframe)
+                latency = self._compute_candle_latency(candle_close_time, now)
+                self.log_event(
+                    "candle",
+                    f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
+                )
 
                 # Check entry conditions
                 max_trades = self.strategy.get("max_trades_per_day", 1)
@@ -613,6 +638,7 @@ class PaperTradingEngine:
 
                 # Store previous row for crossover detection
                 self._prev_row = latest_row
+                self._last_strategy_candle_time = strategy_candle_time
 
                 # Send status update
                 if callback:
@@ -736,8 +762,10 @@ class PaperTradingEngine:
             self.log_event("error", f"Failed to fetch live data: {e}")
             return
 
-        # Get latest candle for condition evaluation
+        # Get latest closed strategy candle for condition evaluation
         latest_row = df.iloc[-1]
+        strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
+        is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
 
         # Manage existing positions
         for position in list(self.positions):
@@ -773,7 +801,7 @@ class PaperTradingEngine:
                 self._entry_signal_pending = False
                 self.log_event("entry", "🚀 Executing pending entry (next candle open)")
                 await self._enter_trade(latest_row)
-            else:
+            elif is_new_strategy_candle:
                 prev_row = df.iloc[-2] if len(df) >= 2 else None
                 entry_triggered, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
                 self._condition_debug = {
@@ -797,7 +825,9 @@ class PaperTradingEngine:
             self._condition_debug = {"gate": f"max_trades_reached ({self.trades_today}/{max_trades})", "conditions": []}
 
         # Store previous row for crossover detection in exit conditions
-        self._prev_row = latest_row
+        if is_new_strategy_candle:
+            self._prev_row = latest_row
+            self._last_strategy_candle_time = strategy_candle_time
 
         # Send status update
         if callback:
@@ -808,7 +838,7 @@ class PaperTradingEngine:
         from datetime import timedelta
 
         tf_spec = self._get_timeframe_spec()
-        timeframe = tf_spec.requested
+        execution_timeframe = tf_spec.requested
 
         instrument = self.strategy.get("instrument", "26000")
 
@@ -829,13 +859,14 @@ class PaperTradingEngine:
             candle_type=str(tf_spec.fetch),
         )
 
-        if tf_spec.derived and not df_raw.empty:
-            df_raw = resample_ohlcv(df_raw, timeframe)
-            print(f"[PAPER] Resampled {tf_spec.fetch}m → {timeframe}m: {len(df_raw)} candles")
-
         # Apply indicators
         indicators = self.strategy.get("indicators", [])
-        df = compute_dynamic_indicators(df_raw, indicators)
+        df = compute_dynamic_indicators(
+            df_raw,
+            indicators,
+            default_timeframe_minutes=execution_timeframe,
+            source_timeframe_minutes=tf_spec.fetch,
+        )
 
         # Store current candle + indicator values for live monitor UI
         if not df.empty:

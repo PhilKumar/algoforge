@@ -29,6 +29,12 @@ class TimeframeSpec:
     fetch: int
     derived: bool
     source: str = "default"
+    all_frames: tuple[int, ...] = ()
+    derived_frames: tuple[int, ...] = ()
+
+    @property
+    def mixed(self) -> bool:
+        return len(self.all_frames) > 1
 
 
 def _extract_indicator_minutes(indicator_id: str) -> int | None:
@@ -57,32 +63,64 @@ def get_fetch_timeframe(requested_minutes: int) -> int:
     return 1
 
 
+def get_common_fetch_timeframe(requested_frames: Sequence[int]) -> int:
+    frames = [int(tf) for tf in requested_frames if int(tf) > 0]
+    if not frames:
+        return get_fetch_timeframe(DEFAULT_TIMEFRAME_MINUTES)
+
+    divisors = [tf for tf in NATIVE_DHAN_INTERVALS if all(frame % tf == 0 for frame in frames)]
+    if divisors:
+        return max(divisors)
+    return 1
+
+
 def resolve_strategy_timeframe(
     indicators: Sequence[str] | None, default: int = DEFAULT_TIMEFRAME_MINUTES
 ) -> TimeframeSpec:
     frames = collect_strategy_timeframes(indicators)
     if not frames:
+        fetch = get_fetch_timeframe(default)
         return TimeframeSpec(
-            requested=default, fetch=get_fetch_timeframe(default), derived=default not in NATIVE_DHAN_INTERVALS
+            requested=default,
+            fetch=fetch,
+            derived=default not in NATIVE_DHAN_INTERVALS,
+            all_frames=(default,),
+            derived_frames=((default,) if fetch != default else ()),
         )
-    if len(frames) > 1:
-        joined = ", ".join(f"{tf}m" for tf in frames)
-        raise ValueError(
-            "Mixed indicator timeframes are not supported in one strategy yet. "
-            f"Found: {joined}. Use a single execution timeframe."
-        )
-    requested = frames[0]
-    fetch = get_fetch_timeframe(requested)
-    return TimeframeSpec(requested=requested, fetch=fetch, derived=fetch != requested, source="indicators")
+    requested = min(frames)
+    fetch = get_common_fetch_timeframe(frames)
+    derived_frames = tuple(tf for tf in frames if tf != fetch)
+    return TimeframeSpec(
+        requested=requested,
+        fetch=fetch,
+        derived=fetch != requested,
+        source="indicators",
+        all_frames=tuple(frames),
+        derived_frames=derived_frames,
+    )
 
 
 def describe_timeframe(spec: TimeframeSpec) -> str:
+    if spec.mixed:
+        higher = [tf for tf in spec.all_frames if tf != spec.requested]
+        higher_label = ", ".join(f"{tf}m" for tf in higher)
+        if spec.fetch != spec.requested:
+            return f"{spec.requested}m execution + {higher_label} context (from {spec.fetch}m raw candles)"
+        return f"{spec.requested}m execution + {higher_label} context"
     if spec.derived:
         return f"{spec.requested}m (derived from {spec.fetch}m)"
     return f"{spec.requested}m"
 
 
 def derived_timeframe_warning(spec: TimeframeSpec) -> str | None:
+    if spec.mixed:
+        higher = [tf for tf in spec.all_frames if tf != spec.requested]
+        higher_label = ", ".join(f"{tf}m" for tf in higher)
+        return (
+            f"Strategy uses mixed timeframes. Execution runs on {spec.requested}m candles; "
+            f"higher-timeframe indicators ({higher_label}) are aligned using the last closed candle "
+            f"and built from {spec.fetch}m Dhan data."
+        )
     if not spec.derived:
         return None
     return (
@@ -105,11 +143,15 @@ def resample_ohlcv(
     timeframe_minutes: int,
     *,
     session_offset_minutes: int = SESSION_OFFSET_MINUTES,
+    source_timeframe_minutes: int | None = None,
+    drop_incomplete: bool = False,
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
     if timeframe_minutes <= 0:
         raise ValueError(f"Timeframe must be positive, got {timeframe_minutes}")
+    if source_timeframe_minutes and timeframe_minutes == source_timeframe_minutes:
+        return df.sort_index().copy()
 
     agg_map: dict[str, str] = {
         "open": "first",
@@ -135,6 +177,20 @@ def resample_ohlcv(
         .agg(agg_map)
         .dropna(subset=["open"])
     )
+    if drop_incomplete and source_timeframe_minutes and timeframe_minutes > source_timeframe_minutes:
+        expected_rows = timeframe_minutes // source_timeframe_minutes
+        counts = (
+            df.sort_index()
+            .resample(
+                rule,
+                label="left",
+                closed="left",
+                origin="start_day",
+                offset=f"{session_offset_minutes}min",
+            )
+            .size()
+        )
+        resampled = resampled[counts.reindex(resampled.index, fill_value=0) >= expected_rows]
     return resampled
 
 
