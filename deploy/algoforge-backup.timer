@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AlgoForge backup timer
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+Persistent=true
+Unit=algoforge-backup.service
+
+[Install]
+WantedBy=timers.target

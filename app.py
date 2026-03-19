@@ -452,6 +452,7 @@ def _broker_profile_payload(user: dict | None) -> dict:
         "client_id": client_id,
         "client_id_masked": _mask_value(client_id),
         "access_token_saved": bool(access_token),
+        "encryption_ready": bool(config.ENCRYPTION_KEY),
         "manage_locked": locked,
         "manage_lock_reason": lock_reason,
     }
@@ -1474,6 +1475,11 @@ async def update_own_broker_settings(request: Request):
     locked, reason = _user_broker_settings_lock(int(user["id"]))
     if locked:
         raise HTTPException(status_code=409, detail=reason)
+    if not _auth_mod.encryption_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Broker credential storage is disabled until ENCRYPTION_KEY is configured on the server.",
+        )
 
     body = await request.json()
     client_id_input = body.get("client_id")

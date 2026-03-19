@@ -18,7 +18,12 @@ BLUE_PORT=8000
 # ── 1. Install systemd template service ──────────────────────
 echo "==> Installing algoforge@.service template..."
 sudo cp "$APP_DIR/deploy/algoforge.service" /etc/systemd/system/algoforge@.service
+echo "==> Installing backup service + timer..."
+sudo cp "$APP_DIR/deploy/algoforge-backup.service" /etc/systemd/system/algoforge-backup.service
+sudo cp "$APP_DIR/deploy/algoforge-backup.timer" /etc/systemd/system/algoforge-backup.timer
 sudo systemctl daemon-reload
+mkdir -p "$APP_DIR/backups"
+sudo systemctl enable --now algoforge-backup.timer
 
 # ── 2. Stop old monolithic service (if running) ──────────────
 if systemctl is-active --quiet algoforge 2>/dev/null; then
@@ -52,4 +57,5 @@ echo ""
 echo "==> DONE! AlgoForge blue-green is ready."
 echo "    Active: port $BLUE_PORT"
 echo "    State:  ~/.algoforge-active-port"
-echo "    Test:   curl http://127.0.0.1:${BLUE_PORT}/health"
+echo "    Test:   curl http://127.0.0.1:${BLUE_PORT}/api/health"
+echo "    Backup: systemctl list-timers algoforge-backup.timer"

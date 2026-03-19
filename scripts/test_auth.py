@@ -22,6 +22,7 @@ os.environ["ALGOFORGE_PIN"] = "123456"
 os.environ["ALGOFORGE_DB"] = str(TEST_DB)
 os.environ["ALGOFORGE_USER_DATA_ROOT"] = str(TEST_USER_DATA)
 os.environ["ALGOFORGE_SKIP_STARTUP_JOBS"] = "1"
+os.environ["ENCRYPTION_KEY"] = "QmG8YWqLPtWFDn7gCAiHJXoX7zHn5zi89kUnkkMvibU="
 os.environ["DHAN_PIN"] = ""
 os.environ["DHAN_TOTP_SECRET"] = ""
 

@@ -175,7 +175,10 @@ def _encrypt_user_fields(fields: dict) -> dict:
         if value in (None, ""):
             encrypted[key] = ""
             continue
-        from auth import encrypt_value
+        from auth import encrypt_value, encryption_enabled
+
+        if not encryption_enabled():
+            raise RuntimeError("ENCRYPTION_KEY must be configured before saving broker credentials")
 
         encrypted[key] = encrypt_value(str(value))
     return encrypted

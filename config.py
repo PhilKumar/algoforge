@@ -93,3 +93,5 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds 
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
+BACKUP_ROOT = os.getenv("ALGOFORGE_BACKUP_ROOT", os.path.join(os.path.dirname(__file__), "backups"))
+BACKUP_RETENTION_DAYS = int(os.getenv("ALGOFORGE_BACKUP_RETENTION_DAYS", "14"))

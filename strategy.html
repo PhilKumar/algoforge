@@ -4111,7 +4111,10 @@ async function loadUserProfile(silent = true) {
 
     let chipTone = 'warn';
     let chipText = 'Broker Missing';
-    if (broker.partial) {
+    if (!broker.encryption_ready) {
+      chipTone = 'danger';
+      chipText = 'Encryption Missing';
+    } else if (broker.partial) {
       chipTone = 'danger';
       chipText = 'Broker Partial';
     } else if (broker.configured) {
@@ -4128,7 +4131,9 @@ async function loadUserProfile(silent = true) {
     statusLine.innerHTML = `Source: <strong>${escapeHtml(sourceLabel)}</strong>${broker.access_token_saved ? ' • token saved' : ''}`;
 
     const hint = document.getElementById('account-broker-hint');
-    if (broker.manage_locked) {
+    if (!broker.encryption_ready) {
+      hint.textContent = 'This server does not have ENCRYPTION_KEY configured yet, so stored broker credentials are intentionally blocked until encrypted-at-rest storage is available.';
+    } else if (broker.manage_locked) {
       hint.textContent = broker.manage_lock_reason || 'Broker settings are locked while live broker workflows are active.';
     } else if (_authUser && _authUser.role === 'admin' && broker.source === 'global' && !broker.configured) {
       hint.textContent = 'Admin fallback is currently coming from the server .env broker configuration. Saving credentials here will switch this account to stored per-user broker settings.';
@@ -4136,7 +4141,7 @@ async function loadUserProfile(silent = true) {
       hint.textContent = 'Save your own Dhan Client ID and Access Token here. Leave the Access Token blank to keep the currently saved token.';
     }
 
-    const locked = !!broker.manage_locked;
+    const locked = !!broker.manage_locked || !broker.encryption_ready;
     document.getElementById('account-broker-save-btn').disabled = locked;
     document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved);
     if (!silent) toast('Account settings loaded', 'success', 2200);

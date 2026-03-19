@@ -37,6 +37,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 _fernet = None
 
 
+def encryption_enabled() -> bool:
+    """Whether encrypted broker credential storage is configured."""
+    return bool(config.ENCRYPTION_KEY)
+
+
 def _get_fernet():
     """Lazy-init Fernet cipher from ENCRYPTION_KEY env var."""
     global _fernet
