@@ -4833,17 +4833,57 @@ def _fetch_nse_vix() -> dict:
     return {"price": _vix_cache["price"], "prev_close": _vix_cache["prev_close"]}
 
 
-def _get_prev_close():
-    """Get previous trading-day close for indices. Cached per day. Uses yfinance (once/day)."""
+def _get_prev_close(preferred_client=None):
+    """Get previous trading-day close for indices. Cached per day.
+
+    Prefer Dhan daily candles when a broker client is available; fall back to
+    yfinance only if Dhan history cannot be fetched.
+    """
     from datetime import date
 
     today = date.today()
     if _prev_close_cache["date"] == str(today) and _prev_close_cache["data"]:
         return _prev_close_cache["data"]
+
+    result = {}
+
+    if preferred_client and preferred_client._is_configured():
+        try:
+            from_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+            to_date = today.strftime("%Y-%m-%d")
+            index_specs = {"nifty": "13", "sensex": "51"}
+            for key, security_id in index_specs.items():
+                df = preferred_client.get_historical_data(
+                    security_id=security_id,
+                    exchange_segment="IDX_I",
+                    instrument_type="INDEX",
+                    from_date=from_date,
+                    to_date=to_date,
+                    candle_type="D",
+                )
+                if df is None or df.empty:
+                    continue
+                df = df.sort_index()
+                latest_close = float(df["close"].iloc[-1])
+                latest_bar = df.index[-1]
+                latest_bar_date = latest_bar.date() if hasattr(latest_bar, "date") else today
+                if len(df) >= 2 and latest_bar_date >= today:
+                    prev_close = float(df["close"].iloc[-2])
+                else:
+                    prev_close = latest_close
+                result[key] = prev_close
+                result[f"{key}_ltp"] = latest_close
+            if result:
+                _prev_close_cache["data"] = result
+                _prev_close_cache["date"] = str(today)
+                print(f"[TICKER] Prev close from Dhan daily candles (cached for today): {result}")
+                return result
+        except Exception as e:
+            print(f"[TICKER] Dhan prev close fetch failed: {e}")
+
     try:
         import yfinance as yf
 
-        result = {}
         for sym, key in [("^NSEI", "nifty"), ("^BSESN", "sensex")]:
             hist = yf.Ticker(sym).history(period="5d")
             hist = hist.dropna(subset=["Close"])
@@ -4986,7 +5026,7 @@ async def get_ticker(request: Request):
                 # Dhan's after-hours prev-close can flatten change to 0.00.
                 # Outside market hours, prefer yfinance previous close for NIFTY/SENSEX.
                 prev = (
-                    _get_prev_close()
+                    _get_prev_close(ticker_client)
                     if (_is_cash_market_closed_ist() or (nifty_ltp > 0 and n_chg == 0 and n_pct == 0))
                     else {}
                 )
