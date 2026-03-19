@@ -115,6 +115,11 @@ class LiveEngine:
         self._sell_option_margin_per_lot = 0.0
         self.capital_rejections = 0
         self.last_capital_check: dict = {}
+        self.order_verification_failures = 0
+        self.last_order_verification: dict = {}
+        self.manual_intervention_required = False
+        self._entry_fill_timeout_sec = 15
+        self._exit_fill_timeout_sec = 15
 
         # Market data
         self.current_spot = 0.0
@@ -159,6 +164,17 @@ class LiveEngine:
         self._sell_option_margin_per_lot = get_sell_option_margin_per_lot(
             strategy.get("instrument", "26000"),
             strategy.get("sell_option_margin_per_lot", 0),
+        )
+        fill_timeout = int(
+            deploy_config.get("order_fill_timeout_sec", strategy.get("order_fill_timeout_sec", 15)) or 15
+        )
+        self._entry_fill_timeout_sec = max(
+            3,
+            int(deploy_config.get("entry_fill_timeout_sec", fill_timeout) or fill_timeout),
+        )
+        self._exit_fill_timeout_sec = max(
+            3,
+            int(deploy_config.get("exit_fill_timeout_sec", fill_timeout) or fill_timeout),
         )
 
         # Pre-parse market hours once (avoid per-tick string parsing)
@@ -236,6 +252,162 @@ class LiveEngine:
             self.log_event("exit", f"Strategy TP hit: PnL ₹{portfolio_pnl:,.0f} >= ₹{self.strat_tp_val:,.0f}")
             return "STRATEGY_TP"
         return None
+
+    @staticmethod
+    def _position_quantity(position: dict) -> int:
+        quantity = position.get("quantity")
+        if quantity is not None:
+            try:
+                return max(0, int(round(float(quantity))))
+            except Exception:
+                pass
+        try:
+            return max(0, int(round(float(position.get("lots", 0)) * float(position.get("lot_size", 0)))))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _position_lots(position: dict) -> float:
+        try:
+            lot_size = float(position.get("lot_size", 0) or 0)
+            quantity = float(LiveEngine._position_quantity(position))
+            if lot_size > 0:
+                return quantity / lot_size
+            return float(position.get("lots", 0) or 0)
+        except Exception:
+            return float(position.get("lots", 0) or 0)
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            if value is None or value == "":
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    async def _verify_order_execution(
+        self,
+        order_id: str,
+        expected_qty: int,
+        stage: str,
+        label: str,
+        timeout_sec: int,
+    ) -> dict:
+        verification = {
+            "order_id": order_id,
+            "stage": stage,
+            "label": label,
+            "expected_qty": int(expected_qty or 0),
+            "status": "UNKNOWN",
+            "filled_qty": 0,
+            "avg_price": 0.0,
+            "passed": False,
+            "partial_fill": False,
+            "message": "",
+        }
+
+        try:
+            result = await self.dhan.async_verify_order_fill(order_id, max_wait_sec=max(3, int(timeout_sec or 15)))
+        except Exception as exc:
+            verification["message"] = f"verification_failed: {exc}"
+            self.order_verification_failures += 1
+            self.last_order_verification = verification
+            self.log_event("error", f"{stage.title()} verification failed for {label}: {exc}")
+            return verification
+
+        status = str(result.get("status", "UNKNOWN") or "UNKNOWN").upper()
+        filled_qty = int(result.get("filled_qty") or 0)
+        if status == "FILLED" and filled_qty <= 0 and expected_qty > 0:
+            filled_qty = expected_qty
+        avg_price = self._safe_float(result.get("avg_price"), 0.0)
+        partial_fill = 0 < filled_qty < int(expected_qty or 0)
+        passed = status == "FILLED" and not partial_fill and (expected_qty <= 0 or filled_qty >= expected_qty)
+
+        verification.update(
+            {
+                "status": status,
+                "raw_status": str(result.get("raw_status", status) or status).upper(),
+                "requested_qty": int(result.get("requested_qty") or expected_qty or 0),
+                "filled_qty": filled_qty,
+                "avg_price": avg_price,
+                "partial_fill": partial_fill,
+                "passed": passed,
+                "message": str(result.get("message", "") or ""),
+            }
+        )
+
+        if not passed:
+            self.order_verification_failures += 1
+            if status in {"TIMEOUT", "UNKNOWN", "OPEN", "PENDING"} or partial_fill:
+                try:
+                    await self.dhan.async_cancel_order(order_id)
+                    verification["cancelled_after_failure"] = True
+                except Exception as cancel_exc:
+                    verification["cancel_after_failure_error"] = str(cancel_exc)
+            self.log_event(
+                "warning",
+                f"{stage.title()} order not fully filled for {label}: {status} qty {filled_qty}/{expected_qty} {verification['message']}".strip(),
+            )
+        else:
+            self.log_event(
+                "order",
+                f"{stage.title()} fill verified for {label}: qty {filled_qty}/{expected_qty} @ ₹{avg_price:.2f}",
+            )
+
+        self.last_order_verification = verification
+        return verification
+
+    async def _emergency_flatten_partial_entry(
+        self,
+        *,
+        underlying: str,
+        strike: int,
+        expiry: str,
+        option_type: str,
+        transaction_type: str,
+        filled_qty: int,
+        product_type: str,
+        label: str,
+    ) -> bool:
+        if filled_qty <= 0:
+            return True
+
+        opposite_txn = "SELL" if transaction_type == "BUY" else "BUY"
+        self.log_event(
+            "warning",
+            f"Partial entry fill detected for {label}: flattening {filled_qty} qty with emergency {opposite_txn} order",
+        )
+        try:
+            result = await self.dhan.async_place_option_order(
+                underlying=underlying,
+                strike_price=strike,
+                option_type=option_type,
+                expiry=expiry,
+                transaction_type=opposite_txn,
+                quantity=filled_qty,
+                order_type="MARKET",
+                product_type=product_type,
+                tag=f"AF_EMER_{option_type}_{strike}",
+            )
+            flatten_order_id = result.get("orderId", "")
+            verification = await self._verify_order_execution(
+                flatten_order_id,
+                filled_qty,
+                stage="emergency_exit",
+                label=label,
+                timeout_sec=self._exit_fill_timeout_sec,
+            )
+            if verification.get("passed"):
+                self.log_event("warning", f"Emergency flatten succeeded for {label}")
+                return True
+        except Exception as exc:
+            self.log_event("error", f"Emergency flatten failed for {label}: {exc}")
+
+        self.manual_intervention_required = True
+        self.running = False
+        self.log_event("error", f"CRITICAL: Manual intervention required for partial entry fill on {label}")
+        return False
 
     @staticmethod
     def _extract_available_balance(funds: dict) -> float:
@@ -340,6 +512,9 @@ class LiveEngine:
                 "trade_entry_prem": self.trade_entry_prem,
                 "capital_rejections": self.capital_rejections,
                 "last_capital_check": self.last_capital_check,
+                "order_verification_failures": self.order_verification_failures,
+                "last_order_verification": self.last_order_verification,
+                "manual_intervention_required": self.manual_intervention_required,
                 # Market data snapshot
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
@@ -402,6 +577,9 @@ class LiveEngine:
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
             self.capital_rejections = state.get("capital_rejections", 0)
             self.last_capital_check = state.get("last_capital_check", {}) or {}
+            self.order_verification_failures = state.get("order_verification_failures", 0)
+            self.last_order_verification = state.get("last_order_verification", {}) or {}
+            self.manual_intervention_required = bool(state.get("manual_intervention_required", False))
 
             # Restore market data snapshot
             self.current_spot = state.get("current_spot", 0.0)
@@ -495,6 +673,8 @@ class LiveEngine:
                 "daily_loss_hit": self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss,
                 "open_positions": len(self.positions),
                 "closed_trades": len(self.closed_trades),
+                "manual_intervention_required": self.manual_intervention_required,
+                "order_verification_failures": self.order_verification_failures,
             },
             "data_state": {
                 "candle_buffer_rows": len(self.candle_buffer),
@@ -710,9 +890,8 @@ class LiveEngine:
                         if current_premium > 0:
                             pos["current_premium"] = current_premium
                             direction = 1 if pos["transaction_type"] == "BUY" else -1
-                            pos["unrealized_pnl"] = round(
-                                (current_premium - pos["entry_premium"]) * direction * pos["lots"] * pos["lot_size"], 2
-                            )
+                            qty = self._position_quantity(pos)
+                            pos["unrealized_pnl"] = round((current_premium - pos["entry_premium"]) * direction * qty, 2)
 
                     latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
                     if latest_row is not None:
@@ -726,7 +905,9 @@ class LiveEngine:
                             for pos in list(self.positions):
                                 if pos.get("status") == "closed":
                                     continue
-                                exit_reason = self._check_exit_conditions(pos, latest_row, pos["current_premium"])
+                                exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
+                                    pos, latest_row, pos["current_premium"]
+                                )
                                 if exit_reason:
                                     await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
 
@@ -1170,9 +1351,8 @@ class LiveEngine:
 
             # Calculate unrealized P&L
             direction = 1 if pos["transaction_type"] == "BUY" else -1
-            pos["unrealized_pnl"] = round(
-                (current_premium - pos["entry_premium"]) * direction * pos["lots"] * pos["lot_size"], 2
-            )
+            qty = self._position_quantity(pos)
+            pos["unrealized_pnl"] = round((current_premium - pos["entry_premium"]) * direction * qty, 2)
 
         strategy_exit = self._check_strategy_exit()
         if strategy_exit:
@@ -1185,7 +1365,9 @@ class LiveEngine:
                 if pos.get("status") == "closed":
                     continue
                 current_premium = pos.get("current_premium", 0.0)
-                exit_reason = self._check_exit_conditions(pos, latest_row, current_premium)
+                exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
+                    pos, latest_row, current_premium
+                )
                 if exit_reason:
                     await self._exit_position(pos, exit_reason, current_premium, callback)
 
@@ -1461,13 +1643,10 @@ class LiveEngine:
         # ── Phase 2: Fire all leg orders in parallel (asyncio.gather) ──
         async def _place_one_leg(plan):
             i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
-            ws_sec_id = None
             trading_symbol = f"{underlying} {strike}{opt_type} {expiry}"
             self.log_event(
                 "entry", f"🦿 Leg {i + 1}: {txn_type} {lots}x {strike}{opt_type} ({entry_order_type}, {product_type})"
             )
-            if self._ws_mode and self._feed:
-                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
             try:
                 result = await self.dhan.async_place_option_order(
                     underlying=underlying,
@@ -1482,8 +1661,26 @@ class LiveEngine:
                 )
                 order_id = result.get("orderId", "")
                 self.log_event("order", f"✅ Order placed: {txn_type} {trading_symbol} | OrderID: {order_id}")
+                verification = await self._verify_order_execution(
+                    order_id,
+                    quantity,
+                    stage="entry",
+                    label=f"Leg {i + 1} {trading_symbol}",
+                    timeout_sec=self._entry_fill_timeout_sec,
+                )
+                if verification.get("partial_fill"):
+                    await self._emergency_flatten_partial_entry(
+                        underlying=underlying,
+                        strike=strike,
+                        expiry=expiry,
+                        option_type=opt_type,
+                        transaction_type=txn_type,
+                        filled_qty=int(verification.get("filled_qty") or 0),
+                        product_type=product_type,
+                        label=f"Leg {i + 1} {trading_symbol}",
+                    )
                 return (
-                    True,
+                    bool(verification.get("passed")),
                     i,
                     leg,
                     strike,
@@ -1492,11 +1689,11 @@ class LiveEngine:
                     opt_type,
                     txn_type,
                     lots,
-                    ws_sec_id,
                     expiry,
                     lot_size,
                     order_id,
                     trading_symbol,
+                    verification,
                 )
             except Exception as e:
                 self.log_event("error", f"❌ Order FAILED for Leg {i + 1}: {e}")
@@ -1510,11 +1707,11 @@ class LiveEngine:
                     opt_type,
                     txn_type,
                     lots,
-                    ws_sec_id,
                     expiry,
                     lot_size,
                     None,
                     trading_symbol,
+                    {"status": "ERROR", "message": str(e), "filled_qty": 0, "avg_price": 0.0},
                 )
 
         results = await asyncio.gather(*[_place_one_leg(p) for p in leg_plans])
@@ -1533,20 +1730,24 @@ class LiveEngine:
                 opt_type,
                 txn_type,
                 lots,
-                ws_sec_id,
                 expiry,
                 lot_size,
                 order_id,
                 trading_symbol,
+                verification,
             ) = res
             if not ok:
                 any_failed = True
                 continue
 
-            # Get fill price — reuse scanned LTP, else async fetch, else estimate
-            if scanned_premium > 0:
+            ws_sec_id = None
+            if self._ws_mode and self._feed:
+                ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
+
+            entry_premium = self._safe_float(verification.get("avg_price"), 0.0)
+            if entry_premium <= 0 and scanned_premium > 0:
                 entry_premium = scanned_premium
-            else:
+            if entry_premium <= 0:
                 try:
                     entry_premium = await self.dhan.async_get_option_ltp(
                         underlying, strike, expiry, opt_type
@@ -1583,6 +1784,9 @@ class LiveEngine:
                 "entry_order_id": order_id,
                 "sl_order_id": None,
                 "exit_order_id": None,
+                "entry_fill_verified": True,
+                "entry_fill_status": verification.get("status"),
+                "entry_quote_premium": scanned_premium if scanned_premium > 0 else None,
                 "trading_symbol": trading_symbol,
                 "symbol": trading_symbol,
                 "status": "open",
@@ -1681,9 +1885,74 @@ class LiveEngine:
             self.log_event("error", f"SL order failed for Leg {pos['leg_num']}: {e}")
 
     # ── Exit ──────────────────────────────────────────────────
+    async def _record_closed_trade(self, pos: dict, reason: str, exit_premium: float, quantity: int):
+        quantity = max(0, int(quantity or 0))
+        if quantity <= 0:
+            return None
+
+        closed_trade = pos.copy()
+        closed_trade["status"] = "closed"
+        closed_trade["exit_time"] = self.current_time
+        closed_trade["exit_reason"] = reason
+        closed_trade["quantity"] = quantity
+        closed_trade["lots"] = quantity / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
+        closed_trade["exit_premium"] = exit_premium
+        closed_trade.pop("_force_exit_reason", None)
+
+        direction = 1 if pos["transaction_type"] == "BUY" else -1
+        pnl = round((exit_premium - pos["entry_premium"]) * direction * quantity, 2)
+        closed_trade["pnl"] = pnl
+        self.daily_pnl += pnl
+
+        async with self._trades_lock:
+            self.closed_trades.append(closed_trade)
+
+        self.log_event(
+            "exit",
+            f"🔚 Leg {pos['leg_num']} closed ({reason}): "
+            f"Entry ₹{pos['entry_premium']:.2f} → Exit ₹{exit_premium:.2f} | Qty {quantity} | P&L: ₹{pnl:,.2f}",
+        )
+        return closed_trade
+
+    async def _handle_partial_exit_fill(self, pos: dict, reason: str, verification: dict):
+        filled_qty = min(self._position_quantity(pos), int(verification.get("filled_qty") or 0))
+        if filled_qty <= 0:
+            return False
+
+        exit_premium = self._safe_float(verification.get("avg_price"), pos.get("current_premium", pos["entry_premium"]))
+        await self._record_closed_trade(pos, reason, exit_premium, filled_qty)
+
+        remaining_qty = max(0, self._position_quantity(pos) - filled_qty)
+        if remaining_qty <= 0:
+            async with self._trades_lock:
+                if pos in self.positions:
+                    self.positions.remove(pos)
+            self.in_trade = bool(self.positions)
+            if not self.positions:
+                self._signal_candle = None
+                self.strat_sl_val = 0
+                self.strat_tp_val = 0
+            self._save_state()
+            return True
+
+        pos["quantity"] = remaining_qty
+        pos["lots"] = remaining_qty / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
+        pos["current_premium"] = exit_premium
+        pos["unrealized_pnl"] = round(self._position_unrealized_pnl(pos, exit_premium), 2)
+        pos["_force_exit_reason"] = reason
+        pos["partial_exit_count"] = int(pos.get("partial_exit_count", 0) or 0) + 1
+
+        self.log_event(
+            "warning",
+            f"Partial exit fill for Leg {pos['leg_num']}: closed {filled_qty}, remaining {remaining_qty}. Retrying remaining exposure.",
+        )
+        self._save_state()
+        return True
+
     async def _exit_position(self, pos: dict, reason: str, exit_premium: float, callback=None):
         """Exit a position: cancel SL + place exit order (async, non-blocking)."""
         opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
+        pos["_force_exit_reason"] = reason
 
         exit_order_type = self.deploy_config.get("exit_order", "MARKET")
         product_type = self.deploy_config.get("product_type", "INTRADAY")
@@ -1716,11 +1985,18 @@ class LiveEngine:
         try:
             # Fire SL cancel + exit order in parallel
             _, result = await asyncio.gather(_cancel_sl(), _place_exit())
-            pos["exit_order_id"] = result.get("orderId", "")
-            pos["_exit_attempts"] = 0
+            order_id = result.get("orderId", "")
+            pos["exit_order_id"] = order_id
             self.log_event(
                 "order",
-                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} | OrderID: {pos['exit_order_id']}",
+                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} | OrderID: {order_id}",
+            )
+            verification = await self._verify_order_execution(
+                order_id,
+                self._position_quantity(pos),
+                stage="exit",
+                label=f"Leg {pos['leg_num']} {pos['trading_symbol']}",
+                timeout_sec=self._exit_fill_timeout_sec,
             )
         except Exception as e:
             pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
@@ -1736,27 +2012,32 @@ class LiveEngine:
                 self.running = False
             return  # position stays open — next cycle will retry
 
-        # Update position
-        pos["status"] = "closed"
-        pos["exit_time"] = self.current_time
-        pos["exit_premium"] = exit_premium
-        pos["exit_reason"] = reason
+        if verification.get("partial_fill"):
+            await self._handle_partial_exit_fill(pos, reason, verification)
+            return
+        if not verification.get("passed"):
+            pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
+            attempt = pos["_exit_attempts"]
+            self.log_event(
+                "error",
+                f"❌ Exit verification FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {verification.get('status')} {verification.get('message', '')}".strip(),
+            )
+            if attempt >= 3:
+                self.manual_intervention_required = True
+                self.running = False
+                self.log_event(
+                    "error",
+                    f"CRITICAL: Exit not confirmed after {attempt} attempts for Leg {pos['leg_num']} ({pos['trading_symbol']}). Manual intervention required.",
+                )
+            return
 
-        direction = 1 if pos["transaction_type"] == "BUY" else -1
-        pnl = round((exit_premium - pos["entry_premium"]) * direction * pos["lots"] * pos["lot_size"], 2)
-        pos["pnl"] = pnl
-        self.daily_pnl += pnl
+        pos["_exit_attempts"] = 0
+        actual_exit_premium = self._safe_float(verification.get("avg_price"), exit_premium)
+        await self._record_closed_trade(pos, reason, actual_exit_premium, self._position_quantity(pos))
 
         async with self._trades_lock:
-            self.closed_trades.append(pos.copy())
-            self.positions.remove(pos)
-
-        self.log_event(
-            "exit",
-            f"🔚 Leg {pos['leg_num']} closed ({reason}): "
-            f"Entry ₹{pos['entry_premium']:.2f} → "
-            f"Exit ₹{exit_premium:.2f} | P&L: ₹{pnl:,.2f}",
-        )
+            if pos in self.positions:
+                self.positions.remove(pos)
 
         # Check if all legs closed
         if not self.positions:
@@ -1768,6 +2049,8 @@ class LiveEngine:
             self.log_event(
                 "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | Daily P&L: ₹{self.daily_pnl:,.2f}"
             )
+        else:
+            self.in_trade = True
         self._save_state()  # Persist after trade close
 
     # ── Exit Condition Check ──────────────────────────────────
@@ -1833,7 +2116,7 @@ class LiveEngine:
         # SL ₹ Total (leg-level rupee loss)
         sl_rupees = pos.get("sl_rupees", 0)
         if sl_rupees > 0:
-            qty = pos["lots"] * pos["lot_size"]
+            qty = self._position_quantity(pos)
             direction = 1 if pos["transaction_type"] == "BUY" else -1
             cur_pnl = (current_premium - pos["entry_premium"]) * direction * qty
             if cur_pnl <= -sl_rupees:
@@ -1842,7 +2125,7 @@ class LiveEngine:
         # Target ₹ Total (leg-level rupee profit)
         target_rupees = pos.get("target_rupees", 0)
         if target_rupees > 0:
-            qty = pos["lots"] * pos["lot_size"]
+            qty = self._position_quantity(pos)
             direction = 1 if pos["transaction_type"] == "BUY" else -1
             cur_pnl = (current_premium - pos["entry_premium"]) * direction * qty
             if cur_pnl >= target_rupees:
@@ -2063,6 +2346,9 @@ class LiveEngine:
             "daily_pnl": round(self.daily_pnl, 2),
             "capital_rejections": self.capital_rejections,
             "last_capital_check": self.last_capital_check,
+            "order_verification_failures": self.order_verification_failures,
+            "last_order_verification": self.last_order_verification,
+            "manual_intervention_required": self.manual_intervention_required,
             "positions": positions_out,
             "closed_trades": closed_out,
             "total_pnl": round(total_pnl, 2),

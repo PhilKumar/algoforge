@@ -116,6 +116,10 @@ class PaperTradingEngine:
         self._sell_option_margin_per_lot = 0.0
         self.capital_rejections = 0
         self.last_capital_check = {}
+        self.execution_profile = "auto"
+        self._spread_bps = 0.0
+        self._entry_slippage_bps = 0.0
+        self._exit_slippage_bps = 0.0
 
         # Live data
         self.current_spot = 0.0
@@ -166,6 +170,10 @@ class PaperTradingEngine:
                 "trade_entry_prem": self.trade_entry_prem,
                 "capital_rejections": self.capital_rejections,
                 "last_capital_check": self.last_capital_check,
+                "execution_profile": self.execution_profile,
+                "spread_bps": self._spread_bps,
+                "entry_slippage_bps": self._entry_slippage_bps,
+                "exit_slippage_bps": self._exit_slippage_bps,
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
                 "current_candle": self.current_candle,
@@ -263,6 +271,10 @@ class PaperTradingEngine:
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
             self.capital_rejections = state.get("capital_rejections", 0)
             self.last_capital_check = state.get("last_capital_check", {}) or {}
+            self.execution_profile = state.get("execution_profile", self.execution_profile)
+            self._spread_bps = float(state.get("spread_bps", 0.0) or 0.0)
+            self._entry_slippage_bps = float(state.get("entry_slippage_bps", 0.0) or 0.0)
+            self._exit_slippage_bps = float(state.get("exit_slippage_bps", 0.0) or 0.0)
             self.current_spot = state.get("current_spot", 0.0)
             self.current_candle = state.get("current_candle", {})
             self.current_indicators = state.get("current_indicators", {})
@@ -328,6 +340,10 @@ class PaperTradingEngine:
             strategy.get("instrument", "26000"),
             strategy.get("sell_option_margin_per_lot", 0),
         )
+        self.execution_profile = str(strategy.get("execution_profile", "auto") or "auto")
+        self._spread_bps = max(0.0, float(strategy.get("spread_bps", 0) or 0))
+        self._entry_slippage_bps = max(0.0, float(strategy.get("entry_slippage_bps", 0) or 0))
+        self._exit_slippage_bps = max(0.0, float(strategy.get("exit_slippage_bps", 0) or 0))
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         if sl_rupees > 0 or sl_pct > 0:
@@ -342,7 +358,7 @@ class PaperTradingEngine:
             else position.get("current_premium", position.get("entry_premium", 0.0)) or 0.0
         )
         direction = 1 if position.get("transaction_type") == "BUY" else -1
-        quantity = int(position.get("lots", 0) * position.get("lot_size", 0))
+        quantity = self._position_quantity(position)
         return (premium - float(position.get("entry_premium", 0.0))) * direction * quantity
 
     def _portfolio_unrealized_pnl(self) -> float:
@@ -352,8 +368,7 @@ class PaperTradingEngine:
 
     def _set_strategy_thresholds(self, positions: list[dict]):
         entry_notional = sum(
-            float(position.get("entry_premium", 0.0)) * int(position.get("lots", 0) * position.get("lot_size", 0))
-            for position in positions
+            float(position.get("entry_premium", 0.0)) * self._position_quantity(position) for position in positions
         )
         self.trade_entry_prem = round(entry_notional, 2)
 
@@ -386,12 +401,45 @@ class PaperTradingEngine:
             return "STRATEGY_TP"
         return None
 
+    @staticmethod
+    def _position_quantity(position: dict) -> int:
+        quantity = position.get("quantity")
+        if quantity is not None:
+            try:
+                return max(0, int(round(float(quantity))))
+            except Exception:
+                pass
+        try:
+            return max(0, int(round(float(position.get("lots", 0)) * float(position.get("lot_size", 0)))))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            if value is None or value == "":
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    def _apply_execution_costs(self, price: float, transaction_type: str, stage: str) -> float:
+        base_price = max(0.05, float(price or 0.0))
+        half_spread = self._spread_bps / 20000.0
+        slip_bps = self._entry_slippage_bps if stage == "entry" else self._exit_slippage_bps
+        adverse_move = half_spread + (slip_bps / 10000.0)
+        if transaction_type == "BUY":
+            multiplier = 1.0 + adverse_move if stage == "entry" else max(0.0, 1.0 - adverse_move)
+        else:
+            multiplier = max(0.0, 1.0 - adverse_move) if stage == "entry" else 1.0 + adverse_move
+        return max(0.05, round(base_price * multiplier, 4))
+
     def _capital_required_for_entry(
         self, transaction_type: str, entry_premium: float, lots: int, lot_size: int
     ) -> float:
         if transaction_type == "SELL":
             return float(lots) * self._sell_option_margin_per_lot
-        quantity = int(lots) * int(lot_size)
+        quantity = int(round(float(lots) * float(lot_size)))
         return max(0.0, float(entry_premium)) * float(quantity)
 
     def _capital_limit(self, available_capital: float) -> float:
@@ -1046,7 +1094,7 @@ class PaperTradingEngine:
             # Calculate unrealized P&L
             direction = 1 if position["transaction_type"] == "BUY" else -1
             position["unrealized_pnl"] = (
-                (current_premium - position["entry_premium"]) * direction * position["lots"] * position["lot_size"]
+                (current_premium - position["entry_premium"]) * direction * self._position_quantity(position)
             )
 
         strategy_exit = self._check_strategy_exit()
@@ -1310,7 +1358,7 @@ class PaperTradingEngine:
         # SL ₹ Total check (leg-level, total rupee loss)
         sl_rupees = position.get("sl_rupees", 0)
         if sl_rupees > 0:
-            qty = position["lots"] * position["lot_size"]
+            qty = self._position_quantity(position)
             direction = 1 if position["transaction_type"] == "BUY" else -1
             cur_pnl = (current_premium - position["entry_premium"]) * direction * qty
             if cur_pnl <= -sl_rupees:
@@ -1319,7 +1367,7 @@ class PaperTradingEngine:
         # Target ₹ Total check (leg-level, total rupee profit)
         target_rupees = position.get("target_rupees", 0)
         if target_rupees > 0:
-            qty = position["lots"] * position["lot_size"]
+            qty = self._position_quantity(position)
             direction = 1 if position["transaction_type"] == "BUY" else -1
             cur_pnl = (current_premium - position["entry_premium"]) * direction * qty
             if cur_pnl >= target_rupees:
@@ -1423,6 +1471,14 @@ class PaperTradingEngine:
                 entry_premium = await self._estimate_premium(strike, entry_spot, option_type, strike_step)
                 self.log_event("warning", f"Using estimated premium: ₹{entry_premium:.2f}")
 
+            quoted_entry_premium = float(entry_premium)
+            entry_premium = self._apply_execution_costs(
+                quoted_entry_premium,
+                leg["transaction_type"],
+                "entry",
+            )
+            quantity = int(leg_lots) * int(lot_size)
+
             option_name = f"{symbol} {strike} {option_type}"
             planned_positions.append(
                 {
@@ -1435,10 +1491,12 @@ class PaperTradingEngine:
                     "expiry": expiry,
                     "entry_time": entry_time,
                     "entry_spot": entry_spot,
+                    "entry_quote_premium": quoted_entry_premium,
                     "entry_premium": entry_premium,
                     "current_premium": entry_premium,
                     "lots": leg_lots,
                     "lot_size": lot_size,
+                    "quantity": quantity,
                     "sl_pct": leg.get("sl_pct", 0),
                     "target_pct": leg.get("target_pct", 0),
                     "sl_points": leg.get("sl_points", 0),
@@ -1612,13 +1670,16 @@ class PaperTradingEngine:
         position["status"] = "closed"
         position["exit_time"] = self.current_time
         position["exit_reason"] = reason
+        position["exit_quote_premium"] = float(exit_premium)
+
+        adjusted_exit_premium = self._apply_execution_costs(exit_premium, position["transaction_type"], "exit")
 
         direction = 1 if position["transaction_type"] == "BUY" else -1
-        qty = position["lots"] * position["lot_size"]
+        qty = self._position_quantity(position)
         ep = position["entry_premium"]
-        pnl = round((exit_premium - ep) * direction * qty, 2)
+        pnl = round((adjusted_exit_premium - ep) * direction * qty, 2)
 
-        position["exit_premium"] = exit_premium
+        position["exit_premium"] = adjusted_exit_premium
         position["pnl"] = pnl
         self.daily_pnl += pnl
 
@@ -1629,7 +1690,12 @@ class PaperTradingEngine:
         self.log_event(
             "exit",
             f"📊 Exit Leg {position['leg_num']}: {reason} | PnL: ₹{pnl:,.2f}",
-            {"entry_premium": ep, "exit_premium": exit_premium, "pnl": pnl},
+            {
+                "entry_premium": ep,
+                "exit_quote_premium": position["exit_quote_premium"],
+                "exit_premium": adjusted_exit_premium,
+                "pnl": pnl,
+            },
         )
 
         # Check if all positions are closed
@@ -1726,6 +1792,12 @@ class PaperTradingEngine:
             "daily_pnl": round(self.daily_pnl, 2),
             "capital_rejections": self.capital_rejections,
             "last_capital_check": self.last_capital_check,
+            "execution_realism": {
+                "profile": self.execution_profile,
+                "spread_bps": self._spread_bps,
+                "entry_slippage_bps": self._entry_slippage_bps,
+                "exit_slippage_bps": self._exit_slippage_bps,
+            },
             "positions": self.positions,
             "closed_trades": self.closed_trades,
             "total_pnl": round(total_pnl, 2),
