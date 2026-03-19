@@ -6043,7 +6043,7 @@ function updateScalpStrike() {
 
 async function _fetchScalpSpotPrices() {
   try {
-    const r = await fetch('/api/ticker');
+    const r = await fetch(`/api/ticker?_=${Date.now()}`, { cache: 'no-store' });
     const d = await r.json();
     if (d.status === 'ok') {
       if (d.nifty) _scalpSpotCache['NIFTY'] = d.nifty.price;
@@ -6606,7 +6606,7 @@ function _renderScalpStatus(data) {
 //  MARKET TICKER (Live data)
 // ══════════════════════════════════════════════════════════════
 function updateTicker() {
-  fetch('/api/ticker').then(r => r.json()).then(data => {
+  fetch(`/api/ticker?_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
     console.log('Ticker data received:', data);
     if (data.status === 'ok') {
       if (data.nifty) setTickerValue('ticker-nifty', 'ticker-nifty-chg', data.nifty);

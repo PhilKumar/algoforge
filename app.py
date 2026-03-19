@@ -4802,6 +4802,23 @@ _prev_close_cache = {"data": {}, "date": None}  # Cache prev close for the day
 _vix_cache = {"price": 0, "prev_close": 0, "timestamp": 0, "ttl": 60}  # NSE VIX cache (60s)
 
 
+def _ticker_json_response(payload: dict) -> JSONResponse:
+    """Return ticker payloads with explicit no-store headers.
+
+    The topbar ticker is time-sensitive and should never be served from a stale
+    browser/intermediate cache after deploys or after-hours fallbacks.
+    """
+
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 def _fetch_nse_vix() -> dict:
     """Fetch India VIX from NSE allIndices API. Returns {price, prev_close} or cached."""
     now = time.time()
@@ -4924,7 +4941,7 @@ async def get_ticker(request: Request):
 
     # Return cached data if still valid
     if _ticker_cache["data"] and (time.time() - _ticker_cache["timestamp"]) < _ticker_cache["ttl"]:
-        return _ticker_cache["data"]
+        return _ticker_json_response(_ticker_cache["data"])
 
     # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
     _, broker_client, _ = await _request_broker_context(request)
@@ -5070,7 +5087,7 @@ async def get_ticker(request: Request):
                 print(
                     f"[TICKER] Dhan: NIFTY={nifty_ltp} ({n_chg:+.2f}, {n_pct:+.2f}%), SENSEX={sensex_ltp}, VIX={vix_ltp}"
                 )
-                return result
+                return _ticker_json_response(result)
             else:
                 print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")
         except Exception as e:
@@ -5118,13 +5135,13 @@ async def get_ticker(request: Request):
             _ticker_cache["data"] = result
             _ticker_cache["timestamp"] = time.time()
             print(f"[TICKER] yfinance: NIFTY={nifty_price}, SENSEX={sensex_price}")
-            return result
+            return _ticker_json_response(result)
 
         print("[TICKER] yfinance also returned no data")
     except Exception as yf_err:
         print(f"[TICKER] yfinance fallback failed: {yf_err}")
 
-    return {"status": "error", "msg": "No price data available from any source"}
+    return _ticker_json_response({"status": "error", "msg": "No price data available from any source"})
 
 
 # ── Expiry Dates ──────────────────────────────────────────────────
