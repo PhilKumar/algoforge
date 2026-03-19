@@ -65,6 +65,9 @@ server.log
 live_state_*.json
 paper_state_*.json
 trade_history.json
+algoforge.db
+algoforge.db-wal
+algoforge.db-shm
 .current_token
 .token_lock
 *.tmp
