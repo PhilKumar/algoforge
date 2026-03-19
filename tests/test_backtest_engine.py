@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from engine.backtest import run_backtest
+from engine.backtest import eval_condition, run_backtest
 
 
 def _make_ohlcv(
@@ -34,6 +34,31 @@ def _run_backtest(*args, **kwargs):
 
 
 class BacktestRegressionTests(unittest.TestCase):
+    def test_touches_distinguishes_candle_range_from_close_value(self):
+        row = pd.Series(
+            {"open": 101.0, "high": 105.0, "low": 100.0, "close": 102.0},
+            name=pd.Timestamp("2026-03-18 09:20"),
+        )
+
+        self.assertTrue(
+            eval_condition(
+                row,
+                {"left": "current_high", "operator": "touches", "right": "number", "right_number_value": 104},
+            )
+        )
+        self.assertFalse(
+            eval_condition(
+                row,
+                {"left": "current_close", "operator": "touches", "right": "number", "right_number_value": 104},
+            )
+        )
+
+    def test_touches_detects_series_intersection(self):
+        prev_row = pd.Series({"EMA_5_5m": 99.0, "VWAP_5m": 101.0}, name=pd.Timestamp("2026-03-18 09:15"))
+        row = pd.Series({"EMA_5_5m": 101.0, "VWAP_5m": 99.0}, name=pd.Timestamp("2026-03-18 09:20"))
+
+        self.assertTrue(eval_condition(row, {"left": "EMA_5_5m", "operator": "touches", "right": "VWAP_5m"}, prev_row))
+
     def test_signal_exit_closes_on_current_signal_candle(self):
         df = _make_ohlcv("2026-03-18 09:20", [100, 101, 102, 103])
         result = _run_backtest(
