@@ -144,6 +144,12 @@ Target staging URL:
 https://staging.philforge.in
 ```
 
+Immediate temporary URL before DNS is updated:
+
+```text
+http://13.205.229.208.nip.io
+```
+
 ### DNS
 
 Create an `A` record:
@@ -167,6 +173,12 @@ That creates:
 - `/home/ec2-user/algoforge-staging/.env.staging`
 - `algoforge-staging.service`
 - an HTTP bootstrap Nginx vhost for `staging.philforge.in`
+
+Before DNS is updated, you can test the bootstrap staging site at:
+
+```text
+http://13.205.229.208.nip.io
+```
 
 Edit `/home/ec2-user/algoforge-staging/.env.staging`, then rerun:
 
