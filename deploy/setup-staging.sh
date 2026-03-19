@@ -12,6 +12,7 @@ BRANCH="${BRANCH:-feature/multi-tenant}"
 STAGING_DOMAIN="${STAGING_DOMAIN:-staging.philforge.in}"
 STAGING_PORT="${STAGING_PORT:-8002}"
 SERVICE_NAME="algoforge-staging"
+BACKUP_SERVICE_NAME="algoforge-staging-backup"
 SITE_CONF="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
 
 ENABLE_TLS="${ENABLE_TLS:-0}"          # set to 1 after DNS is pointed
@@ -57,8 +58,11 @@ mkdir -p "$STAGING_DIR/backups" "$STAGING_DIR/data/users"
 
 log "Installing $SERVICE_NAME systemd unit..."
 sudo cp "$STAGING_DIR/deploy/algoforge-staging.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+sudo cp "$STAGING_DIR/deploy/${BACKUP_SERVICE_NAME}.service" "/etc/systemd/system/${BACKUP_SERVICE_NAME}.service"
+sudo cp "$STAGING_DIR/deploy/${BACKUP_SERVICE_NAME}.timer" "/etc/systemd/system/${BACKUP_SERVICE_NAME}.timer"
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl enable "${BACKUP_SERVICE_NAME}.timer"
 
 log "Installing bootstrap nginx config for $STAGING_DOMAIN..."
 sudo cp "$STAGING_DIR/deploy/nginx.staging.bootstrap.conf" "$SITE_CONF"
