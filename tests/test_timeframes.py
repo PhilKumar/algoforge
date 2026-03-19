@@ -179,7 +179,7 @@ class LiveTouchExitTests(unittest.TestCase):
         engine = LiveEngine(dhan=DummyBroker(), run_id="touch-live")
         engine.strategy = {"instrument": "26000", "timeframe_minutes": 3, "indicators": []}
         engine.exit_conditions = [
-            {"left": "current_close", "operator": "touches", "right": "number", "right_number_value": 104}
+            {"left": "current_high", "operator": "touches", "right": "number", "right_number_value": 104}
         ]
         engine.current_time = pd.Timestamp("2026-03-19 09:22:30").to_pydatetime()
         engine.current_spot = 102.0
@@ -212,7 +212,7 @@ class PaperTouchExitTests(unittest.TestCase):
         engine = PaperTradingEngine(dhan=DummyBroker(), run_id="touch-paper")
         engine.strategy = {"instrument": "26000", "timeframe_minutes": 3, "indicators": []}
         engine.exit_conditions = [
-            {"left": "current_close", "operator": "touches", "right": "number", "right_number_value": 104}
+            {"left": "current_high", "operator": "touches", "right": "number", "right_number_value": 104}
         ]
         engine.current_time = pd.Timestamp("2026-03-19 09:22:30").to_pydatetime()
         engine.current_spot = 102.0

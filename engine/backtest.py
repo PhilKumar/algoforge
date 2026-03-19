@@ -142,6 +142,8 @@ _PRICE_MAP = {
     "current_close": "close",
     "current_volume": "volume",
 }
+_TOUCH_RANGE_KEYS = {"current_high", "current_low"}
+_TOUCH_POINT_KEYS = {"current_open", "current_close"}
 
 
 def _resolve_value(row, key, cond=None):
@@ -153,6 +155,93 @@ def _resolve_value(row, key, cond=None):
     if key in ("true", "false"):
         return key == "true"
     return row.get(key)
+
+
+def _touch_tolerance(a: float, b: float) -> float:
+    scale = max(abs(a), abs(b), 1.0)
+    return max(1e-9, scale * 1e-9)
+
+
+def _touches_are_equal(a: float, b: float) -> bool:
+    return abs(a - b) <= _touch_tolerance(a, b)
+
+
+def _touch_range_price(row, target_value: float) -> float | None:
+    candle_high = row.get("high")
+    candle_low = row.get("low")
+    if candle_high is None or candle_low is None:
+        return None
+    try:
+        high_val = float(candle_high)
+        low_val = float(candle_low)
+    except (TypeError, ValueError):
+        return None
+    if low_val <= target_value <= high_val:
+        return target_value
+    return None
+
+
+def _touch_fill_price(row, cond, prev_row=None):
+    left = cond["left"]
+    right = cond["right"]
+    lv = _resolve_value(row, left)
+    rv = _resolve_value(row, right, cond)
+    try:
+        if lv is None or rv is None:
+            return None
+        if isinstance(lv, float) and pd.isna(lv):
+            return None
+        if not isinstance(rv, bool) and isinstance(rv, float) and pd.isna(rv):
+            return None
+        lv_f = float(lv)
+        rv_f = float(rv)
+    except (TypeError, ValueError):
+        return None
+
+    if left in _TOUCH_RANGE_KEYS:
+        return _touch_range_price(row, rv_f)
+    if right in _TOUCH_RANGE_KEYS:
+        return _touch_range_price(row, lv_f)
+
+    if left in _TOUCH_POINT_KEYS:
+        point_value = row.get(_PRICE_MAP[left])
+        try:
+            point_f = float(point_value)
+        except (TypeError, ValueError):
+            return None
+        return rv_f if _touches_are_equal(point_f, rv_f) else None
+    if right in _TOUCH_POINT_KEYS:
+        point_value = row.get(_PRICE_MAP[right])
+        try:
+            point_f = float(point_value)
+        except (TypeError, ValueError):
+            return None
+        return lv_f if _touches_are_equal(lv_f, point_f) else None
+
+    if _touches_are_equal(lv_f, rv_f):
+        return rv_f
+    if prev_row is None:
+        return None
+
+    plv = _resolve_value(prev_row, left)
+    prv = _resolve_value(prev_row, right, cond)
+    try:
+        if plv is None or prv is None:
+            return None
+        if isinstance(plv, float) and pd.isna(plv):
+            return None
+        if isinstance(prv, float) and pd.isna(prv):
+            return None
+        prev_diff = float(plv) - float(prv)
+    except (TypeError, ValueError):
+        return None
+
+    cur_diff = lv_f - rv_f
+    if _touches_are_equal(cur_diff, 0.0) or _touches_are_equal(prev_diff, 0.0):
+        return rv_f
+    if (prev_diff < 0 < cur_diff) or (prev_diff > 0 > cur_diff):
+        return rv_f
+    return None
 
 
 def eval_condition(row, cond, prev_row=None):
@@ -247,10 +336,7 @@ def eval_condition(row, cond, prev_row=None):
             return lv_f < rv_f
         return plv_f >= prv_f and lv_f < rv_f
     if op == "touches":
-        # Intra-candle touch: RHS level is within candle's [Low, High] range
-        h_val = float(row.get("high", 0))
-        lo_val = float(row.get("low", 0))
-        return lo_val <= rv_f <= h_val
+        return _touch_fill_price(row, cond, prev_row) is not None
     if op == "is_above":
         return lv_f > rv_f
     elif op == "is_below":
@@ -795,17 +881,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         return True
 
     def _touch_spot(touch_row):
-        candle_high = float(touch_row.get("high", 0))
-        candle_low = float(touch_row.get("low", 0))
         for condition in exit_conditions:
             if condition.get("operator") != "touches":
                 continue
-            rhs_value = _resolve_value(touch_row, condition["right"], condition)
-            if rhs_value is None:
-                continue
-            rhs_float = float(rhs_value)
-            if candle_low <= rhs_float <= candle_high:
-                return rhs_float
+            touch_price = _touch_fill_price(touch_row, condition, prev_row)
+            if touch_price is not None:
+                return float(touch_price)
         return None
 
     def _build_entry_positions(entry_spot, entry_ts, trade_date, day_lot_size):
