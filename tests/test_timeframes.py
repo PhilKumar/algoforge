@@ -610,6 +610,35 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.event_log[-1]["type"], "info")
         self.assertIn("already traded", engine.event_log[-1]["message"])
 
+    async def test_nested_position_payload_does_not_break_broker_sync(self):
+        class DummyScalpBroker:
+            def get_positions_cached(self, ttl=3.0):
+                return [[{"securityId": "555", "netQty": 75}]]
+
+        engine = ScalpEngine(DummyScalpBroker())
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            order_id="ENTRY1",
+            mode="live",
+        )
+        trade.current_premium = 108.0
+        trade.entry_time = trade.entry_time - pd.Timedelta(seconds=20)
+        engine.open_trades[trade.trade_id] = trade
+        engine._close_trade = AsyncMock()
+
+        with patch("scalp.ScripMaster.lookup", return_value="555"):
+            await engine._sync_broker_positions()
+
+        engine._close_trade.assert_not_awaited()
+
 
 class PaperExecutionRealismTests(unittest.TestCase):
     def test_paper_execution_costs_make_entry_and_exit_worse_for_longs(self):

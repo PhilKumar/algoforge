@@ -707,6 +707,20 @@ class ScalpEngine:
                 return str(value)
         return ""
 
+    @staticmethod
+    def _flatten_positions(positions: Any) -> list[Dict[str, Any]]:
+        if not isinstance(positions, list):
+            return [positions] if isinstance(positions, dict) else []
+        flat: list[Dict[str, Any]] = []
+        queue = list(positions)
+        while queue:
+            item = queue.pop(0)
+            if isinstance(item, dict):
+                flat.append(item)
+            elif isinstance(item, list):
+                queue[:0] = item
+        return flat
+
     async def _sync_broker_positions(self):
         live_trades = [t for t in self.open_trades.values() if t.status == "open" and t.mode == "live"]
         if not live_trades:
@@ -717,9 +731,10 @@ class ScalpEngine:
             self._log("error", f"Broker position sync failed: {e}")
             return
 
+        position_rows = self._flatten_positions(positions)
         open_security_ids = {
             self._position_security_id(pos)
-            for pos in (positions or [])
+            for pos in position_rows
             if self._position_security_id(pos) and self._position_net_qty(pos) != 0
         }
         now = _now_ist()

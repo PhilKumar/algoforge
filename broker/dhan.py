@@ -1449,7 +1449,23 @@ class DhanClient:
         )
         if resp.status_code != 200:
             raise Exception(f"Positions fetch failed: {resp.text}")
-        return resp.json().get("data", [])
+        payload = resp.json()
+        if isinstance(payload, dict):
+            rows = payload.get("data", [])
+        elif isinstance(payload, list):
+            rows = payload
+        else:
+            rows = []
+
+        normalized = []
+        queue = list(rows) if isinstance(rows, list) else [rows]
+        while queue:
+            item = queue.pop(0)
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, list):
+                queue[:0] = item
+        return normalized
 
     def get_funds(self) -> dict:
         """Get available margin/funds"""
