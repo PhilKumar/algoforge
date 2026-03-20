@@ -1276,6 +1276,21 @@ class DhanClient:
             refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 202):
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            error_message = str((data or {}).get("errorMessage", "") or resp.text)
+            # Dhan returns 400 here if the order already traded before our
+            # cancel reached the broker. Treat that as a terminal traded state,
+            # not as a fatal cancel failure.
+            if resp.status_code == 400 and "Order Has Traded" in error_message:
+                return {
+                    "orderId": order_id,
+                    "orderStatus": "TRADED",
+                    "errorMessage": error_message,
+                    **(data if isinstance(data, dict) else {}),
+                }
             raise Exception(f"Super order cancel failed {resp.status_code}: {resp.text}")
         try:
             return resp.json()

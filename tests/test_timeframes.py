@@ -579,6 +579,37 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine._close_trade.await_args.args[1], "broker_manual_exit")
         self.assertTrue(engine._close_trade.await_args.kwargs["skip_broker_exit"])
 
+    async def test_super_order_cancel_already_traded_is_not_logged_as_error(self):
+        class DummyScalpBroker:
+            def cancel_super_order(self, order_id, leg_name="ENTRY_LEG"):
+                return {
+                    "orderId": order_id,
+                    "orderStatus": "TRADED",
+                    "errorMessage": "Order Has Traded Please Refresh Order Book",
+                }
+
+        engine = ScalpEngine(DummyScalpBroker())
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            order_id="ENTRY1",
+            mode="live",
+        )
+        trade.super_order_id = "333260320564871"
+
+        await engine._cancel_super_order(trade)
+
+        self.assertEqual(trade.super_order_status, "TRADED")
+        self.assertEqual(engine.event_log[-1]["type"], "info")
+        self.assertIn("already traded", engine.event_log[-1]["message"])
+
 
 class PaperExecutionRealismTests(unittest.TestCase):
     def test_paper_execution_costs_make_entry_and_exit_worse_for_longs(self):

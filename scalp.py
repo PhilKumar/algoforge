@@ -833,9 +833,14 @@ class ScalpEngine:
         if not trade.super_order_id:
             return
         try:
-            await asyncio.to_thread(self.dhan.cancel_super_order, trade.super_order_id, "ENTRY_LEG")
-            trade.super_order_status = "CANCELLED"
-            self._log("info", f"🚫 Super Order cancelled: orderId={trade.super_order_id}")
+            result = await asyncio.to_thread(self.dhan.cancel_super_order, trade.super_order_id, "ENTRY_LEG")
+            broker_status = str((result or {}).get("orderStatus", "")).upper()
+            if broker_status in ("TRADED", "CLOSED"):
+                trade.super_order_status = broker_status
+                self._log("info", f"ℹ️ Super Order already traded on broker: orderId={trade.super_order_id}")
+            else:
+                trade.super_order_status = "CANCELLED"
+                self._log("info", f"🚫 Super Order cancelled: orderId={trade.super_order_id}")
         except Exception as e:
             self._log("error", f"Super Order cancel failed ({trade.super_order_id}): {e}")
 
