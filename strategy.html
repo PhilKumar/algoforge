@@ -9776,12 +9776,41 @@ async function loadPortfolioData() {
     let winningTrades = 0;
     let monthlyPnL = {};
     let yearlyPnL = {};
+    const toFiniteNumber = (value) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
     const padDatePart = (value) => String(value).padStart(2, '0');
     const formatLocalDateKey = (date) => {
       if (!(date instanceof Date) || isNaN(date.getTime())) return '';
       return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
     };
     const todayDateStr = formatLocalDateKey(new Date());
+    const todayHistoryEntry = portfolioHistory.daily?.[todayDateStr] || {};
+
+    const hasOpenBrokerQty = (position) => {
+      const qty = toFiniteNumber(
+        position.netQty ?? position.netQuantity ?? position.quantity ?? position.qty ?? null
+      );
+      return qty === null ? true : Math.abs(qty) > 0;
+    };
+
+    const getOpenBrokerPositionPnL = (position, allowDayProfitFallback = false) => {
+      const candidates = [
+        position.unrealizedProfit,
+        position.unRealizedProfit,
+        position.unrealizedPnl,
+        position.mtm,
+      ];
+      if (allowDayProfitFallback) {
+        candidates.push(position.dayProfit, position.dayPnl);
+      }
+      for (const candidate of candidates) {
+        const num = toFiniteNumber(candidate);
+        if (num !== null) return num;
+      }
+      return 0;
+    };
 
     // Helper function to parse various date formats from Dhan
     const parseTradeDate = (trade) => {
@@ -9904,6 +9933,11 @@ async function loadPortfolioData() {
     let todayPnL = 0;
     let todayTradesDisplay = [];
 
+    const openBrokerPositions = (Array.isArray(positionsData.data) ? positionsData.data : []).filter(hasOpenBrokerQty);
+    const realizedBrokerTodayFallback = Number(
+      todayHistoryEntry.real_pnl ?? todayHistoryEntry.real_net_pnl ?? 0
+    ) || 0;
+
     if (todayDhanTrades.length > 0) {
       const { totalPnL, pnlByGroup } = calcPnLFromTrades(todayDhanTrades);
       todayPnL = totalPnL;
@@ -9920,12 +9954,27 @@ async function loadPortfolioData() {
       console.log(`[Portfolio] Today's P&L from Dhan trades (paired): ₹${todayPnL.toFixed(2)} (${pnlByGroup.length} instruments)`);
 
       // Add unrealized P&L from open Dhan positions
-      const openPositions = Array.isArray(positionsData.data) ? positionsData.data : [];
-      if (openPositions.length > 0) {
-        const unrealizedPnL = openPositions.reduce((sum, p) => sum + Number(p.unrealizedProfit || p.dayBuyValue - p.daySellValue || 0), 0);
+      if (openBrokerPositions.length > 0) {
+        const unrealizedPnL = openBrokerPositions.reduce(
+          (sum, p) => sum + getOpenBrokerPositionPnL(p),
+          0
+        );
         todayPnL += unrealizedPnL;
-        console.log(`[Portfolio] Added unrealized P&L from ${openPositions.length} open positions: ₹${unrealizedPnL.toFixed(2)}`);
+        console.log(`[Portfolio] Added unrealized P&L from ${openBrokerPositions.length} open positions: ₹${unrealizedPnL.toFixed(2)}`);
       }
+    } else if (
+      openBrokerPositions.length > 0 ||
+      Number(todayHistoryEntry.real_trades || 0) > 0 ||
+      realizedBrokerTodayFallback !== 0
+    ) {
+      const unrealizedPnL = openBrokerPositions.reduce(
+        (sum, p) => sum + getOpenBrokerPositionPnL(p, realizedBrokerTodayFallback === 0),
+        0
+      );
+      todayPnL = realizedBrokerTodayFallback + unrealizedPnL;
+      console.log(
+        `[Portfolio] Using broker fallback for today P&L: realized ₹${realizedBrokerTodayFallback.toFixed(2)}, open ₹${unrealizedPnL.toFixed(2)}, total ₹${todayPnL.toFixed(2)}`
+      );
     } else {
       // Fallback to paper trading closed trades + unrealized positions for today
       const paperTodayTrades = (paperData.closed_trades || []).filter(t => {
