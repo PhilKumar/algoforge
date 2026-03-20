@@ -261,6 +261,83 @@ def _save_stopped_engines(user_id: int):
         pass
 
 
+def _state_file_snapshots(user_id: int) -> list[dict]:
+    """Build Live-page snapshots from today's persisted engine state files.
+
+    This preserves previously visible Live tabs after migration/redeploy even
+    when the in-memory engine bucket is empty and no stopped snapshot file has
+    been written yet.
+    """
+
+    state_dir = _engine_state_dir(user_id, create=False)
+    if not os.path.isdir(state_dir):
+        return []
+
+    today = str(date.today())
+    snapshots: list[dict] = []
+
+    def _snapshot_from_state(fname: str, state: dict, mode: str) -> dict | None:
+        strategy = state.get("strategy") or {}
+        run_id = strategy.get("run_name") or state.get("strategy_name") or fname.rsplit(".", 1)[0]
+        if not run_id:
+            return None
+
+        closed_trades = state.get("closed_trades") or []
+        total_pnl = state.get("daily_pnl")
+        if total_pnl is None:
+            total_pnl = sum((t or {}).get("pnl", 0) for t in closed_trades)
+
+        return {
+            "run_id": run_id,
+            "mode": mode,
+            "running": False,
+            "in_trade": bool(state.get("in_trade", False)),
+            "positions": state.get("positions") or [],
+            "closed_trades": closed_trades,
+            "total_pnl": round(float(total_pnl or 0), 2),
+            "trades_today": int(state.get("trades_today") or len(closed_trades)),
+            "strategy_name": state.get("strategy_name") or run_id,
+            "instrument": state.get("instrument") or strategy.get("instrument") or "",
+            "current_candle": state.get("current_candle") or {},
+            "current_indicators": state.get("current_indicators") or {},
+            "event_log": state.get("event_log") or [],
+            "current_time": state.get("current_time") or "",
+            "strategy": strategy,
+            "_snapshot_source": "state_file",
+            "_snapshot_saved_at": state.get("saved_at") or "",
+        }
+
+    for fname in sorted(os.listdir(state_dir)):
+        if not fname.endswith(".json"):
+            continue
+        if fname.startswith("paper_state_"):
+            mode = "paper"
+        elif fname.startswith("live_state_"):
+            mode = "auto"
+        else:
+            continue
+
+        fpath = os.path.join(state_dir, fname)
+        try:
+            with open(fpath, "r") as f:
+                state = json.load(f)
+        except Exception as e:
+            _logger.warning("[LivePanels] Failed to read state snapshot %s for user %s: %s", fpath, user_id, e)
+            continue
+
+        if not isinstance(state, dict):
+            continue
+        if state.get("session_date") != today:
+            continue
+
+        snap = _snapshot_from_state(fname, state, mode)
+        if snap:
+            snapshots.append(snap)
+
+    snapshots.sort(key=lambda s: (s.get("_snapshot_saved_at") or "", s.get("run_id") or ""), reverse=True)
+    return snapshots
+
+
 # Trade state tracker for Telegram alerts (keyed by run_id)
 _alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
 
@@ -3989,6 +4066,17 @@ async def engines_all(request: Request):
     for run_id, snapshot in stopped_engines.items():
         if run_id not in active_ids:
             engines.append(snapshot)
+            active_ids.add(run_id)
+
+    # Fallback for migrated/admin sessions: if today's persisted engine state
+    # exists but restore/stopped snapshots are absent, synthesize idle panels so
+    # the Live page does not appear blank.
+    if not engines:
+        for snapshot in _state_file_snapshots(user_id):
+            run_id = snapshot.get("run_id")
+            if run_id and run_id not in active_ids:
+                engines.append(snapshot)
+                active_ids.add(run_id)
 
     return {"engines": engines, "count": len(engines)}
 
