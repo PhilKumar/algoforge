@@ -513,6 +513,7 @@ class ScalpEngine:
         _last_rest_call = 0.0
         _last_ws_health_check = 0.0
         _last_super_sync = 0.0
+        _last_position_sync = 0.0
         while self._running:
             # Periodic WS health check — every 30s, verify feed is alive
             now_mono = asyncio.get_event_loop().time()
@@ -529,6 +530,12 @@ class ScalpEngine:
                     await self._sync_super_orders()
                 except Exception as e:
                     self._log("error", f"Super Order monitor sync failed: {e}")
+            if now_mono - _last_position_sync > 5.0:
+                _last_position_sync = now_mono
+                try:
+                    await self._sync_broker_positions()
+                except Exception as e:
+                    self._log("error", f"Broker position monitor sync failed: {e}")
             try:
                 trades = list(self.open_trades.items())
                 if not trades:
@@ -676,6 +683,67 @@ class ScalpEngine:
             return float(leg.get("triggeredQuantity", 0) or 0) > 0
         except Exception:
             return False
+
+    @staticmethod
+    def _position_net_qty(position: Dict[str, Any]) -> int:
+        for key in ("netQty", "netQuantity", "net_quantity", "quantity"):
+            try:
+                if key in position and position.get(key) not in (None, ""):
+                    return int(float(position.get(key) or 0))
+            except Exception:
+                pass
+        try:
+            buy_qty = int(float(position.get("buyQty", 0) or 0))
+            sell_qty = int(float(position.get("sellQty", 0) or 0))
+            return buy_qty - sell_qty
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _position_security_id(position: Dict[str, Any]) -> str:
+        for key in ("securityId", "security_id", "securityID"):
+            value = position.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return ""
+
+    async def _sync_broker_positions(self):
+        live_trades = [t for t in self.open_trades.values() if t.status == "open" and t.mode == "live"]
+        if not live_trades:
+            return
+        try:
+            positions = await asyncio.to_thread(self.dhan.get_positions_cached, 3.0)
+        except Exception as e:
+            self._log("error", f"Broker position sync failed: {e}")
+            return
+
+        open_security_ids = {
+            self._position_security_id(pos)
+            for pos in (positions or [])
+            if self._position_security_id(pos) and self._position_net_qty(pos) != 0
+        }
+        now = _now_ist()
+        for trade in list(live_trades):
+            if trade.trade_id not in self.open_trades:
+                continue
+            if (now - trade.entry_time).total_seconds() < 15:
+                continue
+            sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+            if not sec_id or str(sec_id) in open_security_ids:
+                continue
+            exit_prem = self._get_ltp(trade, trade.trade_id) or trade.current_premium or trade.entry_premium or 0.0
+            self._log(
+                "info",
+                f"🔄 Broker position missing — closing local scalp trade as externally exited: "
+                f"{trade.underlying} {trade.strike}{trade.option_type}",
+            )
+            await self._close_trade(
+                trade,
+                "broker_manual_exit",
+                skip_broker_exit=True,
+                exit_prem_override=exit_prem,
+                exit_order_id_override=trade.super_order_id or trade.order_id,
+            )
 
     async def _sync_super_orders(self):
         trades = [t for t in self.open_trades.values() if t.status == "open" and self._is_super_order_trade(t)]

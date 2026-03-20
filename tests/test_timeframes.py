@@ -7,6 +7,7 @@ from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe, ye
 from engine.live import LiveEngine
 from engine.paper_trading import PaperTradingEngine
 from engine.timeframes import drop_incomplete_candle, next_entry_ready_at, resolve_strategy_timeframe
+from scalp import ScalpEngine, ScalpTrade
 
 
 def _make_ohlcv(start: str, closes: list[float], freq: str = "1min") -> pd.DataFrame:
@@ -541,6 +542,42 @@ class LiveOrderVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(engine.positions), 1)
         self.assertEqual(engine.positions[0]["_force_exit_reason"], "EXIT_SIGNAL")
         self.assertIn("EXIT1", broker.cancelled_orders)
+
+
+class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_broker_exit_closes_local_trade(self):
+        class DummyScalpBroker:
+            def get_positions_cached(self, ttl=3.0):
+                return []
+
+        engine = ScalpEngine(DummyScalpBroker())
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            target_premium=120.0,
+            sl_premium=90.0,
+            order_id="ENTRY1",
+            mode="live",
+        )
+        trade.super_order_id = "SO123"
+        trade.current_premium = 108.0
+        trade.entry_time = trade.entry_time - pd.Timedelta(seconds=20)
+        engine.open_trades[trade.trade_id] = trade
+        engine._close_trade = AsyncMock()
+
+        with patch("scalp.ScripMaster.lookup", return_value="555"):
+            await engine._sync_broker_positions()
+
+        engine._close_trade.assert_awaited_once()
+        self.assertEqual(engine._close_trade.await_args.args[1], "broker_manual_exit")
+        self.assertTrue(engine._close_trade.await_args.kwargs["skip_broker_exit"])
 
 
 class PaperExecutionRealismTests(unittest.TestCase):
