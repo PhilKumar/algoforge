@@ -1868,6 +1868,57 @@ async def dashboard_summary(request: Request):
     worst_run = None
     total_backtests = len(runs)
     recent_transactions: list[dict] = []
+    recent_seen: set[tuple] = set()
+
+    def _add_recent_trade(trade: dict, run_name: str, mode: str):
+        if not isinstance(trade, dict):
+            return
+        symbol = trade.get("symbol") or " ".join(
+            str(part) for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type")) if part
+        )
+        time_value = trade.get("exit_time") or trade.get("entry_time") or ""
+        record = {
+            "time": time_value,
+            "run_name": run_name,
+            "mode": mode,
+            "symbol": symbol or "—",
+            "transaction_type": str(trade.get("transaction_type") or "TRADE").upper(),
+            "entry_time": trade.get("entry_time") or "",
+            "exit_time": trade.get("exit_time") or "",
+            "entry_price": float(
+                trade.get("entry_premium") or trade.get("entry_price") or trade.get("current_premium") or 0
+            ),
+            "exit_price": float(
+                trade.get("exit_premium") or trade.get("exit_price") or trade.get("current_premium") or 0
+            ),
+            "quantity": trade.get("lots") or trade.get("quantity") or "—",
+            "pnl": float(trade.get("pnl") or 0),
+            "reason": trade.get("exit_reason") or trade.get("reason") or "—",
+        }
+        dedupe_key = (
+            record["mode"],
+            record["symbol"],
+            record["transaction_type"],
+            str(record["entry_time"]),
+            str(record["exit_time"]),
+            round(record["entry_price"], 2),
+            round(record["exit_price"], 2),
+            str(record["quantity"]),
+            round(record["pnl"], 2),
+            str(record["reason"]),
+        )
+        if dedupe_key in recent_seen:
+            return
+        recent_seen.add(dedupe_key)
+        recent_transactions.append(record)
+
+    for status in paper_statuses:
+        for trade in status.get("closed_trades", []) or []:
+            _add_recent_trade(trade, status.get("strategy_name") or "Paper Run", "paper")
+    for status in live_statuses:
+        for trade in status.get("closed_trades", []) or []:
+            _add_recent_trade(trade, status.get("strategy_name") or "Live Run", "live")
+
     if runs:
         for r in runs:
             pnl = r.get("total_pnl", 0)
@@ -1875,32 +1926,13 @@ async def dashboard_summary(request: Request):
                 best_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
             if worst_run is None or pnl < worst_run.get("total_pnl", 0):
                 worst_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
+            if r.get("mode") not in ("paper", "live"):
+                continue
             for trade in r.get("trades", []) or []:
-                if not isinstance(trade, dict):
-                    continue
-                symbol = trade.get("symbol") or " ".join(
-                    str(part)
-                    for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type"))
-                    if part
-                )
-                recent_transactions.append(
-                    {
-                        "time": trade.get("exit_time") or trade.get("entry_time") or r.get("created_at", ""),
-                        "run_name": r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}",
-                        "symbol": symbol or "—",
-                        "transaction_type": str(trade.get("transaction_type") or "TRADE").upper(),
-                        "entry_time": trade.get("entry_time") or "",
-                        "exit_time": trade.get("exit_time") or "",
-                        "entry_price": float(
-                            trade.get("entry_premium") or trade.get("entry_price") or trade.get("current_premium") or 0
-                        ),
-                        "exit_price": float(
-                            trade.get("exit_premium") or trade.get("exit_price") or trade.get("current_premium") or 0
-                        ),
-                        "quantity": trade.get("lots") or trade.get("quantity") or "—",
-                        "pnl": float(trade.get("pnl") or 0),
-                        "reason": trade.get("exit_reason") or trade.get("reason") or "—",
-                    }
+                _add_recent_trade(
+                    trade,
+                    r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}",
+                    str(r.get("mode") or "paper"),
                 )
         recent_transactions.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
         recent_transactions = recent_transactions[:10]

@@ -5696,9 +5696,18 @@ function _renderDashboardTransactions(transactions = null) {
 
   const fmtTxnTime = (value) => {
     if (!value) return '—';
-    const ss = String(value);
-    const m = ss.match(/(\d{2}:\d{2}:\d{2})/);
-    return m ? m[1] : escapeHtml(ss);
+    const dt = new Date(value);
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+    }
+    return escapeHtml(String(value));
   };
 
   body.innerHTML = pageData.map((txn) => `
