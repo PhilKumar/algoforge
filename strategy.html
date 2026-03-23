@@ -5261,6 +5261,7 @@ function loadTemplate(key) {
 //  FETCH & DISPLAY ALL RUNS (Backtest / Paper / Live)
 // ══════════════════════════════════════════════════════════════
 let _allRunsCache = [];
+let _dashboardTransactionsCache = [];
 let _currentRunFilter = 'all';
 let _runsPageDash = 1;
 let _runsPageResults = 1;
@@ -5633,7 +5634,8 @@ function _renderDashboardTransactions(transactions = null) {
   const body = document.getElementById('transactions-body');
   if (!body) return;
 
-  const txns = Array.isArray(transactions) && transactions.length ? transactions.map((txn, idx) => ({
+  const sourceTxns = Array.isArray(transactions) ? transactions : _dashboardTransactionsCache;
+  const txns = Array.isArray(sourceTxns) && sourceTxns.length ? sourceTxns.map((txn, idx) => ({
     time: txn.time || '',
     runName: txn.run_name || txn.runName || 'Unnamed',
     symbol: txn.symbol || '—',
@@ -5700,7 +5702,7 @@ function _renderDashRuns() {
     if (empty) empty.style.display = 'block';
     if (container) container.innerHTML = '';
     if (pagEl) { pagEl.style.display = 'none'; }
-    _renderDashboardTransactions();
+    _renderDashboardTransactions(_dashboardTransactionsCache);
     return;
   }
   if (empty) empty.style.display = 'none';
@@ -5715,7 +5717,7 @@ function _renderDashRuns() {
     const pHtml = _buildPagination(_runsPageDash, total, _RUNS_PER_PAGE, '_goDashPage');
     if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
   }
-  _renderDashboardTransactions();
+  _renderDashboardTransactions(_dashboardTransactionsCache);
   _updateBulkBar();
 }
 function _goDashPage(p) { _runsPageDash = p; _renderDashRuns(); }
@@ -10555,7 +10557,8 @@ async function loadDashboardSummary() {
       document.getElementById('dash-worst-name').textContent = d.worst_run.name || 'Worst Run';
       document.getElementById('dash-worst-run').dataset.rid = d.worst_run.id || '';
     }
-    _renderDashboardTransactions(d.recent_transactions || []);
+    _dashboardTransactionsCache = Array.isArray(d.recent_transactions) ? d.recent_transactions : [];
+    _renderDashboardTransactions(_dashboardTransactionsCache);
   } catch(e) {
     console.warn('Dashboard summary failed:', e);
   }
