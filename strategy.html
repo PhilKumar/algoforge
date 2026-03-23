@@ -3935,16 +3935,16 @@
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
             <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
-            <th style="padding: 8px 10px; text-align: left;">Date</th>
-            <th style="padding: 8px 10px; text-align: left;">Symbol</th>
-            <th style="padding: 8px 6px; text-align: center;">Dir</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
-            <th style="padding: 8px 6px; text-align: center;">Time</th>
-            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Lots</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
-            <th style="padding: 8px 6px; text-align: center;">Reason</th>
-            <th style="padding: 8px 6px; text-align: center;">Mode</th>
+            <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('date')" id="scalp-th-date">Date</th>
+            <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('symbol')" id="scalp-th-symbol">Symbol</th>
+            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('dir')" id="scalp-th-dir">Dir</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('entry')" id="scalp-th-entry">Entry</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('exit')" id="scalp-th-exit">Exit</th>
+            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('time')" id="scalp-th-time">Time</th>
+            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('lots')" id="scalp-th-lots">Lots</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('pnl')" id="scalp-th-pnl">P&L</th>
+            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('reason')" id="scalp-th-reason">Reason</th>
+            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('mode')" id="scalp-th-mode">Mode</th>
             <th style="padding: 8px 6px; text-align: center;">Del</th>
           </tr>
         </thead>
@@ -5816,6 +5816,20 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
 }
 function _goScalpPage(p) { _scalpPage = p; _renderFilteredRuns(); }
 
+var _paperSortCol = 'date';
+var _paperSortAsc = false;
+
+function _sortPaperRuns(col) {
+  if (_paperSortCol === col) { _paperSortAsc = !_paperSortAsc; } else { _paperSortCol = col; _paperSortAsc = true; }
+  _portfolioPaperPage = 1;
+  _renderPortfolioPaperRuns(_allRunsCache);
+}
+
+function _paperSortArrow(col) {
+  if (_paperSortCol !== col) return '<span style="opacity:0.3;font-size:9px;margin-left:3px;">▲▼</span>';
+  return _paperSortAsc ? '<span style="font-size:9px;margin-left:3px;">▲</span>' : '<span style="font-size:9px;margin-left:3px;">▼</span>';
+}
+
 function _renderPortfolioPaperRuns(runs) {
   const container = document.getElementById('portfolio-paper-runs');
   const empty = document.getElementById('portfolio-paper-runs-empty');
@@ -5831,6 +5845,26 @@ function _renderPortfolioPaperRuns(runs) {
   }
   if (empty) empty.style.display = 'none';
 
+  // Sort paper runs
+  const _getPaperVal = (r) => {
+    switch(_paperSortCol) {
+      case 'date': return new Date(r.first_entry_time || r.created_at || 0).getTime() || 0;
+      case 'name': return (r.run_name||'').toLowerCase();
+      case 'instrument': return (getInstrumentName(r.instrument)||'').toLowerCase();
+      case 'trades': return r.trade_count || 0;
+      case 'pnl': return r.total_pnl || 0;
+      case 'entry_time': return new Date(r.first_entry_time || r.created_at || 0).getTime() || 0;
+      case 'exit_time': return new Date(r.last_exit_time || 0).getTime() || 0;
+      default: return 0;
+    }
+  };
+  paperRuns.sort((a, b) => {
+    const va = _getPaperVal(a), vb = _getPaperVal(b);
+    if (va < vb) return _paperSortAsc ? -1 : 1;
+    if (va > vb) return _paperSortAsc ? 1 : -1;
+    return 0;
+  });
+
   const total = paperRuns.length;
   const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
   if (_portfolioPaperPage > totalPages) _portfolioPaperPage = totalPages;
@@ -5840,8 +5874,8 @@ function _renderPortfolioPaperRuns(runs) {
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
       <th style="padding: 8px 6px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>
-      <th style="padding: 8px 6px;">Date</th><th style="padding: 8px 6px;">Name</th><th style="padding: 8px 6px;">Instrument</th>
-      <th style="padding: 8px 6px;">Trades</th><th style="padding: 8px 6px;">P&L</th><th style="padding: 8px 6px;">Entry Time</th><th style="padding: 8px 6px;">Exit Time</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
+      <th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('date')">Date${_paperSortArrow('date')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('name')">Name${_paperSortArrow('name')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('instrument')">Instrument${_paperSortArrow('instrument')}</th>
+      <th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('trades')">Trades${_paperSortArrow('trades')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('pnl')">P&L${_paperSortArrow('pnl')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('entry_time')">Entry Time${_paperSortArrow('entry_time')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('exit_time')">Exit Time${_paperSortArrow('exit_time')}</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
 
   pageData.forEach(r => {
@@ -6456,6 +6490,40 @@ function _fmtScalpTime(raw) {
 var _scalpHistPage = 1;
 var _SCALP_ROWS_PER_PAGE = 10;
 var _scalpAllClosed = [];
+var _scalpSortCol = 'trade_id';
+var _scalpSortAsc = false;
+
+function _sortScalpHistory(col) {
+  if (_scalpSortCol === col) { _scalpSortAsc = !_scalpSortAsc; } else { _scalpSortCol = col; _scalpSortAsc = true; }
+  const getVal = (t) => {
+    switch(col) {
+      case 'date': return new Date(t.entry_time || 0).getTime() || 0;
+      case 'symbol': return ((t.underlying||'')+(t.strike||'')+(t.option_type||'')).toLowerCase();
+      case 'dir': return (t.transaction_type||'').toLowerCase();
+      case 'entry': return t.entry_premium || 0;
+      case 'exit': return t.exit_premium || 0;
+      case 'time': return new Date(t.entry_time || 0).getTime() || 0;
+      case 'lots': return t.lots || 1;
+      case 'pnl': return t.pnl || 0;
+      case 'reason': return (t.exit_reason||'').toLowerCase();
+      case 'mode': return (t.mode||'').toLowerCase();
+      default: return t.trade_id || 0;
+    }
+  };
+  _scalpAllClosed.sort((a, b) => {
+    const va = getVal(a), vb = getVal(b);
+    if (va < vb) return _scalpSortAsc ? -1 : 1;
+    if (va > vb) return _scalpSortAsc ? 1 : -1;
+    return 0;
+  });
+  _scalpHistPage = 1;
+  _renderScalpHistoryPage();
+}
+
+function _scalpSortArrow(col) {
+  if (_scalpSortCol !== col) return '<span style="opacity:0.3;font-size:9px;margin-left:3px;">▲▼</span>';
+  return _scalpSortAsc ? '<span style="font-size:9px;margin-left:3px;">▲</span>' : '<span style="font-size:9px;margin-left:3px;">▼</span>';
+}
 
 function _renderScalpHistoryPage() {
   const histBody = document.getElementById('scalp-history-body');
@@ -6504,6 +6572,11 @@ function _renderScalpHistoryPage() {
     const pHtml = _buildPagination(_scalpHistPage, _scalpAllClosed.length, _SCALP_ROWS_PER_PAGE, '_goScalpHistPage');
     if (pHtml) { pagDiv.innerHTML = pHtml; pagDiv.style.display = 'flex'; } else { pagDiv.style.display = 'none'; }
   }
+  // Update sort arrows in headers
+  ['date','symbol','dir','entry','exit','time','lots','pnl','reason','mode'].forEach(col => {
+    const th = document.getElementById('scalp-th-' + col);
+    if (th) { const label = th.textContent.replace(/[▲▼]/g,'').trim(); th.innerHTML = label + _scalpSortArrow(col); }
+  });
   _updateScalpHistBulkBar();
 }
 
