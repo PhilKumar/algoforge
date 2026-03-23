@@ -204,6 +204,37 @@ class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
         engine._flush_pending_order.assert_awaited_once()
 
 
+class WsClosedCandleGuardTests(unittest.TestCase):
+    def test_live_ws_frame_ignores_first_forming_5m_candle(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-ws-guard")
+        raw = _make_ohlcv("2026-03-19 09:10", [100, 101], freq="5min")
+
+        result = engine._prepare_ws_strategy_frame(
+            raw,
+            indicators=[],
+            execution_timeframe=5,
+            fetch_timeframe=5,
+            now=pd.Timestamp("2026-03-19 09:15:36").to_pydatetime(),
+        )
+
+        self.assertEqual(list(result.index.strftime("%H:%M")), ["09:10"])
+
+    def test_paper_ws_frame_ignores_first_forming_5m_candle(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-ws-guard")
+        raw = _make_ohlcv("2026-03-19 09:10", [100, 101], freq="5min")
+
+        result = engine._prepare_ws_strategy_frame(
+            raw,
+            indicators=[],
+            execution_timeframe=5,
+            fetch_timeframe=5,
+            now=pd.Timestamp("2026-03-19 09:15:36").to_pydatetime(),
+        )
+
+        self.assertEqual(list(result.index.strftime("%H:%M")), ["09:10"])
+
+
 class PaperPendingEntryTimingTests(unittest.TestCase):
     def test_paper_pending_entry_arms_for_next_candle_open_plus_one_second(self):
         with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):

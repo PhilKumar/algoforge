@@ -519,6 +519,25 @@ class PaperTradingEngine:
             candle_time = session_open
         return max(0.0, (now - candle_time).total_seconds())
 
+    def _prepare_ws_strategy_frame(
+        self,
+        candle_df: pd.DataFrame,
+        indicators: list,
+        execution_timeframe: int,
+        fetch_timeframe: int,
+        now: datetime,
+    ) -> pd.DataFrame:
+        """Drop any still-forming strategy candle before WS signal evaluation."""
+        df_with_indicators = compute_dynamic_indicators(
+            candle_df,
+            indicators,
+            default_timeframe_minutes=execution_timeframe,
+            source_timeframe_minutes=fetch_timeframe,
+        )
+        if df_with_indicators.empty:
+            return df_with_indicators
+        return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
+
     def _arm_pending_entry(self, signal_candle_time: datetime, latest_row: pd.Series) -> None:
         self._entry_signal_pending = True
         self._pending_signal_candle_time = signal_candle_time
@@ -795,12 +814,15 @@ class PaperTradingEngine:
                 if candle_df is None or candle_df.empty:
                     continue
 
-                # Compute indicators on the full candle history
-                df_with_indicators = compute_dynamic_indicators(
+                now = _now_ist()
+                self.current_time = now
+                # Compute indicators only on fully closed strategy candles
+                df_with_indicators = self._prepare_ws_strategy_frame(
                     candle_df,
                     indicators,
-                    default_timeframe_minutes=execution_timeframe,
-                    source_timeframe_minutes=fetch_timeframe,
+                    execution_timeframe,
+                    fetch_timeframe,
+                    now,
                 )
                 self.candle_buffer = df_with_indicators
 

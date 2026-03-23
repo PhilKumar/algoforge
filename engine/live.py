@@ -641,6 +641,31 @@ class LiveEngine:
             candle_time = session_open
         return max(0.0, (now - candle_time).total_seconds())
 
+    def _prepare_ws_strategy_frame(
+        self,
+        candle_df: pd.DataFrame,
+        indicators: list,
+        execution_timeframe: int,
+        fetch_timeframe: int,
+        now: datetime,
+    ) -> pd.DataFrame:
+        """
+        Normalize WS candle snapshots to closed strategy candles only.
+
+        The feed callback should fire on candle close, but shared/reconnecting feed
+        state can occasionally hand us a snapshot that still includes the first
+        forming strategy candle. Never evaluate entry/exit conditions on that bar.
+        """
+        df_with_indicators = compute_dynamic_indicators(
+            candle_df,
+            indicators,
+            default_timeframe_minutes=execution_timeframe,
+            source_timeframe_minutes=fetch_timeframe,
+        )
+        if df_with_indicators.empty:
+            return df_with_indicators
+        return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
+
     # ── Diagnostic / Debug ─────────────────────────────────────
     def debug_engine_state(self) -> dict:
         """Return a comprehensive snapshot of engine state for debugging silent failures.
@@ -945,16 +970,17 @@ class LiveEngine:
 
                 # ── Candle closed — evaluate conditions ──
                 candle_df = self._latest_candle_df
-                latest_candle = self._latest_candle
-
                 if candle_df is None or candle_df.empty:
                     continue
 
-                df_with_indicators = compute_dynamic_indicators(
+                now = _now_ist()
+                self.current_time = now
+                df_with_indicators = self._prepare_ws_strategy_frame(
                     candle_df,
                     indicators,
-                    default_timeframe_minutes=execution_timeframe,
-                    source_timeframe_minutes=fetch_timeframe,
+                    execution_timeframe,
+                    fetch_timeframe,
+                    now,
                 )
                 self.candle_buffer = df_with_indicators
 
