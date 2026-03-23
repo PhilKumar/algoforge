@@ -4418,6 +4418,15 @@ async function logoutUser() {
   location.reload();
 }
 
+async function handleUnauthorizedResponse(res) {
+  if (!res || res.status !== 401) return false;
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  location.reload();
+  return true;
+}
+
 async function loadAuthContext() {
   try {
     const res = await fetch('/api/auth/status');
@@ -5773,6 +5782,8 @@ function _goPortfolioPaperPage(p) { _portfolioPaperPage = p; _renderPortfolioPap
 async function fetchRuns() {
   try {
     const res = await fetch('/api/runs');
+    if (await handleUnauthorizedResponse(res)) return;
+    if (!res.ok) throw new Error('Failed to load runs');
     const runs = await res.json();
     _allRunsCache = runs.slice().reverse();
 
@@ -7011,7 +7022,8 @@ let viewingStrategyId = null;
 async function fetchStrategies() {
   try {
     const res = await fetch('/api/strategies');
-    if (!res.ok) return;
+    if (await handleUnauthorizedResponse(res)) return;
+    if (!res.ok) throw new Error('Failed to load strategies');
     const strats = await res.json();
     savedStrategiesCache = strats;
     const container = document.getElementById('saved-strategies-grouped');
@@ -10407,6 +10419,7 @@ setTimeout(updateKillSwitchVisibility, 2000);
 async function loadDashboardSummary() {
   try {
     const res = await fetch('/api/dashboard/summary');
+    if (await handleUnauthorizedResponse(res)) return;
     if (!res.ok) return;
     const d = await res.json();
 
