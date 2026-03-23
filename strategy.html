@@ -4984,7 +4984,11 @@ function showPage(id, btn, options = {}) {
     ensurePortfolioLoaded();
   }
   // Reload dashboard data when switching to dashboard
-  if (id === 'dashboard-page') loadDashboardSummary();
+  if (id === 'dashboard-page') {
+    loadDashboardSummary();
+    ensureStrategiesLoaded();
+    ensureRunsLoaded();
+  }
   // Persist active tab across page refresh
   try { localStorage.setItem('algoforge_active_tab', id); } catch(e) {}
   if (options.pushHistory !== false) {
@@ -5625,6 +5629,59 @@ function _renderFilteredRuns() {
 
 function _goResultsPage(p) { _runsPageResults = p; _renderFilteredRuns(); }
 
+function _renderDashboardTransactions() {
+  const body = document.getElementById('transactions-body');
+  if (!body) return;
+
+  const txns = [];
+  (_allRunsCache || []).forEach(run => {
+    const trades = Array.isArray(run?.trades) ? run.trades : [];
+    trades.forEach((trade, idx) => {
+      if (!trade || typeof trade !== 'object') return;
+      const time = trade.exit_time || trade.entry_time || run.created_at || '';
+      txns.push({
+        time,
+        runName: run.run_name || run.strategy_name || 'Unnamed',
+        symbol: trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—',
+        action: trade.exit_reason || trade.transaction_type || 'TRADE',
+        price: trade.exit_premium ?? trade.entry_premium ?? trade.current_premium ?? 0,
+        _idx: idx,
+      });
+    });
+  });
+
+  txns.sort((a, b) => {
+    const ta = Date.parse(a.time || '') || 0;
+    const tb = Date.parse(b.time || '') || 0;
+    return tb - ta || b._idx - a._idx;
+  });
+
+  const pageData = txns.slice(0, 10);
+  if (!pageData.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr>';
+    return;
+  }
+
+  const fmtTxnTime = (value) => {
+    if (!value) return '—';
+    const dt = new Date(value);
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    return escapeHtml(String(value));
+  };
+
+  body.innerHTML = pageData.map((txn) => `
+    <tr style="border-bottom: 1px solid var(--border);">
+      <td style="padding: 12px 0; color: var(--muted); font-size: 12px;">${fmtTxnTime(txn.time)}</td>
+      <td style="padding: 12px 0; font-weight: 600;">${escapeHtml(_truncName(txn.runName, 28))}</td>
+      <td style="padding: 12px 0;">${escapeHtml(txn.symbol)}</td>
+      <td style="padding: 12px 0; color: var(--muted);">${escapeHtml(String(txn.action || 'TRADE').replaceAll('_', ' '))}</td>
+      <td style="padding: 12px 0; font-family: 'JetBrains Mono', monospace;">${typeof txn.price === 'number' ? fmt(txn.price) : escapeHtml(String(txn.price || '—'))}</td>
+    </tr>
+  `).join('');
+}
+
 function _renderDashRuns() {
   const container = document.getElementById('runs-list');
   const empty = document.getElementById('runs-empty');
@@ -5633,6 +5690,7 @@ function _renderDashRuns() {
     if (empty) empty.style.display = 'block';
     if (container) container.innerHTML = '';
     if (pagEl) { pagEl.style.display = 'none'; }
+    _renderDashboardTransactions();
     return;
   }
   if (empty) empty.style.display = 'none';
@@ -5647,6 +5705,7 @@ function _renderDashRuns() {
     const pHtml = _buildPagination(_runsPageDash, total, _RUNS_PER_PAGE, '_goDashPage');
     if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
   }
+  _renderDashboardTransactions();
   _updateBulkBar();
 }
 function _goDashPage(p) { _runsPageDash = p; _renderDashRuns(); }
