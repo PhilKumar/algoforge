@@ -4544,6 +4544,30 @@ async def save_strategy(strategy: dict, request: Request):
     return await _db_mod.create_strategy_record(_request_user_id(request), strategy)
 
 
+@app.post("/api/strategies/folders")
+async def create_strategy_folder(body: dict, request: Request):
+    folder = (body.get("folder") or "").strip()
+    if not folder:
+        raise HTTPException(status_code=400, detail="Folder name required")
+    # Create a placeholder strategy so the folder persists
+    now = str(datetime.now())
+    placeholder = {
+        "run_name": "",
+        "folder": folder,
+        "instrument": "",
+        "legs": [],
+        "entry_conditions": [],
+        "exit_conditions": [],
+        "created_at": now,
+        "updated_at": now,
+        "version": 1,
+        "versions": [{"version": 1, "saved_at": now, "changes": "Folder created"}],
+        "_placeholder": True,
+    }
+    result = await _db_mod.create_strategy_record(_request_user_id(request), placeholder)
+    return {"status": "ok", "folder": folder, "id": result.get("id") if isinstance(result, dict) else None}
+
+
 @app.delete("/api/strategies/{sid}")
 async def delete_strategy(sid: int, request: Request):
     deleted = await _db_mod.delete_strategy_record(_request_user_id(request), sid)
