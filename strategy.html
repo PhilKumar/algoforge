@@ -6493,29 +6493,33 @@ var _scalpAllClosed = [];
 var _scalpSortCol = 'trade_id';
 var _scalpSortAsc = false;
 
-function _sortScalpHistory(col) {
-  if (_scalpSortCol === col) { _scalpSortAsc = !_scalpSortAsc; } else { _scalpSortCol = col; _scalpSortAsc = true; }
-  const getVal = (t) => {
-    switch(col) {
-      case 'date': return new Date(t.entry_time || 0).getTime() || 0;
-      case 'symbol': return ((t.underlying||'')+(t.strike||'')+(t.option_type||'')).toLowerCase();
-      case 'dir': return (t.transaction_type||'').toLowerCase();
-      case 'entry': return t.entry_premium || 0;
-      case 'exit': return t.exit_premium || 0;
-      case 'time': return new Date(t.entry_time || 0).getTime() || 0;
-      case 'lots': return t.lots || 1;
-      case 'pnl': return t.pnl || 0;
-      case 'reason': return (t.exit_reason||'').toLowerCase();
-      case 'mode': return (t.mode||'').toLowerCase();
-      default: return t.trade_id || 0;
-    }
-  };
+function _getScalpSortVal(t) {
+  switch(_scalpSortCol) {
+    case 'date': return new Date(t.entry_time || 0).getTime() || 0;
+    case 'symbol': return ((t.underlying||'')+(t.strike||'')+(t.option_type||'')).toLowerCase();
+    case 'dir': return (t.transaction_type||'').toLowerCase();
+    case 'entry': return t.entry_premium || 0;
+    case 'exit': return t.exit_premium || 0;
+    case 'time': return new Date(t.entry_time || 0).getTime() || 0;
+    case 'lots': return t.lots || 1;
+    case 'pnl': return t.pnl || 0;
+    case 'reason': return (t.exit_reason||'').toLowerCase();
+    case 'mode': return (t.mode||'').toLowerCase();
+    default: return t.trade_id || 0;
+  }
+}
+
+function _applyScalpSort() {
   _scalpAllClosed.sort((a, b) => {
-    const va = getVal(a), vb = getVal(b);
+    const va = _getScalpSortVal(a), vb = _getScalpSortVal(b);
     if (va < vb) return _scalpSortAsc ? -1 : 1;
     if (va > vb) return _scalpSortAsc ? 1 : -1;
     return 0;
   });
+}
+
+function _sortScalpHistory(col) {
+  if (_scalpSortCol === col) { _scalpSortAsc = !_scalpSortAsc; } else { _scalpSortCol = col; _scalpSortAsc = true; }
   _scalpHistPage = 1;
   _renderScalpHistoryPage();
 }
@@ -6528,6 +6532,7 @@ function _scalpSortArrow(col) {
 function _renderScalpHistoryPage() {
   const histBody = document.getElementById('scalp-history-body');
   if (!histBody) return;
+  _applyScalpSort();
   const totalPages = Math.max(1, Math.ceil(_scalpAllClosed.length / _SCALP_ROWS_PER_PAGE));
   const start = (_scalpHistPage - 1) * _SCALP_ROWS_PER_PAGE;
   const page = _scalpAllClosed.slice(start, start + _SCALP_ROWS_PER_PAGE);
