@@ -86,43 +86,47 @@ except ImportError:
 import alerter
 from token_manager import auto_generate_token, token_renewal_loop
 
-# ── Auto-generate Dhan token at startup (single-worker guard) ────
-if config.AUTO_TOKEN_ENABLED:
-    _lock_file = os.path.join(_HERE, ".token_lock")
+
+def _generate_startup_token_once():
+    """Generate or share a Dhan token for the real app startup.
+
+    This must not run during import-time smoke checks, otherwise deploy pre-flight
+    burns a token refresh before the standby instance actually starts.
+    """
+    if not config.AUTO_TOKEN_ENABLED:
+        print("ℹ️  [TokenManager] Auto-token disabled (set DHAN_PIN + DHAN_TOTP_SECRET in .env to enable)")
+        return
+
+    lock_file = os.path.join(_HERE, ".token_lock")
+    token_file = os.path.join(_HERE, ".current_token")
     try:
-        _lf = open(_lock_file, "w")
-        fcntl.flock(_lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # We got the lock — this worker generates the token
+        lock_handle = open(lock_file, "w")
+        fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         print("🔑 [TokenManager] Auto-token enabled — generating fresh Dhan token...")
         try:
-            _new_tok = auto_generate_token()
-        except Exception as _tok_err:
-            print(f"⚠️  [TokenManager] Token generation error: {_tok_err}")
-            _new_tok = None
-        if _new_tok:
-            # Write token to a shared file so other workers can read it
-            _tok_file = os.path.join(_HERE, ".current_token")
-            with open(_tok_file, "w") as f:
-                f.write(_new_tok)
+            new_token = auto_generate_token()
+        except Exception as tok_err:
+            print(f"⚠️  [TokenManager] Token generation error: {tok_err}")
+            new_token = None
+        if new_token:
+            with open(token_file, "w") as f:
+                f.write(new_token)
             print("✅ [TokenManager] Token generated successfully")
         else:
             print("⚠️  [TokenManager] Auto-token failed, using existing DHAN_ACCESS_TOKEN from .env")
-        fcntl.flock(_lf, fcntl.LOCK_UN)
-        _lf.close()
+        fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        lock_handle.close()
     except (IOError, OSError):
-        # Another worker already holds the lock — read their token
         import time as _t
 
-        _t.sleep(3)  # wait for the first worker to finish
-        _tok_file = os.path.join(_HERE, ".current_token")
-        if os.path.exists(_tok_file):
-            with open(_tok_file) as f:
-                _shared_token = f.read().strip()
-            if _shared_token:
-                config.DHAN_ACCESS_TOKEN = _shared_token
+        _t.sleep(3)
+        if os.path.exists(token_file):
+            with open(token_file) as f:
+                shared_token = f.read().strip()
+            if shared_token:
+                config.DHAN_ACCESS_TOKEN = shared_token
                 print("✅ [TokenManager] Loaded token from first worker")
-else:
-    print("ℹ️  [TokenManager] Auto-token disabled (set DHAN_PIN + DHAN_TOTP_SECRET in .env to enable)")
+
 
 # Initialize FastAPI app
 app = FastAPI(title="AlgoForge", version="1.0.0")
@@ -5485,6 +5489,7 @@ async def _start_token_renewal():
         print("🧪 [Startup] Skipping network-heavy startup jobs (ALGOFORGE_SKIP_STARTUP_JOBS=1)")
         return
     if config.AUTO_TOKEN_ENABLED:
+        await asyncio.to_thread(_generate_startup_token_once)
         _token_renewal_task = asyncio.create_task(token_renewal_loop())
         print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
     if _market_feed:
