@@ -7032,17 +7032,17 @@ async function addNewFolder() {
     });
     if (res.ok) {
       toast('Folder "' + folder + '" created', 'success');
-      loadSavedStrategies();
+      fetchStrategies();
     } else {
       // API may not support folder endpoint — inject locally
       savedStrategiesCache.push({ id: -Date.now(), run_name: '', folder: folder, _placeholder: true, legs: [], created_at: new Date().toISOString() });
       toast('Folder "' + folder + '" created', 'success');
-      loadSavedStrategies();
+      fetchStrategies();
     }
   } catch(e) {
     savedStrategiesCache.push({ id: -Date.now(), run_name: '', folder: folder, _placeholder: true, legs: [], created_at: new Date().toISOString() });
     toast('Folder "' + folder + '" created', 'success');
-    loadSavedStrategies();
+    fetchStrategies();
   }
 }
 
