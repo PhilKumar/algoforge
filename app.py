@@ -1883,34 +1883,25 @@ async def dashboard_summary(request: Request):
                     for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type"))
                     if part
                 )
-                run_name = r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}"
-                txn_type = str(trade.get("transaction_type") or "TRADE").upper()
-                if trade.get("entry_time"):
-                    recent_transactions.append(
-                        {
-                            "time": trade.get("entry_time"),
-                            "run_name": run_name,
-                            "symbol": symbol or "—",
-                            "action": txn_type or "TRADE",
-                            "price": float(trade.get("entry_premium") or trade.get("current_premium") or 0),
-                        }
-                    )
-                if trade.get("exit_time"):
-                    if txn_type == "BUY":
-                        exit_action = "SELL"
-                    elif txn_type == "SELL":
-                        exit_action = "BUY"
-                    else:
-                        exit_action = "EXIT"
-                    recent_transactions.append(
-                        {
-                            "time": trade.get("exit_time"),
-                            "run_name": run_name,
-                            "symbol": symbol or "—",
-                            "action": exit_action,
-                            "price": float(trade.get("exit_premium") or trade.get("current_premium") or 0),
-                        }
-                    )
+                recent_transactions.append(
+                    {
+                        "time": trade.get("exit_time") or trade.get("entry_time") or r.get("created_at", ""),
+                        "run_name": r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}",
+                        "symbol": symbol or "—",
+                        "transaction_type": str(trade.get("transaction_type") or "TRADE").upper(),
+                        "entry_time": trade.get("entry_time") or "",
+                        "exit_time": trade.get("exit_time") or "",
+                        "entry_price": float(
+                            trade.get("entry_premium") or trade.get("entry_price") or trade.get("current_premium") or 0
+                        ),
+                        "exit_price": float(
+                            trade.get("exit_premium") or trade.get("exit_price") or trade.get("current_premium") or 0
+                        ),
+                        "quantity": trade.get("lots") or trade.get("quantity") or "—",
+                        "pnl": float(trade.get("pnl") or 0),
+                        "reason": trade.get("exit_reason") or trade.get("reason") or "—",
+                    }
+                )
         recent_transactions.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
         recent_transactions = recent_transactions[:10]
 

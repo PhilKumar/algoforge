@@ -2880,9 +2880,19 @@
   <div class="card" style="max-width: 1000px; margin: 0 auto;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">Recent Transactions</h3>
     <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
-    <table style="width: 100%; text-align: left; border-collapse: collapse;">
-      <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; font-weight: 600;"><th style="padding: 12px 0;">Time</th><th style="padding: 12px 0;">Strategy Run</th><th style="padding: 12px 0;">Instrument</th><th style="padding: 12px 0;">Action</th><th style="padding: 12px 0;">Price</th></tr></thead>
-      <tbody id="transactions-body"><tr><td colspan="5" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr></tbody>
+    <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
+      <thead><tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+        <th style="padding: 8px 12px; text-align: left;">Instrument</th>
+        <th style="padding: 8px 12px; text-align: left; font-family: 'JetBrains Mono', monospace;">Entry Time</th>
+        <th style="padding: 8px 12px; text-align: left; font-family: 'JetBrains Mono', monospace;">Exit Time</th>
+        <th style="padding: 8px 12px; text-align: right;">Dir</th>
+        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
+        <th style="padding: 8px 12px; text-align: right;">Qty</th>
+        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
+        <th style="padding: 8px 12px; text-align: right;">Reason</th>
+      </tr></thead>
+      <tbody id="transactions-body"><tr><td colspan="9" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr></tbody>
     </table>
     </div>
   </div>
@@ -5636,11 +5646,16 @@ function _renderDashboardTransactions(transactions = null) {
 
   const sourceTxns = Array.isArray(transactions) ? transactions : _dashboardTransactionsCache;
   const txns = Array.isArray(sourceTxns) && sourceTxns.length ? sourceTxns.map((txn, idx) => ({
-    time: txn.time || '',
-    runName: txn.run_name || txn.runName || 'Unnamed',
+    time: txn.time || txn.exit_time || txn.entry_time || '',
     symbol: txn.symbol || '—',
-    action: txn.action || 'TRADE',
-    price: txn.price,
+    transactionType: txn.transaction_type || txn.action || 'TRADE',
+    entryTime: txn.entry_time || '',
+    exitTime: txn.exit_time || '',
+    entryPrice: txn.entry_price ?? txn.price ?? 0,
+    exitPrice: txn.exit_price ?? txn.price ?? 0,
+    quantity: txn.quantity ?? txn.lots ?? '—',
+    pnl: txn.pnl,
+    reason: txn.reason || '—',
     _idx: idx,
   })) : [];
 
@@ -5649,29 +5664,20 @@ function _renderDashboardTransactions(transactions = null) {
       const trades = Array.isArray(run && run.trades) ? run.trades : [];
       trades.forEach((trade, idx) => {
         if (!trade || typeof trade !== 'object') return;
-        const runName = run.run_name || run.strategy_name || 'Unnamed';
         const symbol = trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—';
-        const txnType = String(trade.transaction_type || 'TRADE').toUpperCase();
-        if (trade.entry_time) {
-          txns.push({
-            time: trade.entry_time,
-            runName,
-            symbol,
-            action: txnType,
-            price: trade.entry_premium ?? trade.current_premium ?? 0,
-            _idx: idx * 2,
-          });
-        }
-        if (trade.exit_time) {
-          txns.push({
-            time: trade.exit_time,
-            runName,
-            symbol,
-            action: txnType === 'BUY' ? 'SELL' : txnType === 'SELL' ? 'BUY' : 'EXIT',
-            price: trade.exit_premium ?? trade.current_premium ?? 0,
-            _idx: idx * 2 + 1,
-          });
-        }
+        txns.push({
+          time: trade.exit_time || trade.entry_time || run.created_at || '',
+          symbol,
+          transactionType: trade.transaction_type || 'TRADE',
+          entryTime: trade.entry_time || '',
+          exitTime: trade.exit_time || '',
+          entryPrice: trade.entry_premium ?? trade.entry_price ?? trade.current_premium ?? 0,
+          exitPrice: trade.exit_premium ?? trade.exit_price ?? trade.current_premium ?? 0,
+          quantity: trade.lots ?? trade.quantity ?? '—',
+          pnl: trade.pnl,
+          reason: trade.exit_reason || trade.reason || '—',
+          _idx: idx,
+        });
       });
     });
   }
@@ -5684,26 +5690,28 @@ function _renderDashboardTransactions(transactions = null) {
 
   const pageData = txns.slice(0, 10);
   if (!pageData.length) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr>';
     return;
   }
 
   const fmtTxnTime = (value) => {
     if (!value) return '—';
-    const dt = new Date(value);
-    if (!Number.isNaN(dt.getTime())) {
-      return dt.toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    }
-    return escapeHtml(String(value));
+    const ss = String(value);
+    const m = ss.match(/(\d{2}:\d{2}:\d{2})/);
+    return m ? m[1] : escapeHtml(ss);
   };
 
   body.innerHTML = pageData.map((txn) => `
-    <tr style="border-bottom: 1px solid var(--border);">
-      <td style="padding: 12px 0; color: var(--muted); font-size: 12px;">${fmtTxnTime(txn.time)}</td>
-      <td style="padding: 12px 0; font-weight: 600;">${escapeHtml(_truncName(txn.runName, 28))}</td>
-      <td style="padding: 12px 0;">${escapeHtml(txn.symbol)}</td>
-      <td style="padding: 12px 0; font-weight: 700; color: ${String(txn.action || '').toUpperCase() === 'BUY' ? 'var(--success)' : String(txn.action || '').toUpperCase() === 'SELL' ? 'var(--danger)' : 'var(--muted)'};">${escapeHtml(String(txn.action || 'TRADE').replace(/_/g, ' '))}</td>
-      <td style="padding: 12px 0; font-family: 'JetBrains Mono', monospace;">${typeof txn.price === 'number' ? fmt(txn.price) : escapeHtml(String(txn.price || '—'))}</td>
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:8px 12px;">${escapeHtml(txn.symbol || '—')}</td>
+      <td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTxnTime(txn.entryTime))}</td>
+      <td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTxnTime(txn.exitTime))}</td>
+      <td style="padding:8px 12px;text-align:right;color:${String(txn.transactionType).toUpperCase()==='BUY'?'var(--success)':String(txn.transactionType).toUpperCase()==='SELL'?'var(--danger)':'var(--muted)'}">${escapeHtml(String(txn.transactionType || '—').replace(/_/g, ' '))}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(txn.entryPrice || 0).toFixed(2)}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(txn.exitPrice || 0).toFixed(2)}</td>
+      <td style="padding:8px 12px;text-align:right;">${escapeHtml(txn.quantity)}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${Number(txn.pnl||0)>=0?'var(--success)':'var(--danger)'}">₹${round2(txn.pnl || 0).toFixed(2)}</td>
+      <td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(txn.reason || '—')}</td>
     </tr>
   `).join('');
 }
