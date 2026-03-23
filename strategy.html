@@ -3935,7 +3935,7 @@
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
             <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
-            <th style="padding: 8px 10px; text-align: left;">#</th>
+            <th style="padding: 8px 10px; text-align: left;">Date</th>
             <th style="padding: 8px 10px; text-align: left;">Symbol</th>
             <th style="padding: 8px 6px; text-align: center;">Dir</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
@@ -3956,11 +3956,7 @@
     <!-- Bulk bar -->
     <div id="scalp-hist-bulk-bar" class="bulk-bar" style="display:none;"></div>
     <!-- Pagination -->
-    <div id="scalp-hist-pagination" style="display:none; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
-      <button id="scalp-hist-prev" class="btn btn-sm" onclick="scalpHistPage(-1)" style="padding:5px 14px;font-size:11px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" disabled>← Prev</button>
-      <span id="scalp-hist-page-info" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Page 1 / 1</span>
-      <button id="scalp-hist-next" class="btn btn-sm" onclick="scalpHistPage(1)" style="padding:5px 14px;font-size:11px;--btn-bg:rgba(255,255,255,0.06);--btn-color:var(--text);--btn-border:var(--border);" disabled>Next →</button>
-    </div>
+    <div id="scalp-hist-pagination" class="pagination-bar" style="display:none;"></div>
   </div>
 
 </div>
@@ -6485,7 +6481,7 @@ function _renderScalpHistoryPage() {
       const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
         <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
-        <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.trade_id}</td>
+        <td style="padding:7px 10px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
         <td style="padding:7px 10px;font-size:12px;">${escapeHtml(t.underlying||'')} ${escapeHtml(t.strike||'')}${escapeHtml(t.option_type||'')}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${escapeHtml(t.transaction_type||'')}</span></td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
@@ -6505,13 +6501,8 @@ function _renderScalpHistoryPage() {
   // Update pagination controls
   const pagDiv = document.getElementById('scalp-hist-pagination');
   if (pagDiv) {
-    pagDiv.style.display = _scalpAllClosed.length > _SCALP_ROWS_PER_PAGE ? 'flex' : 'none';
-    const info = pagDiv.querySelector('#scalp-hist-page-info');
-    if (info) info.textContent = 'Page ' + _scalpHistPage + ' of ' + totalPages;
-    const prevBtn = pagDiv.querySelector('#scalp-hist-prev');
-    const nextBtn = pagDiv.querySelector('#scalp-hist-next');
-    if (prevBtn) prevBtn.disabled = _scalpHistPage <= 1;
-    if (nextBtn) nextBtn.disabled = _scalpHistPage >= totalPages;
+    const pHtml = _buildPagination(_scalpHistPage, _scalpAllClosed.length, _SCALP_ROWS_PER_PAGE, '_goScalpHistPage');
+    if (pHtml) { pagDiv.innerHTML = pHtml; pagDiv.style.display = 'flex'; } else { pagDiv.style.display = 'none'; }
   }
   _updateScalpHistBulkBar();
 }
@@ -6523,6 +6514,7 @@ function scalpHistPage(dir) {
   if (_scalpHistPage > totalPages) _scalpHistPage = totalPages;
   _renderScalpHistoryPage();
 }
+function _goScalpHistPage(p) { _scalpHistPage = p; _renderScalpHistoryPage(); }
 
 // ── Scalp History checkboxes + bulk delete ──
 function toggleScalpHistCheck(el) {
