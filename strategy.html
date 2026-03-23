@@ -5844,7 +5844,7 @@ function _renderPortfolioPaperRuns(runs) {
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
       <th style="padding: 8px 6px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>
-      <th style="padding: 8px 6px;">Run</th><th style="padding: 8px 6px;">Name</th><th style="padding: 8px 6px;">Instrument</th>
+      <th style="padding: 8px 6px;">Date</th><th style="padding: 8px 6px;">Name</th><th style="padding: 8px 6px;">Instrument</th>
       <th style="padding: 8px 6px;">Trades</th><th style="padding: 8px 6px;">P&L</th><th style="padding: 8px 6px;">Entry Time</th><th style="padding: 8px 6px;">Exit Time</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
     </tr></thead><tbody>`;
 
@@ -5857,7 +5857,7 @@ function _renderPortfolioPaperRuns(runs) {
     const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
     html += `<tr style="border-bottom: 1px solid var(--border);">
       <td style="padding: 8px 6px;"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}></td>
-      <td style="padding: 8px 6px; color: var(--muted); font-size: 11px;">#${r.id}</td>
+      <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${(() => { const ts = r.first_entry_time || r.created_at; if (!ts) return '—'; const d = new Date(ts); return isNaN(d) ? '—' : d.toLocaleDateString('en-IN', {day:'2-digit', month:'short'}); })()}</td>
       <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 160px;" onclick="viewRun(${r.id})" title="${escapeAttr(r.run_name || 'Unnamed')}">${escapeHtml(_truncName(r.run_name, 18))}</td>
       <td style="padding: 8px 6px;">${instName}</td>
       <td style="padding: 8px 6px; font-weight: 600;">${r.trade_count || 0}</td>
