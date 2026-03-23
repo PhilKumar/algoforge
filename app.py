@@ -1867,6 +1867,7 @@ async def dashboard_summary(request: Request):
     best_run = None
     worst_run = None
     total_backtests = len(runs)
+    recent_transactions: list[dict] = []
     if runs:
         for r in runs:
             pnl = r.get("total_pnl", 0)
@@ -1874,6 +1875,27 @@ async def dashboard_summary(request: Request):
                 best_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
             if worst_run is None or pnl < worst_run.get("total_pnl", 0):
                 worst_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
+            for trade in r.get("trades", []) or []:
+                if not isinstance(trade, dict):
+                    continue
+                symbol = trade.get("symbol") or " ".join(
+                    str(part)
+                    for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type"))
+                    if part
+                )
+                recent_transactions.append(
+                    {
+                        "time": trade.get("exit_time") or trade.get("entry_time") or r.get("created_at", ""),
+                        "run_name": r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}",
+                        "symbol": symbol or "—",
+                        "action": trade.get("exit_reason") or trade.get("transaction_type") or "TRADE",
+                        "price": float(
+                            trade.get("exit_premium") or trade.get("entry_premium") or trade.get("current_premium") or 0
+                        ),
+                    }
+                )
+        recent_transactions.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+        recent_transactions = recent_transactions[:10]
 
     return {
         "strategy_count": len(strats),
@@ -1889,6 +1911,7 @@ async def dashboard_summary(request: Request):
         "live_trades": live_trades_val,
         "best_run": best_run,
         "worst_run": worst_run,
+        "recent_transactions": recent_transactions,
     }
 
 

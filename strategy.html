@@ -5629,26 +5629,36 @@ function _renderFilteredRuns() {
 
 function _goResultsPage(p) { _runsPageResults = p; _renderFilteredRuns(); }
 
-function _renderDashboardTransactions() {
+function _renderDashboardTransactions(transactions = null) {
   const body = document.getElementById('transactions-body');
   if (!body) return;
 
-  const txns = [];
-  (_allRunsCache || []).forEach(run => {
-    const trades = Array.isArray(run?.trades) ? run.trades : [];
-    trades.forEach((trade, idx) => {
-      if (!trade || typeof trade !== 'object') return;
-      const time = trade.exit_time || trade.entry_time || run.created_at || '';
-      txns.push({
-        time,
-        runName: run.run_name || run.strategy_name || 'Unnamed',
-        symbol: trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—',
-        action: trade.exit_reason || trade.transaction_type || 'TRADE',
-        price: trade.exit_premium ?? trade.entry_premium ?? trade.current_premium ?? 0,
-        _idx: idx,
+  const txns = Array.isArray(transactions) && transactions.length ? transactions.map((txn, idx) => ({
+    time: txn.time || '',
+    runName: txn.run_name || txn.runName || 'Unnamed',
+    symbol: txn.symbol || '—',
+    action: txn.action || 'TRADE',
+    price: txn.price,
+    _idx: idx,
+  })) : [];
+
+  if (!txns.length) {
+    (_allRunsCache || []).forEach(run => {
+      const trades = Array.isArray(run && run.trades) ? run.trades : [];
+      trades.forEach((trade, idx) => {
+        if (!trade || typeof trade !== 'object') return;
+        const time = trade.exit_time || trade.entry_time || run.created_at || '';
+        txns.push({
+          time,
+          runName: run.run_name || run.strategy_name || 'Unnamed',
+          symbol: trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—',
+          action: trade.exit_reason || trade.transaction_type || 'TRADE',
+          price: trade.exit_premium ?? trade.entry_premium ?? trade.current_premium ?? 0,
+          _idx: idx,
+        });
       });
     });
-  });
+  }
 
   txns.sort((a, b) => {
     const ta = Date.parse(a.time || '') || 0;
@@ -5676,7 +5686,7 @@ function _renderDashboardTransactions() {
       <td style="padding: 12px 0; color: var(--muted); font-size: 12px;">${fmtTxnTime(txn.time)}</td>
       <td style="padding: 12px 0; font-weight: 600;">${escapeHtml(_truncName(txn.runName, 28))}</td>
       <td style="padding: 12px 0;">${escapeHtml(txn.symbol)}</td>
-      <td style="padding: 12px 0; color: var(--muted);">${escapeHtml(String(txn.action || 'TRADE').replaceAll('_', ' '))}</td>
+      <td style="padding: 12px 0; color: var(--muted);">${escapeHtml(String(txn.action || 'TRADE').replace(/_/g, ' '))}</td>
       <td style="padding: 12px 0; font-family: 'JetBrains Mono', monospace;">${typeof txn.price === 'number' ? fmt(txn.price) : escapeHtml(String(txn.price || '—'))}</td>
     </tr>
   `).join('');
@@ -10545,6 +10555,7 @@ async function loadDashboardSummary() {
       document.getElementById('dash-worst-name').textContent = d.worst_run.name || 'Worst Run';
       document.getElementById('dash-worst-run').dataset.rid = d.worst_run.id || '';
     }
+    _renderDashboardTransactions(d.recent_transactions || []);
   } catch(e) {
     console.warn('Dashboard summary failed:', e);
   }
