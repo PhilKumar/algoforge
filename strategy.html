@@ -10241,6 +10241,24 @@ async function loadPortfolioData() {
 
 // ── Monthly P&L: Daily boxes for selected month ──
 const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const NSE_CAPITAL_MARKET_HOLIDAYS = new Set([
+  '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01',
+  '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25',
+  '2025-02-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14', '2025-04-18', '2025-05-01',
+  '2025-08-15', '2025-08-27', '2025-10-02', '2025-10-21', '2025-10-22', '2025-11-05', '2025-12-25',
+  '2026-01-26', '2026-03-03', '2026-03-26', '2026-03-31', '2026-04-03', '2026-04-14', '2026-05-01',
+  '2026-05-28', '2026-06-26', '2026-09-14', '2026-10-02', '2026-10-20', '2026-11-10', '2026-11-24',
+  '2026-12-25',
+]);
+
+function isClosedMarketDay(dateStr) {
+  if (!dateStr) return false;
+  const [year, month, day] = String(dateStr).split('-').map(Number);
+  if (!year || !month || !day) return false;
+  const dt = new Date(year, month - 1, day);
+  const dow = dt.getDay();
+  return dow === 0 || dow === 6 || NSE_CAPITAL_MARKET_HOLIDAYS.has(dateStr);
+}
 
 function changeMonthlyMonth(delta) {
   const [y, m] = window._currentMonthlyView.split('-').map(Number);
@@ -10271,6 +10289,7 @@ function renderMonthlyDailyGrid() {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
+    if (isClosedMarketDay(dateStr)) continue;
     const entry = daily[dateStr];
     if (entry) {
       const realPnl = entry.real_pnl || 0;
