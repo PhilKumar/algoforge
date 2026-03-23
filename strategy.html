@@ -5649,15 +5649,29 @@ function _renderDashboardTransactions(transactions = null) {
       const trades = Array.isArray(run && run.trades) ? run.trades : [];
       trades.forEach((trade, idx) => {
         if (!trade || typeof trade !== 'object') return;
-        const time = trade.exit_time || trade.entry_time || run.created_at || '';
-        txns.push({
-          time,
-          runName: run.run_name || run.strategy_name || 'Unnamed',
-          symbol: trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—',
-          action: trade.exit_reason || trade.transaction_type || 'TRADE',
-          price: trade.exit_premium ?? trade.entry_premium ?? trade.current_premium ?? 0,
-          _idx: idx,
-        });
+        const runName = run.run_name || run.strategy_name || 'Unnamed';
+        const symbol = trade.symbol || [trade.underlying, trade.strike, trade.option_type].filter(Boolean).join(' ') || '—';
+        const txnType = String(trade.transaction_type || 'TRADE').toUpperCase();
+        if (trade.entry_time) {
+          txns.push({
+            time: trade.entry_time,
+            runName,
+            symbol,
+            action: txnType,
+            price: trade.entry_premium ?? trade.current_premium ?? 0,
+            _idx: idx * 2,
+          });
+        }
+        if (trade.exit_time) {
+          txns.push({
+            time: trade.exit_time,
+            runName,
+            symbol,
+            action: txnType === 'BUY' ? 'SELL' : txnType === 'SELL' ? 'BUY' : 'EXIT',
+            price: trade.exit_premium ?? trade.current_premium ?? 0,
+            _idx: idx * 2 + 1,
+          });
+        }
       });
     });
   }
@@ -5688,7 +5702,7 @@ function _renderDashboardTransactions(transactions = null) {
       <td style="padding: 12px 0; color: var(--muted); font-size: 12px;">${fmtTxnTime(txn.time)}</td>
       <td style="padding: 12px 0; font-weight: 600;">${escapeHtml(_truncName(txn.runName, 28))}</td>
       <td style="padding: 12px 0;">${escapeHtml(txn.symbol)}</td>
-      <td style="padding: 12px 0; color: var(--muted);">${escapeHtml(String(txn.action || 'TRADE').replace(/_/g, ' '))}</td>
+      <td style="padding: 12px 0; font-weight: 700; color: ${String(txn.action || '').toUpperCase() === 'BUY' ? 'var(--success)' : String(txn.action || '').toUpperCase() === 'SELL' ? 'var(--danger)' : 'var(--muted)'};">${escapeHtml(String(txn.action || 'TRADE').replace(/_/g, ' '))}</td>
       <td style="padding: 12px 0; font-family: 'JetBrains Mono', monospace;">${typeof txn.price === 'number' ? fmt(txn.price) : escapeHtml(String(txn.price || '—'))}</td>
     </tr>
   `).join('');
