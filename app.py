@@ -3827,6 +3827,47 @@ async def live_exit_position(request: Request):
     return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
 
 
+def _history_run_signature(run: dict) -> tuple:
+    mode = str(run.get("mode") or "")
+    run_name = str(run.get("run_name") or run.get("strategy_name") or "")
+    trades = run.get("trades") or []
+    total_pnl = round(float(run.get("total_pnl") or 0), 2)
+    normalized = []
+    for trade in trades:
+        if not isinstance(trade, dict):
+            continue
+        normalized.append(
+            {
+                "symbol": trade.get("symbol") or trade.get("trading_symbol") or "",
+                "transaction_type": trade.get("transaction_type") or trade.get("side") or "",
+                "option_type": trade.get("option_type") or "",
+                "strike": trade.get("strike"),
+                "entry_time": str(trade.get("entry_time") or ""),
+                "exit_time": str(trade.get("exit_time") or ""),
+                "entry_premium": round(float(trade.get("entry_premium") or trade.get("entry_price") or 0), 4),
+                "exit_premium": round(float(trade.get("exit_premium") or trade.get("exit_price") or 0), 4),
+                "quantity": trade.get("quantity") or trade.get("lots") or "",
+                "pnl": round(float(trade.get("pnl") or 0), 4),
+                "reason": trade.get("exit_reason") or trade.get("reason") or "",
+            }
+        )
+    normalized.sort(
+        key=lambda item: (
+            item["entry_time"],
+            item["exit_time"],
+            item["symbol"],
+            item["transaction_type"],
+        )
+    )
+    return (
+        mode,
+        run_name,
+        int(run.get("trade_count") or len(normalized)),
+        total_pnl,
+        json.dumps(normalized, sort_keys=True, default=str),
+    )
+
+
 async def _save_single_trade_to_history(
     trade: dict, mode: str, run_name: str = "", explicit_user_id: int | None = None
 ) -> None:
@@ -3857,6 +3898,11 @@ async def _save_single_trade_to_history(
             "trades": [trade],
             "created_at": str(datetime.now()),
         }
+        target_sig = _history_run_signature(run_entry)
+        runs = await _db_mod.list_runs(user_id)
+        if any(_history_run_signature(r) == target_sig for r in runs):
+            print(f"[{mode.upper()}] Identical single-trade history already exists — skipping duplicate save")
+            return
         saved = await _db_mod.create_run_record(user_id, run_entry)
         print(f"[{mode.upper()}] Saved trade to history as Run #{saved['id']}: {instrument} {side} P&L=₹{pnl}")
     except Exception as e:
@@ -3930,6 +3976,11 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
                 )
             },
         }
+
+        target_sig = _history_run_signature(paper_run)
+        if any(_history_run_signature(r) == target_sig for r in runs):
+            print("[PAPER] Identical completed run already exists — skipping duplicate history save")
+            return
 
         saved = await _db_mod.create_run_record(user_id, paper_run)
         print(f"[PAPER] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
@@ -4050,6 +4101,11 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
                 )
             },
         }
+
+        target_sig = _history_run_signature(live_run)
+        if any(_history_run_signature(r) == target_sig for r in runs):
+            print("[LIVE] Identical completed run already exists — skipping duplicate history save")
+            return
 
         saved = await _db_mod.create_run_record(user_id, live_run)
         print(f"[LIVE] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
