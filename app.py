@@ -5421,6 +5421,19 @@ async def _prefetch_scrip_master():
         _logger.warning(f"[SCRIP] Background prefetch failed: {e}")
 
 
+async def _bootstrap_token_renewal():
+    """Refresh the startup token without blocking app readiness."""
+    global _token_renewal_task
+    try:
+        await asyncio.to_thread(_generate_startup_token_once)
+    except Exception as e:
+        _logger.warning(f"[TokenManager] Startup token bootstrap failed: {e}")
+    finally:
+        if _token_renewal_task is None or _token_renewal_task.done():
+            _token_renewal_task = asyncio.create_task(token_renewal_loop())
+            print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
+
+
 async def _backfill_in_background():
     """Run the blocking backfill in a thread so the event loop stays free."""
     global _backfill_state
@@ -5484,14 +5497,12 @@ async def _init_database():
 
 @app.on_event("startup")
 async def _start_token_renewal():
-    global _token_renewal_task
     if _SKIP_STARTUP_JOBS:
         print("🧪 [Startup] Skipping network-heavy startup jobs (ALGOFORGE_SKIP_STARTUP_JOBS=1)")
         return
     if config.AUTO_TOKEN_ENABLED:
-        await asyncio.to_thread(_generate_startup_token_once)
-        _token_renewal_task = asyncio.create_task(token_renewal_loop())
-        print("🔄 [TokenManager] Background token renewal scheduled (every 12h)")
+        asyncio.create_task(_bootstrap_token_renewal())
+        print("🔄 [TokenManager] Startup token bootstrap running in background")
     if _market_feed:
         print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
     # ── Pre-cache Scrip Master in background (non-blocking) ────

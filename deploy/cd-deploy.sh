@@ -18,7 +18,7 @@ PORT_FILE="$HOME/.${APP}-active-port"
 UPSTREAM_CONF="/etc/nginx/conf.d/${APP}-upstream.conf"
 
 HEALTH_PATH="/api/health"
-HEALTH_TIMEOUT=90          # seconds to wait for standby health
+HEALTH_TIMEOUT=180         # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
 LOCK_FILE="$HOME/.algoforge-deploy.lock"
