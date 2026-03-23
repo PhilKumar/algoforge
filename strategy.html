@@ -4914,6 +4914,42 @@ async function applyNavState(state) {
   }
 }
 
+let _portfolioRefreshTimer = null;
+let _portfolioLoadedOnce = false;
+let _runsLoadedOnce = false;
+let _strategiesLoadedOnce = false;
+
+function stopPortfolioRefresh() {
+  if (_portfolioRefreshTimer) {
+    clearInterval(_portfolioRefreshTimer);
+    _portfolioRefreshTimer = null;
+  }
+}
+
+async function ensurePortfolioLoaded(force = false) {
+  if (force || !_portfolioLoadedOnce) {
+    await loadPortfolioData();
+    _portfolioLoadedOnce = true;
+  }
+  if (!_portfolioRefreshTimer) {
+    _portfolioRefreshTimer = setInterval(loadPortfolioData, 60000);
+  }
+}
+
+async function ensureRunsLoaded(force = false) {
+  if (force || !_runsLoadedOnce) {
+    await fetchRuns();
+    _runsLoadedOnce = true;
+  }
+}
+
+async function ensureStrategiesLoaded(force = false) {
+  if (force || !_strategiesLoadedOnce) {
+    await fetchStrategies();
+    _strategiesLoadedOnce = true;
+  }
+}
+
 function showPage(id, btn, options = {}) {
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
@@ -4925,8 +4961,19 @@ function showPage(id, btn, options = {}) {
   // Stop scalp polling when leaving scalp page
   if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   if (id !== 'scalp-page' && _scalpLTPTimer) { clearInterval(_scalpLTPTimer); _scalpLTPTimer = null; }
+  if (id !== 'portfolio-page') stopPortfolioRefresh();
   // Start/stop builder preview polling
-  if (id === 'builder-page') startBuilderPreview(); else stopBuilderPreview();
+  if (id === 'builder-page') {
+    startBuilderPreview();
+    ensureStrategiesLoaded();
+  } else {
+    stopBuilderPreview();
+  }
+  if (id === 'results-page') ensureRunsLoaded();
+  if (id === 'portfolio-page') {
+    ensureRunsLoaded();
+    ensurePortfolioLoaded();
+  }
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') loadDashboardSummary();
   // Persist active tab across page refresh
@@ -5043,14 +5090,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-name-input').value = 'Strategy_' + generateRandomID();
   applyExecutionProfile(true);
   renderIndicatorFields();
-  fetchStrategies();
-  fetchRuns();
-  loadPortfolioData();
   loadDashboardSummary();
   // Don't add default conditions - user adds them via indicators or manually
   updateTicker();
   setInterval(updateTicker, 30000);
-  setInterval(loadPortfolioData, 60000); // Refresh portfolio every minute
 
   // Restore active tab from URL or previous session and seed browser history.
   try {
