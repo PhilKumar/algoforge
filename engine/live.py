@@ -32,7 +32,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import config
 from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
-from engine.backtest import eval_condition_group, get_lot_size, get_sell_option_margin_per_lot, get_strike_step
+from engine.backtest import (
+    debug_condition_group,
+    eval_condition_group,
+    get_lot_size,
+    get_sell_option_margin_per_lot,
+    get_strike_step,
+)
 from engine.indicators import compute_dynamic_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
@@ -138,6 +144,9 @@ class LiveEngine:
         self._pending_order: Optional[dict] = None  # Rich signal context for next-candle entry
         self._last_processed_candle_time: Optional[datetime] = None  # Double-trigger guard
         self._last_strategy_candle_time: Optional[datetime] = None  # Last closed execution-timeframe candle seen
+
+        # Condition debug for UI
+        self._condition_debug: dict = {}
 
         # Logging
         self.event_log: List[dict] = []
@@ -1028,7 +1037,13 @@ class LiveEngine:
                     else:
                         # Evaluate new signal on this closed candle
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
-                        entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                        entry_sig, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
+                        self._condition_debug = {
+                            "time": now.strftime("%H:%M:%S"),
+                            "overall": entry_sig,
+                            "gate": "evaluating",
+                            "conditions": cond_details,
+                        }
                         if entry_sig:
                             ready_at = self._pending_order_ready_at(strategy_candle_time)
                             self._pending_order = {
@@ -1050,19 +1065,30 @@ class LiveEngine:
                                 "signal",
                                 f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open @ {ready_at.strftime('%H:%M:%S')}",
                             )
-                elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
-                    # Signal exists but can't execute — log WHY and clear
-                    reason = (
-                        "in_trade=True"
-                        if self.in_trade
-                        else (
-                            f"trades_today({self.trades_today})>=max({max_trades})"
-                            if self.trades_today >= max_trades
-                            else f"daily_loss_hit(PnL={self.daily_pnl:.0f})"
+                elif self.in_trade:
+                    self._condition_debug = {"gate": "in_trade", "conditions": []}
+                    if self._pending_order:
+                        self.log_event("warning", "⚠ Pending order cleared — cannot execute: in_trade=True")
+                        self._clear_pending_order()
+                elif self.trades_today >= max_trades:
+                    self._condition_debug = {
+                        "gate": f"max_trades_reached ({self.trades_today}/{max_trades})",
+                        "conditions": [],
+                    }
+                    if self._pending_order:
+                        self.log_event(
+                            "warning",
+                            f"⚠ Pending order cleared — cannot execute: trades_today({self.trades_today})>=max({max_trades})",
                         )
-                    )
-                    self.log_event("warning", f"⚠ Pending order cleared — cannot execute: {reason}")
-                    self._clear_pending_order()
+                        self._clear_pending_order()
+                elif daily_loss_hit:
+                    self._condition_debug = {"gate": f"daily_loss_limit (PnL={self.daily_pnl:.2f})", "conditions": []}
+                    if self._pending_order:
+                        self.log_event(
+                            "warning",
+                            f"⚠ Pending order cleared — cannot execute: daily_loss_hit(PnL={self.daily_pnl:.0f})",
+                        )
+                        self._clear_pending_order()
 
                 self._prev_row = latest_row
                 self._last_strategy_candle_time = strategy_candle_time
@@ -1430,7 +1456,13 @@ class LiveEngine:
                     self.log_event("entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (REST mode)")
                     await self._flush_pending_order(latest_row, callback)
             elif is_new_strategy_candle:
-                entry_sig = eval_condition_group(latest_row, self.entry_conditions, prev_row)
+                entry_sig, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
+                self._condition_debug = {
+                    "time": now.strftime("%H:%M:%S"),
+                    "overall": entry_sig,
+                    "gate": "evaluating",
+                    "conditions": cond_details,
+                }
                 if entry_sig:
                     signal_candle_time = latest_row.name if hasattr(latest_row, "name") else now
                     ready_at = self._pending_order_ready_at(signal_candle_time)
@@ -1453,18 +1485,23 @@ class LiveEngine:
                         "signal",
                         f"⚡ ENTRY SIGNAL — will enter on or after {ready_at.strftime('%H:%M:%S')} (REST mode)",
                     )
-        elif self._pending_order and (self.in_trade or self.trades_today >= max_trades or daily_loss_hit):
-            reason = (
-                "in_trade=True"
-                if self.in_trade
-                else (
-                    f"trades_today({self.trades_today})>=max({max_trades})"
-                    if self.trades_today >= max_trades
-                    else f"daily_loss_hit(PnL={self.daily_pnl:.0f})"
+        elif self.in_trade:
+            self._condition_debug = {"gate": "in_trade", "conditions": []}
+            if self._pending_order:
+                self.log_event("warning", "⚠ Pending order cleared (REST): in_trade=True")
+                self._clear_pending_order()
+        elif self.trades_today >= max_trades:
+            self._condition_debug = {"gate": f"max_trades_reached ({self.trades_today}/{max_trades})", "conditions": []}
+            if self._pending_order:
+                self.log_event(
+                    "warning", f"⚠ Pending order cleared (REST): trades_today({self.trades_today})>=max({max_trades})"
                 )
-            )
-            self.log_event("warning", f"⚠ Pending order cleared (REST): {reason}")
-            self._clear_pending_order()
+                self._clear_pending_order()
+        elif daily_loss_hit:
+            self._condition_debug = {"gate": f"daily_loss_limit (PnL={self.daily_pnl:.2f})", "conditions": []}
+            if self._pending_order:
+                self.log_event("warning", f"⚠ Pending order cleared (REST): daily_loss_hit(PnL={self.daily_pnl:.0f})")
+                self._clear_pending_order()
 
         if is_new_strategy_candle:
             self._prev_row = latest_row
@@ -2410,4 +2447,5 @@ class LiveEngine:
                 }
                 for e in self.event_log[-50:]
             ],
+            "condition_debug": self._condition_debug,
         }
