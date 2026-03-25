@@ -2306,6 +2306,9 @@
   .cj-left { flex: 65; min-width: 0; }
   .cj-left-inner { display: flex; gap: 18px; }
   .cj-right { flex: 35; min-width: 320px; max-width: 420px; }
+  .cj-split.planner-mode .cj-left { display: none; }
+  .cj-split.planner-mode .cj-right { flex: 1; min-width: 0; max-width: none; }
+  .cj-split.planner-mode .cj-journal-panel { max-width: 1280px; margin: 0 auto; }
 
   /* ── Journal Panel ── */
   .cj-journal-panel { position: sticky; top: 80px; background: linear-gradient(160deg, rgba(20,28,46,0.92), rgba(13,18,32,0.88)); border: 1px solid var(--border); border-top: 1px solid var(--border-hi); border-radius: 16px; padding: 20px; backdrop-filter: blur(32px) saturate(1.35); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 var(--glass-mid); }
@@ -2375,28 +2378,39 @@
   .cj-panel-view { display: none; }
   .cj-panel-view.active { display: block; }
   .cj-plan-wrap { display: flex; flex-direction: column; gap: 14px; }
-  .cj-plan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cj-plan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
   .cj-plan-kicker { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .cj-plan-heading { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-top: 2px; }
-  .cj-plan-year-nav { display: inline-flex; align-items: center; gap: 8px; }
-  .cj-plan-year-btn { width: 30px; height: 30px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
-  .cj-plan-year-label { min-width: 74px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--warn); font-weight: 700; }
-  .cj-plan-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .cj-plan-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.035); }
+  .cj-plan-heading { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; color: var(--text); margin-top: 2px; line-height: 1.05; }
+  .cj-plan-year-label,
+  .cj-plan-badge { padding: 9px 16px; border-radius: 999px; border: 1px solid rgba(251,191,36,0.24); background: rgba(251,191,36,0.10); color: var(--warn); font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.35px; white-space: nowrap; }
+  .cj-plan-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .cj-plan-card { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; background: linear-gradient(160deg, rgba(32,39,58,0.78), rgba(19,25,41,0.82)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
   .cj-plan-card-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.45px; color: var(--muted); margin-bottom: 5px; }
-  .cj-plan-card-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text); }
+  .cj-plan-card-value { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800; color: var(--text); }
   .cj-plan-card-value.pos { color: var(--success); }
   .cj-plan-card-value.neg { color: var(--danger); }
-  .cj-plan-table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: auto; background: rgba(255,255,255,0.025); }
-  .cj-plan-table { width: 100%; min-width: 980px; border-collapse: collapse; }
-  .cj-plan-table th, .cj-plan-table td { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 8px 10px; }
-  .cj-plan-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); white-space: nowrap; }
-  .cj-plan-row-label { min-width: 180px; font-size: 12px; font-weight: 600; color: var(--text); }
-  .cj-plan-input { width: 88px; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: right; outline: none; }
+  .cj-plan-table-wrap { border: 1px solid var(--border); border-radius: 16px; overflow: auto; background: rgba(255,255,255,0.025); padding: 18px; }
+  .cj-plan-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr); gap: 20px; align-items: stretch; }
+  .cj-plan-section { border: 1px solid var(--border); border-radius: 18px; padding: 22px 22px 20px; background: linear-gradient(165deg, rgba(34,41,60,0.94), rgba(18,23,38,0.92)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); min-width: 0; }
+  .cj-plan-section-title { font-family: 'Syne', sans-serif; font-size: 38px; font-weight: 800; line-height: 1.02; letter-spacing: 0.8px; margin-bottom: 18px; }
+  .cj-plan-section-title.ffv { color: #5d74ff; }
+  .cj-plan-section-title.income { color: #ff67d6; }
+  .cj-plan-grid-ffv { display: grid; grid-template-columns: minmax(190px,1.2fr) minmax(180px,220px) minmax(180px,220px) minmax(150px,0.8fr); gap: 14px 16px; align-items: center; }
+  .cj-plan-grid-income { display: grid; grid-template-columns: minmax(190px,1.1fr) minmax(180px,220px) minmax(180px,1fr); gap: 14px 16px; align-items: center; }
+  .cj-plan-label { font-size: 16px; font-weight: 800; color: var(--text); letter-spacing: 0.12px; }
+  .cj-plan-subhint { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.18px; }
+  .cj-plan-input { width: 100%; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800; text-align: right; outline: none; box-sizing: border-box; }
   .cj-plan-input:focus { border-color: rgba(0,191,165,0.35); box-shadow: 0 0 0 2px rgba(0,191,165,0.12); }
-  .cj-plan-total-cell { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; text-align: right; color: var(--text); }
-  .cj-plan-net-row td { background: rgba(16,185,129,0.08); }
-  .cj-plan-note { font-size: 11px; line-height: 1.55; color: var(--muted); }
+  .cj-plan-readonly { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 800; color: var(--text); text-align: right; white-space: nowrap; }
+  .cj-plan-readonly.blue { color: #5d74ff; }
+  .cj-plan-readonly.pink { color: #ff67d6; }
+  .cj-plan-readonly.warn { color: var(--warn); }
+  .cj-plan-readonly.danger { color: var(--danger); }
+  .cj-plan-actions { margin-top: 36px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 24px; }
+  .cj-plan-actions-title { font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 18px; color: var(--text); }
+  .cj-plan-action { font-size: 16px; font-weight: 700; margin-top: 10px; color: var(--text); text-align: center; }
+  .cj-plan-action.emphasis { color: var(--warn); }
+  .cj-plan-note { font-size: 12px; line-height: 1.6; color: var(--muted); padding: 0 4px; }
   .cj-entries-list { max-height: 240px; overflow-y: auto; margin-bottom: 12px; padding-bottom: 4px; }
   .cj-entries-list:empty { display: none; }
   .cj-entries-title { font-size: 11px; color: var(--muted); padding: 4px 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
@@ -2441,10 +2455,20 @@
     .ch-lb-nav { width: 36px; height: 36px; font-size: 16px; }
     .cj-radio-row { grid-template-columns: 1fr; }
     .cj-plan-summary { grid-template-columns: 1fr; }
+    .cj-plan-grid { grid-template-columns: 1fr; }
+    .cj-plan-grid-ffv,
+    .cj-plan-grid-income { grid-template-columns: 1fr; }
+    .cj-plan-section-title { font-size: 30px; }
+    .cj-plan-input,
+    .cj-plan-readonly { text-align: left; }
   }
   @media (max-width: 1100px) {
     .cj-split { flex-direction: column; }
     .cj-right { max-width: none; min-width: 0; }
+    .cj-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cj-plan-grid { grid-template-columns: 1fr; }
+    .cj-plan-grid-ffv,
+    .cj-plan-grid-income { grid-template-columns: minmax(160px,1fr) minmax(160px,220px); }
   }
   /* ── Light theme: Charts / Journal page ── */
   [data-theme="light"] .charts-sidebar-inner { background: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88)); border-color: rgba(0,0,0,0.08); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
@@ -2488,11 +2512,16 @@
   [data-theme="light"] .cj-panel-tab { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); color: #475569; }
   [data-theme="light"] .cj-panel-tab:hover { border-color: rgba(5,150,105,0.22); color: #0f172a; }
   [data-theme="light"] .cj-panel-tab.active { background: linear-gradient(180deg, rgba(5,150,105,0.16), rgba(5,150,105,0.08)); color: #047857; border-color: rgba(5,150,105,0.24); box-shadow: 0 4px 12px rgba(5,150,105,0.12); }
-  [data-theme="light"] .cj-plan-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-card { background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(248,250,252,0.92)); border-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .cj-plan-card-label, [data-theme="light"] .cj-plan-kicker, [data-theme="light"] .cj-plan-note { color: #64748b; }
-  [data-theme="light"] .cj-plan-heading, [data-theme="light"] .cj-plan-row-label, [data-theme="light"] .cj-plan-card-value { color: #0f172a; }
-  [data-theme="light"] .cj-plan-year-btn, [data-theme="light"] .cj-plan-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: #0f172a; }
+  [data-theme="light"] .cj-plan-heading, [data-theme="light"] .cj-plan-row-label, [data-theme="light"] .cj-plan-card-value, [data-theme="light"] .cj-plan-label, [data-theme="light"] .cj-plan-actions-title, [data-theme="light"] .cj-plan-action { color: #0f172a; }
+  [data-theme="light"] .cj-plan-section { background: linear-gradient(165deg, rgba(255,255,255,0.96), rgba(244,247,251,0.94)); border-color: rgba(0,0,0,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75); }
+  [data-theme="light"] .cj-plan-year-label,
+  [data-theme="light"] .cj-plan-year-btn,
+  [data-theme="light"] .cj-plan-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: #0f172a; }
   [data-theme="light"] .cj-plan-table-wrap { background: rgba(0,0,0,0.015); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-subhint { color: #64748b; }
+  [data-theme="light"] .cj-plan-actions { border-top-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .cj-plan-table th { color: #64748b; }
   [data-theme="light"] .cj-plan-table th, [data-theme="light"] .cj-plan-table td { border-bottom-color: rgba(0,0,0,0.06); }
   [data-theme="light"] .cj-plan-total-cell { color: #0f172a; }
@@ -4027,7 +4056,7 @@
 
 <!-- ═══ CHARTS VIEWER ═══ -->
 <div id="charts-page" class="page-section" style="margin: 0 auto;">
-  <div class="cj-split">
+  <div id="charts-shell" class="cj-split">
     <!-- LEFT: Date Sidebar + Chart Grid (65%) -->
     <div class="cj-left">
       <div class="cj-left-inner">
@@ -12253,67 +12282,72 @@ fetchRuns = async function() {
     const wrap = document.getElementById('cj-plan-table-wrap');
     if (!wrap) return;
     const field = (id, value, opts = {}) =>
-      `<input type="number" step="${opts.step || '0.01'}" min="0" id="${id}" value="${escapeAttr(Number(value || 0).toFixed(opts.decimals ?? 2))}" oninput="window._cjPlannerFieldChanged(this)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.05);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;outline:none;">`;
-    const readonly = (value, color = 'var(--text)') =>
-      `<div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:${color};text-align:right;">${_cjPlannerMoney(value)}</div>`;
-    const small = (text, color = 'var(--muted)') =>
-      `<div style="font-size:11px;color:${color};text-align:right;">${escapeHtml(text)}</div>`;
+      `<input type="number" step="${opts.step || '0.01'}" min="0" id="${id}" class="cj-plan-input" value="${escapeAttr(Number(value || 0).toFixed(opts.decimals ?? 2))}" oninput="window._cjPlannerFieldChanged(this)">`;
+    const readonly = (value, variant = '') =>
+      `<div class="cj-plan-readonly${variant ? ` ${variant}` : ''}">${_cjPlannerMoney(value)}</div>`;
+    const label = (text, subhint = '') =>
+      `<div><div class="cj-plan-label">${escapeHtml(text)}</div>${subhint ? `<div class="cj-plan-subhint">${escapeHtml(subhint)}</div>` : ''}</div>`;
     const actionsHtml = calc.actions
-      .map((item, idx) => `<div style="font-size:13px;font-weight:${idx === 1 ? '800' : '600'};color:${idx === 1 ? 'var(--warn)' : 'var(--text)'};margin-top:${idx === 0 ? '0' : '6px'};">${escapeHtml(item.toUpperCase())}</div>`)
+      .map((item, idx) => `<div class="cj-plan-action${idx === 1 ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
       .join('');
     wrap.innerHTML = `
-      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;">
-        <section style="border:1px solid var(--border);border-radius:14px;padding:16px;background:rgba(255,255,255,0.03);">
-          <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#2133ff;letter-spacing:0.8px;margin-bottom:14px;">FINANCIAL FREEDOM VALUE</div>
-          <div style="display:grid;grid-template-columns:minmax(170px,1fr) minmax(120px,160px) minmax(120px,160px) minmax(120px,1fr);gap:10px 12px;align-items:center;">
-            <div style="font-size:13px;font-weight:600;">MONTHLY EXPENSE</div>
+      <div class="cj-plan-grid">
+        <section class="cj-plan-section">
+          <div class="cj-plan-section-title ffv">FINANCIAL FREEDOM VALUE</div>
+          <div class="cj-plan-grid-ffv">
+            ${label('MONTHLY EXPENSE')}
             ${field('cj-plan-monthly-expense', calc.monthly_expense)}
-            <div></div><div></div>
-            <div style="font-size:13px;font-weight:600;">1 YEAR RESERVE</div>
-            ${readonly(calc.reserveValue, '#1d4ed8')}
-            <div></div><div></div>
-            <div style="font-size:13px;font-weight:600;">F F V</div>
-            ${readonly(calc.ffvValue, '#1d4ed8')}
-            <div></div><div></div>
-            <div style="font-size:13px;font-weight:700;">WHERE ARE YOU NOW</div>
+            <div></div>
+            <div></div>
+
+            ${label('1 YEAR RESERVE')}
+            ${readonly(calc.reserveValue, 'blue')}
+            <div></div>
+            <div></div>
+
+            ${label('F F V')}
+            ${readonly(calc.ffvValue, 'blue')}
+            <div></div>
+            <div></div>
+
+            ${label('WHERE ARE YOU NOW', '( YOUR ASSETS VALUE )')}
             ${field('cj-plan-assets-value', calc.assets_value)}
-            ${readonly(calc.shortageValue, 'var(--text)')}
-            <div style="font-size:12px;color:var(--muted);font-weight:700;">S-H-O-R-T-A-G-E</div>
-            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( YOUR ASSETS VALUE )</div>
-            <div></div><div></div>
-            <div style="font-size:13px;font-weight:600;">WHAT TIME 1 Y R</div>
+            ${readonly(calc.shortageValue, calc.shortageValue > 0 ? 'danger' : 'blue')}
+            <div class="cj-plan-subhint">S-H-O-R-T-A-G-E</div>
+
+            ${label('WHAT TIME 1 Y R', '( HOW MANY YEARS )')}
             ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
-            ${readonly(calc.reserveMonthlySave, 'var(--text)')}
-            <div style="font-size:12px;color:var(--muted);font-weight:700;">P M SAVE</div>
-            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( HOW MANY YEARS )</div>
-            <div></div><div></div>
-            <div style="font-size:13px;font-weight:600;">WHAT TIME F F V</div>
+            ${readonly(calc.reserveMonthlySave)}
+            <div class="cj-plan-subhint">P M SAVE</div>
+
+            ${label('WHAT TIME F F V', '( HOW MANY YEARS )')}
             ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
-            ${readonly(calc.ffvMonthlySave, 'var(--text)')}
-            <div style="font-size:12px;color:var(--muted);font-weight:700;">P M SAVE</div>
-            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( HOW MANY YEARS )</div>
-            <div></div><div></div>
+            ${readonly(calc.ffvMonthlySave)}
+            <div class="cj-plan-subhint">P M SAVE</div>
           </div>
         </section>
-        <section style="border:1px solid var(--border);border-radius:14px;padding:16px;background:rgba(255,255,255,0.03);">
-          <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#ff2df7;letter-spacing:0.8px;margin-bottom:14px;">INCOME VALUE</div>
-          <div style="display:grid;grid-template-columns:minmax(170px,1fr) minmax(120px,160px) minmax(120px,1fr);gap:10px 12px;align-items:center;">
-            <div style="font-size:13px;font-weight:600;">MONTHLY INCOME</div>
+        <section class="cj-plan-section">
+          <div class="cj-plan-section-title income">INCOME VALUE</div>
+          <div class="cj-plan-grid-income">
+            ${label('MONTHLY INCOME')}
             ${field('cj-plan-monthly-income', calc.monthly_income)}
             <div></div>
-            <div style="font-size:13px;font-weight:600;">P D V</div>
-            ${readonly(calc.pdv, 'var(--text)')}
+
+            ${label('P D V')}
+            ${readonly(calc.pdv)}
             <div></div>
-            <div style="font-size:13px;font-weight:600;">P H V</div>
-            ${readonly(calc.phv, 'var(--text)')}
+
+            ${label('P H V')}
+            ${readonly(calc.phv)}
             <div></div>
-            <div style="font-size:13px;font-weight:600;">IF INCREASE P H V</div>
+
+            ${label('IF INCREASE P H V')}
             ${field('cj-plan-phv-increase', calc.phv_increase)}
-            ${readonly(calc.addedIncome, '#ff2df7')}
+            ${readonly(calc.addedIncome, 'pink')}
           </div>
-          <div style="margin-top:32px;">
-            <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:18px;">ACTION STEPS</div>
-            <div style="padding:4px 0 0 0;">${actionsHtml}</div>
+          <div class="cj-plan-actions">
+            <div class="cj-plan-actions-title">ACTION STEPS</div>
+            <div>${actionsHtml}</div>
           </div>
         </section>
       </div>
@@ -12402,10 +12436,12 @@ fetchRuns = async function() {
     const plan = document.getElementById('cj-plan-view');
     const journalTab = document.getElementById('cj-tab-journal');
     const planTab = document.getElementById('cj-tab-plan');
+    const shell = document.getElementById('charts-shell');
     if (journal) journal.classList.toggle('active', _cjPanelMode === 'journal');
     if (plan) plan.classList.toggle('active', _cjPanelMode === 'plan');
     if (journalTab) journalTab.classList.toggle('active', _cjPanelMode === 'journal');
     if (planTab) planTab.classList.toggle('active', _cjPanelMode === 'plan');
+    if (shell) shell.classList.toggle('planner-mode', _cjPanelMode === 'plan');
     if (_cjPanelMode === 'plan' && !_cjPlanner) _cjLoadPlanner();
   };
 

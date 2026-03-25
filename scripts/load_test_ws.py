@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Multi-user WebSocket load and isolation probe for AlgoForge.
 
-Typical usage on staging:
+Typical usage on the main production-shaped environment:
   python3 scripts/load_test_ws.py \
-    --base-url https://staging.philforge.in \
+    --base-url https://philforge.in \
     --credential admin:123456 \
     --credential phil:654321 \
     --credential user3:abcdef \

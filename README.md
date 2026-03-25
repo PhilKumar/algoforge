@@ -44,8 +44,7 @@ This suite contains **two production-grade trading platforms** that share a comm
 
 Both platforms provide a unified workflow: **Strategy Builder → Backtest → Paper Trade → Go Live → Scalp**.
 
-> Feature branch note: `feature/multi-tenant` adds SQLite-backed multi-user auth, per-user broker isolation, admin controls, and backup tooling for AlgoForge. Use [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md) for staging and production cutover on that branch.
-> A dedicated staging path for that branch is also shipped via `deploy/setup-staging.sh`, `deploy/deploy-staging.sh`, and `deploy/nginx.staging.conf`.
+> AlgoForge on `main` now includes SQLite-backed multi-user auth, per-user broker isolation, admin controls, and backup tooling. Use [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md) for main-production backup and rollout guidance.
 
 ---
 
