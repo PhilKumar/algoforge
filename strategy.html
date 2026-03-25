@@ -2768,6 +2768,14 @@
       <h3 style="margin:0; font-size: 16px;">Strategy Arsenal</h3>
       <span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Choose Your Weapon</span>
     </div>
+    <div id="arsenal-running-wrap" style="display:none; margin-bottom: 16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(16,185,129,0.16),rgba(52,211,153,0.08));border:1px solid rgba(16,185,129,0.28);border-radius:7px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path></svg></span></span>
+        <div style="font-size:12px;font-weight:800;letter-spacing:0.35px;color:var(--success);">Running Now</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Quick jump to active engines</div>
+      </div>
+      <div id="arsenal-running-grid" style="display:grid;grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;"></div>
+    </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;" id="template-grid">
       <!-- The Trend Sentinel -->
       <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('supertrend_cpr')">
@@ -7246,6 +7254,14 @@ function _resolveSavedStrategyFolder(strategyName, explicitFolder) {
   return String(matched.folder || '').trim() || 'Intraday';
 }
 
+function _findSavedStrategyByName(strategyName) {
+  const key = _normalizeStrategyKey(strategyName);
+  if (!key) return null;
+  return (savedStrategiesCache || []).slice().reverse().find((s) =>
+    _normalizeStrategyKey(s?.run_name) === key || _normalizeStrategyKey(s?.name) === key
+  ) || null;
+}
+
 function toggleSavedStrategyFolder(headerEl, forceOpen = null) {
   if (!headerEl) return;
   const content = headerEl.nextElementSibling;
@@ -7295,6 +7311,91 @@ async function openSavedStrategyFolder(strategyName, folderName = '') {
     _normalizeStrategyKey(row.getAttribute('data-strategy-name')) === key
   );
   _highlightSavedStrategyRow(targetRow);
+}
+
+async function openLiveRunMonitor(runId) {
+  showPage('live-page', document.getElementById('nav-live'));
+  startLiveMonitor();
+  await loadLiveMonitor();
+  const idx = (_liveEngines || []).findIndex((engine) => String(engine.run_id || '') === String(runId || ''));
+  if (idx >= 0) {
+    selectLiveTab(idx);
+    return;
+  }
+  toast('Running strategy panel not found', 'warn');
+}
+
+function renderRunningArsenal(engines) {
+  const wrap = document.getElementById('arsenal-running-wrap');
+  const grid = document.getElementById('arsenal-running-grid');
+  if (!wrap || !grid) return;
+
+  const running = (engines || []).filter((engine) => !!engine?.running);
+  if (!running.length) {
+    wrap.style.display = 'none';
+    grid.innerHTML = '';
+    return;
+  }
+
+  wrap.style.display = 'block';
+  grid.innerHTML = running.map((engine) => {
+    const runId = String(engine.run_id || '');
+    const strategyName = String(engine.strategy_name || engine.run_id || 'Strategy');
+    const mode = engine.mode === 'auto' ? 'Live' : 'Paper';
+    const modeColor = engine.mode === 'auto' ? 'var(--danger)' : 'var(--accent)';
+    const modeBg = engine.mode === 'auto' ? 'rgba(239,68,68,0.12)' : 'rgba(20,184,166,0.12)';
+    const modeBorder = engine.mode === 'auto' ? 'rgba(239,68,68,0.22)' : 'rgba(20,184,166,0.22)';
+    const folderName = _resolveSavedStrategyFolder(strategyName, engine.folder || (engine.strategy || {}).folder || '');
+    const savedStrategy = _findSavedStrategyByName(strategyName);
+    const pnl = round2(engine.total_pnl || 0);
+    const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+    const tradesToday = engine.trades_today || 0;
+    const instLabel = INST_NAMES[engine.instrument] || (engine.instrument ? `Instrument ${engine.instrument}` : 'NIFTY');
+    const statusLabel = engine.in_trade ? 'In Trade' : 'Running';
+    const statusColor = engine.in_trade ? '#fbbf24' : '#4ade80';
+    return `<div class="card card-compact" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="cursor:pointer;border:1px solid rgba(16,185,129,0.18);transition:border-color 0.2s, box-shadow 0.2s;position:relative;overflow:hidden;" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
+      <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:13px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(strategyName)}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:${modeBg};color:${modeColor};border:1px solid ${modeBorder};text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(mode)}</span>
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:rgba(34,197,94,0.12);color:${statusColor};border:1px solid rgba(34,197,94,0.22);text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(statusLabel)}</span>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:16px;font-weight:800;font-family:'JetBrains Mono';color:${pnlColor};">₹${pnl.toFixed(2)}</div>
+          <div style="font-size:10px;color:var(--muted);">${escapeHtml(String(tradesToday))} trade${tradesToday === 1 ? '' : 's'} today</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.18);color:var(--accent);font-weight:700;">${escapeHtml(instLabel)}</span>
+        <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.18);color:rgb(165,148,249);font-weight:700;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="font-size:11px;padding:5px 12px;">Open Live</button>
+        ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:5px 12px;--btn-bg: rgba(99,102,241,0.15);--btn-color: var(--accent);--btn-border: rgba(99,102,241,0.28);">Edit</button>` : ''}
+        <button class="btn btn-sm" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}')" style="font-size:11px;padding:5px 12px;--btn-bg: rgba(139,92,246,0.12);--btn-color: rgb(165,148,249);--btn-border: rgba(139,92,246,0.24);">Folder</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshStrategyArsenalRunning() {
+  const wrap = document.getElementById('arsenal-running-wrap');
+  const grid = document.getElementById('arsenal-running-grid');
+  if (!wrap || !grid) return;
+  try {
+    const res = await fetch('/api/engines/all');
+    if (await handleUnauthorizedResponse(res)) return;
+    if (!res.ok) throw new Error('Failed to load running strategies');
+    const data = await res.json();
+    renderRunningArsenal(data.engines || []);
+  } catch (err) {
+    console.warn('Running arsenal load failed:', err);
+    wrap.style.display = 'none';
+    grid.innerHTML = '';
+  }
 }
 
 async function fetchStrategies() {
@@ -10812,6 +10913,7 @@ async function loadDashboardSummary() {
     }
     _dashboardTransactionsCache = Array.isArray(d.recent_transactions) ? d.recent_transactions : [];
     _renderDashboardTransactions(_dashboardTransactionsCache);
+    refreshStrategyArsenalRunning();
   } catch(e) {
     console.warn('Dashboard summary failed:', e);
   }
