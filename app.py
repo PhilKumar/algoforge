@@ -7,6 +7,7 @@ Fixed:
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 from html import escape as _escape_html
@@ -852,6 +853,7 @@ class StrategyPayload(BaseModel):
     enforce_capital: bool = False
     capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
+    allow_synthetic_option_fallback: bool = False
 
 
 def _render_login_page() -> HTMLResponse:
@@ -1353,50 +1355,40 @@ async def delete_journal(date_str: str, request: Request):
 
 
 def _default_financial_plan() -> dict:
-    year = _dt.datetime.now(_IST).year
-    rows = [
-        ("income", "Monthly Income"),
-        ("fixed", "Fixed Expenses"),
-        ("variable", "Variable Expenses"),
-        ("emi", "EMI / Debt"),
-        ("insurance", "Insurance"),
-        ("investments", "SIP / Investments"),
-        ("goals", "Goal Buckets"),
-    ]
     return {
-        "year": year,
-        "rows": [{"key": key, "label": label, "values": [0.0] * 12} for key, label in rows],
+        "monthly_expense": 0.0,
+        "assets_value": 0.0,
+        "years_to_reserve": 10,
+        "years_to_ffv": 10,
+        "monthly_income": 0.0,
+        "phv_increase": 0.0,
     }
 
 
 def _sanitize_financial_plan(body: dict) -> dict:
     default = _default_financial_plan()
-    try:
-        year = int(body.get("year") or default["year"])
-    except (TypeError, ValueError):
-        year = default["year"]
-    year = min(max(year, 2000), 2100)
-    allowed = {row["key"]: row["label"] for row in default["rows"]}
-    row_map = {}
-    for row in body.get("rows", []) if isinstance(body, dict) else []:
-        if not isinstance(row, dict):
-            continue
-        key = str(row.get("key") or "").strip()
-        if key not in allowed:
-            continue
-        values = row.get("values")
-        if not isinstance(values, list):
-            values = []
-        clean_vals = []
-        for idx in range(12):
-            raw = values[idx] if idx < len(values) else 0
-            try:
-                clean_vals.append(round(float(raw), 2))
-            except (TypeError, ValueError):
-                clean_vals.append(0.0)
-        row_map[key] = {"key": key, "label": allowed[key], "values": clean_vals}
-    rows = [row_map.get(row["key"], row) for row in default["rows"]]
-    return {"year": year, "rows": rows}
+    body = body if isinstance(body, dict) else {}
+
+    def _clean_money(field: str) -> float:
+        try:
+            return round(max(0.0, float(body.get(field, default[field]) or 0.0)), 2)
+        except (TypeError, ValueError):
+            return float(default[field])
+
+    def _clean_years(field: str) -> int:
+        try:
+            return min(max(1, int(body.get(field, default[field]) or default[field])), 50)
+        except (TypeError, ValueError):
+            return int(default[field])
+
+    return {
+        "monthly_expense": _clean_money("monthly_expense"),
+        "assets_value": _clean_money("assets_value"),
+        "years_to_reserve": _clean_years("years_to_reserve"),
+        "years_to_ffv": _clean_years("years_to_ffv"),
+        "monthly_income": _clean_money("monthly_income"),
+        "phv_increase": _clean_money("phv_increase"),
+    }
 
 
 @app.get("/api/financial-plan")
@@ -3060,6 +3052,44 @@ def _format_rolling_strike(offset_steps: int) -> str:
     return f"ATM{sign}{abs(offset_steps)}"
 
 
+_OPTION_HISTORY_CACHE_DIR = os.getenv(
+    "ALGOFORGE_OPTION_HISTORY_CACHE_DIR", os.path.join(_HERE, "data", "option_history_cache")
+)
+
+
+def _option_history_cache_path(history_key: str) -> str:
+    digest = hashlib.sha256(history_key.encode("utf-8")).hexdigest()
+    os.makedirs(_OPTION_HISTORY_CACHE_DIR, exist_ok=True)
+    return os.path.join(_OPTION_HISTORY_CACHE_DIR, f"{digest}.csv")
+
+
+def _load_option_history_cache(history_key: str) -> pd.DataFrame:
+    path = _option_history_cache_path(history_key)
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, index_col=0, parse_dates=True)
+        if df.empty:
+            return pd.DataFrame()
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        return df[~df.index.duplicated(keep="first")]
+    except Exception as exc:
+        print(f"[BACKTEST] ⚠️  Failed to read option cache {path}: {exc}")
+        return pd.DataFrame()
+
+
+def _save_option_history_cache(history_key: str, df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        return
+    path = _option_history_cache_path(history_key)
+    try:
+        cache_df = df.sort_index()
+        cache_df.to_csv(path, index_label="timestamp")
+    except Exception as exc:
+        print(f"[BACKTEST] ⚠️  Failed to write option cache {path}: {exc}")
+
+
 def _resolve_rolling_strike_alias(leg: dict, strike_step: int, max_offset: int) -> tuple[str | None, str | None]:
     strike_type = str(leg.get("strike_type", "atm") or "atm").lower()
     strike_value = float(leg.get("strike_value", 0) or 0)
@@ -3125,27 +3155,31 @@ def _resample_option_history(df: pd.DataFrame, timeframe_minutes: int) -> pd.Dat
 def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: str, to_date: str) -> dict:
     legs = strategy_config.get("legs") or []
     option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
+    allow_synthetic = bool(strategy_config.get("allow_synthetic_option_fallback", False))
     pricing_info = {
         "historical_legs": 0,
         "synthetic_legs": len(option_legs),
+        "allow_synthetic": allow_synthetic,
         "warnings": [],
+        "errors": [],
     }
     if not option_legs:
         return pricing_info
 
     if tf_spec.requested <= 0:
-        pricing_info["warnings"].append("Invalid timeframe for option history fetch; using synthetic premiums.")
+        target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+        target.append("Invalid timeframe for option history fetch.")
         return pricing_info
 
     inst_info = INSTRUMENT_MAP.get(strategy_config.get("instrument", ""))
     if not inst_info:
-        pricing_info["warnings"].append("Unknown instrument for option history fetch; using synthetic premiums.")
+        target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+        target.append("Unknown instrument for option history fetch.")
         return pricing_info
 
     if str(tf_spec.requested).upper() == "D":
-        pricing_info["warnings"].append(
-            "Daily option candles are not available on Dhan rolling options API; using synthetic premiums."
-        )
+        target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+        target.append("Daily option candles are not available on Dhan rolling options API.")
         return pricing_info
 
     option_exchange_segment = "BSE_FNO" if strategy_config.get("instrument") == "1" else "NSE_FNO"
@@ -3166,55 +3200,68 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
         expiry_selection = str(leg.get("expiry") or "current_week")
         expiry_params = ROLLING_EXPIRY_SELECTIONS.get(expiry_selection)
         if not expiry_params:
-            pricing_info["warnings"].append(
-                f"Leg {leg_index + 1}: expiry '{expiry_selection}' is not supported for rolling option history; using synthetic premiums."
+            target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+            target.append(
+                f"Leg {leg_index + 1}: expiry '{expiry_selection}' is not supported for rolling option history."
             )
             continue
 
         strike_alias, reason = _resolve_rolling_strike_alias(leg, strike_step, max_offset)
         if not strike_alias:
-            pricing_info["warnings"].append(f"Leg {leg_index + 1}: {reason}; using synthetic premiums.")
+            target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+            target.append(f"Leg {leg_index + 1}: {reason}.")
             continue
 
         expiry_flag, expiry_code = expiry_params
         option_side = "CALL" if str(leg.get("option_type", "CE")).upper() == "CE" else "PUT"
         history_key = (
             f"{inst_info['dhan_id']}|{option_exchange_segment}|{option_instrument_type}|"
-            f"{expiry_flag}|{expiry_code}|{strike_alias}|{option_side}|{tf_spec.requested}"
+            f"{expiry_flag}|{expiry_code}|{strike_alias}|{option_side}|{tf_spec.fetch}"
         )
 
         if history_key not in history_cache:
-            all_dfs = []
+            cached_raw = _load_option_history_cache(history_key)
+            all_dfs = [cached_raw] if cached_raw is not None and not cached_raw.empty else []
             chunk_start = from_dt
             last_error = None
-            while chunk_start <= to_dt:
-                chunk_end_exclusive = min(
-                    chunk_start + timedelta(days=ROLLING_OPTION_CHUNK_DAYS), to_dt + timedelta(days=1)
-                )
-                try:
-                    df_chunk = dhan.get_rolling_option_data(
-                        security_id=inst_info["dhan_id"],
-                        exchange_segment=option_exchange_segment,
-                        instrument_type=option_instrument_type,
-                        expiry_flag=expiry_flag,
-                        expiry_code=expiry_code,
-                        strike=strike_alias,
-                        option_type=option_side,
-                        from_date=chunk_start.strftime("%Y-%m-%d"),
-                        to_date=chunk_end_exclusive.strftime("%Y-%m-%d"),
-                        interval=str(tf_spec.fetch),
+            cache_covers_range = (
+                cached_raw is not None
+                and not cached_raw.empty
+                and cached_raw.index.min() <= from_dt
+                and cached_raw.index.max() >= (to_dt + timedelta(hours=23, minutes=59))
+            )
+            if not cache_covers_range:
+                while chunk_start <= to_dt:
+                    chunk_end_exclusive = min(
+                        chunk_start + timedelta(days=ROLLING_OPTION_CHUNK_DAYS), to_dt + timedelta(days=1)
                     )
-                    if df_chunk is not None and not df_chunk.empty:
-                        all_dfs.append(df_chunk)
-                except Exception as exc:
-                    last_error = str(exc)
-                    break
-                _time.sleep(0.25)
-                chunk_start = chunk_end_exclusive
+                    try:
+                        df_chunk = dhan.get_rolling_option_data(
+                            security_id=inst_info["dhan_id"],
+                            exchange_segment=option_exchange_segment,
+                            instrument_type=option_instrument_type,
+                            expiry_flag=expiry_flag,
+                            expiry_code=expiry_code,
+                            strike=strike_alias,
+                            option_type=option_side,
+                            from_date=chunk_start.strftime("%Y-%m-%d"),
+                            to_date=chunk_end_exclusive.strftime("%Y-%m-%d"),
+                            interval=str(tf_spec.fetch),
+                        )
+                        if df_chunk is not None and not df_chunk.empty:
+                            all_dfs.append(df_chunk)
+                    except Exception as exc:
+                        last_error = str(exc)
+                        break
+                    _time.sleep(0.25)
+                    chunk_start = chunk_end_exclusive
 
             if all_dfs:
                 df_hist_raw = pd.concat(all_dfs).sort_index()
                 df_hist_raw = df_hist_raw[~df_hist_raw.index.duplicated(keep="first")]
+                _save_option_history_cache(history_key, df_hist_raw)
+                coverage_end = to_dt + timedelta(days=1)
+                df_hist_raw = df_hist_raw[(df_hist_raw.index >= from_dt) & (df_hist_raw.index < coverage_end)]
                 df_hist_exec = df_hist_raw
                 if tf_spec.derived:
                     df_hist_exec = _resample_option_history(df_hist_raw, tf_spec.requested)
@@ -3226,13 +3273,16 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
                 history_cache[history_key] = pd.DataFrame()
                 warning = (
                     f"Leg {leg_index + 1}: no rolling option data returned for {strike_alias} {option_side} "
-                    f"({expiry_selection}); using synthetic premiums."
+                    f"({expiry_selection})."
                 )
                 if last_error:
                     warning += f" Last error: {last_error}"
-                pricing_info["warnings"].append(warning)
+                target = pricing_info["warnings"] if allow_synthetic else pricing_info["errors"]
+                target.append(warning)
 
         df_hist = history_cache.get(history_key)
+        if isinstance(df_hist, dict):
+            df_hist = df_hist.get("execution")
         if df_hist is None or df_hist.empty:
             continue
 
@@ -3323,14 +3373,23 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
         option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
+        if option_pricing["errors"]:
+            error_msg = "Historical option data unavailable for this backtest:\n- " + "\n- ".join(
+                option_pricing["errors"]
+            )
+            print(f"[BACKTEST] ❌ {error_msg}")
+            return {
+                "status": "error",
+                "message": error_msg,
+                "option_pricing": option_pricing,
+            }
         if option_pricing["historical_legs"] > 0:
             print(
-                f"[BACKTEST] Option pricing: historical rolling candles for "
-                f"{option_pricing['historical_legs']} leg(s), synthetic fallback for "
-                f"{option_pricing['synthetic_legs']} leg(s)"
+                f"[BACKTEST] Option pricing: stored/historical candles for "
+                f"{option_pricing['historical_legs']} leg(s)"
             )
         elif any((leg or {}).get("option_type") in ("CE", "PE") for leg in (payload.legs or [])):
-            print("[BACKTEST] ⚠️  Option pricing: synthetic premiums only (no usable rolling historical data)")
+            print("[BACKTEST] ⚠️  Option pricing: no usable historical option data")
         for warning in option_pricing["warnings"]:
             print(f"[BACKTEST] ⚠️  {warning}")
 

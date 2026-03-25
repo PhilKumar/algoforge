@@ -4120,15 +4120,11 @@
                 <div class="cj-plan-kicker">Embedded Planner</div>
                 <div class="cj-plan-heading">Financial Plan Sheet</div>
               </div>
-              <div class="cj-plan-year-nav">
-                <button type="button" class="cj-plan-year-btn" onclick="window._cjShiftPlanYear(-1)">‹</button>
-                <span id="cj-plan-year" class="cj-plan-year-label">—</span>
-                <button type="button" class="cj-plan-year-btn" onclick="window._cjShiftPlanYear(1)">›</button>
-              </div>
+              <div class="cj-plan-year-label">FFV</div>
             </div>
             <div id="cj-plan-summary" class="cj-plan-summary"></div>
             <div id="cj-plan-table-wrap" class="cj-plan-table-wrap"></div>
-            <div class="cj-plan-note">Use this as your in-app monthly money map. Income, expenses, investments, and goal buckets are editable; net savings is calculated automatically and saved per user.</div>
+            <div class="cj-plan-note">This FFV sheet mirrors the formula style from your screenshot: reserve, FFV, shortage, monthly save targets, PDV, PHV, and PHV increase impact are all calculated automatically and saved per user.</div>
           </div>
         </div>
       </div>
@@ -12188,59 +12184,31 @@ fetchRuns = async function() {
     }
   };
 
-  function _cjDefaultPlanner(year) {
+  function _cjDefaultPlanner() {
     return {
-      year: Number(year) || new Date().getFullYear(),
-      rows: [
-        { key: 'income', label: 'Monthly Income', values: Array(12).fill(0) },
-        { key: 'fixed', label: 'Fixed Expenses', values: Array(12).fill(0) },
-        { key: 'variable', label: 'Variable Expenses', values: Array(12).fill(0) },
-        { key: 'emi', label: 'EMI / Debt', values: Array(12).fill(0) },
-        { key: 'insurance', label: 'Insurance', values: Array(12).fill(0) },
-        { key: 'investments', label: 'SIP / Investments', values: Array(12).fill(0) },
-        { key: 'goals', label: 'Goal Buckets', values: Array(12).fill(0) }
-      ]
+      monthly_expense: 0,
+      assets_value: 0,
+      years_to_reserve: 10,
+      years_to_ffv: 10,
+      monthly_income: 0,
+      phv_increase: 0,
     };
   }
 
   function _cjNormalizePlanner(plan) {
-    const base = _cjDefaultPlanner(plan && plan.year);
-    const incoming = Array.isArray(plan && plan.rows) ? plan.rows : [];
-    const map = new Map(incoming.filter(r => r && r.key).map(r => [r.key, r]));
-    base.rows = base.rows.map(row => {
-      const src = map.get(row.key) || {};
-      const values = Array.isArray(src.values) ? src.values : [];
-      return {
-        key: row.key,
-        label: row.label,
-        values: Array.from({ length: 12 }, (_, idx) => {
-          const raw = values[idx];
-          const num = Number(raw);
-          return Number.isFinite(num) ? num : 0;
-        })
-      };
+    const base = _cjDefaultPlanner();
+    const src = plan && typeof plan === 'object' ? plan : {};
+    const moneyFields = ['monthly_expense', 'assets_value', 'monthly_income', 'phv_increase'];
+    moneyFields.forEach(field => {
+      const num = Number(src[field]);
+      base[field] = Number.isFinite(num) && num >= 0 ? num : base[field];
     });
-    if (plan && plan.updated_at) base.updated_at = plan.updated_at;
+    ['years_to_reserve', 'years_to_ffv'].forEach(field => {
+      const num = Number(src[field]);
+      base[field] = Number.isFinite(num) && num >= 1 ? Math.min(50, Math.round(num)) : base[field];
+    });
+    if (src.updated_at) base.updated_at = src.updated_at;
     return base;
-  }
-
-  function _cjPlannerRow(key) {
-    return (_cjPlanner && _cjPlanner.rows || []).find(row => row.key === key) || { values: Array(12).fill(0) };
-  }
-
-  function _cjPlannerAnnual(key) {
-    return _cjPlannerRow(key).values.reduce((sum, value) => sum + Number(value || 0), 0);
-  }
-
-  function _cjPlannerNetMonth(idx) {
-    const income = Number(_cjPlannerRow('income').values[idx] || 0);
-    const outflowKeys = ['fixed', 'variable', 'emi', 'insurance', 'investments', 'goals'];
-    const outflows = outflowKeys.reduce((sum, key) => sum + Number(_cjPlannerRow(key).values[idx] || 0), 0);
-    return income - outflows;
-  }
-
-  function _cjPlannerNetAnnual() {
-    return Array.from({ length: 12 }, (_, idx) => _cjPlannerNetMonth(idx)).reduce((sum, value) => sum + value, 0);
   }
 
   function _cjPlannerMoney(value) {
@@ -12249,69 +12217,116 @@ fetchRuns = async function() {
     return '₹' + num.toFixed(2);
   }
 
-  function _cjRefreshPlannerSummary() {
-    if (!_cjPlanner) return;
-    const income = _cjPlannerAnnual('income');
-    const investing = _cjPlannerAnnual('investments');
-    const goalBuckets = _cjPlannerAnnual('goals');
-    const net = _cjPlannerNetAnnual();
-    const outflow = income - net;
-    const summary = document.getElementById('cj-plan-summary');
-    if (summary) {
-      summary.innerHTML = [
-        ['Annual Income', income, ''],
-        ['Total Outflow', outflow, ''],
-        ['Invested + Goal Buckets', investing + goalBuckets, ''],
-        ['Net Savings', net, net >= 0 ? 'pos' : 'neg']
-      ].map(([label, value, cls]) =>
-        `<div class="cj-plan-card"><div class="cj-plan-card-label">${escapeHtml(label)}</div><div class="cj-plan-card-value ${cls}">${_cjPlannerMoney(value)}</div></div>`
-      ).join('');
-    }
-    (_cjPlanner.rows || []).forEach(row => {
-      const totalEl = document.getElementById('cj-plan-total-' + row.key);
-      if (totalEl) totalEl.textContent = _cjPlannerMoney(_cjPlannerAnnual(row.key));
-    });
-    for (let idx = 0; idx < 12; idx += 1) {
-      const cell = document.getElementById('cj-plan-net-' + idx);
-      if (!cell) continue;
-      const value = _cjPlannerNetMonth(idx);
-      cell.textContent = _cjPlannerMoney(value);
-      cell.style.color = value >= 0 ? 'var(--success)' : 'var(--danger)';
-    }
-    const netTotal = document.getElementById('cj-plan-total-net');
-    if (netTotal) {
-      const annualNet = _cjPlannerNetAnnual();
-      netTotal.textContent = _cjPlannerMoney(annualNet);
-      netTotal.style.color = annualNet >= 0 ? 'var(--success)' : 'var(--danger)';
-    }
-    const label = document.getElementById('cj-plan-year');
-    if (label) label.textContent = String(_cjPlanner.year || new Date().getFullYear());
+  function _cjPlanCalc() {
+    const plan = _cjNormalizePlanner(_cjPlanner || {});
+    const reserveValue = plan.monthly_expense * 12;
+    const ffvValue = plan.monthly_expense * 300;
+    const shortageValue = Math.max(0, ffvValue - plan.assets_value);
+    const reserveGap = Math.max(0, reserveValue - plan.assets_value);
+    const reserveMonthlySave = reserveGap / Math.max(1, plan.years_to_reserve * 12);
+    const ffvMonthlySave = shortageValue / Math.max(1, plan.years_to_ffv * 12);
+    const pdv = plan.monthly_income / 25;
+    const phv = plan.monthly_income / 250;
+    const addedIncome = plan.phv_increase * 250;
+    const actions = [];
+    if (shortageValue > 0) actions.push('Shortage term insurance');
+    if (plan.phv_increase <= 0) actions.push('Increase PHV urgently');
+    if (plan.assets_value < reserveValue) actions.push('Build 1 year reserve');
+    if (!actions.length) actions.push('Maintain reserve and keep compounding');
+    return {
+      ...plan,
+      reserveValue,
+      ffvValue,
+      shortageValue,
+      reserveMonthlySave,
+      ffvMonthlySave,
+      pdv,
+      phv,
+      addedIncome,
+      actions,
+    };
   }
 
   function _cjRenderPlanner() {
-    _cjPlanner = _cjNormalizePlanner(_cjPlanner || _cjDefaultPlanner(new Date().getFullYear()));
+    _cjPlanner = _cjNormalizePlanner(_cjPlanner || {});
+    const calc = _cjPlanCalc();
     const wrap = document.getElementById('cj-plan-table-wrap');
     if (!wrap) return;
-    let h = '<table class="cj-plan-table"><thead><tr><th style="text-align:left;">Category</th>';
-    _cjPlanMonths.forEach(month => { h += '<th style="text-align:right;">' + month + '</th>'; });
-    h += '<th style="text-align:right;">Total</th></tr></thead><tbody>';
-    (_cjPlanner.rows || []).forEach(row => {
-      h += '<tr>';
-      h += '<td class="cj-plan-row-label">' + escapeHtml(row.label) + '</td>';
-      row.values.forEach((value, idx) => {
-        h += '<td style="text-align:right;"><input type="number" step="0.01" class="cj-plan-input" data-row="' + escapeAttr(row.key) + '" data-month="' + idx + '" value="' + escapeAttr(Number(value || 0).toFixed(2)) + '" oninput="window._cjPlannerInputChanged(this)"></td>';
-      });
-      h += '<td id="cj-plan-total-' + escapeAttr(row.key) + '" class="cj-plan-total-cell"></td>';
-      h += '</tr>';
-    });
-    h += '<tr class="cj-plan-net-row"><td class="cj-plan-row-label">Net Savings</td>';
-    for (let idx = 0; idx < 12; idx += 1) {
-      h += '<td id="cj-plan-net-' + idx + '" class="cj-plan-total-cell"></td>';
+    const field = (id, value, opts = {}) =>
+      `<input type="number" step="${opts.step || '0.01'}" min="0" id="${id}" value="${escapeAttr(Number(value || 0).toFixed(opts.decimals ?? 2))}" oninput="window._cjPlannerFieldChanged(this)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.05);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;outline:none;">`;
+    const readonly = (value, color = 'var(--text)') =>
+      `<div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:${color};text-align:right;">${_cjPlannerMoney(value)}</div>`;
+    const small = (text, color = 'var(--muted)') =>
+      `<div style="font-size:11px;color:${color};text-align:right;">${escapeHtml(text)}</div>`;
+    const actionsHtml = calc.actions
+      .map((item, idx) => `<div style="font-size:13px;font-weight:${idx === 1 ? '800' : '600'};color:${idx === 1 ? 'var(--warn)' : 'var(--text)'};margin-top:${idx === 0 ? '0' : '6px'};">${escapeHtml(item.toUpperCase())}</div>`)
+      .join('');
+    wrap.innerHTML = `
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;">
+        <section style="border:1px solid var(--border);border-radius:14px;padding:16px;background:rgba(255,255,255,0.03);">
+          <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#2133ff;letter-spacing:0.8px;margin-bottom:14px;">FINANCIAL FREEDOM VALUE</div>
+          <div style="display:grid;grid-template-columns:minmax(170px,1fr) minmax(120px,160px) minmax(120px,160px) minmax(120px,1fr);gap:10px 12px;align-items:center;">
+            <div style="font-size:13px;font-weight:600;">MONTHLY EXPENSE</div>
+            ${field('cj-plan-monthly-expense', calc.monthly_expense)}
+            <div></div><div></div>
+            <div style="font-size:13px;font-weight:600;">1 YEAR RESERVE</div>
+            ${readonly(calc.reserveValue, '#1d4ed8')}
+            <div></div><div></div>
+            <div style="font-size:13px;font-weight:600;">F F V</div>
+            ${readonly(calc.ffvValue, '#1d4ed8')}
+            <div></div><div></div>
+            <div style="font-size:13px;font-weight:700;">WHERE ARE YOU NOW</div>
+            ${field('cj-plan-assets-value', calc.assets_value)}
+            ${readonly(calc.shortageValue, 'var(--text)')}
+            <div style="font-size:12px;color:var(--muted);font-weight:700;">S-H-O-R-T-A-G-E</div>
+            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( YOUR ASSETS VALUE )</div>
+            <div></div><div></div>
+            <div style="font-size:13px;font-weight:600;">WHAT TIME 1 Y R</div>
+            ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
+            ${readonly(calc.reserveMonthlySave, 'var(--text)')}
+            <div style="font-size:12px;color:var(--muted);font-weight:700;">P M SAVE</div>
+            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( HOW MANY YEARS )</div>
+            <div></div><div></div>
+            <div style="font-size:13px;font-weight:600;">WHAT TIME F F V</div>
+            ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
+            ${readonly(calc.ffvMonthlySave, 'var(--text)')}
+            <div style="font-size:12px;color:var(--muted);font-weight:700;">P M SAVE</div>
+            <div style="font-size:12px;color:var(--muted);grid-column:1 / span 2;">( HOW MANY YEARS )</div>
+            <div></div><div></div>
+          </div>
+        </section>
+        <section style="border:1px solid var(--border);border-radius:14px;padding:16px;background:rgba(255,255,255,0.03);">
+          <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#ff2df7;letter-spacing:0.8px;margin-bottom:14px;">INCOME VALUE</div>
+          <div style="display:grid;grid-template-columns:minmax(170px,1fr) minmax(120px,160px) minmax(120px,1fr);gap:10px 12px;align-items:center;">
+            <div style="font-size:13px;font-weight:600;">MONTHLY INCOME</div>
+            ${field('cj-plan-monthly-income', calc.monthly_income)}
+            <div></div>
+            <div style="font-size:13px;font-weight:600;">P D V</div>
+            ${readonly(calc.pdv, 'var(--text)')}
+            <div></div>
+            <div style="font-size:13px;font-weight:600;">P H V</div>
+            ${readonly(calc.phv, 'var(--text)')}
+            <div></div>
+            <div style="font-size:13px;font-weight:600;">IF INCREASE P H V</div>
+            ${field('cj-plan-phv-increase', calc.phv_increase)}
+            ${readonly(calc.addedIncome, '#ff2df7')}
+          </div>
+          <div style="margin-top:32px;">
+            <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:18px;">ACTION STEPS</div>
+            <div style="padding:4px 0 0 0;">${actionsHtml}</div>
+          </div>
+        </section>
+      </div>
+    `;
+    const summary = document.getElementById('cj-plan-summary');
+    if (summary) {
+      summary.innerHTML = `
+        <div class="cj-plan-card"><div class="cj-plan-card-label">FFV</div><div class="cj-plan-card-value">${_cjPlannerMoney(calc.ffvValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Reserve</div><div class="cj-plan-card-value">${_cjPlannerMoney(calc.reserveValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Shortage</div><div class="cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}">${_cjPlannerMoney(calc.shortageValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Added Income If PHV Improves</div><div class="cj-plan-card-value pos">${_cjPlannerMoney(calc.addedIncome)}</div></div>
+      `;
     }
-    h += '<td id="cj-plan-total-net" class="cj-plan-total-cell"></td></tr>';
-    h += '</tbody></table>';
-    wrap.innerHTML = h;
-    _cjRefreshPlannerSummary();
   }
 
   async function _cjLoadPlanner() {
@@ -12352,25 +12367,33 @@ fetchRuns = async function() {
     }
   }
 
-  window._cjPlannerInputChanged = function(input) {
-    if (!_cjPlanner || !input) return;
-    const row = String(input.dataset.row || '');
-    const monthIdx = Number(input.dataset.month || 0);
-    const target = (_cjPlanner.rows || []).find(entry => entry.key === row);
-    if (!target || monthIdx < 0 || monthIdx > 11) return;
+  window._cjPlannerFieldChanged = function(input) {
+    if (!input) return;
+    _cjPlanner = _cjNormalizePlanner(_cjPlanner || {});
+    const mapping = {
+      'cj-plan-monthly-expense': 'monthly_expense',
+      'cj-plan-assets-value': 'assets_value',
+      'cj-plan-years-reserve': 'years_to_reserve',
+      'cj-plan-years-ffv': 'years_to_ffv',
+      'cj-plan-monthly-income': 'monthly_income',
+      'cj-plan-phv-increase': 'phv_increase',
+    };
+    const field = mapping[input.id];
+    if (!field) return;
     const value = Number(input.value || 0);
-    target.values[monthIdx] = Number.isFinite(value) ? value : 0;
-    _cjRefreshPlannerSummary();
+    _cjPlanner[field] = Number.isFinite(value) ? value : 0;
+    if (field === 'years_to_reserve' || field === 'years_to_ffv') {
+      _cjPlanner[field] = Math.max(1, Math.round(_cjPlanner[field]));
+    } else {
+      _cjPlanner[field] = Math.max(0, _cjPlanner[field]);
+    }
+    _cjRenderPlanner();
     clearTimeout(_cjPlanTimer);
     _cjPlanTimer = setTimeout(() => _cjSavePlanner(), 500);
   };
 
   window._cjShiftPlanYear = function(delta) {
-    _cjPlanner = _cjNormalizePlanner(_cjPlanner || _cjDefaultPlanner(new Date().getFullYear()));
-    _cjPlanner.year = Number(_cjPlanner.year || new Date().getFullYear()) + Number(delta || 0);
-    _cjRenderPlanner();
-    clearTimeout(_cjPlanTimer);
-    _cjPlanTimer = setTimeout(() => _cjSavePlanner(), 100);
+    return;
   };
 
   window._cjShowPanel = function(mode) {
