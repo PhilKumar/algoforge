@@ -21,7 +21,7 @@ import os
 import secrets
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Dict, List, Optional
@@ -799,6 +799,7 @@ class LiveStartRequest(BaseModel):
     enforce_capital: bool = False
     capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
+    strategy_id: int = Field(default=0, ge=0)
 
 
 class OrderRequest(BaseModel):
@@ -812,6 +813,7 @@ class OrderRequest(BaseModel):
 
 
 class StrategyPayload(BaseModel):
+    strategy_id: int = Field(default=0, ge=0)
     run_name: str = ""
     folder: str = "Intraday"
     segment: str = "indices"
@@ -1828,6 +1830,9 @@ async def dashboard_summary(request: Request):
     # Strategies count
     strats = await _db_mod.list_strategies(user_id)
     runs = await _db_mod.list_runs(user_id)
+    real_strats = [
+        s for s in strats if not s.get("_placeholder") and str(s.get("run_name") or s.get("name") or "").strip()
+    ]
 
     # Active engines
     paper_statuses = _running_statuses_for_user(paper_engines, user_id)
@@ -2008,7 +2013,7 @@ async def dashboard_summary(request: Request):
         recent_transactions = recent_transactions[:10]
 
     return {
-        "strategy_count": len(strats),
+        "strategy_count": len(real_strats),
         "backtest_count": total_backtests,
         "paper_running": paper_running,
         "live_running": live_running,
@@ -3393,6 +3398,7 @@ async def live_start(req: LiveStartRequest, request: Request):
         strategy_dict = dict(req.strategy_config)
     else:
         strategy_dict = {
+            "strategy_id": int(req.strategy_id or 0),
             "run_name": req.run_name or "Live Strategy",
             "instrument": req.instrument or "26000",
             "indicators": req.indicators or [],
@@ -3416,6 +3422,7 @@ async def live_start(req: LiveStartRequest, request: Request):
             "sell_option_margin_per_lot": req.sell_option_margin_per_lot,
             "poll_interval": 10,
         }
+    strategy_dict["strategy_id"] = int(strategy_dict.get("strategy_id") or req.strategy_id or 0)
     strategy_dict["timeframe_minutes"] = tf_spec.requested
     strategy_dict["_user_id"] = user_id
     strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
@@ -3681,6 +3688,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         return {"status": "error", "message": str(tf_err)}
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
     strategy_dict = {
+        "strategy_id": int(payload.strategy_id or 0),
         "run_name": payload.run_name,
         "instrument": payload.instrument,
         "indicators": payload.indicators or [],
@@ -3901,30 +3909,39 @@ async def live_exit_position(request: Request):
     return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
 
 
+def _history_trade_signature(trade: dict) -> dict | None:
+    if not isinstance(trade, dict):
+        return None
+    return {
+        "symbol": trade.get("symbol") or trade.get("trading_symbol") or "",
+        "transaction_type": trade.get("transaction_type") or trade.get("side") or "",
+        "option_type": trade.get("option_type") or "",
+        "strike": trade.get("strike"),
+        "entry_time": str(trade.get("entry_time") or ""),
+        "exit_time": str(trade.get("exit_time") or ""),
+        "entry_premium": round(float(trade.get("entry_premium") or trade.get("entry_price") or 0), 4),
+        "exit_premium": round(float(trade.get("exit_premium") or trade.get("exit_price") or 0), 4),
+        "quantity": trade.get("quantity") or trade.get("lots") or "",
+        "pnl": round(float(trade.get("pnl") or 0), 4),
+        "reason": trade.get("exit_reason") or trade.get("reason") or "",
+    }
+
+
+def _history_trade_counter(trades: list[dict]) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for trade in trades or []:
+        sig = _history_trade_signature(trade)
+        if sig:
+            counter[json.dumps(sig, sort_keys=True, default=str)] += 1
+    return counter
+
+
 def _history_run_signature(run: dict) -> tuple:
     mode = str(run.get("mode") or "")
     run_name = str(run.get("run_name") or run.get("strategy_name") or "")
     trades = run.get("trades") or []
     total_pnl = round(float(run.get("total_pnl") or 0), 2)
-    normalized = []
-    for trade in trades:
-        if not isinstance(trade, dict):
-            continue
-        normalized.append(
-            {
-                "symbol": trade.get("symbol") or trade.get("trading_symbol") or "",
-                "transaction_type": trade.get("transaction_type") or trade.get("side") or "",
-                "option_type": trade.get("option_type") or "",
-                "strike": trade.get("strike"),
-                "entry_time": str(trade.get("entry_time") or ""),
-                "exit_time": str(trade.get("exit_time") or ""),
-                "entry_premium": round(float(trade.get("entry_premium") or trade.get("entry_price") or 0), 4),
-                "exit_premium": round(float(trade.get("exit_premium") or trade.get("exit_price") or 0), 4),
-                "quantity": trade.get("quantity") or trade.get("lots") or "",
-                "pnl": round(float(trade.get("pnl") or 0), 4),
-                "reason": trade.get("exit_reason") or trade.get("reason") or "",
-            }
-        )
+    normalized = [sig for trade in trades if (sig := _history_trade_signature(trade))]
     normalized.sort(
         key=lambda item: (
             item["entry_time"],
@@ -3994,10 +4011,14 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
         user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Paper Run")
         runs = await _db_mod.list_runs(user_id)
-        existing = sum(
-            1 for r in runs if r.get("mode") == "paper" and r.get("run_name") == run_name and r.get("trade_count") == 1
-        )
-        if existing >= len(closed):
+        existing = Counter()
+        for run in runs:
+            trade_count = int(run.get("trade_count") or len(run.get("trades") or []))
+            if run.get("mode") != "paper" or run.get("run_name") != run_name or trade_count != 1:
+                continue
+            existing += _history_trade_counter(run.get("trades") or [])
+        closed_sigs = _history_trade_counter(closed)
+        if closed_sigs and all(existing[key] >= count for key, count in closed_sigs.items()):
             print(f"[PAPER] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
@@ -4119,10 +4140,14 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
         user_id = await _resolve_history_user_id(explicit_user_id, status)
         run_name = status.get("strategy_name", "Live Run")
         runs = await _db_mod.list_runs(user_id)
-        existing = sum(
-            1 for r in runs if r.get("mode") == "live" and r.get("run_name") == run_name and r.get("trade_count") == 1
-        )
-        if existing >= len(closed):
+        existing = Counter()
+        for run in runs:
+            trade_count = int(run.get("trade_count") or len(run.get("trades") or []))
+            if run.get("mode") != "live" or run.get("run_name") != run_name or trade_count != 1:
+                continue
+            existing += _history_trade_counter(run.get("trades") or [])
+        closed_sigs = _history_trade_counter(closed)
+        if closed_sigs and all(existing[key] >= count for key, count in closed_sigs.items()):
             print(f"[LIVE] All {len(closed)} trades already saved individually — skipping bulk save")
             return
 
@@ -4243,15 +4268,22 @@ async def engines_all(request: Request):
     stopped_engines = _load_stopped_engines(user_id)
     strategy_rows = await _db_mod.list_strategies(user_id)
     strategy_folder_map: dict[str, str] = {}
+    strategy_by_id: dict[int, dict] = {}
+    strategy_name_matches: dict[str, list[dict]] = defaultdict(list)
     for strategy in strategy_rows:
         strategy_name = str(strategy.get("run_name") or strategy.get("name") or "").strip().casefold()
-        if strategy_name:
+        strategy_id = int(strategy.get("id") or 0)
+        if strategy_id:
+            strategy_by_id[strategy_id] = strategy
+        if strategy_name and not strategy.get("_placeholder"):
+            strategy_name_matches[strategy_name].append(strategy)
             strategy_folder_map[strategy_name] = str(strategy.get("folder") or "").strip() or "Intraday"
 
     def _attach_strategy_folder(status: dict) -> dict:
         if not isinstance(status, dict):
             return status
         strategy_payload = status.get("strategy") if isinstance(status.get("strategy"), dict) else None
+        strategy_id = int(status.get("strategy_id") or (strategy_payload or {}).get("strategy_id") or 0)
         explicit_folder = str(status.get("folder") or (strategy_payload or {}).get("folder") or "").strip()
         strategy_name = str(
             status.get("strategy_name")
@@ -4259,12 +4291,30 @@ async def engines_all(request: Request):
             or (strategy_payload or {}).get("name")
             or ""
         ).strip()
-        if not explicit_folder and strategy_name:
-            explicit_folder = strategy_folder_map.get(strategy_name.casefold(), "")
-        if explicit_folder:
-            status["folder"] = explicit_folder
+        matched_strategy = strategy_by_id.get(strategy_id) if strategy_id else None
+        if not matched_strategy and strategy_name:
+            matches = list(strategy_name_matches.get(strategy_name.casefold(), []))
+            if explicit_folder:
+                folder_key = (explicit_folder or "Intraday").strip().casefold()
+                folder_matches = [
+                    s for s in matches if (str(s.get("folder") or "").strip() or "Intraday").casefold() == folder_key
+                ]
+                if len(folder_matches) == 1:
+                    matched_strategy = folder_matches[0]
+            if not matched_strategy and len(matches) == 1:
+                matched_strategy = matches[0]
+        resolved_folder = explicit_folder
+        if matched_strategy:
+            resolved_folder = str(matched_strategy.get("folder") or "").strip() or "Intraday"
+            status["strategy_id"] = int(matched_strategy.get("id") or strategy_id or 0)
+            if strategy_payload is not None:
+                strategy_payload.setdefault("strategy_id", status["strategy_id"])
+        elif not resolved_folder and strategy_name:
+            resolved_folder = strategy_folder_map.get(strategy_name.casefold(), "")
+        if resolved_folder:
+            status["folder"] = resolved_folder
             if strategy_payload is not None and not strategy_payload.get("folder"):
-                strategy_payload["folder"] = explicit_folder
+                strategy_payload["folder"] = resolved_folder
         return status
 
     # Add all paper engines

@@ -5236,6 +5236,7 @@ const STRATEGY_TEMPLATES = {
 function loadTemplate(key) {
   const t = STRATEGY_TEMPLATES[key];
   if (!t) return;
+  currentLoadedStrategyId = null;
   // Switch to builder tab
   showPage('builder-page', document.getElementById('nav-builder'));
   // Fill in fields
@@ -7243,6 +7244,7 @@ checkBrokerStatus(true);
 // ══════════════════════════════════════════════════════════════
 let savedStrategiesCache = [];
 let viewingStrategyId = null;
+let currentLoadedStrategyId = null;
 
 function _normalizeStrategyKey(v) {
   return String(v || '').trim().toLowerCase();
@@ -7253,24 +7255,32 @@ function _savedFolderDomId(folderName) {
   return 'saved-folder-' + base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function _resolveSavedStrategyFolder(strategyName, explicitFolder) {
-  const explicit = String(explicitFolder || '').trim();
-  if (explicit) return explicit;
-  const key = _normalizeStrategyKey(strategyName);
-  if (!key) return '';
-  const matched = (savedStrategiesCache || []).slice().reverse().find((s) =>
-    _normalizeStrategyKey(s?.run_name) === key || _normalizeStrategyKey(s?.name) === key
-  );
-  if (!matched) return '';
-  return String(matched.folder || '').trim() || 'Intraday';
-}
-
-function _findSavedStrategyByName(strategyName) {
+function _findSavedStrategyByRef(strategyName, explicitFolder = '', strategyId = 0) {
+  const id = Number(strategyId || 0);
+  if (id) {
+    const exact = (savedStrategiesCache || []).find((s) => Number(s?.id || 0) === id);
+    if (exact) return exact;
+  }
   const key = _normalizeStrategyKey(strategyName);
   if (!key) return null;
-  return (savedStrategiesCache || []).slice().reverse().find((s) =>
-    _normalizeStrategyKey(s?.run_name) === key || _normalizeStrategyKey(s?.name) === key
-  ) || null;
+  let matches = (savedStrategiesCache || []).filter((s) => {
+    if (s?._placeholder) return false;
+    return _normalizeStrategyKey(s?.run_name) === key || _normalizeStrategyKey(s?.name) === key;
+  });
+  const folderKey = _normalizeStrategyKey(explicitFolder || 'Intraday');
+  if (folderKey) {
+    const folderMatches = matches.filter((s) => _normalizeStrategyKey(s?.folder || 'Intraday') === folderKey);
+    if (folderMatches.length) matches = folderMatches;
+  }
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
+function _resolveSavedStrategyFolder(strategyName, explicitFolder = '', strategyId = 0) {
+  const matched = _findSavedStrategyByRef(strategyName, explicitFolder, strategyId);
+  if (matched) return String(matched.folder || '').trim() || 'Intraday';
+  const explicit = String(explicitFolder || '').trim();
+  return explicit || '';
 }
 
 function toggleSavedStrategyFolder(headerEl, forceOpen = null) {
@@ -7296,11 +7306,11 @@ function _highlightSavedStrategyRow(row) {
   }, 2200);
 }
 
-async function openSavedStrategyFolder(strategyName, folderName = '') {
+async function openSavedStrategyFolder(strategyName, folderName = '', strategyId = 0) {
   showPage('dashboard-page', document.getElementById('nav-dashboard'));
   await ensureStrategiesLoaded(true);
 
-  const resolvedFolder = _resolveSavedStrategyFolder(strategyName, folderName);
+  const resolvedFolder = _resolveSavedStrategyFolder(strategyName, folderName, strategyId);
   if (!resolvedFolder) {
     toast(`Folder not found for "${strategyName || 'this strategy'}"`, 'warn');
     return;
@@ -7316,11 +7326,19 @@ async function openSavedStrategyFolder(strategyName, folderName = '') {
   toggleSavedStrategyFolder(header, true);
   folderEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  const key = _normalizeStrategyKey(strategyName);
-  if (!key) return;
-  const targetRow = Array.from(folderEl.querySelectorAll('[data-strategy-name]')).find((row) =>
-    _normalizeStrategyKey(row.getAttribute('data-strategy-name')) === key
-  );
+  const matched = _findSavedStrategyByRef(strategyName, resolvedFolder, strategyId);
+  let targetRow = null;
+  if (matched?.id) {
+    targetRow = folderEl.querySelector(`[data-strategy-id="${matched.id}"]`);
+  }
+  if (!targetRow) {
+    const key = _normalizeStrategyKey(strategyName);
+    if (key) {
+      targetRow = Array.from(folderEl.querySelectorAll('[data-strategy-name]')).find((row) =>
+        _normalizeStrategyKey(row.getAttribute('data-strategy-name')) === key
+      );
+    }
+  }
   _highlightSavedStrategyRow(targetRow);
 }
 
@@ -7394,12 +7412,13 @@ function renderRunningArsenal(engines) {
   grid.innerHTML = running.map((engine) => {
     const runId = String(engine.run_id || '');
     const strategyName = String(engine.strategy_name || engine.run_id || 'Strategy');
+    const strategyId = Number(engine.strategy_id || (engine.strategy || {}).strategy_id || 0);
     const mode = engine.mode === 'auto' ? 'Live' : 'Paper';
     const modeColor = engine.mode === 'auto' ? 'var(--danger)' : 'var(--accent)';
     const modeBg = engine.mode === 'auto' ? 'rgba(239,68,68,0.12)' : 'rgba(20,184,166,0.12)';
     const modeBorder = engine.mode === 'auto' ? 'rgba(239,68,68,0.22)' : 'rgba(20,184,166,0.22)';
-    const folderName = _resolveSavedStrategyFolder(strategyName, engine.folder || (engine.strategy || {}).folder || '');
-    const savedStrategy = _findSavedStrategyByName(strategyName);
+    const folderName = _resolveSavedStrategyFolder(strategyName, engine.folder || (engine.strategy || {}).folder || '', strategyId);
+    const savedStrategy = _findSavedStrategyByRef(strategyName, folderName, strategyId);
     const pnl = round2(engine.total_pnl || 0);
     const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
     const tradesToday = engine.trades_today || 0;
@@ -7423,7 +7442,7 @@ function renderRunningArsenal(engines) {
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.18);color:var(--accent);font-weight:700;">${escapeHtml(instLabel)}</span>
-        <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}')" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
+        <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}',${strategyId || 0})" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
         ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;--btn-bg: rgba(236,72,153,0.14);--btn-color: rgb(244,114,182);--btn-border: rgba(236,72,153,0.32);">Edit</button>` : ''}
       </div>
       <div style="display:flex;justify-content:center;align-items:center;">
@@ -7493,7 +7512,7 @@ async function fetchStrategies() {
         const dateStr = new Date(s.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         const instName = escapeHtml(s.instrument === '26000' ? 'NIFTY' : (s.instrument === '26009' ? 'BNIFTY' : s.instrument));
         const legCount = (s.legs || []).length;
-        html += `<tr data-strategy-name="${escapeAttr(s.run_name || s.name || '')}" style="border-bottom: 1px solid var(--border); font-size: 13px;">
+        html += `<tr data-strategy-id="${s.id}" data-strategy-name="${escapeAttr(s.run_name || s.name || '')}" style="border-bottom: 1px solid var(--border); font-size: 13px;">
           <td style="padding: 10px 0; color: var(--muted); width: 6%">${s.id}</td>
           <td style="padding: 10px 0; font-weight: 600; color: var(--accent); cursor: pointer; width: 28%" onclick="viewStrategy(${s.id})">${escapeHtml(s.run_name || 'Unnamed')}</td>
           <td style="padding: 10px 0; width: 16%"><span style="background: var(--card2); padding: 3px 8px; border-radius: 3px; font-size: 12px; display: block">${instName}</span></td>
@@ -7625,6 +7644,7 @@ function loadStrategyFromView() { closeViewModal(); if (viewingStrategyId) loadS
 function loadStrategy(id) {
   const s = savedStrategiesCache.find(x => x.id === id);
   if (!s) { toast('Strategy not found', 'danger'); return; }
+  currentLoadedStrategyId = Number(id) || null;
 
   // 1. Basic fields
   document.getElementById('run-name-input').value = s.run_name || '';
@@ -8559,6 +8579,7 @@ async function copyEditStrategy(runId) {
   if (!p) { toast('No backtest data to copy. Run a backtest first!', 'warn'); return; }
 
   try {
+    currentLoadedStrategyId = null;
     // Switch to builder page
     const builderPage = document.getElementById('builder-page');
     const builderBtn = document.getElementById('nav-builder');
@@ -8661,6 +8682,7 @@ function buildPayload() {
   const folder = (folderSel === '__custom__' && folderCustom) ? folderCustom : folderSel;
 
   return {
+    strategy_id: Number(currentLoadedStrategyId || 0) || 0,
     run_name: document.getElementById('run-name-input').value,
     folder: folder,
     segment: document.getElementById('segment-select').value,
@@ -8747,8 +8769,14 @@ async function saveStrategy() {
   if (!ensureSingleStrategyTimeframe(payload)) return;
   try {
     const res = await fetch('/api/strategies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (res.ok) { toast('Strategy Saved!', 'success'); fetchStrategies(); }
-    else toast('Failed to save.', 'danger');
+    if (res.ok) {
+      const saved = await res.json();
+      currentLoadedStrategyId = Number(saved?.id || currentLoadedStrategyId || 0) || null;
+      toast('Strategy Saved!', 'success');
+      fetchStrategies();
+    } else {
+      toast('Failed to save.', 'danger');
+    }
   } catch (err) { toast('Error connecting to backend.', 'danger'); }
 }
 
@@ -9961,10 +9989,11 @@ function renderLivePanel(d, idx) {
   const modeColor = mode === 'auto' ? 'var(--accent2)' : 'var(--accent)';
   const closedPnl = round2(d.total_pnl || 0);
   const pnlColor = closedPnl >= 0 ? 'var(--success)' : 'var(--danger)';
-  const folderName = _resolveSavedStrategyFolder(name, d.folder || (d.strategy || {}).folder || '');
+  const strategyId = Number(d.strategy_id || (d.strategy || {}).strategy_id || 0);
+  const folderName = _resolveSavedStrategyFolder(name, d.folder || (d.strategy || {}).folder || '', strategyId);
   const safeFolderNameJs = escapeJsSingleQuoted(folderName || '');
   const safeStrategyNameJs = escapeJsSingleQuoted(name);
-  const folderBadgeHtml = `<button type="button" onclick="openSavedStrategyFolder('${safeStrategyNameJs}','${safeFolderNameJs}');return false;" title="${escapeAttr(folderName ? `Open folder: ${folderName}` : 'Locate this strategy in Saved Strategies')}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);cursor:pointer;">${ICO.folder(12)} ${escapeHtml(folderName || 'Locate Folder')}</button>`;
+  const folderBadgeHtml = `<button type="button" onclick="openSavedStrategyFolder('${safeStrategyNameJs}','${safeFolderNameJs}',${strategyId || 0});return false;" title="${escapeAttr(folderName ? `Open folder: ${folderName}` : 'Locate this strategy in Saved Strategies')}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);cursor:pointer;">${ICO.folder(12)} ${escapeHtml(folderName || 'Locate Folder')}</button>`;
 
   const instLabel = INST_NAMES[d.instrument] || (d.instrument ? `Instrument ${d.instrument}` : 'NIFTY');
   const candle = d.current_candle || {};
