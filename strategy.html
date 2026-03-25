@@ -9736,6 +9736,8 @@ function renderLivePanel(d, idx) {
   const modeColor = mode === 'auto' ? 'var(--accent2)' : 'var(--accent)';
   const closedPnl = round2(d.total_pnl || 0);
   const pnlColor = closedPnl >= 0 ? 'var(--success)' : 'var(--danger)';
+  const folderName = ((d.folder || (d.strategy || {}).folder || '') + '').trim();
+  const folderBadgeHtml = `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${ICO.folder(12)} ${escapeHtml(folderName || 'No Folder')}</span>`;
 
   const instLabel = INST_NAMES[d.instrument] || (d.instrument ? `Instrument ${d.instrument}` : 'NIFTY');
   const candle = d.current_candle || {};
@@ -9880,7 +9882,10 @@ function renderLivePanel(d, idx) {
   <!-- Header bar -->
   <div class="live-panel-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:${conditionsHtml ? 'none' : '1px solid var(--border)'};">
     <div style="display:flex;align-items:center;gap:12px;">
-      <div style="font-size:18px;font-weight:700;color:var(--text);">${safeName}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:18px;font-weight:700;color:var(--text);">${safeName}</div>
+        ${folderBadgeHtml}
+      </div>
       ${badgeHtml}
     </div>
     <div class="live-panel-actions" style="display:flex;gap:8px;">
