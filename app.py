@@ -3055,6 +3055,7 @@ def _format_rolling_strike(offset_steps: int) -> str:
 _OPTION_HISTORY_CACHE_DIR = os.getenv(
     "ALGOFORGE_OPTION_HISTORY_CACHE_DIR", os.path.join(_HERE, "data", "option_history_cache")
 )
+_OPTION_REAL_DATA_MAX_DAYS = 730
 
 
 def _option_history_cache_path(history_key: str) -> str:
@@ -3189,7 +3190,16 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
 
     from_dt = datetime.strptime(from_date, "%Y-%m-%d")
     to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+    requested_days = max(1, (to_dt - from_dt).days + 1)
     history_cache = {}
+
+    if requested_days >= _OPTION_REAL_DATA_MAX_DAYS:
+        pricing_info["allow_synthetic"] = True
+        pricing_info["warnings"].append(
+            f"Date range is {requested_days} days (>= {_OPTION_REAL_DATA_MAX_DAYS}); using synthetic option pricing by rule."
+        )
+        strategy_config["_option_history"] = {}
+        return pricing_info
 
     import time as _time
 
@@ -3372,6 +3382,8 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config = payload.model_dump()
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
+        requested_days = max(1, (_to_dt - _from_dt).days + 1)
+        strategy_config["allow_synthetic_option_fallback"] = requested_days >= _OPTION_REAL_DATA_MAX_DAYS
         option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
         if option_pricing["errors"]:
             error_msg = "Historical option data unavailable for this backtest:\n- " + "\n- ".join(
@@ -3389,7 +3401,13 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 f"{option_pricing['historical_legs']} leg(s)"
             )
         elif any((leg or {}).get("option_type") in ("CE", "PE") for leg in (payload.legs or [])):
-            print("[BACKTEST] ⚠️  Option pricing: no usable historical option data")
+            if strategy_config["allow_synthetic_option_fallback"]:
+                print(
+                    f"[BACKTEST] ⚠️  Option pricing: synthetic-only by range rule "
+                    f"({requested_days} days >= {_OPTION_REAL_DATA_MAX_DAYS})"
+                )
+            else:
+                print("[BACKTEST] ⚠️  Option pricing: no usable historical option data")
         for warning in option_pricing["warnings"]:
             print(f"[BACKTEST] ⚠️  {warning}")
 
