@@ -1863,12 +1863,23 @@ async def dashboard_summary(request: Request):
 
     today_pnl = paper_pnl_val + live_pnl_val
 
-    # Best/worst backtest runs
+    # Best/worst across persisted runs + currently running engines/scalp session
     best_run = None
     worst_run = None
     total_backtests = len(runs)
     recent_transactions: list[dict] = []
     recent_seen: set[tuple] = set()
+
+    def _consider_leader(candidate: dict | None):
+        nonlocal best_run, worst_run
+        if not isinstance(candidate, dict):
+            return
+        pnl = round(float(candidate.get("pnl") or 0), 2)
+        candidate["pnl"] = pnl
+        if best_run is None or pnl > float(best_run.get("pnl") or 0):
+            best_run = candidate
+        if worst_run is None or pnl < float(worst_run.get("pnl") or 0):
+            worst_run = candidate
 
     def _add_recent_trade(trade: dict, run_name: str, mode: str):
         if not isinstance(trade, dict):
@@ -1913,19 +1924,70 @@ async def dashboard_summary(request: Request):
         recent_transactions.append(record)
 
     for status in paper_statuses:
+        _consider_leader(
+            {
+                "kind": "engine",
+                "mode": "paper",
+                "run_id": str(status.get("run_id") or status.get("strategy_name") or ""),
+                "name": status.get("strategy_name") or status.get("run_id") or "Paper Strategy",
+                "pnl": status.get("total_pnl") or 0,
+            }
+        )
         for trade in status.get("closed_trades", []) or []:
             _add_recent_trade(trade, status.get("strategy_name") or "Paper Run", "paper")
     for status in live_statuses:
+        _consider_leader(
+            {
+                "kind": "engine",
+                "mode": "auto",
+                "run_id": str(status.get("run_id") or status.get("strategy_name") or ""),
+                "name": status.get("strategy_name") or status.get("run_id") or "Live Strategy",
+                "pnl": status.get("total_pnl") or 0,
+            }
+        )
         for trade in status.get("closed_trades", []) or []:
             _add_recent_trade(trade, status.get("strategy_name") or "Live Run", "live")
+
+    scalp_engine = _scalp_engines.get(int(user_id))
+    if scalp_engine is not None:
+        try:
+            scalp_status = scalp_engine.get_status()
+        except Exception:
+            scalp_status = None
+        if isinstance(scalp_status, dict) and scalp_status.get("running"):
+            scalp_trades = list(scalp_status.get("open_trades") or []) + list(scalp_status.get("closed_trades") or [])
+            scalp_underlyings = list(
+                dict.fromkeys(
+                    str(t.get("underlying") or "").strip()
+                    for t in scalp_trades
+                    if str(t.get("underlying") or "").strip()
+                )
+            )
+            scalp_name = "Scalp Session"
+            if scalp_underlyings:
+                scalp_name = "Scalp — " + ", ".join(scalp_underlyings[:3])
+            _consider_leader(
+                {
+                    "kind": "scalp",
+                    "mode": "scalp",
+                    "name": scalp_name,
+                    "pnl": scalp_status.get("total_pnl") or 0,
+                }
+            )
 
     if runs:
         for r in runs:
             pnl = r.get("total_pnl", 0)
-            if best_run is None or pnl > best_run.get("total_pnl", 0):
-                best_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
-            if worst_run is None or pnl < worst_run.get("total_pnl", 0):
-                worst_run = {"id": r.get("id"), "name": r.get("run_name", ""), "pnl": pnl}
+            _consider_leader(
+                {
+                    "kind": "run",
+                    "id": r.get("id"),
+                    "mode": str(r.get("mode") or "backtest"),
+                    "run_id": str(r.get("run_name") or ""),
+                    "name": r.get("run_name", "") or f"Run #{r.get('id')}",
+                    "pnl": pnl,
+                }
+            )
             if r.get("mode") not in ("paper", "live"):
                 continue
             for trade in r.get("trades", []) or []:

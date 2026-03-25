@@ -2736,7 +2736,7 @@
 
     <!-- Greatest Conquest / Battle Scars -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
-      <div class="card" style="padding: 0; border-left: 3px solid var(--success); cursor: pointer; overflow: hidden; position: relative;" id="dash-best-run" onclick="if(this.dataset.rid) viewRun(+this.dataset.rid)">
+      <div class="card" style="padding: 0; border-left: 3px solid var(--success); cursor: pointer; overflow: hidden; position: relative;" id="dash-best-run" onclick="openDashboardLeaderboardCard(this)">
         <div style="position: absolute; top: -8px; right: -8px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(4,120,87,0.12) 0%, transparent 70%); pointer-events: none;"></div>
         <div style="padding: 16px 16px 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -2747,7 +2747,7 @@
           <div style="font-size: 12px; color: var(--text); opacity: 0.85;" id="dash-best-name">No conquests yet — deploy your first strategy</div>
         </div>
       </div>
-      <div class="card" style="padding: 0; border-left: 3px solid rgba(245,158,11,0.6); cursor: pointer; overflow: hidden; position: relative;" id="dash-worst-run" onclick="if(this.dataset.rid) viewRun(+this.dataset.rid)">
+      <div class="card" style="padding: 0; border-left: 3px solid rgba(245,158,11,0.6); cursor: pointer; overflow: hidden; position: relative;" id="dash-worst-run" onclick="openDashboardLeaderboardCard(this)">
         <div style="position: absolute; top: -8px; right: -8px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(245,158,11,0.1) 0%, transparent 70%); pointer-events: none;"></div>
         <div style="padding: 16px 16px 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -7325,6 +7325,48 @@ async function openLiveRunMonitor(runId) {
   toast('Running strategy panel not found', 'warn');
 }
 
+function _bindDashboardLeaderboardCard(el, entry, defaultTitle) {
+  if (!el) return;
+  el.dataset.kind = String(entry?.kind || '');
+  el.dataset.rid = String(entry?.id || '');
+  el.dataset.runId = String(entry?.run_id || '');
+  el.dataset.mode = String(entry?.mode || '');
+  const clickable = !!(entry && (entry.id || entry.run_id || entry.kind === 'scalp'));
+  el.style.cursor = clickable ? 'pointer' : 'default';
+  if (!entry) {
+    el.title = defaultTitle || '';
+    return;
+  }
+  if (entry.kind === 'run') {
+    el.title = 'Open run details';
+  } else if (entry.kind === 'engine') {
+    el.title = 'Open live monitor';
+  } else if (entry.kind === 'scalp') {
+    el.title = 'Open scalp monitor';
+  } else {
+    el.title = defaultTitle || '';
+  }
+}
+
+async function openDashboardLeaderboardCard(el) {
+  if (!el) return;
+  const kind = String(el.dataset.kind || '');
+  const rid = Number(el.dataset.rid || 0);
+  const runId = String(el.dataset.runId || '');
+  if (kind === 'run' && rid) {
+    await viewRun(rid);
+    return;
+  }
+  if (kind === 'engine' && runId) {
+    await openLiveRunMonitor(runId);
+    return;
+  }
+  if (kind === 'scalp') {
+    showPage('scalp-page', document.getElementById('nav-scalp'));
+    initScalpPage();
+  }
+}
+
 function renderRunningArsenal(engines) {
   const wrap = document.getElementById('arsenal-running-wrap');
   const grid = document.getElementById('arsenal-running-grid');
@@ -10903,12 +10945,16 @@ async function loadDashboardSummary() {
     if (d.best_run) {
       document.getElementById('dash-best-pnl').textContent = '₹' + (d.best_run.pnl || 0).toLocaleString('en-IN');
       document.getElementById('dash-best-name').textContent = d.best_run.name || 'Best Run';
-      document.getElementById('dash-best-run').dataset.rid = d.best_run.id || '';
+      _bindDashboardLeaderboardCard(document.getElementById('dash-best-run'), d.best_run, 'Open best result');
+    } else {
+      _bindDashboardLeaderboardCard(document.getElementById('dash-best-run'), null, 'No best result yet');
     }
     if (d.worst_run) {
       document.getElementById('dash-worst-pnl').textContent = '₹' + (d.worst_run.pnl || 0).toLocaleString('en-IN');
       document.getElementById('dash-worst-name').textContent = d.worst_run.name || 'Worst Run';
-      document.getElementById('dash-worst-run').dataset.rid = d.worst_run.id || '';
+      _bindDashboardLeaderboardCard(document.getElementById('dash-worst-run'), d.worst_run, 'Open worst result');
+    } else {
+      _bindDashboardLeaderboardCard(document.getElementById('dash-worst-run'), null, 'No worst result yet');
     }
     _dashboardTransactionsCache = Array.isArray(d.recent_transactions) ? d.recent_transactions : [];
     _renderDashboardTransactions(_dashboardTransactionsCache);
