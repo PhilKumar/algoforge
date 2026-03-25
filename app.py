@@ -1834,6 +1834,10 @@ async def dashboard_summary(request: Request):
     live_statuses = _running_statuses_for_user(live_engines, user_id)
     paper_running = bool(paper_statuses)
     live_running = bool(live_statuses)
+    scalp_running = False
+    scalp_pnl_val = 0.0
+    scalp_trades_val = 0
+    scalp_name = ""
 
     # Today's P&L from engines (+ history for idle engines)
     paper_pnl_val = 0
@@ -1861,7 +1865,28 @@ async def dashboard_summary(request: Request):
         live_pnl_val = sum(s.get("total_pnl", 0) for s in live_statuses)
         live_trades_val = sum(s.get("trades_today", 0) for s in live_statuses)
 
-    today_pnl = paper_pnl_val + live_pnl_val
+    scalp_engine = _scalp_engines.get(int(user_id))
+    scalp_status = None
+    if scalp_engine is not None:
+        try:
+            scalp_status = scalp_engine.get_status()
+        except Exception:
+            scalp_status = None
+    if isinstance(scalp_status, dict) and scalp_status.get("running"):
+        scalp_running = True
+        scalp_pnl_val = float(scalp_status.get("total_pnl") or 0)
+        scalp_trades_val = len(scalp_status.get("closed_trades") or [])
+        scalp_trades = list(scalp_status.get("open_trades") or []) + list(scalp_status.get("closed_trades") or [])
+        scalp_underlyings = list(
+            dict.fromkeys(
+                str(t.get("underlying") or "").strip() for t in scalp_trades if str(t.get("underlying") or "").strip()
+            )
+        )
+        scalp_name = "Scalp Session"
+        if scalp_underlyings:
+            scalp_name = "Scalp — " + ", ".join(scalp_underlyings[:3])
+
+    today_pnl = paper_pnl_val + live_pnl_val + scalp_pnl_val
 
     # Best/worst across persisted runs + currently running engines/scalp session
     best_run = None
@@ -1948,32 +1973,15 @@ async def dashboard_summary(request: Request):
         for trade in status.get("closed_trades", []) or []:
             _add_recent_trade(trade, status.get("strategy_name") or "Live Run", "live")
 
-    scalp_engine = _scalp_engines.get(int(user_id))
-    if scalp_engine is not None:
-        try:
-            scalp_status = scalp_engine.get_status()
-        except Exception:
-            scalp_status = None
-        if isinstance(scalp_status, dict) and scalp_status.get("running"):
-            scalp_trades = list(scalp_status.get("open_trades") or []) + list(scalp_status.get("closed_trades") or [])
-            scalp_underlyings = list(
-                dict.fromkeys(
-                    str(t.get("underlying") or "").strip()
-                    for t in scalp_trades
-                    if str(t.get("underlying") or "").strip()
-                )
-            )
-            scalp_name = "Scalp Session"
-            if scalp_underlyings:
-                scalp_name = "Scalp — " + ", ".join(scalp_underlyings[:3])
-            _consider_leader(
-                {
-                    "kind": "scalp",
-                    "mode": "scalp",
-                    "name": scalp_name,
-                    "pnl": scalp_status.get("total_pnl") or 0,
-                }
-            )
+    if scalp_running and isinstance(scalp_status, dict):
+        _consider_leader(
+            {
+                "kind": "scalp",
+                "mode": "scalp",
+                "name": scalp_name or "Scalp Session",
+                "pnl": scalp_status.get("total_pnl") or 0,
+            }
+        )
 
     if runs:
         for r in runs:
@@ -2004,13 +2012,17 @@ async def dashboard_summary(request: Request):
         "backtest_count": total_backtests,
         "paper_running": paper_running,
         "live_running": live_running,
+        "scalp_running": scalp_running,
         "paper_strategy": ", ".join(s.get("strategy_name", "") for s in paper_statuses) if paper_statuses else "",
         "live_strategy": ", ".join(s.get("strategy_name", "") for s in live_statuses) if live_statuses else "",
+        "scalp_strategy": scalp_name,
         "today_pnl": round(today_pnl, 2),
         "paper_pnl": round(paper_pnl_val, 2),
         "live_pnl": round(live_pnl_val, 2),
+        "scalp_pnl": round(scalp_pnl_val, 2),
         "paper_trades": paper_trades_val,
         "live_trades": live_trades_val,
+        "scalp_trades": scalp_trades_val,
         "best_run": best_run,
         "worst_run": worst_run,
         "recent_transactions": recent_transactions,

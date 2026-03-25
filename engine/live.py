@@ -970,8 +970,15 @@ class LiveEngine:
                             for pos in list(self.positions):
                                 if pos.get("status") == "closed":
                                     continue
+                                # Between candle closes, only intrabar/price exits should fire.
+                                # Never evaluate full signal-exit logic on the same closed row that
+                                # just armed/executed the pending entry, or a fresh trade can close
+                                # immediately as EXIT_SIGNAL.
                                 exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
-                                    pos, latest_row, pos["current_premium"]
+                                    pos,
+                                    latest_row,
+                                    pos["current_premium"],
+                                    allow_signal_exit=False,
                                 )
                                 if exit_reason:
                                     await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
@@ -2148,7 +2155,14 @@ class LiveEngine:
         self._save_state()  # Persist after trade close
 
     # ── Exit Condition Check ──────────────────────────────────
-    def _check_exit_conditions(self, pos: dict, row: pd.Series, current_premium: float) -> Optional[str]:
+    def _check_exit_conditions(
+        self,
+        pos: dict,
+        row: pd.Series,
+        current_premium: float,
+        *,
+        allow_signal_exit: bool = True,
+    ) -> Optional[str]:
         """Check if any exit condition is met for a position."""
         # Update peak premium for trailing SL
         if pos["transaction_type"] == "BUY":
@@ -2235,12 +2249,13 @@ class LiveEngine:
                 return "TOUCH_EXIT"
 
         # Signal exit — inject Signal Candle values into evaluation row
-        _exit_row = row.copy() if self._signal_candle else row
-        if self._signal_candle:
-            for _k, _v in self._signal_candle.items():
-                _exit_row[_k] = _v
-        if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
-            return "EXIT_SIGNAL"
+        if allow_signal_exit:
+            _exit_row = row.copy() if self._signal_candle else row
+            if self._signal_candle:
+                for _k, _v in self._signal_candle.items():
+                    _exit_row[_k] = _v
+            if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
+                return "EXIT_SIGNAL"
 
         # Square-off time — check strategy-level combined_sqoff_time first
         sqoff = self.strategy.get("combined_sqoff_time", "15:20")
