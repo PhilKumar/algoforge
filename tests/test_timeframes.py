@@ -285,6 +285,32 @@ class IntradayUiResetRegressionTests(unittest.TestCase):
         self.assertEqual(engine._condition_debug["gate"], "waiting_for_first_candle")
 
 
+class PaperIntrabarExitRegressionTests(unittest.TestCase):
+    def test_paper_intrabar_monitor_skips_signal_exit_until_next_closed_candle(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-intrabar-exit")
+        engine.exit_conditions = [{"left": "close", "operator": "is_above", "right": "number", "right_number_value": 1}]
+        position = {
+            "transaction_type": "BUY",
+            "entry_premium": 100.0,
+            "peak_premium": 100.0,
+            "sl_pct": 0,
+            "target_pct": 0,
+            "sl_points": 0,
+            "target_points": 0,
+            "sl_rupees": 0,
+            "target_rupees": 0,
+            "trail_pct": 0,
+            "sqoff_time": "15:20",
+        }
+        row = pd.Series({"close": 10.0})
+        engine.current_time = pd.Timestamp("2026-03-25 13:42:02").to_pydatetime()
+
+        with patch("engine.paper_trading.eval_condition_group", return_value=True):
+            self.assertEqual(engine._check_exit_conditions(position, row, 100.0), "EXIT_SIGNAL")
+            self.assertIsNone(engine._check_exit_conditions(position, row, 100.0, allow_signal_exit=False))
+
+
 class PaperPendingEntryTimingTests(unittest.TestCase):
     def test_paper_pending_entry_arms_for_next_candle_open_plus_one_second(self):
         with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
