@@ -3397,8 +3397,7 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             }
         if option_pricing["historical_legs"] > 0:
             print(
-                f"[BACKTEST] Option pricing: stored/historical candles for "
-                f"{option_pricing['historical_legs']} leg(s)"
+                f"[BACKTEST] Option pricing: stored/historical candles for {option_pricing['historical_legs']} leg(s)"
             )
         elif any((leg or {}).get("option_type") in ("CE", "PE") for leg in (payload.legs or [])):
             if strategy_config["allow_synthetic_option_fallback"]:
