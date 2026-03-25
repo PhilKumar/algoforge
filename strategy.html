@@ -4020,6 +4020,12 @@
           </div>
           <span class="cj-journal-save-dot" id="cj-save-dot" title="Saved"></span>
         </div>
+        <div style="display:flex;justify-content:flex-end;margin:-4px 0 14px;">
+          <a href="https://www.youtube.com/watch?v=sFJM68Ub8G0" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;border:1px solid rgba(251,191,36,0.28);background:rgba(251,191,36,0.10);color:var(--warn);font-size:11px;font-weight:700;letter-spacing:0.2px;text-decoration:none;">
+            <span style="font-size:12px;">↗</span>
+            <span>Financial Plan Excel</span>
+          </a>
+        </div>
         <!-- Journal entries list -->
         <div id="cj-entries-list" class="cj-entries-list"></div>
         <form id="cj-form" autocomplete="off" class="cj-form">
@@ -7082,9 +7088,12 @@ function moveStrategyFolder(id) {
   container.innerHTML = '';
   [...folders].sort().forEach(f => {
     const isActive = f === currentFolder;
-    container.innerHTML += `<button onclick="confirmMoveTo('${f}')" style="width: 100%; padding: 10px 14px; text-align: left; background: ${isActive ? 'rgba(0,200,150,0.1)' : 'var(--card2)'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; color: ${isActive ? 'var(--accent)' : 'var(--text)'}; cursor: pointer; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: ${isActive ? '700' : '500'}; transition: 0.15s;">
-      ${isActive ? '• ' : ''}${f}${isActive ? ' (current)' : ''}
-    </button>`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText = `width: 100%; padding: 10px 14px; text-align: left; background: ${isActive ? 'rgba(0,200,150,0.1)' : 'var(--card2)'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; color: ${isActive ? 'var(--accent)' : 'var(--text)'}; cursor: pointer; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: ${isActive ? '700' : '500'}; transition: 0.15s;`;
+    btn.textContent = `${isActive ? '• ' : ''}${f}${isActive ? ' (current)' : ''}`;
+    btn.addEventListener('click', () => confirmMoveTo(f));
+    container.appendChild(btn);
   });
 
   document.getElementById('move-new-folder').value = '';
@@ -9005,7 +9014,7 @@ function renderTradePage() {
   if (!sl.length) {
     tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No trades found</td></tr>';
   } else {
-    sl.forEach(t => {
+    tbody.innerHTML = sl.map(t => {
       const w=t.pnl>=0, sk=t.strike||'NIFTY', qty=t.qty||'-', txn=t.txn_type||'BUY';
       const entryTime = t.entry_time ? String(t.entry_time).substring(11, 16) || t.entry_time : '';
       const exitTime = t.exit_time ? String(t.exit_time).substring(11, 16) || t.exit_time : '';
@@ -9014,19 +9023,20 @@ function renderTradePage() {
       const dirColor = txn === 'BUY' ? 'var(--success)' : 'var(--danger)';
       const reasonBg = t.exit_reason === 'StopLoss' ? 'rgba(239,68,68,0.15)' : (t.exit_reason === 'Target' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)');
       const reasonColor = t.exit_reason === 'StopLoss' ? 'rgb(248,113,113)' : (t.exit_reason === 'Target' ? 'rgb(74,222,128)' : 'rgb(147,197,253)');
-      tbody.innerHTML += `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
-        <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${t.id}</td>
-        <td style="padding:7px 10px;font-size:12px;font-weight:600;">${sk}</td>
-        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${dirColor};">${txn}</span></td>
-        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${t.entry_price.toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${entryDate} ${entryTime}</span></td>
-        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${t.exit_price.toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${exitDate} ${exitTime}</span></td>
-        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;">${entryTime} → ${exitTime}</td>
-        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${qty}</td>
+      const reasonText = String(t.exit_reason || '').replace(/_/g,' ');
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
+        <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${escapeHtml(t.id)}</td>
+        <td style="padding:7px 10px;font-size:12px;font-weight:600;">${escapeHtml(sk)}</td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${dirColor};">${escapeHtml(txn)}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${Number(t.entry_price || 0).toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(entryDate)} ${escapeHtml(entryTime)}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${Number(t.exit_price || 0).toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(exitDate)} ${escapeHtml(exitTime)}</span></td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;">${escapeHtml(entryTime)} → ${escapeHtml(exitTime)}</td>
+        <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${escapeHtml(qty)}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${w?'var(--success)':'var(--danger)'};">${w?'+':''}${fmt(t.pnl)}</td>
-        <td style="padding:7px 6px;text-align:center;"><span style="font-size:9px;padding:1px 6px;border-radius:3px;background:${reasonBg};color:${reasonColor};">${(t.exit_reason||'').replace(/_/g,' ')}</span></td>
+        <td style="padding:7px 6px;text-align:center;"><span style="font-size:9px;padding:1px 6px;border-radius:3px;background:${reasonBg};color:${reasonColor};">${escapeHtml(reasonText)}</span></td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:${(t.cumulative||0)>=0?'var(--success)':'var(--danger)'};">${fmt(t.cumulative)}</td>
       </tr>`;
-    });
+    }).join('');
   }
   let pd=document.getElementById('trade-pagination');
   if(!pd){pd=document.createElement('div');pd.id='trade-pagination';pd.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);';const cardEl=tbody.closest('.card-glass')||tbody.closest('.card')||tbody.parentElement.parentElement;cardEl.appendChild(pd);}
@@ -10576,8 +10586,7 @@ async function loadPortfolioData() {
     if (todayTradesDisplay.length === 0) {
       tradesBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No trades executed today</td></tr>';
     } else {
-      tradesBody.innerHTML = '';
-      todayTradesDisplay.slice().reverse().forEach(t => {
+      tradesBody.innerHTML = todayTradesDisplay.slice().reverse().map(t => {
         // Handle paired Dhan trades, raw Dhan trades, and paper trades
         const pnl = Number(t.pnl || t.realizedProfit || 0);
         const isWin = pnl >= 0;
@@ -10601,18 +10610,18 @@ async function loadPortfolioData() {
         const sellPrice = Number(t.sellAvgPrice || t.sellPrice || t.exit_price || 0);
         const qty = t.tradedQuantity || t.quantity || t.qty || t.lots || '-';
 
-        tradesBody.innerHTML += `
+        return `
           <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 10px 0;">${tradeTime}</td>
-            <td>${symbol}</td>
-            <td>${txnType}${optionType}</td>
+            <td style="padding: 10px 0;">${escapeHtml(tradeTime)}</td>
+            <td>${escapeHtml(symbol)}</td>
+            <td>${escapeHtml(txnType + optionType)}</td>
             <td style="font-family: 'JetBrains Mono'; font-size: 11px;">₹${buyPrice.toFixed(2)}</td>
             <td style="font-family: 'JetBrains Mono'; font-size: 11px;">₹${sellPrice.toFixed(2)}</td>
-            <td>${qty}</td>
+            <td>${escapeHtml(qty)}</td>
             <td style="font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono'; font-size: 11px;">₹${pnl.toFixed(2)}</td>
           </tr>
         `;
-      });
+      }).join('');
     }
   } catch (err) {
     console.error('Failed to load portfolio data:', err);
