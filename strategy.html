@@ -2368,6 +2368,35 @@
   .cj-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,200,150,0.35), inset 0 1px 0 rgba(255,255,255,0.15); filter: saturate(1.1); }
   .cj-submit-btn:active { transform: translateY(1px); }
   .cj-submit-btn:disabled { opacity: 0.6; cursor: default; transform: none; filter: none; }
+  .cj-panel-tabs { display: flex; gap: 8px; margin: -4px 0 14px; }
+  .cj-panel-tab { flex: 1; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; cursor: pointer; transition: all 0.18s; }
+  .cj-panel-tab:hover { border-color: rgba(0,191,165,0.3); color: var(--text); }
+  .cj-panel-tab.active { background: linear-gradient(180deg, rgba(0,200,150,0.26), rgba(0,140,110,0.34)); color: var(--accent); border-color: rgba(0,200,150,0.4); box-shadow: 0 6px 14px rgba(0,191,165,0.16); }
+  .cj-panel-view { display: none; }
+  .cj-panel-view.active { display: block; }
+  .cj-plan-wrap { display: flex; flex-direction: column; gap: 14px; }
+  .cj-plan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cj-plan-kicker { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .cj-plan-heading { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-top: 2px; }
+  .cj-plan-year-nav { display: inline-flex; align-items: center; gap: 8px; }
+  .cj-plan-year-btn { width: 30px; height: 30px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
+  .cj-plan-year-label { min-width: 74px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--warn); font-weight: 700; }
+  .cj-plan-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cj-plan-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.035); }
+  .cj-plan-card-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.45px; color: var(--muted); margin-bottom: 5px; }
+  .cj-plan-card-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text); }
+  .cj-plan-card-value.pos { color: var(--success); }
+  .cj-plan-card-value.neg { color: var(--danger); }
+  .cj-plan-table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: auto; background: rgba(255,255,255,0.025); }
+  .cj-plan-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+  .cj-plan-table th, .cj-plan-table td { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 8px 10px; }
+  .cj-plan-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); white-space: nowrap; }
+  .cj-plan-row-label { min-width: 180px; font-size: 12px; font-weight: 600; color: var(--text); }
+  .cj-plan-input { width: 88px; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: right; outline: none; }
+  .cj-plan-input:focus { border-color: rgba(0,191,165,0.35); box-shadow: 0 0 0 2px rgba(0,191,165,0.12); }
+  .cj-plan-total-cell { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; text-align: right; color: var(--text); }
+  .cj-plan-net-row td { background: rgba(16,185,129,0.08); }
+  .cj-plan-note { font-size: 11px; line-height: 1.55; color: var(--muted); }
   .cj-entries-list { max-height: 240px; overflow-y: auto; margin-bottom: 12px; padding-bottom: 4px; }
   .cj-entries-list:empty { display: none; }
   .cj-entries-title { font-size: 11px; color: var(--muted); padding: 4px 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
@@ -2411,6 +2440,7 @@
     .ch-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
     .ch-lb-nav { width: 36px; height: 36px; font-size: 16px; }
     .cj-radio-row { grid-template-columns: 1fr; }
+    .cj-plan-summary { grid-template-columns: 1fr; }
   }
   @media (max-width: 1100px) {
     .cj-split { flex-direction: column; }
@@ -2455,6 +2485,18 @@
   [data-theme="light"] .cj-submit-btn { background: linear-gradient(180deg, #059669 0%, #047857 100%); color: #ffffff; border-color: #047857; box-shadow: 0 2px 8px rgba(5,150,105,0.25); text-shadow: none; }
   [data-theme="light"] .cj-submit-btn::before { background: linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.08)); }
   [data-theme="light"] .cj-submit-btn:hover { box-shadow: 0 4px 14px rgba(5,150,105,0.35); }
+  [data-theme="light"] .cj-panel-tab { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); color: #475569; }
+  [data-theme="light"] .cj-panel-tab:hover { border-color: rgba(5,150,105,0.22); color: #0f172a; }
+  [data-theme="light"] .cj-panel-tab.active { background: linear-gradient(180deg, rgba(5,150,105,0.16), rgba(5,150,105,0.08)); color: #047857; border-color: rgba(5,150,105,0.24); box-shadow: 0 4px 12px rgba(5,150,105,0.12); }
+  [data-theme="light"] .cj-plan-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-card-label, [data-theme="light"] .cj-plan-kicker, [data-theme="light"] .cj-plan-note { color: #64748b; }
+  [data-theme="light"] .cj-plan-heading, [data-theme="light"] .cj-plan-row-label, [data-theme="light"] .cj-plan-card-value { color: #0f172a; }
+  [data-theme="light"] .cj-plan-year-btn, [data-theme="light"] .cj-plan-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: #0f172a; }
+  [data-theme="light"] .cj-plan-table-wrap { background: rgba(0,0,0,0.015); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-table th { color: #64748b; }
+  [data-theme="light"] .cj-plan-table th, [data-theme="light"] .cj-plan-table td { border-bottom-color: rgba(0,0,0,0.06); }
+  [data-theme="light"] .cj-plan-total-cell { color: #0f172a; }
+  [data-theme="light"] .cj-plan-net-row td { background: rgba(5,150,105,0.06); }
   /* Journal entries list */
   [data-theme="light"] .cj-entries-title { color: #64748b; border-bottom-color: rgba(0,0,0,0.06); }
   [data-theme="light"] .cj-month-toggle { color: #475569; }
@@ -4020,57 +4062,75 @@
           </div>
           <span class="cj-journal-save-dot" id="cj-save-dot" title="Saved"></span>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin:-4px 0 14px;">
-          <a href="https://www.youtube.com/watch?v=sFJM68Ub8G0" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;border:1px solid rgba(251,191,36,0.28);background:rgba(251,191,36,0.10);color:var(--warn);font-size:11px;font-weight:700;letter-spacing:0.2px;text-decoration:none;">
-            <span style="font-size:12px;">↗</span>
-            <span>Financial Plan Excel</span>
-          </a>
+        <div class="cj-panel-tabs">
+          <button type="button" id="cj-tab-journal" class="cj-panel-tab active" onclick="window._cjShowPanel('journal')">Journal</button>
+          <button type="button" id="cj-tab-plan" class="cj-panel-tab" onclick="window._cjShowPanel('plan')">Financial Plan</button>
         </div>
-        <!-- Journal entries list -->
-        <div id="cj-entries-list" class="cj-entries-list"></div>
-        <form id="cj-form" autocomplete="off" class="cj-form">
-          <label class="cj-label">Asset / Ticker
-            <input type="text" id="cj-asset" class="cj-input" placeholder="e.g. NIFTY 24000 CE" maxlength="100">
-          </label>
-          <label class="cj-label">Strategy Used
-            <select id="cj-strategy" class="cj-input" onchange="window._cjStrategyChanged()">
-              <option value="">— Select —</option>
-              <option value="CPR Bounce">CPR Bounce</option>
-              <option value="Mean Reversion">Mean Reversion</option>
-              <option value="Breakout">Breakout</option>
-              <option value="Scalp">Scalp</option>
-              <option value="Other">Other</option>
-            </select>
-            <input type="text" id="cj-strategy-custom" class="cj-input" placeholder="Name your strategy…" maxlength="100" style="display:none;margin-top:6px;">
-          </label>
-          <fieldset class="cj-fieldset">
-            <legend class="cj-legend">Execution Grade</legend>
-            <div class="cj-radio-row">
-              <label class="cj-radio"><input type="radio" name="cj-grade" value="A"><span class="cj-grade-chip grade-a">A</span><span class="cj-grade-desc">Flawless</span></label>
-              <label class="cj-radio"><input type="radio" name="cj-grade" value="B"><span class="cj-grade-chip grade-b">B</span><span class="cj-grade-desc">Minor hesitation</span></label>
-              <label class="cj-radio"><input type="radio" name="cj-grade" value="C"><span class="cj-grade-chip grade-c">C</span><span class="cj-grade-desc">Rule broken</span></label>
-              <label class="cj-radio"><input type="radio" name="cj-grade" value="D"><span class="cj-grade-chip grade-d">D</span><span class="cj-grade-desc">Emotional</span></label>
+        <div id="cj-journal-view" class="cj-panel-view active">
+          <!-- Journal entries list -->
+          <div id="cj-entries-list" class="cj-entries-list"></div>
+          <form id="cj-form" autocomplete="off" class="cj-form">
+            <label class="cj-label">Asset / Ticker
+              <input type="text" id="cj-asset" class="cj-input" placeholder="e.g. NIFTY 24000 CE" maxlength="100">
+            </label>
+            <label class="cj-label">Strategy Used
+              <select id="cj-strategy" class="cj-input" onchange="window._cjStrategyChanged()">
+                <option value="">— Select —</option>
+                <option value="CPR Bounce">CPR Bounce</option>
+                <option value="Mean Reversion">Mean Reversion</option>
+                <option value="Breakout">Breakout</option>
+                <option value="Scalp">Scalp</option>
+                <option value="Other">Other</option>
+              </select>
+              <input type="text" id="cj-strategy-custom" class="cj-input" placeholder="Name your strategy…" maxlength="100" style="display:none;margin-top:6px;">
+            </label>
+            <fieldset class="cj-fieldset">
+              <legend class="cj-legend">Execution Grade</legend>
+              <div class="cj-radio-row">
+                <label class="cj-radio"><input type="radio" name="cj-grade" value="A"><span class="cj-grade-chip grade-a">A</span><span class="cj-grade-desc">Flawless</span></label>
+                <label class="cj-radio"><input type="radio" name="cj-grade" value="B"><span class="cj-grade-chip grade-b">B</span><span class="cj-grade-desc">Minor hesitation</span></label>
+                <label class="cj-radio"><input type="radio" name="cj-grade" value="C"><span class="cj-grade-chip grade-c">C</span><span class="cj-grade-desc">Rule broken</span></label>
+                <label class="cj-radio"><input type="radio" name="cj-grade" value="D"><span class="cj-grade-chip grade-d">D</span><span class="cj-grade-desc">Emotional</span></label>
+              </div>
+            </fieldset>
+            <label class="cj-label">What Went Well
+              <textarea id="cj-well" class="cj-input cj-textarea" placeholder="Patience on entry, held through noise..." maxlength="2000"></textarea>
+            </label>
+            <label class="cj-label">What to Improve
+              <textarea id="cj-improve" class="cj-input cj-textarea" placeholder="Exited too early, need to trust levels..." maxlength="2000"></textarea>
+            </label>
+            <label class="cj-label">Mental State
+              <select id="cj-mental" class="cj-input">
+                <option value="">— Select —</option>
+                <option value="Focused">🎯 Focused</option>
+                <option value="FOMO">😰 FOMO</option>
+                <option value="Frustrated">😤 Frustrated</option>
+                <option value="Impatient">⏱️ Impatient</option>
+                <option value="Calm">🧘 Calm</option>
+                <option value="Confident">💪 Confident</option>
+              </select>
+            </label>
+            <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()"><span id="cj-save-ico"></span> Save Journal</button>
+          </form>
+        </div>
+        <div id="cj-plan-view" class="cj-panel-view">
+          <div class="cj-plan-wrap">
+            <div class="cj-plan-toolbar">
+              <div>
+                <div class="cj-plan-kicker">Embedded Planner</div>
+                <div class="cj-plan-heading">Financial Plan Sheet</div>
+              </div>
+              <div class="cj-plan-year-nav">
+                <button type="button" class="cj-plan-year-btn" onclick="window._cjShiftPlanYear(-1)">‹</button>
+                <span id="cj-plan-year" class="cj-plan-year-label">—</span>
+                <button type="button" class="cj-plan-year-btn" onclick="window._cjShiftPlanYear(1)">›</button>
+              </div>
             </div>
-          </fieldset>
-          <label class="cj-label">What Went Well
-            <textarea id="cj-well" class="cj-input cj-textarea" placeholder="Patience on entry, held through noise..." maxlength="2000"></textarea>
-          </label>
-          <label class="cj-label">What to Improve
-            <textarea id="cj-improve" class="cj-input cj-textarea" placeholder="Exited too early, need to trust levels..." maxlength="2000"></textarea>
-          </label>
-          <label class="cj-label">Mental State
-            <select id="cj-mental" class="cj-input">
-              <option value="">— Select —</option>
-              <option value="Focused">🎯 Focused</option>
-              <option value="FOMO">😰 FOMO</option>
-              <option value="Frustrated">😤 Frustrated</option>
-              <option value="Impatient">⏱️ Impatient</option>
-              <option value="Calm">🧘 Calm</option>
-              <option value="Confident">💪 Confident</option>
-            </select>
-          </label>
-          <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()"><span id="cj-save-ico"></span> Save Journal</button>
-        </form>
+            <div id="cj-plan-summary" class="cj-plan-summary"></div>
+            <div id="cj-plan-table-wrap" class="cj-plan-table-wrap"></div>
+            <div class="cj-plan-note">Use this as your in-app monthly money map. Income, expenses, investments, and goal buckets are editable; net savings is calculated automatically and saved per user.</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -11656,6 +11716,10 @@ fetchRuns = async function() {
   let _cjCurrentDate = '';   // YYYY-MM-DD of selected day
   let _cjSaveTimer = null;
   let _cjCurrentDayMeta = null;  // {year, monthFolder, dayFolder}
+  let _cjPanelMode = 'journal';
+  let _cjPlanTimer = null;
+  let _cjPlanner = null;
+  const _cjPlanMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   window.initChartsPage = function() {
     if (_chLoaded) return;
@@ -11675,6 +11739,8 @@ fetchRuns = async function() {
     _cjBindForm();
     _cjBindPaste();
     _cjLoadEntries();
+    _cjLoadPlanner();
+    window._cjShowPanel('journal');
   };
 
   // ── Tree loading ──
@@ -12120,6 +12186,204 @@ fetchRuns = async function() {
     } catch(e) {
       await customConfirm(e.message, { title: 'Error', icon: '❌', okText: 'OK', cancelText: '' });
     }
+  };
+
+  function _cjDefaultPlanner(year) {
+    return {
+      year: Number(year) || new Date().getFullYear(),
+      rows: [
+        { key: 'income', label: 'Monthly Income', values: Array(12).fill(0) },
+        { key: 'fixed', label: 'Fixed Expenses', values: Array(12).fill(0) },
+        { key: 'variable', label: 'Variable Expenses', values: Array(12).fill(0) },
+        { key: 'emi', label: 'EMI / Debt', values: Array(12).fill(0) },
+        { key: 'insurance', label: 'Insurance', values: Array(12).fill(0) },
+        { key: 'investments', label: 'SIP / Investments', values: Array(12).fill(0) },
+        { key: 'goals', label: 'Goal Buckets', values: Array(12).fill(0) }
+      ]
+    };
+  }
+
+  function _cjNormalizePlanner(plan) {
+    const base = _cjDefaultPlanner(plan && plan.year);
+    const incoming = Array.isArray(plan && plan.rows) ? plan.rows : [];
+    const map = new Map(incoming.filter(r => r && r.key).map(r => [r.key, r]));
+    base.rows = base.rows.map(row => {
+      const src = map.get(row.key) || {};
+      const values = Array.isArray(src.values) ? src.values : [];
+      return {
+        key: row.key,
+        label: row.label,
+        values: Array.from({ length: 12 }, (_, idx) => {
+          const raw = values[idx];
+          const num = Number(raw);
+          return Number.isFinite(num) ? num : 0;
+        })
+      };
+    });
+    if (plan && plan.updated_at) base.updated_at = plan.updated_at;
+    return base;
+  }
+
+  function _cjPlannerRow(key) {
+    return (_cjPlanner && _cjPlanner.rows || []).find(row => row.key === key) || { values: Array(12).fill(0) };
+  }
+
+  function _cjPlannerAnnual(key) {
+    return _cjPlannerRow(key).values.reduce((sum, value) => sum + Number(value || 0), 0);
+  }
+
+  function _cjPlannerNetMonth(idx) {
+    const income = Number(_cjPlannerRow('income').values[idx] || 0);
+    const outflowKeys = ['fixed', 'variable', 'emi', 'insurance', 'investments', 'goals'];
+    const outflows = outflowKeys.reduce((sum, key) => sum + Number(_cjPlannerRow(key).values[idx] || 0), 0);
+    return income - outflows;
+  }
+
+  function _cjPlannerNetAnnual() {
+    return Array.from({ length: 12 }, (_, idx) => _cjPlannerNetMonth(idx)).reduce((sum, value) => sum + value, 0);
+  }
+
+  function _cjPlannerMoney(value) {
+    const num = Number(value || 0);
+    if (typeof fmt === 'function') return fmt(num);
+    return '₹' + num.toFixed(2);
+  }
+
+  function _cjRefreshPlannerSummary() {
+    if (!_cjPlanner) return;
+    const income = _cjPlannerAnnual('income');
+    const investing = _cjPlannerAnnual('investments');
+    const goalBuckets = _cjPlannerAnnual('goals');
+    const net = _cjPlannerNetAnnual();
+    const outflow = income - net;
+    const summary = document.getElementById('cj-plan-summary');
+    if (summary) {
+      summary.innerHTML = [
+        ['Annual Income', income, ''],
+        ['Total Outflow', outflow, ''],
+        ['Invested + Goal Buckets', investing + goalBuckets, ''],
+        ['Net Savings', net, net >= 0 ? 'pos' : 'neg']
+      ].map(([label, value, cls]) =>
+        `<div class="cj-plan-card"><div class="cj-plan-card-label">${escapeHtml(label)}</div><div class="cj-plan-card-value ${cls}">${_cjPlannerMoney(value)}</div></div>`
+      ).join('');
+    }
+    (_cjPlanner.rows || []).forEach(row => {
+      const totalEl = document.getElementById('cj-plan-total-' + row.key);
+      if (totalEl) totalEl.textContent = _cjPlannerMoney(_cjPlannerAnnual(row.key));
+    });
+    for (let idx = 0; idx < 12; idx += 1) {
+      const cell = document.getElementById('cj-plan-net-' + idx);
+      if (!cell) continue;
+      const value = _cjPlannerNetMonth(idx);
+      cell.textContent = _cjPlannerMoney(value);
+      cell.style.color = value >= 0 ? 'var(--success)' : 'var(--danger)';
+    }
+    const netTotal = document.getElementById('cj-plan-total-net');
+    if (netTotal) {
+      const annualNet = _cjPlannerNetAnnual();
+      netTotal.textContent = _cjPlannerMoney(annualNet);
+      netTotal.style.color = annualNet >= 0 ? 'var(--success)' : 'var(--danger)';
+    }
+    const label = document.getElementById('cj-plan-year');
+    if (label) label.textContent = String(_cjPlanner.year || new Date().getFullYear());
+  }
+
+  function _cjRenderPlanner() {
+    _cjPlanner = _cjNormalizePlanner(_cjPlanner || _cjDefaultPlanner(new Date().getFullYear()));
+    const wrap = document.getElementById('cj-plan-table-wrap');
+    if (!wrap) return;
+    let h = '<table class="cj-plan-table"><thead><tr><th style="text-align:left;">Category</th>';
+    _cjPlanMonths.forEach(month => { h += '<th style="text-align:right;">' + month + '</th>'; });
+    h += '<th style="text-align:right;">Total</th></tr></thead><tbody>';
+    (_cjPlanner.rows || []).forEach(row => {
+      h += '<tr>';
+      h += '<td class="cj-plan-row-label">' + escapeHtml(row.label) + '</td>';
+      row.values.forEach((value, idx) => {
+        h += '<td style="text-align:right;"><input type="number" step="0.01" class="cj-plan-input" data-row="' + escapeAttr(row.key) + '" data-month="' + idx + '" value="' + escapeAttr(Number(value || 0).toFixed(2)) + '" oninput="window._cjPlannerInputChanged(this)"></td>';
+      });
+      h += '<td id="cj-plan-total-' + escapeAttr(row.key) + '" class="cj-plan-total-cell"></td>';
+      h += '</tr>';
+    });
+    h += '<tr class="cj-plan-net-row"><td class="cj-plan-row-label">Net Savings</td>';
+    for (let idx = 0; idx < 12; idx += 1) {
+      h += '<td id="cj-plan-net-' + idx + '" class="cj-plan-total-cell"></td>';
+    }
+    h += '<td id="cj-plan-total-net" class="cj-plan-total-cell"></td></tr>';
+    h += '</tbody></table>';
+    wrap.innerHTML = h;
+    _cjRefreshPlannerSummary();
+  }
+
+  async function _cjLoadPlanner() {
+    try {
+      const cached = localStorage.getItem('cj_financial_plan');
+      if (cached) {
+        _cjPlanner = _cjNormalizePlanner(JSON.parse(cached));
+        _cjRenderPlanner();
+      }
+    } catch (e) {}
+    try {
+      const r = await fetch('/api/financial-plan', { credentials: 'same-origin' });
+      const d = await r.json();
+      _cjPlanner = _cjNormalizePlanner(d.plan || {});
+      try { localStorage.setItem('cj_financial_plan', JSON.stringify(_cjPlanner)); } catch (e) {}
+    } catch (e) {
+      console.warn('[Journal] Financial plan load failed:', e);
+      if (!_cjPlanner) _cjPlanner = _cjDefaultPlanner(new Date().getFullYear());
+    }
+    _cjRenderPlanner();
+  }
+
+  async function _cjSavePlanner() {
+    if (!_cjPlanner) return;
+    try { localStorage.setItem('cj_financial_plan', JSON.stringify(_cjPlanner)); } catch (e) {}
+    try {
+      await fetch('/api/financial-plan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(_cjPlanner),
+      });
+      const dot = document.getElementById('cj-save-dot');
+      dot.classList.add('show');
+      setTimeout(() => dot.classList.remove('show'), 1500);
+    } catch (e) {
+      console.warn('[Journal] Financial plan save failed:', e);
+    }
+  }
+
+  window._cjPlannerInputChanged = function(input) {
+    if (!_cjPlanner || !input) return;
+    const row = String(input.dataset.row || '');
+    const monthIdx = Number(input.dataset.month || 0);
+    const target = (_cjPlanner.rows || []).find(entry => entry.key === row);
+    if (!target || monthIdx < 0 || monthIdx > 11) return;
+    const value = Number(input.value || 0);
+    target.values[monthIdx] = Number.isFinite(value) ? value : 0;
+    _cjRefreshPlannerSummary();
+    clearTimeout(_cjPlanTimer);
+    _cjPlanTimer = setTimeout(() => _cjSavePlanner(), 500);
+  };
+
+  window._cjShiftPlanYear = function(delta) {
+    _cjPlanner = _cjNormalizePlanner(_cjPlanner || _cjDefaultPlanner(new Date().getFullYear()));
+    _cjPlanner.year = Number(_cjPlanner.year || new Date().getFullYear()) + Number(delta || 0);
+    _cjRenderPlanner();
+    clearTimeout(_cjPlanTimer);
+    _cjPlanTimer = setTimeout(() => _cjSavePlanner(), 100);
+  };
+
+  window._cjShowPanel = function(mode) {
+    _cjPanelMode = mode === 'plan' ? 'plan' : 'journal';
+    const journal = document.getElementById('cj-journal-view');
+    const plan = document.getElementById('cj-plan-view');
+    const journalTab = document.getElementById('cj-tab-journal');
+    const planTab = document.getElementById('cj-tab-plan');
+    if (journal) journal.classList.toggle('active', _cjPanelMode === 'journal');
+    if (plan) plan.classList.toggle('active', _cjPanelMode === 'plan');
+    if (journalTab) journalTab.classList.toggle('active', _cjPanelMode === 'journal');
+    if (planTab) planTab.classList.toggle('active', _cjPanelMode === 'plan');
+    if (_cjPanelMode === 'plan' && !_cjPlanner) _cjLoadPlanner();
   };
 
   // ══════════════════════════════════════════════════════════

@@ -1352,6 +1352,75 @@ async def delete_journal(date_str: str, request: Request):
     return {"status": "ok", "deleted": date_str}
 
 
+def _default_financial_plan() -> dict:
+    year = _dt.datetime.now(_IST).year
+    rows = [
+        ("income", "Monthly Income"),
+        ("fixed", "Fixed Expenses"),
+        ("variable", "Variable Expenses"),
+        ("emi", "EMI / Debt"),
+        ("insurance", "Insurance"),
+        ("investments", "SIP / Investments"),
+        ("goals", "Goal Buckets"),
+    ]
+    return {
+        "year": year,
+        "rows": [{"key": key, "label": label, "values": [0.0] * 12} for key, label in rows],
+    }
+
+
+def _sanitize_financial_plan(body: dict) -> dict:
+    default = _default_financial_plan()
+    try:
+        year = int(body.get("year") or default["year"])
+    except (TypeError, ValueError):
+        year = default["year"]
+    year = min(max(year, 2000), 2100)
+    allowed = {row["key"]: row["label"] for row in default["rows"]}
+    row_map = {}
+    for row in body.get("rows", []) if isinstance(body, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key") or "").strip()
+        if key not in allowed:
+            continue
+        values = row.get("values")
+        if not isinstance(values, list):
+            values = []
+        clean_vals = []
+        for idx in range(12):
+            raw = values[idx] if idx < len(values) else 0
+            try:
+                clean_vals.append(round(float(raw), 2))
+            except (TypeError, ValueError):
+                clean_vals.append(0.0)
+        row_map[key] = {"key": key, "label": allowed[key], "values": clean_vals}
+    rows = [row_map.get(row["key"], row) for row in default["rows"]]
+    return {"year": year, "rows": rows}
+
+
+@app.get("/api/financial-plan")
+async def get_financial_plan(request: Request):
+    """Load the saved financial planner for the current user."""
+    saved = await _db_mod.get_financial_plan(_request_user_id(request))
+    if not saved:
+        plan = _default_financial_plan()
+    else:
+        plan = _sanitize_financial_plan(saved)
+        if saved.get("updated_at"):
+            plan["updated_at"] = saved["updated_at"]
+    return {"status": "ok", "plan": plan}
+
+
+@app.put("/api/financial-plan")
+async def save_financial_plan(request: Request):
+    """Save the embedded financial planner for the current user."""
+    body = await request.json()
+    clean = _sanitize_financial_plan(body if isinstance(body, dict) else {})
+    await _db_mod.upsert_financial_plan(_request_user_id(request), clean)
+    return {"status": "ok", "plan": clean}
+
+
 # ── Brute-Force Protection ────────────────────────────────────────
 _login_attempts: dict = defaultdict(list)  # login-key -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = config.MAX_LOGIN_ATTEMPTS

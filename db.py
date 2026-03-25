@@ -86,6 +86,12 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_journals_user ON journals(user_id)",
+    """CREATE TABLE IF NOT EXISTS financial_plans (
+        user_id      INTEGER PRIMARY KEY,
+        data         TEXT    NOT NULL DEFAULT '{}',
+        updated_at   TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
     """CREATE TABLE IF NOT EXISTS scalp_trades (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id     INTEGER NOT NULL,
@@ -899,6 +905,48 @@ async def delete_journal_entry(user_id: int, entry_date: str) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def get_financial_plan(user_id: int) -> dict:
+    """Fetch saved financial plan for a user."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT data, updated_at FROM financial_plans WHERE user_id = ? LIMIT 1",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return {}
+        data = _json_loads(dict(row).get("data"), {})
+        if not isinstance(data, dict):
+            data = {}
+        data["updated_at"] = row["updated_at"]
+        return data
+
+
+async def upsert_financial_plan(user_id: int, data: dict) -> None:
+    """Insert or update one user's financial plan."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT user_id FROM financial_plans WHERE user_id = ? LIMIT 1",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        payload = _json_dumps(data or {})
+        now = _now_iso()
+        if row:
+            await db.execute(
+                "UPDATE financial_plans SET data = ?, updated_at = ? WHERE user_id = ?",
+                (payload, now, user_id),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO financial_plans (user_id, data, updated_at) VALUES (?, ?, ?)",
+                (user_id, payload, now),
+            )
+        await db.commit()
 
 
 def _trade_id_from_scalp_payload(payload: dict) -> int:
