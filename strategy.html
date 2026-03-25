@@ -424,6 +424,18 @@
     overflow: hidden;
     min-width: 0;
   }
+  .live-data-window {
+    max-height: 720px;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.10) transparent;
+  }
+  .live-data-window thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--card2);
+  }
   .live-event-log {
     padding: 10px;
     max-height: 300px;
@@ -2393,19 +2405,23 @@
   .cj-plan-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr); gap: 20px; align-items: stretch; }
   .cj-plan-section { border: 1px solid var(--border); border-radius: 18px; padding: 22px 22px 20px; background: linear-gradient(165deg, rgba(34,41,60,0.94), rgba(18,23,38,0.92)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); min-width: 0; }
   .cj-plan-section-title { font-family: 'Syne', sans-serif; font-size: 38px; font-weight: 800; line-height: 1.02; letter-spacing: 0.8px; margin-bottom: 18px; }
-  .cj-plan-section-title.ffv { color: #5d74ff; }
-  .cj-plan-section-title.income { color: #ff67d6; }
-  .cj-plan-grid-ffv { display: grid; grid-template-columns: minmax(190px,1.2fr) minmax(180px,220px) minmax(180px,220px) minmax(150px,0.8fr); gap: 14px 16px; align-items: center; }
-  .cj-plan-grid-income { display: grid; grid-template-columns: minmax(190px,1.1fr) minmax(180px,220px) minmax(180px,1fr); gap: 14px 16px; align-items: center; }
+  .cj-plan-section-title.ffv { color: var(--accent2); }
+  .cj-plan-section-title.income { color: var(--accent); }
+  .cj-plan-grid-ffv { display: grid; grid-template-columns: minmax(220px,1.15fr) minmax(210px,260px) minmax(220px,0.95fr); gap: 16px 18px; align-items: center; }
+  .cj-plan-grid-income { display: grid; grid-template-columns: minmax(220px,1.05fr) minmax(210px,260px) minmax(220px,0.95fr); gap: 16px 18px; align-items: center; }
   .cj-plan-label { font-size: 16px; font-weight: 800; color: var(--text); letter-spacing: 0.12px; }
   .cj-plan-subhint { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.18px; }
-  .cj-plan-input { width: 100%; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800; text-align: right; outline: none; box-sizing: border-box; }
+  .cj-plan-input { width: 100%; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800; text-align: right; outline: none; box-sizing: border-box; appearance: textfield; -moz-appearance: textfield; }
+  .cj-plan-input::-webkit-outer-spin-button,
+  .cj-plan-input::-webkit-inner-spin-button { opacity: 1; }
   .cj-plan-input:focus { border-color: rgba(0,191,165,0.35); box-shadow: 0 0 0 2px rgba(0,191,165,0.12); }
   .cj-plan-readonly { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 800; color: var(--text); text-align: right; white-space: nowrap; }
-  .cj-plan-readonly.blue { color: #5d74ff; }
-  .cj-plan-readonly.pink { color: #ff67d6; }
+  .cj-plan-readonly.blue { color: var(--accent2); }
+  .cj-plan-readonly.pink { color: var(--accent); }
   .cj-plan-readonly.warn { color: var(--warn); }
   .cj-plan-readonly.danger { color: var(--danger); }
+  .cj-plan-result { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 0; gap: 4px; }
+  .cj-plan-result .cj-plan-subhint { text-align: right; }
   .cj-plan-actions { margin-top: 36px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 24px; }
   .cj-plan-actions-title { font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 18px; color: var(--text); }
   .cj-plan-action { font-size: 16px; font-weight: 700; margin-top: 10px; color: var(--text); text-align: center; }
@@ -2461,6 +2477,8 @@
     .cj-plan-section-title { font-size: 30px; }
     .cj-plan-input,
     .cj-plan-readonly { text-align: left; }
+    .cj-plan-result { align-items: flex-start; }
+    .cj-plan-result .cj-plan-subhint { text-align: left; }
   }
   @media (max-width: 1100px) {
     .cj-split { flex-direction: column; }
@@ -2468,7 +2486,7 @@
     .cj-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cj-plan-grid { grid-template-columns: 1fr; }
     .cj-plan-grid-ffv,
-    .cj-plan-grid-income { grid-template-columns: minmax(160px,1fr) minmax(160px,220px); }
+    .cj-plan-grid-income { grid-template-columns: minmax(170px,1fr) minmax(180px,240px) minmax(180px,1fr); }
   }
   /* ── Light theme: Charts / Journal page ── */
   [data-theme="light"] .charts-sidebar-inner { background: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88)); border-color: rgba(0,0,0,0.08); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
@@ -2522,6 +2540,7 @@
   [data-theme="light"] .cj-plan-table-wrap { background: rgba(0,0,0,0.015); border-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .cj-plan-subhint { color: #64748b; }
   [data-theme="light"] .cj-plan-actions { border-top-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .live-data-window thead th { background: rgba(241,245,249,0.98); }
   [data-theme="light"] .cj-plan-table th { color: #64748b; }
   [data-theme="light"] .cj-plan-table th, [data-theme="light"] .cj-plan-table td { border-bottom-color: rgba(0,0,0,0.06); }
   [data-theme="light"] .cj-plan-total-cell { color: #0f172a; }
@@ -10107,6 +10126,7 @@ function renderLivePanel(d, idx) {
       return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 16px;color:${isInd?'var(--text)':'var(--muted)'};${isInd?'':'padding-left:28px;'}">${escapeHtml(k)}</td><td style="padding:7px 16px;text-align:right;font-family:'JetBrains Mono';font-size:12px;color:${isInd?'var(--accent2)':'var(--text)'};">${escapeHtml(displayValue)}</td></tr>`;
     }).join('');
   }
+  const signalFieldCount = (!running || !candle.close) ? 0 : (7 + Object.keys(d.current_indicators || {}).length);
 
   // Positions
   const positions = d.positions || [];
@@ -10286,13 +10306,18 @@ function renderLivePanel(d, idx) {
     <!-- Left: Signal / Indicator table -->
     <div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-weight:700;font-size:14px;">${escapeHtml(instLabel)}</span>
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+            <span style="font-weight:700;font-size:14px;">${escapeHtml(instLabel)}</span>
+            ${signalFieldCount ? `<span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.05);border:1px solid var(--border);">${signalFieldCount} fields</span>` : ''}
+          </div>
           <span style="font-size:11px;color:var(--muted);">${escapeHtml(candleTime)}</span>
         </div>
+      <div class="live-data-window">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:var(--card2);"><th style="padding:8px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:11px;">Field</th><th style="padding:8px 16px;text-align:right;color:var(--muted);font-weight:600;font-size:11px;">Value</th></tr></thead>
         <tbody>${signalHtml}</tbody>
       </table>
+      </div>
     </div>
     <!-- Right: Open Positions + Event Log -->
     <div class="live-panel-side" style="display:flex;flex-direction:column;gap:12px;">
@@ -12282,13 +12307,15 @@ fetchRuns = async function() {
     const wrap = document.getElementById('cj-plan-table-wrap');
     if (!wrap) return;
     const field = (id, value, opts = {}) =>
-      `<input type="number" step="${opts.step || '0.01'}" min="0" id="${id}" class="cj-plan-input" value="${escapeAttr(Number(value || 0).toFixed(opts.decimals ?? 2))}" oninput="window._cjPlannerFieldChanged(this)">`;
+      `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
     const readonly = (value, variant = '') =>
       `<div class="cj-plan-readonly${variant ? ` ${variant}` : ''}">${_cjPlannerMoney(value)}</div>`;
     const label = (text, subhint = '') =>
       `<div><div class="cj-plan-label">${escapeHtml(text)}</div>${subhint ? `<div class="cj-plan-subhint">${escapeHtml(subhint)}</div>` : ''}</div>`;
+    const resultBlock = (id, value, hint, variant = '') =>
+      `<div class="cj-plan-result"><div id="${id}" class="cj-plan-readonly${variant ? ` ${variant}` : ''}">${_cjPlannerMoney(value)}</div><div class="cj-plan-subhint">${escapeHtml(hint)}</div></div>`;
     const actionsHtml = calc.actions
-      .map((item, idx) => `<div class="cj-plan-action${idx === 1 ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
+      .map((item) => `<div class="cj-plan-action${String(item).toLowerCase().includes('phv') ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
       .join('');
     wrap.innerHTML = `
       <div class="cj-plan-grid">
@@ -12296,58 +12323,52 @@ fetchRuns = async function() {
           <div class="cj-plan-section-title ffv">FINANCIAL FREEDOM VALUE</div>
           <div class="cj-plan-grid-ffv">
             ${label('MONTHLY EXPENSE')}
-            ${field('cj-plan-monthly-expense', calc.monthly_expense)}
-            <div></div>
+            ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100' })}
             <div></div>
 
             ${label('1 YEAR RESERVE')}
-            ${readonly(calc.reserveValue, 'blue')}
-            <div></div>
+            <div id="cj-plan-reserve" class="cj-plan-readonly blue">${_cjPlannerMoney(calc.reserveValue)}</div>
             <div></div>
 
             ${label('F F V')}
-            ${readonly(calc.ffvValue, 'blue')}
-            <div></div>
+            <div id="cj-plan-ffv" class="cj-plan-readonly blue">${_cjPlannerMoney(calc.ffvValue)}</div>
             <div></div>
 
             ${label('WHERE ARE YOU NOW', '( YOUR ASSETS VALUE )')}
-            ${field('cj-plan-assets-value', calc.assets_value)}
-            ${readonly(calc.shortageValue, calc.shortageValue > 0 ? 'danger' : 'blue')}
-            <div class="cj-plan-subhint">S-H-O-R-T-A-G-E</div>
+            ${field('cj-plan-assets-value', calc.assets_value, { step: '100' })}
+            ${resultBlock('cj-plan-shortage', calc.shortageValue, 'SHORTAGE', calc.shortageValue > 0 ? 'danger' : 'blue')}
 
             ${label('WHAT TIME 1 Y R', '( HOW MANY YEARS )')}
             ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
-            ${readonly(calc.reserveMonthlySave)}
-            <div class="cj-plan-subhint">P M SAVE</div>
+            ${resultBlock('cj-plan-reserve-save', calc.reserveMonthlySave, 'P M SAVE')}
 
             ${label('WHAT TIME F F V', '( HOW MANY YEARS )')}
             ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
-            ${readonly(calc.ffvMonthlySave)}
-            <div class="cj-plan-subhint">P M SAVE</div>
+            ${resultBlock('cj-plan-ffv-save', calc.ffvMonthlySave, 'P M SAVE')}
           </div>
         </section>
         <section class="cj-plan-section">
           <div class="cj-plan-section-title income">INCOME VALUE</div>
           <div class="cj-plan-grid-income">
             ${label('MONTHLY INCOME')}
-            ${field('cj-plan-monthly-income', calc.monthly_income)}
+            ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
             <div></div>
 
             ${label('P D V')}
-            ${readonly(calc.pdv)}
+            <div id="cj-plan-pdv" class="cj-plan-readonly">${_cjPlannerMoney(calc.pdv)}</div>
             <div></div>
 
             ${label('P H V')}
-            ${readonly(calc.phv)}
+            <div id="cj-plan-phv" class="cj-plan-readonly">${_cjPlannerMoney(calc.phv)}</div>
             <div></div>
 
             ${label('IF INCREASE P H V')}
-            ${field('cj-plan-phv-increase', calc.phv_increase)}
-            ${readonly(calc.addedIncome, 'pink')}
+            ${field('cj-plan-phv-increase', calc.phv_increase, { step: '100' })}
+            ${resultBlock('cj-plan-added-income', calc.addedIncome, 'ADDED INCOME', 'pink')}
           </div>
           <div class="cj-plan-actions">
             <div class="cj-plan-actions-title">ACTION STEPS</div>
-            <div>${actionsHtml}</div>
+            <div id="cj-plan-actions-list">${actionsHtml}</div>
           </div>
         </section>
       </div>
@@ -12355,11 +12376,45 @@ fetchRuns = async function() {
     const summary = document.getElementById('cj-plan-summary');
     if (summary) {
       summary.innerHTML = `
-        <div class="cj-plan-card"><div class="cj-plan-card-label">FFV</div><div class="cj-plan-card-value">${_cjPlannerMoney(calc.ffvValue)}</div></div>
-        <div class="cj-plan-card"><div class="cj-plan-card-label">Reserve</div><div class="cj-plan-card-value">${_cjPlannerMoney(calc.reserveValue)}</div></div>
-        <div class="cj-plan-card"><div class="cj-plan-card-label">Shortage</div><div class="cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}">${_cjPlannerMoney(calc.shortageValue)}</div></div>
-        <div class="cj-plan-card"><div class="cj-plan-card-label">Added Income If PHV Improves</div><div class="cj-plan-card-value pos">${_cjPlannerMoney(calc.addedIncome)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">FFV</div><div id="cj-plan-summary-ffv" class="cj-plan-card-value">${_cjPlannerMoney(calc.ffvValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Reserve</div><div id="cj-plan-summary-reserve" class="cj-plan-card-value">${_cjPlannerMoney(calc.reserveValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Shortage</div><div id="cj-plan-summary-shortage" class="cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}">${_cjPlannerMoney(calc.shortageValue)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Added Income If PHV Improves</div><div id="cj-plan-summary-added" class="cj-plan-card-value pos">${_cjPlannerMoney(calc.addedIncome)}</div></div>
       `;
+    }
+    _cjApplyPlannerComputed(calc);
+  }
+
+  function _cjApplyPlannerComputed(calc) {
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setText('cj-plan-reserve', _cjPlannerMoney(calc.reserveValue));
+    setText('cj-plan-ffv', _cjPlannerMoney(calc.ffvValue));
+    setText('cj-plan-shortage', _cjPlannerMoney(calc.shortageValue));
+    setText('cj-plan-reserve-save', _cjPlannerMoney(calc.reserveMonthlySave));
+    setText('cj-plan-ffv-save', _cjPlannerMoney(calc.ffvMonthlySave));
+    setText('cj-plan-pdv', _cjPlannerMoney(calc.pdv));
+    setText('cj-plan-phv', _cjPlannerMoney(calc.phv));
+    setText('cj-plan-added-income', _cjPlannerMoney(calc.addedIncome));
+    setText('cj-plan-summary-ffv', _cjPlannerMoney(calc.ffvValue));
+    setText('cj-plan-summary-reserve', _cjPlannerMoney(calc.reserveValue));
+    setText('cj-plan-summary-shortage', _cjPlannerMoney(calc.shortageValue));
+    setText('cj-plan-summary-added', _cjPlannerMoney(calc.addedIncome));
+
+    const shortageEl = document.getElementById('cj-plan-shortage');
+    if (shortageEl) shortageEl.className = `cj-plan-readonly ${calc.shortageValue > 0 ? 'danger' : 'blue'}`;
+    const shortageSummary = document.getElementById('cj-plan-summary-shortage');
+    if (shortageSummary) shortageSummary.className = `cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}`;
+    const addedSummary = document.getElementById('cj-plan-summary-added');
+    if (addedSummary) addedSummary.className = `cj-plan-card-value ${calc.addedIncome > 0 ? 'pos' : ''}`.trim();
+
+    const actions = document.getElementById('cj-plan-actions-list');
+    if (actions) {
+      actions.innerHTML = calc.actions
+        .map((item) => `<div class="cj-plan-action${String(item).toLowerCase().includes('phv') ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
+        .join('');
     }
   }
 
@@ -12401,7 +12456,7 @@ fetchRuns = async function() {
     }
   }
 
-  window._cjPlannerFieldChanged = function(input) {
+  window._cjPlannerFieldChanged = function(input, commit) {
     if (!input) return;
     _cjPlanner = _cjNormalizePlanner(_cjPlanner || {});
     const mapping = {
@@ -12421,7 +12476,8 @@ fetchRuns = async function() {
     } else {
       _cjPlanner[field] = Math.max(0, _cjPlanner[field]);
     }
-    _cjRenderPlanner();
+    _cjApplyPlannerComputed(_cjPlanCalc());
+    if (commit) input.value = String(Math.round(_cjPlanner[field]));
     clearTimeout(_cjPlanTimer);
     _cjPlanTimer = setTimeout(() => _cjSavePlanner(), 500);
   };
