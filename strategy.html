@@ -4223,7 +4223,7 @@
             </div>
             <div id="cj-plan-summary" class="cj-plan-summary"></div>
             <div id="cj-plan-table-wrap" class="cj-plan-table-wrap"></div>
-            <div class="cj-plan-note">This planner turns your expense, assets, income, and PHV goals into a usable freedom plan: reserve target, FFV target, shortage, runway, monthly save goals, and action steps are all calculated automatically and saved per user.</div>
+            <div class="cj-plan-note">This planner turns your expense, assets, income, and PHV goals into a usable freedom plan. PHV is derived from monthly income using an 8-hour day, 5-day week, 4-week month model, and the reserve target, FFV target, shortage, runway, monthly save goals, and action steps are saved per user.</div>
           </div>
         </div>
       </div>
@@ -12322,6 +12322,12 @@ fetchRuns = async function() {
     return '₹' + num.toFixed(2);
   }
 
+  const _CJ_PLAN_WORK_HOURS_PER_DAY = 8;
+  const _CJ_PLAN_WORK_DAYS_PER_WEEK = 5;
+  const _CJ_PLAN_WORK_WEEKS_PER_MONTH = 4;
+  const _CJ_PLAN_WORK_DAYS_PER_MONTH = _CJ_PLAN_WORK_DAYS_PER_WEEK * _CJ_PLAN_WORK_WEEKS_PER_MONTH;
+  const _CJ_PLAN_WORK_HOURS_PER_MONTH = _CJ_PLAN_WORK_HOURS_PER_DAY * _CJ_PLAN_WORK_DAYS_PER_MONTH;
+
   function _cjPlanCalc() {
     const plan = _cjNormalizePlanner(_cjPlanner || {});
     const reserveValue = plan.monthly_expense * 12;
@@ -12330,9 +12336,9 @@ fetchRuns = async function() {
     const reserveGap = Math.max(0, reserveValue - plan.assets_value);
     const reserveMonthlySave = reserveGap / Math.max(1, plan.years_to_reserve * 12);
     const ffvMonthlySave = shortageValue / Math.max(1, plan.years_to_ffv * 12);
-    const pdv = plan.monthly_income / 25;
-    const phv = plan.monthly_income / 250;
-    const addedIncome = plan.phv_increase * 250;
+    const pdv = plan.monthly_income / _CJ_PLAN_WORK_DAYS_PER_MONTH;
+    const phv = plan.monthly_income / _CJ_PLAN_WORK_HOURS_PER_MONTH;
+    const addedIncome = plan.phv_increase * _CJ_PLAN_WORK_HOURS_PER_MONTH;
     const monthlySurplus = plan.monthly_income - plan.monthly_expense;
     const runwayMonths = plan.monthly_expense > 0 ? plan.assets_value / plan.monthly_expense : 0;
     const ffvProgressPct = ffvValue > 0 ? Math.min(100, (plan.assets_value / ffvValue) * 100) : 0;
@@ -12409,15 +12415,15 @@ fetchRuns = async function() {
               ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
             </div>
             <div class="cj-plan-row">
-              ${label('INCREASE PHV', 'How much you want to improve PHV')}
-              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '100' })}
+              ${label('INCREASE PHV', `Extra hourly value target (₹/hour) over ${_CJ_PLAN_WORK_HOURS_PER_MONTH} work hours/month`)}
+              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '10' })}
             </div>
             <div class="cj-plan-row">
-              ${label('P D V', 'Per day value')}
+              ${label('P D V', `${_CJ_PLAN_WORK_DAYS_PER_MONTH} working days/month`)}
               ${rowValue('cj-plan-pdv', _cjPlannerMoney(calc.pdv))}
             </div>
             <div class="cj-plan-row">
-              ${label('P H V', 'Per hour value')}
+              ${label('P H V', `${_CJ_PLAN_WORK_HOURS_PER_DAY} hours/day × ${_CJ_PLAN_WORK_DAYS_PER_WEEK} days/week`)}
               ${rowValue('cj-plan-phv', _cjPlannerMoney(calc.phv))}
             </div>
             <div class="cj-plan-row">
