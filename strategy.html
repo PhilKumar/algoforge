@@ -7368,13 +7368,13 @@ function renderRunningArsenal(engines) {
           <div style="font-size:10px;color:var(--muted);">${escapeHtml(String(tradesToday))} trade${tradesToday === 1 ? '' : 's'} today</div>
         </div>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.18);color:var(--accent);font-weight:700;">${escapeHtml(instLabel)}</span>
         <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}')" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
+        ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;--btn-bg: rgba(236,72,153,0.14);--btn-color: rgb(244,114,182);--btn-border: rgba(236,72,153,0.32);">Edit</button>` : ''}
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="font-size:11px;padding:5px 12px;">Open Live</button>
-        ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:5px 12px;--btn-bg: rgba(99,102,241,0.15);--btn-color: var(--accent);--btn-border: rgba(99,102,241,0.28);">Edit</button>` : ''}
+      <div style="display:flex;justify-content:center;align-items:center;">
+        <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="font-size:11px;padding:5px 18px;min-width:108px;text-align:center;">Open Live</button>
       </div>
     </div>`;
   }).join('');
