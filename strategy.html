@@ -425,7 +425,7 @@
     min-width: 0;
   }
   .live-data-window {
-    max-height: 720px;
+    max-height: 520px;
     overflow: auto;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.10) transparent;
@@ -2427,6 +2427,34 @@
   .cj-plan-action { font-size: 16px; font-weight: 700; margin-top: 10px; color: var(--text); text-align: center; }
   .cj-plan-action.emphasis { color: var(--warn); }
   .cj-plan-note { font-size: 12px; line-height: 1.6; color: var(--muted); padding: 0 4px; }
+  .cj-plan-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  .cj-plan-block { border: 1px solid var(--border); border-radius: 18px; padding: 22px; background: linear-gradient(165deg, rgba(34,41,60,0.94), rgba(18,23,38,0.92)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); min-width: 0; }
+  .cj-plan-block-title { font-family: 'Syne', sans-serif; font-size: 34px; font-weight: 800; line-height: 1.04; margin-bottom: 18px; letter-spacing: 0.7px; }
+  .cj-plan-block-title.ffv { color: var(--accent2); }
+  .cj-plan-block-title.income { color: var(--accent); }
+  .cj-plan-block-title.actions { color: var(--warn); }
+  .cj-plan-form { display: grid; gap: 14px; }
+  .cj-plan-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 230px); gap: 16px; align-items: center; min-width: 0; }
+  .cj-plan-row-value { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 800; color: var(--text); text-align: right; }
+  .cj-plan-row-value.pos { color: var(--success); }
+  .cj-plan-row-value.neg { color: var(--danger); }
+  .cj-plan-row-value.accent { color: var(--accent); }
+  .cj-plan-row-value.accent2 { color: var(--accent2); }
+  .cj-plan-row-value.warn { color: var(--warn); }
+  .cj-plan-output-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .cj-plan-output-card { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; background: linear-gradient(160deg, rgba(32,39,58,0.78), rgba(19,25,41,0.82)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); min-width: 0; }
+  .cj-plan-output-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.45px; color: var(--muted); margin-bottom: 6px; }
+  .cj-plan-output-value { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800; color: var(--text); line-height: 1.25; }
+  .cj-plan-output-value.pos { color: var(--success); }
+  .cj-plan-output-value.neg { color: var(--danger); }
+  .cj-plan-output-value.accent { color: var(--accent); }
+  .cj-plan-output-value.accent2 { color: var(--accent2); }
+  .cj-plan-output-value.warn { color: var(--warn); }
+  .cj-plan-actions-card { margin-top: 18px; }
+  .cj-plan-action-list { display: grid; gap: 10px; }
+  .cj-plan-action-chip { padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: var(--text); font-size: 14px; font-weight: 700; text-align: center; }
+  .cj-plan-action-chip.emphasis { border-color: rgba(251,191,36,0.22); background: rgba(251,191,36,0.10); color: var(--warn); }
+  .cj-plan-action-chip.good { border-color: rgba(34,197,94,0.22); background: rgba(34,197,94,0.10); color: var(--success); }
   .cj-entries-list { max-height: 240px; overflow-y: auto; margin-bottom: 12px; padding-bottom: 4px; }
   .cj-entries-list:empty { display: none; }
   .cj-entries-title { font-size: 11px; color: var(--muted); padding: 4px 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
@@ -2479,6 +2507,10 @@
     .cj-plan-readonly { text-align: left; }
     .cj-plan-result { align-items: flex-start; }
     .cj-plan-result .cj-plan-subhint { text-align: left; }
+    .cj-plan-layout { grid-template-columns: 1fr; }
+    .cj-plan-row { grid-template-columns: 1fr; }
+    .cj-plan-row-value { text-align: left; }
+    .cj-plan-output-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 1100px) {
     .cj-split { flex-direction: column; }
@@ -2487,6 +2519,8 @@
     .cj-plan-grid { grid-template-columns: 1fr; }
     .cj-plan-grid-ffv,
     .cj-plan-grid-income { grid-template-columns: minmax(170px,1fr) minmax(180px,240px) minmax(180px,1fr); }
+    .cj-plan-layout { grid-template-columns: 1fr; }
+    .cj-plan-output-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   /* ── Light theme: Charts / Journal page ── */
   [data-theme="light"] .charts-sidebar-inner { background: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88)); border-color: rgba(0,0,0,0.08); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
@@ -2540,6 +2574,23 @@
   [data-theme="light"] .cj-plan-table-wrap { background: rgba(0,0,0,0.015); border-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .cj-plan-subhint { color: #64748b; }
   [data-theme="light"] .cj-plan-actions { border-top-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-block { background: linear-gradient(165deg, rgba(255,255,255,0.96), rgba(244,247,251,0.94)); border-color: rgba(0,0,0,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75); }
+  [data-theme="light"] .cj-plan-row-value,
+  [data-theme="light"] .cj-plan-output-value { color: #0f172a; }
+  [data-theme="light"] .cj-plan-row-value.pos,
+  [data-theme="light"] .cj-plan-output-value.pos { color: #047857; }
+  [data-theme="light"] .cj-plan-row-value.neg,
+  [data-theme="light"] .cj-plan-output-value.neg { color: #be123c; }
+  [data-theme="light"] .cj-plan-row-value.accent,
+  [data-theme="light"] .cj-plan-output-value.accent { color: #0f766e; }
+  [data-theme="light"] .cj-plan-row-value.accent2,
+  [data-theme="light"] .cj-plan-output-value.accent2 { color: #4338ca; }
+  [data-theme="light"] .cj-plan-row-value.warn,
+  [data-theme="light"] .cj-plan-output-value.warn { color: #b45309; }
+  [data-theme="light"] .cj-plan-output-card { background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(248,250,252,0.92)); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .cj-plan-action-chip { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); color: #0f172a; }
+  [data-theme="light"] .cj-plan-action-chip.emphasis { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.25); color: #b45309; }
+  [data-theme="light"] .cj-plan-action-chip.good { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.24); color: #047857; }
   [data-theme="light"] .live-data-window thead th { background: rgba(241,245,249,0.98); }
   [data-theme="light"] .cj-plan-table th { color: #64748b; }
   [data-theme="light"] .cj-plan-table th, [data-theme="light"] .cj-plan-table td { border-bottom-color: rgba(0,0,0,0.06); }
@@ -4172,7 +4223,7 @@
             </div>
             <div id="cj-plan-summary" class="cj-plan-summary"></div>
             <div id="cj-plan-table-wrap" class="cj-plan-table-wrap"></div>
-            <div class="cj-plan-note">This FFV sheet mirrors the formula style from your screenshot: reserve, FFV, shortage, monthly save targets, PDV, PHV, and PHV increase impact are all calculated automatically and saved per user.</div>
+            <div class="cj-plan-note">This planner turns your expense, assets, income, and PHV goals into a usable freedom plan: reserve target, FFV target, shortage, runway, monthly save goals, and action steps are all calculated automatically and saved per user.</div>
           </div>
         </div>
       </div>
@@ -12282,11 +12333,16 @@ fetchRuns = async function() {
     const pdv = plan.monthly_income / 25;
     const phv = plan.monthly_income / 250;
     const addedIncome = plan.phv_increase * 250;
+    const monthlySurplus = plan.monthly_income - plan.monthly_expense;
+    const runwayMonths = plan.monthly_expense > 0 ? plan.assets_value / plan.monthly_expense : 0;
+    const ffvProgressPct = ffvValue > 0 ? Math.min(100, (plan.assets_value / ffvValue) * 100) : 0;
     const actions = [];
-    if (shortageValue > 0) actions.push('Shortage term insurance');
+    if (plan.monthly_expense <= 0) actions.push('Enter a realistic monthly expense first');
+    if (plan.monthly_expense > 0 && runwayMonths < 12) actions.push('Build 1 year reserve');
+    if (monthlySurplus <= 0) actions.push('Increase income or reduce burn');
     if (plan.phv_increase <= 0) actions.push('Increase PHV urgently');
-    if (plan.assets_value < reserveValue) actions.push('Build 1 year reserve');
-    if (!actions.length) actions.push('Maintain reserve and keep compounding');
+    if (shortageValue > 0) actions.push('Close the FFV shortage steadily');
+    if (!actions.length) actions.push('Stay invested and review monthly');
     return {
       ...plan,
       reserveValue,
@@ -12297,6 +12353,9 @@ fetchRuns = async function() {
       pdv,
       phv,
       addedIncome,
+      monthlySurplus,
+      runwayMonths,
+      ffvProgressPct,
       actions,
     };
   }
@@ -12308,70 +12367,84 @@ fetchRuns = async function() {
     if (!wrap) return;
     const field = (id, value, opts = {}) =>
       `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
-    const readonly = (value, variant = '') =>
-      `<div class="cj-plan-readonly${variant ? ` ${variant}` : ''}">${_cjPlannerMoney(value)}</div>`;
     const label = (text, subhint = '') =>
       `<div><div class="cj-plan-label">${escapeHtml(text)}</div>${subhint ? `<div class="cj-plan-subhint">${escapeHtml(subhint)}</div>` : ''}</div>`;
-    const resultBlock = (id, value, hint, variant = '') =>
-      `<div class="cj-plan-result"><div id="${id}" class="cj-plan-readonly${variant ? ` ${variant}` : ''}">${_cjPlannerMoney(value)}</div><div class="cj-plan-subhint">${escapeHtml(hint)}</div></div>`;
-    const actionsHtml = calc.actions
-      .map((item) => `<div class="cj-plan-action${String(item).toLowerCase().includes('phv') ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
-      .join('');
+    const rowValue = (id, value, variant = '') =>
+      `<div id="${id}" class="cj-plan-row-value${variant ? ` ${variant}` : ''}">${escapeHtml(value)}</div>`;
+    const outputCard = (id, title, value, variant = '') =>
+      `<div class="cj-plan-output-card"><div class="cj-plan-output-label">${escapeHtml(title)}</div><div id="${id}" class="cj-plan-output-value${variant ? ` ${variant}` : ''}">${escapeHtml(value)}</div></div>`;
+    const actionChip = (item) => {
+      const lower = String(item || '').toLowerCase();
+      const cls = lower.includes('phv') ? ' emphasis' : lower.includes('stay') ? ' good' : '';
+      return `<div class="cj-plan-action-chip${cls}">${escapeHtml(String(item || '').toUpperCase())}</div>`;
+    };
     wrap.innerHTML = `
-      <div class="cj-plan-grid">
-        <section class="cj-plan-section">
-          <div class="cj-plan-section-title ffv">FINANCIAL FREEDOM VALUE</div>
-          <div class="cj-plan-grid-ffv">
-            ${label('MONTHLY EXPENSE')}
-            ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100' })}
-            <div></div>
-
-            ${label('1 YEAR RESERVE')}
-            <div id="cj-plan-reserve" class="cj-plan-readonly blue">${_cjPlannerMoney(calc.reserveValue)}</div>
-            <div></div>
-
-            ${label('F F V')}
-            <div id="cj-plan-ffv" class="cj-plan-readonly blue">${_cjPlannerMoney(calc.ffvValue)}</div>
-            <div></div>
-
-            ${label('WHERE ARE YOU NOW', '( YOUR ASSETS VALUE )')}
-            ${field('cj-plan-assets-value', calc.assets_value, { step: '100' })}
-            ${resultBlock('cj-plan-shortage', calc.shortageValue, 'SHORTAGE', calc.shortageValue > 0 ? 'danger' : 'blue')}
-
-            ${label('WHAT TIME 1 Y R', '( HOW MANY YEARS )')}
-            ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
-            ${resultBlock('cj-plan-reserve-save', calc.reserveMonthlySave, 'P M SAVE')}
-
-            ${label('WHAT TIME F F V', '( HOW MANY YEARS )')}
-            ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
-            ${resultBlock('cj-plan-ffv-save', calc.ffvMonthlySave, 'P M SAVE')}
+      <div class="cj-plan-layout">
+        <section class="cj-plan-block">
+          <div class="cj-plan-block-title ffv">FINANCIAL FREEDOM VALUE</div>
+          <div class="cj-plan-form">
+            <div class="cj-plan-row">
+              ${label('MONTHLY EXPENSE', 'Your monthly burn rate')}
+              ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100' })}
+            </div>
+            <div class="cj-plan-row">
+              ${label('CURRENT ASSETS', 'Cash + investments already built')}
+              ${field('cj-plan-assets-value', calc.assets_value, { step: '100' })}
+            </div>
+            <div class="cj-plan-row">
+              ${label('YEARS TO 1 YEAR RESERVE', 'Target timeline for emergency reserve')}
+              ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
+            </div>
+            <div class="cj-plan-row">
+              ${label('YEARS TO FFV', 'Target timeline for long-term freedom')}
+              ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
+            </div>
           </div>
         </section>
-        <section class="cj-plan-section">
-          <div class="cj-plan-section-title income">INCOME VALUE</div>
-          <div class="cj-plan-grid-income">
-            ${label('MONTHLY INCOME')}
-            ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
-            <div></div>
-
-            ${label('P D V')}
-            <div id="cj-plan-pdv" class="cj-plan-readonly">${_cjPlannerMoney(calc.pdv)}</div>
-            <div></div>
-
-            ${label('P H V')}
-            <div id="cj-plan-phv" class="cj-plan-readonly">${_cjPlannerMoney(calc.phv)}</div>
-            <div></div>
-
-            ${label('IF INCREASE P H V')}
-            ${field('cj-plan-phv-increase', calc.phv_increase, { step: '100' })}
-            ${resultBlock('cj-plan-added-income', calc.addedIncome, 'ADDED INCOME', 'pink')}
-          </div>
-          <div class="cj-plan-actions">
-            <div class="cj-plan-actions-title">ACTION STEPS</div>
-            <div id="cj-plan-actions-list">${actionsHtml}</div>
+        <section class="cj-plan-block">
+          <div class="cj-plan-block-title income">INCOME ENGINE</div>
+          <div class="cj-plan-form">
+            <div class="cj-plan-row">
+              ${label('MONTHLY INCOME', 'Stable take-home or recurring income')}
+              ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
+            </div>
+            <div class="cj-plan-row">
+              ${label('INCREASE PHV', 'How much you want to improve PHV')}
+              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '100' })}
+            </div>
+            <div class="cj-plan-row">
+              ${label('P D V', 'Per day value')}
+              ${rowValue('cj-plan-pdv', _cjPlannerMoney(calc.pdv))}
+            </div>
+            <div class="cj-plan-row">
+              ${label('P H V', 'Per hour value')}
+              ${rowValue('cj-plan-phv', _cjPlannerMoney(calc.phv))}
+            </div>
+            <div class="cj-plan-row">
+              ${label('MONTHLY SURPLUS', 'Income minus monthly expense')}
+              ${rowValue('cj-plan-surplus', _cjPlannerMoney(calc.monthlySurplus), calc.monthlySurplus >= 0 ? 'pos' : 'neg')}
+            </div>
+            <div class="cj-plan-row">
+              ${label('RUNWAY TODAY', 'How many months your assets can cover')}
+              ${rowValue('cj-plan-runway', `${calc.runwayMonths.toFixed(1)} months`, 'accent')}
+            </div>
           </div>
         </section>
       </div>
+      <div class="cj-plan-output-grid" style="margin-top:18px;">
+        ${outputCard('cj-plan-out-reserve', '1 YEAR RESERVE', _cjPlannerMoney(calc.reserveValue), 'accent2')}
+        ${outputCard('cj-plan-out-ffv', 'FFV TARGET', _cjPlannerMoney(calc.ffvValue), 'accent2')}
+        ${outputCard('cj-plan-out-shortage', 'SHORTAGE', _cjPlannerMoney(calc.shortageValue), calc.shortageValue > 0 ? 'neg' : 'accent')}
+        ${outputCard('cj-plan-out-added', 'ADDED INCOME IF PHV IMPROVES', _cjPlannerMoney(calc.addedIncome), 'accent')}
+        ${outputCard('cj-plan-out-reserve-save', 'SAVE / MONTH FOR RESERVE', _cjPlannerMoney(calc.reserveMonthlySave))}
+        ${outputCard('cj-plan-out-ffv-save', 'SAVE / MONTH FOR FFV', _cjPlannerMoney(calc.ffvMonthlySave))}
+        ${outputCard('cj-plan-out-progress', 'FFV PROGRESS', `${calc.ffvProgressPct.toFixed(1)}%`, 'warn')}
+        ${outputCard('cj-plan-out-runway', 'RUNWAY MONTHS', `${calc.runwayMonths.toFixed(1)} months`, 'accent')}
+      </div>
+      <section class="cj-plan-block cj-plan-actions-card">
+        <div class="cj-plan-block-title actions">ACTION STEPS</div>
+        <div id="cj-plan-actions-list" class="cj-plan-action-list">${calc.actions.map(actionChip).join('')}</div>
+      </section>
     `;
     const summary = document.getElementById('cj-plan-summary');
     if (summary) {
@@ -12379,7 +12452,7 @@ fetchRuns = async function() {
         <div class="cj-plan-card"><div class="cj-plan-card-label">FFV</div><div id="cj-plan-summary-ffv" class="cj-plan-card-value">${_cjPlannerMoney(calc.ffvValue)}</div></div>
         <div class="cj-plan-card"><div class="cj-plan-card-label">Reserve</div><div id="cj-plan-summary-reserve" class="cj-plan-card-value">${_cjPlannerMoney(calc.reserveValue)}</div></div>
         <div class="cj-plan-card"><div class="cj-plan-card-label">Shortage</div><div id="cj-plan-summary-shortage" class="cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}">${_cjPlannerMoney(calc.shortageValue)}</div></div>
-        <div class="cj-plan-card"><div class="cj-plan-card-label">Added Income If PHV Improves</div><div id="cj-plan-summary-added" class="cj-plan-card-value pos">${_cjPlannerMoney(calc.addedIncome)}</div></div>
+        <div class="cj-plan-card"><div class="cj-plan-card-label">Monthly Surplus</div><div id="cj-plan-summary-surplus" class="cj-plan-card-value ${calc.monthlySurplus >= 0 ? 'pos' : 'neg'}">${_cjPlannerMoney(calc.monthlySurplus)}</div></div>
       `;
     }
     _cjApplyPlannerComputed(calc);
@@ -12390,30 +12463,42 @@ fetchRuns = async function() {
       const el = document.getElementById(id);
       if (el) el.textContent = value;
     };
-    setText('cj-plan-reserve', _cjPlannerMoney(calc.reserveValue));
-    setText('cj-plan-ffv', _cjPlannerMoney(calc.ffvValue));
-    setText('cj-plan-shortage', _cjPlannerMoney(calc.shortageValue));
-    setText('cj-plan-reserve-save', _cjPlannerMoney(calc.reserveMonthlySave));
-    setText('cj-plan-ffv-save', _cjPlannerMoney(calc.ffvMonthlySave));
     setText('cj-plan-pdv', _cjPlannerMoney(calc.pdv));
     setText('cj-plan-phv', _cjPlannerMoney(calc.phv));
-    setText('cj-plan-added-income', _cjPlannerMoney(calc.addedIncome));
+    setText('cj-plan-surplus', _cjPlannerMoney(calc.monthlySurplus));
+    setText('cj-plan-runway', `${calc.runwayMonths.toFixed(1)} months`);
     setText('cj-plan-summary-ffv', _cjPlannerMoney(calc.ffvValue));
     setText('cj-plan-summary-reserve', _cjPlannerMoney(calc.reserveValue));
     setText('cj-plan-summary-shortage', _cjPlannerMoney(calc.shortageValue));
-    setText('cj-plan-summary-added', _cjPlannerMoney(calc.addedIncome));
+    setText('cj-plan-summary-surplus', _cjPlannerMoney(calc.monthlySurplus));
+    setText('cj-plan-out-reserve', _cjPlannerMoney(calc.reserveValue));
+    setText('cj-plan-out-ffv', _cjPlannerMoney(calc.ffvValue));
+    setText('cj-plan-out-shortage', _cjPlannerMoney(calc.shortageValue));
+    setText('cj-plan-out-added', _cjPlannerMoney(calc.addedIncome));
+    setText('cj-plan-out-reserve-save', _cjPlannerMoney(calc.reserveMonthlySave));
+    setText('cj-plan-out-ffv-save', _cjPlannerMoney(calc.ffvMonthlySave));
+    setText('cj-plan-out-progress', `${calc.ffvProgressPct.toFixed(1)}%`);
+    setText('cj-plan-out-runway', `${calc.runwayMonths.toFixed(1)} months`);
 
-    const shortageEl = document.getElementById('cj-plan-shortage');
-    if (shortageEl) shortageEl.className = `cj-plan-readonly ${calc.shortageValue > 0 ? 'danger' : 'blue'}`;
     const shortageSummary = document.getElementById('cj-plan-summary-shortage');
     if (shortageSummary) shortageSummary.className = `cj-plan-card-value ${calc.shortageValue > 0 ? 'neg' : 'pos'}`;
-    const addedSummary = document.getElementById('cj-plan-summary-added');
-    if (addedSummary) addedSummary.className = `cj-plan-card-value ${calc.addedIncome > 0 ? 'pos' : ''}`.trim();
+    const surplusSummary = document.getElementById('cj-plan-summary-surplus');
+    if (surplusSummary) surplusSummary.className = `cj-plan-card-value ${calc.monthlySurplus >= 0 ? 'pos' : 'neg'}`;
+    const shortageCard = document.getElementById('cj-plan-out-shortage');
+    if (shortageCard) shortageCard.className = `cj-plan-output-value ${calc.shortageValue > 0 ? 'neg' : 'accent'}`;
+    const addedCard = document.getElementById('cj-plan-out-added');
+    if (addedCard) addedCard.className = `cj-plan-output-value ${calc.addedIncome > 0 ? 'accent' : ''}`.trim();
+    const surplusRow = document.getElementById('cj-plan-surplus');
+    if (surplusRow) surplusRow.className = `cj-plan-row-value ${calc.monthlySurplus >= 0 ? 'pos' : 'neg'}`;
 
     const actions = document.getElementById('cj-plan-actions-list');
     if (actions) {
       actions.innerHTML = calc.actions
-        .map((item) => `<div class="cj-plan-action${String(item).toLowerCase().includes('phv') ? ' emphasis' : ''}">${escapeHtml(item.toUpperCase())}</div>`)
+        .map((item) => {
+          const lower = String(item || '').toLowerCase();
+          const cls = lower.includes('phv') ? ' emphasis' : lower.includes('stay') ? ' good' : '';
+          return `<div class="cj-plan-action-chip${cls}">${escapeHtml(String(item || '').toUpperCase())}</div>`;
+        })
         .join('');
     }
   }
