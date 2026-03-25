@@ -5,6 +5,7 @@ import pandas as pd
 
 from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe, yesterday_candle
 from engine.live import LiveEngine
+from engine.market_feed import _looks_like_disconnect_error
 from engine.paper_trading import PaperTradingEngine
 from engine.timeframes import drop_incomplete_candle, next_entry_ready_at, resolve_strategy_timeframe
 from scalp import ScalpEngine, ScalpTrade
@@ -233,6 +234,55 @@ class WsClosedCandleGuardTests(unittest.TestCase):
         )
 
         self.assertEqual(list(result.index.strftime("%H:%M")), ["09:10"])
+
+
+class FeedDisconnectRegressionTests(unittest.TestCase):
+    def test_close_frame_errors_are_treated_as_disconnects(self):
+        self.assertTrue(_looks_like_disconnect_error(RuntimeError("no close frame received or sent")))
+        self.assertTrue(_looks_like_disconnect_error(RuntimeError("Connection closed unexpectedly")))
+        self.assertFalse(_looks_like_disconnect_error(RuntimeError("temporary parse warning")))
+
+
+class IntradayUiResetRegressionTests(unittest.TestCase):
+    def test_paper_reset_intraday_status_clears_stale_ui_state(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-reset")
+        engine.current_spot = 22924.7
+        engine.current_time = pd.Timestamp("2026-03-24 15:24:32").to_pydatetime()
+        engine.current_candle = {"close": 22924.7, "updated_at": "2026-03-24 03:24:32 PM"}
+        engine.current_indicators = {"EMA_17_5m": 22800.0}
+        engine._arm_pending_entry(
+            pd.Timestamp("2026-03-24 15:21:00").to_pydatetime(),
+            pd.Series({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5}),
+        )
+
+        engine._reset_intraday_status()
+
+        self.assertEqual(engine.current_spot, 0.0)
+        self.assertIsNone(engine.current_time)
+        self.assertEqual(engine.current_candle, {})
+        self.assertEqual(engine.current_indicators, {})
+        self.assertFalse(engine._entry_signal_pending)
+        self.assertEqual(engine._condition_debug["gate"], "waiting_for_first_candle")
+
+    def test_live_reset_intraday_status_clears_stale_ui_state(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-reset")
+        engine.current_spot = 22924.7
+        engine.current_time = pd.Timestamp("2026-03-24 15:24:32").to_pydatetime()
+        engine.current_candle = {"close": 22924.7, "updated_at": "2026-03-24 03:24:32 PM"}
+        engine.current_indicators = {"EMA_17_5m": 22800.0}
+        engine._entry_signal_pending = True
+        engine._pending_order = {"created_at": pd.Timestamp("2026-03-24 15:24:32").to_pydatetime()}
+
+        engine._reset_intraday_status()
+
+        self.assertEqual(engine.current_spot, 0.0)
+        self.assertIsNone(engine.current_time)
+        self.assertEqual(engine.current_candle, {})
+        self.assertEqual(engine.current_indicators, {})
+        self.assertFalse(engine._entry_signal_pending)
+        self.assertIsNone(engine._pending_order)
+        self.assertEqual(engine._condition_debug["gate"], "waiting_for_first_candle")
 
 
 class PaperPendingEntryTimingTests(unittest.TestCase):

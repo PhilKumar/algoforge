@@ -675,6 +675,22 @@ class LiveEngine:
             return df_with_indicators
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
 
+    def _reset_intraday_status(self, gate: str = "waiting_for_first_candle") -> None:
+        """Clear stale UI/evaluation state when a session starts or a new day rolls over."""
+        self.current_spot = 0.0
+        self.current_time = None
+        self.candle_buffer = pd.DataFrame()
+        self._latest_raw_candles = pd.DataFrame()
+        self.current_candle = {}
+        self.current_indicators = {}
+        self._prev_row = None
+        self._last_strategy_candle_time = None
+        self._last_processed_candle_time = None
+        self._entry_signal_pending = False
+        self._pending_order = None
+        self._signal_candle = None
+        self._condition_debug = {"gate": gate, "conditions": []}
+
     # ── Diagnostic / Debug ─────────────────────────────────────
     def debug_engine_state(self) -> dict:
         """Return a comprehensive snapshot of engine state for debugging silent failures.
@@ -749,6 +765,7 @@ class LiveEngine:
         self.running = True
         self.session_date = date_type.today()
         self.daily_pnl = 0.0
+        self._reset_intraday_status()
 
         self.log_event("start", "🚀 Live Auto-Trading Engine Started (REAL ORDERS)")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
@@ -884,6 +901,7 @@ class LiveEngine:
                     self.trades_today = 0
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
+                    self._reset_intraday_status()
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
 
                 # Market hours check (pre-parsed in configure())

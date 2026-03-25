@@ -41,6 +41,24 @@ def _now_ist() -> datetime:
     return datetime.now(IST).replace(tzinfo=None)
 
 
+def _looks_like_disconnect_error(error) -> bool:
+    """Heuristic for WebSocket errors that mean the connection is effectively dead."""
+    msg = str(error or "").lower()
+    markers = (
+        "closed",
+        "connection",
+        "close frame",
+        "broken pipe",
+        "going away",
+        "keepalive ping timeout",
+        "socket is already closed",
+        "1000",
+        "1005",
+        "1011",
+    )
+    return any(marker in msg for marker in markers)
+
+
 import pandas as pd
 
 import config
@@ -494,6 +512,7 @@ class LiveMarketFeed:
 
                 def _run_forever_with_reconnect():
                     import asyncio
+                    import time as _time
 
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
@@ -518,12 +537,12 @@ class LiveMarketFeed:
                                 if data and _on_msg:
                                     _on_msg(data)
                             except Exception as recv_err:
-                                err_str = str(recv_err)
-                                if "closed" in err_str.lower() or "connection" in err_str.lower():
+                                if _looks_like_disconnect_error(recv_err):
                                     print(f"[FEED] ❌ WebSocket closed: {recv_err}")
                                     break
                                 # Transient error — continue
                                 print(f"[FEED] ⚠ recv error: {recv_err}")
+                                _time.sleep(0.25)
                     except Exception as e:
                         print(f"[FEED] ❌ run_forever crashed: {e}")
                     finally:
@@ -699,11 +718,11 @@ class LiveMarketFeed:
                             if data and self._on_message_v1:
                                 self._on_message_v1(data)
                         except Exception as recv_err:
-                            err_str = str(recv_err)
-                            if "closed" in err_str.lower() or "connection" in err_str.lower():
+                            if _looks_like_disconnect_error(recv_err):
                                 print(f"[FEED] ❌ WebSocket closed: {recv_err}")
                                 break
                             print(f"[FEED] ⚠ recv error: {recv_err}")
+                            time.sleep(0.25)
                 except Exception as e:
                     print(f"[FEED] ❌ Reconnect crashed: {e}")
                 finally:

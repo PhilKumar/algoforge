@@ -558,12 +558,26 @@ class PaperTradingEngine:
     def _pending_entry_is_ready(self, now: datetime) -> bool:
         return self._pending_entry_ready_at is not None and now >= self._pending_entry_ready_at
 
+    def _reset_intraday_status(self, gate: str = "waiting_for_first_candle") -> None:
+        """Clear stale UI/evaluation state when a session starts or a new day rolls over."""
+        self.current_spot = 0.0
+        self.current_time = None
+        self.candle_buffer = pd.DataFrame()
+        self._latest_raw_candles = pd.DataFrame()
+        self.current_candle = {}
+        self.current_indicators = {}
+        self._prev_row = None
+        self._last_strategy_candle_time = None
+        self._clear_pending_entry()
+        self._condition_debug = {"gate": gate, "conditions": []}
+
     async def start(self, callback=None):
         """Start the paper trading engine"""
         self.running = True
         self.session_date = date_type.today()
         self.daily_pnl = 0.0
         self.max_daily_loss = float(self.strategy.get("max_daily_loss", 0) or 0)
+        self._reset_intraday_status()
         self.log_event("start", "🚀 Paper Trading Engine Started (LIVE DATA MODE)")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
         self.log_event("info", f"Timeframe: {describe_timeframe(self._get_timeframe_spec())}")
@@ -686,6 +700,7 @@ class PaperTradingEngine:
                     self.trades_today = 0
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
+                    self._reset_intraday_status()
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
 
                 # Check market hours
