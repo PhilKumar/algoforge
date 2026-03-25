@@ -4167,11 +4167,36 @@ async def engines_all(request: Request):
     user_id = _request_user_id(request)
     engines = []
     stopped_engines = _load_stopped_engines(user_id)
+    strategy_rows = await _db_mod.list_strategies(user_id)
+    strategy_folder_map: dict[str, str] = {}
+    for strategy in strategy_rows:
+        strategy_name = str(strategy.get("run_name") or strategy.get("name") or "").strip().casefold()
+        if strategy_name:
+            strategy_folder_map[strategy_name] = str(strategy.get("folder") or "").strip() or "Intraday"
+
+    def _attach_strategy_folder(status: dict) -> dict:
+        if not isinstance(status, dict):
+            return status
+        strategy_payload = status.get("strategy") if isinstance(status.get("strategy"), dict) else None
+        explicit_folder = str(status.get("folder") or (strategy_payload or {}).get("folder") or "").strip()
+        strategy_name = str(
+            status.get("strategy_name")
+            or (strategy_payload or {}).get("run_name")
+            or (strategy_payload or {}).get("name")
+            or ""
+        ).strip()
+        if not explicit_folder and strategy_name:
+            explicit_folder = strategy_folder_map.get(strategy_name.casefold(), "")
+        if explicit_folder:
+            status["folder"] = explicit_folder
+            if strategy_payload is not None and not strategy_payload.get("folder"):
+                strategy_payload["folder"] = explicit_folder
+        return status
 
     # Add all paper engines
     for run_id, engine in _registry_bucket(paper_engines, user_id).items():
         if engine.running:
-            st = engine.get_status()
+            st = _attach_strategy_folder(engine.get_status())
             st["run_id"] = run_id
             st["mode"] = "paper"
             engines.append(st)
@@ -4179,7 +4204,7 @@ async def engines_all(request: Request):
     # Add all live engines
     for run_id, engine in _registry_bucket(live_engines, user_id).items():
         if engine.running:
-            st = engine.get_status()
+            st = _attach_strategy_folder(engine.get_status())
             st["run_id"] = run_id
             st["mode"] = "auto"
             engines.append(st)
@@ -4188,7 +4213,7 @@ async def engines_all(request: Request):
     active_ids = {e["run_id"] for e in engines}
     for run_id, snapshot in stopped_engines.items():
         if run_id not in active_ids:
-            engines.append(snapshot)
+            engines.append(_attach_strategy_folder(snapshot))
             active_ids.add(run_id)
 
     # Fallback for migrated/admin sessions: if today's persisted engine state
@@ -4198,7 +4223,7 @@ async def engines_all(request: Request):
         for snapshot in _state_file_snapshots(user_id):
             run_id = snapshot.get("run_id")
             if run_id and run_id not in active_ids:
-                engines.append(snapshot)
+                engines.append(_attach_strategy_folder(snapshot))
                 active_ids.add(run_id)
 
     return {"engines": engines, "count": len(engines)}
