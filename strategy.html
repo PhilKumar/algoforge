@@ -10493,12 +10493,11 @@ async function loadPortfolioData() {
       const num = Number(value);
       return Number.isFinite(num) ? num : null;
     };
-    const padDatePart = (value) => String(value).padStart(2, '0');
-    const formatLocalDateKey = (date) => {
+    const formatMarketDateKey = (date) => {
       if (!(date instanceof Date) || isNaN(date.getTime())) return '';
-      return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+      return getMarketDateKey(date);
     };
-    const todayDateStr = formatLocalDateKey(new Date());
+    const todayDateStr = formatMarketDateKey(new Date());
     const todayHistoryEntry = portfolioHistory.daily?.[todayDateStr] || {};
 
     const hasOpenBrokerQty = (position) => {
@@ -10599,7 +10598,7 @@ async function loadPortfolioData() {
     dhanTrades.forEach(trade => {
       const tradeDate = parseTradeDate(trade);
       if (tradeDate && !isNaN(tradeDate.getTime())) {
-        const dateStr = formatLocalDateKey(tradeDate);
+        const dateStr = formatMarketDateKey(tradeDate);
         if (!tradesByDate[dateStr]) tradesByDate[dateStr] = [];
         tradesByDate[dateStr].push(trade);
       }
@@ -10627,7 +10626,7 @@ async function loadPortfolioData() {
     const todayOrders = ordersArr.filter(o => {
       if (o.orderStatus !== 'TRADED') return false;
       const orderDate = parseTradeDate(o);
-      return formatLocalDateKey(orderDate) === todayDateStr;
+      return formatMarketDateKey(orderDate) === todayDateStr;
     });
 
     // Filter today's trades from Dhan with improved date matching
@@ -10636,7 +10635,7 @@ async function loadPortfolioData() {
       if (!tradeDate) return false;
 
       // Compare dates (ignore time component)
-      const tradeDateStr = formatLocalDateKey(tradeDate);
+      const tradeDateStr = formatMarketDateKey(tradeDate);
       return tradeDateStr === todayDateStr;
     });
 
@@ -10648,7 +10647,7 @@ async function loadPortfolioData() {
 
     const openBrokerPositions = (Array.isArray(positionsData.data) ? positionsData.data : []).filter(hasOpenBrokerQty);
     const realizedBrokerTodayFallback = Number(
-      todayHistoryEntry.real_pnl ?? todayHistoryEntry.real_net_pnl ?? 0
+      todayHistoryEntry.real_net_pnl ?? todayHistoryEntry.real_pnl ?? 0
     ) || 0;
 
     if (todayDhanTrades.length > 0) {
@@ -10738,7 +10737,7 @@ async function loadPortfolioData() {
     // ── Store portfolio history globally for month navigation ──
     window._portfolioDaily = portfolioHistory.daily || {};
     window._portfolioMonthly = portfolioHistory.monthly || {};
-    window._currentMonthlyView = new Date().toISOString().slice(0, 7); // YYYY-MM
+    window._currentMonthlyView = getMarketYearMonth();
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
 
@@ -10796,6 +10795,46 @@ async function loadPortfolioData() {
 
 // ── Monthly P&L: Daily boxes for selected month ──
 const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MARKET_TIME_ZONE = 'Asia/Kolkata';
+
+function getTimeZoneDateParts(date = new Date(), timeZone = MARKET_TIME_ZONE) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = {};
+  parts.forEach(part => {
+    if (part.type !== 'literal') map[part.type] = part.value;
+  });
+  if (!map.year || !map.month || !map.day) return null;
+  return {
+    year: Number(map.year),
+    month: Number(map.month),
+    day: Number(map.day),
+    yearStr: map.year,
+    monthStr: map.month,
+    dayStr: map.day,
+  };
+}
+
+function getMarketDateKey(date = new Date()) {
+  const parts = getTimeZoneDateParts(date);
+  return parts ? `${parts.yearStr}-${parts.monthStr}-${parts.dayStr}` : '';
+}
+
+function getMarketYearMonth(date = new Date()) {
+  const parts = getTimeZoneDateParts(date);
+  return parts ? `${parts.yearStr}-${parts.monthStr}` : '';
+}
+
+function formatPortfolioDateLabel(dateStr) {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number);
+  if (!year || !month || !day) return String(dateStr || '');
+  return `${MONTH_NAMES_SHORT[month - 1]} ${day}, ${year}`;
+}
 const NSE_CAPITAL_MARKET_HOLIDAYS = new Set([
   '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01',
   '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25',
@@ -10839,50 +10878,60 @@ function renderMonthlyDailyGrid() {
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
-  let totalPnl = 0, totalNetPnl = 0, totalCharges = 0, totalTrades = 0, totalTradeLegs = 0, totalWins = 0, tradingDays = 0, profitDays = 0;
-  let totalRealPnl = 0, totalPaperPnl = 0;
+  let totalGrossRealPnl = 0, totalNetRealPnl = 0, totalCharges = 0, totalTradeLegs = 0, tradingDays = 0, profitDays = 0;
+  let totalPaperPnl = 0;
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
     if (isClosedMarketDay(dateStr)) continue;
     const entry = daily[dateStr];
     if (entry) {
-      const realPnl = entry.real_pnl || 0;
-      const paperPnl = entry.paper_pnl || 0;
-      const pnl = realPnl + paperPnl;
-      const netPnl = entry.real_net_pnl || entry.real_pnl || 0;  // real net only
+      const grossRealPnl = Number(entry.real_pnl || 0);
+      const paperPnl = Number(entry.paper_pnl || 0);
+      const netRealPnl = Number(entry.real_net_pnl ?? entry.real_pnl ?? 0);
       const charges = entry.real_charges || 0;
       const realTrades = entry.real_trades || 0;
       const paperTrades = entry.paper_trades || 0;
-      const trades = realTrades + paperTrades;
       const tradeLegs = entry.real_trade_legs || entry.real_trades || 0;
-      const wins = entry.real_wins || 0;
-      dayEntries.push({ day: d, dateStr, pnl, netPnl, charges, trades, tradeLegs, wins, real: realPnl, paper: paperPnl, realTrades, paperTrades });
-      totalPnl += pnl;
-      totalNetPnl += netPnl;
-      totalCharges += charges;
-      totalTrades += realTrades;
-      totalTradeLegs += tradeLegs;
-      totalWins += wins;
-      totalRealPnl += realPnl;
+      const hasRealActivity = realTrades > 0 || tradeLegs > 0 || grossRealPnl !== 0 || netRealPnl !== 0 || charges > 0;
+      dayEntries.push({
+        day: d,
+        dateStr,
+        charges,
+        tradeLegs,
+        grossReal: grossRealPnl,
+        netReal: netRealPnl,
+        paper: paperPnl,
+        realTrades,
+        paperTrades,
+        hasRealActivity,
+      });
+      if (hasRealActivity) {
+        totalGrossRealPnl += grossRealPnl;
+        totalNetRealPnl += netRealPnl;
+        totalCharges += charges;
+        totalTradeLegs += tradeLegs;
+        tradingDays++;
+        if (netRealPnl > 0) profitDays++;
+      }
       totalPaperPnl += paperPnl;
-      tradingDays++;
-      if (realPnl > 0) profitDays++;
     }
   }
 
+  const realDayEntries = dayEntries.filter(e => e.hasRealActivity);
+
   // Summary bar — real trades only (paper is shown in the Paper Trade P&L card)
-  const isRealProfit = totalRealPnl >= 0;
-  const isNetProfit = totalNetPnl >= 0;
+  const isGrossProfit = totalGrossRealPnl >= 0;
+  const isNetProfit = totalNetRealPnl >= 0;
   summaryEl.innerHTML = tradingDays > 0 ? `
     <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
       <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Real P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${isRealProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalRealPnl.toFixed(2)}</div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Gross Real P&L</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${isGrossProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalGrossRealPnl.toFixed(2)}</div>
       </div>
       <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${isNetProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalNetPnl.toFixed(2)}</div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net Real P&L</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${isNetProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalNetRealPnl.toFixed(2)}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
@@ -10901,51 +10950,52 @@ function renderMonthlyDailyGrid() {
   ` : `<span style="color: var(--muted);">No trades this month</span>`;
 
   // Daily boxes
-  if (dayEntries.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No trade data for ' + monthName + '</div>';
-    return;
+  if (realDayEntries.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No real trade data for ' + monthName + '</div>';
+  } else {
+    let html = '';
+    realDayEntries.forEach(e => {
+      const isWin = e.netReal >= 0;
+      const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
+      const detailLines = [`Gross: ₹${e.grossReal.toFixed(2)}`, `Net: ₹${e.netReal.toFixed(2)}`];
+      if (e.charges > 0) detailLines.push(`Charges: ₹${e.charges.toFixed(2)}`);
+      if (e.paper !== 0) detailLines.push(`Paper: ₹${e.paper.toFixed(2)}`);
+      const details = detailLines.length ? `\n${detailLines.join('\n')}` : '';
+      html += `
+        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Net ₹${e.netReal.toFixed(2)}${details} (${e.realTrades} trades)">
+          <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
+          <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.netReal.toFixed(0)}</div>
+          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
+        </div>
+      `;
+    });
+    grid.innerHTML = html;
   }
-
-  let html = '';
-  dayEntries.forEach(e => {
-    const isWin = e.real >= 0;
-    const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
-    const chargesInfo = e.charges > 0 ? `\nCharges: ₹${e.charges.toFixed(2)}\nNet: ₹${e.netPnl.toFixed(2)}` : '';
-    html += `
-      <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: ₹${e.real.toFixed(2)}${chargesInfo} (${e.realTrades} trades)">
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-        <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.real.toFixed(0)}</div>
-        <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
-      </div>
-    `;
-  });
-  grid.innerHTML = html;
 
   // ── Trades for month: day-by-day breakdown table (like Dhan) ──
   const tradesTableEl = document.getElementById('portfolio-monthly-trades');
-  if (dayEntries.length > 0) {
+  if (realDayEntries.length > 0) {
     let thtml = `<h4 style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: var(--text);">Trades for month</h4>
     <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
       <thead>
         <tr style="border-bottom: 2px solid var(--border); color: var(--muted);">
           <th style="padding: 10px 8px; text-align: left;">Date</th>
           <th style="padding: 10px 8px; text-align: center;">Trades</th>
-          <th style="padding: 10px 8px; text-align: right;">Real P&L</th>
-          <th style="padding: 10px 8px; text-align: right;">Net P&L</th>
+          <th style="padding: 10px 8px; text-align: right;">Gross Real</th>
+          <th style="padding: 10px 8px; text-align: right;">Net Real</th>
           <th style="padding: 10px 8px; text-align: right;">Charges</th>
         </tr>
       </thead>
       <tbody>`;
-    dayEntries.forEach(e => {
-      const isRealWin = e.real >= 0;
-      const isNetWin = e.netPnl >= 0;
-      const dateObj = new Date(e.dateStr);
-      const dateLabel = MONTH_NAMES_SHORT[dateObj.getMonth()] + ' ' + e.day + ', ' + dateObj.getFullYear();
+    realDayEntries.forEach(e => {
+      const isRealWin = e.grossReal >= 0;
+      const isNetWin = e.netReal >= 0;
+      const dateLabel = formatPortfolioDateLabel(e.dateStr);
       thtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
         <td style="padding: 10px 8px; text-align: center;">${e.realTrades || e.tradeLegs}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.real.toFixed(2)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netPnl.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
       </tr>`;
     });
@@ -10987,7 +11037,7 @@ function renderYearlyMonthlyTable() {
   const container = document.getElementById('portfolio-yearly-grid');
   const monthly = window._portfolioMonthly || {};
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = (getTimeZoneDateParts(new Date()) || {}).year || new Date().getFullYear();
   const startYear = 2024;
   const years = [];
   for (let y = currentYear; y >= startYear; y--) years.push(y);
@@ -11011,11 +11061,20 @@ function renderYearlyMonthlyTable() {
       const key = year + '-' + String(m).padStart(2, '0');
       const data = monthly[key];
       if (data) {
-        const pnl = data.total_pnl || ((data.real_pnl || 0) + (data.paper_pnl || 0));
+        const pnl = Number(data.real_net_pnl ?? data.real_pnl ?? 0);
         yearTotal += pnl;
         const isWin = pnl >= 0;
         const trades = data.trades || 0;
-        html += `<td style="padding: 10px 4px; text-align: center;" title="${key}: ${trades} trades">
+        const grossRealPnl = Number(data.real_pnl || 0);
+        const paperPnl = Number(data.paper_pnl || 0);
+        const charges = Number(data.real_charges || 0);
+        const detailLines = [`${key}: ${trades} trades`, `Net real: ₹${pnl.toFixed(2)}`];
+        if (grossRealPnl !== pnl || charges !== 0) {
+          detailLines.push(`Gross real: ₹${grossRealPnl.toFixed(2)}`);
+          detailLines.push(`Charges: ₹${charges.toFixed(2)}`);
+        }
+        if (paperPnl !== 0) detailLines.push(`Paper: ₹${paperPnl.toFixed(2)}`);
+        html += `<td style="padding: 10px 4px; text-align: center;" title="${detailLines.join('\n')}">
           <div style="font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono'; font-size: 11px;">₹${pnl.toFixed(0)}</div>
           <div style="font-size: 9px; color: var(--muted);">${trades}T</div>
         </td>`;

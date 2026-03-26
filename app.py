@@ -154,6 +154,7 @@ if os.path.exists("static"):
 
 # Initialize custom client ONCE and pass to engine
 dhan = DhanClient()
+IST = ZoneInfo("Asia/Kolkata")
 
 # ── Multi-Engine Registries (scoped by user_id, then run_id) ────
 live_engines: Dict[int, Dict[str, LiveEngine]] = defaultdict(dict)
@@ -187,6 +188,129 @@ def _find_user_engine(registry: dict, user_id: int, run_id: str = ""):
         if getattr(engine, "running", False):
             return candidate_run_id, engine
     return "", None
+
+
+def _now_ist() -> datetime:
+    return datetime.now(IST)
+
+
+def _ist_date_str(value: datetime | None = None) -> str:
+    dt = value or _now_ist()
+    if dt.tzinfo is None:
+        return dt.strftime("%Y-%m-%d")
+    return dt.astimezone(IST).strftime("%Y-%m-%d")
+
+
+def _new_portfolio_day_bucket() -> dict:
+    return {
+        "real_pnl": 0.0,
+        "real_net_pnl": 0.0,
+        "real_charges": 0.0,
+        "paper_pnl": 0.0,
+        "real_trades": 0,
+        "real_trade_legs": 0,
+        "paper_trades": 0,
+        "real_wins": 0,
+        "paper_wins": 0,
+    }
+
+
+def _new_portfolio_period_bucket() -> dict:
+    return {
+        "real_pnl": 0.0,
+        "real_net_pnl": 0.0,
+        "real_charges": 0.0,
+        "paper_pnl": 0.0,
+        "total_pnl": 0.0,
+        "total_net_pnl": 0.0,
+        "trades": 0,
+        "wins": 0,
+    }
+
+
+def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: list[dict] | None):
+    """Combine persisted real trade history and paper runs into daily/monthly/yearly buckets."""
+
+    daily: dict[str, dict] = {}
+
+    for date_str, entry in (real_history or {}).items():
+        bucket = daily.setdefault(str(date_str), _new_portfolio_day_bucket())
+        bucket["real_pnl"] = round(float(entry.get("pnl", 0) or 0), 2)
+        bucket["real_net_pnl"] = round(float(entry.get("net_pnl", entry.get("pnl", 0)) or 0), 2)
+        bucket["real_charges"] = round(float(entry.get("charges", 0) or 0), 2)
+        bucket["real_trades"] = int(entry.get("trades", 0) or 0)
+        bucket["real_trade_legs"] = int(entry.get("trade_legs", entry.get("trades", 0)) or 0)
+        bucket["real_wins"] = int(entry.get("wins", 0) or 0)
+
+    for run in runs or []:
+        if run.get("mode") != "paper":
+            continue
+
+        run_date = None
+        started = run.get("started_at", run.get("created_at", ""))
+        if started:
+            run_date = str(started)[:10]
+
+        trades = run.get("trades", [])
+        if trades:
+            paper_by_date: dict[str, dict] = {}
+            for trade in trades:
+                trade_date = str(trade.get("exit_time", trade.get("entry_time", "")))[:10]
+                if not trade_date or len(trade_date) < 10:
+                    trade_date = run_date or ""
+                if not trade_date:
+                    continue
+                if trade_date not in paper_by_date:
+                    paper_by_date[trade_date] = {"pnl": 0.0, "count": 0, "wins": 0}
+                pnl = float(trade.get("pnl", 0) or 0)
+                paper_by_date[trade_date]["pnl"] += pnl
+                paper_by_date[trade_date]["count"] += 1
+                if pnl > 0:
+                    paper_by_date[trade_date]["wins"] += 1
+
+            for trade_date, trade_data in paper_by_date.items():
+                bucket = daily.setdefault(trade_date, _new_portfolio_day_bucket())
+                bucket["paper_pnl"] += round(float(trade_data["pnl"]), 2)
+                bucket["paper_trades"] += int(trade_data["count"])
+                bucket["paper_wins"] += int(trade_data["wins"])
+        elif run_date:
+            bucket = daily.setdefault(run_date, _new_portfolio_day_bucket())
+            bucket["paper_pnl"] += round(float(run.get("total_pnl", 0) or 0), 2)
+            bucket["paper_trades"] += int(run.get("trade_count", 0) or 0)
+            stats = run.get("stats", {})
+            bucket["paper_wins"] += int(stats.get("winning_trades", 0) or 0)
+
+    monthly: dict[str, dict] = {}
+    yearly: dict[str, dict] = {}
+    for date_str, day in daily.items():
+        ym = date_str[:7]
+        year = date_str[:4]
+        monthly_bucket = monthly.setdefault(ym, _new_portfolio_period_bucket())
+        yearly_bucket = yearly.setdefault(year, _new_portfolio_period_bucket())
+
+        real_pnl = float(day.get("real_pnl", 0) or 0)
+        real_net_pnl = float(day.get("real_net_pnl", real_pnl) or 0)
+        real_charges = float(day.get("real_charges", 0) or 0)
+        paper_pnl = float(day.get("paper_pnl", 0) or 0)
+        total_trades = int(day.get("real_trades", 0) or 0) + int(day.get("paper_trades", 0) or 0)
+        total_wins = int(day.get("real_wins", 0) or 0) + int(day.get("paper_wins", 0) or 0)
+
+        for bucket in (monthly_bucket, yearly_bucket):
+            bucket["real_pnl"] += real_pnl
+            bucket["real_net_pnl"] += real_net_pnl
+            bucket["real_charges"] += real_charges
+            bucket["paper_pnl"] += paper_pnl
+            bucket["total_pnl"] += real_pnl + paper_pnl
+            bucket["total_net_pnl"] += real_net_pnl + paper_pnl
+            bucket["trades"] += total_trades
+            bucket["wins"] += total_wins
+
+    for period in (monthly, yearly):
+        for bucket in period.values():
+            for key in ("real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl", "total_net_pnl"):
+                bucket[key] = round(float(bucket.get(key, 0) or 0), 2)
+
+    return daily, monthly, yearly
 
 
 def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
@@ -2453,7 +2577,7 @@ def _backfill_trade_history(
         history = _db_mod.list_trade_history_sync(owner_id) if not force else {}
         if force:
             _db_mod.clear_trade_history_sync(owner_id)
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = _ist_date_str()
         existing_dates = set(history.keys())
 
         # Dhan API returns 20 trades per page, paginate through all
@@ -2655,146 +2779,12 @@ async def backfill_status():
 
 @app.get("/api/portfolio/history")
 async def get_portfolio_history(request: Request):
-    """Return combined historical P&L from real trades + paper runs for monthly/yearly charts."""
+    """Return historical real and paper P&L with daily/monthly/yearly aggregates."""
     try:
         user_id = _request_user_id(request)
-        daily = {}  # { "YYYY-MM-DD": { real_pnl, paper_pnl, real_trades, paper_trades, real_wins, paper_wins } }
-
-        # 1) Real trade history from the user's SQLite history
         real_history = await _db_mod.list_trade_history(user_id)
-        for date_str, entry in real_history.items():
-            if date_str not in daily:
-                daily[date_str] = {
-                    "real_pnl": 0,
-                    "real_net_pnl": 0,
-                    "real_charges": 0,
-                    "paper_pnl": 0,
-                    "real_trades": 0,
-                    "real_trade_legs": 0,
-                    "paper_trades": 0,
-                    "real_wins": 0,
-                    "paper_wins": 0,
-                }
-            daily[date_str]["real_pnl"] = entry.get("pnl", 0)
-            daily[date_str]["real_net_pnl"] = entry.get("net_pnl", entry.get("pnl", 0))
-            daily[date_str]["real_charges"] = entry.get("charges", 0)
-            daily[date_str]["real_trades"] = entry.get("trades", 0)
-            daily[date_str]["real_trade_legs"] = entry.get("trade_legs", entry.get("trades", 0))
-            daily[date_str]["real_wins"] = entry.get("wins", 0)
-
-        # 2) Paper runs from the user's saved history
         runs = await _db_mod.list_runs(user_id)
-        for r in runs:
-            if r.get("mode") != "paper":
-                continue
-            # Extract date from the paper run
-            run_date = None
-            started = r.get("started_at", r.get("created_at", ""))
-            if started:
-                run_date = str(started)[:10]  # YYYY-MM-DD
-
-            # Also extract per-trade dates for more granular breakdown
-            trades = r.get("trades", [])
-            if trades:
-                # Group paper trades by exit_time date
-                paper_by_date = {}
-                for t in trades:
-                    t_date = str(t.get("exit_time", t.get("entry_time", "")))[:10]
-                    if not t_date or len(t_date) < 10:
-                        t_date = run_date or ""
-                    if not t_date:
-                        continue
-                    if t_date not in paper_by_date:
-                        paper_by_date[t_date] = {"pnl": 0, "count": 0, "wins": 0}
-                    pnl = t.get("pnl", 0)
-                    paper_by_date[t_date]["pnl"] += pnl
-                    paper_by_date[t_date]["count"] += 1
-                    if pnl > 0:
-                        paper_by_date[t_date]["wins"] += 1
-
-                for d, data in paper_by_date.items():
-                    if d not in daily:
-                        daily[d] = {
-                            "real_pnl": 0,
-                            "real_net_pnl": 0,
-                            "real_charges": 0,
-                            "paper_pnl": 0,
-                            "real_trades": 0,
-                            "paper_trades": 0,
-                            "real_wins": 0,
-                            "paper_wins": 0,
-                        }
-                    daily[d]["paper_pnl"] += round(data["pnl"], 2)
-                    daily[d]["paper_trades"] += data["count"]
-                    daily[d]["paper_wins"] += data["wins"]
-            elif run_date:
-                # No individual trades, use run-level P&L
-                if run_date not in daily:
-                    daily[run_date] = {
-                        "real_pnl": 0,
-                        "real_net_pnl": 0,
-                        "real_charges": 0,
-                        "paper_pnl": 0,
-                        "real_trades": 0,
-                        "paper_trades": 0,
-                        "real_wins": 0,
-                        "paper_wins": 0,
-                    }
-                daily[run_date]["paper_pnl"] += r.get("total_pnl", 0)
-                daily[run_date]["paper_trades"] += r.get("trade_count", 0)
-                stats = r.get("stats", {})
-                daily[run_date]["paper_wins"] += stats.get("winning_trades", 0)
-
-        # Build monthly and yearly aggregates
-        monthly = {}
-        yearly = {}
-        for date_str, d in daily.items():
-            ym = date_str[:7]
-            y = date_str[:4]
-            if ym not in monthly:
-                monthly[ym] = {
-                    "real_pnl": 0,
-                    "real_net_pnl": 0,
-                    "real_charges": 0,
-                    "paper_pnl": 0,
-                    "total_pnl": 0,
-                    "trades": 0,
-                    "wins": 0,
-                }
-            monthly[ym]["real_pnl"] += d["real_pnl"]
-            monthly[ym]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
-            monthly[ym]["real_charges"] += d.get("real_charges", 0)
-            monthly[ym]["paper_pnl"] += d["paper_pnl"]
-            monthly[ym]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
-            monthly[ym]["trades"] += d["real_trades"] + d["paper_trades"]
-            monthly[ym]["wins"] += d["real_wins"] + d["paper_wins"]
-
-            if y not in yearly:
-                yearly[y] = {
-                    "real_pnl": 0,
-                    "real_net_pnl": 0,
-                    "real_charges": 0,
-                    "paper_pnl": 0,
-                    "total_pnl": 0,
-                    "trades": 0,
-                    "wins": 0,
-                }
-            yearly[y]["real_pnl"] += d["real_pnl"]
-            yearly[y]["real_net_pnl"] += d.get("real_net_pnl", d["real_pnl"])
-            yearly[y]["real_charges"] += d.get("real_charges", 0)
-            yearly[y]["paper_pnl"] += d["paper_pnl"]
-            yearly[y]["total_pnl"] += d["real_pnl"] + d["paper_pnl"]
-            yearly[y]["trades"] += d["real_trades"] + d["paper_trades"]
-            yearly[y]["wins"] += d["real_wins"] + d["paper_wins"]
-
-        # Round all values
-        for m in monthly.values():
-            for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
-                m[k] = round(m[k], 2)
-        for y in yearly.values():
-            for k in ["real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl"]:
-                y[k] = round(y[k], 2)
-
+        daily, monthly, yearly = _aggregate_portfolio_history(real_history, runs)
         return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}
     except Exception as e:
         print(f"[PORTFOLIO] History error: {e}")
@@ -4687,7 +4677,7 @@ async def _persist_daily_trades(trades: list, user_id: int):
     """
     if not trades:
         return
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = _ist_date_str()
     trade_legs = len(trades)  # Total individual order legs
 
     # Pair BUY/SELL per securityId to compute real P&L
@@ -5700,7 +5690,7 @@ async def get_expiry_list(symbol: str):
         ScripMaster.ensure_loaded()
         expiries = ScripMaster.get_expiries(symbol)
         # Only return future expiries (>= today)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = _ist_date_str()
         future = [e for e in expiries if e >= today]
         return {"status": "ok", "symbol": symbol, "expiries": future}
     except Exception as e:
@@ -5717,7 +5707,7 @@ def _refresh_recent_charges(history: dict, user_id: int, broker_client: DhanClie
 
     try:
         client = broker_client or dhan
-        today = datetime.now()
+        today = _now_ist()
         yesterday = today - timedelta(days=1)
         # Check last 3 days (in case of weekends)
         dates_to_check = []
