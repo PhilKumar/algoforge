@@ -33,6 +33,7 @@ from app import (
     _summarize_real_trade_history,
     _trade_history_entry_needs_refresh,
     _trade_history_needs_repair,
+    _trade_history_refresh_start,
 )
 
 
@@ -181,6 +182,60 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         self.assertEqual(entry["trade_legs"], 4)
         self.assertEqual(entry["order_count"], 2)
 
+    def test_summarize_real_trade_fills_ignores_zero_exchange_trade_id(self):
+        entry = _summarize_real_trade_fills(
+            [
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "0",
+                    "transactionType": "BUY",
+                    "securityId": "SENSEX-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-20 09:15:00",
+                    "brokerageCharges": 10,
+                },
+                {
+                    "orderId": "B2",
+                    "exchangeTradeId": "0",
+                    "transactionType": "BUY",
+                    "securityId": "SENSEX-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 101,
+                    "exchangeTime": "2026-03-20 09:15:01",
+                    "brokerageCharges": 10,
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "0",
+                    "transactionType": "SELL",
+                    "securityId": "SENSEX-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 110,
+                    "exchangeTime": "2026-03-20 09:20:00",
+                    "brokerageCharges": 10,
+                },
+                {
+                    "orderId": "S2",
+                    "exchangeTradeId": "0",
+                    "transactionType": "SELL",
+                    "securityId": "SENSEX-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 111,
+                    "exchangeTime": "2026-03-20 09:20:01",
+                    "brokerageCharges": 10,
+                },
+            ]
+        )
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["pnl"], 200.0)
+        self.assertEqual(entry["brokerage"], 40.0)
+        self.assertEqual(entry["net_pnl"], 160.0)
+        self.assertEqual(entry["trades"], 4)
+        self.assertEqual(entry["trade_legs"], 4)
+        self.assertEqual(entry["order_count"], 4)
+
     def test_aggregate_portfolio_history_tracks_gross_net_and_cost_totals(self):
         real_history = {
             "2026-03-31": {
@@ -284,6 +339,20 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         app_module._trade_history_repair_attempts[1] = app_module.time.monotonic()
         self.assertFalse(_trade_history_needs_repair(1, history))
         app_module._trade_history_repair_attempts.pop(1, None)
+
+    def test_trade_history_refresh_start_prefers_recent_stale_month(self):
+        history = {
+            "2024-06-21": {"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "source": "historical_fifo"},
+            "2026-03-02": {"pnl": -10},
+            "2026-03-25": {
+                "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+                "source": "historical_fifo",
+            },
+        }
+
+        refresh_from = _trade_history_refresh_start(history, "2024-01-01", today_str="2026-03-26")
+
+        self.assertEqual(refresh_from, "2026-03-01")
 
 
 class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):

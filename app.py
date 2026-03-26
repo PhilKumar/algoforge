@@ -350,10 +350,21 @@ _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
 
+def _trade_fill_id_value(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"0", "0.0", "na", "none", "null"}:
+        return None
+    return text
+
+
 def _trade_fill_dedupe_key(trade: dict) -> str:
     for key in ("exchangeTradeId", "tradeId", "tradeNumber"):
-        value = trade.get(key)
-        if value not in (None, ""):
+        value = _trade_fill_id_value(trade.get(key))
+        if value is not None:
             return f"{key}:{value}"
     parts = [
         trade.get("orderId", ""),
@@ -465,6 +476,44 @@ def _trade_history_needs_repair(user_id: int, history: dict[str, dict]) -> bool:
         return False
     last_attempt = float(_trade_history_repair_attempts.get(int(user_id), 0) or 0)
     return (time.monotonic() - last_attempt) >= _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS
+
+
+def _trade_history_refresh_start(
+    history: dict[str, dict] | None,
+    default_from_date: str = "2024-01-01",
+    *,
+    today_str: str | None = None,
+    recent_window_days: int = 120,
+) -> str:
+    try:
+        refresh_floor = date.fromisoformat(str(default_from_date)[:10])
+    except ValueError:
+        refresh_floor = date(2024, 1, 1)
+
+    today_value = str(today_str or _ist_date_str())[:10]
+    try:
+        today_date = date.fromisoformat(today_value)
+    except ValueError:
+        today_date = datetime.now(_IST).date()
+
+    stale_dates: list[date] = []
+    for trade_date, entry in (history or {}).items():
+        trade_date_str = str(trade_date)[:10]
+        try:
+            parsed_date = date.fromisoformat(trade_date_str)
+        except ValueError:
+            continue
+        if _trade_history_entry_needs_refresh(entry, trade_date=trade_date_str, today_str=today_value):
+            stale_dates.append(parsed_date)
+
+    if not stale_dates:
+        return refresh_floor.isoformat()
+
+    recent_cutoff = today_date - timedelta(days=max(int(recent_window_days or 0), 0))
+    recent_stale_dates = [value for value in stale_dates if value >= recent_cutoff]
+    refresh_start = min(recent_stale_dates) if recent_stale_dates else max(stale_dates)
+    refresh_start = max(refresh_floor, refresh_start.replace(day=1))
+    return refresh_start.isoformat()
 
 
 def _new_trade_history_entry(*, source: str, calculation_mode: str) -> dict:
@@ -3080,7 +3129,8 @@ async def get_portfolio_history(request: Request):
             try:
                 _, broker_client, _ = await _request_broker_context(request)
                 if broker_client:
-                    await asyncio.to_thread(_backfill_trade_history, "2024-01-01", False, user_id, broker_client)
+                    refresh_from_date = _trade_history_refresh_start(real_history, "2024-01-01")
+                    await asyncio.to_thread(_backfill_trade_history, refresh_from_date, False, user_id, broker_client)
                     real_history = await _db_mod.list_trade_history(user_id)
             except Exception as repair_error:
                 print(f"[PORTFOLIO] Trade-history repair skipped: {repair_error}")
@@ -6087,12 +6137,20 @@ async def _backfill_in_background():
             raise RuntimeError(_broker_not_configured_message(admin, source))
         history = await _db_mod.list_trade_history(admin_id)
         force = len(history) <= 2
+        refresh_from_date = "2024-01-01" if force else _trade_history_refresh_start(history, "2024-01-01")
         if force:
             _backfill_state["message"] = "First-run: full backfill in progress..."
             print("📊 [BACKFILL] Auto-backfilling trade history from Dhan (force)...")
+        elif refresh_from_date != "2024-01-01":
+            _backfill_state["message"] = f"Refreshing trade history from {refresh_from_date}..."
         count = await loop.run_in_executor(
             None,
-            lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id, broker_client=broker_client),
+            lambda: _backfill_trade_history(
+                refresh_from_date,
+                force=force,
+                user_id=admin_id,
+                broker_client=broker_client,
+            ),
         )
         if force:
             print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
