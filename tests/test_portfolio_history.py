@@ -30,6 +30,7 @@ from app import (
     _aggregate_portfolio_history,
     _ist_date_str,
     _summarize_real_trade_fills,
+    _summarize_real_trade_history,
     _trade_history_entry_needs_refresh,
     _trade_history_needs_repair,
 )
@@ -83,8 +84,48 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         self.assertEqual(entry["net_pnl"], 110.0)
         self.assertEqual(entry["trades"], 4)
         self.assertEqual(entry["trade_legs"], 4)
+        self.assertEqual(entry["order_count"], 4)
 
-    def test_summarize_real_trade_fills_counts_unique_orders_and_preserves_partial_fills(self):
+    def test_summarize_real_trade_history_carries_inventory_across_days(self):
+        entries = _summarize_real_trade_history(
+            [
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "day-1",
+                    "transactionType": "BUY",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-11 15:20:00",
+                    "stt": 1.5,
+                    "brokerageCharges": 10,
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "day-2",
+                    "transactionType": "SELL",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 120,
+                    "exchangeTime": "2026-03-12 09:20:00",
+                    "stt": 2.0,
+                    "brokerageCharges": 10,
+                },
+            ],
+            source="historical_fifo",
+            carry_inventory=True,
+        )
+
+        self.assertEqual(entries["2026-03-11"]["pnl"], 0.0)
+        self.assertEqual(entries["2026-03-11"]["charges"], 1.5)
+        self.assertEqual(entries["2026-03-11"]["brokerage"], 10.0)
+        self.assertEqual(entries["2026-03-11"]["net_pnl"], -11.5)
+        self.assertEqual(entries["2026-03-12"]["pnl"], 200.0)
+        self.assertEqual(entries["2026-03-12"]["charges"], 2.0)
+        self.assertEqual(entries["2026-03-12"]["brokerage"], 10.0)
+        self.assertEqual(entries["2026-03-12"]["net_pnl"], 188.0)
+
+    def test_summarize_real_trade_fills_counts_fill_trades_and_preserves_partial_fills(self):
         entry = _summarize_real_trade_fills(
             [
                 {
@@ -132,17 +173,22 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
 
         self.assertIsNotNone(entry)
         self.assertEqual(entry["pnl"], 100.0)
-        self.assertEqual(entry["charges"], 20.0)
+        self.assertEqual(entry["charges"], 0.0)
+        self.assertEqual(entry["brokerage"], 20.0)
+        self.assertEqual(entry["total_costs"], 20.0)
         self.assertEqual(entry["net_pnl"], 80.0)
-        self.assertEqual(entry["trades"], 2)
+        self.assertEqual(entry["trades"], 4)
         self.assertEqual(entry["trade_legs"], 4)
+        self.assertEqual(entry["order_count"], 2)
 
-    def test_aggregate_portfolio_history_tracks_gross_and_net_totals(self):
+    def test_aggregate_portfolio_history_tracks_gross_net_and_cost_totals(self):
         real_history = {
             "2026-03-31": {
                 "pnl": 100.0,
                 "net_pnl": 90.0,
-                "charges": 10.0,
+                "charges": 7.0,
+                "brokerage": 3.0,
+                "total_costs": 10.0,
                 "trades": 1,
                 "trade_legs": 2,
                 "wins": 1,
@@ -150,7 +196,9 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
             "2026-04-01": {
                 "pnl": -50.0,
                 "net_pnl": -55.0,
-                "charges": 5.0,
+                "charges": 4.0,
+                "brokerage": 1.0,
+                "total_costs": 5.0,
                 "trades": 1,
                 "trade_legs": 2,
                 "wins": 0,
@@ -170,9 +218,12 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         daily, monthly, yearly = _aggregate_portfolio_history(real_history, runs)
 
         self.assertEqual(daily["2026-03-31"]["real_net_pnl"], 90.0)
+        self.assertEqual(daily["2026-03-31"]["real_brokerage"], 3.0)
         self.assertEqual(daily["2026-03-31"]["paper_pnl"], 20.0)
         self.assertEqual(monthly["2026-03"]["real_pnl"], 100.0)
         self.assertEqual(monthly["2026-03"]["real_net_pnl"], 90.0)
+        self.assertEqual(monthly["2026-03"]["real_charges"], 7.0)
+        self.assertEqual(monthly["2026-03"]["real_brokerage"], 3.0)
         self.assertEqual(monthly["2026-03"]["paper_pnl"], 20.0)
         self.assertEqual(monthly["2026-03"]["total_pnl"], 120.0)
         self.assertEqual(monthly["2026-03"]["total_net_pnl"], 110.0)
@@ -183,7 +234,7 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         self.assertEqual(yearly["2026"]["paper_pnl"], 15.0)
         self.assertEqual(yearly["2026"]["total_pnl"], 65.0)
         self.assertEqual(yearly["2026"]["total_net_pnl"], 50.0)
-        self.assertEqual(yearly["2026"]["trades"], 4)
+        self.assertEqual(yearly["2026"]["trades"], 6)
         self.assertEqual(yearly["2026"]["wins"], 2)
 
     def test_aggregate_portfolio_history_falls_back_to_run_level_paper_totals(self):
@@ -212,8 +263,19 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
 
     def test_trade_history_entry_requires_refresh_when_schema_missing(self):
         self.assertTrue(_trade_history_entry_needs_refresh({"pnl": 10}))
+        self.assertTrue(
+            _trade_history_entry_needs_refresh(
+                {"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "source": "live_day_fifo", "pnl": 10},
+                trade_date="2026-03-12",
+                today_str="2026-03-26",
+            )
+        )
         self.assertFalse(
-            _trade_history_entry_needs_refresh({"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "pnl": 10})
+            _trade_history_entry_needs_refresh(
+                {"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "source": "historical_fifo", "pnl": 10},
+                trade_date="2026-03-12",
+                today_str="2026-03-26",
+            )
         )
 
     def test_trade_history_repair_uses_cooldown_for_legacy_rows(self):
@@ -240,12 +302,16 @@ class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):
         refreshed_history = {
             "2026-03-12": {
                 "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
-                "pnl": -1970.0,
-                "net_pnl": -7512.15,
-                "charges": 5542.15,
-                "trades": 62,
-                "trade_legs": 62,
-                "wins": 0,
+                "source": "historical_fifo",
+                "pnl": 10048.50,
+                "net_pnl": 4402.01,
+                "charges": 4346.49,
+                "brokerage": 1300.0,
+                "total_costs": 5646.49,
+                "trades": 65,
+                "trade_legs": 65,
+                "order_count": 18,
+                "wins": 5,
             }
         }
 
@@ -259,31 +325,29 @@ class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(app_module.asyncio, "to_thread", side_effect=fake_to_thread),
             patch.object(app_module, "_backfill_trade_history", return_value=1) as backfill_mock,
-            patch.object(app_module, "_refresh_recent_charges", return_value=None) as refresh_mock,
-            patch.object(
-                app_module._db_mod,
-                "list_trade_history",
-                side_effect=[legacy_history, refreshed_history, refreshed_history],
-            ),
+            patch.object(app_module._db_mod, "list_trade_history", side_effect=[legacy_history, refreshed_history]),
             patch.object(app_module._db_mod, "list_runs", return_value=[]),
         ):
             result = await app_module.get_portfolio_history(None)
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["daily"]["2026-03-12"]["real_pnl"], -1970.0)
-        self.assertEqual(result["daily"]["2026-03-12"]["real_net_pnl"], -7512.15)
-        self.assertEqual(result["monthly"]["2026-03"]["real_pnl"], -1970.0)
+        self.assertEqual(result["daily"]["2026-03-12"]["real_pnl"], 10048.50)
+        self.assertEqual(result["daily"]["2026-03-12"]["real_net_pnl"], 4402.01)
+        self.assertEqual(result["daily"]["2026-03-12"]["real_brokerage"], 1300.0)
+        self.assertEqual(result["monthly"]["2026-03"]["real_pnl"], 10048.50)
         backfill_mock.assert_called_once()
-        refresh_mock.assert_called_once()
 
     async def test_get_portfolio_history_skips_repair_for_current_rows(self):
         app_module._trade_history_repair_attempts.pop(1, None)
         current_history = {
             "2026-03-12": {
                 "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+                "source": "historical_fifo",
                 "pnl": 100.0,
                 "net_pnl": 80.0,
                 "charges": 20.0,
+                "brokerage": 10.0,
+                "total_costs": 30.0,
                 "trades": 2,
                 "trade_legs": 4,
                 "wins": 1,

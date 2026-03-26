@@ -206,9 +206,12 @@ def _new_portfolio_day_bucket() -> dict:
         "real_pnl": 0.0,
         "real_net_pnl": 0.0,
         "real_charges": 0.0,
+        "real_brokerage": 0.0,
+        "real_total_costs": 0.0,
         "paper_pnl": 0.0,
         "real_trades": 0,
         "real_trade_legs": 0,
+        "real_order_count": 0,
         "paper_trades": 0,
         "real_wins": 0,
         "paper_wins": 0,
@@ -220,6 +223,8 @@ def _new_portfolio_period_bucket() -> dict:
         "real_pnl": 0.0,
         "real_net_pnl": 0.0,
         "real_charges": 0.0,
+        "real_brokerage": 0.0,
+        "real_total_costs": 0.0,
         "paper_pnl": 0.0,
         "total_pnl": 0.0,
         "total_net_pnl": 0.0,
@@ -238,8 +243,14 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
         bucket["real_pnl"] = round(float(entry.get("pnl", 0) or 0), 2)
         bucket["real_net_pnl"] = round(float(entry.get("net_pnl", entry.get("pnl", 0)) or 0), 2)
         bucket["real_charges"] = round(float(entry.get("charges", 0) or 0), 2)
-        bucket["real_trades"] = int(entry.get("trades", 0) or 0)
+        bucket["real_brokerage"] = round(float(entry.get("brokerage", 0) or 0), 2)
+        bucket["real_total_costs"] = round(
+            float(entry.get("total_costs", bucket["real_charges"] + bucket["real_brokerage"]) or 0),
+            2,
+        )
         bucket["real_trade_legs"] = int(entry.get("trade_legs", entry.get("trades", 0)) or 0)
+        bucket["real_trades"] = bucket["real_trade_legs"]
+        bucket["real_order_count"] = int(entry.get("order_count", 0) or 0)
         bucket["real_wins"] = int(entry.get("wins", 0) or 0)
 
     for run in runs or []:
@@ -291,6 +302,8 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
         real_pnl = float(day.get("real_pnl", 0) or 0)
         real_net_pnl = float(day.get("real_net_pnl", real_pnl) or 0)
         real_charges = float(day.get("real_charges", 0) or 0)
+        real_brokerage = float(day.get("real_brokerage", 0) or 0)
+        real_total_costs = float(day.get("real_total_costs", real_charges + real_brokerage) or 0)
         paper_pnl = float(day.get("paper_pnl", 0) or 0)
         total_trades = int(day.get("real_trades", 0) or 0) + int(day.get("paper_trades", 0) or 0)
         total_wins = int(day.get("real_wins", 0) or 0) + int(day.get("paper_wins", 0) or 0)
@@ -299,6 +312,8 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
             bucket["real_pnl"] += real_pnl
             bucket["real_net_pnl"] += real_net_pnl
             bucket["real_charges"] += real_charges
+            bucket["real_brokerage"] += real_brokerage
+            bucket["real_total_costs"] += real_total_costs
             bucket["paper_pnl"] += paper_pnl
             bucket["total_pnl"] += real_pnl + paper_pnl
             bucket["total_net_pnl"] += real_net_pnl + paper_pnl
@@ -307,21 +322,30 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
 
     for period in (monthly, yearly):
         for bucket in period.values():
-            for key in ("real_pnl", "real_net_pnl", "real_charges", "paper_pnl", "total_pnl", "total_net_pnl"):
+            for key in (
+                "real_pnl",
+                "real_net_pnl",
+                "real_charges",
+                "real_brokerage",
+                "real_total_costs",
+                "paper_pnl",
+                "total_pnl",
+                "total_net_pnl",
+            ):
                 bucket[key] = round(float(bucket.get(key, 0) or 0), 2)
 
     return daily, monthly, yearly
 
 
-_TRADE_CHARGE_FIELDS = (
+_TRADE_STATUTORY_CHARGE_FIELDS = (
     "sebiTax",
     "stt",
-    "brokerageCharges",
     "serviceTax",
     "exchangeTransactionCharges",
     "stampDuty",
 )
-_TRADE_HISTORY_SCHEMA_VERSION = 2
+_TRADE_BROKERAGE_FIELDS = ("brokerageCharges", "brokerage")
+_TRADE_HISTORY_SCHEMA_VERSION = 3
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -377,8 +401,16 @@ def _trade_order_key(trade: dict) -> str:
     return _trade_fill_dedupe_key(trade)
 
 
-def _trade_charge_total(trade: dict) -> float:
-    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_CHARGE_FIELDS), 2)
+def _trade_statutory_charge_total(trade: dict) -> float:
+    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_STATUTORY_CHARGE_FIELDS), 2)
+
+
+def _trade_brokerage_total(trade: dict) -> float:
+    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_BROKERAGE_FIELDS), 2)
+
+
+def _trade_total_costs(trade: dict) -> float:
+    return round(_trade_statutory_charge_total(trade) + _trade_brokerage_total(trade), 2)
 
 
 def _trade_qty(trade: dict) -> float:
@@ -397,72 +429,133 @@ def _trade_symbol_label(trade: dict) -> str:
     return str(trade.get("customSymbol") or trade.get("tradingSymbol") or _trade_symbol_key(trade))
 
 
-def _trade_history_entry_needs_refresh(entry: dict | None) -> bool:
+def _trade_date_str(trade: dict) -> str:
+    raw_time = trade.get("exchangeTime") or trade.get("createTime") or trade.get("updateTime") or ""
+    date_str = str(raw_time)[:10]
+    return date_str if date_str and len(date_str) >= 10 else ""
+
+
+def _trade_history_entry_needs_refresh(
+    entry: dict | None,
+    *,
+    trade_date: str | None = None,
+    today_str: str | None = None,
+) -> bool:
     if not isinstance(entry, dict) or not entry:
         return True
     try:
-        return int(entry.get("schema_version") or 0) < _TRADE_HISTORY_SCHEMA_VERSION
+        if int(entry.get("schema_version") or 0) < _TRADE_HISTORY_SCHEMA_VERSION:
+            return True
     except Exception:
         return True
+    if trade_date and trade_date != (today_str or _ist_date_str()):
+        if str(entry.get("source") or "") != "historical_fifo":
+            return True
+    return False
 
 
 def _trade_history_needs_repair(user_id: int, history: dict[str, dict]) -> bool:
     if not history:
         return True
-    if not any(_trade_history_entry_needs_refresh(entry) for entry in history.values()):
+    today_str = _ist_date_str()
+    if not any(
+        _trade_history_entry_needs_refresh(entry, trade_date=date_str, today_str=today_str)
+        for date_str, entry in history.items()
+    ):
         return False
     last_attempt = float(_trade_history_repair_attempts.get(int(user_id), 0) or 0)
     return (time.monotonic() - last_attempt) >= _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS
 
 
-def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
-    """Summarize Dhan trade fills into a daily realised P&L entry.
+def _new_trade_history_entry(*, source: str, calculation_mode: str) -> dict:
+    return {
+        "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+        "source": source,
+        "calculation_mode": calculation_mode,
+        "pnl": 0.0,
+        "net_pnl": 0.0,
+        "charges": 0.0,
+        "brokerage": 0.0,
+        "total_costs": 0.0,
+        "trades": 0,
+        "trade_legs": 0,
+        "order_count": 0,
+        "wins": 0,
+        "mode": "real",
+        "details": [],
+    }
 
-    Uses FIFO matching per symbol so multiple same-day round trips and short-first
-    trades are handled like a trade ledger rather than an average-price bucket.
-    """
 
+def _summarize_real_trade_history(
+    trades: list[dict],
+    *,
+    source: str,
+    carry_inventory: bool,
+) -> dict[str, dict]:
     unique_trades = _dedupe_trade_fills(trades)
     if not unique_trades:
-        return None
+        return {}
 
     sorted_trades = sorted(unique_trades, key=_trade_sort_key)
-    order_keys = {_trade_order_key(trade) for trade in sorted_trades}
-    fill_count = len(sorted_trades)
-    order_count = len(order_keys) if order_keys else fill_count
-    total_charges = round(sum(_trade_charge_total(trade) for trade in sorted_trades), 2)
-
     open_longs: dict[str, deque] = defaultdict(deque)
     open_shorts: dict[str, deque] = defaultdict(deque)
-    symbol_details: dict[str, dict] = {}
-    total_pnl = 0.0
-    wins = 0
+    entries: dict[str, dict] = {}
+    order_keys_by_day: dict[str, set[str]] = defaultdict(set)
+    symbol_details_by_day: dict[str, dict[str, dict]] = defaultdict(dict)
+    current_date = ""
 
     for trade in sorted_trades:
-        side = str(trade.get("transactionType") or "").upper()
-        if side not in {"BUY", "SELL"}:
+        date_str = _trade_date_str(trade)
+        if not date_str:
             continue
+        if not carry_inventory and date_str != current_date:
+            open_longs = defaultdict(deque)
+            open_shorts = defaultdict(deque)
+            current_date = date_str
+        entry = entries.setdefault(
+            date_str,
+            _new_trade_history_entry(
+                source=source,
+                calculation_mode="cross_day_fifo" if carry_inventory else "day_fifo",
+            ),
+        )
+        entry["trade_legs"] += 1
+        entry["trades"] += 1
+        order_keys_by_day[date_str].add(_trade_order_key(trade))
+
+        side = str(trade.get("transactionType") or "").upper()
         qty = _trade_qty(trade)
         price = _trade_price(trade)
-        if qty <= 0:
-            continue
 
         symbol_key = _trade_symbol_key(trade)
-        detail = symbol_details.setdefault(
+        detail = symbol_details_by_day[date_str].setdefault(
             symbol_key,
             {
                 "symbol": _trade_symbol_label(trade),
                 "pnl": 0.0,
                 "charges": 0.0,
+                "brokerage": 0.0,
+                "total_costs": 0.0,
                 "qty": 0.0,
                 "buy_qty": 0.0,
                 "buy_value": 0.0,
                 "sell_qty": 0.0,
                 "sell_value": 0.0,
                 "closed_segments": 0,
+                "fill_count": 0,
             },
         )
-        detail["charges"] += _trade_charge_total(trade)
+        statutory_charges = _trade_statutory_charge_total(trade)
+        brokerage = _trade_brokerage_total(trade)
+        entry["charges"] += statutory_charges
+        entry["brokerage"] += brokerage
+        detail["charges"] += statutory_charges
+        detail["brokerage"] += brokerage
+        detail["total_costs"] += statutory_charges + brokerage
+        detail["fill_count"] += 1
+
+        if side not in {"BUY", "SELL"} or qty <= 0:
+            continue
 
         remaining = qty
         if side == "BUY":
@@ -472,12 +565,12 @@ def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
                 open_fill = open_shorts[symbol_key][0]
                 matched = min(remaining, open_fill["qty"])
                 pnl = (open_fill["price"] - price) * matched
-                total_pnl += pnl
+                entry["pnl"] += pnl
                 detail["pnl"] += pnl
                 detail["qty"] += matched
                 detail["closed_segments"] += 1
                 if pnl > 0:
-                    wins += 1
+                    entry["wins"] += 1
                 open_fill["qty"] -= matched
                 remaining -= matched
                 if open_fill["qty"] <= 1e-9:
@@ -491,12 +584,12 @@ def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
                 open_fill = open_longs[symbol_key][0]
                 matched = min(remaining, open_fill["qty"])
                 pnl = (price - open_fill["price"]) * matched
-                total_pnl += pnl
+                entry["pnl"] += pnl
                 detail["pnl"] += pnl
                 detail["qty"] += matched
                 detail["closed_segments"] += 1
                 if pnl > 0:
-                    wins += 1
+                    entry["wins"] += 1
                 open_fill["qty"] -= matched
                 remaining -= matched
                 if open_fill["qty"] <= 1e-9:
@@ -504,32 +597,50 @@ def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
             if remaining > 1e-9:
                 open_shorts[symbol_key].append({"qty": remaining, "price": price})
 
-    details = []
-    for detail in symbol_details.values():
-        details.append(
-            {
-                "symbol": detail["symbol"],
-                "pnl": round(detail["pnl"], 2),
-                "qty": int(round(detail["qty"])),
-                "buy_avg": round(detail["buy_value"] / detail["buy_qty"], 2) if detail["buy_qty"] else 0.0,
-                "sell_avg": round(detail["sell_value"] / detail["sell_qty"], 2) if detail["sell_qty"] else 0.0,
-                "charges": round(detail["charges"], 2),
-                "closed_segments": int(detail["closed_segments"]),
-            }
-        )
-    details.sort(key=lambda item: item["symbol"])
+    for date_str, entry in entries.items():
+        entry["pnl"] = round(float(entry.get("pnl", 0) or 0), 2)
+        entry["charges"] = round(float(entry.get("charges", 0) or 0), 2)
+        entry["brokerage"] = round(float(entry.get("brokerage", 0) or 0), 2)
+        entry["total_costs"] = round(entry["charges"] + entry["brokerage"], 2)
+        entry["net_pnl"] = round(entry["pnl"] - entry["total_costs"], 2)
+        entry["trades"] = int(entry.get("trades", 0) or 0)
+        entry["trade_legs"] = int(entry.get("trade_legs", entry["trades"]) or 0)
+        entry["order_count"] = len(order_keys_by_day.get(date_str) or set())
 
-    return {
-        "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
-        "pnl": round(total_pnl, 2),
-        "net_pnl": round(total_pnl - total_charges, 2),
-        "charges": round(total_charges, 2),
-        "trades": order_count,
-        "trade_legs": fill_count,
-        "wins": wins,
-        "mode": "real",
-        "details": details,
-    }
+        details = []
+        for detail in symbol_details_by_day.get(date_str, {}).values():
+            details.append(
+                {
+                    "symbol": detail["symbol"],
+                    "pnl": round(detail["pnl"], 2),
+                    "qty": int(round(detail["qty"])),
+                    "buy_avg": round(detail["buy_value"] / detail["buy_qty"], 2) if detail["buy_qty"] else 0.0,
+                    "sell_avg": round(detail["sell_value"] / detail["sell_qty"], 2) if detail["sell_qty"] else 0.0,
+                    "charges": round(detail["charges"], 2),
+                    "brokerage": round(detail["brokerage"], 2),
+                    "total_costs": round(detail["total_costs"], 2),
+                    "fill_count": int(detail["fill_count"]),
+                    "closed_segments": int(detail["closed_segments"]),
+                }
+            )
+        details.sort(key=lambda item: item["symbol"])
+        entry["details"] = details
+
+    return entries
+
+
+def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
+    """Summarize the latest live-trade day from Dhan fills.
+
+    Live get_trades() snapshots are treated as day-local. Completed dates are
+    later rebuilt from historical trade history using cross-day FIFO.
+    """
+
+    entries = _summarize_real_trade_history(trades, source="live_day_fifo", carry_inventory=False)
+    if not entries:
+        return None
+    latest_date = max(entries.keys())
+    return entries.get(latest_date)
 
 
 def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
@@ -2831,9 +2942,7 @@ def _backfill_trade_history(
     try:
         client = broker_client or dhan
         owner_id = int(user_id or _default_history_user_id_sync())
-        history = _db_mod.list_trade_history_sync(owner_id) if not force else {}
-        if force:
-            _db_mod.clear_trade_history_sync(owner_id)
+        history = _db_mod.list_trade_history_sync(owner_id)
         today_str = _ist_date_str()
         existing_dates = set(history.keys())
 
@@ -2892,30 +3001,25 @@ def _backfill_trade_history(
             print(f"[BACKFILL] De-duplicated: {len(all_trades)} → {len(unique_trades)} unique trades")
         all_trades = unique_trades
 
-        # Group trades by date using exchangeTime
-        trades_by_date = {}
-        for t in all_trades:
-            raw_time = t.get("exchangeTime") or t.get("createTime") or t.get("updateTime") or ""
-            date_str = str(raw_time)[:10]
-            if not date_str or len(date_str) < 10:
-                continue  # Skip invalid dates
-            # Skip today only if not forcing — today is handled by live auto-save
-            if date_str == today_str and not force:
-                continue
-            # When not forcing, keep legacy rows eligible for recalculation.
-            existing_entry = history.get(date_str)
-            if not force and date_str in existing_dates and not _trade_history_entry_needs_refresh(existing_entry):
-                continue
-            if date_str not in trades_by_date:
-                trades_by_date[date_str] = []
-            trades_by_date[date_str].append(t)
+        daily_entries = _summarize_real_trade_history(all_trades, source="historical_fifo", carry_inventory=True)
+        if force:
+            _db_mod.clear_trade_history_sync(owner_id)
 
-        # Compute P&L for each date
         new_dates = 0
         updated_entries = {}
-        for date_str, day_trades in sorted(trades_by_date.items()):
-            entry = _summarize_real_trade_fills(day_trades)
-            if entry and (entry.get("trades", 0) > 0 or entry.get("charges", 0) > 0 or entry.get("pnl", 0) != 0):
+        for date_str, entry in sorted(daily_entries.items()):
+            if date_str == today_str and not force:
+                continue
+            if not force and date_str in existing_dates:
+                existing_entry = history.get(date_str)
+                if not _trade_history_entry_needs_refresh(existing_entry, trade_date=date_str, today_str=today_str):
+                    continue
+            if entry and (
+                entry.get("trades", 0) > 0
+                or entry.get("charges", 0) > 0
+                or entry.get("brokerage", 0) > 0
+                or entry.get("pnl", 0) != 0
+            ):
                 history[date_str] = entry
                 updated_entries[date_str] = entry
                 new_dates += 1
@@ -2977,12 +3081,7 @@ async def get_portfolio_history(request: Request):
                 _, broker_client, _ = await _request_broker_context(request)
                 if broker_client:
                     await asyncio.to_thread(_backfill_trade_history, "2024-01-01", False, user_id, broker_client)
-                    repaired_history = await _db_mod.list_trade_history(user_id)
-                    if repaired_history:
-                        await asyncio.to_thread(_refresh_recent_charges, repaired_history, user_id, broker_client)
-                        real_history = await _db_mod.list_trade_history(user_id)
-                    else:
-                        real_history = repaired_history
+                    real_history = await _db_mod.list_trade_history(user_id)
             except Exception as repair_error:
                 print(f"[PORTFOLIO] Trade-history repair skipped: {repair_error}")
         runs = await _db_mod.list_runs(user_id)
@@ -4888,25 +4987,39 @@ async def _persist_daily_trades(trades: list, user_id: int):
     # Only overwrite if new data has more trade legs (more complete)
     existing = await _db_mod.get_trade_history_entry(user_id, today_str) or {}
     existing_legs = existing.get("trade_legs", existing.get("trades", 0))
-    if existing_legs > trade_legs:
+    if existing_legs > trade_legs or (
+        str(existing.get("source") or "") == "historical_fifo" and existing_legs >= trade_legs
+    ):
         print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
         return
 
-    # Preserve charges from historical API if current has none
-    if entry.get("charges", 0) == 0 and existing.get("charges", 0) > 0:
-        entry["charges"] = existing["charges"]
-        entry["net_pnl"] = round(float(entry.get("pnl", 0) or 0) - float(entry["charges"] or 0), 2)
-        # Also preserve per-trade charges
-        old_details_map = {d["symbol"]: d.get("charges", 0) for d in existing.get("details", [])}
+    # Preserve historical cost splits when live get_trades() still has zero charges.
+    if entry.get("total_costs", 0) == 0 and existing.get("total_costs", 0) > 0:
+        entry["charges"] = existing.get("charges", 0)
+        entry["brokerage"] = existing.get("brokerage", 0)
+        entry["total_costs"] = existing.get("total_costs", 0)
+        entry["net_pnl"] = round(float(entry.get("pnl", 0) or 0) - float(entry["total_costs"] or 0), 2)
+        # Also preserve per-trade costs where possible.
         for detail in entry.get("details", []):
-            if detail["charges"] == 0 and detail["symbol"] in old_details_map:
-                detail["charges"] = old_details_map[detail["symbol"]]
+            for old_detail in existing.get("details", []):
+                if detail["symbol"] != old_detail.get("symbol"):
+                    continue
+                if detail.get("charges", 0) == 0:
+                    detail["charges"] = old_detail.get("charges", 0)
+                if detail.get("brokerage", 0) == 0:
+                    detail["brokerage"] = old_detail.get("brokerage", 0)
+                detail["total_costs"] = round(
+                    float(detail.get("charges", 0) or 0) + float(detail.get("brokerage", 0) or 0),
+                    2,
+                )
+                break
 
     await _db_mod.upsert_trade_history_entry(user_id, today_str, entry)
     print(
         "[TRADE_HISTORY] Saved "
         f"{today_str}: {entry.get('trades', 0)} trades ({trade_legs} fills), "
-        f"P&L=₹{float(entry.get('pnl', 0) or 0):.2f}, charges=₹{float(entry.get('charges', 0) or 0):.2f}"
+        f"P&L=₹{float(entry.get('pnl', 0) or 0):.2f}, "
+        f"costs=₹{float(entry.get('total_costs', 0) or 0):.2f}"
     )
 
 
@@ -5981,13 +6094,11 @@ async def _backfill_in_background():
             None,
             lambda: _backfill_trade_history("2024-01-01", force=force, user_id=admin_id, broker_client=broker_client),
         )
-        if not force:
-            loaded = await _db_mod.list_trade_history(admin_id)
-            await loop.run_in_executor(None, lambda: _refresh_recent_charges(loaded, admin_id, broker_client))
-            loaded = await _db_mod.list_trade_history(admin_id)
-            print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} new)")
-        else:
+        if force:
             print(f"📊 [BACKFILL] Done — loaded {count} days of historical trades")
+        else:
+            loaded = await _db_mod.list_trade_history(admin_id)
+            print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} refreshed)")
         _backfill_state.update({"status": "done", "message": "Trade history up to date.", "new_dates": count})
     except Exception as e:
         print(f"📊 [BACKFILL] Startup backfill failed: {e}")
