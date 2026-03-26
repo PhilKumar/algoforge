@@ -8983,6 +8983,15 @@ async function runBacktest() {
       if (data.timeframe_warning) {
         toast(data.timeframe_warning, 'warn', 8000);
       }
+      if (data.warmup_warning) {
+        toast(data.warmup_warning, 'warn', 8000);
+      }
+      if (data.strategy_warnings && data.strategy_warnings.length) {
+        data.strategy_warnings.forEach(w => toast(w, 'warn', 7000));
+      }
+      if (data.option_pricing_warnings && data.option_pricing_warnings.length) {
+        data.option_pricing_warnings.forEach(w => toast(w, 'warn', 7000));
+      }
       toast('Backtest Complete! ' + data.stats.total_trades + ' trades', 'success');
       fetchRuns();
     } else if(data.status === 'no_trades') {
@@ -9801,6 +9810,7 @@ async function deployStrategy() {
       });
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
+        if (data.warnings && data.warnings.length) data.warnings.forEach(w => toast(w, 'warn', 7000));
         toast('Strategy deployed in Paper Testing mode', 'success');
         _activeRunMode = 'paper';
       } else {
@@ -9837,6 +9847,7 @@ async function deployStrategy() {
       });
       const data = await res.json();
       if (res.ok && (data.status === 'started' || data.status === 'already_running')) {
+        if (data.warnings && data.warnings.length) data.warnings.forEach(w => toast(w, 'warn', 7000));
         toast('Strategy deployed for Auto Trading (REAL ORDERS)', 'success');
         _activeRunMode = 'auto';
       } else {

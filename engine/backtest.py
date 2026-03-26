@@ -636,6 +636,15 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         default_timeframe_minutes=int(sc.get("timeframe_minutes", 5) or 5),
         source_timeframe_minutes=int(sc.get("fetch_timeframe_minutes", 0) or 0) or None,
     )
+    analysis_start_raw = sc.get("_analysis_start")
+    analysis_start = pd.Timestamp(analysis_start_raw) if analysis_start_raw else None
+    if df.empty:
+        return {"status": "error", "message": "No data available after indicator computation."}
+    if analysis_start is not None and df.index.max() < analysis_start:
+        return {
+            "status": "error",
+            "message": "No data available after applying the requested backtest date range.",
+        }
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
     entry_earliest = time(9, 20)
 
@@ -1022,6 +1031,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             prev_prev_row = None
             lot_size = user_lot_size if user_lot_size > 0 else get_lot_size(instrument, cd)
             pending_entry = None
+
+        if analysis_start is not None and ts < analysis_start:
+            equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+            prev_prev_row = prev_row
+            prev_row = row
+            continue
 
         snapshots = {}
         if open_positions:
