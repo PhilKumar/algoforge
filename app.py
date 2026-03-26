@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+from copy import deepcopy
 from html import escape as _escape_html
 from urllib.parse import quote as _url_quote
 
@@ -2123,6 +2124,294 @@ async def auth_logout(request: Request):
 
 # ── Admin Routes ──────────────────────────────────────────────────
 
+_ADMIN_EXAMPLE_SUFFIX = " (Admin Example)"
+_ADMIN_EXAMPLE_SEED_KEY = "_example_seed"
+_ADMIN_EXAMPLE_BACKTEST_LIMIT = 2
+_ADMIN_EXAMPLE_MAX_BACKTEST_LIMIT = 20
+_ADMIN_EXAMPLE_FOLDER = "Default"
+
+
+def _example_seed_meta(item: dict | None, kind: str, source_user_id: int) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    meta = item.get(_ADMIN_EXAMPLE_SEED_KEY)
+    if not isinstance(meta, dict):
+        return None
+    if str(meta.get("kind") or "").strip().lower() != kind:
+        return None
+    try:
+        if int(meta.get("source_user_id") or 0) != int(source_user_id):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return meta
+
+
+def _normalize_admin_example_name(name: str | None, fallback: str) -> str:
+    base = str(name or "").strip() or fallback
+    pattern = rf"{_re.escape(_ADMIN_EXAMPLE_SUFFIX)}(?:\s+\d+)?$"
+    base = _re.sub(pattern, "", base, flags=_re.IGNORECASE).strip()
+    base = _re.sub(r"\s+", " ", base).strip()
+    return base or fallback
+
+
+def _build_admin_example_name(base_name: str | None, occupied_names: set[str], fallback: str) -> str:
+    root = _normalize_admin_example_name(base_name, fallback)
+    candidate = f"{root}{_ADMIN_EXAMPLE_SUFFIX}"
+    index = 2
+    while candidate.casefold() in occupied_names:
+        candidate = f"{root}{_ADMIN_EXAMPLE_SUFFIX} {index}"
+        index += 1
+    return candidate
+
+
+def _coerce_admin_example_ids(values) -> list[int] | None:
+    if values is None:
+        return None
+    if not isinstance(values, list):
+        raise HTTPException(status_code=400, detail="Selection ids must be a list of integers")
+    ids: list[int] = []
+    for value in values:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Selection ids must be a list of integers") from exc
+    return ids
+
+
+def _is_admin_example_folder(value: str | None) -> bool:
+    return str(value or "").strip().casefold() == _ADMIN_EXAMPLE_FOLDER.casefold()
+
+
+def _next_available_journal_date(preferred_date: str, occupied_dates: set[str]) -> str:
+    current = date.fromisoformat(preferred_date)
+    for _ in range(3650):
+        candidate = current.isoformat()
+        if candidate not in occupied_dates:
+            return candidate
+        current += timedelta(days=1)
+    raise HTTPException(status_code=409, detail="Unable to find a free journal date for the example entry")
+
+
+async def _copy_example_strategies(
+    source_user_id: int,
+    target_user_id: int,
+    strategy_ids: list[int] | None = None,
+) -> dict:
+    selected_ids = {int(item_id) for item_id in (strategy_ids or [])}
+    source_items = await _db_mod.list_strategies(source_user_id)
+    source_items = [
+        item for item in source_items if not item.get("_placeholder") and _is_admin_example_folder(item.get("folder"))
+    ]
+    if selected_ids:
+        source_items = [item for item in source_items if int(item.get("id") or 0) in selected_ids]
+
+    target_items = await _db_mod.list_strategies(target_user_id)
+    occupied_names = {
+        str(item.get("run_name") or item.get("name") or "").strip().casefold()
+        for item in target_items
+        if str(item.get("run_name") or item.get("name") or "").strip()
+    }
+    seeded_by_source: dict[int, dict] = {}
+    for item in target_items:
+        meta = _example_seed_meta(item, "strategy", source_user_id)
+        if not meta:
+            continue
+        try:
+            seeded_by_source[int(meta.get("source_id") or 0)] = item
+        except (TypeError, ValueError):
+            continue
+
+    copied = 0
+    names: list[str] = []
+    now = str(datetime.now())
+
+    for source_item in source_items:
+        source_id = int(source_item.get("id") or 0)
+        existing = seeded_by_source.get(source_id)
+        reserved_names = set(occupied_names)
+        if existing:
+            current_name = str(existing.get("run_name") or existing.get("name") or "").strip().casefold()
+            if current_name:
+                reserved_names.discard(current_name)
+                occupied_names.discard(current_name)
+
+        source_name = str(source_item.get("run_name") or source_item.get("name") or "").strip()
+        target_name = _build_admin_example_name(source_name, reserved_names, "Untitled Strategy")
+
+        payload = deepcopy(source_item)
+        payload.pop("id", None)
+        payload["run_name"] = target_name
+        payload["name"] = target_name
+        payload["updated_at"] = now
+        payload[_ADMIN_EXAMPLE_SEED_KEY] = {
+            "kind": "strategy",
+            "source_user_id": int(source_user_id),
+            "source_id": source_id,
+        }
+
+        if existing:
+            payload["created_at"] = existing.get("created_at") or now
+            await _db_mod.replace_strategy_record(target_user_id, int(existing["id"]), payload)
+        else:
+            payload["created_at"] = now
+            await _db_mod.create_strategy_record(target_user_id, payload)
+
+        occupied_names.add(target_name.casefold())
+        names.append(target_name)
+        copied += 1
+
+    return {"copied": copied, "names": names}
+
+
+async def _copy_example_backtests(
+    source_user_id: int,
+    target_user_id: int,
+    run_ids: list[int] | None = None,
+    backtest_limit: int = _ADMIN_EXAMPLE_BACKTEST_LIMIT,
+) -> dict:
+    selected_ids = {int(item_id) for item_id in (run_ids or [])}
+    source_runs = [
+        run
+        for run in await _db_mod.list_runs(source_user_id)
+        if str(run.get("mode") or "").lower() == "backtest" and _is_admin_example_folder(run.get("folder"))
+    ]
+    if selected_ids:
+        source_runs = [run for run in source_runs if int(run.get("id") or 0) in selected_ids]
+    else:
+        source_runs.sort(key=lambda run: (str(run.get("created_at") or ""), int(run.get("id") or 0)), reverse=True)
+        source_runs = source_runs[:backtest_limit]
+
+    target_runs = [
+        run for run in await _db_mod.list_runs(target_user_id) if str(run.get("mode") or "").lower() == "backtest"
+    ]
+    occupied_names = {
+        str(run.get("run_name") or run.get("strategy_name") or "").strip().casefold()
+        for run in target_runs
+        if str(run.get("run_name") or run.get("strategy_name") or "").strip()
+    }
+    seeded_by_source: dict[int, dict] = {}
+    for run in target_runs:
+        meta = _example_seed_meta(run, "run", source_user_id)
+        if not meta:
+            continue
+        try:
+            seeded_by_source[int(meta.get("source_id") or 0)] = run
+        except (TypeError, ValueError):
+            continue
+
+    copied = 0
+    names: list[str] = []
+    now = str(datetime.now())
+
+    for source_run in source_runs:
+        source_id = int(source_run.get("id") or 0)
+        existing = seeded_by_source.get(source_id)
+        reserved_names = set(occupied_names)
+        if existing:
+            current_name = str(existing.get("run_name") or existing.get("strategy_name") or "").strip().casefold()
+            if current_name:
+                reserved_names.discard(current_name)
+                occupied_names.discard(current_name)
+
+        source_name = str(source_run.get("run_name") or source_run.get("strategy_name") or "").strip()
+        target_name = _build_admin_example_name(source_name, reserved_names, "Untitled Backtest")
+
+        payload = deepcopy(source_run)
+        payload.pop("id", None)
+        payload["run_name"] = target_name
+        payload["strategy_name"] = target_name
+        payload["mode"] = "backtest"
+        payload["created_at"] = existing.get("created_at") if existing else now
+        payload[_ADMIN_EXAMPLE_SEED_KEY] = {
+            "kind": "run",
+            "source_user_id": int(source_user_id),
+            "source_id": source_id,
+        }
+
+        if existing:
+            await _db_mod.replace_run_record(target_user_id, int(existing["id"]), payload)
+        else:
+            await _db_mod.create_run_record(target_user_id, payload)
+
+        occupied_names.add(target_name.casefold())
+        names.append(target_name)
+        copied += 1
+
+    return {"copied": copied, "names": names}
+
+
+async def _copy_example_journal_entry(
+    source_user_id: int,
+    target_user_id: int,
+    journal_date: str | None = None,
+) -> dict:
+    source_entries = await _db_mod.list_journal_entries(source_user_id)
+    if journal_date:
+        source_summary = next((entry for entry in source_entries if str(entry.get("date") or "") == journal_date), None)
+        if source_summary is None:
+            raise HTTPException(status_code=404, detail="Admin journal example not found")
+    else:
+        source_summary = source_entries[0] if source_entries else None
+    if not source_summary:
+        return {"copied": 0, "source_date": None, "target_date": None}
+
+    source_date = str(source_summary["date"])
+    source_data = deepcopy(await _db_mod.get_journal_entry(source_user_id, source_date) or {})
+    source_data[_ADMIN_EXAMPLE_SEED_KEY] = {
+        "kind": "journal",
+        "source_user_id": int(source_user_id),
+        "source_date": source_date,
+    }
+
+    target_entries = await _db_mod.list_journal_entries(target_user_id)
+    occupied_dates = {str(entry.get("date") or "") for entry in target_entries if str(entry.get("date") or "")}
+    seeded_target_date = None
+    for entry in target_entries:
+        entry_date = str(entry.get("date") or "")
+        if not entry_date:
+            continue
+        target_data = await _db_mod.get_journal_entry(target_user_id, entry_date) or {}
+        meta = _example_seed_meta(target_data, "journal", source_user_id)
+        if meta and str(meta.get("source_date") or "") == source_date:
+            seeded_target_date = entry_date
+            break
+
+    target_date = seeded_target_date or _next_available_journal_date(source_date, occupied_dates)
+    await _db_mod.upsert_journal_entry(target_user_id, target_date, source_data)
+    return {"copied": 1, "source_date": source_date, "target_date": target_date}
+
+
+async def _copy_admin_examples_to_user(
+    source_user_id: int,
+    target_user_id: int,
+    *,
+    strategy_ids: list[int] | None = None,
+    run_ids: list[int] | None = None,
+    journal_date: str | None = None,
+    include_strategies: bool = True,
+    include_backtests: bool = True,
+    include_journal: bool = True,
+    backtest_limit: int = _ADMIN_EXAMPLE_BACKTEST_LIMIT,
+) -> dict:
+    result = {
+        "strategies": {"copied": 0, "names": []},
+        "backtests": {"copied": 0, "names": []},
+        "journal": {"copied": 0, "source_date": None, "target_date": None},
+    }
+    if include_strategies:
+        result["strategies"] = await _copy_example_strategies(source_user_id, target_user_id, strategy_ids)
+    if include_backtests:
+        result["backtests"] = await _copy_example_backtests(
+            source_user_id,
+            target_user_id,
+            run_ids,
+            backtest_limit=backtest_limit,
+        )
+    if include_journal:
+        result["journal"] = await _copy_example_journal_entry(source_user_id, target_user_id, journal_date)
+    return result
+
 
 @app.get("/api/admin/users")
 async def admin_list_users(request: Request):
@@ -2191,6 +2480,72 @@ async def admin_reset_password(user_id: int, request: Request):
     await _db_mod.update_user(user_id, password_hash=hashed)
     await _db_mod.delete_sessions_for_user(user_id)
     return {"status": "ok", "message": f"Password reset for '{user['username']}'"}
+
+
+@app.post("/api/admin/users/{user_id}/copy-examples")
+async def admin_copy_examples_to_user(user_id: int, request: Request):
+    """Copy admin-owned example strategies, journal, and backtests to another user."""
+    admin = await _auth_mod.require_admin(request)
+    if int(user_id) == int(admin["id"]):
+        raise HTTPException(status_code=400, detail="Choose another user account")
+
+    target_user = await _db_mod.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    include_strategies = bool(body.get("include_strategies", True))
+    include_backtests = bool(body.get("include_backtests", True))
+    include_journal = bool(body.get("include_journal", True))
+    if not any((include_strategies, include_backtests, include_journal)):
+        raise HTTPException(status_code=400, detail="Select at least one example type to copy")
+
+    strategy_ids = _coerce_admin_example_ids(body.get("strategy_ids"))
+    run_ids = _coerce_admin_example_ids(body.get("run_ids"))
+
+    journal_date = body.get("journal_date")
+    if journal_date is not None:
+        journal_date = str(journal_date).strip()
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", journal_date):
+            raise HTTPException(status_code=400, detail="journal_date must use YYYY-MM-DD")
+
+    try:
+        backtest_limit = int(body.get("backtest_limit", _ADMIN_EXAMPLE_BACKTEST_LIMIT) or _ADMIN_EXAMPLE_BACKTEST_LIMIT)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="backtest_limit must be an integer") from exc
+    backtest_limit = max(1, min(backtest_limit, _ADMIN_EXAMPLE_MAX_BACKTEST_LIMIT))
+
+    copied = await _copy_admin_examples_to_user(
+        int(admin["id"]),
+        int(user_id),
+        strategy_ids=strategy_ids,
+        run_ids=run_ids,
+        journal_date=journal_date,
+        include_strategies=include_strategies,
+        include_backtests=include_backtests,
+        include_journal=include_journal,
+        backtest_limit=backtest_limit,
+    )
+    return {
+        "status": "ok",
+        "target_user_id": int(target_user["id"]),
+        "target_username": target_user["username"],
+        "source_user_id": int(admin["id"]),
+        "source_username": admin["username"],
+        "copied": {
+            "strategies": copied["strategies"]["copied"],
+            "backtests": copied["backtests"]["copied"],
+            "journal": copied["journal"]["copied"],
+        },
+        "journal_source_date": copied["journal"]["source_date"],
+        "journal_target_date": copied["journal"]["target_date"],
+    }
 
 
 # ── User Self-Service Routes ─────────────────────────────────────
