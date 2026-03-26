@@ -2444,8 +2444,27 @@ async def admin_create_user(request: Request):
 
     hashed = _auth_mod.hash_password(password)
     user_id = await _db_mod.create_user(username, hashed, role=role, email=email)
+    copied = {
+        "strategies": {"copied": 0, "names": []},
+        "backtests": {"copied": 0, "names": []},
+        "journal": {"copied": 0, "source_date": None, "target_date": None},
+    }
+    if role == "user":
+        copied = await _copy_admin_examples_to_user(int(admin["id"]), int(user_id))
     _logger.info(f"[Admin] User '{username}' created by '{admin['username']}' (id={user_id})")
-    return {"status": "ok", "user_id": user_id, "username": username, "role": role}
+    return {
+        "status": "ok",
+        "user_id": user_id,
+        "username": username,
+        "role": role,
+        "copied": {
+            "strategies": copied["strategies"]["copied"],
+            "backtests": copied["backtests"]["copied"],
+            "journal": copied["journal"]["copied"],
+        },
+        "journal_source_date": copied["journal"]["source_date"],
+        "journal_target_date": copied["journal"]["target_date"],
+    }
 
 
 @app.put("/api/admin/users/{user_id}/toggle")

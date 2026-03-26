@@ -3,6 +3,7 @@ import shutil
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,6 +22,14 @@ os.environ["DHAN_TOTP_SECRET"] = ""
 import app as app_module
 
 
+class _DummyRequest:
+    def __init__(self, body: dict | None = None):
+        self._body = body or {}
+
+    async def json(self):
+        return self._body
+
+
 class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         if TEST_DB.exists():
@@ -36,6 +45,83 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
 
     async def _create_user(self, username: str, role: str = "user") -> int:
         return await app_module._db_mod.create_user(username, f"{username}-hash", role=role)
+
+    async def test_admin_create_user_auto_seeds_default_examples_for_new_user(self):
+        admin_id = await self._create_user("admin", role="admin")
+
+        await app_module._db_mod.create_strategy_record(
+            admin_id,
+            {
+                "run_name": "Starter Pack",
+                "name": "Starter Pack",
+                "folder": "Default",
+                "instrument": "NIFTY",
+                "legs": [],
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "version": 1,
+                "versions": [],
+            },
+        )
+        await app_module._db_mod.create_run_record(
+            admin_id,
+            {
+                "mode": "backtest",
+                "run_name": "Starter Backtest",
+                "strategy_name": "Starter Backtest",
+                "folder": "Default",
+                "trade_count": 3,
+                "total_pnl": 150.0,
+                "summary": {"net": 150.0},
+                "trades": [{"id": 1, "pnl": 50.0}],
+                "created_at": "2026-03-24 09:15:00",
+            },
+        )
+        await app_module._db_mod.upsert_journal_entry(
+            admin_id,
+            "2026-03-24",
+            {
+                "asset": "NIFTY",
+                "strategy": "Starter Journal",
+                "grade": "A",
+                "went_well": "Good risk discipline",
+            },
+        )
+
+        request = _DummyRequest(
+            {
+                "username": "newuser",
+                "password": "Password123",
+                "role": "user",
+            }
+        )
+
+        with patch.object(
+            app_module._auth_mod,
+            "require_admin",
+            return_value={"id": admin_id, "username": "admin", "role": "admin"},
+        ):
+            result = await app_module.admin_create_user(request)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["copied"]["strategies"], 1)
+        self.assertEqual(result["copied"]["backtests"], 1)
+        self.assertEqual(result["copied"]["journal"], 1)
+
+        created_user = await app_module._db_mod.get_user_by_username("newuser")
+        self.assertIsNotNone(created_user)
+
+        target_strategies = await app_module._db_mod.list_strategies(int(created_user["id"]))
+        self.assertEqual(len(target_strategies), 1)
+        self.assertEqual(target_strategies[0]["run_name"], "Starter Pack (Admin Example)")
+
+        target_runs = await app_module._db_mod.list_runs(int(created_user["id"]))
+        self.assertEqual(len(target_runs), 1)
+        self.assertEqual(target_runs[0]["run_name"], "Starter Backtest (Admin Example)")
+        self.assertEqual(str(target_runs[0].get("folder") or ""), "Default")
+
+        target_journal = await app_module._db_mod.get_journal_entry(int(created_user["id"]), "2026-03-24")
+        self.assertEqual(target_journal["strategy"], "Starter Journal")
 
     async def test_copy_admin_examples_copies_only_default_folder_strategies_and_latest_two_default_backtests(self):
         admin_id = await self._create_user("admin", role="admin")

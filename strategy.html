@@ -5011,7 +5011,13 @@ async function createAdminUser() {
     });
     const data = await res.json();
     if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to create user');
-    toast(`User "${username}" created`, 'success');
+    const copied = data.copied || {};
+    const bits = [];
+    if (Number(copied.strategies || 0) > 0) bits.push(`${copied.strategies} strategies`);
+    if (Number(copied.backtests || 0) > 0) bits.push(`${copied.backtests} backtests`);
+    if (Number(copied.journal || 0) > 0) bits.push('1 journal entry');
+    const seedSuffix = bits.length ? ` with ${bits.join(', ')}` : '';
+    toast(`User "${username}" created${seedSuffix}`, 'success');
     document.getElementById('admin-create-username').value = '';
     document.getElementById('admin-create-password').value = '';
     document.getElementById('admin-create-role').value = 'user';
