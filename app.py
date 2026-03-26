@@ -22,7 +22,7 @@ import os
 import secrets
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Dict, List, Optional
@@ -311,6 +311,203 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
                 bucket[key] = round(float(bucket.get(key, 0) or 0), 2)
 
     return daily, monthly, yearly
+
+
+_TRADE_CHARGE_FIELDS = (
+    "sebiTax",
+    "stt",
+    "brokerageCharges",
+    "serviceTax",
+    "exchangeTransactionCharges",
+    "stampDuty",
+)
+
+
+def _trade_fill_dedupe_key(trade: dict) -> str:
+    for key in ("exchangeTradeId", "tradeId", "tradeNumber"):
+        value = trade.get(key)
+        if value not in (None, ""):
+            return f"{key}:{value}"
+    parts = [
+        trade.get("orderId", ""),
+        trade.get("exchangeOrderId", ""),
+        trade.get("transactionType", ""),
+        trade.get("securityId", ""),
+        trade.get("tradedQuantity", ""),
+        trade.get("tradedPrice", ""),
+        trade.get("exchangeTime", ""),
+        trade.get("createTime", ""),
+        trade.get("updateTime", ""),
+    ]
+    return "|".join(str(part) for part in parts)
+
+
+def _dedupe_trade_fills(trades: list[dict]) -> list[dict]:
+    seen = set()
+    unique = []
+    for trade in trades or []:
+        key = _trade_fill_dedupe_key(trade)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(trade)
+    return unique
+
+
+def _trade_sort_key(trade: dict):
+    return (
+        str(trade.get("exchangeTime") or trade.get("createTime") or trade.get("updateTime") or ""),
+        str(trade.get("orderId") or trade.get("exchangeOrderId") or ""),
+        str(trade.get("exchangeTradeId") or trade.get("tradeId") or trade.get("tradeNumber") or ""),
+        str(trade.get("transactionType") or ""),
+        str(trade.get("securityId") or trade.get("tradingSymbol") or ""),
+        str(trade.get("tradedPrice") or ""),
+        str(trade.get("tradedQuantity") or ""),
+    )
+
+
+def _trade_order_key(trade: dict) -> str:
+    for key in ("orderId", "exchangeOrderId"):
+        value = trade.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return _trade_fill_dedupe_key(trade)
+
+
+def _trade_charge_total(trade: dict) -> float:
+    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_CHARGE_FIELDS), 2)
+
+
+def _trade_qty(trade: dict) -> float:
+    return abs(float(trade.get("tradedQuantity", 0) or 0))
+
+
+def _trade_price(trade: dict) -> float:
+    return float(trade.get("tradedPrice", 0) or 0)
+
+
+def _trade_symbol_key(trade: dict) -> str:
+    return str(trade.get("securityId") or trade.get("tradingSymbol") or "unknown")
+
+
+def _trade_symbol_label(trade: dict) -> str:
+    return str(trade.get("customSymbol") or trade.get("tradingSymbol") or _trade_symbol_key(trade))
+
+
+def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
+    """Summarize Dhan trade fills into a daily realised P&L entry.
+
+    Uses FIFO matching per symbol so multiple same-day round trips and short-first
+    trades are handled like a trade ledger rather than an average-price bucket.
+    """
+
+    unique_trades = _dedupe_trade_fills(trades)
+    if not unique_trades:
+        return None
+
+    sorted_trades = sorted(unique_trades, key=_trade_sort_key)
+    order_keys = {_trade_order_key(trade) for trade in sorted_trades}
+    fill_count = len(sorted_trades)
+    order_count = len(order_keys) if order_keys else fill_count
+    total_charges = round(sum(_trade_charge_total(trade) for trade in sorted_trades), 2)
+
+    open_longs: dict[str, deque] = defaultdict(deque)
+    open_shorts: dict[str, deque] = defaultdict(deque)
+    symbol_details: dict[str, dict] = {}
+    total_pnl = 0.0
+    wins = 0
+
+    for trade in sorted_trades:
+        side = str(trade.get("transactionType") or "").upper()
+        if side not in {"BUY", "SELL"}:
+            continue
+        qty = _trade_qty(trade)
+        price = _trade_price(trade)
+        if qty <= 0:
+            continue
+
+        symbol_key = _trade_symbol_key(trade)
+        detail = symbol_details.setdefault(
+            symbol_key,
+            {
+                "symbol": _trade_symbol_label(trade),
+                "pnl": 0.0,
+                "charges": 0.0,
+                "qty": 0.0,
+                "buy_qty": 0.0,
+                "buy_value": 0.0,
+                "sell_qty": 0.0,
+                "sell_value": 0.0,
+                "closed_segments": 0,
+            },
+        )
+        detail["charges"] += _trade_charge_total(trade)
+
+        remaining = qty
+        if side == "BUY":
+            detail["buy_qty"] += qty
+            detail["buy_value"] += qty * price
+            while remaining > 1e-9 and open_shorts[symbol_key]:
+                open_fill = open_shorts[symbol_key][0]
+                matched = min(remaining, open_fill["qty"])
+                pnl = (open_fill["price"] - price) * matched
+                total_pnl += pnl
+                detail["pnl"] += pnl
+                detail["qty"] += matched
+                detail["closed_segments"] += 1
+                if pnl > 0:
+                    wins += 1
+                open_fill["qty"] -= matched
+                remaining -= matched
+                if open_fill["qty"] <= 1e-9:
+                    open_shorts[symbol_key].popleft()
+            if remaining > 1e-9:
+                open_longs[symbol_key].append({"qty": remaining, "price": price})
+        else:
+            detail["sell_qty"] += qty
+            detail["sell_value"] += qty * price
+            while remaining > 1e-9 and open_longs[symbol_key]:
+                open_fill = open_longs[symbol_key][0]
+                matched = min(remaining, open_fill["qty"])
+                pnl = (price - open_fill["price"]) * matched
+                total_pnl += pnl
+                detail["pnl"] += pnl
+                detail["qty"] += matched
+                detail["closed_segments"] += 1
+                if pnl > 0:
+                    wins += 1
+                open_fill["qty"] -= matched
+                remaining -= matched
+                if open_fill["qty"] <= 1e-9:
+                    open_longs[symbol_key].popleft()
+            if remaining > 1e-9:
+                open_shorts[symbol_key].append({"qty": remaining, "price": price})
+
+    details = []
+    for detail in symbol_details.values():
+        details.append(
+            {
+                "symbol": detail["symbol"],
+                "pnl": round(detail["pnl"], 2),
+                "qty": int(round(detail["qty"])),
+                "buy_avg": round(detail["buy_value"] / detail["buy_qty"], 2) if detail["buy_qty"] else 0.0,
+                "sell_avg": round(detail["sell_value"] / detail["sell_qty"], 2) if detail["sell_qty"] else 0.0,
+                "charges": round(detail["charges"], 2),
+                "closed_segments": int(detail["closed_segments"]),
+            }
+        )
+    details.sort(key=lambda item: item["symbol"])
+
+    return {
+        "pnl": round(total_pnl, 2),
+        "net_pnl": round(total_pnl - total_charges, 2),
+        "charges": round(total_charges, 2),
+        "trades": order_count,
+        "trade_legs": fill_count,
+        "wins": wins,
+        "mode": "real",
+        "details": details,
+    }
 
 
 def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
@@ -2667,14 +2864,8 @@ def _backfill_trade_history(
 
         print(f"[BACKFILL] Fetched {len(all_trades)} total historical trades from Dhan ({page + 1} pages)")
 
-        # De-duplicate by orderId + transactionType to avoid double-counting
-        seen = set()
-        unique_trades = []
-        for t in all_trades:
-            uid = f"{t.get('orderId', '')}_{t.get('transactionType', '')}_{t.get('tradedPrice', '')}"
-            if uid not in seen:
-                seen.add(uid)
-                unique_trades.append(t)
+        # De-duplicate by exchange trade id (or a strict fill fingerprint fallback)
+        unique_trades = _dedupe_trade_fills(all_trades)
         if len(unique_trades) < len(all_trades):
             print(f"[BACKFILL] De-duplicated: {len(all_trades)} → {len(unique_trades)} unique trades")
         all_trades = unique_trades
@@ -2700,74 +2891,10 @@ def _backfill_trade_history(
         new_dates = 0
         updated_entries = {}
         for date_str, day_trades in sorted(trades_by_date.items()):
-            groups = {}
-            for t in day_trades:
-                key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
-                if key not in groups:
-                    # Prefer customSymbol (readable) over tradingSymbol (often empty for options)
-                    sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
-                    groups[key] = {"buys": [], "sells": [], "symbol": sym}
-                if t.get("transactionType") == "BUY":
-                    groups[key]["buys"].append(t)
-                elif t.get("transactionType") == "SELL":
-                    groups[key]["sells"].append(t)
-
-            total_pnl = 0
-            total_charges = 0
-            trade_count = 0
-            trade_legs = len(day_trades)  # Total individual trade legs (matches Dhan's count)
-            wins = 0
-            details = []
-            for g in groups.values():
-                buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
-                sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
-                buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
-                sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
-                # Sum charges from all legs (buys + sells)
-                leg_charges = 0
-                for t in g["buys"] + g["sells"]:
-                    for key_c in (
-                        "sebiTax",
-                        "stt",
-                        "brokerageCharges",
-                        "serviceTax",
-                        "exchangeTransactionCharges",
-                        "stampDuty",
-                    ):
-                        leg_charges += float(t.get(key_c, 0) or 0)
-                matched = min(buy_qty, sell_qty)
-                if matched > 0 and buy_qty > 0 and sell_qty > 0:
-                    buy_avg = buy_val / buy_qty
-                    sell_avg = sell_val / sell_qty
-                    pnl = round((sell_avg - buy_avg) * matched, 2)
-                    total_pnl += pnl
-                    total_charges += leg_charges
-                    trade_count += 1
-                    if pnl > 0:
-                        wins += 1
-                    details.append(
-                        {
-                            "symbol": g["symbol"],
-                            "pnl": pnl,
-                            "qty": int(matched),
-                            "buy_avg": round(buy_avg, 2),
-                            "sell_avg": round(sell_avg, 2),
-                            "charges": round(leg_charges, 2),
-                        }
-                    )
-
-            if trade_count > 0:
-                history[date_str] = {
-                    "pnl": round(total_pnl, 2),
-                    "net_pnl": round(total_pnl - total_charges, 2),
-                    "charges": round(total_charges, 2),
-                    "trades": trade_count,
-                    "trade_legs": trade_legs,
-                    "wins": wins,
-                    "mode": "real",
-                    "details": details,
-                }
-                updated_entries[date_str] = history[date_str]
+            entry = _summarize_real_trade_fills(day_trades)
+            if entry and (entry.get("trades", 0) > 0 or entry.get("charges", 0) > 0 or entry.get("pnl", 0) != 0):
+                history[date_str] = entry
+                updated_entries[date_str] = entry
                 new_dates += 1
 
         if updated_entries:
@@ -4716,65 +4843,10 @@ async def _persist_daily_trades(trades: list, user_id: int):
     if not trades:
         return
     today_str = _ist_date_str()
-    trade_legs = len(trades)  # Total individual order legs
-
-    # Pair BUY/SELL per securityId to compute real P&L
-    groups = {}
-    for t in trades:
-        key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
-        if key not in groups:
-            sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
-            groups[key] = {"buys": [], "sells": [], "symbol": sym}
-        if t.get("transactionType") == "BUY":
-            groups[key]["buys"].append(t)
-        elif t.get("transactionType") == "SELL":
-            groups[key]["sells"].append(t)
-
-    total_pnl = 0
-    trade_count = 0
-    wins = 0
-    total_charges = 0
-    trade_details = []
-    for g in groups.values():
-        buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
-        sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
-        buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
-        sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
-        matched = min(buy_qty, sell_qty)
-        if matched > 0 and buy_qty > 0 and sell_qty > 0:
-            buy_avg = buy_val / buy_qty
-            sell_avg = sell_val / sell_qty
-            pnl = round((sell_avg - buy_avg) * matched, 2)
-            total_pnl += pnl
-            trade_count += 1
-            if pnl > 0:
-                wins += 1
-            # Sum charges from all legs (buys + sells)
-            leg_charges = 0
-            for t in g["buys"] + g["sells"]:
-                for key_c in (
-                    "sebiTax",
-                    "stt",
-                    "brokerageCharges",
-                    "serviceTax",
-                    "exchangeTransactionCharges",
-                    "stampDuty",
-                ):
-                    leg_charges += float(t.get(key_c, 0) or 0)
-            total_charges += leg_charges
-            trade_details.append(
-                {
-                    "symbol": g["symbol"],
-                    "pnl": pnl,
-                    "qty": int(matched),
-                    "buy_avg": round(buy_avg, 2),
-                    "sell_avg": round(sell_avg, 2),
-                    "charges": round(leg_charges, 2),
-                }
-            )
-
-    if trade_count == 0:
+    entry = _summarize_real_trade_fills(trades)
+    if not entry:
         return
+    trade_legs = entry.get("trade_legs", 0)
 
     # Only overwrite if new data has more trade legs (more complete)
     existing = await _db_mod.get_trade_history_entry(user_id, today_str) or {}
@@ -4784,27 +4856,20 @@ async def _persist_daily_trades(trades: list, user_id: int):
         return
 
     # Preserve charges from historical API if current has none
-    if total_charges == 0 and existing.get("charges", 0) > 0:
-        total_charges = existing["charges"]
+    if entry.get("charges", 0) == 0 and existing.get("charges", 0) > 0:
+        entry["charges"] = existing["charges"]
+        entry["net_pnl"] = round(float(entry.get("pnl", 0) or 0) - float(entry["charges"] or 0), 2)
         # Also preserve per-trade charges
         old_details_map = {d["symbol"]: d.get("charges", 0) for d in existing.get("details", [])}
-        for detail in trade_details:
+        for detail in entry.get("details", []):
             if detail["charges"] == 0 and detail["symbol"] in old_details_map:
                 detail["charges"] = old_details_map[detail["symbol"]]
 
-    entry = {
-        "pnl": round(total_pnl, 2),
-        "net_pnl": round(total_pnl - total_charges, 2),
-        "charges": round(total_charges, 2),
-        "trades": trade_count,
-        "trade_legs": trade_legs,
-        "wins": wins,
-        "mode": "real",
-        "details": trade_details,
-    }
     await _db_mod.upsert_trade_history_entry(user_id, today_str, entry)
     print(
-        f"[TRADE_HISTORY] Saved {today_str}: {trade_count} trades ({trade_legs} legs), P&L=₹{total_pnl:.2f}, charges=₹{total_charges:.2f}"
+        "[TRADE_HISTORY] Saved "
+        f"{today_str}: {entry.get('trades', 0)} trades ({trade_legs} fills), "
+        f"P&L=₹{float(entry.get('pnl', 0) or 0):.2f}, charges=₹{float(entry.get('charges', 0) or 0):.2f}"
     )
 
 
@@ -5791,73 +5856,15 @@ def _refresh_recent_charges(history: dict, user_id: int, broker_client: DhanClie
 
         updated = 0
         for date_str, day_trades in trades_by_date.items():
-            groups = {}
-            for t in day_trades:
-                key = t.get("securityId") or t.get("tradingSymbol") or "unknown"
-                if key not in groups:
-                    sym = t.get("customSymbol") or t.get("tradingSymbol") or str(key)
-                    groups[key] = {"buys": [], "sells": [], "symbol": sym}
-                if t.get("transactionType") == "BUY":
-                    groups[key]["buys"].append(t)
-                elif t.get("transactionType") == "SELL":
-                    groups[key]["sells"].append(t)
-
-            total_pnl = 0
-            total_charges = 0
-            trade_count = 0
-            wins = 0
-            details = []
-            for g in groups.values():
-                buy_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["buys"])
-                sell_qty = sum(float(t.get("tradedQuantity", 0)) for t in g["sells"])
-                buy_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["buys"])
-                sell_val = sum(float(t.get("tradedPrice", 0)) * float(t.get("tradedQuantity", 0)) for t in g["sells"])
-                leg_charges = 0
-                for t in g["buys"] + g["sells"]:
-                    for key_c in (
-                        "sebiTax",
-                        "stt",
-                        "brokerageCharges",
-                        "serviceTax",
-                        "exchangeTransactionCharges",
-                        "stampDuty",
-                    ):
-                        leg_charges += float(t.get(key_c, 0) or 0)
-                matched = min(buy_qty, sell_qty)
-                if matched > 0 and buy_qty > 0 and sell_qty > 0:
-                    buy_avg = buy_val / buy_qty
-                    sell_avg = sell_val / sell_qty
-                    pnl = round((sell_avg - buy_avg) * matched, 2)
-                    total_pnl += pnl
-                    total_charges += leg_charges
-                    trade_count += 1
-                    if pnl > 0:
-                        wins += 1
-                    details.append(
-                        {
-                            "symbol": g["symbol"],
-                            "pnl": pnl,
-                            "qty": int(matched),
-                            "buy_avg": round(buy_avg, 2),
-                            "sell_avg": round(sell_avg, 2),
-                            "charges": round(leg_charges, 2),
-                        }
-                    )
-
-            if trade_count > 0 and total_charges > 0:
-                history[date_str] = {
-                    "pnl": round(total_pnl, 2),
-                    "net_pnl": round(total_pnl - total_charges, 2),
-                    "charges": round(total_charges, 2),
-                    "trades": trade_count,
-                    "trade_legs": len(day_trades),
-                    "wins": wins,
-                    "mode": "real",
-                    "details": details,
-                }
+            entry = _summarize_real_trade_fills(day_trades)
+            if entry and entry.get("charges", 0) > 0:
+                history[date_str] = entry
                 updated += 1
                 print(
-                    f"📊 [CHARGES] Updated {date_str}: charges=₹{total_charges:.2f}, P&L=₹{total_pnl:.2f} ({trade_count} trades, {len(day_trades)} legs)"
+                    "📊 [CHARGES] Updated "
+                    f"{date_str}: charges=₹{float(entry.get('charges', 0) or 0):.2f}, "
+                    f"P&L=₹{float(entry.get('pnl', 0) or 0):.2f} "
+                    f"({entry.get('trades', 0)} trades, {entry.get('trade_legs', 0)} fills)"
                 )
 
         if updated > 0:

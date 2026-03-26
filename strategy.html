@@ -10878,7 +10878,7 @@ function renderMonthlyDailyGrid() {
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
-  let totalGrossRealPnl = 0, totalNetRealPnl = 0, totalCharges = 0, totalTradeLegs = 0, tradingDays = 0, profitDays = 0;
+  let totalGrossRealPnl = 0, totalNetRealPnl = 0, totalCharges = 0, totalTrades = 0, tradingDays = 0, profitDays = 0;
   let totalPaperPnl = 0;
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -10892,7 +10892,7 @@ function renderMonthlyDailyGrid() {
       const charges = entry.real_charges || 0;
       const realTrades = entry.real_trades || 0;
       const paperTrades = entry.paper_trades || 0;
-      const tradeLegs = entry.real_trade_legs || entry.real_trades || 0;
+      const tradeLegs = entry.real_trade_legs || 0;
       const hasRealActivity = realTrades > 0 || tradeLegs > 0 || grossRealPnl !== 0 || netRealPnl !== 0 || charges > 0;
       dayEntries.push({
         day: d,
@@ -10910,9 +10910,9 @@ function renderMonthlyDailyGrid() {
         totalGrossRealPnl += grossRealPnl;
         totalNetRealPnl += netRealPnl;
         totalCharges += charges;
-        totalTradeLegs += tradeLegs;
+        totalTrades += realTrades;
         tradingDays++;
-        if (netRealPnl > 0) profitDays++;
+        if (grossRealPnl > 0) profitDays++;
       }
       totalPaperPnl += paperPnl;
     }
@@ -10935,7 +10935,7 @@ function renderMonthlyDailyGrid() {
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTradeLegs}</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTrades}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Charges</div>
@@ -10955,16 +10955,17 @@ function renderMonthlyDailyGrid() {
   } else {
     let html = '';
     realDayEntries.forEach(e => {
-      const isWin = e.netReal >= 0;
+      const isWin = e.grossReal >= 0;
       const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
       const detailLines = [`Gross: ₹${e.grossReal.toFixed(2)}`, `Net: ₹${e.netReal.toFixed(2)}`];
       if (e.charges > 0) detailLines.push(`Charges: ₹${e.charges.toFixed(2)}`);
+      if (e.tradeLegs && e.tradeLegs !== e.realTrades) detailLines.push(`Fills: ${e.tradeLegs}`);
       if (e.paper !== 0) detailLines.push(`Paper: ₹${e.paper.toFixed(2)}`);
       const details = detailLines.length ? `\n${detailLines.join('\n')}` : '';
       html += `
-        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Net ₹${e.netReal.toFixed(2)}${details} (${e.realTrades} trades)">
+        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ₹${e.grossReal.toFixed(2)}${details} (${e.realTrades} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-          <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.netReal.toFixed(0)}</div>
+          <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.grossReal.toFixed(0)}</div>
           <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
         </div>
       `;
@@ -10993,7 +10994,7 @@ function renderMonthlyDailyGrid() {
       const dateLabel = formatPortfolioDateLabel(e.dateStr);
       thtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
-        <td style="padding: 10px 8px; text-align: center;">${e.realTrades || e.tradeLegs}</td>
+        <td style="padding: 10px 8px; text-align: center;" title="${e.tradeLegs && e.tradeLegs !== e.realTrades ? `${e.tradeLegs} fills` : `${e.realTrades} trades`}">${e.realTrades}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>

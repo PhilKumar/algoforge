@@ -23,10 +23,111 @@ os.environ["ENCRYPTION_KEY"] = "QmG8YWqLPtWFDn7gCAiHJXoX7zHn5zi89kUnkkMvibU="
 os.environ["DHAN_PIN"] = ""
 os.environ["DHAN_TOTP_SECRET"] = ""
 
-from app import _aggregate_portfolio_history, _ist_date_str
+from app import _aggregate_portfolio_history, _ist_date_str, _summarize_real_trade_fills
 
 
 class PortfolioHistoryRegressionTests(unittest.TestCase):
+    def test_summarize_real_trade_fills_uses_fifo_not_day_average(self):
+        entry = _summarize_real_trade_fills(
+            [
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "1",
+                    "transactionType": "BUY",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-12 09:15:00",
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "2",
+                    "transactionType": "SELL",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 110,
+                    "exchangeTime": "2026-03-12 09:20:00",
+                },
+                {
+                    "orderId": "B2",
+                    "exchangeTradeId": "3",
+                    "transactionType": "BUY",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 120,
+                    "exchangeTime": "2026-03-12 09:25:00",
+                },
+                {
+                    "orderId": "S2",
+                    "exchangeTradeId": "4",
+                    "transactionType": "SELL",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 10,
+                    "tradedPrice": 121,
+                    "exchangeTime": "2026-03-12 09:30:00",
+                },
+            ]
+        )
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["pnl"], 110.0)
+        self.assertEqual(entry["net_pnl"], 110.0)
+        self.assertEqual(entry["trades"], 4)
+        self.assertEqual(entry["trade_legs"], 4)
+
+    def test_summarize_real_trade_fills_counts_unique_orders_and_preserves_partial_fills(self):
+        entry = _summarize_real_trade_fills(
+            [
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "fill-1",
+                    "transactionType": "BUY",
+                    "securityId": "BANK-1",
+                    "tradedQuantity": 5,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-16 09:15:00",
+                    "brokerageCharges": 5,
+                },
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "fill-2",
+                    "transactionType": "BUY",
+                    "securityId": "BANK-1",
+                    "tradedQuantity": 5,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-16 09:15:01",
+                    "brokerageCharges": 5,
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "fill-3",
+                    "transactionType": "SELL",
+                    "securityId": "BANK-1",
+                    "tradedQuantity": 5,
+                    "tradedPrice": 110,
+                    "exchangeTime": "2026-03-16 09:20:00",
+                    "brokerageCharges": 5,
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "fill-4",
+                    "transactionType": "SELL",
+                    "securityId": "BANK-1",
+                    "tradedQuantity": 5,
+                    "tradedPrice": 110,
+                    "exchangeTime": "2026-03-16 09:20:01",
+                    "brokerageCharges": 5,
+                },
+            ]
+        )
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["pnl"], 100.0)
+        self.assertEqual(entry["charges"], 20.0)
+        self.assertEqual(entry["net_pnl"], 80.0)
+        self.assertEqual(entry["trades"], 2)
+        self.assertEqual(entry["trade_legs"], 4)
+
     def test_aggregate_portfolio_history_tracks_gross_and_net_totals(self):
         real_history = {
             "2026-03-31": {
