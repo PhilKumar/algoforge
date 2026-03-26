@@ -345,7 +345,7 @@ _TRADE_STATUTORY_CHARGE_FIELDS = (
     "stampDuty",
 )
 _TRADE_BROKERAGE_FIELDS = ("brokerageCharges", "brokerage")
-_TRADE_HISTORY_SCHEMA_VERSION = 3
+_TRADE_HISTORY_SCHEMA_VERSION = 4
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -413,15 +413,15 @@ def _trade_order_key(trade: dict) -> str:
 
 
 def _trade_statutory_charge_total(trade: dict) -> float:
-    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_STATUTORY_CHARGE_FIELDS), 2)
+    return sum(float(trade.get(field, 0) or 0) for field in _TRADE_STATUTORY_CHARGE_FIELDS)
 
 
 def _trade_brokerage_total(trade: dict) -> float:
-    return round(sum(float(trade.get(field, 0) or 0) for field in _TRADE_BROKERAGE_FIELDS), 2)
+    return sum(float(trade.get(field, 0) or 0) for field in _TRADE_BROKERAGE_FIELDS)
 
 
 def _trade_total_costs(trade: dict) -> float:
-    return round(_trade_statutory_charge_total(trade) + _trade_brokerage_total(trade), 2)
+    return _trade_statutory_charge_total(trade) + _trade_brokerage_total(trade)
 
 
 def _trade_qty(trade: dict) -> float:

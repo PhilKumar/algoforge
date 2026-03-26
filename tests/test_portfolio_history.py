@@ -236,6 +236,37 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         self.assertEqual(entry["trade_legs"], 4)
         self.assertEqual(entry["order_count"], 4)
 
+    def test_summarize_real_trade_history_rounds_charges_after_daily_sum(self):
+        entries = _summarize_real_trade_history(
+            [
+                {
+                    "orderId": "B1",
+                    "exchangeTradeId": "1",
+                    "transactionType": "BUY",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 1,
+                    "tradedPrice": 100,
+                    "exchangeTime": "2026-03-20 09:15:00",
+                    "serviceTax": 0.005,
+                },
+                {
+                    "orderId": "S1",
+                    "exchangeTradeId": "2",
+                    "transactionType": "SELL",
+                    "securityId": "NIFTY-1",
+                    "tradedQuantity": 1,
+                    "tradedPrice": 101,
+                    "exchangeTime": "2026-03-20 09:20:00",
+                    "serviceTax": 0.005,
+                },
+            ],
+            source="historical_fifo",
+            carry_inventory=False,
+        )
+
+        self.assertEqual(entries["2026-03-20"]["charges"], 0.01)
+        self.assertEqual(entries["2026-03-20"]["net_pnl"], 0.99)
+
     def test_aggregate_portfolio_history_tracks_gross_net_and_cost_totals(self):
         real_history = {
             "2026-03-31": {
