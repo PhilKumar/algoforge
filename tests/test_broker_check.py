@@ -39,6 +39,17 @@ class _DummyBrokerAuthFailure:
         return {}
 
 
+class _DummyBrokerProbeError:
+    def get_funds(self):
+        return {"availabelBalance": 777}
+
+    def get_ltp_multi(self, segments):
+        raise Exception("Connection error - unable to reach Dhan servers")
+
+    def get_ohlc_multi(self, segments):
+        raise Exception("Connection error - unable to reach Dhan servers")
+
+
 class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_check_broker_treats_empty_market_probe_as_connected(self):
         broker = _DummyBrokerEmptyProbe()
@@ -74,6 +85,18 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], "auth_error")
         self.assertFalse(result["market_data_ok"])
+
+    async def test_check_broker_keeps_funds_connection_when_probe_endpoint_errors(self):
+        broker = _DummyBrokerProbeError()
+        with (
+            patch.object(app_module, "_request_broker_context", return_value=({"role": "user"}, broker, "user")),
+            patch.object(app_module, "_user_broker_auto_refresh_ready", return_value=False),
+        ):
+            result = await app_module.check_broker(None)
+
+        self.assertEqual(result["status"], "connected")
+        self.assertFalse(result["market_data_ok"])
+        self.assertEqual(result["available_balance"], 777.0)
 
 
 if __name__ == "__main__":

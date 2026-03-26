@@ -2501,24 +2501,23 @@ async def check_broker(request: Request):
                 market_ok = await asyncio.to_thread(_probe_market_data_connection, broker_client)
             except Exception as probe_error:
                 probe_msg = str(probe_error)
-                status = "auth_error" if _looks_like_broker_auth_error(probe_msg) else "marketdata_error"
-                if status == "auth_error":
+                if _looks_like_broker_auth_error(probe_msg):
                     if auto_refresh_ready:
                         message = "Market-data auth failed even after auto-refresh. Re-save your Dhan credentials."
                     else:
                         message = "Market-data auth failed. Save Dhan PIN and TOTP Secret in Account Settings for auto-refresh."
-                else:
-                    message = f"Funds loaded, but market-data probe failed: {probe_msg[:140]}"
-                return {
-                    "status": status,
-                    "broker": "Dhan",
-                    "message": message,
-                    "source": source,
-                    "available_balance": available_balance,
-                    "funds": funds,
-                    "market_data_ok": False,
-                    "auto_refresh_ready": auto_refresh_ready,
-                }
+                    return {
+                        "status": "auth_error",
+                        "broker": "Dhan",
+                        "message": message,
+                        "source": source,
+                        "available_balance": available_balance,
+                        "funds": funds,
+                        "market_data_ok": False,
+                        "auto_refresh_ready": auto_refresh_ready,
+                    }
+                _logger.warning("[BrokerCheck] Market-data probe failed after funds load: %s", probe_msg)
+                market_ok = False
 
             return {
                 "status": "connected",
