@@ -321,6 +321,9 @@ _TRADE_CHARGE_FIELDS = (
     "exchangeTransactionCharges",
     "stampDuty",
 )
+_TRADE_HISTORY_SCHEMA_VERSION = 2
+_TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
+_trade_history_repair_attempts: dict[int, float] = {}
 
 
 def _trade_fill_dedupe_key(trade: dict) -> str:
@@ -392,6 +395,24 @@ def _trade_symbol_key(trade: dict) -> str:
 
 def _trade_symbol_label(trade: dict) -> str:
     return str(trade.get("customSymbol") or trade.get("tradingSymbol") or _trade_symbol_key(trade))
+
+
+def _trade_history_entry_needs_refresh(entry: dict | None) -> bool:
+    if not isinstance(entry, dict) or not entry:
+        return True
+    try:
+        return int(entry.get("schema_version") or 0) < _TRADE_HISTORY_SCHEMA_VERSION
+    except Exception:
+        return True
+
+
+def _trade_history_needs_repair(user_id: int, history: dict[str, dict]) -> bool:
+    if not history:
+        return True
+    if not any(_trade_history_entry_needs_refresh(entry) for entry in history.values()):
+        return False
+    last_attempt = float(_trade_history_repair_attempts.get(int(user_id), 0) or 0)
+    return (time.monotonic() - last_attempt) >= _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS
 
 
 def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
@@ -499,6 +520,7 @@ def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
     details.sort(key=lambda item: item["symbol"])
 
     return {
+        "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
         "pnl": round(total_pnl, 2),
         "net_pnl": round(total_pnl - total_charges, 2),
         "charges": round(total_charges, 2),
@@ -2880,8 +2902,9 @@ def _backfill_trade_history(
             # Skip today only if not forcing — today is handled by live auto-save
             if date_str == today_str and not force:
                 continue
-            # When not forcing, skip dates we already have
-            if not force and date_str in existing_dates:
+            # When not forcing, keep legacy rows eligible for recalculation.
+            existing_entry = history.get(date_str)
+            if not force and date_str in existing_dates and not _trade_history_entry_needs_refresh(existing_entry):
                 continue
             if date_str not in trades_by_date:
                 trades_by_date[date_str] = []
@@ -2948,6 +2971,20 @@ async def get_portfolio_history(request: Request):
     try:
         user_id = _request_user_id(request)
         real_history = await _db_mod.list_trade_history(user_id)
+        if _trade_history_needs_repair(user_id, real_history):
+            _trade_history_repair_attempts[user_id] = time.monotonic()
+            try:
+                _, broker_client, _ = await _request_broker_context(request)
+                if broker_client:
+                    await asyncio.to_thread(_backfill_trade_history, "2024-01-01", False, user_id, broker_client)
+                    repaired_history = await _db_mod.list_trade_history(user_id)
+                    if repaired_history:
+                        await asyncio.to_thread(_refresh_recent_charges, repaired_history, user_id, broker_client)
+                        real_history = await _db_mod.list_trade_history(user_id)
+                    else:
+                        real_history = repaired_history
+            except Exception as repair_error:
+                print(f"[PORTFOLIO] Trade-history repair skipped: {repair_error}")
         runs = await _db_mod.list_runs(user_id)
         daily, monthly, yearly = _aggregate_portfolio_history(real_history, runs)
         return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}

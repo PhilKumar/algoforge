@@ -4,6 +4,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -23,7 +24,15 @@ os.environ["ENCRYPTION_KEY"] = "QmG8YWqLPtWFDn7gCAiHJXoX7zHn5zi89kUnkkMvibU="
 os.environ["DHAN_PIN"] = ""
 os.environ["DHAN_TOTP_SECRET"] = ""
 
-from app import _aggregate_portfolio_history, _ist_date_str, _summarize_real_trade_fills
+import app as app_module
+from app import (
+    _TRADE_HISTORY_SCHEMA_VERSION,
+    _aggregate_portfolio_history,
+    _ist_date_str,
+    _summarize_real_trade_fills,
+    _trade_history_entry_needs_refresh,
+    _trade_history_needs_repair,
+)
 
 
 class PortfolioHistoryRegressionTests(unittest.TestCase):
@@ -200,6 +209,98 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
     def test_ist_date_str_uses_india_calendar_day(self):
         boundary = datetime(2026, 3, 31, 18, 45, tzinfo=timezone.utc)
         self.assertEqual(_ist_date_str(boundary), "2026-04-01")
+
+    def test_trade_history_entry_requires_refresh_when_schema_missing(self):
+        self.assertTrue(_trade_history_entry_needs_refresh({"pnl": 10}))
+        self.assertFalse(
+            _trade_history_entry_needs_refresh({"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "pnl": 10})
+        )
+
+    def test_trade_history_repair_uses_cooldown_for_legacy_rows(self):
+        history = {"2026-03-12": {"pnl": 10}}
+        self.assertTrue(_trade_history_needs_repair(1, history))
+        app_module._trade_history_repair_attempts[1] = app_module.time.monotonic()
+        self.assertFalse(_trade_history_needs_repair(1, history))
+        app_module._trade_history_repair_attempts.pop(1, None)
+
+
+class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_get_portfolio_history_repairs_legacy_rows_before_aggregation(self):
+        app_module._trade_history_repair_attempts.pop(1, None)
+        legacy_history = {
+            "2026-03-12": {
+                "pnl": 100.0,
+                "net_pnl": 90.0,
+                "charges": 10.0,
+                "trades": 1,
+                "trade_legs": 2,
+                "wins": 1,
+            }
+        }
+        refreshed_history = {
+            "2026-03-12": {
+                "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+                "pnl": -1970.0,
+                "net_pnl": -7512.15,
+                "charges": 5542.15,
+                "trades": 62,
+                "trade_legs": 62,
+                "wins": 0,
+            }
+        }
+
+        async def fake_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        with (
+            patch.object(app_module, "_request_user_id", return_value=1),
+            patch.object(
+                app_module, "_request_broker_context", return_value=({"id": 1, "role": "admin"}, object(), "user")
+            ),
+            patch.object(app_module.asyncio, "to_thread", side_effect=fake_to_thread),
+            patch.object(app_module, "_backfill_trade_history", return_value=1) as backfill_mock,
+            patch.object(app_module, "_refresh_recent_charges", return_value=None) as refresh_mock,
+            patch.object(
+                app_module._db_mod,
+                "list_trade_history",
+                side_effect=[legacy_history, refreshed_history, refreshed_history],
+            ),
+            patch.object(app_module._db_mod, "list_runs", return_value=[]),
+        ):
+            result = await app_module.get_portfolio_history(None)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["daily"]["2026-03-12"]["real_pnl"], -1970.0)
+        self.assertEqual(result["daily"]["2026-03-12"]["real_net_pnl"], -7512.15)
+        self.assertEqual(result["monthly"]["2026-03"]["real_pnl"], -1970.0)
+        backfill_mock.assert_called_once()
+        refresh_mock.assert_called_once()
+
+    async def test_get_portfolio_history_skips_repair_for_current_rows(self):
+        app_module._trade_history_repair_attempts.pop(1, None)
+        current_history = {
+            "2026-03-12": {
+                "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+                "pnl": 100.0,
+                "net_pnl": 80.0,
+                "charges": 20.0,
+                "trades": 2,
+                "trade_legs": 4,
+                "wins": 1,
+            }
+        }
+
+        with (
+            patch.object(app_module, "_request_user_id", return_value=1),
+            patch.object(app_module._db_mod, "list_trade_history", return_value=current_history),
+            patch.object(app_module._db_mod, "list_runs", return_value=[]),
+            patch.object(app_module, "_backfill_trade_history") as backfill_mock,
+        ):
+            result = await app_module.get_portfolio_history(None)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["monthly"]["2026-03"]["real_pnl"], 100.0)
+        backfill_mock.assert_not_called()
 
 
 if __name__ == "__main__":
