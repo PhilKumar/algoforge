@@ -5288,14 +5288,18 @@ function restoreExecutionSettings(source) {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadAuthContext();
-  document.getElementById('run-name-input').value = 'Strategy_' + generateRandomID();
-  applyExecutionProfile(true);
-  renderIndicatorFields();
-  loadDashboardSummary();
+  try { loadAuthContext(); } catch(e) { console.warn('loadAuthContext failed:', e); }
+  loadTickerFromCache();
+  try { updateTicker(); } catch(e) { console.warn('updateTicker failed:', e); }
+  setInterval(() => { try { updateTicker(); } catch(e) { console.warn('ticker interval failed:', e); } }, 30000);
+  try {
+    const runNameInput = document.getElementById('run-name-input');
+    if (runNameInput) runNameInput.value = 'Strategy_' + generateRandomID();
+  } catch(e) { console.warn('run name init failed:', e); }
+  try { applyExecutionProfile(true); } catch(e) { console.warn('applyExecutionProfile failed:', e); }
+  try { renderIndicatorFields(); } catch(e) { console.warn('renderIndicatorFields failed:', e); }
+  try { loadDashboardSummary(); } catch(e) { console.warn('loadDashboardSummary failed:', e); }
   // Don't add default conditions - user adds them via indicators or manually
-  updateTicker();
-  setInterval(updateTicker, 30000);
 
   // Restore active tab from URL or previous session and seed browser history.
   try {
@@ -5308,10 +5312,10 @@ document.addEventListener('DOMContentLoaded', () => {
     applyNavState(initialState);
   } catch(e) {}
   // Start clock
-  updateClock();
+  try { updateClock(); } catch(e) { console.warn('updateClock failed:', e); }
   setInterval(updateClock, 1000);
   // Load expiry dates
-  loadExpiryDates();
+  try { loadExpiryDates(); } catch(e) { console.warn('loadExpiryDates failed:', e); }
 });
 
 window.addEventListener('popstate', (event) => {
@@ -7015,19 +7019,46 @@ function _renderScalpStatus(data) {
 // ══════════════════════════════════════════════════════════════
 //  MARKET TICKER (Live data)
 // ══════════════════════════════════════════════════════════════
+function renderTickerPayload(data) {
+  if (!data || data.status !== 'ok') return false;
+  if (data.nifty) setTickerValue('ticker-nifty', 'ticker-nifty-chg', data.nifty);
+  if (data.sensex) setTickerValue('ticker-sensex', 'ticker-sensex-chg', data.sensex);
+  if (data.vix) setTickerValue('ticker-vix', 'ticker-vix-chg', data.vix);
+  if (data.atmCE) setTickerValue('ticker-atm-ce', 'ticker-atm-ce-chg', data.atmCE);
+  if (data.atmPE) setTickerValue('ticker-atm-pe', 'ticker-atm-pe-chg', data.atmPE);
+  return true;
+}
+
+function loadTickerFromCache() {
+  try {
+    const raw = localStorage.getItem('algoforge_ticker_cache');
+    if (!raw) return false;
+    const cached = JSON.parse(raw);
+    return renderTickerPayload(cached);
+  } catch (err) {
+    console.warn('Ticker cache load failed:', err);
+    return false;
+  }
+}
+
 function updateTicker() {
   fetch(`/api/ticker?_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
     console.log('Ticker data received:', data);
     if (data.status === 'ok') {
-      if (data.nifty) setTickerValue('ticker-nifty', 'ticker-nifty-chg', data.nifty);
-      if (data.sensex) setTickerValue('ticker-sensex', 'ticker-sensex-chg', data.sensex);
-      if (data.vix) setTickerValue('ticker-vix', 'ticker-vix-chg', data.vix);
-      if (data.atmCE) setTickerValue('ticker-atm-ce', 'ticker-atm-ce-chg', data.atmCE);
-      if (data.atmPE) setTickerValue('ticker-atm-pe', 'ticker-atm-pe-chg', data.atmPE);
+      renderTickerPayload(data);
+      try {
+        localStorage.setItem('algoforge_ticker_cache', JSON.stringify(data));
+      } catch (err) {
+        console.warn('Ticker cache save failed:', err);
+      }
     } else {
       console.warn('Ticker API error:', data);
+      loadTickerFromCache();
     }
-  }).catch(err => { console.error('Ticker fetch error:', err); });
+  }).catch(err => {
+    console.error('Ticker fetch error:', err);
+    loadTickerFromCache();
+  });
 }
 
 // Called after backtest completes to populate ticker from backtest data
