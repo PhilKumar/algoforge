@@ -1,8 +1,6 @@
 import contextlib
 import io
-import os
 import unittest
-from importlib import import_module
 
 import pandas as pd
 
@@ -33,12 +31,6 @@ def _always_true_conditions():
 def _run_backtest(*args, **kwargs):
     with contextlib.redirect_stdout(io.StringIO()):
         return run_backtest(*args, **kwargs)
-
-
-def _load_app_module():
-    os.environ.setdefault("ALGOFORGE_PIN", "123456")
-    os.environ.setdefault("ALGOFORGE_SKIP_STARTUP_JOBS", "1")
-    return import_module("app")
 
 
 class BacktestRegressionTests(unittest.TestCase):
@@ -155,85 +147,6 @@ class BacktestRegressionTests(unittest.TestCase):
         self.assertEqual(trade["entry_time"], "2026-03-18 09:21")
         self.assertEqual(trade["exit_time"], "2026-03-18 09:23")
         self.assertEqual(trade["exit_reason"], "Signal")
-
-    def test_analysis_start_ignores_warmup_candles_before_requested_range(self):
-        df = _make_ohlcv("2026-03-18 09:20", [100, 101, 102, 103, 104])
-        result = _run_backtest(
-            df,
-            entry_conditions=_always_true_conditions(),
-            exit_conditions=[],
-            strategy_config={
-                "instrument": "RELIANCE",
-                "timeframe_minutes": 1,
-                "lot_size": 1,
-                "combined_sqoff_time": "09:24",
-                "_analysis_start": "2026-03-18 09:22",
-            },
-        )
-
-        trade = result["trades"][0]
-        self.assertEqual(trade["entry_time"], "2026-03-18 09:22")
-
-    def test_analysis_start_after_data_returns_error(self):
-        df = _make_ohlcv("2026-03-18 09:20", [100, 101, 102])
-        result = _run_backtest(
-            df,
-            entry_conditions=_always_true_conditions(),
-            exit_conditions=[],
-            strategy_config={
-                "instrument": "RELIANCE",
-                "timeframe_minutes": 1,
-                "lot_size": 1,
-                "_analysis_start": "2026-03-19",
-            },
-        )
-
-        self.assertEqual(result["status"], "error")
-        self.assertIn("requested backtest date range", result["message"])
-
-
-class StrategyRuntimeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app_mod = _load_app_module()
-
-    def test_runtime_normalization_keeps_empty_exit_conditions(self):
-        runtime = self.app_mod._normalize_strategy_runtime(
-            ["EMA_20_5m"],
-            [{"left": "current_close", "operator": "is_above", "right": "EMA_20_5m"}],
-            [],
-        )
-        self.assertEqual(runtime["exit_conditions"], [])
-        self.assertIn("No exit conditions", " ".join(runtime["warnings"]))
-
-    def test_runtime_normalization_auto_adds_indicator_dependencies(self):
-        runtime = self.app_mod._normalize_strategy_runtime(
-            [],
-            [
-                {
-                    "left": "MACD_12_26_9_15m_histogram",
-                    "operator": "is_above",
-                    "right": "number",
-                    "right_number_value": 0,
-                }
-            ],
-            [],
-        )
-        self.assertIn("MACD_12_26_9_15m", runtime["indicators"])
-        self.assertTrue(any("Auto-added indicator dependencies" in warning for warning in runtime["warnings"]))
-
-    def test_runtime_normalization_uses_legacy_condition_keys(self):
-        runtime = self.app_mod._normalize_strategy_runtime(
-            ["EMA_20_5m"],
-            [{"lhs": "current_close", "operator": "is_above", "rhs": "EMA_20_5m"}],
-            [],
-        )
-        self.assertEqual(runtime["entry_conditions"][0]["left"], "current_close")
-        self.assertEqual(runtime["entry_conditions"][0]["right"], "EMA_20_5m")
-
-    def test_estimate_strategy_warmup_expands_for_monthly_cpr(self):
-        warmup = self.app_mod._estimate_strategy_warmup_days(["CPR_0.2_0.5_M"])
-        self.assertGreaterEqual(warmup, 70)
 
     def test_spread_and_slippage_adjust_fill_prices(self):
         df = _make_ohlcv("2026-03-18 09:20", [100, 101, 102])

@@ -10,7 +10,6 @@ import asyncio
 import hashlib
 import inspect
 import json
-import math
 from html import escape as _escape_html
 from urllib.parse import quote as _url_quote
 
@@ -65,13 +64,12 @@ import auth as _auth_mod
 import config
 import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
-from engine.backtest import DEFAULT_ENTRY_CONDITIONS, get_strike_step, run_backtest
+from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
 from engine.strike_utils import round_half_up
 from engine.timeframes import (
-    DEFAULT_TIMEFRAME_MINUTES,
     INTRADAY_CHUNK_DAYS,
     MAX_INTRADAY_HISTORY_DAYS,
     derived_timeframe_warning,
@@ -856,247 +854,6 @@ class StrategyPayload(BaseModel):
     capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
     allow_synthetic_option_fallback: bool = False
-
-
-_ALWAYS_AVAILABLE_CONDITION_FIELDS = {
-    "current_open",
-    "current_high",
-    "current_low",
-    "current_close",
-    "current_volume",
-    "Yesterday_Open",
-    "Yesterday_High",
-    "Yesterday_Low",
-    "Yesterday_Close",
-    "Signal_Candle_Open",
-    "Signal_Candle_High",
-    "Signal_Candle_Low",
-    "Signal_Candle_Close",
-    "Time_Of_Day",
-    "Day_Of_Week",
-    "number",
-    "true",
-    "false",
-    "time",
-    "days",
-}
-_PRICE_DEPENDENCY_PREFIXES = ("EMA_", "SMA_", "RSI_", "ATR_", "Supertrend_", "VWAP_")
-
-
-def _extract_indicator_minutes_local(indicator_id: str, default: int = DEFAULT_TIMEFRAME_MINUTES) -> int:
-    if not isinstance(indicator_id, str):
-        return default
-    for part in reversed(indicator_id.split("_")):
-        if part.endswith("m") and part[:-1].isdigit():
-            return int(part[:-1])
-    return default
-
-
-def _bars_to_calendar_days(bars: int, timeframe_minutes: int) -> int:
-    bars = max(1, int(bars or 1))
-    timeframe_minutes = max(1, int(timeframe_minutes or DEFAULT_TIMEFRAME_MINUTES))
-    trading_minutes_per_day = 375
-    return max(1, math.ceil((bars * timeframe_minutes) / trading_minutes_per_day)) + 2
-
-
-def _base_indicator_for_field(field_name: str) -> str | None:
-    field = str(field_name or "").strip()
-    if not field or field in _ALWAYS_AVAILABLE_CONDITION_FIELDS:
-        return None
-    if field.startswith(_PRICE_DEPENDENCY_PREFIXES):
-        return field
-    if field.startswith("MACD_"):
-        for suffix in ("_signal", "_histogram"):
-            if field.endswith(suffix):
-                return field[: -len(suffix)]
-        return field
-    if field.startswith("BB_"):
-        for suffix in ("_upper", "_middle", "_lower", "_width"):
-            if field.endswith(suffix):
-                return field[: -len(suffix)]
-        return field
-    if field.startswith("StochRSI_"):
-        if field.endswith("_D"):
-            return field[: -len("_D")]
-        return field
-    if field.startswith("ADX_"):
-        for suffix in ("_plus_di", "_minus_di"):
-            if field.endswith(suffix):
-                return field[: -len(suffix)]
-        return field
-    return None
-
-
-def _normalize_condition(condition: dict) -> dict:
-    cond = dict(condition or {})
-    if "left" not in cond and "lhs" in cond:
-        cond["left"] = cond.get("lhs")
-    if "right" not in cond and "rhs" in cond:
-        cond["right"] = cond.get("rhs")
-    if "logic" not in cond and "connector" in cond:
-        cond["logic"] = cond.get("connector")
-    return cond
-
-
-def _normalize_strategy_runtime(
-    indicators: list[str] | None,
-    entry_conditions: list[dict] | None,
-    exit_conditions: list[dict] | None,
-    *,
-    allow_legacy_entry_default: bool = False,
-) -> dict:
-    normalized_indicators: list[str] = []
-    indicator_set: set[str] = set()
-    for indicator_id in indicators or []:
-        text = str(indicator_id or "").strip()
-        if text and text not in indicator_set:
-            indicator_set.add(text)
-            normalized_indicators.append(text)
-
-    auto_added: list[str] = []
-
-    def add_indicator(indicator_id: str) -> None:
-        text = str(indicator_id or "").strip()
-        if not text or text in indicator_set:
-            return
-        indicator_set.add(text)
-        normalized_indicators.append(text)
-        auto_added.append(text)
-
-    if entry_conditions is None:
-        normalized_entry = [dict(cond) for cond in DEFAULT_ENTRY_CONDITIONS] if allow_legacy_entry_default else []
-    else:
-        normalized_entry = [_normalize_condition(cond) for cond in entry_conditions]
-    normalized_exit = [] if exit_conditions is None else [_normalize_condition(cond) for cond in exit_conditions]
-
-    errors: list[str] = []
-    warnings: list[str] = []
-    if not normalized_entry:
-        errors.append("No entry conditions defined")
-    if not normalized_exit:
-        warnings.append("No exit conditions — trades will only close at square-off time or SL/target")
-
-    supertrend_count = sum(1 for indicator_id in normalized_indicators if indicator_id.startswith("Supertrend_"))
-    cpr_count = sum(1 for indicator_id in normalized_indicators if indicator_id.startswith("CPR_"))
-    orb_count = sum(1 for indicator_id in normalized_indicators if indicator_id.startswith("ORB_"))
-    warned_supertrend = False
-    warned_cpr = False
-    warned_orb = False
-    unresolved: list[str] = []
-
-    def add_unresolved(message: str) -> None:
-        if message not in unresolved:
-            unresolved.append(message)
-
-    def inspect_field(field_name: str | None) -> None:
-        nonlocal warned_supertrend, warned_cpr, warned_orb
-        field = str(field_name or "").strip()
-        if not field or field in _ALWAYS_AVAILABLE_CONDITION_FIELDS:
-            return
-        if field == "supertrend_dir":
-            if supertrend_count == 0:
-                add_unresolved("Field 'supertrend_dir' requires a Supertrend indicator.")
-            elif supertrend_count > 1 and not warned_supertrend:
-                warnings.append("Multiple Supertrend indicators make 'supertrend_dir' ambiguous. Keep only one.")
-                warned_supertrend = True
-            return
-        if field.startswith("CPR_"):
-            if cpr_count == 0:
-                add_unresolved(f"Field '{field}' requires a CPR indicator.")
-            elif cpr_count > 1 and not warned_cpr:
-                warnings.append("Multiple CPR indicators can make CPR condition fields ambiguous.")
-                warned_cpr = True
-            return
-        if field.startswith("ORB_"):
-            if orb_count == 0:
-                add_unresolved(f"Field '{field}' requires an ORB indicator.")
-            elif orb_count > 1 and not warned_orb:
-                warnings.append("Multiple ORB indicators can make ORB condition fields ambiguous.")
-                warned_orb = True
-            return
-        base_indicator = _base_indicator_for_field(field)
-        if base_indicator:
-            add_indicator(base_indicator)
-            return
-        add_unresolved(f"Field '{field}' is not supported or its indicator is missing.")
-
-    for condition in [*normalized_entry, *normalized_exit]:
-        inspect_field(condition.get("left"))
-        inspect_field(condition.get("right"))
-
-    if auto_added:
-        warnings.append(f"Auto-added indicator dependencies: {', '.join(auto_added)}")
-    errors.extend(unresolved)
-
-    return {
-        "indicators": normalized_indicators,
-        "entry_conditions": normalized_entry,
-        "exit_conditions": normalized_exit,
-        "warnings": warnings,
-        "errors": errors,
-        "auto_added": auto_added,
-    }
-
-
-def _estimate_strategy_warmup_days(
-    indicators: list[str] | None,
-    entry_conditions: list[dict] | None = None,
-    exit_conditions: list[dict] | None = None,
-    *,
-    default_timeframe: int = DEFAULT_TIMEFRAME_MINUTES,
-) -> int:
-    warmup_days = 3
-    all_conditions = [*(entry_conditions or []), *(exit_conditions or [])]
-    condition_fields = {str(cond.get("left") or "").strip() for cond in all_conditions}
-    condition_fields.update(str(cond.get("right") or "").strip() for cond in all_conditions)
-
-    if any(field.startswith("Yesterday_") for field in condition_fields):
-        warmup_days = max(warmup_days, 7)
-    if any(field.startswith("CPR_") for field in condition_fields):
-        warmup_days = max(warmup_days, 14)
-    if any(field.startswith("ORB_") for field in condition_fields):
-        warmup_days = max(warmup_days, 3)
-
-    for indicator_id in indicators or []:
-        text = str(indicator_id or "").strip()
-        if not text:
-            continue
-        parts = text.split("_")
-        name = parts[0]
-        tf_minutes = _extract_indicator_minutes_local(text, default=default_timeframe)
-
-        if name in {"EMA", "SMA", "RSI", "ATR", "ADX", "StochRSI", "BB"}:
-            period = int(parts[1]) if len(parts) > 1 and str(parts[1]).isdigit() else 20
-            warmup_days = max(warmup_days, _bars_to_calendar_days(period, tf_minutes))
-        elif name == "MACD":
-            slow = int(parts[2]) if len(parts) > 2 and str(parts[2]).isdigit() else 26
-            signal = int(parts[3]) if len(parts) > 3 and str(parts[3]).isdigit() else 9
-            warmup_days = max(warmup_days, _bars_to_calendar_days(slow + signal, tf_minutes))
-        elif name == "Supertrend":
-            period = int(parts[1]) if len(parts) > 1 and str(parts[1]).isdigit() else 10
-            warmup_days = max(warmup_days, _bars_to_calendar_days(period * 3, tf_minutes))
-        elif name == "VWAP":
-            warmup_days = max(warmup_days, 3)
-        elif name == "Previous":
-            warmup_days = max(warmup_days, 7)
-        elif name == "ORB":
-            warmup_days = max(warmup_days, 3)
-        elif name == "CPR":
-            tf_token = "D"
-            if len(parts) > 3 and parts[3]:
-                tf_token = str(parts[3]).upper()
-            elif len(parts) > 1 and str(parts[1]).endswith("m"):
-                tf_token = "D"
-            if tf_token in {"M", "ME"}:
-                warmup_days = max(warmup_days, 70)
-            elif tf_token == "W":
-                warmup_days = max(warmup_days, 21)
-            elif tf_token == "4H":
-                warmup_days = max(warmup_days, 10)
-            else:
-                warmup_days = max(warmup_days, 7)
-
-    return min(warmup_days, 120)
 
 
 def _render_login_page() -> HTMLResponse:
@@ -2350,22 +2107,18 @@ async def validate_strategy(request: Request):
     errors = []
     warnings = []
 
-    runtime = _normalize_strategy_runtime(
-        body.get("indicators", []),
-        body.get("entry_conditions"),
-        body.get("exit_conditions"),
-    )
-    errors.extend(runtime["errors"])
-    warnings.extend(runtime["warnings"])
-
     # Instrument
     instrument = body.get("instrument", "")
     if not instrument:
         errors.append("No instrument selected")
 
     # Conditions
-    entry = runtime["entry_conditions"]
-    exit_conds = runtime["exit_conditions"]
+    entry = body.get("entry_conditions", [])
+    exit_conds = body.get("exit_conditions", [])
+    if not entry:
+        errors.append("No entry conditions defined")
+    if not exit_conds:
+        warnings.append("No exit conditions — trades will only close at square-off time or SL/target")
 
     # Legs validation
     legs = body.get("legs", [])
@@ -2379,19 +2132,17 @@ async def validate_strategy(request: Request):
                 warnings.append(f"Leg {i + 1}: target ({tp}) is less than stop-loss ({sl}) — poor risk:reward")
 
     # Contradictory conditions check
-    contradiction_errors = set()
     for c in entry:
-        lhs = c.get("left", "")
+        lhs = c.get("lhs", "")
         op = c.get("operator", "")
-        rhs = c.get("right", "")
+        rhs = c.get("rhs", "")
         # Check if same indicator has contradictory conditions
         for c2 in entry:
             if c2 is c:
                 continue
-            if c2.get("left") == lhs and c2.get("right") == rhs:
+            if c2.get("lhs") == lhs and c2.get("rhs") == rhs:
                 if op in ("is_above", "crosses_above") and c2.get("operator") in ("is_below", "crosses_below"):
-                    contradiction_errors.add(f"Contradictory conditions: {lhs} cannot be both above and below {rhs}")
-    errors.extend(sorted(contradiction_errors))
+                    errors.append(f"Contradictory conditions: {lhs} cannot be both above and below {rhs}")
 
     # Risk checks
     sl_pct = body.get("stoploss_pct", 0)
@@ -3561,44 +3312,30 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
-        runtime = _normalize_strategy_runtime(payload.indicators, payload.entry_conditions, payload.exit_conditions)
-        if runtime["errors"]:
-            return {
-                "status": "error",
-                "message": "Strategy validation failed:\n- " + "\n- ".join(runtime["errors"]),
-                "warnings": runtime["warnings"],
-            }
 
         try:
-            tf_spec = resolve_strategy_timeframe(runtime["indicators"])
+            tf_spec = resolve_strategy_timeframe(payload.indicators)
         except ValueError as tf_err:
             return {"status": "error", "message": str(tf_err)}
         candle_interval = str(tf_spec.fetch)
-        warmup_days = _estimate_strategy_warmup_days(
-            runtime["indicators"],
-            runtime["entry_conditions"],
-            runtime["exit_conditions"],
-            default_timeframe=tf_spec.requested,
-        )
-        fetch_from_date = (datetime.strptime(from_date, "%Y-%m-%d") - timedelta(days=warmup_days)).strftime("%Y-%m-%d")
 
         print(f"\n{'=' * 60}")
         print(f"[BACKTEST] Run: {payload.run_name}")
         print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
         print(f"[BACKTEST] Timeframe: {describe_timeframe(tf_spec)}")
-        print(f"[BACKTEST] Indicators: {runtime['indicators']}")
-        print(f"[BACKTEST] Entry conditions: {runtime['entry_conditions']}")
-        print(f"[BACKTEST] Exit conditions: {runtime['exit_conditions']}")
+        print(f"[BACKTEST] Indicators: {payload.indicators}")
+        print(f"[BACKTEST] Entry conditions: {payload.entry_conditions}")
+        print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
         print(f"[BACKTEST] Legs: {payload.legs}")
         print(f"{'=' * 60}")
 
         # 1. Fetch data with segment-aware routing + fallback
-        print(f"[BACKTEST] Fetching data from {fetch_from_date} to {to_date} (warmup: {warmup_days}d)...")
+        print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
         try:
             df_raw = await asyncio.to_thread(
                 _fetch_data,
                 instrument=payload.instrument,
-                from_date=fetch_from_date,
+                from_date=from_date,
                 to_date=to_date,
                 segment=payload.segment,
                 candle_interval=candle_interval,
@@ -3617,7 +3354,6 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 
         # Warn if actual data range is shorter than requested, or if using daily candles
         data_range_warning = None
-        warmup_warning = None
         timeframe_warning = derived_timeframe_warning(tf_spec)
         from datetime import datetime as _dtw
 
@@ -3635,12 +3371,6 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             actual_start = (
                 str(df_raw.index[0].date()) if hasattr(df_raw.index[0], "date") else str(df_raw.index[0])[:10]
             )
-            if actual_start > fetch_from_date and actual_start <= from_date and warmup_days > 0:
-                warmup_warning = (
-                    f"Indicator warm-up was limited because data starts at {actual_start}; "
-                    f"signals near the beginning of the range may be less reliable."
-                )
-                print(f"[BACKTEST] {warmup_warning}")
             if actual_start > from_date:
                 data_range_warning = (
                     f"⚠️ Data starts from {actual_start} (requested {from_date}). "
@@ -3652,11 +3382,9 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config = payload.model_dump()
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
-        strategy_config["indicators"] = runtime["indicators"]
-        strategy_config["_analysis_start"] = from_date
         requested_days = max(1, (_to_dt - _from_dt).days + 1)
         strategy_config["allow_synthetic_option_fallback"] = requested_days >= _OPTION_REAL_DATA_MAX_DAYS
-        option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, fetch_from_date, to_date)
+        option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
         if option_pricing["errors"]:
             error_msg = "Historical option data unavailable for this backtest:\n- " + "\n- ".join(
                 option_pricing["errors"]
@@ -3688,8 +3416,8 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             results = await asyncio.to_thread(
                 run_backtest,
                 df_raw=df_raw,
-                entry_conditions=runtime["entry_conditions"],
-                exit_conditions=runtime["exit_conditions"],
+                entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+                exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 strategy_config=strategy_config,
             )
         except Exception as bt_err:
@@ -3720,9 +3448,9 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "target_profit_pct": getattr(payload, "target_profit_pct", 0),
                 "target_profit_rupees": getattr(payload, "target_profit_rupees", 0),
                 "tp_type": getattr(payload, "tp_type", "pct"),
-                "indicators": runtime["indicators"],
-                "entry_conditions": runtime["entry_conditions"],
-                "exit_conditions": runtime["exit_conditions"],
+                "indicators": payload.indicators,
+                "entry_conditions": payload.entry_conditions,
+                "exit_conditions": payload.exit_conditions,
                 "legs": payload.legs,
                 "market_open": getattr(payload, "market_open", "09:15") or "09:15",
                 "market_close": getattr(payload, "market_close", "15:25") or "15:25",
@@ -3769,10 +3497,6 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             results["data_range_warning"] = data_range_warning
         if timeframe_warning:
             results["timeframe_warning"] = timeframe_warning
-        if warmup_warning:
-            results["warmup_warning"] = warmup_warning
-        if runtime["warnings"]:
-            results["strategy_warnings"] = runtime["warnings"]
         if option_pricing["warnings"]:
             results["option_pricing_warnings"] = option_pricing["warnings"]
         results["option_pricing"] = {
@@ -3809,19 +3533,8 @@ async def live_start(req: LiveStartRequest, request: Request):
     live_bucket = _registry_bucket(live_engines, user_id)
     live_task_bucket = _registry_bucket(_live_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
-    runtime = _normalize_strategy_runtime(
-        (req.strategy_config or {}).get("indicators", req.indicators),
-        req.entry_conditions,
-        req.exit_conditions,
-    )
-    if runtime["errors"]:
-        return {
-            "status": "error",
-            "message": "Strategy validation failed:\n- " + "\n- ".join(runtime["errors"]),
-            "warnings": runtime["warnings"],
-        }
     try:
-        tf_spec = resolve_strategy_timeframe(runtime["indicators"])
+        tf_spec = resolve_strategy_timeframe((req.strategy_config or {}).get("indicators", req.indicators))
     except ValueError as tf_err:
         return {"status": "error", "message": str(tf_err)}
     # Build strategy dict from the request
@@ -3833,7 +3546,7 @@ async def live_start(req: LiveStartRequest, request: Request):
             "strategy_id": int(req.strategy_id or 0),
             "run_name": req.run_name or "Live Strategy",
             "instrument": req.instrument or "26000",
-            "indicators": runtime["indicators"],
+            "indicators": req.indicators or [],
             "max_trades_per_day": int(req.max_trades_per_day or 1),
             "market_open": req.market_open or "09:15",
             "market_close": req.market_close or "15:25",
@@ -3855,7 +3568,6 @@ async def live_start(req: LiveStartRequest, request: Request):
             "poll_interval": 10,
         }
     strategy_dict["strategy_id"] = int(strategy_dict.get("strategy_id") or req.strategy_id or 0)
-    strategy_dict["indicators"] = runtime["indicators"]
     strategy_dict["timeframe_minutes"] = tf_spec.requested
     strategy_dict["_user_id"] = user_id
     strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
@@ -3888,8 +3600,8 @@ async def live_start(req: LiveStartRequest, request: Request):
     engine = LiveEngine(broker_client, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
-        entry_conditions=runtime["entry_conditions"],
-        exit_conditions=runtime["exit_conditions"],
+        entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+        exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
         deploy_config=deploy_config,
     )
     engine._user_id = user_id
@@ -3929,12 +3641,7 @@ async def live_start(req: LiveStartRequest, request: Request):
     engine._save_state()
 
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Auto (LIVE)", level="info")
-    return {
-        "status": "started",
-        "run_id": run_id,
-        "message": "Auto trading started with REAL orders",
-        "warnings": runtime["warnings"],
-    }
+    return {"status": "started", "run_id": run_id, "message": "Auto trading started with REAL orders"}
 
 
 @app.post("/api/live/stop")
@@ -4120,15 +3827,8 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     paper_bucket = _registry_bucket(paper_engines, user_id)
     paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
-    runtime = _normalize_strategy_runtime(payload.indicators, payload.entry_conditions, payload.exit_conditions)
-    if runtime["errors"]:
-        return {
-            "status": "error",
-            "message": "Strategy validation failed:\n- " + "\n- ".join(runtime["errors"]),
-            "warnings": runtime["warnings"],
-        }
     try:
-        tf_spec = resolve_strategy_timeframe(runtime["indicators"])
+        tf_spec = resolve_strategy_timeframe(payload.indicators)
     except ValueError as tf_err:
         return {"status": "error", "message": str(tf_err)}
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
@@ -4136,7 +3836,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "strategy_id": int(payload.strategy_id or 0),
         "run_name": payload.run_name,
         "instrument": payload.instrument,
-        "indicators": runtime["indicators"],
+        "indicators": payload.indicators or [],
         "max_trades_per_day": int(payload.max_trades_per_day or 1),
         "market_open": payload.market_open or "09:15",
         "market_close": payload.market_close or "15:25",
@@ -4193,8 +3893,8 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
-        entry_conditions=runtime["entry_conditions"],
-        exit_conditions=runtime["exit_conditions"],
+        entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+        exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
     )
     engine._user_id = user_id
 
@@ -4230,12 +3930,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
-    return {
-        "status": "started",
-        "run_id": run_id,
-        "message": "Paper trading started with LIVE market data",
-        "warnings": runtime["warnings"],
-    }
+    return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
 
 @app.post("/api/paper/stop")
@@ -6284,8 +5979,8 @@ async def _restore_live_engines():
                 continue
 
             strategy = state.get("strategy", {})
-            entry_conditions = state["entry_conditions"] if "entry_conditions" in state else DEFAULT_ENTRY_CONDITIONS
-            exit_conditions = state["exit_conditions"] if "exit_conditions" in state else []
+            entry_conditions = state.get("entry_conditions", [])
+            exit_conditions = state.get("exit_conditions", [])
             deploy_config = state.get("deploy_config", {})
             run_id = strategy.get("run_name", "live") or "live"
             live_bucket = _registry_bucket(live_engines, user_id)
@@ -6309,8 +6004,8 @@ async def _restore_live_engines():
             engine = LiveEngine(broker_client, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
-                entry_conditions=entry_conditions,
-                exit_conditions=exit_conditions,
+                entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+                exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
                 deploy_config=deploy_config,
             )
             engine._user_id = int(strategy.get("_user_id") or user_id)
@@ -6368,8 +6063,8 @@ async def _restore_paper_engines():
                 continue
 
             strategy = state.get("strategy", {})
-            entry_conditions = state["entry_conditions"] if "entry_conditions" in state else DEFAULT_ENTRY_CONDITIONS
-            exit_conditions = state["exit_conditions"] if "exit_conditions" in state else []
+            entry_conditions = state.get("entry_conditions", [])
+            exit_conditions = state.get("exit_conditions", [])
 
             # Require full config — can't restore from legacy format
             if not strategy:
@@ -6388,8 +6083,8 @@ async def _restore_paper_engines():
             engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=state_dir)
             engine.configure(
                 strategy=strategy,
-                entry_conditions=entry_conditions,
-                exit_conditions=exit_conditions,
+                entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+                exit_conditions=exit_conditions or DEFAULT_EXIT_CONDITIONS,
             )
             engine._user_id = int(strategy.get("_user_id") or user_id)
 
