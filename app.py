@@ -2129,6 +2129,7 @@ _ADMIN_EXAMPLE_SEED_KEY = "_example_seed"
 _ADMIN_EXAMPLE_BACKTEST_LIMIT = 2
 _ADMIN_EXAMPLE_MAX_BACKTEST_LIMIT = 20
 _ADMIN_EXAMPLE_FOLDER = "Default"
+_DEFAULT_EXAMPLES_BACKFILL_STATE_KEY = "default_examples_backfill_v1"
 
 
 def _example_seed_meta(item: dict | None, kind: str, source_user_id: int) -> dict | None:
@@ -2411,6 +2412,35 @@ async def _copy_admin_examples_to_user(
     if include_journal:
         result["journal"] = await _copy_example_journal_entry(source_user_id, target_user_id, journal_date)
     return result
+
+
+async def _backfill_default_examples_for_existing_users_once() -> dict:
+    """Seed Default-folder examples to pre-existing non-admin users once per deployment version."""
+    existing_state = await _db_mod.get_app_state(_DEFAULT_EXAMPLES_BACKFILL_STATE_KEY)
+    if str(existing_state or "").strip().lower() == "done":
+        return {"status": "skipped", "processed_users": 0, "seeded_users": 0}
+
+    admin = await _get_preferred_admin_user()
+    if not admin:
+        raise RuntimeError("No admin user available for Default example backfill")
+
+    users = await _db_mod.list_users()
+    processed_users = 0
+    seeded_users = 0
+
+    for user in users:
+        if str(user.get("role") or "").lower() == "admin":
+            continue
+        processed_users += 1
+        copied = await _copy_admin_examples_to_user(int(admin["id"]), int(user["id"]))
+        copied_total = (
+            int(copied["strategies"]["copied"]) + int(copied["backtests"]["copied"]) + int(copied["journal"]["copied"])
+        )
+        if copied_total > 0:
+            seeded_users += 1
+
+    await _db_mod.set_app_state(_DEFAULT_EXAMPLES_BACKFILL_STATE_KEY, "done")
+    return {"status": "done", "processed_users": processed_users, "seeded_users": seeded_users}
 
 
 @app.get("/api/admin/users")
@@ -6700,6 +6730,15 @@ async def _init_database():
         print(f"🔐 [Auth] Created admin user '{config.ADMIN_USERNAME}' (id={uid})")
     else:
         print(f"🔐 [Auth] Admin user '{admin['username']}' exists (id={admin['id']})")
+    try:
+        backfill = await _backfill_default_examples_for_existing_users_once()
+        if backfill["status"] == "done":
+            print(
+                "🧩 [Startup] Default example backfill complete "
+                f"({backfill['seeded_users']}/{backfill['processed_users']} non-admin users seeded)"
+            )
+    except Exception as exc:
+        print(f"🧩 [Startup] Default example backfill failed: {exc}")
 
 
 @app.on_event("startup")

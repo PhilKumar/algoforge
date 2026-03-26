@@ -123,6 +123,89 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         target_journal = await app_module._db_mod.get_journal_entry(int(created_user["id"]), "2026-03-24")
         self.assertEqual(target_journal["strategy"], "Starter Journal")
 
+    async def test_existing_users_are_backfilled_once_from_default_examples(self):
+        admin_id = await self._create_user("admin", role="admin")
+        alice_id = await self._create_user("alice")
+        bob_id = await self._create_user("bob")
+
+        await app_module._db_mod.create_strategy_record(
+            admin_id,
+            {
+                "run_name": "Default Starter",
+                "name": "Default Starter",
+                "folder": "Default",
+                "instrument": "NIFTY",
+                "legs": [],
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "version": 1,
+                "versions": [],
+            },
+        )
+        await app_module._db_mod.create_run_record(
+            admin_id,
+            {
+                "mode": "backtest",
+                "run_name": "Default Backtest",
+                "strategy_name": "Default Backtest",
+                "folder": "Default",
+                "trade_count": 4,
+                "total_pnl": 200.0,
+                "summary": {"net": 200.0},
+                "trades": [{"id": 1, "pnl": 50.0}],
+                "created_at": "2026-03-24 09:15:00",
+            },
+        )
+        await app_module._db_mod.upsert_journal_entry(
+            admin_id,
+            "2026-03-24",
+            {
+                "asset": "NIFTY",
+                "strategy": "Backfill Journal",
+                "grade": "A",
+                "went_well": "Held winners",
+            },
+        )
+
+        first = await app_module._backfill_default_examples_for_existing_users_once()
+
+        self.assertEqual(first["status"], "done")
+        self.assertEqual(first["processed_users"], 2)
+        self.assertEqual(first["seeded_users"], 2)
+        self.assertEqual(
+            await app_module._db_mod.get_app_state(app_module._DEFAULT_EXAMPLES_BACKFILL_STATE_KEY),
+            "done",
+        )
+
+        for user_id in (alice_id, bob_id):
+            strategies = await app_module._db_mod.list_strategies(user_id)
+            runs = await app_module._db_mod.list_runs(user_id)
+            journal = await app_module._db_mod.get_journal_entry(user_id, "2026-03-24")
+            self.assertEqual([item["run_name"] for item in strategies], ["Default Starter (Admin Example)"])
+            self.assertEqual([item["run_name"] for item in runs], ["Default Backtest (Admin Example)"])
+            self.assertEqual(journal["strategy"], "Backfill Journal")
+
+        await app_module._db_mod.create_strategy_record(
+            admin_id,
+            {
+                "run_name": "Late Addition",
+                "name": "Late Addition",
+                "folder": "Default",
+                "instrument": "NIFTY",
+                "legs": [],
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "version": 1,
+                "versions": [],
+            },
+        )
+
+        second = await app_module._backfill_default_examples_for_existing_users_once()
+
+        self.assertEqual(second["status"], "skipped")
+        alice_strategies = await app_module._db_mod.list_strategies(alice_id)
+        self.assertEqual(len(alice_strategies), 1)
+
     async def test_copy_admin_examples_copies_only_default_folder_strategies_and_latest_two_default_backtests(self):
         admin_id = await self._create_user("admin", role="admin")
         target_id = await self._create_user("alice")

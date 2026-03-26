@@ -92,6 +92,11 @@ _SCHEMA_STATEMENTS = [
         updated_at   TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
+    """CREATE TABLE IF NOT EXISTS app_state (
+        key         TEXT    PRIMARY KEY,
+        value       TEXT    NOT NULL DEFAULT '',
+        updated_at  TEXT    NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS scalp_trades (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id     INTEGER NOT NULL,
@@ -427,6 +432,37 @@ async def cleanup_expired_sessions() -> int:
         cursor = await db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
         await db.commit()
         return cursor.rowcount
+
+
+async def get_app_state(key: str) -> str | None:
+    """Fetch one app-state value by key."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT value FROM app_state WHERE key = ? LIMIT 1", (str(key),))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return str(row["value"])
+
+
+async def set_app_state(key: str, value: str) -> None:
+    """Insert or update one app-state value."""
+    state_key = str(key)
+    state_value = str(value)
+    now = _now_iso()
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT key FROM app_state WHERE key = ? LIMIT 1", (state_key,))
+        row = await cursor.fetchone()
+        if row:
+            await db.execute(
+                "UPDATE app_state SET value = ?, updated_at = ? WHERE key = ?", (state_value, now, state_key)
+            )
+        else:
+            await db.execute(
+                "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)",
+                (state_key, state_value, now),
+            )
+        await db.commit()
 
 
 def _json_loads(blob: str | None, default):
