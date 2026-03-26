@@ -5756,6 +5756,111 @@ def _is_cash_market_closed_ist() -> bool:
     return current < dt_time(9, 15) or current > dt_time(15, 30)
 
 
+def _historical_price_snapshot(
+    client,
+    *,
+    security_id: int | str,
+    exchange_segment: str,
+    instrument_type: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
+    """Return the latest close and change from Dhan historical candles."""
+
+    try:
+        df = client.get_historical_data(
+            security_id=str(security_id),
+            exchange_segment=exchange_segment,
+            instrument_type=instrument_type,
+            from_date=from_date,
+            to_date=to_date,
+            candle_type="D",
+        )
+    except Exception as e:
+        print(f"[TICKER] Historical snapshot failed for {security_id} ({exchange_segment}/{instrument_type}): {e}")
+        return {"price": 0.0, "change": 0.0, "pct": 0.0}
+
+    if df is None or df.empty or "close" not in df:
+        return {"price": 0.0, "change": 0.0, "pct": 0.0}
+
+    df = df.sort_index()
+    latest_close = float(df["close"].iloc[-1] or 0)
+    if latest_close <= 0:
+        return {"price": 0.0, "change": 0.0, "pct": 0.0}
+    prev_close = float(df["close"].iloc[-2] or latest_close) if len(df) >= 2 else latest_close
+    change = round(latest_close - prev_close, 2)
+    pct = round(((latest_close - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+    return {"price": round(latest_close, 2), "change": change, "pct": pct}
+
+
+def _build_historical_ticker_payload(ticker_client, ticker_source: str, *, ce_sid=None, pe_sid=None) -> dict | None:
+    """Build a topbar ticker payload from Dhan historical candles."""
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    from_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    index_specs = {
+        "nifty": ("13", "IDX_I", "INDEX"),
+        "banknifty": ("25", "IDX_I", "INDEX"),
+        "midcpnifty": ("49", "IDX_I", "INDEX"),
+        "sensex": ("51", "IDX_I", "INDEX"),
+    }
+    snapshots = {
+        key: _historical_price_snapshot(
+            ticker_client,
+            security_id=security_id,
+            exchange_segment=exchange_segment,
+            instrument_type=instrument_type,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        for key, (security_id, exchange_segment, instrument_type) in index_specs.items()
+    }
+    if snapshots["nifty"]["price"] <= 0:
+        return None
+
+    atm_ce = {"price": 0.0, "change": 0.0, "pct": 0.0}
+    atm_pe = {"price": 0.0, "change": 0.0, "pct": 0.0}
+    if ce_sid:
+        atm_ce = _historical_price_snapshot(
+            ticker_client,
+            security_id=ce_sid,
+            exchange_segment="NSE_FNO",
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=to_date,
+        )
+    if pe_sid:
+        atm_pe = _historical_price_snapshot(
+            ticker_client,
+            security_id=pe_sid,
+            exchange_segment="NSE_FNO",
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+    vix_data = _fetch_nse_vix()
+    vix_ltp = float(vix_data.get("price", 0) or 0)
+    vix_prev = float(vix_data.get("prev_close", 0) or 0)
+    v_chg = round(vix_ltp - vix_prev, 2) if vix_prev > 0 else 0
+    v_pct = round(((vix_ltp - vix_prev) / vix_prev) * 100, 2) if vix_prev > 0 else 0
+
+    return {
+        "status": "ok",
+        "source": "dhan_historical",
+        "broker_source": ticker_source,
+        "nifty": snapshots["nifty"],
+        "banknifty": snapshots["banknifty"],
+        "midcpnifty": snapshots["midcpnifty"],
+        "sensex": snapshots["sensex"],
+        "vix": {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
+        "atmCE": atm_ce,
+        "atmPE": atm_pe,
+    }
+
+
 @app.get("/api/ticker")
 async def get_ticker(request: Request):
     """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
@@ -5778,6 +5883,8 @@ async def get_ticker(request: Request):
     if dhan._is_configured() and dhan is not broker_client:
         ticker_clients.append(("global", dhan))
 
+    market_closed = _is_cash_market_closed_ist()
+
     for ticker_source, ticker_client in ticker_clients:
         try:
             print(f"[TICKER] Fetching from Dhan OHLC API ({ticker_source})...")
@@ -5791,6 +5898,9 @@ async def get_ticker(request: Request):
                     last_nifty = 0
                     if _ticker_cache["data"]:
                         last_nifty = _ticker_cache["data"].get("nifty", {}).get("price", 0)
+                    if last_nifty <= 0 and market_closed:
+                        prev = _get_prev_close(ticker_client)
+                        last_nifty = prev.get("nifty_ltp", 0) or prev.get("nifty", 0)
                     if last_nifty <= 0:
                         last_nifty = 24500
                     atm_strike = round(last_nifty / 50) * 50
@@ -5920,9 +6030,39 @@ async def get_ticker(request: Request):
                 )
                 return _ticker_json_response(result)
             else:
+                historical_result = _build_historical_ticker_payload(
+                    ticker_client,
+                    ticker_source,
+                    ce_sid=ce_sid,
+                    pe_sid=pe_sid,
+                )
+                if historical_result:
+                    _ticker_cache["data"] = historical_result
+                    _ticker_cache["timestamp"] = time.time()
+                    print(
+                        f"[TICKER] Historical fallback via {ticker_source}: "
+                        f"NIFTY={historical_result['nifty']['price']}, "
+                        f"SENSEX={historical_result['sensex']['price']}"
+                    )
+                    return _ticker_json_response(historical_result)
                 print(f"[TICKER] Dhan returned 0 for NIFTY via {ticker_source} — trying next source...")
         except Exception as e:
             print(f"[TICKER] Dhan API failed via {ticker_source}: {type(e).__name__}: {str(e)[:100]}")
+            historical_result = _build_historical_ticker_payload(
+                ticker_client,
+                ticker_source,
+                ce_sid=ce_sid if "ce_sid" in locals() else None,
+                pe_sid=pe_sid if "pe_sid" in locals() else None,
+            )
+            if historical_result:
+                _ticker_cache["data"] = historical_result
+                _ticker_cache["timestamp"] = time.time()
+                print(
+                    f"[TICKER] Historical fallback after error via {ticker_source}: "
+                    f"NIFTY={historical_result['nifty']['price']}, "
+                    f"SENSEX={historical_result['sensex']['price']}"
+                )
+                return _ticker_json_response(historical_result)
 
     # ── FALLBACK: yfinance ────────────────────────────────────
     try:
