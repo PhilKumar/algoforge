@@ -658,6 +658,48 @@ def _looks_like_broker_auth_error(message: str) -> bool:
     )
 
 
+def _market_probe_has_instruments(payload) -> bool:
+    """Return True when a market-feed payload contains at least one instrument quote."""
+    if isinstance(payload, dict):
+        if any(key in payload for key in ("last_price", "ltp", "LTP", "ohlc")):
+            return True
+        return any(_market_probe_has_instruments(value) for value in payload.values())
+    if isinstance(payload, list):
+        if not payload:
+            return False
+        return any(_market_probe_has_instruments(value) for value in payload)
+    return payload not in (None, "", 0, 0.0, False)
+
+
+def _probe_market_data_connection(broker_client: DhanClient) -> bool:
+    """Check whether market-data APIs are reachable without treating empty probe data as fatal."""
+    probe_segments = {"IDX_I": [13]}
+    probe_calls = (
+        lambda: broker_client.get_ltp_multi(probe_segments),
+        lambda: broker_client.get_ohlc_multi(probe_segments),
+    )
+    saw_empty_payload = False
+    last_non_auth_error = None
+
+    for probe_call in probe_calls:
+        try:
+            payload = probe_call()
+        except Exception as exc:
+            if _looks_like_broker_auth_error(str(exc)):
+                raise
+            last_non_auth_error = exc
+            continue
+        if _market_probe_has_instruments(payload):
+            return True
+        saw_empty_payload = True
+
+    if saw_empty_payload and last_non_auth_error is None:
+        return False
+    if last_non_auth_error is not None:
+        raise last_non_auth_error
+    return False
+
+
 def _mask_value(value: str, *, prefix: int = 3, suffix: int = 2) -> str:
     text = str(value or "").strip()
     if not text:
@@ -2456,10 +2498,7 @@ async def check_broker(request: Request):
 
         if funds and isinstance(funds, dict):
             try:
-                market_probe = await asyncio.to_thread(broker_client.get_ltp_multi, {"IDX_I": [13]})
-                market_ok = isinstance(market_probe, dict) and bool(market_probe.get("IDX_I"))
-                if not market_ok:
-                    raise RuntimeError("Market data probe returned no instruments")
+                market_ok = await asyncio.to_thread(_probe_market_data_connection, broker_client)
             except Exception as probe_error:
                 probe_msg = str(probe_error)
                 status = "auth_error" if _looks_like_broker_auth_error(probe_msg) else "marketdata_error"
@@ -2488,7 +2527,7 @@ async def check_broker(request: Request):
                 "source": source,
                 "available_balance": available_balance,
                 "funds": funds,
-                "market_data_ok": True,
+                "market_data_ok": market_ok,
                 "auto_refresh_ready": auto_refresh_ready,
             }
         else:
