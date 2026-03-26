@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import shutil
 from copy import deepcopy
 from html import escape as _escape_html
 from urllib.parse import quote as _url_quote
@@ -2129,7 +2130,8 @@ _ADMIN_EXAMPLE_SEED_KEY = "_example_seed"
 _ADMIN_EXAMPLE_BACKTEST_LIMIT = 2
 _ADMIN_EXAMPLE_MAX_BACKTEST_LIMIT = 20
 _ADMIN_EXAMPLE_FOLDER = "Default"
-_DEFAULT_EXAMPLES_BACKFILL_STATE_KEY = "default_examples_backfill_v1"
+_DEFAULT_EXAMPLES_BACKFILL_STATE_KEY = "default_examples_backfill_v2"
+_ADMIN_EXAMPLE_CHART_MANIFEST = ".admin_example_chart_seed.json"
 
 
 def _example_seed_meta(item: dict | None, kind: str, source_user_id: int) -> dict | None:
@@ -2184,14 +2186,114 @@ def _is_admin_example_folder(value: str | None) -> bool:
     return str(value or "").strip().casefold() == _ADMIN_EXAMPLE_FOLDER.casefold()
 
 
-def _next_available_journal_date(preferred_date: str, occupied_dates: set[str]) -> str:
-    current = date.fromisoformat(preferred_date)
-    for _ in range(3650):
-        candidate = current.isoformat()
-        if candidate not in occupied_dates:
-            return candidate
-        current += timedelta(days=1)
-    raise HTTPException(status_code=409, detail="Unable to find a free journal date for the example entry")
+def _chart_seed_manifest_path(user_id: int) -> str:
+    return os.path.join(_user_charts_root(user_id), _ADMIN_EXAMPLE_CHART_MANIFEST)
+
+
+def _load_chart_seed_manifest(user_id: int) -> dict:
+    path = _chart_seed_manifest_path(user_id)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_chart_seed_manifest(user_id: int, data: dict) -> None:
+    root = _user_charts_root(user_id)
+    os.makedirs(root, exist_ok=True)
+    path = _chart_seed_manifest_path(user_id)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(data or {}, handle, indent=2)
+
+
+def _clear_chart_seed_manifest(user_id: int) -> None:
+    path = _chart_seed_manifest_path(user_id)
+    if os.path.isfile(path):
+        os.remove(path)
+
+
+def _remove_seeded_chart_copy(user_id: int) -> None:
+    manifest = _load_chart_seed_manifest(user_id)
+    year = str(manifest.get("year") or "")
+    month = str(manifest.get("month") or "")
+    day = str(manifest.get("day") or "")
+    filenames = [str(name) for name in (manifest.get("filenames") or []) if str(name)]
+    for filename in filenames:
+        file_path = _safe_charts_subpath(user_id, year, month, day, filename)
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+
+    day_path = _safe_charts_subpath(user_id, year, month, day)
+    if day_path and os.path.isdir(day_path):
+        leftovers = [name for name in os.listdir(day_path) if name not in {".keep", ".DS_Store"}]
+        if not leftovers:
+            keep_path = os.path.join(day_path, ".keep")
+            if os.path.isfile(keep_path):
+                os.remove(keep_path)
+            if not os.listdir(day_path):
+                os.rmdir(day_path)
+
+    month_path = _safe_charts_subpath(user_id, year, month)
+    if month_path and os.path.isdir(month_path) and not os.listdir(month_path):
+        os.rmdir(month_path)
+
+    year_path = _safe_charts_subpath(user_id, year)
+    if year_path and os.path.isdir(year_path) and not os.listdir(year_path):
+        os.rmdir(year_path)
+
+    _clear_chart_seed_manifest(user_id)
+
+
+def _latest_chart_day_snapshot(user_id: int) -> dict | None:
+    charts_root = _user_charts_root(user_id)
+    if not os.path.isdir(charts_root):
+        return None
+
+    latest: dict | None = None
+    for year in sorted(os.listdir(charts_root)):
+        year_path = os.path.join(charts_root, year)
+        if not os.path.isdir(year_path) or not str(year).isdigit():
+            continue
+        for month_folder in os.listdir(year_path):
+            month_path = os.path.join(year_path, month_folder)
+            if not os.path.isdir(month_path):
+                continue
+            parsed_month = _parse_month_folder(month_folder)
+            if parsed_month is None:
+                continue
+            month_num, month_label = parsed_month
+            for day_folder in os.listdir(month_path):
+                day_path = os.path.join(month_path, day_folder)
+                if not os.path.isdir(day_path):
+                    continue
+                images = sorted(
+                    name for name in os.listdir(day_path) if name.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                )
+                if not images:
+                    continue
+                day_sort, day_label = _parse_day_folder(day_folder)
+                day_num = 0
+                match = _re.match(r"^\d{4}-\d{2}-(\d{2})$", str(day_sort))
+                if match:
+                    day_num = int(match.group(1))
+                sort_tuple = (int(year), int(month_num), int(day_num), str(day_folder).casefold())
+                snapshot = {
+                    "year": str(year),
+                    "month": str(month_folder),
+                    "month_label": month_label,
+                    "day": str(day_folder),
+                    "day_label": day_label,
+                    "images": images,
+                    "path": day_path,
+                    "sort_tuple": sort_tuple,
+                }
+                if latest is None or snapshot["sort_tuple"] > latest["sort_tuple"]:
+                    latest = snapshot
+    return latest
 
 
 async def _copy_example_strategies(
@@ -2342,45 +2444,75 @@ async def _copy_example_backtests(
     return {"copied": copied, "names": names}
 
 
-async def _copy_example_journal_entry(
-    source_user_id: int,
-    target_user_id: int,
-    journal_date: str | None = None,
-) -> dict:
-    source_entries = await _db_mod.list_journal_entries(source_user_id)
-    if journal_date:
-        source_summary = next((entry for entry in source_entries if str(entry.get("date") or "") == journal_date), None)
-        if source_summary is None:
-            raise HTTPException(status_code=404, detail="Admin journal example not found")
-    else:
-        source_summary = source_entries[0] if source_entries else None
-    if not source_summary:
-        return {"copied": 0, "source_date": None, "target_date": None}
-
-    source_date = str(source_summary["date"])
-    source_data = deepcopy(await _db_mod.get_journal_entry(source_user_id, source_date) or {})
-    source_data[_ADMIN_EXAMPLE_SEED_KEY] = {
-        "kind": "journal",
-        "source_user_id": int(source_user_id),
-        "source_date": source_date,
-    }
-
-    target_entries = await _db_mod.list_journal_entries(target_user_id)
-    occupied_dates = {str(entry.get("date") or "") for entry in target_entries if str(entry.get("date") or "")}
-    seeded_target_date = None
-    for entry in target_entries:
+async def _remove_seeded_journal_examples(source_user_id: int, target_user_id: int) -> int:
+    removed = 0
+    for entry in await _db_mod.list_journal_entries(target_user_id):
         entry_date = str(entry.get("date") or "")
         if not entry_date:
             continue
-        target_data = await _db_mod.get_journal_entry(target_user_id, entry_date) or {}
-        meta = _example_seed_meta(target_data, "journal", source_user_id)
-        if meta and str(meta.get("source_date") or "") == source_date:
-            seeded_target_date = entry_date
-            break
+        data = await _db_mod.get_journal_entry(target_user_id, entry_date) or {}
+        if _example_seed_meta(data, "journal", source_user_id):
+            deleted = await _db_mod.delete_journal_entry(target_user_id, entry_date)
+            if deleted:
+                removed += 1
+    return removed
 
-    target_date = seeded_target_date or _next_available_journal_date(source_date, occupied_dates)
-    await _db_mod.upsert_journal_entry(target_user_id, target_date, source_data)
-    return {"copied": 1, "source_date": source_date, "target_date": target_date}
+
+async def _copy_latest_chart_day_example(
+    source_user_id: int,
+    target_user_id: int,
+) -> dict:
+    source_snapshot = _latest_chart_day_snapshot(source_user_id)
+    if not source_snapshot:
+        _remove_seeded_chart_copy(target_user_id)
+        return {"copied": 0, "source_date": None, "target_date": None, "images": 0}
+
+    _remove_seeded_chart_copy(target_user_id)
+
+    target_day_path = _safe_charts_subpath(
+        target_user_id,
+        source_snapshot["year"],
+        source_snapshot["month"],
+        source_snapshot["day"],
+        create_root=True,
+    )
+    if target_day_path is None:
+        raise HTTPException(status_code=400, detail="Invalid chart target path")
+    os.makedirs(target_day_path, exist_ok=True)
+
+    copied_filenames: list[str] = []
+    for image_name in source_snapshot["images"]:
+        source_file_path = os.path.join(source_snapshot["path"], image_name)
+        seeded_name = f"AdminExample_{os.path.basename(image_name)}"
+        candidate_name = seeded_name
+        counter = 2
+        while os.path.exists(os.path.join(target_day_path, candidate_name)):
+            candidate_name = f"AdminExample_{counter}_{os.path.basename(image_name)}"
+            counter += 1
+        shutil.copy2(source_file_path, os.path.join(target_day_path, candidate_name))
+        copied_filenames.append(candidate_name)
+
+    if copied_filenames:
+        _save_chart_seed_manifest(
+            target_user_id,
+            {
+                "source_user_id": int(source_user_id),
+                "year": source_snapshot["year"],
+                "month": source_snapshot["month"],
+                "day": source_snapshot["day"],
+                "filenames": copied_filenames,
+            },
+        )
+    else:
+        _clear_chart_seed_manifest(target_user_id)
+
+    source_date = f"{source_snapshot['year']}-{source_snapshot['month']}/{source_snapshot['day']}"
+    return {
+        "copied": 1 if copied_filenames else 0,
+        "source_date": source_date,
+        "target_date": source_date,
+        "images": len(copied_filenames),
+    }
 
 
 async def _copy_admin_examples_to_user(
@@ -2389,16 +2521,16 @@ async def _copy_admin_examples_to_user(
     *,
     strategy_ids: list[int] | None = None,
     run_ids: list[int] | None = None,
-    journal_date: str | None = None,
     include_strategies: bool = True,
     include_backtests: bool = True,
-    include_journal: bool = True,
+    include_charts: bool = True,
     backtest_limit: int = _ADMIN_EXAMPLE_BACKTEST_LIMIT,
 ) -> dict:
     result = {
         "strategies": {"copied": 0, "names": []},
         "backtests": {"copied": 0, "names": []},
-        "journal": {"copied": 0, "source_date": None, "target_date": None},
+        "charts": {"copied": 0, "source_date": None, "target_date": None, "images": 0},
+        "removed_seeded_journals": 0,
     }
     if include_strategies:
         result["strategies"] = await _copy_example_strategies(source_user_id, target_user_id, strategy_ids)
@@ -2409,8 +2541,9 @@ async def _copy_admin_examples_to_user(
             run_ids,
             backtest_limit=backtest_limit,
         )
-    if include_journal:
-        result["journal"] = await _copy_example_journal_entry(source_user_id, target_user_id, journal_date)
+    result["removed_seeded_journals"] = await _remove_seeded_journal_examples(source_user_id, target_user_id)
+    if include_charts:
+        result["charts"] = await _copy_latest_chart_day_example(source_user_id, target_user_id)
     return result
 
 
@@ -2434,7 +2567,7 @@ async def _backfill_default_examples_for_existing_users_once() -> dict:
         processed_users += 1
         copied = await _copy_admin_examples_to_user(int(admin["id"]), int(user["id"]))
         copied_total = (
-            int(copied["strategies"]["copied"]) + int(copied["backtests"]["copied"]) + int(copied["journal"]["copied"])
+            int(copied["strategies"]["copied"]) + int(copied["backtests"]["copied"]) + int(copied["charts"]["copied"])
         )
         if copied_total > 0:
             seeded_users += 1
@@ -2477,7 +2610,8 @@ async def admin_create_user(request: Request):
     copied = {
         "strategies": {"copied": 0, "names": []},
         "backtests": {"copied": 0, "names": []},
-        "journal": {"copied": 0, "source_date": None, "target_date": None},
+        "charts": {"copied": 0, "source_date": None, "target_date": None, "images": 0},
+        "removed_seeded_journals": 0,
     }
     if role == "user":
         copied = await _copy_admin_examples_to_user(int(admin["id"]), int(user_id))
@@ -2490,10 +2624,11 @@ async def admin_create_user(request: Request):
         "copied": {
             "strategies": copied["strategies"]["copied"],
             "backtests": copied["backtests"]["copied"],
-            "journal": copied["journal"]["copied"],
+            "charts": copied["charts"]["copied"],
+            "journal": 0,
         },
-        "journal_source_date": copied["journal"]["source_date"],
-        "journal_target_date": copied["journal"]["target_date"],
+        "chart_source_date": copied["charts"]["source_date"],
+        "chart_target_date": copied["charts"]["target_date"],
     }
 
 
@@ -2533,7 +2668,7 @@ async def admin_reset_password(user_id: int, request: Request):
 
 @app.post("/api/admin/users/{user_id}/copy-examples")
 async def admin_copy_examples_to_user(user_id: int, request: Request):
-    """Copy admin-owned example strategies, journal, and backtests to another user."""
+    """Copy admin-owned example strategies, latest chart day, and backtests to another user."""
     admin = await _auth_mod.require_admin(request)
     if int(user_id) == int(admin["id"]):
         raise HTTPException(status_code=400, detail="Choose another user account")
@@ -2551,18 +2686,12 @@ async def admin_copy_examples_to_user(user_id: int, request: Request):
 
     include_strategies = bool(body.get("include_strategies", True))
     include_backtests = bool(body.get("include_backtests", True))
-    include_journal = bool(body.get("include_journal", True))
-    if not any((include_strategies, include_backtests, include_journal)):
+    include_charts = bool(body.get("include_charts", body.get("include_journal", True)))
+    if not any((include_strategies, include_backtests, include_charts)):
         raise HTTPException(status_code=400, detail="Select at least one example type to copy")
 
     strategy_ids = _coerce_admin_example_ids(body.get("strategy_ids"))
     run_ids = _coerce_admin_example_ids(body.get("run_ids"))
-
-    journal_date = body.get("journal_date")
-    if journal_date is not None:
-        journal_date = str(journal_date).strip()
-        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", journal_date):
-            raise HTTPException(status_code=400, detail="journal_date must use YYYY-MM-DD")
 
     try:
         backtest_limit = int(body.get("backtest_limit", _ADMIN_EXAMPLE_BACKTEST_LIMIT) or _ADMIN_EXAMPLE_BACKTEST_LIMIT)
@@ -2575,10 +2704,9 @@ async def admin_copy_examples_to_user(user_id: int, request: Request):
         int(user_id),
         strategy_ids=strategy_ids,
         run_ids=run_ids,
-        journal_date=journal_date,
         include_strategies=include_strategies,
         include_backtests=include_backtests,
-        include_journal=include_journal,
+        include_charts=include_charts,
         backtest_limit=backtest_limit,
     )
     return {
@@ -2590,10 +2718,12 @@ async def admin_copy_examples_to_user(user_id: int, request: Request):
         "copied": {
             "strategies": copied["strategies"]["copied"],
             "backtests": copied["backtests"]["copied"],
-            "journal": copied["journal"]["copied"],
+            "charts": copied["charts"]["copied"],
+            "journal": 0,
         },
-        "journal_source_date": copied["journal"]["source_date"],
-        "journal_target_date": copied["journal"]["target_date"],
+        "chart_source_date": copied["charts"]["source_date"],
+        "chart_target_date": copied["charts"]["target_date"],
+        "removed_seeded_journals": copied["removed_seeded_journals"],
     }
 
 

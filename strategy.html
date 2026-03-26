@@ -4384,7 +4384,7 @@
         </div>
         <button class="btn" onclick="createAdminUser()">Create User</button>
       </div>
-      <div class="settings-hint">Accounts are isolated by user id on this branch. Broker credentials are managed by the user from Account Settings. Use "Copy Examples" on a user row to seed admin items from the <strong>Default</strong> folder only: strategies, one admin journal example, and the latest 2 admin backtests.</div>
+      <div class="settings-hint">Accounts are isolated by user id on this branch. Broker credentials are managed by the user from Account Settings. Use "Copy Examples" on a user row to seed admin items from the <strong>Default</strong> folder only: strategies, the latest chart date, and the latest 2 admin backtests.</div>
     </div>
 
     <div class="admin-table-wrap">
@@ -5015,7 +5015,7 @@ async function createAdminUser() {
     const bits = [];
     if (Number(copied.strategies || 0) > 0) bits.push(`${copied.strategies} strategies`);
     if (Number(copied.backtests || 0) > 0) bits.push(`${copied.backtests} backtests`);
-    if (Number(copied.journal || 0) > 0) bits.push('1 journal entry');
+    if (Number(copied.charts || 0) > 0) bits.push('latest chart date');
     const seedSuffix = bits.length ? ` with ${bits.join(', ')}` : '';
     toast(`User "${username}" created${seedSuffix}`, 'success');
     document.getElementById('admin-create-username').value = '';
@@ -5078,7 +5078,7 @@ async function resetAdminUserPassword(userId, username) {
 
 async function copyAdminExamplesToUser(userId, username) {
   const ok = await customConfirm(
-    `Copy admin examples to <strong>${escapeHtml(username)}</strong>?<br><span style="font-size:11px;color:var(--muted);">This copies only admin items from the <strong>Default</strong> folder: strategies, the latest admin journal entry, and the latest 2 admin backtests. Existing seeded examples for this user are refreshed instead of duplicated.</span>`,
+    `Copy admin examples to <strong>${escapeHtml(username)}</strong>?<br><span style="font-size:11px;color:var(--muted);">This copies only admin items from the <strong>Default</strong> folder: strategies, the latest chart date, and the latest 2 admin backtests. Existing seeded examples for this user are refreshed instead of duplicated, and old seeded journal entries are removed.</span>`,
     {
       title: 'Copy Examples',
       icon: ICO.brain(24),
@@ -5097,7 +5097,7 @@ async function copyAdminExamplesToUser(userId, username) {
     const bits = [];
     if (Number(copied.strategies || 0) > 0) bits.push(`${copied.strategies} strategies`);
     if (Number(copied.backtests || 0) > 0) bits.push(`${copied.backtests} backtests`);
-    if (Number(copied.journal || 0) > 0) bits.push('1 journal entry');
+    if (Number(copied.charts || 0) > 0) bits.push('latest chart date');
     if (!bits.length) {
       toast(`No admin examples available for ${username}`, 'warn');
       return;

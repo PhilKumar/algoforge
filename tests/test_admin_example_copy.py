@@ -38,6 +38,7 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(TEST_USER_DATA)
         app_module.config.DB_PATH = str(TEST_DB)
         app_module.config.USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._USER_DATA_ROOT = str(TEST_USER_DATA)
         app_module._db_mod.config.DB_PATH = str(TEST_DB)
         app_module._db_mod.config.USER_DATA_ROOT = str(TEST_USER_DATA)
         app_module._db_mod._initialized = False
@@ -45,6 +46,12 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
 
     async def _create_user(self, username: str, role: str = "user") -> int:
         return await app_module._db_mod.create_user(username, f"{username}-hash", role=role)
+
+    def _write_chart_day(self, user_id: int, year: str, month: str, day: str, filenames: list[str]) -> None:
+        day_path = Path(app_module._user_charts_root(user_id)) / year / month / day
+        day_path.mkdir(parents=True, exist_ok=True)
+        for filename in filenames:
+            (day_path / filename).write_bytes(b"fake-image")
 
     async def test_admin_create_user_auto_seeds_default_examples_for_new_user(self):
         admin_id = await self._create_user("admin", role="admin")
@@ -77,16 +84,7 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
                 "created_at": "2026-03-24 09:15:00",
             },
         )
-        await app_module._db_mod.upsert_journal_entry(
-            admin_id,
-            "2026-03-24",
-            {
-                "asset": "NIFTY",
-                "strategy": "Starter Journal",
-                "grade": "A",
-                "went_well": "Good risk discipline",
-            },
-        )
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "24-Mar-2026", ["starter.png"])
 
         request = _DummyRequest(
             {
@@ -106,7 +104,8 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["copied"]["strategies"], 1)
         self.assertEqual(result["copied"]["backtests"], 1)
-        self.assertEqual(result["copied"]["journal"], 1)
+        self.assertEqual(result["copied"]["charts"], 1)
+        self.assertEqual(result["copied"]["journal"], 0)
 
         created_user = await app_module._db_mod.get_user_by_username("newuser")
         self.assertIsNotNone(created_user)
@@ -120,8 +119,13 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(target_runs[0]["run_name"], "Starter Backtest (Admin Example)")
         self.assertEqual(str(target_runs[0].get("folder") or ""), "Default")
 
-        target_journal = await app_module._db_mod.get_journal_entry(int(created_user["id"]), "2026-03-24")
-        self.assertEqual(target_journal["strategy"], "Starter Journal")
+        self.assertEqual(await app_module._db_mod.list_journal_entries(int(created_user["id"])), [])
+        chart_manifest = app_module._load_chart_seed_manifest(int(created_user["id"]))
+        self.assertEqual(chart_manifest["day"], "24-Mar-2026")
+        target_chart_dir = (
+            TEST_USER_DATA / str(int(created_user["id"])) / "charts" / "2026" / "Mar-2026" / "24-Mar-2026"
+        )
+        self.assertEqual(sorted(path.name for path in target_chart_dir.iterdir()), ["AdminExample_starter.png"])
 
     async def test_existing_users_are_backfilled_once_from_default_examples(self):
         admin_id = await self._create_user("admin", role="admin")
@@ -156,14 +160,29 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
                 "created_at": "2026-03-24 09:15:00",
             },
         )
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "20-Mar-2026", ["older.png"])
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "24-Mar-2026", ["latest.png"])
+
         await app_module._db_mod.upsert_journal_entry(
-            admin_id,
-            "2026-03-24",
+            alice_id,
+            "2026-03-21",
             {
                 "asset": "NIFTY",
-                "strategy": "Backfill Journal",
-                "grade": "A",
-                "went_well": "Held winners",
+                "strategy": "Should Remove",
+                app_module._ADMIN_EXAMPLE_SEED_KEY: {
+                    "kind": "journal",
+                    "source_user_id": admin_id,
+                    "source_date": "2026-03-21",
+                },
+            },
+        )
+        await app_module._db_mod.upsert_journal_entry(
+            bob_id,
+            "2026-03-22",
+            {
+                "asset": "BANKNIFTY",
+                "strategy": "Manual Note",
+                "grade": "B",
             },
         )
 
@@ -180,10 +199,13 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         for user_id in (alice_id, bob_id):
             strategies = await app_module._db_mod.list_strategies(user_id)
             runs = await app_module._db_mod.list_runs(user_id)
-            journal = await app_module._db_mod.get_journal_entry(user_id, "2026-03-24")
             self.assertEqual([item["run_name"] for item in strategies], ["Default Starter (Admin Example)"])
             self.assertEqual([item["run_name"] for item in runs], ["Default Backtest (Admin Example)"])
-            self.assertEqual(journal["strategy"], "Backfill Journal")
+            manifest = app_module._load_chart_seed_manifest(user_id)
+            self.assertEqual(manifest["day"], "24-Mar-2026")
+
+        self.assertIsNone(await app_module._db_mod.get_journal_entry(alice_id, "2026-03-21"))
+        self.assertEqual((await app_module._db_mod.get_journal_entry(bob_id, "2026-03-22"))["strategy"], "Manual Note")
 
         await app_module._db_mod.create_strategy_record(
             admin_id,
@@ -278,35 +300,15 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
                 "created_at": "2026-03-26 09:15:00",
             },
         )
-
-        await app_module._db_mod.upsert_journal_entry(
-            admin_id,
-            "2026-03-20",
-            {
-                "asset": "NIFTY",
-                "strategy": "Fade",
-                "grade": "B",
-                "went_well": "Stayed patient",
-            },
-        )
-        await app_module._db_mod.upsert_journal_entry(
-            admin_id,
-            "2026-03-24",
-            {
-                "asset": "BANKNIFTY",
-                "strategy": "Breakout",
-                "grade": "A",
-                "went_well": "Followed plan",
-            },
-        )
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "20-Mar-2026", ["older.png"])
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "24-Mar-2026", ["latest.png"])
 
         copied = await app_module._copy_admin_examples_to_user(admin_id, target_id)
 
         self.assertEqual(copied["strategies"]["copied"], 1)
         self.assertEqual(copied["backtests"]["copied"], 2)
-        self.assertEqual(copied["journal"]["copied"], 1)
-        self.assertEqual(copied["journal"]["source_date"], "2026-03-24")
-        self.assertEqual(copied["journal"]["target_date"], "2026-03-24")
+        self.assertEqual(copied["charts"]["copied"], 1)
+        self.assertEqual(copied["charts"]["target_date"], "2026-Mar-2026/24-Mar-2026")
 
         target_strategies = await app_module._db_mod.list_strategies(target_id)
         self.assertEqual(len(target_strategies), 1)
@@ -324,13 +326,13 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
             {"Example Backtest 6 (Admin Example)", "Example Backtest 5 (Admin Example)"},
         )
 
-        journal_entries = await app_module._db_mod.list_journal_entries(target_id)
-        self.assertEqual([entry["date"] for entry in journal_entries], ["2026-03-24"])
-        journal_data = await app_module._db_mod.get_journal_entry(target_id, "2026-03-24")
-        self.assertEqual(journal_data["strategy"], "Breakout")
-        self.assertEqual(journal_data["_example_seed"]["source_date"], "2026-03-24")
+        self.assertEqual(await app_module._db_mod.list_journal_entries(target_id), [])
+        chart_manifest = app_module._load_chart_seed_manifest(target_id)
+        self.assertEqual(chart_manifest["day"], "24-Mar-2026")
+        copied_chart_dir = TEST_USER_DATA / str(target_id) / "charts" / "2026" / "Mar-2026" / "24-Mar-2026"
+        self.assertEqual(sorted(path.name for path in copied_chart_dir.iterdir()), ["AdminExample_latest.png"])
 
-    async def test_copy_admin_examples_refreshes_seeded_records_and_does_not_overwrite_manual_journal(self):
+    async def test_copy_admin_examples_refreshes_seeded_records_and_removes_seeded_journal_examples(self):
         admin_id = await self._create_user("admin", role="admin")
         target_id = await self._create_user("bob")
 
@@ -393,16 +395,6 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         )
 
         await app_module._db_mod.upsert_journal_entry(
-            admin_id,
-            "2026-03-24",
-            {
-                "asset": "FINNIFTY",
-                "strategy": "Trend Day",
-                "grade": "A",
-                "went_well": "Good exits",
-            },
-        )
-        await app_module._db_mod.upsert_journal_entry(
             target_id,
             "2026-03-24",
             {
@@ -412,12 +404,28 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
                 "went_well": "Manual journal must stay",
             },
         )
+        await app_module._db_mod.upsert_journal_entry(
+            target_id,
+            "2026-03-25",
+            {
+                "asset": "NIFTY",
+                "strategy": "Old Seeded Journal",
+                app_module._ADMIN_EXAMPLE_SEED_KEY: {
+                    "kind": "journal",
+                    "source_user_id": admin_id,
+                    "source_date": "2026-03-25",
+                },
+            },
+        )
+        self._write_chart_day(admin_id, "2026", "Mar-2026", "24-Mar-2026", ["latest.png"])
 
         first_copy = await app_module._copy_admin_examples_to_user(admin_id, target_id)
         second_copy = await app_module._copy_admin_examples_to_user(admin_id, target_id)
 
-        self.assertEqual(first_copy["journal"]["target_date"], "2026-03-25")
-        self.assertEqual(second_copy["journal"]["target_date"], "2026-03-25")
+        self.assertEqual(first_copy["removed_seeded_journals"], 1)
+        self.assertEqual(second_copy["removed_seeded_journals"], 0)
+        self.assertEqual(first_copy["charts"]["target_date"], "2026-Mar-2026/24-Mar-2026")
+        self.assertEqual(second_copy["charts"]["target_date"], "2026-Mar-2026/24-Mar-2026")
 
         target_strategies = await app_module._db_mod.list_strategies(target_id)
         seeded_strategies = [item for item in target_strategies if item.get("_example_seed")]
@@ -431,13 +439,13 @@ class AdminExampleCopyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seeded_runs[0]["trade_count"], 7)
 
         manual_journal = await app_module._db_mod.get_journal_entry(target_id, "2026-03-24")
-        copied_journal = await app_module._db_mod.get_journal_entry(target_id, "2026-03-25")
         self.assertEqual(manual_journal["strategy"], "Personal Note")
-        self.assertEqual(copied_journal["strategy"], "Trend Day")
-        self.assertEqual(copied_journal["_example_seed"]["source_date"], "2026-03-24")
+        self.assertIsNone(await app_module._db_mod.get_journal_entry(target_id, "2026-03-25"))
 
-        journal_dates = [entry["date"] for entry in await app_module._db_mod.list_journal_entries(target_id)]
-        self.assertEqual(journal_dates, ["2026-03-25", "2026-03-24"])
+        chart_manifest = app_module._load_chart_seed_manifest(target_id)
+        self.assertEqual(chart_manifest["day"], "24-Mar-2026")
+        copied_chart_dir = TEST_USER_DATA / str(target_id) / "charts" / "2026" / "Mar-2026" / "24-Mar-2026"
+        self.assertEqual(sorted(path.name for path in copied_chart_dir.iterdir()), ["AdminExample_latest.png"])
 
 
 if __name__ == "__main__":
