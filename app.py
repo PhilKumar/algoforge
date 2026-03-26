@@ -5603,13 +5603,21 @@ async def get_ticker(request: Request):
         return _ticker_json_response(_ticker_cache["data"])
 
     # ── PRIMARY: Dhan OHLC API (one call for LTP + ATM CE/PE) ──
-    _, broker_client, _ = await _request_broker_context(request)
-    ticker_client = (
-        broker_client if broker_client and broker_client._is_configured() else (dhan if dhan._is_configured() else None)
-    )
-    if ticker_client:
+    broker_client = None
+    try:
+        _, broker_client, _ = await _request_broker_context(request)
+    except Exception as e:
+        print(f"[TICKER] Broker context unavailable: {e}")
+
+    ticker_clients = []
+    if broker_client and broker_client._is_configured():
+        ticker_clients.append(("user", broker_client))
+    if dhan._is_configured() and dhan is not broker_client:
+        ticker_clients.append(("global", dhan))
+
+    for ticker_source, ticker_client in ticker_clients:
         try:
-            print("[TICKER] Fetching from Dhan OHLC API...")
+            print(f"[TICKER] Fetching from Dhan OHLC API ({ticker_source})...")
 
             # Resolve ATM option security IDs FIRST (no API call)
             ce_sid, pe_sid, atm_strike = None, None, 0
@@ -5733,6 +5741,7 @@ async def get_ticker(request: Request):
                 result = {
                     "status": "ok",
                     "source": "dhan",
+                    "broker_source": ticker_source,
                     "nifty": {"price": round(nifty_ltp, 2), "change": n_chg, "pct": n_pct},
                     "banknifty": {"price": round(banknifty_ltp, 2), "change": bn_chg, "pct": bn_pct},
                     "midcpnifty": {"price": round(midcpnifty_ltp, 2), "change": mc_chg, "pct": mc_pct},
@@ -5748,9 +5757,9 @@ async def get_ticker(request: Request):
                 )
                 return _ticker_json_response(result)
             else:
-                print("[TICKER] Dhan returned 0 for NIFTY — market may be closed, trying yfinance...")
+                print(f"[TICKER] Dhan returned 0 for NIFTY via {ticker_source} — trying next source...")
         except Exception as e:
-            print(f"[TICKER] Dhan API failed: {type(e).__name__}: {str(e)[:100]}, trying yfinance...")
+            print(f"[TICKER] Dhan API failed via {ticker_source}: {type(e).__name__}: {str(e)[:100]}")
 
     # ── FALLBACK: yfinance ────────────────────────────────────
     try:
@@ -5799,6 +5808,12 @@ async def get_ticker(request: Request):
         print("[TICKER] yfinance also returned no data")
     except Exception as yf_err:
         print(f"[TICKER] yfinance fallback failed: {yf_err}")
+
+    if _ticker_cache["data"]:
+        stale = dict(_ticker_cache["data"])
+        stale["stale"] = True
+        print("[TICKER] Serving stale cached topbar data")
+        return _ticker_json_response(stale)
 
     return _ticker_json_response({"status": "error", "msg": "No price data available from any source"})
 
