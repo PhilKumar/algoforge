@@ -947,8 +947,8 @@
 
   /* ── Premium Light: Buttons — Soft Glass ── */
   [data-theme="light"] .btn {
-    background: var(--btn-bg, linear-gradient(180deg, rgba(37,99,235,0.10) 0%, rgba(37,99,235,0.18) 100%));
-    color: var(--btn-color, #1d4ed8);
+    background: var(--btn-bg, linear-gradient(180deg, rgba(15,23,42,0.035) 0%, rgba(15,23,42,0.075) 100%));
+    color: var(--btn-color, #0f172a);
     border: 1.5px solid var(--btn-border, rgba(37,99,235,0.20));
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     text-shadow: none;
@@ -960,19 +960,50 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.10);
   }
   [data-theme="light"] .btn-submit {
-    --btn-bg: linear-gradient(180deg, #059669 0%, #047857 100%);
-    --btn-color: #ffffff;
-    --btn-border: #047857;
+    --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.18) 100%);
+    --btn-color: #065f46;
+    --btn-border: rgba(5,150,105,0.26);
   }
   [data-theme="light"] .btn-danger {
-    --btn-bg: linear-gradient(180deg, #e11d48 0%, #be123c 100%);
-    --btn-color: #ffffff;
-    --btn-border: #be123c;
+    --btn-bg: linear-gradient(180deg, rgba(244,63,94,0.10) 0%, rgba(244,63,94,0.18) 100%);
+    --btn-color: #9f1239;
+    --btn-border: rgba(225,29,72,0.24);
   }
   [data-theme="light"] .btn-secondary {
-    --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.18) 100%);
-    --btn-color: #7c3aed;
-    --btn-border: rgba(124,58,237,0.25);
+    --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.17) 100%);
+    --btn-color: #6d28d9;
+    --btn-border: rgba(124,58,237,0.22);
+  }
+  [data-theme="light"] .btn-outline {
+    --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,250,252,0.96) 100%);
+    --btn-color: #334155;
+    --btn-border: rgba(15,23,42,0.12);
+  }
+  [data-theme="light"] .btn[style*="--btn-color"] {
+    color: var(--btn-color) !important;
+  }
+  [data-theme="light"] #account-modal .btn,
+  [data-theme="light"] #admin-modal .btn,
+  [data-theme="light"] #account-modal .modal-close,
+  [data-theme="light"] #admin-modal .modal-close {
+    text-shadow: none !important;
+    font-weight: 700;
+  }
+  [data-theme="light"] #account-broker-save-btn,
+  [data-theme="light"] #account-password-save-btn {
+    color: #0f172a !important;
+  }
+  [data-theme="light"] #account-broker-check-btn {
+    --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.10) 0%, rgba(59,130,246,0.18) 100%) !important;
+    --btn-border: rgba(59,130,246,0.22) !important;
+    --btn-color: #1e3a8a !important;
+    color: #1e3a8a !important;
+  }
+  [data-theme="light"] #account-broker-clear-btn {
+    --btn-bg: linear-gradient(180deg, rgba(244,63,94,0.10) 0%, rgba(244,63,94,0.18) 100%) !important;
+    --btn-border: rgba(225,29,72,0.22) !important;
+    --btn-color: #9f1239 !important;
+    color: #9f1239 !important;
   }
   /* Light theme: orange/amber readable */
   [data-theme="light"] { --warn: #b45309; }
@@ -3752,19 +3783,19 @@
         <div id="dash-fiidii-strip-grid">
           <div class="dash-fiidii-metric neg">
             <div class="dash-fiidii-metric-label">Latest FII</div>
-            <div id="dash-fiidii-latest-fii" class="dash-fiidii-metric-value">₹0</div>
+            <div id="dash-fiidii-latest-fii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
           <div class="dash-fiidii-metric pos">
             <div class="dash-fiidii-metric-label">Latest DII</div>
-            <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0</div>
+            <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
           <div class="dash-fiidii-metric soft-neg">
             <div class="dash-fiidii-metric-label">30D FII</div>
-            <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0</div>
+            <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
           <div class="dash-fiidii-metric soft-pos">
             <div class="dash-fiidii-metric-label">30D DII</div>
-            <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0</div>
+            <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
         </div>
         <div class="dash-fiidii-meta">
@@ -12803,6 +12834,11 @@ function _dashMoney(value) {
   return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function _dashMoneyCr(value) {
+  const num = Number(value || 0);
+  return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' CR';
+}
+
 function _dashValueColor(value) {
   const num = Number(value || 0);
   return num > 0 ? 'var(--success)' : num < 0 ? 'var(--danger)' : 'var(--muted)';
@@ -12829,19 +12865,19 @@ function _renderDashboardFiiDiiPanel(block) {
   const rollingDii = Number(rolling.dii_net || 0);
 
   const latestFiiEl = document.getElementById('dash-fiidii-latest-fii');
-  latestFiiEl.textContent = _dashMoney(latestFii);
+  latestFiiEl.textContent = _dashMoneyCr(latestFii);
   latestFiiEl.style.color = _dashValueColor(latestFii);
 
   const latestDiiEl = document.getElementById('dash-fiidii-latest-dii');
-  latestDiiEl.textContent = _dashMoney(latestDii);
+  latestDiiEl.textContent = _dashMoneyCr(latestDii);
   latestDiiEl.style.color = _dashValueColor(latestDii);
 
   const rollingFiiEl = document.getElementById('dash-fiidii-rolling-fii');
-  rollingFiiEl.textContent = _dashMoney(rollingFii);
+  rollingFiiEl.textContent = _dashMoneyCr(rollingFii);
   rollingFiiEl.style.color = _dashValueColor(rollingFii);
 
   const rollingDiiEl = document.getElementById('dash-fiidii-rolling-dii');
-  rollingDiiEl.textContent = _dashMoney(rollingDii);
+  rollingDiiEl.textContent = _dashMoneyCr(rollingDii);
   rollingDiiEl.style.color = _dashValueColor(rollingDii);
 
   document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
