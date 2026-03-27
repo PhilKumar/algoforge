@@ -1467,6 +1467,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     avg_loss = abs(float(np.mean(losses))) if losses else 0
     expectancy = round(win_rate * avg_win - (1.0 - win_rate) * avg_loss, 2)
 
+    risk_per_trade = round(float(np.std(pnls)), 2) if len(pnls) > 1 else 0
+    risk_per_trade_pct = round(risk_per_trade / initial_capital * 100, 2) if initial_capital > 0 else 0
+
     stats = {
         "total_trades": len(summary_trades),
         "closed_legs": len(trades),
@@ -1485,7 +1488,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         "max_loss": round(min(pnls), 2),
         "win_streak": win_streak,
         "loss_streak": loss_streak,
-        "risk_per_trade": round(float(np.std(pnls)), 2) if len(pnls) > 1 else 0,
+        "risk_per_trade": risk_per_trade,
+        "risk_per_trade_pct": risk_per_trade_pct,
         "sharpe_ratio": sharpe_ratio,
         "calmar_ratio": calmar_ratio,
         "expectancy": expectancy,

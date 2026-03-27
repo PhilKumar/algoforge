@@ -183,6 +183,36 @@
     border: 1px solid rgba(255,255,255,0.07);
     border-top: 1px solid rgba(255,255,255,0.12);
   }
+  .results-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .results-pair-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .result-pair-box {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .result-pair-item {
+    min-width: 0;
+  }
+  .result-pair-item + .result-pair-item {
+    border-left: 1px solid rgba(255,255,255,0.08);
+    padding-left: 16px;
+  }
+  .result-pair-item .stat-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .trade-row-hover:hover { background: rgba(255,255,255,0.028) !important; }
 
@@ -1304,6 +1334,8 @@
     .ut { padding: 8px 12px; font-size: 13px; }
     .stat-box { padding: 16px; }
     .stat-value { font-size: 18px; }
+    .results-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .results-pair-grid { grid-template-columns: 1fr; }
     .kill-switch { bottom: 16px; right: 16px; padding: 10px 16px; font-size: 12px; }
     .theme-toggle { top: 12px; right: 12px; width: 36px; height: 36px; font-size: 16px; }
   }
@@ -1326,6 +1358,14 @@
     .stat-box { padding: 12px; border-radius: 10px; }
     .stat-value { font-size: 16px; }
     .stat-label { font-size: 10px; }
+    .results-metrics-grid { grid-template-columns: 1fr; }
+    .result-pair-box { grid-template-columns: 1fr; gap: 12px; }
+    .result-pair-item + .result-pair-item {
+      border-left: 0;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-left: 0;
+      padding-top: 12px;
+    }
     .ut { padding: 6px 10px; font-size: 12px; }
     h2 { font-size: 18px; }
     h3 { font-size: 14px; }
@@ -3370,32 +3410,46 @@
       <canvas id="equity-chart" style="width: 100%; height: 300px;"></canvas>
     </div>
 
-    <!-- Primary Stats: 6 columns glossy -->
-    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 12px;">
+    <!-- Primary Stats -->
+    <div class="results-metrics-grid">
       <div class="stat-box"><div class="stat-label">Winning Probability</div><div id="res-win-rate" class="stat-value-lg" style="color: var(--success);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Win : Loss Ratio</div><div id="res-wl-ratio" class="stat-value-lg">0:0</div></div>
-      <div class="stat-box"><div class="stat-label">Risk Per Trade</div><div id="res-risk" class="stat-value-lg" style="color: var(--accent);">0%</div></div>
+      <div class="stat-box"><div class="stat-label">Win Loss Ratio</div><div id="res-wl-ratio" class="stat-value-lg">0:0</div></div>
+      <div class="stat-box"><div class="stat-label">Risk Per Trade</div><div id="res-risk" class="stat-value-lg" style="color: var(--success);">0%</div></div>
       <div class="stat-box"><div class="stat-label">Max Drawdown</div><div id="res-max-dd" class="stat-value-lg" style="color: var(--danger);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Drawdown Days</div><div id="res-dd-days" class="stat-value-lg" style="color: var(--warn);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Profit Factor</div><div id="res-pf" class="stat-value-lg">0</div></div>
+      <div class="stat-box"><div class="stat-label">Drawdown Days</div><div id="res-dd-days" class="stat-value-lg">0</div></div>
     </div>
-    <!-- Secondary Stats: 6 columns glossy -->
-    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px;">
-      <div class="stat-box"><div class="stat-label">AVG Profit</div><div id="res-avg-profit" class="stat-value" style="color: var(--success);">₹0</div></div>
-      <div class="stat-box"><div class="stat-label">AVG Loss</div><div id="res-avg-loss" class="stat-value" style="color: var(--danger);">₹0</div></div>
-      <div class="stat-box"><div class="stat-label">Win Streak</div><div id="res-win-streak" class="stat-value">0</div></div>
-      <div class="stat-box"><div class="stat-label">Loss Streak</div><div id="res-loss-streak" class="stat-value">0</div></div>
-      <div class="stat-box"><div class="stat-label">MAX Profit</div><div id="res-max-profit" class="stat-value" style="color: var(--success);">₹0</div></div>
-      <div class="stat-box"><div class="stat-label">Max Loss</div><div id="res-max-loss" class="stat-value" style="color: var(--danger);">₹0</div></div>
-    </div>
-    <!-- Advanced Stats: Sharpe, Calmar, Expectancy, Avg Duration, ROI, Fees -->
-    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px;">
-      <div class="stat-box"><div class="stat-label">Sharpe Ratio</div><div id="res-sharpe" class="stat-value" style="color: var(--accent);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Calmar Ratio</div><div id="res-calmar" class="stat-value" style="color: var(--accent2);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Expectancy</div><div id="res-expectancy" class="stat-value">₹0</div></div>
-      <div class="stat-box"><div class="stat-label">Avg Duration</div><div id="res-avg-duration" class="stat-value">-</div></div>
-      <div class="stat-box"><div class="stat-label">ROI %</div><div id="res-roi" class="stat-value" style="color: var(--success);">0%</div></div>
-      <div class="stat-box"><div class="stat-label">Total Fees</div><div id="res-total-fees" class="stat-value" style="color: var(--warn);">₹0</div></div>
+    <!-- Secondary Stats -->
+    <div class="results-pair-grid">
+      <div class="stat-box result-pair-box">
+        <div class="result-pair-item">
+          <div class="stat-label">AVG Profit</div>
+          <div id="res-avg-profit" class="stat-value" style="color: var(--success);">₹0</div>
+        </div>
+        <div class="result-pair-item">
+          <div class="stat-label">Avg Loss</div>
+          <div id="res-avg-loss" class="stat-value" style="color: var(--danger);">₹0</div>
+        </div>
+      </div>
+      <div class="stat-box result-pair-box">
+        <div class="result-pair-item">
+          <div class="stat-label">Win Streak</div>
+          <div id="res-win-streak" class="stat-value">0</div>
+        </div>
+        <div class="result-pair-item">
+          <div class="stat-label">Loss Streak</div>
+          <div id="res-loss-streak" class="stat-value">0</div>
+        </div>
+      </div>
+      <div class="stat-box result-pair-box">
+        <div class="result-pair-item">
+          <div class="stat-label">MAX Profit</div>
+          <div id="res-max-profit" class="stat-value" style="color: var(--success);">₹0</div>
+        </div>
+        <div class="result-pair-item">
+          <div class="stat-label">Max Loss</div>
+          <div id="res-max-loss" class="stat-value" style="color: var(--danger);">₹0</div>
+        </div>
+      </div>
     </div>
 
     <!-- Transactions Analytics — Glossy -->
@@ -9139,6 +9193,22 @@ async function runBacktest() {
 }
 
 function fmt(n) { return '\u20B9' + Math.round(n).toLocaleString('en-IN'); }
+function fmtMoneyPrecise(n, digits = 2, absolute = false) {
+  const value = Number(n || 0);
+  const display = absolute ? Math.abs(value) : value;
+  return '\u20B9' + display.toLocaleString('en-IN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+function fmtNumber(n, digits = 0, absolute = false) {
+  const value = Number(n || 0);
+  const display = absolute ? Math.abs(value) : value;
+  return display.toLocaleString('en-IN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
 
 function getInstrumentName(id) {
   const instrumentMap = {
@@ -9194,30 +9264,19 @@ function renderResults(data, payload) {
   document.getElementById('res-win-rate').textContent = s.win_rate.toFixed(2);
   document.getElementById('res-win-rate').style.color = s.win_rate >= 50 ? 'var(--success)' : 'var(--danger)';
   document.getElementById('res-wl-ratio').textContent = s.winning_trades + ':' + s.losing_trades;
-  document.getElementById('res-risk').textContent = fmt(s.risk_per_trade||0);
-  document.getElementById('res-max-dd').textContent = fmt(s.max_drawdown_val||0);
-  document.getElementById('res-dd-days').textContent = (s.max_drawdown_days||0) + ' days';
-  document.getElementById('res-pf').textContent = s.profit_factor;
-  document.getElementById('res-pf').style.color = s.profit_factor>=1.5?'var(--success)':(s.profit_factor>=1?'var(--warn)':'var(--danger)');
-  document.getElementById('res-avg-profit').textContent = fmt(s.avg_profit);
-  document.getElementById('res-avg-loss').textContent = fmt(s.avg_loss);
+  const riskCapital = Number(s.initial_capital || payload?.initial_capital || 0);
+  const riskPct = Number.isFinite(Number(s.risk_per_trade_pct))
+    ? Number(s.risk_per_trade_pct)
+    : (riskCapital > 0 ? ((Number(s.risk_per_trade || 0) / riskCapital) * 100) : 0);
+  document.getElementById('res-risk').textContent = riskPct.toFixed(2) + '%';
+  document.getElementById('res-max-dd').textContent = fmtNumber(s.max_drawdown_val||0, 0, true);
+  document.getElementById('res-dd-days').textContent = String(s.max_drawdown_days||0);
+  document.getElementById('res-avg-profit').textContent = fmtMoneyPrecise(s.avg_profit, 2, false);
+  document.getElementById('res-avg-loss').textContent = fmtMoneyPrecise(s.avg_loss, 2, true);
   document.getElementById('res-win-streak').textContent = s.win_streak||0;
   document.getElementById('res-loss-streak').textContent = s.loss_streak||0;
-  document.getElementById('res-max-profit').textContent = fmt(s.max_profit||0);
-  document.getElementById('res-max-loss').textContent = fmt(s.max_loss||0);
-  // Advanced stats
-  document.getElementById('res-sharpe').textContent = (s.sharpe_ratio||0).toFixed(2);
-  const sr = s.sharpe_ratio||0;
-  document.getElementById('res-sharpe').style.color = sr>=1.5?'var(--success)':(sr>=0.5?'var(--warn)':'var(--danger)');
-  document.getElementById('res-calmar').textContent = (s.calmar_ratio||0).toFixed(2);
-  const cr = s.calmar_ratio||0;
-  document.getElementById('res-calmar').style.color = cr>=2?'var(--success)':(cr>=1?'var(--warn)':'var(--danger)');
-  document.getElementById('res-expectancy').textContent = fmt(s.expectancy||0);
-  document.getElementById('res-expectancy').style.color = (s.expectancy||0)>=0?'var(--success)':'var(--danger)';
-  document.getElementById('res-avg-duration').textContent = s.avg_duration||'-';
-  document.getElementById('res-roi').textContent = (s.roi_pct||0).toFixed(2) + '%';
-  document.getElementById('res-roi').style.color = (s.roi_pct||0)>=0?'var(--success)':'var(--danger)';
-  document.getElementById('res-total-fees').textContent = fmt(s.total_fees||0);
+  document.getElementById('res-max-profit').textContent = fmtMoneyPrecise(s.max_profit||0, 0, false);
+  document.getElementById('res-max-loss').textContent = fmtMoneyPrecise(s.max_loss||0, 0, true);
   renderEquityChart(data.equity);
   renderDOW(data.day_of_week||[]);
   renderYearly(data.yearly||[]);

@@ -111,6 +111,27 @@ class BacktestRegressionTests(unittest.TestCase):
         self.assertEqual(result["stats"]["total_trades"], 1)
         self.assertTrue(result["stats"]["max_daily_loss_hit"])
 
+    def test_backtest_stats_include_risk_per_trade_pct(self):
+        df = _make_ohlcv("2026-03-18 09:20", [100, 101, 99, 102, 98, 103, 97, 104])
+        result = _run_backtest(
+            df,
+            entry_conditions=_always_true_conditions(),
+            exit_conditions=_always_true_conditions(),
+            strategy_config={
+                "instrument": "RELIANCE",
+                "timeframe_minutes": 1,
+                "lot_size": 1,
+                "initial_capital": 50000,
+            },
+        )
+
+        stats = result["stats"]
+        self.assertIn("risk_per_trade_pct", stats)
+        self.assertEqual(
+            stats["risk_per_trade_pct"],
+            round((stats["risk_per_trade"] / stats["initial_capital"]) * 100, 2),
+        )
+
     def test_entry_delay_candles_delays_fill(self):
         df = _make_ohlcv("2026-03-18 09:20", [100, 101, 102, 103, 104])
         result = _run_backtest(
