@@ -305,6 +305,7 @@
   .ut.active { background: rgba(0,200,150,0.08); color: var(--accent); border: 1px solid rgba(0,200,150,0.15); box-shadow: 0 0 20px rgba(0,200,150,0.06), inset 0 1px 0 rgba(255,255,255,0.05); }
   .page-section { display: none; animation: fadeIn 0.3s ease; }
   .page-section.active-page { display: block; }
+  html:not([data-nav-ready="1"]) .page-section { display: none !important; animation: none !important; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(0,200,150,0.7); } 50% { box-shadow: 0 0 0 10px rgba(0,200,150,0); } }
   .input-group { margin-bottom: 16px; }
@@ -2347,6 +2348,7 @@
   [data-theme="light"] .admin-table-wrap { background: rgba(255,255,255,0.96); border-color: rgba(15,23,42,0.08); }
   [data-theme="light"] .admin-table th { background: rgba(248,250,252,0.98); color: #64748b; }
   [data-theme="light"] .admin-table td { border-bottom-color: rgba(15,23,42,0.05); color: #0f172a; }
+  [data-theme="light"] .admin-table tbody tr:hover { background: rgba(15,23,42,0.02); }
   [data-theme="light"] .admin-user-sub,
   [data-theme="light"] .settings-hint,
   [data-theme="light"] .settings-status-line,
@@ -2354,6 +2356,52 @@
   [data-theme="light"] .admin-empty-state { color: #64748b; }
   [data-theme="light"] .expiry-bar { background: rgba(248,250,252,0.95); border-color: rgba(15,23,42,0.04); }
   [data-theme="light"] .expiry-chip span { color: #0f172a; }
+  [data-theme="light"] .settings-section,
+  [data-theme="light"] .admin-summary-card,
+  [data-theme="light"] .admin-table-wrap,
+  [data-theme="light"] #dash-active-engines,
+  [data-theme="light"] .dash-active-card,
+  [data-theme="light"] #portfolio-page .card,
+  [data-theme="light"] #portfolio-page .card-glass {
+    box-shadow: 0 10px 30px -20px rgba(15,23,42,0.22), 0 8px 18px -16px rgba(15,23,42,0.16);
+  }
+  [data-theme="light"] .dash-active-card {
+    background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+    color: #0f172a;
+  }
+  [data-theme="light"] .dash-active-name,
+  [data-theme="light"] .dash-active-stats,
+  [data-theme="light"] .dash-active-stats strong {
+    color: #0f172a;
+  }
+  [data-theme="light"] .dash-card-note,
+  [data-theme="light"] .dash-split-kicker,
+  [data-theme="light"] .dash-split-note {
+    color: #475569;
+  }
+  [data-theme="light"] #portfolio-page h3,
+  [data-theme="light"] #portfolio-page h4,
+  [data-theme="light"] #portfolio-page table td {
+    color: #0f172a;
+  }
+  [data-theme="light"] #portfolio-page table th {
+    color: #64748b !important;
+  }
+  [data-theme="light"] #portfolio-page div[style*="background: rgba(0,0,0,0.15)"],
+  [data-theme="light"] #portfolio-page div[style*="background: rgba(0,0,0,0.1)"],
+  [data-theme="light"] #portfolio-monthly-summary {
+    background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(248,250,252,0.95)) !important;
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 8px 20px -18px rgba(15,23,42,0.28);
+    color: #0f172a;
+  }
+  [data-theme="light"] #portfolio-paper-meta {
+    color: #475569 !important;
+  }
+  [data-theme="light"] #portfolio-page .btn,
+  [data-theme="light"] #portfolio-page button {
+    box-shadow: 0 6px 16px -12px rgba(15,23,42,0.24);
+  }
   /* ── Premium Light: Nav Bar ── */
   [data-theme="light"] .nav-bar {
     background: rgba(255,255,255,0.95);
@@ -4327,9 +4375,9 @@
       <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Daily Profit/Loss</div>
     </div>
     <div class="card" style="padding: 20px;">
-      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Total Trades</div>
+      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Trades Today</div>
       <div style="font-size: 28px; font-weight: 700; color: var(--accent2);" id="portfolio-total-trades">0</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Executed This Month</div>
+      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Executed Today</div>
     </div>
     <div class="card" style="padding: 20px;">
       <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Win Rate</div>
@@ -4435,7 +4483,7 @@
       <span id="scalp-status-label" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Idle</span>
       <span style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
         <span id="ws-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s;"></span>
-        <span id="ws-status-label" style="font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.3px;">Feed</span>
+        <span id="ws-status-label" style="font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.3px;">Feed Ready</span>
       </span>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -5875,6 +5923,7 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState(initialState, '', navHashForState(initialState));
     applyNavState(initialState);
   } catch(e) {}
+  document.documentElement.setAttribute('data-nav-ready', '1');
   // Start clock
   try { updateClock(); } catch(e) { console.warn('updateClock failed:', e); }
   setInterval(updateClock, 1000);
@@ -7025,19 +7074,35 @@ async function loadScalpExpiries() {
 }
 
 async function startScalpEngine() {
+  const startBtn = document.getElementById('scalp-start-btn');
+  if (startBtn) startBtn.disabled = true;
   try {
-    await fetch('/api/scalp/start', { method: 'POST' });
+    const res = await fetch('/api/scalp/start', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'started') throw new Error(data.detail || data.message || 'Failed to start engine');
     toast('Scalp engine started', 'success');
+    _applyScalpEngineState(true);
     refreshScalpStatus();
-  } catch(e) { toast('Failed to start engine', 'error'); }
+  } catch(e) {
+    if (startBtn) startBtn.disabled = false;
+    toast(e.message || 'Failed to start engine', 'error');
+  }
 }
 
 async function stopScalpEngine() {
+  const stopBtn = document.getElementById('scalp-stop-btn');
+  if (stopBtn) stopBtn.disabled = true;
   try {
-    await fetch('/api/scalp/stop', { method: 'POST' });
+    const res = await fetch('/api/scalp/stop', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'stopped') throw new Error(data.detail || data.message || 'Failed to stop engine');
     toast('Scalp engine stopped', 'success');
+    _applyScalpEngineState(false);
     refreshScalpStatus();
-  } catch(e) { toast('Failed to stop engine', 'error'); }
+  } catch(e) {
+    if (stopBtn) stopBtn.disabled = false;
+    toast(e.message || 'Failed to stop engine', 'error');
+  }
 }
 
 let _scalpEntryInFlight = false;
@@ -7418,6 +7483,7 @@ async function refreshScalpStatus() {
     const data = await res.json();
     _lastScalpStatus = data;
     _renderScalpStatus(data);
+    _wsSetLiveIndicator(_ws && _ws.readyState === 1, _wsStale);
   } catch(e) { /* offline */ }
 }
 
@@ -7460,12 +7526,14 @@ function _buildScalpActiveRow(t) {
   </tr>`;
 }
 
-function _renderScalpStatus(data) {
-  const dot = document.getElementById('scalp-status-dot');
-  const label = document.getElementById('scalp-status-label');
-  const engDot = document.getElementById('scalp-engine-dot');
+function _applyScalpEngineState(running, rootGetter = (id) => document.getElementById(id)) {
+  const dot = rootGetter('scalp-status-dot');
+  const label = rootGetter('scalp-status-label');
+  const engDot = rootGetter('scalp-engine-dot');
+  const startBtn = rootGetter('scalp-start-btn');
+  const stopBtn = rootGetter('scalp-stop-btn');
 
-  if (data.running) {
+  if (running) {
     if (dot) { dot.style.background = '#34d399'; dot.style.animation = 'livePulse 2s infinite'; }
     if (label) label.textContent = 'Running';
     if (engDot) engDot.style.color = '#34d399';
@@ -7474,6 +7542,21 @@ function _renderScalpStatus(data) {
     if (label) label.textContent = 'Idle';
     if (engDot) engDot.style.color = '#06b6d4';
   }
+
+  if (startBtn) {
+    startBtn.disabled = !!running;
+    startBtn.style.opacity = running ? '0.45' : '1';
+    startBtn.style.pointerEvents = running ? 'none' : '';
+  }
+  if (stopBtn) {
+    stopBtn.disabled = !running;
+    stopBtn.style.opacity = running ? '1' : '0.45';
+    stopBtn.style.pointerEvents = running ? '' : 'none';
+  }
+}
+
+function _renderScalpStatus(data) {
+  _applyScalpEngineState(!!data.running);
 
   // Session P&L
   const sessionPnl = document.getElementById('scalp-session-pnl');
@@ -8182,8 +8265,8 @@ function renderRunningArsenal(engines) {
     const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
     const tradesToday = engine.trades_today || 0;
     const instLabel = INST_NAMES[engine.instrument] || (engine.instrument ? `Instrument ${engine.instrument}` : 'NIFTY');
-    const statusLabel = engine.in_trade ? 'In Trade' : 'Running';
-    const statusColor = engine.in_trade ? '#fbbf24' : '#4ade80';
+    const statusLabel = engine.in_trade ? 'In Trade' : 'Waiting';
+    const statusColor = engine.in_trade ? '#4ade80' : '#f59e0b';
     return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
       <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
@@ -9979,11 +10062,14 @@ function renderEquityChart(equityData) {
     const parentW = canvas.parentElement.clientWidth - 40;
     const w = Math.max(parentW, 400);
     const h = 300;
-    canvas.width = w * 2;
-    canvas.height = h * 2;
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
-    ctx.scale(2, 2);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const padding = { top: 20, right: 20, bottom: 30, left: 70 };
   const plotW = w - padding.left - padding.right;
   const plotH = h - padding.top - padding.bottom;
@@ -10009,7 +10095,7 @@ function renderEquityChart(equityData) {
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, w, h);
   } else {
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, w, h);
   }
 
@@ -10539,9 +10625,9 @@ async function refreshBuilderPreview() {
     if (paper) {
       const badge = document.getElementById('bp-paper-badge');
       if (paper.running && paper.in_trade) {
-        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(234,179,8,0.15)'; badge.style.color = '#fbbf24';
+        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
       } else if (paper.running) {
-        badge.textContent = 'RUNNING'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
+        badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
         badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = '#f87171';
       }
@@ -10559,9 +10645,9 @@ async function refreshBuilderPreview() {
     if (live) {
       const badge = document.getElementById('bp-auto-badge');
       if (live.running && live.in_trade) {
-        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(234,179,8,0.15)'; badge.style.color = '#fbbf24';
+        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
       } else if (live.running) {
-        badge.textContent = 'RUNNING'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
+        badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
         badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = '#f87171';
       }
@@ -10768,8 +10854,8 @@ function renderLiveTabs() {
     const inTrade = eng.in_trade;
 
     let statusDot = '';
-    if (running && inTrade) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#fbbf24;margin-right:4px;"></span>';
-    else if (running) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ade80;margin-right:4px;animation:pulse 2s infinite;"></span>';
+    if (running && inTrade) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ade80;margin-right:4px;animation:pulse 2s infinite;"></span>';
+    else if (running) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:4px;animation:pulse 2s infinite;"></span>';
     else statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f87171;margin-right:4px;"></span>';
 
     const borderStyle = active ? 'border-bottom:2px solid var(--accent);' : 'border-bottom:2px solid transparent;';
@@ -10806,11 +10892,11 @@ function renderLivePanel(d, idx) {
   // Status badge
   let badgeHtml, statusText, statusColor;
   if (running && inTrade) {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(234,179,8,0.15);color:#fbbf24;">IN TRADE</span>';
-    statusText = 'In Trade'; statusColor = '#fbbf24';
+    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(34,197,94,0.15);color:#4ade80;">IN TRADE</span>';
+    statusText = 'In Trade'; statusColor = '#4ade80';
   } else if (running) {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(34,197,94,0.15);color:#4ade80;">RUNNING</span>';
-    statusText = 'Running'; statusColor = '#4ade80';
+    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:#f59e0b;">WAITING</span>';
+    statusText = 'Waiting'; statusColor = '#f59e0b';
   } else {
     badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:#f87171;">STOPPED</span>';
     statusText = 'Idle'; statusColor = 'var(--muted)';
@@ -11114,6 +11200,7 @@ async function loadPortfolioData() {
     let paperData = { positions: [], closed_trades: [] };
     let ordersData = { status: 'error', data: [] };
     let positionsData = { status: 'error', data: [] };
+    let enginesData = { engines: [] };
 
     const results = await Promise.allSettled([
       fetch('/api/broker/check', { method: 'POST' }).then(r => r.json()),
@@ -11122,6 +11209,7 @@ async function loadPortfolioData() {
       fetch('/api/orders').then(r => r.json()),
       fetch('/api/positions').then(r => r.json()),
       fetch('/api/portfolio/history').then(r => r.json()),
+      fetch('/api/engines/all').then(r => r.json()),
     ]);
 
     if (results[0].status === 'fulfilled') brokerData = results[0].value;
@@ -11129,6 +11217,7 @@ async function loadPortfolioData() {
     if (results[2].status === 'fulfilled') paperData = results[2].value;
     if (results[3].status === 'fulfilled') ordersData = results[3].value;
     if (results[4].status === 'fulfilled') positionsData = results[4].value;
+    if (results[6].status === 'fulfilled') enginesData = results[6].value;
 
     let portfolioHistory = { monthly: {}, yearly: {} };
     if (results[5].status === 'fulfilled' && results[5].value.status === 'success') {
@@ -11164,7 +11253,6 @@ async function loadPortfolioData() {
       return getMarketDateKey(date);
     };
     const todayDateStr = formatMarketDateKey(new Date());
-    const todayHistoryEntry = portfolioHistory.daily?.[todayDateStr] || {};
 
     const hasOpenBrokerQty = (position) => {
       const qty = toFiniteNumber(
@@ -11194,7 +11282,8 @@ async function loadPortfolioData() {
     const parseTradeDate = (trade) => {
       // Try different date field names that Dhan API might use
       const rawDate = trade.tradeDate || trade.createTime || trade.updateTime ||
-                      trade.exchangeTime || trade.transactionTime || trade.orderTimestamp || '';
+                      trade.exchangeTime || trade.transactionTime || trade.orderTimestamp ||
+                      trade.exit_time || trade.entry_time || trade.timestamp || '';
 
       if (!rawDate) return null;
 
@@ -11229,6 +11318,86 @@ async function loadPortfolioData() {
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
+
+    const compactNames = (names, fallback = '—') => {
+      const unique = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))];
+      if (!unique.length) return fallback;
+      if (unique.length <= 2) return unique.join(', ');
+      return `${unique[0]} +${unique.length - 1}`;
+    };
+
+    const summarizeRunningPaperEngines = (engines) => {
+      const snapshot = {
+        activeCount: 0,
+        names: [],
+        closedTrades: 0,
+        openPositions: 0,
+        openUnrealized: 0,
+        totalPnl: 0,
+        daily: {},
+      };
+
+      (engines || []).forEach(engine => {
+        if (!engine || engine.mode !== 'paper' || !engine.running) return;
+        snapshot.activeCount += 1;
+        snapshot.names.push(engine.strategy_name || engine.run_id || 'Paper Strategy');
+        const closedTrades = Array.isArray(engine.closed_trades) ? engine.closed_trades : [];
+        const positions = Array.isArray(engine.positions) ? engine.positions : [];
+        snapshot.closedTrades += closedTrades.length;
+        snapshot.openPositions += positions.length;
+        snapshot.openUnrealized += positions.reduce((sum, position) => sum + Number(position.unrealized_pnl || 0), 0);
+        snapshot.totalPnl += Number(engine.total_pnl || 0);
+
+        closedTrades.forEach(trade => {
+          const tradeDate = parseTradeDate(trade);
+          const tradeDateStr = formatMarketDateKey(tradeDate);
+          if (!tradeDateStr) return;
+          if (!snapshot.daily[tradeDateStr]) snapshot.daily[tradeDateStr] = { pnl: 0, count: 0, wins: 0 };
+          const pnl = Number(trade.pnl || 0);
+          snapshot.daily[tradeDateStr].pnl += pnl;
+          snapshot.daily[tradeDateStr].count += 1;
+          if (pnl > 0) snapshot.daily[tradeDateStr].wins += 1;
+        });
+      });
+
+      if (snapshot.openUnrealized !== 0) {
+        if (!snapshot.daily[todayDateStr]) snapshot.daily[todayDateStr] = { pnl: 0, count: 0, wins: 0 };
+        snapshot.daily[todayDateStr].pnl += snapshot.openUnrealized;
+      }
+
+      snapshot.totalPnl = round2(snapshot.totalPnl);
+      snapshot.openUnrealized = round2(snapshot.openUnrealized);
+      return snapshot;
+    };
+
+    const mergePaperSnapshotIntoHistory = (history, snapshot) => {
+      if (!snapshot || !snapshot.activeCount) return history || { daily: {}, monthly: {}, yearly: {} };
+      const merged = {
+        ...(history || {}),
+        daily: { ...((history && history.daily) || {}) },
+        monthly: { ...((history && history.monthly) || {}) },
+        yearly: { ...((history && history.yearly) || {}) },
+      };
+
+      Object.entries(snapshot.daily || {}).forEach(([dateStr, data]) => {
+        const existing = merged.daily[dateStr] || {};
+        merged.daily[dateStr] = {
+          ...existing,
+          paper_pnl: round2(Number(existing.paper_pnl || 0) + Number(data.pnl || 0)),
+          paper_trades: Number(existing.paper_trades || 0) + Number(data.count || 0),
+          paper_wins: Number(existing.paper_wins || 0) + Number(data.wins || 0),
+        };
+      });
+
+      return merged;
+    };
+
+    const runningPaperEngines = (Array.isArray(enginesData.engines) ? enginesData.engines : []).filter(
+      engine => engine && engine.mode === 'paper' && engine.running
+    );
+    const runningPaperSnapshot = summarizeRunningPaperEngines(runningPaperEngines);
+    portfolioHistory = mergePaperSnapshotIntoHistory(portfolioHistory, runningPaperSnapshot);
+    const todayHistoryEntry = portfolioHistory.daily?.[todayDateStr] || {};
 
     // ── Helper: Calculate P&L by pairing BUY/SELL trades per securityId ──
     function calcPnLFromTrades(tradeList) {
@@ -11371,16 +11540,30 @@ async function loadPortfolioData() {
     document.getElementById('portfolio-balance').textContent = '₹' + availableBal.toFixed(2);
     document.getElementById('portfolio-today-pnl').textContent = '₹' + todayPnL.toFixed(2);
     document.getElementById('portfolio-today-pnl').style.color = todayPnL >= 0 ? 'var(--success)' : 'var(--danger)';
-    document.getElementById('portfolio-total-trades').textContent = totalTrades;
+    const todayTradeCount = Number(
+      todayDhanTrades.length ||
+      todayOrders.length ||
+      todayHistoryEntry.real_trade_legs ||
+      todayHistoryEntry.real_trades ||
+      0
+    ) || 0;
+    document.getElementById('portfolio-total-trades').textContent = todayTradeCount;
     document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
 
     // ── Paper Trade P&L summary card ──
-    const paperClosed = paperData.closed_trades || [];
-    const paperPositions = paperData.positions || [];
-    const paperTotalPnl = paperClosed.reduce((s, t) => s + Number(t.pnl || 0), 0)
-      + paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
-    const paperRunning = paperData.running || paperPositions.length > 0;
-    const paperStratName = paperData.strategy_name || paperData.run_name || '';
+    const fallbackPaperClosed = Array.isArray(paperData.closed_trades) ? paperData.closed_trades : [];
+    const fallbackPaperPositions = Array.isArray(paperData.positions) ? paperData.positions : [];
+    const hasRunningPaperSnapshot = runningPaperSnapshot.activeCount > 0;
+    const paperClosed = hasRunningPaperSnapshot ? [] : fallbackPaperClosed;
+    const paperPositions = hasRunningPaperSnapshot ? [] : fallbackPaperPositions;
+    const paperTotalPnl = hasRunningPaperSnapshot
+      ? runningPaperSnapshot.totalPnl
+      : fallbackPaperClosed.reduce((s, t) => s + Number(t.pnl || 0), 0)
+        + fallbackPaperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
+    const paperRunning = hasRunningPaperSnapshot ? true : (paperData.running || fallbackPaperPositions.length > 0);
+    const paperStratName = hasRunningPaperSnapshot
+      ? compactNames(runningPaperSnapshot.names, 'Paper Flow')
+      : (paperData.strategy_name || paperData.run_name || '');
     const pfPaperPnlEl = document.getElementById('portfolio-paper-total-pnl');
     if (pfPaperPnlEl) {
       pfPaperPnlEl.textContent = '₹' + paperTotalPnl.toFixed(2);
@@ -11391,13 +11574,19 @@ async function loadPortfolioData() {
     const pfSym = document.getElementById('portfolio-paper-symbol');
     if (pfSym) pfSym.textContent = paperStratName || (paperData.symbol || '—');
     const pfTrades = document.getElementById('portfolio-paper-trades-count');
-    if (pfTrades) pfTrades.textContent = paperClosed.length;
+    if (pfTrades) pfTrades.textContent = hasRunningPaperSnapshot ? runningPaperSnapshot.closedTrades : paperClosed.length;
     const pfMeta = document.getElementById('portfolio-paper-meta');
     if (pfMeta) {
-      const unrealized = paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
-      pfMeta.textContent = paperRunning
-        ? `${paperPositions.length} open position${paperPositions.length !== 1 ? 's' : ''} · Unrealized ₹${unrealized.toFixed(2)}`
-        : 'No paper run active';
+      if (hasRunningPaperSnapshot) {
+        const engineLabel = `${runningPaperSnapshot.activeCount} active run${runningPaperSnapshot.activeCount !== 1 ? 's' : ''}`;
+        const positionLabel = `${runningPaperSnapshot.openPositions} open position${runningPaperSnapshot.openPositions !== 1 ? 's' : ''}`;
+        pfMeta.textContent = `${engineLabel} · ${positionLabel} · Unrealized ₹${runningPaperSnapshot.openUnrealized.toFixed(2)}`;
+      } else {
+        const unrealized = paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
+        pfMeta.textContent = paperRunning
+          ? `${paperPositions.length} open position${paperPositions.length !== 1 ? 's' : ''} · Unrealized ₹${unrealized.toFixed(2)}`
+          : 'No paper run active';
+      }
     }
 
     // ── Store portfolio history globally for month navigation ──
@@ -11663,6 +11852,7 @@ function renderMonthlyDailyGrid() {
           <th style="padding: 10px 8px; text-align: right;">Gross Real</th>
           <th style="padding: 10px 8px; text-align: right;">Net Real</th>
           <th style="padding: 10px 8px; text-align: right;">Charges</th>
+          <th style="padding: 10px 8px; text-align: right;">Brokerage</th>
         </tr>
       </thead>
       <tbody>`;
@@ -11676,6 +11866,7 @@ function renderMonthlyDailyGrid() {
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.brokerage.toFixed(2)}</td>
       </tr>`;
     });
     thtml += `</tbody></table>`;
@@ -11783,6 +11974,9 @@ function toggleTheme() {
   html.setAttribute('data-theme', next);
   document.getElementById('theme-toggle').innerHTML = next === 'light' ? ICO.sun(18) : ICO.moon(18);
   try { localStorage.setItem('algoforge_theme', next); } catch(e) {}
+  requestAnimationFrame(() => {
+    if (lastBacktestData?.equity?.length > 1) renderEquityChart(lastBacktestData.equity);
+  });
 }
 (function initTheme() {
   try {
@@ -12235,6 +12429,7 @@ function _wsSetLiveIndicator(connected, stale) {
   const dot = document.getElementById('ws-status-dot');
   const label = document.getElementById('ws-status-label');
   if (!dot || !label) return;
+  const scalpRunning = !!(_lastScalpStatus && _lastScalpStatus.running);
   if (!connected) {
     dot.style.background = '#ef4444';
     dot.style.animation = 'none';
@@ -12245,10 +12440,15 @@ function _wsSetLiveIndicator(connected, stale) {
     dot.style.animation = 'none';
     label.textContent = 'Stale';
     label.style.color = '#f59e0b';
+  } else if (!scalpRunning) {
+    dot.style.background = '#06b6d4';
+    dot.style.animation = 'none';
+    label.textContent = 'Feed Ready';
+    label.style.color = '#0891b2';
   } else {
     dot.style.background = '#34d399';
     dot.style.animation = 'livePulse 2s infinite';
-    label.textContent = 'Live';
+    label.textContent = 'Feed Live';
     label.style.color = '#34d399';
   }
 }
@@ -12394,19 +12594,8 @@ function _flushScalpRender() {
 
 // Lightweight WS-driven scalp render — only updates dynamic cells via cached refs
 function _renderScalpStatusWS(data) {
-  // Engine status dot + label
-  const dot = _getScalpEl('scalp-status-dot');
-  const label = _getScalpEl('scalp-status-label');
-  const engDot = _getScalpEl('scalp-engine-dot');
-  if (data.running) {
-    if (dot) { dot.style.background = '#34d399'; dot.style.animation = 'livePulse 2s infinite'; }
-    if (label) label.textContent = 'Running';
-    if (engDot) engDot.style.color = '#34d399';
-  } else {
-    if (dot) { dot.style.background = 'var(--muted)'; dot.style.animation = 'none'; }
-    if (label) label.textContent = 'Idle';
-    if (engDot) engDot.style.color = '#06b6d4';
-  }
+  _applyScalpEngineState(!!data.running, _getScalpEl);
+  _wsSetLiveIndicator(_ws && _ws.readyState === 1, _wsStale);
 
   // Session P&L
   const sessionPnl = _getScalpEl('scalp-session-pnl');
