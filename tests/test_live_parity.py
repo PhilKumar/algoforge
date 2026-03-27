@@ -80,6 +80,53 @@ class DummyBroker:
 
 
 class LivePaperParityTests(unittest.TestCase):
+    def test_live_and_paper_recover_indicator_context_when_ws_snapshot_is_current_day_only(self):
+        raw = _make_two_day_intraday_ohlcv()
+        prior_session = raw.loc[raw.index.date == pd.Timestamp("2026-03-26").date()].copy()
+        current_session = raw.loc[raw.index.date == pd.Timestamp("2026-03-27").date()].copy()
+        indicators = ["EMA_2_5m", "CPR_0.2_0.5"]
+        now = pd.Timestamp("2026-03-27 09:55:01").to_pydatetime()
+
+        live_engine = LiveEngine(dhan=DummyBroker(), run_id="live-context-recovery")
+        live_engine.configure(
+            strategy={"instrument": "26000", "timeframe_minutes": 5, "indicators": indicators},
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        live_engine._indicator_context_raw = prior_session.copy()
+
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            paper_engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-context-recovery")
+        paper_engine.configure(
+            strategy={"instrument": "26000", "timeframe_minutes": 5, "indicators": indicators},
+            entry_conditions=[],
+            exit_conditions=[],
+        )
+        paper_engine._indicator_context_raw = prior_session.copy()
+
+        expected_live = live_engine._prepare_ws_strategy_frame(raw, live_engine.strategy["indicators"], 5, 5, now)
+        expected_paper = paper_engine._prepare_ws_strategy_frame(raw, paper_engine.strategy["indicators"], 5, 5, now)
+        recovered_live = live_engine._prepare_ws_strategy_frame(
+            current_session, live_engine.strategy["indicators"], 5, 5, now
+        )
+        recovered_paper = paper_engine._prepare_ws_strategy_frame(
+            current_session, paper_engine.strategy["indicators"], 5, 5, now
+        )
+
+        for column in ("EMA_2_5m", "CPR_BC"):
+            with self.subTest(column=column):
+                self.assertAlmostEqual(
+                    float(recovered_live.iloc[-1][column]),
+                    float(expected_live.iloc[-1][column]),
+                    places=8,
+                )
+                self.assertAlmostEqual(
+                    float(recovered_paper.iloc[-1][column]),
+                    float(expected_paper.iloc[-1][column]),
+                    places=8,
+                )
+
     def test_live_and_paper_prepare_same_mixed_indicator_frame(self):
         raw = _make_two_day_intraday_ohlcv()
         indicators = [

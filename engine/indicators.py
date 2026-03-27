@@ -710,6 +710,32 @@ def normalize_strategy_indicators(
     return normalized
 
 
+def merge_indicator_context(
+    raw_df: pd.DataFrame,
+    context_df: pd.DataFrame | None,
+    *,
+    max_rows: int = 800,
+) -> pd.DataFrame:
+    """Prepend cached raw candles when the current snapshot lacks warm-up history."""
+    frame = raw_df.copy().sort_index()
+    if frame.empty or context_df is None or context_df.empty:
+        return frame
+
+    if len(pd.Index(frame.index.normalize()).unique()) > 1:
+        return frame
+
+    context = context_df.copy().sort_index()
+    context = context[context.index < frame.index.min()]
+    if context.empty:
+        return frame
+
+    merged = pd.concat([context, frame])
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+    if max_rows > 0 and len(merged) > max_rows:
+        merged = merged.tail(max_rows)
+    return merged
+
+
 def _infer_timeframe_minutes(df: pd.DataFrame) -> int | None:
     if df is None or df.empty or len(df.index) < 2:
         return None

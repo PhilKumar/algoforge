@@ -39,7 +39,7 @@ from engine.backtest import (
     get_strike_step,
     inspect_condition_group,
 )
-from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
+from engine.indicators import compute_dynamic_indicators, merge_indicator_context, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
     describe_timeframe,
@@ -128,6 +128,7 @@ class PaperTradingEngine:
         self.current_time = None
         self.candle_buffer = pd.DataFrame()
         self._latest_raw_candles = pd.DataFrame()
+        self._indicator_context_raw = pd.DataFrame()
         self.current_indicators = {}  # Latest indicator values for UI
         self.current_candle = {}  # Latest OHLCV candle for UI
         self._prev_row = None  # Previous candle row for crossover detection
@@ -335,6 +336,7 @@ class PaperTradingEngine:
             exit_conditions=exit_conditions,
         )
         self.strategy = strategy
+        self._indicator_context_raw = pd.DataFrame()
 
         # Pre-compute strategy-level SL/TP values
         sl_pct = float(strategy.get("stoploss_pct", 0) or 0)
@@ -562,6 +564,7 @@ class PaperTradingEngine:
         now: datetime,
     ) -> pd.DataFrame:
         """Drop any still-forming strategy candle before WS signal evaluation."""
+        candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=800)
         df_with_indicators = compute_dynamic_indicators(
             candle_df,
             indicators,
@@ -571,6 +574,15 @@ class PaperTradingEngine:
         if df_with_indicators.empty:
             return df_with_indicators
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
+
+    def _remember_indicator_context(self, raw_df: pd.DataFrame, *, max_rows: int = 800) -> None:
+        if not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
+            return
+        merged = pd.concat([self._indicator_context_raw, raw_df]).sort_index()
+        merged = merged[~merged.index.duplicated(keep="last")]
+        if max_rows > 0 and len(merged) > max_rows:
+            merged = merged.tail(max_rows)
+        self._indicator_context_raw = merged.copy()
 
     def _arm_pending_entry(self, signal_candle_time: datetime, latest_row: pd.Series) -> None:
         self._entry_signal_pending = True
@@ -682,7 +694,8 @@ class PaperTradingEngine:
             """Called from WebSocket thread when a candle closes."""
             self._latest_candle_df = df
             self._latest_candle = candle
-            self._latest_raw_candles = df.tail(500).copy()
+            self._remember_indicator_context(df)
+            self._latest_raw_candles = merge_indicator_context(df, self._indicator_context_raw, max_rows=500).copy()
             # Set asyncio event from the WS thread
             loop.call_soon_threadsafe(self._candle_event.set)
 
@@ -707,9 +720,10 @@ class PaperTradingEngine:
         # ── Immediately populate UI data from bootstrap history ──
         if not history_df.empty:
             try:
+                self._remember_indicator_context(history_df)
                 self._latest_raw_candles = history_df.tail(500).copy()
                 df_init = compute_dynamic_indicators(
-                    history_df.copy(),
+                    merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
                     indicators,
                     default_timeframe_minutes=execution_timeframe,
                     source_timeframe_minutes=fetch_timeframe,
@@ -1255,6 +1269,7 @@ class PaperTradingEngine:
             to_date=to_date,
             candle_type=str(tf_spec.fetch),
         )
+        self._remember_indicator_context(df_raw)
 
         # Apply indicators
         indicators = self.strategy.get("indicators", [])
