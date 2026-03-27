@@ -3487,6 +3487,16 @@ async def dashboard_summary(request: Request):
     total_backtests = len(runs)
     recent_transactions: list[dict] = []
     recent_seen: set[tuple] = set()
+    active_paper_run_keys = {
+        str(status.get("run_id") or status.get("strategy_name") or "").strip()
+        for status in paper_statuses
+        if str(status.get("run_id") or status.get("strategy_name") or "").strip()
+    }
+    active_live_run_keys = {
+        str(status.get("run_id") or status.get("strategy_name") or "").strip()
+        for status in live_statuses
+        if str(status.get("run_id") or status.get("strategy_name") or "").strip()
+    }
 
     def _consider_leader(candidate: dict | None):
         nonlocal best_run, worst_run
@@ -3505,6 +3515,9 @@ async def dashboard_summary(request: Request):
         symbol = trade.get("symbol") or " ".join(
             str(part) for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type")) if part
         )
+        trade_identifier = str(
+            trade.get("trade_id") or trade.get("id") or trade.get("entry_order_id") or trade.get("exit_order_id") or ""
+        ).strip()
         time_value = trade.get("exit_time") or trade.get("entry_time") or ""
         record = {
             "time": time_value,
@@ -3525,16 +3538,19 @@ async def dashboard_summary(request: Request):
             "reason": trade.get("exit_reason") or trade.get("reason") or "—",
         }
         dedupe_key = (
-            record["mode"],
-            record["symbol"],
-            record["transaction_type"],
-            str(record["entry_time"]),
-            str(record["exit_time"]),
-            round(record["entry_price"], 2),
-            round(record["exit_price"], 2),
-            str(record["quantity"]),
-            round(record["pnl"], 2),
-            str(record["reason"]),
+            ("trade_id", record["mode"], trade_identifier)
+            if trade_identifier
+            else (
+                record["mode"],
+                record["symbol"],
+                record["transaction_type"],
+                str(record["entry_time"]),
+                str(record["exit_time"]),
+                round(record["entry_price"], 2),
+                round(record["exit_price"], 2),
+                round(record["pnl"], 2),
+                str(record["reason"]),
+            )
         )
         if dedupe_key in recent_seen:
             return
@@ -3590,6 +3606,11 @@ async def dashboard_summary(request: Request):
                 }
             )
             if r.get("mode") not in ("paper", "live"):
+                continue
+            run_key = str(r.get("run_name") or r.get("strategy_name") or "").strip()
+            if (r.get("mode") == "paper" and run_key in active_paper_run_keys) or (
+                r.get("mode") == "live" and run_key in active_live_run_keys
+            ):
                 continue
             for trade in r.get("trades", []) or []:
                 _add_recent_trade(

@@ -226,6 +226,80 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["trades"], 2)
         self.assertEqual(result["fill_count"], 4)
 
+    async def test_dashboard_summary_dedupes_recent_transactions_from_active_and_saved_runs(self):
+        today = app_module._ist_date_str()
+        request = _DummyRequest(user_id=7)
+        closed_trade_status = {
+            "symbol": "NIFTY 23000 CE",
+            "transaction_type": "BUY",
+            "entry_time": f"{today} 09:15:00",
+            "exit_time": f"{today} 09:20:00",
+            "entry_premium": 100.0,
+            "exit_premium": 112.0,
+            "lots": 1,
+            "pnl": 780.0,
+            "exit_reason": "TARGET",
+        }
+        closed_trade_run = {
+            "symbol": "NIFTY 23000 CE",
+            "transaction_type": "BUY",
+            "entry_time": f"{today} 09:15:00",
+            "exit_time": f"{today} 09:20:00",
+            "entry_price": 100.0,
+            "exit_price": 112.0,
+            "quantity": 65,
+            "pnl": 780.0,
+            "reason": "TARGET",
+        }
+        paper_status = {
+            "run_id": "Paper Alpha",
+            "strategy_name": "Paper Alpha",
+            "total_pnl": 780.0,
+            "trades_today": 1,
+            "closed_trades": [closed_trade_status],
+        }
+
+        with (
+            patch.object(app_module, "_get_session_token", return_value="tok"),
+            patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 7})),
+            patch.object(app_module._db_mod, "list_strategies", AsyncMock(return_value=[{"name": "Paper Alpha"}])),
+            patch.object(
+                app_module._db_mod,
+                "list_runs",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": 11,
+                            "mode": "paper",
+                            "run_name": "Paper Alpha",
+                            "total_pnl": 780.0,
+                            "trades": [closed_trade_run],
+                        }
+                    ]
+                ),
+            ),
+            patch.object(app_module._db_mod, "list_scalp_trades", AsyncMock(return_value=[])),
+            patch.object(app_module, "_running_statuses_for_user", side_effect=[[paper_status], []]),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 7, "role": "user"}, None, "user")),
+            ),
+            patch.object(
+                app_module,
+                "_load_dashboard_real_snapshot",
+                AsyncMock(return_value=app_module._empty_dashboard_real_snapshot()),
+            ),
+            patch.object(
+                app_module, "_load_dashboard_fii_dii_snapshot", AsyncMock(return_value={"status": "unavailable"})
+            ),
+        ):
+            result = await app_module.dashboard_summary(request)
+
+        self.assertEqual(len(result["recent_transactions"]), 1)
+        self.assertEqual(result["recent_transactions"][0]["run_name"], "Paper Alpha")
+        self.assertEqual(result["recent_transactions"][0]["pnl"], 780.0)
+
     def test_normalize_fii_dii_snapshot_rows_collapses_categories_into_one_day(self):
         records = [
             {"category": "FII/FPI", "date": "25-Mar-2026", "netValue": "-1805.37"},
