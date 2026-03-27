@@ -1344,6 +1344,136 @@
     color: rgba(255,255,255,0.64);
     margin-top: 3px;
   }
+  /* ── Strategy Arsenal ── */
+  .arsenal-shell {
+    max-width: 1100px;
+    margin: 0 auto 20px auto;
+  }
+  .arsenal-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .arsenal-subtitle,
+  .arsenal-running-subtitle {
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .arsenal-subtitle {
+    letter-spacing: 0.5px;
+  }
+  .arsenal-running-subtitle {
+    letter-spacing: 0.6px;
+  }
+  #arsenal-running-grid,
+  #template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .arsenal-template-card {
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .arsenal-template-title {
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 13px;
+  }
+  .arsenal-template-copy {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .arsenal-tag {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 99px;
+    font-weight: 700;
+  }
+  .arsenal-tag.instrument {
+    background: rgba(99,102,241,0.1);
+    border: 1px solid rgba(99,102,241,0.2);
+    color: var(--accent);
+  }
+  .arsenal-tag.success {
+    background: rgba(4,120,87,0.08);
+    border: 1px solid rgba(4,120,87,0.2);
+    color: var(--success);
+  }
+  .arsenal-tag.warn {
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.2);
+    color: var(--warn);
+  }
+  .arsenal-tag.accent2 {
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.2);
+    color: var(--accent2);
+  }
+  .arsenal-tag.purple {
+    background: rgba(139,92,246,0.08);
+    border: 1px solid rgba(139,92,246,0.2);
+    color: var(--purple);
+  }
+  .arsenal-running-card-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .arsenal-running-trades,
+  .arsenal-running-note {
+    color: var(--muted);
+  }
+  .arsenal-running-trades {
+    font-size: 10px;
+  }
+  [data-theme="light"] #strategy-arsenal-card h3,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-template-title,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-running-card-name {
+    color: #0f172a !important;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-subtitle,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-running-subtitle,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-template-copy,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-running-trades,
+  [data-theme="light"] #strategy-arsenal-card .arsenal-running-note {
+    color: #475569 !important;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-tag.instrument {
+    background: rgba(20,184,166,0.08);
+    border-color: rgba(20,184,166,0.18);
+    color: #0f766e;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-tag.success {
+    background: rgba(5,150,105,0.08);
+    border-color: rgba(5,150,105,0.16);
+    color: #047857;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-tag.warn {
+    background: rgba(245,158,11,0.08);
+    border-color: rgba(245,158,11,0.18);
+    color: #b45309;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-tag.accent2 {
+    background: rgba(59,130,246,0.08);
+    border-color: rgba(59,130,246,0.18);
+    color: #1d4ed8;
+  }
+  [data-theme="light"] #strategy-arsenal-card .arsenal-tag.purple {
+    background: rgba(139,92,246,0.08);
+    border-color: rgba(139,92,246,0.18);
+    color: #7c3aed;
+  }
   /* ── Premium Light: Dashboard Cards ── */
   [data-theme="light"] #dash-best-run { border-left-color: #047857; }
   [data-theme="light"] #dash-worst-run { border-left-color: #b45309; }
@@ -3286,72 +3416,72 @@
   </div>
 
   <!-- Strategy Arsenal -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+  <div id="strategy-arsenal-card" class="card arsenal-shell">
+    <div class="arsenal-heading">
       <span style="color:var(--accent);line-height:0;"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/></svg></span></span>
       <h3 style="margin:0; font-size: 16px;">Strategy Arsenal</h3>
-      <span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Choose Your Weapon</span>
+      <span class="arsenal-subtitle">Choose Your Weapon</span>
     </div>
     <div id="arsenal-running-wrap" style="display:none; margin-bottom: 16px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
         <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(16,185,129,0.16),rgba(52,211,153,0.08));border:1px solid rgba(16,185,129,0.28);border-radius:7px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path></svg></span></span>
         <div style="font-size:12px;font-weight:800;letter-spacing:0.35px;color:var(--success);">Running Now</div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Quick jump to active engines</div>
+        <div class="arsenal-running-subtitle">Quick jump to active engines</div>
       </div>
-      <div id="arsenal-running-grid" style="display:grid;grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;"></div>
+      <div id="arsenal-running-grid"></div>
     </div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;" id="template-grid">
+    <div id="template-grid">
       <!-- The Trend Sentinel -->
-      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('supertrend_cpr')">
+      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('supertrend_cpr')">
         <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(99,102,241,0.08) 0%,transparent 70%);pointer-events:none;"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.25);border-radius:6px;color:var(--accent);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span></span>
-          <div style="font-weight:700; color:var(--accent); font-size:13px;">The Trend Sentinel</div>
+          <div class="arsenal-template-title">The Trend Sentinel</div>
         </div>
-        <div style="font-size:11px; color:var(--muted); line-height:1.5;">Locks onto the dominant trend and strikes when consolidation tightens — patience rewarded with precision entries.</div>
+        <div class="arsenal-template-copy">Locks onto the dominant trend and strikes when consolidation tightens — patience rewarded with precision entries.</div>
         <div style="margin-top:8px;display:flex;gap:6px;">
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:var(--accent);font-weight:600;">NIFTY 5m</span>
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(4,120,87,0.08);border:1px solid rgba(4,120,87,0.2);color:var(--success);font-weight:600;">Supertrend</span>
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(4,120,87,0.08);border:1px solid rgba(4,120,87,0.2);color:var(--success);font-weight:600;">CPR</span>
+          <span class="arsenal-tag instrument">NIFTY 5m</span>
+          <span class="arsenal-tag success">Supertrend</span>
+          <span class="arsenal-tag success">CPR</span>
         </div>
       </div>
       <!-- The Dawn Raider -->
-      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('orb_breakout')">
+      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('orb_breakout')">
         <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(251,191,36,0.08) 0%,transparent 70%);pointer-events:none;"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(251,191,36,0.15),rgba(245,158,11,0.08));border:1px solid rgba(251,191,36,0.25);border-radius:6px;color:var(--warn);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg></span></span>
-          <div style="font-weight:700; color:var(--accent); font-size:13px;">The Dawn Raider</div>
+          <div class="arsenal-template-title">The Dawn Raider</div>
         </div>
-        <div style="font-size:11px; color:var(--muted); line-height:1.5;">First 15 minutes set the battlefield — this strategy ambushes the breakout and rides the opening momentum wave.</div>
+        <div class="arsenal-template-copy">First 15 minutes set the battlefield — this strategy ambushes the breakout and rides the opening momentum wave.</div>
         <div style="margin-top:8px;display:flex;gap:6px;">
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:var(--accent);font-weight:600;">NIFTY 15m</span>
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--warn);font-weight:600;">ORB</span>
+          <span class="arsenal-tag instrument">NIFTY 15m</span>
+          <span class="arsenal-tag warn">ORB</span>
         </div>
       </div>
       <!-- The Momentum Engine -->
-      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('ema_crossover')">
+      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('ema_crossover')">
         <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(59,130,246,0.08) 0%,transparent 70%);pointer-events:none;"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(96,165,250,0.08));border:1px solid rgba(59,130,246,0.25);border-radius:6px;color:var(--accent2);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor" stroke="none"/></svg></span></span>
-          <div style="font-weight:700; color:var(--accent); font-size:13px;">The Momentum Engine</div>
+          <div class="arsenal-template-title">The Momentum Engine</div>
         </div>
-        <div style="font-size:11px; color:var(--muted); line-height:1.5;">Two moving averages converge, cross, and ignite — a timeless momentum machine that catches trends early.</div>
+        <div class="arsenal-template-copy">Two moving averages converge, cross, and ignite — a timeless momentum machine that catches trends early.</div>
         <div style="margin-top:8px;display:flex;gap:6px;">
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:var(--accent);font-weight:600;">NIFTY 5m</span>
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);color:var(--accent2);font-weight:600;">EMA 9/21</span>
+          <span class="arsenal-tag instrument">NIFTY 5m</span>
+          <span class="arsenal-tag accent2">EMA 9/21</span>
         </div>
       </div>
       <!-- The Contrarian Strike -->
-      <div class="card card-compact" style="cursor:pointer; border:1px solid var(--border); transition: border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('rsi_reversal')">
+      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('rsi_reversal')">
         <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(139,92,246,0.08) 0%,transparent 70%);pointer-events:none;"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(167,139,250,0.08));border:1px solid rgba(139,92,246,0.25);border-radius:6px;color:var(--purple);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span></span>
-          <div style="font-weight:700; color:var(--accent); font-size:13px;">The Contrarian Strike</div>
+          <div class="arsenal-template-title">The Contrarian Strike</div>
         </div>
-        <div style="font-size:11px; color:var(--muted); line-height:1.5;">When fear peaks and RSI screams oversold, this strategy steps in — buying what others are panic-selling.</div>
+        <div class="arsenal-template-copy">When fear peaks and RSI screams oversold, this strategy steps in — buying what others are panic-selling.</div>
         <div style="margin-top:8px;display:flex;gap:6px;">
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:var(--accent);font-weight:600;">BNKN 15m</span>
-          <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);color:var(--purple);font-weight:600;">RSI 14</span>
+          <span class="arsenal-tag instrument">BNKN 15m</span>
+          <span class="arsenal-tag purple">RSI 14</span>
         </div>
       </div>
     </div>
@@ -8054,11 +8184,11 @@ function renderRunningArsenal(engines) {
     const instLabel = INST_NAMES[engine.instrument] || (engine.instrument ? `Instrument ${engine.instrument}` : 'NIFTY');
     const statusLabel = engine.in_trade ? 'In Trade' : 'Running';
     const statusColor = engine.in_trade ? '#fbbf24' : '#4ade80';
-    return `<div class="card card-compact" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="cursor:pointer;border:1px solid rgba(16,185,129,0.18);transition:border-color 0.2s, box-shadow 0.2s;position:relative;overflow:hidden;" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
+    return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
       <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
         <div style="min-width:0;">
-          <div style="font-size:13px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(strategyName)}</div>
+          <div class="arsenal-running-card-name">${escapeHtml(strategyName)}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
             <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:${modeBg};color:${modeColor};border:1px solid ${modeBorder};text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(mode)}</span>
             <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:rgba(34,197,94,0.12);color:${statusColor};border:1px solid rgba(34,197,94,0.22);text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(statusLabel)}</span>
@@ -8066,11 +8196,11 @@ function renderRunningArsenal(engines) {
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-size:16px;font-weight:800;font-family:'JetBrains Mono';color:${pnlColor};">₹${pnl.toFixed(2)}</div>
-          <div style="font-size:10px;color:var(--muted);">${escapeHtml(String(tradesToday))} trade${tradesToday === 1 ? '' : 's'} today</div>
+          <div class="arsenal-running-trades">${escapeHtml(String(tradesToday))} trade${tradesToday === 1 ? '' : 's'} today</div>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-        <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.18);color:var(--accent);font-weight:700;">${escapeHtml(instLabel)}</span>
+        <span class="arsenal-tag instrument" style="font-size:10px;padding:3px 8px;">${escapeHtml(instLabel)}</span>
         <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}',${strategyId || 0})" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
         ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;--btn-bg: rgba(236,72,153,0.14);--btn-color: rgb(244,114,182);--btn-border: rgba(236,72,153,0.32);">Edit</button>` : ''}
       </div>
