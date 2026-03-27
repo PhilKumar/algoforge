@@ -73,10 +73,16 @@ class OhlcvExportRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         request = _DummyRequest(user_id=7)
         frame = self._sample_frame()
+        broker_client = object()
 
         with (
             patch.object(app_module, "_get_session_token", return_value="tok"),
             patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 7})),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 7, "role": "user"}, broker_client, "user")),
+            ),
             patch.object(app_module, "_fetch_data", return_value=frame),
         ):
             result = await app_module.export_replay_ohlcv(payload, request)
@@ -112,10 +118,16 @@ class OhlcvExportRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         request = _DummyRequest(user_id=9)
         frame = self._sample_frame()
+        broker_client = object()
 
         with (
             patch.object(app_module, "_get_session_token", return_value="tok"),
             patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 9})),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 9, "role": "user"}, broker_client, "user")),
+            ),
             patch.object(app_module, "_fetch_data", return_value=frame),
         ):
             result = await app_module.export_replay_ohlcv(payload, request)
@@ -129,6 +141,33 @@ class OhlcvExportRouteTests(unittest.IsolatedAsyncioTestCase):
         combined = pd.read_csv(export_dir / "26000_2026-03-26_to_2026-03-27_1.csv")
         self.assertEqual(len(combined), 3)
         self.assertEqual(combined["timestamp"].iloc[-1], "2026-03-27 09:15:00")
+
+    async def test_export_replay_ohlcv_uses_user_broker_client(self):
+        payload = app_module.OhlcvExportPayload(
+            instrument="26000",
+            from_date="2026-03-26",
+            to_date="2026-03-27",
+            candle_interval="1",
+            split_by_day=True,
+        )
+        request = _DummyRequest(user_id=11)
+        frame = self._sample_frame()
+        broker_client = object()
+
+        with (
+            patch.object(app_module, "_get_session_token", return_value="tok"),
+            patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 11})),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 11, "role": "user"}, broker_client, "user")),
+            ),
+            patch.object(app_module, "_fetch_data", return_value=frame) as fetch_mock,
+        ):
+            result = await app_module.export_replay_ohlcv(payload, request)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIs(fetch_mock.call_args.kwargs["broker_client"], broker_client)
 
 
 if __name__ == "__main__":

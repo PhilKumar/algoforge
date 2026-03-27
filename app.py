@@ -3832,7 +3832,12 @@ ROLLING_EXPIRY_SELECTIONS = {
 
 
 def _fetch_data(
-    instrument: str, from_date: str, to_date: str, segment: str = "indices", candle_interval: str = "5"
+    instrument: str,
+    from_date: str,
+    to_date: str,
+    segment: str = "indices",
+    candle_interval: str = "5",
+    broker_client: DhanClient | None = None,
 ) -> pd.DataFrame:
     """
     Fetch OHLCV candles from Dhan at the requested raw interval.
@@ -3866,10 +3871,12 @@ def _fetch_data(
         f"From={from_date}, To={to_date}, Span={day_span}d"
     )
 
+    client = broker_client or dhan
+
     if use_daily:
         # Daily candles — single request, no chunking needed
         try:
-            df = dhan.get_historical_data(
+            df = client.get_historical_data(
                 security_id=inst_info["dhan_id"],
                 exchange_segment=inst_info["dhan_seg"],
                 instrument_type=inst_info["dhan_type"],
@@ -3909,7 +3916,7 @@ def _fetch_data(
         success = False
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                df_chunk = dhan.get_historical_data(
+                df_chunk = client.get_historical_data(
                     security_id=inst_info["dhan_id"],
                     exchange_segment=inst_info["dhan_seg"],
                     instrument_type=inst_info["dhan_type"],
@@ -4019,6 +4026,9 @@ async def export_replay_ohlcv(payload: OhlcvExportPayload, request: Request):
     session = await _validate_session_async(token)
     if not session:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
 
     try:
         from_dt = datetime.strptime(payload.from_date, "%Y-%m-%d")
@@ -4054,6 +4064,7 @@ async def export_replay_ohlcv(payload: OhlcvExportPayload, request: Request):
             to_date=payload.to_date,
             segment=payload.segment,
             candle_interval=str(payload.candle_interval or "1"),
+            broker_client=broker_client,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Data fetch failed: {exc}") from exc
