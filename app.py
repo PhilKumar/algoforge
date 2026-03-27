@@ -1405,6 +1405,16 @@ class StrategyPayload(BaseModel):
     allow_synthetic_option_fallback: bool = False
 
 
+class OhlcvExportPayload(BaseModel):
+    instrument: str = "26000"
+    segment: str = "indices"
+    from_date: str = config.DEFAULT_FROM
+    to_date: str = config.DEFAULT_TO
+    candle_interval: str = "1"
+    split_by_day: bool = True
+    export_name: str = ""
+
+
 def _render_login_page() -> HTMLResponse:
     login_path = os.path.join(_HERE, "login.html")
     if not os.path.exists(login_path):
@@ -1507,6 +1517,16 @@ def _parse_day_folder(name: str):
 
 def _user_storage_root(user_id: int) -> str:
     return os.path.join(_USER_DATA_ROOT, str(int(user_id or 0)))
+
+
+def _user_exports_root(user_id: int) -> str:
+    return os.path.join(_user_storage_root(user_id), "exports")
+
+
+def _safe_export_name(value: str, default: str = "export") -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value or "").strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or default
 
 
 def _user_charts_root(user_id: int) -> str:
@@ -3937,6 +3957,149 @@ def _fetch_data(
         f"{df.index[0]} → {df.index[-1]}"
     )
     return df
+
+
+def _normalize_ohlcv_export_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    normalized = df.copy().sort_index()
+    rename_map = {str(column).lower(): column for column in normalized.columns}
+    selected = pd.DataFrame(index=pd.to_datetime(normalized.index))
+    for column in ("open", "high", "low", "close"):
+        source = rename_map.get(column)
+        if not source:
+            raise ValueError(f"Fetched data is missing required OHLC column '{column}'")
+        selected[column] = pd.to_numeric(normalized[source], errors="coerce")
+    volume_source = rename_map.get("volume")
+    if volume_source:
+        selected["volume"] = pd.to_numeric(normalized[volume_source], errors="coerce").fillna(0)
+    else:
+        selected["volume"] = 0
+    selected = selected.dropna(subset=["open", "high", "low", "close"])
+    selected.index.name = "timestamp"
+    return selected
+
+
+def _write_ohlcv_export_files(
+    df: pd.DataFrame,
+    *,
+    export_dir: str,
+    split_by_day: bool,
+    base_filename: str,
+) -> list[dict]:
+    os.makedirs(export_dir, exist_ok=True)
+    files: list[dict] = []
+
+    def write_one(path: str, frame: pd.DataFrame) -> None:
+        out = frame.copy().reset_index()
+        out["timestamp"] = pd.to_datetime(out["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+        out.to_csv(path, index=False)
+        files.append(
+            {
+                "name": os.path.basename(path),
+                "path": path,
+                "rows": int(len(frame)),
+                "from": str(frame.index[0]),
+                "to": str(frame.index[-1]),
+            }
+        )
+
+    if split_by_day:
+        for session_date, day_df in df.groupby(df.index.date):
+            write_one(os.path.join(export_dir, f"{session_date.isoformat()}.csv"), day_df)
+    else:
+        write_one(os.path.join(export_dir, f"{base_filename}.csv"), df)
+
+    return files
+
+
+@app.post("/api/replay/export-ohlcv")
+async def export_replay_ohlcv(payload: OhlcvExportPayload, request: Request):
+    token = _get_session_token(request)
+    session = await _validate_session_async(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        from_dt = datetime.strptime(payload.from_date, "%Y-%m-%d")
+        to_dt = datetime.strptime(payload.to_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}") from exc
+
+    if from_dt > to_dt:
+        raise HTTPException(status_code=400, detail="from_date cannot be after to_date")
+
+    inst_info = INSTRUMENT_MAP.get(payload.instrument)
+    if not inst_info:
+        raise HTTPException(status_code=400, detail=f"Unknown instrument: {payload.instrument}")
+
+    day_span = (to_dt - from_dt).days
+    effective_interval = "D" if day_span > INTRADAY_MAX_DAYS else str(payload.candle_interval or "1")
+    user_id = int(session.get("user_id") or _request_user_id(request) or 0)
+    export_root = os.path.join(_user_exports_root(user_id), "ohlcv_sessions")
+    os.makedirs(export_root, exist_ok=True)
+
+    name_seed = (
+        payload.export_name or f"{payload.instrument}_{payload.from_date}_{payload.to_date}_{effective_interval}"
+    )
+    export_name = _safe_export_name(name_seed, default="ohlcv_export")
+    timestamp_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_dir = os.path.join(export_root, f"{export_name}_{timestamp_tag}")
+
+    try:
+        df_raw = await asyncio.to_thread(
+            _fetch_data,
+            instrument=payload.instrument,
+            from_date=payload.from_date,
+            to_date=payload.to_date,
+            segment=payload.segment,
+            candle_interval=str(payload.candle_interval or "1"),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Data fetch failed: {exc}") from exc
+
+    if df_raw is None or df_raw.empty:
+        raise HTTPException(status_code=404, detail="No OHLCV data returned for the requested range")
+
+    try:
+        export_df = _normalize_ohlcv_export_frame(df_raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    files = _write_ohlcv_export_files(
+        export_df,
+        export_dir=export_dir,
+        split_by_day=payload.split_by_day,
+        base_filename=f"{payload.instrument}_{payload.from_date}_to_{payload.to_date}_{effective_interval}",
+    )
+
+    manifest = {
+        "instrument": payload.instrument,
+        "instrument_name": inst_info["name"],
+        "segment": payload.segment,
+        "from_date": payload.from_date,
+        "to_date": payload.to_date,
+        "requested_interval": str(payload.candle_interval or "1"),
+        "effective_interval": effective_interval,
+        "split_by_day": payload.split_by_day,
+        "rows": int(len(export_df)),
+        "files": [{k: v for k, v in item.items() if k != "path"} for item in files],
+    }
+    manifest_path = os.path.join(export_dir, "manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+    return {
+        "status": "ok",
+        "instrument": payload.instrument,
+        "instrument_name": inst_info["name"],
+        "rows": int(len(export_df)),
+        "split_by_day": payload.split_by_day,
+        "effective_interval": effective_interval,
+        "export_dir": export_dir,
+        "manifest_path": manifest_path,
+        "files": files,
+    }
 
 
 def _format_rolling_strike(offset_steps: int) -> str:
