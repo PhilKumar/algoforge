@@ -144,6 +144,8 @@ _PRICE_MAP = {
 }
 _TOUCH_RANGE_KEYS = {"current_high", "current_low"}
 _TOUCH_POINT_KEYS = {"current_open", "current_close"}
+_ROW_INDEPENDENT_CONDITION_KEYS = {"Time_Of_Day", "Day_Of_Week", "number", "time", "days", "true", "false"}
+_PREV_SENSITIVE_OPERATORS = {"crosses_above", "crosses_below"}
 
 
 def _resolve_value(row, key, cond=None):
@@ -368,16 +370,71 @@ def eval_condition_group(row, conditions, prev_row=None):
     return result
 
 
-def debug_condition_group(row, conditions, prev_row=None):
-    """Evaluate conditions and return per-condition results for debugging."""
+def _condition_operand_requires_row_value(key):
+    return isinstance(key, str) and key not in _ROW_INDEPENDENT_CONDITION_KEYS
+
+
+def _is_missing_runtime_value(value):
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except Exception:
+        return False
+    if isinstance(missing, (np.ndarray, pd.Series, list, tuple)):
+        return False
+    return bool(missing)
+
+
+def _collect_condition_missing_fields(row, cond, prev_row=None):
+    missing_fields = []
+    seen = set()
+
+    def record(label, value):
+        if label in seen:
+            return
+        if _is_missing_runtime_value(value):
+            missing_fields.append(label)
+            seen.add(label)
+
+    left = cond.get("left")
+    right = cond.get("right")
+    operator = cond.get("operator")
+
+    if _condition_operand_requires_row_value(left):
+        record(str(left), _resolve_value(row, left))
+    if _condition_operand_requires_row_value(right):
+        record(str(right), _resolve_value(row, right, cond))
+
+    if prev_row is not None and operator in _PREV_SENSITIVE_OPERATORS:
+        if _condition_operand_requires_row_value(left):
+            record(f"{left} (prev)", _resolve_value(prev_row, left))
+        if _condition_operand_requires_row_value(right):
+            record(f"{right} (prev)", _resolve_value(prev_row, right, cond))
+
+    return missing_fields
+
+
+def inspect_condition_group(row, conditions, prev_row=None):
+    """Evaluate conditions, return debug rows, and surface missing row-backed operands."""
     if not conditions:
-        return False, [{"condition": "(none)", "result": False}]
+        return False, [{"condition": "(none)", "result": False}], []
+
     details = []
-    for c in conditions:
+    overall = None
+    missing_fields = []
+    seen_missing = set()
+
+    for index, c in enumerate(conditions):
         lv = _resolve_value(row, c["left"])
         rv = _resolve_value(row, c["right"], c)
         passed = eval_condition(row, c, prev_row)
         label = f"{c['left']} {c['operator']} {c['right']}"
+        cond_missing = _collect_condition_missing_fields(row, c, prev_row)
+        for field in cond_missing:
+            if field not in seen_missing:
+                missing_fields.append(field)
+                seen_missing.add(field)
         try:
             lv_str = f"{float(lv):,.4f}" if lv is not None else "None"
         except (TypeError, ValueError):
@@ -386,15 +443,31 @@ def debug_condition_group(row, conditions, prev_row=None):
             rv_str = f"{float(rv):,.4f}" if rv is not None else "None"
         except (TypeError, ValueError):
             rv_str = str(rv)
-        details.append(
-            {
-                "condition": label,
-                "left_value": lv_str,
-                "right_value": rv_str,
-                "result": passed,
-            }
-        )
-    overall = eval_condition_group(row, conditions, prev_row)
+        item = {
+            "condition": label,
+            "left_value": lv_str,
+            "right_value": rv_str,
+            "result": passed,
+        }
+        if cond_missing:
+            item["missing_fields"] = cond_missing
+        details.append(item)
+
+        if index == 0:
+            overall = passed
+        else:
+            conn = c.get("logic", c.get("connector", "AND")).upper()
+            if conn in ("AND", "IF"):
+                overall = overall and passed
+            elif conn == "OR":
+                overall = overall or passed
+
+    return bool(overall), details, missing_fields
+
+
+def debug_condition_group(row, conditions, prev_row=None):
+    """Evaluate conditions and return per-condition results for debugging."""
+    overall, details, _missing_fields = inspect_condition_group(row, conditions, prev_row)
     return overall, details
 
 

@@ -33,11 +33,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import (
-    debug_condition_group,
     eval_condition_group,
     get_lot_size,
     get_sell_option_margin_per_lot,
     get_strike_step,
+    inspect_condition_group,
 )
 from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
@@ -364,6 +364,28 @@ class PaperTradingEngine:
             self.log_event("info", f"Strategy SL: ₹{sl_rupees:,.0f}" if sl_rupees > 0 else f"Strategy SL: {sl_pct}%")
         if tp_rupees > 0 or tp_pct > 0:
             self.log_event("info", f"Strategy TP: ₹{tp_rupees:,.0f}" if tp_rupees > 0 else f"Strategy TP: {tp_pct}%")
+
+    @staticmethod
+    def _format_missing_condition_gate(missing_fields: list[str]) -> str:
+        preview = ", ".join(missing_fields[:3])
+        extra = len(missing_fields) - 3
+        if extra > 0:
+            preview = f"{preview} +{extra} more"
+        return f"missing_condition_data ({preview})"
+
+    def _evaluate_entry_conditions_with_debug(self, latest_row, prev_row, now: datetime):
+        raw_overall, cond_details, missing_fields = inspect_condition_group(latest_row, self.entry_conditions, prev_row)
+        entry_triggered = raw_overall and not missing_fields
+        debug_payload = {
+            "time": now.strftime("%H:%M:%S"),
+            "overall": entry_triggered,
+            "raw_overall": raw_overall,
+            "gate": "evaluating" if not missing_fields else self._format_missing_condition_gate(missing_fields),
+            "conditions": cond_details,
+        }
+        if missing_fields:
+            debug_payload["missing_fields"] = missing_fields
+        return entry_triggered, debug_payload
 
     def _position_unrealized_pnl(self, position: dict, current_premium: float | None = None) -> float:
         premium = float(
@@ -897,15 +919,11 @@ class PaperTradingEngine:
                             await self._enter_trade(latest_row)
                     else:
                         prev_row = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
-                        entry_triggered, cond_details = debug_condition_group(
-                            latest_row, self.entry_conditions, prev_row
+                        entry_triggered, self._condition_debug = self._evaluate_entry_conditions_with_debug(
+                            latest_row,
+                            prev_row,
+                            now,
                         )
-                        self._condition_debug = {
-                            "time": now.strftime("%H:%M:%S"),
-                            "overall": entry_triggered,
-                            "gate": "evaluating",
-                            "conditions": cond_details,
-                        }
                         if entry_triggered:
                             self._arm_pending_entry(strategy_candle_time, latest_row)
                             self.log_event(
@@ -1187,13 +1205,11 @@ class PaperTradingEngine:
                     await self._enter_trade(latest_row)
             elif is_new_strategy_candle:
                 prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else None
-                entry_triggered, cond_details = debug_condition_group(latest_row, self.entry_conditions, prev_row)
-                self._condition_debug = {
-                    "time": now.strftime("%H:%M:%S"),
-                    "overall": entry_triggered,
-                    "gate": "evaluating",
-                    "conditions": cond_details,
-                }
+                entry_triggered, self._condition_debug = self._evaluate_entry_conditions_with_debug(
+                    latest_row,
+                    prev_row,
+                    now,
+                )
                 if entry_triggered:
                     self._arm_pending_entry(strategy_candle_time, latest_row)
                     self.log_event(

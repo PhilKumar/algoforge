@@ -257,6 +257,55 @@ class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
             await engine._try_flush_pending_order()
         engine._flush_pending_order.assert_awaited_once()
 
+    async def test_live_flush_pending_order_retries_once_then_clears(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="timing-retry-test")
+        signal_ts = pd.Timestamp("2026-03-19 09:15").to_pydatetime()
+        engine._pending_order = {
+            "signal_candle_time": signal_ts,
+            "created_at": pd.Timestamp("2026-03-19 09:20:00").to_pydatetime(),
+            "ready_at": next_entry_ready_at(signal_ts, 5),
+            "row": pd.Series({"open": 100.0}),
+            "attempts": 0,
+            "retry_at": None,
+        }
+        engine._enter_trade = AsyncMock(return_value=None)
+        engine.in_trade = False
+
+        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-19 09:20:02").to_pydatetime()):
+            first = await engine._flush_pending_order(pd.Series({"open": 100.0}))
+
+        self.assertFalse(first)
+        self.assertIsNotNone(engine._pending_order)
+        self.assertEqual(engine._pending_order["attempts"], 1)
+        self.assertIsNotNone(engine._pending_order["retry_at"])
+
+        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-19 09:20:06").to_pydatetime()):
+            second = await engine._flush_pending_order(pd.Series({"open": 100.0}))
+
+        self.assertFalse(second)
+        self.assertIsNone(engine._pending_order)
+
+    async def test_live_try_flush_pending_order_drops_duplicate_processed_candle(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="timing-dedupe-test")
+        signal_ts = pd.Timestamp("2026-03-19 09:15").to_pydatetime()
+        engine.strategy = {"timeframe_minutes": 5, "indicators": [], "max_trades_per_day": 1}
+        engine._last_processed_candle_time = signal_ts
+        engine._pending_order = {
+            "signal_candle_time": signal_ts,
+            "created_at": pd.Timestamp("2026-03-19 09:20:00").to_pydatetime(),
+            "ready_at": pd.Timestamp("2026-03-19 09:20:01").to_pydatetime(),
+            "row": pd.Series({"open": 100.0}),
+            "attempts": 0,
+            "retry_at": None,
+        }
+        engine._flush_pending_order = AsyncMock()
+
+        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-19 09:20:02").to_pydatetime()):
+            await engine._try_flush_pending_order()
+
+        engine._flush_pending_order.assert_not_awaited()
+        self.assertIsNone(engine._pending_order)
+
 
 class WsClosedCandleGuardTests(unittest.TestCase):
     def test_live_ws_frame_ignores_first_forming_5m_candle(self):

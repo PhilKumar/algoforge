@@ -557,6 +557,66 @@ _INDICATOR_OUTPUT_PATTERNS = (
     re.compile(r"^(ADX_\d+_\d+m)_(?:plus_di|minus_di)$"),
 )
 
+_CPR_LEVEL_SUFFIXES = {
+    "Pivot",
+    "TC",
+    "BC",
+    "width_pct",
+    "is_narrow",
+    "is_moderate",
+    "is_wide",
+    "R0.5",
+    "R1",
+    "R1.5",
+    "R2",
+    "R2.5",
+    "R3",
+    "R3.5",
+    "R4",
+    "R4.5",
+    "R5",
+    "S0.5",
+    "S1",
+    "S1.5",
+    "S2",
+    "S2.5",
+    "S3",
+    "S3.5",
+    "S4",
+    "S4.5",
+    "S5",
+}
+
+_GENERIC_DAILY_CPR_FIELDS = {
+    "pivot",
+    "bc",
+    "tc",
+    "cpr_width_pct",
+    "cpr_is_narrow",
+    "cpr_is_moderate",
+    "cpr_is_wide",
+    "R0.5",
+    "R1",
+    "R1.5",
+    "R2",
+    "R2.5",
+    "R3",
+    "R3.5",
+    "R4",
+    "R4.5",
+    "R5",
+    "S0.5",
+    "S1",
+    "S1.5",
+    "S2",
+    "S2.5",
+    "S3",
+    "S3.5",
+    "S4",
+    "S4.5",
+    "S5",
+}
+
 
 def _parse_cpr_indicator_timeframe(indicator_id: str) -> str | None:
     if not isinstance(indicator_id, str) or not indicator_id.startswith("CPR"):
@@ -575,16 +635,20 @@ def _default_cpr_indicator_id(timeframe: str) -> str:
 
 
 def _infer_cpr_indicator_id(field: str, indicators: list[str]) -> str | None:
-    if not isinstance(field, str) or not field.startswith("CPR_"):
+    if not isinstance(field, str):
         return None
-    if field.startswith("CPR_4H_"):
+    if field in _GENERIC_DAILY_CPR_FIELDS:
+        target_tf = "D"
+    elif field.startswith("CPR_4H_"):
         target_tf = "4H"
     elif field.startswith("CPR_W_"):
         target_tf = "W"
     elif field.startswith("CPR_M_"):
         target_tf = "M"
-    else:
+    elif field.startswith("CPR_"):
         target_tf = "D"
+    else:
+        return None
 
     for indicator_id in indicators:
         if _parse_cpr_indicator_timeframe(indicator_id) == target_tf:
@@ -921,8 +985,7 @@ def compute_dynamic_indicators(
     execution_group.extend(grouped_indicators.pop(None, []))
     if execution_group:
         execution_with_indicators = _compute_indicator_columns(result.copy(), execution_group, assign_generic=True)
-        for column in execution_with_indicators.columns:
-            result[column] = execution_with_indicators[column]
+        result = execution_with_indicators.copy()
 
     for frame_tf, indicators in grouped_indicators.items():
         if frame_tf is None:
@@ -952,7 +1015,9 @@ def compute_dynamic_indicators(
             result.index,
             execution_tf,
         )
-        for column in aligned.columns:
-            result[column] = aligned[column]
+        overwrite_cols = [column for column in aligned.columns if column in result.columns]
+        if overwrite_cols:
+            result = result.drop(columns=overwrite_cols)
+        result = pd.concat([result, aligned], axis=1)
 
     return result

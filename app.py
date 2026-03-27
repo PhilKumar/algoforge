@@ -71,6 +71,7 @@ from engine.indicators import normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
+from engine.strategy_contract import validate_strategy_contract
 from engine.strike_utils import round_half_up
 from engine.timeframes import (
     INTRADAY_CHUNK_DAYS,
@@ -3261,10 +3262,15 @@ async def validate_strategy(request: Request):
                 f"Estimated margin ₹{est_margin:,.0f} for {lots} lot(s) may exceed 80% of capital ₹{initial_capital:,.0f}"
             )
 
+    contract = validate_strategy_contract(body.get("indicators"), entry, exit_conds)
+    errors.extend(contract["errors"])
+    warnings.extend(contract["warnings"])
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
+        "normalized_indicators": contract["normalized_indicators"],
         "summary": {
             "instrument": instrument,
             "entry_conditions": len(entry),
@@ -3272,6 +3278,7 @@ async def validate_strategy(request: Request):
             "legs": len(legs),
             "sl_pct": sl_pct,
             "tp_pct": tp_pct,
+            "indicator_count": len(contract["normalized_indicators"]),
         },
     }
 
@@ -4199,11 +4206,16 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
-        normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
-            payload.indicators,
-            payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-            payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
-        )
+        entry_conditions = payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS
+        exit_conditions = payload.exit_conditions or DEFAULT_EXIT_CONDITIONS
+        contract = validate_strategy_contract(payload.indicators, entry_conditions, exit_conditions)
+        normalized_indicators = contract["normalized_indicators"]
+        if contract["errors"]:
+            return {
+                "status": "error",
+                "message": "Strategy validation failed:\n- " + "\n- ".join(contract["errors"]),
+                "validation": contract,
+            }
 
         try:
             tf_spec = resolve_strategy_timeframe(normalized_indicators)
@@ -4460,11 +4472,16 @@ async def live_start(req: LiveStartRequest, request: Request):
         req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
         req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
     )
-    strategy_dict["indicators"] = normalize_strategy_indicators(
-        strategy_dict.get("indicators", req.indicators),
-        entry_conditions=entry_conditions,
-        exit_conditions=exit_conditions,
+    contract = validate_strategy_contract(
+        strategy_dict.get("indicators", req.indicators), entry_conditions, exit_conditions
     )
+    if contract["errors"]:
+        return {
+            "status": "error",
+            "message": "Strategy validation failed:\n- " + "\n- ".join(contract["errors"]),
+            "validation": contract,
+        }
+    strategy_dict["indicators"] = contract["normalized_indicators"]
     try:
         tf_spec = resolve_strategy_timeframe(strategy_dict["indicators"])
     except ValueError as tf_err:
@@ -4729,11 +4746,16 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     paper_bucket = _registry_bucket(paper_engines, user_id)
     paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
-    normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
-        payload.indicators,
-        payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-        payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
-    )
+    entry_conditions = payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS
+    exit_conditions = payload.exit_conditions or DEFAULT_EXIT_CONDITIONS
+    contract = validate_strategy_contract(payload.indicators, entry_conditions, exit_conditions)
+    normalized_indicators = contract["normalized_indicators"]
+    if contract["errors"]:
+        return {
+            "status": "error",
+            "message": "Strategy validation failed:\n- " + "\n- ".join(contract["errors"]),
+            "validation": contract,
+        }
     try:
         tf_spec = resolve_strategy_timeframe(normalized_indicators)
     except ValueError as tf_err:
