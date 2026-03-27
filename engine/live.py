@@ -42,6 +42,7 @@ from engine.backtest import (
 from engine.indicators import compute_dynamic_indicators, merge_indicator_context, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
+    candle_close_time,
     describe_timeframe,
     drop_incomplete_candle,
     next_entry_ready_at,
@@ -128,6 +129,8 @@ class LiveEngine:
         self.manual_intervention_required = False
         self._entry_fill_timeout_sec = 15
         self._exit_fill_timeout_sec = 15
+        self._market_open = time(9, 15)
+        self._market_close = time(15, 25)
 
         # Market data
         self.current_spot = 0.0
@@ -361,6 +364,17 @@ class LiveEngine:
             await self._exit_position(pos, "MARKET_CLOSE", exit_px, callback)
 
         return True
+
+    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+        if strategy_candle_time is None:
+            return False
+        close_time = candle_close_time(strategy_candle_time, self._get_timeframe_spec().requested)
+        return close_time.time() <= self._market_close
+
+    def _entry_can_be_scheduled(self, signal_candle_time) -> bool:
+        if signal_candle_time is None:
+            return False
+        return self._pending_order_ready_at(signal_candle_time).time() <= self._market_close
 
     async def _verify_order_execution(
         self,
@@ -1012,14 +1026,25 @@ class LiveEngine:
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
 
                 # Market hours check (pre-parsed in configure())
-                if now.time() >= self._market_close:
+                allow_final_candle_grace = now <= now.replace(
+                    hour=self._market_close.hour,
+                    minute=self._market_close.minute,
+                    second=2,
+                    microsecond=0,
+                )
+
+                if (
+                    now.time() >= self._market_close
+                    and not allow_final_candle_grace
+                    and not self._candle_event.is_set()
+                ):
                     await self._force_market_close_if_needed(now, callback)
                     await asyncio.sleep(5)
                     if callback:
                         await self._emit(callback, {"type": "status", "message": "Outside market hours"})
                     continue
 
-                if not (self._market_open <= now.time() <= self._market_close):
+                if now.time() < self._market_open:
                     await asyncio.sleep(5)
                     if callback:
                         await self._emit(callback, {"type": "status", "message": "Outside market hours"})
@@ -1138,6 +1163,8 @@ class LiveEngine:
                 latest_row = df_with_indicators.iloc[-1]
                 strategy_candle_time = latest_row.name
                 if self._last_strategy_candle_time == strategy_candle_time:
+                    if now.time() >= self._market_close:
+                        await self._force_market_close_if_needed(now, callback)
                     if callback:
                         await self._emit(callback, self.get_status())
                     continue
@@ -1153,16 +1180,40 @@ class LiveEngine:
                     f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
                 )
 
+                candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+
+                if candle_in_session and self.in_trade:
+                    strategy_exit = self._check_strategy_exit()
+                    if strategy_exit:
+                        for pos in list(self.positions):
+                            if pos.get("status") == "closed":
+                                continue
+                            await self._exit_position(pos, strategy_exit, pos.get("current_premium", 0.0), callback)
+                    else:
+                        for pos in list(self.positions):
+                            if pos.get("status") == "closed":
+                                continue
+                            exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
+                                pos,
+                                latest_row,
+                                pos["current_premium"],
+                            )
+                            if exit_reason:
+                                await self._exit_position(pos, exit_reason, pos["current_premium"], callback)
+
                 # ── Check entry (Quantman Way — signal → pendingOrder → flush on next candle) ──
                 max_trades = self.strategy.get("max_trades_per_day", 1)
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
-                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
+                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit and candle_in_session:
                     # Execute pending signal from previous candle (enter on THIS candle's open)
                     if self._pending_order:
                         po = self._pending_order
                         # Double-trigger guard
-                        if not self._is_pending_order_ready(po, now):
+                        if now.time() >= self._market_close:
+                            self.log_event("info", "Pending order cleared at session end")
+                            self._clear_pending_order()
+                        elif not self._is_pending_order_ready(po, now):
                             pass
                         elif self._last_processed_candle_time == po.get("signal_candle_time"):
                             self.log_event("debug", "Duplicate pending order for already-processed candle — discarding")
@@ -1182,26 +1233,32 @@ class LiveEngine:
                             now,
                         )
                         if entry_sig:
-                            ready_at = self._pending_order_ready_at(strategy_candle_time)
-                            self._pending_order = {
-                                "signal_candle_time": strategy_candle_time,
-                                "created_at": _now_ist(),
-                                "ready_at": ready_at,
-                                "row": latest_row,
-                                "attempts": 0,
-                                "retry_at": None,
-                            }
-                            self._entry_signal_pending = True
-                            self._signal_candle = {
-                                "Signal_Candle_Open": float(latest_row["open"]),
-                                "Signal_Candle_High": float(latest_row["high"]),
-                                "Signal_Candle_Low": float(latest_row["low"]),
-                                "Signal_Candle_Close": float(latest_row["close"]),
-                            }
-                            self.log_event(
-                                "signal",
-                                f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open @ {ready_at.strftime('%H:%M:%S')}",
-                            )
+                            if self._entry_can_be_scheduled(strategy_candle_time):
+                                ready_at = self._pending_order_ready_at(strategy_candle_time)
+                                self._pending_order = {
+                                    "signal_candle_time": strategy_candle_time,
+                                    "created_at": _now_ist(),
+                                    "ready_at": ready_at,
+                                    "row": latest_row,
+                                    "attempts": 0,
+                                    "retry_at": None,
+                                }
+                                self._entry_signal_pending = True
+                                self._signal_candle = {
+                                    "Signal_Candle_Open": float(latest_row["open"]),
+                                    "Signal_Candle_High": float(latest_row["high"]),
+                                    "Signal_Candle_Low": float(latest_row["low"]),
+                                    "Signal_Candle_Close": float(latest_row["close"]),
+                                }
+                                self.log_event(
+                                    "signal",
+                                    f"⚡ ENTRY SIGNAL @ candle {strategy_candle_time} — will enter on NEXT candle open @ {ready_at.strftime('%H:%M:%S')}",
+                                )
+                            else:
+                                self._condition_debug = {"gate": "market_close_boundary", "conditions": []}
+                                self.log_event(
+                                    "info", "Entry signal ignored — no next tradable candle before market close"
+                                )
                 elif self.in_trade:
                     self._condition_debug = {"gate": "in_trade", "conditions": []}
                     if self._pending_order:
@@ -1229,6 +1286,9 @@ class LiveEngine:
 
                 self._prev_row = latest_row
                 self._last_strategy_candle_time = strategy_candle_time
+
+                if now.time() >= self._market_close:
+                    await self._force_market_close_if_needed(now, callback)
 
                 if callback:
                     await self._emit(callback, self.get_status())
@@ -1445,6 +1505,11 @@ class LiveEngine:
         po = self._pending_order
         now = _now_ist()
 
+        if now.time() >= self._market_close:
+            self.log_event("info", "Pending order cleared at session end")
+            self._clear_pending_order()
+            return
+
         # ── Stale signal expiry (older than 2 candle periods) ──
         if po.get("created_at"):
             age = (now - po["created_at"]).total_seconds()
@@ -1512,16 +1577,12 @@ class LiveEngine:
             self.log_event("info", f"📅 New trading day: {self.session_date}")
 
         # Market hours check (pre-parsed in configure())
-        if cur_time >= self._market_close:
-            await self._force_market_close_if_needed(now, callback)
+        if cur_time < self._market_open:
             if callback:
                 await self._emit(callback, {"type": "status", "message": "Outside market hours"})
             return
 
-        if not (self._market_open <= cur_time <= self._market_close):
-            if callback:
-                await self._emit(callback, {"type": "status", "message": "Outside market hours"})
-            return
+        after_market_close = cur_time >= self._market_close
 
         # Fetch live candle data
         try:
@@ -1546,6 +1607,7 @@ class LiveEngine:
         latest_row = eval_df.iloc[-1]
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
+        candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
         prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else self._prev_row
 
         # ── Manage open positions ──
@@ -1562,33 +1624,37 @@ class LiveEngine:
             qty = self._position_quantity(pos)
             pos["unrealized_pnl"] = round((current_premium - pos["entry_premium"]) * direction * qty, 2)
 
-        strategy_exit = self._check_strategy_exit()
-        if strategy_exit:
-            for pos in list(self.positions):
-                if pos.get("status") == "closed":
-                    continue
-                await self._exit_position(pos, strategy_exit, pos.get("current_premium", 0.0), callback)
-        else:
-            for pos in list(self.positions):
-                if pos.get("status") == "closed":
-                    continue
-                current_premium = pos.get("current_premium", 0.0)
-                exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
-                    pos, latest_row, current_premium
-                )
-                if exit_reason:
-                    await self._exit_position(pos, exit_reason, current_premium, callback)
+        if candle_in_session:
+            strategy_exit = self._check_strategy_exit()
+            if strategy_exit:
+                for pos in list(self.positions):
+                    if pos.get("status") == "closed":
+                        continue
+                    await self._exit_position(pos, strategy_exit, pos.get("current_premium", 0.0), callback)
+            else:
+                for pos in list(self.positions):
+                    if pos.get("status") == "closed":
+                        continue
+                    current_premium = pos.get("current_premium", 0.0)
+                    exit_reason = pos.get("_force_exit_reason") or self._check_exit_conditions(
+                        pos, latest_row, current_premium
+                    )
+                    if exit_reason:
+                        await self._exit_position(pos, exit_reason, current_premium, callback)
 
         # ── Check entry conditions (REST mode — same Quantman Way logic) ──
         max_trades = self.strategy.get("max_trades_per_day", 1)
         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
-        if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
+        if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit and candle_in_session:
             # Execute pending signal from previous tick
             if self._pending_order:
                 po = self._pending_order
                 # Retry timing check
-                if po.get("retry_at") and now < po["retry_at"]:
+                if cur_time >= self._market_close:
+                    self.log_event("info", "Pending order cleared at session end")
+                    self._clear_pending_order()
+                elif po.get("retry_at") and now < po["retry_at"]:
                     pass  # Wait for retry window
                 elif not self._is_pending_order_ready(po, now):
                     pass
@@ -1606,26 +1672,30 @@ class LiveEngine:
                 )
                 if entry_sig:
                     signal_candle_time = latest_row.name if hasattr(latest_row, "name") else now
-                    ready_at = self._pending_order_ready_at(signal_candle_time)
-                    self._pending_order = {
-                        "signal_candle_time": signal_candle_time,
-                        "created_at": now,
-                        "ready_at": ready_at,
-                        "row": latest_row,
-                        "attempts": 0,
-                        "retry_at": None,
-                    }
-                    self._entry_signal_pending = True
-                    self._signal_candle = {
-                        "Signal_Candle_Open": float(latest_row["open"]),
-                        "Signal_Candle_High": float(latest_row["high"]),
-                        "Signal_Candle_Low": float(latest_row["low"]),
-                        "Signal_Candle_Close": float(latest_row["close"]),
-                    }
-                    self.log_event(
-                        "signal",
-                        f"⚡ ENTRY SIGNAL — will enter on or after {ready_at.strftime('%H:%M:%S')} (REST mode)",
-                    )
+                    if self._entry_can_be_scheduled(signal_candle_time):
+                        ready_at = self._pending_order_ready_at(signal_candle_time)
+                        self._pending_order = {
+                            "signal_candle_time": signal_candle_time,
+                            "created_at": now,
+                            "ready_at": ready_at,
+                            "row": latest_row,
+                            "attempts": 0,
+                            "retry_at": None,
+                        }
+                        self._entry_signal_pending = True
+                        self._signal_candle = {
+                            "Signal_Candle_Open": float(latest_row["open"]),
+                            "Signal_Candle_High": float(latest_row["high"]),
+                            "Signal_Candle_Low": float(latest_row["low"]),
+                            "Signal_Candle_Close": float(latest_row["close"]),
+                        }
+                        self.log_event(
+                            "signal",
+                            f"⚡ ENTRY SIGNAL — will enter on or after {ready_at.strftime('%H:%M:%S')} (REST mode)",
+                        )
+                    else:
+                        self._condition_debug = {"gate": "market_close_boundary", "conditions": []}
+                        self.log_event("info", "Entry signal ignored — no next tradable candle before market close")
         elif self.in_trade:
             self._condition_debug = {"gate": "in_trade", "conditions": []}
             if self._pending_order:
@@ -1647,6 +1717,12 @@ class LiveEngine:
         if is_new_strategy_candle:
             self._prev_row = latest_row
             self._last_strategy_candle_time = strategy_candle_time
+
+        if after_market_close:
+            await self._force_market_close_if_needed(now, callback)
+            if callback:
+                await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+            return
 
         # Send status update
         if callback:

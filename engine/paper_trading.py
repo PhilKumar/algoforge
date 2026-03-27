@@ -42,6 +42,7 @@ from engine.backtest import (
 from engine.indicators import compute_dynamic_indicators, merge_indicator_context, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
+    candle_close_time,
     describe_timeframe,
     drop_incomplete_candle,
     next_entry_ready_at,
@@ -470,6 +471,20 @@ class PaperTradingEngine:
             market_close = time_class(h, m)
         return market_close
 
+    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+        if strategy_candle_time is None:
+            return False
+        close_time = candle_close_time(strategy_candle_time, self._get_timeframe_spec().requested)
+        return close_time.time() <= self._market_close_time()
+
+    def _entry_can_be_scheduled(self, signal_candle_time) -> bool:
+        if signal_candle_time is None:
+            return False
+        return (
+            next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested).time()
+            <= self._market_close_time()
+        )
+
     async def _force_market_close_if_needed(self, current_dt: datetime, callback=None) -> bool:
         market_close = self._market_close_time()
         if current_dt.time() < market_close:
@@ -836,14 +851,22 @@ class PaperTradingEngine:
                     h, m = map(int, market_close.split(":"))
                     market_close = time_class(h, m)
 
-                if now.time() >= market_close:
+                after_market_close = now.time() >= market_close
+                allow_final_candle_grace = now <= now.replace(
+                    hour=market_close.hour,
+                    minute=market_close.minute,
+                    second=2,
+                    microsecond=0,
+                )
+
+                if after_market_close and not allow_final_candle_grace and not self._candle_event.is_set():
                     await self._force_market_close_if_needed(now, callback)
                     await asyncio.sleep(5)
                     if callback:
                         await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
                     continue
 
-                if not (market_open <= now.time() <= market_close):
+                if now.time() < market_open:
                     await asyncio.sleep(5)
                     if callback:
                         await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
@@ -928,6 +951,12 @@ class PaperTradingEngine:
 
                 # ── Execute pending entry only after the next candle boundary ──
                 if self._entry_signal_pending and not self.in_trade and self._pending_entry_is_ready(_now_ist()):
+                    if _now_ist().time() >= market_close:
+                        self.log_event("info", "Pending entry cleared at session end")
+                        self._clear_pending_entry()
+                        if callback:
+                            await self._emit_callback(callback, self.get_status())
+                        continue
                     max_trades = self.strategy.get("max_trades_per_day", 1)
                     daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
                     if self.trades_today < max_trades and not daily_loss_hit:
@@ -982,6 +1011,8 @@ class PaperTradingEngine:
                 latest_row = df_with_indicators.iloc[-1]
                 strategy_candle_time = latest_row.name
                 if self._last_strategy_candle_time == strategy_candle_time:
+                    if now.time() >= market_close:
+                        await self._force_market_close_if_needed(now, callback)
                     if callback:
                         await self._emit_callback(callback, self.get_status())
                     continue
@@ -998,11 +1029,29 @@ class PaperTradingEngine:
                     f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
                 )
 
+                candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+
+                if candle_in_session and self.in_trade:
+                    strategy_exit = self._check_strategy_exit()
+                    if strategy_exit:
+                        for position in list(self.positions):
+                            if position.get("status") == "closed":
+                                continue
+                            self._close_position(position, strategy_exit, position.get("current_premium", 0.0))
+                    else:
+                        for position in list(self.positions):
+                            if position.get("status") == "closed":
+                                continue
+                            current_premium = position.get("current_premium", 0.0)
+                            exit_triggered = self._check_exit_conditions(position, latest_row, current_premium)
+                            if exit_triggered:
+                                self._close_position(position, exit_triggered, current_premium)
+
                 # Check entry conditions
                 max_trades = self.strategy.get("max_trades_per_day", 1)
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
 
-                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit:
+                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit and candle_in_session:
                     # Execute pending signal from previous candle (enter on THIS candle's open)
                     if self._entry_signal_pending:
                         if self._pending_entry_is_ready(now):
@@ -1019,11 +1068,17 @@ class PaperTradingEngine:
                             now,
                         )
                         if entry_triggered:
-                            self._arm_pending_entry(strategy_candle_time, latest_row)
-                            self.log_event(
-                                "signal",
-                                f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
-                            )
+                            if self._entry_can_be_scheduled(strategy_candle_time):
+                                self._arm_pending_entry(strategy_candle_time, latest_row)
+                                self.log_event(
+                                    "signal",
+                                    f"⚡ ENTRY SIGNAL at {now.strftime('%H:%M:%S')} — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
+                                )
+                            else:
+                                self._condition_debug = {"gate": "market_close_boundary", "conditions": []}
+                                self.log_event(
+                                    "info", "Entry signal ignored — no next tradable candle before market close"
+                                )
                 elif self.in_trade:
                     self._condition_debug = {"gate": "in_trade", "conditions": []}
                 elif self.trades_today >= max_trades:
@@ -1037,6 +1092,9 @@ class PaperTradingEngine:
                 # Store previous row for crossover detection
                 self._prev_row = latest_row
                 self._last_strategy_candle_time = strategy_candle_time
+
+                if now.time() >= market_close:
+                    await self._force_market_close_if_needed(now, callback)
 
                 # Send status update
                 if callback:
@@ -1218,16 +1276,12 @@ class PaperTradingEngine:
             h, m = map(int, market_close.split(":"))
             market_close = time_class(h, m)
 
-        if current_time >= market_close:
-            await self._force_market_close_if_needed(now, callback)
+        if current_time < market_open:
             if callback:
                 await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
             return
 
-        if not (market_open <= current_time <= market_close):
-            if callback:
-                await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
-            return
+        after_market_close = current_time >= market_close
 
         # Fetch live candle data
         try:
@@ -1257,6 +1311,7 @@ class PaperTradingEngine:
         latest_row = eval_df.iloc[-1]
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
+        candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
 
         # Manage existing positions
         for position in list(self.positions):
@@ -1273,20 +1328,21 @@ class PaperTradingEngine:
                 (current_premium - position["entry_premium"]) * direction * self._position_quantity(position)
             )
 
-        strategy_exit = self._check_strategy_exit()
-        if strategy_exit:
-            for position in list(self.positions):
-                if position.get("status") == "closed":
-                    continue
-                self._close_position(position, strategy_exit, position.get("current_premium", 0.0))
-        else:
-            for position in list(self.positions):
-                if position.get("status") == "closed":
-                    continue
-                current_premium = position.get("current_premium", 0.0)
-                exit_triggered = self._check_exit_conditions(position, latest_row, current_premium)
-                if exit_triggered:
-                    self._close_position(position, exit_triggered, current_premium)
+        if candle_in_session:
+            strategy_exit = self._check_strategy_exit()
+            if strategy_exit:
+                for position in list(self.positions):
+                    if position.get("status") == "closed":
+                        continue
+                    self._close_position(position, strategy_exit, position.get("current_premium", 0.0))
+            else:
+                for position in list(self.positions):
+                    if position.get("status") == "closed":
+                        continue
+                    current_premium = position.get("current_premium", 0.0)
+                    exit_triggered = self._check_exit_conditions(position, latest_row, current_premium)
+                    if exit_triggered:
+                        self._close_position(position, exit_triggered, current_premium)
 
         # Check entry conditions (if not in trade)
         max_trades = self.strategy.get("max_trades_per_day", 1)
@@ -1294,15 +1350,19 @@ class PaperTradingEngine:
         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
         if daily_loss_hit and not self.in_trade:
             self._condition_debug = {"gate": f"daily_loss_limit (₹{self.daily_pnl:,.2f})", "conditions": []}
-        elif self.trades_today < max_trades and not self.in_trade:
+        elif self.trades_today < max_trades and not self.in_trade and candle_in_session:
             # Execute pending signal from previous tick (enter on THIS candle)
             if self._entry_signal_pending:
                 if self._pending_entry_is_ready(now):
-                    self._clear_pending_entry()
-                    self.log_event(
-                        "entry", f"🚀 Executing pending entry @ {now.strftime('%H:%M:%S')} (next candle open)"
-                    )
-                    await self._enter_trade(latest_row)
+                    if current_time >= market_close:
+                        self.log_event("info", "Pending entry cleared at session end")
+                        self._clear_pending_entry()
+                    else:
+                        self._clear_pending_entry()
+                        self.log_event(
+                            "entry", f"🚀 Executing pending entry @ {now.strftime('%H:%M:%S')} (next candle open)"
+                        )
+                        await self._enter_trade(latest_row)
             elif is_new_strategy_candle:
                 prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else None
                 entry_triggered, self._condition_debug = self._evaluate_entry_conditions_with_debug(
@@ -1311,11 +1371,15 @@ class PaperTradingEngine:
                     now,
                 )
                 if entry_triggered:
-                    self._arm_pending_entry(strategy_candle_time, latest_row)
-                    self.log_event(
-                        "signal",
-                        f"⚡ ENTRY SIGNAL — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
-                    )
+                    if self._entry_can_be_scheduled(strategy_candle_time):
+                        self._arm_pending_entry(strategy_candle_time, latest_row)
+                        self.log_event(
+                            "signal",
+                            f"⚡ ENTRY SIGNAL — will enter on NEXT candle open @ {self._pending_entry_ready_at.strftime('%H:%M:%S')}",
+                        )
+                    else:
+                        self._condition_debug = {"gate": "market_close_boundary", "conditions": []}
+                        self.log_event("info", "Entry signal ignored — no next tradable candle before market close")
         elif self.in_trade:
             self._condition_debug = {"gate": "in_trade", "conditions": []}
         elif self.trades_today >= max_trades:
@@ -1325,6 +1389,12 @@ class PaperTradingEngine:
         if is_new_strategy_candle:
             self._prev_row = latest_row
             self._last_strategy_candle_time = strategy_candle_time
+
+        if after_market_close:
+            await self._force_market_close_if_needed(now, callback)
+            if callback:
+                await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
+            return
 
         # Send status update
         if callback:

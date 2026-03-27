@@ -253,9 +253,9 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
         engine.in_trade = True
+        engine.current_time = pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()
 
-        with patch("engine.paper_trading._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()):
-            await engine._tick()
+        await engine._force_market_close_if_needed(engine.current_time)
 
         self.assertFalse(engine.in_trade)
         self.assertEqual(len(engine.positions), 0)
@@ -288,6 +288,7 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
         }
         engine.positions = [position]
         engine.in_trade = True
+        engine.current_time = pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()
 
         async def _fake_exit(pos, reason, exit_premium, callback=None):
             pos["status"] = "closed"
@@ -300,8 +301,7 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         engine._exit_position = AsyncMock(side_effect=_fake_exit)
 
-        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()):
-            await engine._tick()
+        await engine._force_market_close_if_needed(engine.current_time)
 
         engine._exit_position.assert_awaited_once()
         _, reason, exit_premium, _ = engine._exit_position.await_args.args
@@ -309,6 +309,144 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(exit_premium, 118.0)
         self.assertFalse(engine.in_trade)
         self.assertEqual(len(engine.positions), 0)
+
+    async def test_paper_tick_uses_last_in_session_candle_for_exit_before_market_close_force(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(option_ltp=112.0), run_id="paper-close-candle-exit")
+
+        engine.strategy = {"market_open": "09:15", "market_close": "15:25", "timeframe_minutes": 5, "indicators": []}
+        engine.positions = [
+            {
+                "status": "open",
+                "leg_num": 1,
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 112.0,
+                "quantity": 50,
+                "lot_size": 50,
+                "lots": 1,
+            }
+        ]
+        engine.in_trade = True
+        df = _make_ohlcv("2026-03-27 15:15", [100.0, 101.0], freq="5min")
+
+        with (
+            patch("engine.paper_trading._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()),
+            patch.object(engine, "_fetch_live_data", AsyncMock(return_value=df)),
+            patch.object(engine, "_get_current_premium", AsyncMock(return_value=112.0)),
+            patch.object(engine, "_check_strategy_exit", return_value=None),
+            patch.object(engine, "_check_exit_conditions", return_value="EXIT_SIGNAL") as exit_check,
+        ):
+            await engine._tick()
+
+        exit_check.assert_called()
+        self.assertEqual(len(engine.closed_trades), 1)
+        self.assertEqual(engine.closed_trades[0]["exit_reason"], "EXIT_SIGNAL")
+
+    async def test_paper_tick_does_not_arm_entry_on_last_candle_of_session(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-close-candle-entry")
+
+        engine.strategy = {
+            "market_open": "09:15",
+            "market_close": "15:25",
+            "timeframe_minutes": 5,
+            "indicators": [],
+            "max_trades_per_day": 1,
+        }
+        df = _make_ohlcv("2026-03-27 15:15", [100.0, 99.0], freq="5min")
+
+        with (
+            patch("engine.paper_trading._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()),
+            patch.object(engine, "_fetch_live_data", AsyncMock(return_value=df)),
+            patch.object(engine, "_evaluate_entry_conditions_with_debug", return_value=(True, {"gate": "pass"})),
+        ):
+            await engine._tick()
+
+        self.assertFalse(engine._entry_signal_pending)
+        self.assertIsNone(engine._pending_signal_candle_time)
+        self.assertEqual(engine._condition_debug.get("gate"), "market_close_boundary")
+
+    async def test_live_tick_uses_last_in_session_candle_for_exit_before_market_close_force(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-close-candle-exit")
+        engine.configure(
+            strategy={"instrument": "26000", "market_open": "09:15", "market_close": "15:25", "timeframe_minutes": 5},
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        position = {
+            "status": "open",
+            "leg_num": 1,
+            "transaction_type": "BUY",
+            "entry_premium": 100.0,
+            "current_premium": 118.0,
+            "quantity": 50,
+            "lot_size": 50,
+            "lots": 1,
+            "underlying": "NIFTY",
+            "strike": 22950,
+            "option_type": "PE",
+            "expiry": "2026-03-27",
+            "trading_symbol": "NIFTY 22950 PE",
+        }
+        engine.positions = [position]
+        engine.in_trade = True
+        df = _make_ohlcv("2026-03-27 15:15", [100.0, 101.0], freq="5min")
+
+        async def _fake_exit(pos, reason, exit_premium, callback=None):
+            pos["status"] = "closed"
+            pos["exit_reason"] = reason
+            pos["exit_premium"] = exit_premium
+            if pos in engine.positions:
+                engine.positions.remove(pos)
+            engine.closed_trades.append(pos.copy())
+            engine.in_trade = bool(engine.positions)
+
+        engine._exit_position = AsyncMock(side_effect=_fake_exit)
+
+        with (
+            patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()),
+            patch.object(engine, "_fetch_live_data", AsyncMock(return_value=df)),
+            patch.object(engine, "_get_current_premium", AsyncMock(return_value=118.0)),
+            patch.object(engine, "_check_strategy_exit", return_value=None),
+            patch.object(engine, "_check_exit_conditions", return_value="EXIT_SIGNAL") as exit_check,
+        ):
+            await engine._tick()
+
+        exit_check.assert_called()
+        self.assertTrue(engine._exit_position.await_count >= 1)
+        _, reason, _, _ = engine._exit_position.await_args.args
+        self.assertEqual(reason, "EXIT_SIGNAL")
+        self.assertEqual(len(engine.positions), 0)
+
+    async def test_live_tick_does_not_arm_entry_on_last_candle_of_session(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-close-candle-entry")
+        engine.configure(
+            strategy={
+                "instrument": "26000",
+                "market_open": "09:15",
+                "market_close": "15:25",
+                "timeframe_minutes": 5,
+                "indicators": [],
+                "max_trades_per_day": 1,
+            },
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        df = _make_ohlcv("2026-03-27 15:15", [100.0, 99.0], freq="5min")
+
+        with (
+            patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()),
+            patch.object(engine, "_fetch_live_data", AsyncMock(return_value=df)),
+            patch.object(engine, "_evaluate_entry_conditions_with_debug", return_value=(True, {"gate": "pass"})),
+        ):
+            await engine._tick()
+
+        self.assertIsNone(engine._pending_order)
+        self.assertFalse(engine._entry_signal_pending)
+        self.assertEqual(engine._condition_debug.get("gate"), "market_close_boundary")
 
 
 class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
