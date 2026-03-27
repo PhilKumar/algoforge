@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>AlgoForge — Unlock</title>
-<link rel="icon" href="/static/logo.png" type="image/png">
+<title>PHILFORGE — Unlock</title>
+<link rel="icon" href="/static/logo.png?v=20260327-2" type="image/png">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -455,13 +455,63 @@
     color: #64748b;
   }
   [data-theme="light"] .unlock-footer { color: rgba(15,23,42,0.25); }
+
+  @media (max-width: 640px) {
+    body {
+      padding: 16px;
+      overflow-y: auto;
+      justify-content: flex-start;
+    }
+    .unlock-card {
+      width: 100%;
+      max-width: 100%;
+      margin: 20px auto;
+      padding: 32px 20px 24px;
+      border-radius: 24px;
+    }
+    .unlock-logo {
+      height: 72px;
+      margin-bottom: 12px;
+    }
+    .unlock-title {
+      font-size: 24px;
+      line-height: 1.1;
+    }
+    .unlock-sub {
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      margin-bottom: 18px;
+    }
+    .auth-field,
+    .mode-switch-row,
+    .unlock-actions,
+    .unlock-referral {
+      max-width: 100%;
+    }
+    .keypad {
+      max-width: 100%;
+      gap: 8px;
+    }
+    .key {
+      padding: 14px 0;
+      font-size: 20px;
+    }
+    .unlock-referral-qr img {
+      width: 128px;
+      height: 128px;
+    }
+    .unlock-footer {
+      font-size: 9px;
+      line-height: 1.5;
+    }
+  }
 </style>
 </head>
 <body>
 
 <div class="unlock-card" id="unlock-card">
-  <img src="/static/logo.png" alt="AlgoForge" class="unlock-logo">
-  <div class="unlock-title">AlgoForge</div>
+  <img src="/static/logo.png?v=20260327-2" alt="PHILFORGE" class="unlock-logo">
+  <div class="unlock-title">PHILFORGE</div>
   <div class="unlock-sub">Sign in to continue</div>
 
   <div class="auth-field">
