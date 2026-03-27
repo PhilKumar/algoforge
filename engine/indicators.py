@@ -6,6 +6,7 @@ Fixed:
   - Added: SMA, MACD, Bollinger Bands, VWAP, ATR, Stochastic RSI, ADX
 """
 
+import re
 from collections import defaultdict
 
 import numpy as np
@@ -500,6 +501,149 @@ def _extract_indicator_timeframe(ind_string: str) -> int | None:
         if part.endswith("m") and part[:-1].isdigit():
             return int(part[:-1])
     return None
+
+
+_CONDITION_CONTEXT_FIELDS = {
+    "",
+    "number",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "oi",
+    "current_open",
+    "current_high",
+    "current_low",
+    "current_close",
+    "current_volume",
+    "time_of_day",
+    "Time_Of_Day",
+    "Time_HHMM",
+    "Day_Of_Week",
+    "Day_of_Week",
+    "Day_Name",
+    "Hour",
+    "Minute",
+    "Is_Monday",
+    "Is_Tuesday",
+    "Is_Wednesday",
+    "Is_Thursday",
+    "Is_Friday",
+    "Yesterday_Open",
+    "Yesterday_High",
+    "Yesterday_Low",
+    "Yesterday_Close",
+    "Signal_Candle_Open",
+    "Signal_Candle_High",
+    "Signal_Candle_Low",
+    "Signal_Candle_Close",
+}
+
+_DIRECT_INDICATOR_PATTERNS = (
+    re.compile(r"^(EMA|SMA|RSI|ATR|VWAP)_\d+_\d+m$"),
+    re.compile(r"^Supertrend_\d+_(?:\d+(?:\.\d+)?)_\d+m$"),
+    re.compile(r"^MACD_\d+_\d+_\d+_\d+m$"),
+    re.compile(r"^BB_\d+_(?:\d+(?:\.\d+)?)_\d+m$"),
+    re.compile(r"^StochRSI_\d+_\d+m$"),
+    re.compile(r"^ADX_\d+_\d+m$"),
+    re.compile(r"^ORB_\d+min$"),
+)
+
+_INDICATOR_OUTPUT_PATTERNS = (
+    re.compile(r"^(MACD_\d+_\d+_\d+_\d+m)_(?:signal|histogram)$"),
+    re.compile(r"^(BB_\d+_(?:\d+(?:\.\d+)?)_\d+m)_(?:upper|lower|width)$"),
+    re.compile(r"^(StochRSI_\d+_\d+m)_(?:K|D)$"),
+    re.compile(r"^(ADX_\d+_\d+m)_(?:plus_di|minus_di)$"),
+)
+
+
+def _parse_cpr_indicator_timeframe(indicator_id: str) -> str | None:
+    if not isinstance(indicator_id, str) or not indicator_id.startswith("CPR"):
+        return None
+    parts = indicator_id.split("_")
+    if len(parts) > 1 and parts[1].endswith("m"):
+        return "D"
+    if len(parts) > 3:
+        return parts[3].upper()
+    return "D"
+
+
+def _default_cpr_indicator_id(timeframe: str) -> str:
+    tf = (timeframe or "D").upper()
+    return "CPR_0.2_0.5" if tf == "D" else f"CPR_0.2_0.5_{tf}"
+
+
+def _infer_cpr_indicator_id(field: str, indicators: list[str]) -> str | None:
+    if not isinstance(field, str) or not field.startswith("CPR_"):
+        return None
+    if field.startswith("CPR_4H_"):
+        target_tf = "4H"
+    elif field.startswith("CPR_W_"):
+        target_tf = "W"
+    elif field.startswith("CPR_M_"):
+        target_tf = "M"
+    else:
+        target_tf = "D"
+
+    for indicator_id in indicators:
+        if _parse_cpr_indicator_timeframe(indicator_id) == target_tf:
+            return indicator_id
+    return _default_cpr_indicator_id(target_tf)
+
+
+def _infer_indicator_dependency(field: str, indicators: list[str]) -> str | None:
+    if not isinstance(field, str) or field in _CONDITION_CONTEXT_FIELDS:
+        return None
+
+    cpr_indicator = _infer_cpr_indicator_id(field, indicators)
+    if cpr_indicator:
+        return cpr_indicator
+
+    if field in {"ORB_High", "ORB_Low", "ORB_Range", "ORB_is_breakout_up", "ORB_is_breakout_down", "ORB_is_inside"}:
+        for indicator_id in indicators:
+            if isinstance(indicator_id, str) and indicator_id.startswith("ORB_"):
+                return indicator_id
+        return "ORB_15min"
+
+    for pattern in _INDICATOR_OUTPUT_PATTERNS:
+        match = pattern.match(field)
+        if match:
+            return match.group(1)
+
+    for pattern in _DIRECT_INDICATOR_PATTERNS:
+        if pattern.match(field):
+            return field
+
+    return None
+
+
+def normalize_strategy_indicators(
+    indicators: list[str] | tuple[str, ...] | None,
+    entry_conditions: list[dict] | None = None,
+    exit_conditions: list[dict] | None = None,
+) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for indicator_id in indicators or []:
+        if not isinstance(indicator_id, str) or not indicator_id:
+            continue
+        if indicator_id in seen:
+            continue
+        normalized.append(indicator_id)
+        seen.add(indicator_id)
+
+    for condition in list(entry_conditions or []) + list(exit_conditions or []):
+        if not isinstance(condition, dict):
+            continue
+        for side in ("left", "right"):
+            dependency = _infer_indicator_dependency(condition.get(side), normalized)
+            if dependency and dependency not in seen:
+                normalized.append(dependency)
+                seen.add(dependency)
+
+    return normalized
 
 
 def _infer_timeframe_minutes(df: pd.DataFrame) -> int | None:

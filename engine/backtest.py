@@ -17,7 +17,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
-from engine.indicators import compute_dynamic_indicators
+from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 
 
@@ -615,7 +615,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     trailing_sl_pct = float(sc.get("trailing_sl_pct", 0) or 0)
     max_tpd = int(sc.get("max_trades_per_day", config.MAX_TRADES_PER_DAY))
     max_daily_loss = float(sc.get("max_daily_loss", 0) or 0)
-    indicators = sc.get("indicators", []) or []
+    indicators = normalize_strategy_indicators(
+        sc.get("indicators", []) or [],
+        entry_conditions=entry_conditions,
+        exit_conditions=exit_conditions,
+    )
+    sc["indicators"] = indicators
     legs = sc.get("legs", []) or []
     option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
     instrument = sc.get("instrument", "26000")

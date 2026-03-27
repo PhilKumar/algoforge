@@ -8923,6 +8923,9 @@ function buildPayload() {
   const folderSel = document.getElementById('folder-select').value;
   const folderCustom = document.getElementById('folder-custom').value.trim();
   const folder = (folderSel === '__custom__' && folderCustom) ? folderCustom : folderSel;
+  const entryConditions = gatherConditions('entry');
+  const exitConditions = gatherConditions('exit');
+  const mergedIndicators = normalizeStrategyIndicatorsForPayload(myIndicators, entryConditions, exitConditions);
 
   return {
     strategy_id: Number(currentLoadedStrategyId || 0) || 0,
@@ -8944,9 +8947,9 @@ function buildPayload() {
     market_close: document.getElementById('sq-time').value,
     max_trades_per_day: parseInt(document.getElementById('max-trades-per-day').value || 1),
     max_daily_loss: parseFloat(document.getElementById('max-daily-loss').value || 0),
-    indicators: myIndicators,
-    entry_conditions: gatherConditions('entry'),
-    exit_conditions: gatherConditions('exit'),
+    indicators: mergedIndicators,
+    entry_conditions: entryConditions,
+    exit_conditions: exitConditions,
     legs: gatherLegs(),
     combined_sl_rupees: parseFloat(document.getElementById('combined-sl-rupees').value) || 0,
     combined_target_rupees: parseFloat(document.getElementById('combined-target-rupees').value) || 0,
@@ -8964,6 +8967,69 @@ function buildPayload() {
     sell_option_margin_per_lot: parseFloat(document.getElementById('sell-option-margin-per-lot').value) || 0,
     initial_capital: parseFloat(document.getElementById('initial-capital').value) || 500000,
   };
+}
+
+function normalizeStrategyIndicatorsForPayload(indicators, entryConditions, exitConditions) {
+  const merged = [];
+  const seen = new Set();
+  const add = (indicatorId) => {
+    if (!indicatorId || seen.has(indicatorId)) return;
+    merged.push(indicatorId);
+    seen.add(indicatorId);
+  };
+
+  (indicators || []).forEach(add);
+
+  const cprIndicatorForField = (field) => {
+    if (typeof field !== 'string' || !field.startsWith('CPR_')) return null;
+    let targetTf = 'D';
+    if (field.startsWith('CPR_4H_')) targetTf = '4H';
+    else if (field.startsWith('CPR_W_')) targetTf = 'W';
+    else if (field.startsWith('CPR_M_')) targetTf = 'M';
+
+    const existing = merged.find(indicatorId => {
+      if (typeof indicatorId !== 'string' || !indicatorId.startsWith('CPR')) return false;
+      const parts = indicatorId.split('_');
+      const tf = (parts.length > 1 && /m$/.test(parts[1])) ? 'D' : (parts[3] || 'D').toUpperCase();
+      return tf === targetTf;
+    });
+    return existing || (targetTf === 'D' ? 'CPR_0.2_0.5' : `CPR_0.2_0.5_${targetTf}`);
+  };
+
+  const inferDependency = (field) => {
+    if (typeof field !== 'string') return null;
+    if (field === 'number') return null;
+    if (field.startsWith('CPR_')) return cprIndicatorForField(field);
+    if (['ORB_High', 'ORB_Low', 'ORB_Range', 'ORB_is_breakout_up', 'ORB_is_breakout_down', 'ORB_is_inside'].includes(field)) {
+      return merged.find(indicatorId => typeof indicatorId === 'string' && indicatorId.startsWith('ORB_')) || 'ORB_15min';
+    }
+    const outputPatterns = [
+      /^(MACD_\d+_\d+_\d+_\d+m)_(signal|histogram)$/,
+      /^(BB_\d+_(?:\d+(?:\.\d+)?)_\d+m)_(upper|lower|width)$/,
+      /^(StochRSI_\d+_\d+m)_(K|D)$/,
+      /^(ADX_\d+_\d+m)_(plus_di|minus_di)$/,
+    ];
+    for (const pattern of outputPatterns) {
+      const match = field.match(pattern);
+      if (match) return match[1];
+    }
+    const directPatterns = [
+      /^(EMA|SMA|RSI|ATR|VWAP)_\d+_\d+m$/,
+      /^Supertrend_\d+_(?:\d+(?:\.\d+)?)_\d+m$/,
+      /^MACD_\d+_\d+_\d+_\d+m$/,
+      /^BB_\d+_(?:\d+(?:\.\d+)?)_\d+m$/,
+      /^StochRSI_\d+_\d+m$/,
+      /^ADX_\d+_\d+m$/,
+      /^ORB_\d+min$/,
+    ];
+    return directPatterns.some(pattern => pattern.test(field)) ? field : null;
+  };
+
+  [...(entryConditions || []), ...(exitConditions || [])].forEach(cond => {
+    ['left', 'right'].forEach(side => add(inferDependency(cond?.[side])));
+  });
+
+  return merged;
 }
 
 function getSelectedStrategyTimeframes(indicators) {

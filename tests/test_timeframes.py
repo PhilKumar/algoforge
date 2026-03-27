@@ -3,7 +3,13 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
-from engine.indicators import compute_dynamic_indicators, cpr, cpr_timeframe, yesterday_candle
+from engine.indicators import (
+    compute_dynamic_indicators,
+    cpr,
+    cpr_timeframe,
+    normalize_strategy_indicators,
+    yesterday_candle,
+)
 from engine.live import LiveEngine
 from engine.market_feed import _looks_like_disconnect_error
 from engine.paper_trading import PaperTradingEngine
@@ -54,6 +60,53 @@ class TimeframeRegressionTests(unittest.TestCase):
 
 
 class CprRegressionTests(unittest.TestCase):
+    def test_normalize_strategy_indicators_infers_daily_cpr_dependency_from_condition(self):
+        indicators = normalize_strategy_indicators(
+            ["EMA_20_5m"],
+            entry_conditions=[{"left": "current_close", "operator": "is_below", "right": "CPR_BC"}],
+            exit_conditions=[],
+        )
+
+        self.assertIn("EMA_20_5m", indicators)
+        self.assertIn("CPR_0.2_0.5", indicators)
+
+    def test_live_ws_frame_populates_cpr_levels_from_condition_dependency(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-cpr-dependency")
+        engine.configure(
+            strategy={"instrument": "26000", "timeframe_minutes": 5, "indicators": []},
+            entry_conditions=[{"left": "current_close", "operator": "is_below", "right": "CPR_BC"}],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        raw = pd.DataFrame(
+            {
+                "open": [23000.0, 23020.0, 22980.0, 22960.0],
+                "high": [23040.0, 23060.0, 23010.0, 22990.0],
+                "low": [22980.0, 23000.0, 22940.0, 22930.0],
+                "close": [23020.0, 23010.0, 22970.0, 22950.0],
+                "volume": [100, 120, 90, 95],
+            },
+            index=pd.to_datetime(
+                [
+                    "2026-03-26 09:15",
+                    "2026-03-26 09:20",
+                    "2026-03-27 09:15",
+                    "2026-03-27 09:20",
+                ]
+            ),
+        )
+
+        result = engine._prepare_ws_strategy_frame(
+            raw,
+            indicators=engine.strategy["indicators"],
+            execution_timeframe=5,
+            fetch_timeframe=5,
+            now=pd.Timestamp("2026-03-27 09:25:01").to_pydatetime(),
+        )
+
+        self.assertIn("CPR_BC", result.columns)
+        self.assertFalse(pd.isna(result.iloc[-1]["CPR_BC"]))
+
     def test_daily_cpr_normalizes_bc_below_tc(self):
         df = pd.DataFrame(
             {

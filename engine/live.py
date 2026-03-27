@@ -39,7 +39,7 @@ from engine.backtest import (
     get_sell_option_margin_per_lot,
     get_strike_step,
 )
-from engine.indicators import compute_dynamic_indicators
+from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
     describe_timeframe,
@@ -158,9 +158,15 @@ class LiveEngine:
     # ── Configuration ─────────────────────────────────────────
     def configure(self, strategy: dict, entry_conditions: list, exit_conditions: list, deploy_config: dict = None):
         """Configure the live trading engine with strategy + execution settings."""
-        self.strategy = strategy
         self.entry_conditions = entry_conditions
         self.exit_conditions = exit_conditions
+        strategy = dict(strategy or {})
+        strategy["indicators"] = normalize_strategy_indicators(
+            strategy.get("indicators", []),
+            entry_conditions=entry_conditions,
+            exit_conditions=exit_conditions,
+        )
+        self.strategy = strategy
         self.deploy_config = deploy_config or strategy.get("deploy_config", {})
         self.max_daily_loss = float(strategy.get("max_daily_loss", 0) or 0)
 
@@ -576,6 +582,12 @@ class LiveEngine:
                 self.exit_conditions = state["exit_conditions"]
             if state.get("deploy_config"):
                 self.deploy_config = state["deploy_config"]
+            self.strategy = dict(self.strategy or {})
+            self.strategy["indicators"] = normalize_strategy_indicators(
+                self.strategy.get("indicators", []),
+                entry_conditions=self.entry_conditions,
+                exit_conditions=self.exit_conditions,
+            )
 
             # Restore trading state
             self.in_trade = state.get("in_trade", False)

@@ -67,6 +67,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
+from engine.indicators import normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
@@ -3275,6 +3276,17 @@ async def validate_strategy(request: Request):
     }
 
 
+def _normalized_indicator_bundle(
+    indicators: list[str] | None,
+    entry_conditions: list[dict] | None,
+    exit_conditions: list[dict] | None,
+) -> tuple[list[str], list[dict], list[dict]]:
+    entry = entry_conditions if entry_conditions is not None else DEFAULT_ENTRY_CONDITIONS
+    exit_conds = exit_conditions if exit_conditions is not None else DEFAULT_EXIT_CONDITIONS
+    merged = normalize_strategy_indicators(indicators or [], entry_conditions=entry, exit_conditions=exit_conds)
+    return merged, entry, exit_conds
+
+
 # ── Portfolio Summary API (#8) ────────────────────────────────────
 @app.get("/api/portfolio/summary")
 async def portfolio_summary(request: Request):
@@ -4187,9 +4199,14 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
         from_date = payload.from_date or config.DEFAULT_FROM
         to_date = payload.to_date or config.DEFAULT_TO
+        normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
+            payload.indicators,
+            payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+            payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+        )
 
         try:
-            tf_spec = resolve_strategy_timeframe(payload.indicators)
+            tf_spec = resolve_strategy_timeframe(normalized_indicators)
         except ValueError as tf_err:
             return {"status": "error", "message": str(tf_err)}
         candle_interval = str(tf_spec.fetch)
@@ -4198,9 +4215,9 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         print(f"[BACKTEST] Run: {payload.run_name}")
         print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
         print(f"[BACKTEST] Timeframe: {describe_timeframe(tf_spec)}")
-        print(f"[BACKTEST] Indicators: {payload.indicators}")
-        print(f"[BACKTEST] Entry conditions: {payload.entry_conditions}")
-        print(f"[BACKTEST] Exit conditions: {payload.exit_conditions}")
+        print(f"[BACKTEST] Indicators: {normalized_indicators}")
+        print(f"[BACKTEST] Entry conditions: {entry_conditions}")
+        print(f"[BACKTEST] Exit conditions: {exit_conditions}")
         print(f"[BACKTEST] Legs: {payload.legs}")
         print(f"{'=' * 60}")
 
@@ -4255,6 +4272,7 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 
         # 2. Build strategy_config
         strategy_config = payload.model_dump()
+        strategy_config["indicators"] = normalized_indicators
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
         requested_days = max(1, (_to_dt - _from_dt).days + 1)
@@ -4291,8 +4309,8 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             results = await asyncio.to_thread(
                 run_backtest,
                 df_raw=df_raw,
-                entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-                exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+                entry_conditions=entry_conditions,
+                exit_conditions=exit_conditions,
                 strategy_config=strategy_config,
             )
         except Exception as bt_err:
@@ -4323,9 +4341,9 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "target_profit_pct": getattr(payload, "target_profit_pct", 0),
                 "target_profit_rupees": getattr(payload, "target_profit_rupees", 0),
                 "tp_type": getattr(payload, "tp_type", "pct"),
-                "indicators": payload.indicators,
-                "entry_conditions": payload.entry_conditions,
-                "exit_conditions": payload.exit_conditions,
+                "indicators": normalized_indicators,
+                "entry_conditions": entry_conditions,
+                "exit_conditions": exit_conditions,
                 "legs": payload.legs,
                 "market_open": getattr(payload, "market_open", "09:15") or "09:15",
                 "market_close": getattr(payload, "market_close", "15:25") or "15:25",
@@ -4408,10 +4426,6 @@ async def live_start(req: LiveStartRequest, request: Request):
     live_bucket = _registry_bucket(live_engines, user_id)
     live_task_bucket = _registry_bucket(_live_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
-    try:
-        tf_spec = resolve_strategy_timeframe((req.strategy_config or {}).get("indicators", req.indicators))
-    except ValueError as tf_err:
-        return {"status": "error", "message": str(tf_err)}
     # Build strategy dict from the request
     strategy_dict = {}
     if req.strategy_config:
@@ -4442,6 +4456,19 @@ async def live_start(req: LiveStartRequest, request: Request):
             "sell_option_margin_per_lot": req.sell_option_margin_per_lot,
             "poll_interval": 10,
         }
+    entry_conditions, exit_conditions = (
+        req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+        req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+    )
+    strategy_dict["indicators"] = normalize_strategy_indicators(
+        strategy_dict.get("indicators", req.indicators),
+        entry_conditions=entry_conditions,
+        exit_conditions=exit_conditions,
+    )
+    try:
+        tf_spec = resolve_strategy_timeframe(strategy_dict["indicators"])
+    except ValueError as tf_err:
+        return {"status": "error", "message": str(tf_err)}
     strategy_dict["strategy_id"] = int(strategy_dict.get("strategy_id") or req.strategy_id or 0)
     strategy_dict["timeframe_minutes"] = tf_spec.requested
     strategy_dict["_user_id"] = user_id
@@ -4475,8 +4502,8 @@ async def live_start(req: LiveStartRequest, request: Request):
     engine = LiveEngine(broker_client, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
-        entry_conditions=req.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-        exit_conditions=req.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+        entry_conditions=entry_conditions,
+        exit_conditions=exit_conditions,
         deploy_config=deploy_config,
     )
     engine._user_id = user_id
@@ -4702,8 +4729,13 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     paper_bucket = _registry_bucket(paper_engines, user_id)
     paper_task_bucket = _registry_bucket(_paper_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
+    normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
+        payload.indicators,
+        payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
+        payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+    )
     try:
-        tf_spec = resolve_strategy_timeframe(payload.indicators)
+        tf_spec = resolve_strategy_timeframe(normalized_indicators)
     except ValueError as tf_err:
         return {"status": "error", "message": str(tf_err)}
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic
@@ -4711,7 +4743,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "strategy_id": int(payload.strategy_id or 0),
         "run_name": payload.run_name,
         "instrument": payload.instrument,
-        "indicators": payload.indicators or [],
+        "indicators": normalized_indicators,
         "max_trades_per_day": int(payload.max_trades_per_day or 1),
         "market_open": payload.market_open or "09:15",
         "market_close": payload.market_close or "15:25",
@@ -4768,8 +4800,8 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     engine = PaperTradingEngine(dhan, run_id=run_id, state_dir=_engine_state_dir(user_id))
     engine.configure(
         strategy=strategy_dict,
-        entry_conditions=payload.entry_conditions or DEFAULT_ENTRY_CONDITIONS,
-        exit_conditions=payload.exit_conditions or DEFAULT_EXIT_CONDITIONS,
+        entry_conditions=entry_conditions,
+        exit_conditions=exit_conditions,
     )
     engine._user_id = user_id
 
@@ -5655,8 +5687,16 @@ async def get_strategies(request: Request):
 @app.post("/api/strategies")
 async def save_strategy(strategy: dict, request: Request):
     now = str(datetime.now())
+    normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
+        strategy.get("indicators"),
+        strategy.get("entry_conditions"),
+        strategy.get("exit_conditions"),
+    )
     strategy = {
         **strategy,
+        "indicators": normalized_indicators,
+        "entry_conditions": entry_conditions,
+        "exit_conditions": exit_conditions,
         "created_at": strategy.get("created_at") or now,
         "updated_at": strategy.get("updated_at") or now,
         "version": int(strategy.get("version", 1) or 1),
@@ -5716,6 +5756,14 @@ async def update_strategy(sid: int, updates: dict, request: Request):
         versions = versions[-20:]
     updates.pop("_change_note", None)
     strategy.update(updates)
+    normalized_indicators, entry_conditions, exit_conditions = _normalized_indicator_bundle(
+        strategy.get("indicators"),
+        strategy.get("entry_conditions"),
+        strategy.get("exit_conditions"),
+    )
+    strategy["indicators"] = normalized_indicators
+    strategy["entry_conditions"] = entry_conditions
+    strategy["exit_conditions"] = exit_conditions
     strategy["version"] = ver
     strategy["versions"] = versions
     strategy["updated_at"] = str(datetime.now())

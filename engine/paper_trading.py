@@ -39,7 +39,7 @@ from engine.backtest import (
     get_sell_option_margin_per_lot,
     get_strike_step,
 )
-from engine.indicators import compute_dynamic_indicators
+from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
     describe_timeframe,
@@ -293,6 +293,12 @@ class PaperTradingEngine:
                 self.entry_conditions = state["entry_conditions"]
             if state.get("exit_conditions"):
                 self.exit_conditions = state["exit_conditions"]
+            self.strategy = dict(self.strategy or {})
+            self.strategy["indicators"] = normalize_strategy_indicators(
+                self.strategy.get("indicators", []),
+                entry_conditions=self.entry_conditions,
+                exit_conditions=self.exit_conditions,
+            )
 
             # Restore event log (convert time strings back to datetime)
             raw_log = state.get("event_log", [])
@@ -320,9 +326,15 @@ class PaperTradingEngine:
 
     def configure(self, strategy: dict, entry_conditions: list, exit_conditions: list):
         """Configure the paper trading strategy"""
-        self.strategy = strategy
         self.entry_conditions = entry_conditions
         self.exit_conditions = exit_conditions
+        strategy = dict(strategy or {})
+        strategy["indicators"] = normalize_strategy_indicators(
+            strategy.get("indicators", []),
+            entry_conditions=entry_conditions,
+            exit_conditions=exit_conditions,
+        )
+        self.strategy = strategy
 
         # Pre-compute strategy-level SL/TP values
         sl_pct = float(strategy.get("stoploss_pct", 0) or 0)
