@@ -3314,6 +3314,113 @@ def _normalized_indicator_bundle(
     return merged, entry, exit_conds
 
 
+_RUNTIME_STRATEGY_SYNC_FIELDS = {
+    "run_name",
+    "name",
+    "folder",
+    "segment",
+    "instrument",
+    "from_date",
+    "to_date",
+    "lots",
+    "lot_size",
+    "stoploss_pct",
+    "stoploss_rupees",
+    "sl_type",
+    "target_profit_pct",
+    "target_profit_rupees",
+    "tp_type",
+    "market_open",
+    "market_close",
+    "max_trades_per_day",
+    "max_daily_loss",
+    "legs",
+    "deploy_config",
+    "combined_sl_rupees",
+    "combined_target_rupees",
+    "combined_sqoff_time",
+    "fee_pct",
+    "trailing_sl_pct",
+    "initial_capital",
+    "execution_profile",
+    "spread_bps",
+    "entry_slippage_bps",
+    "exit_slippage_bps",
+    "entry_delay_candles",
+    "signal_exit_delay_candles",
+    "enforce_capital",
+    "capital_buffer_pct",
+    "sell_option_margin_per_lot",
+    "allow_synthetic_option_fallback",
+}
+
+
+def _runtime_strategy_persistable_view(strategy: dict) -> dict:
+    return {
+        key: deepcopy(strategy.get(key))
+        for key in sorted(_RUNTIME_STRATEGY_SYNC_FIELDS | {"indicators", "entry_conditions", "exit_conditions"})
+        if key in strategy
+    }
+
+
+async def _sync_saved_strategy_from_runtime(
+    user_id: int,
+    strategy_id: int,
+    runtime_source: dict | None,
+    entry_conditions: list[dict] | None,
+    exit_conditions: list[dict] | None,
+    *,
+    source_label: str,
+) -> bool:
+    sid = int(strategy_id or 0)
+    if sid <= 0 or not isinstance(runtime_source, dict):
+        return False
+
+    existing = await _db_mod.get_strategy(user_id, sid)
+    if not existing:
+        return False
+
+    updated = dict(existing)
+    for field in _RUNTIME_STRATEGY_SYNC_FIELDS:
+        if field in runtime_source:
+            updated[field] = deepcopy(runtime_source.get(field))
+
+    if runtime_source.get("run_name"):
+        updated["run_name"] = runtime_source["run_name"]
+        updated["name"] = runtime_source.get("name") or runtime_source["run_name"]
+
+    normalized_indicators, normalized_entry, normalized_exit = _normalized_indicator_bundle(
+        runtime_source.get("indicators"),
+        entry_conditions,
+        exit_conditions,
+    )
+    updated["indicators"] = normalized_indicators
+    updated["entry_conditions"] = normalized_entry
+    updated["exit_conditions"] = normalized_exit
+
+    if _runtime_strategy_persistable_view(existing) == _runtime_strategy_persistable_view(updated):
+        return False
+
+    ver = int(existing.get("version", 1) or 1) + 1
+    versions = list(existing.get("versions", []))
+    versions.append(
+        {
+            "version": ver,
+            "saved_at": str(datetime.now()),
+            "changes": f"Synced from {source_label}",
+        }
+    )
+    if len(versions) > 20:
+        versions = versions[-20:]
+
+    updated["version"] = ver
+    updated["versions"] = versions
+    updated["updated_at"] = str(datetime.now())
+
+    await _db_mod.replace_strategy_record(user_id, sid, updated)
+    return True
+
+
 # ── Portfolio Summary API (#8) ────────────────────────────────────
 @app.get("/api/portfolio/summary")
 async def portfolio_summary(request: Request):
@@ -4665,6 +4772,15 @@ async def live_start(req: LiveStartRequest, request: Request):
     strategy_dict["_user_id"] = user_id
     strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
 
+    await _sync_saved_strategy_from_runtime(
+        user_id,
+        strategy_dict.get("strategy_id", 0),
+        dict(req.strategy_config or strategy_dict),
+        entry_conditions,
+        exit_conditions,
+        source_label="live start",
+    )
+
     deploy_config = req.deploy_config or strategy_dict.get("deploy_config", {})
 
     # Generate run_id from strategy name
@@ -4969,6 +5085,15 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "fetch_timeframe_minutes": tf_spec.fetch,
     }
     strategy_dict["_user_id"] = user_id
+
+    await _sync_saved_strategy_from_runtime(
+        user_id,
+        strategy_dict.get("strategy_id", 0),
+        payload.model_dump(),
+        entry_conditions,
+        exit_conditions,
+        source_label="paper start",
+    )
 
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
