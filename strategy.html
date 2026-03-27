@@ -3229,9 +3229,15 @@
   .dash-txn-meta {
     display:flex;
     align-items:center;
-    gap:6px;
-    margin-top:4px;
+    gap:8px;
     flex-wrap:wrap;
+  }
+  .dash-txn-symbol-row {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    min-height: 24px;
   }
   .dash-txn-run {
     font-size: 11px;
@@ -6772,7 +6778,9 @@ function _updateDashboardTransactionsBulkBar(pageRows = null) {
   }
 
   if (headerBox) {
-    const visibleRows = Array.isArray(pageRows) ? pageRows : [];
+    const visibleRows = Array.isArray(pageRows)
+      ? pageRows
+      : Array.from(document.querySelectorAll('.dashboard-txn-chk')).map(box => _dashboardTxnByKey.get(String(box.dataset.key || ''))).filter(Boolean);
     const checkedCount = visibleRows.filter(txn => _selectedDashboardTxnKeys.has(txn.rowKey)).length;
     headerBox.checked = !!visibleRows.length && checkedCount === visibleRows.length;
     headerBox.indeterminate = checkedCount > 0 && checkedCount < visibleRows.length;
@@ -6898,8 +6906,8 @@ function _renderDashboardTransactions(transactions = null) {
       <tr>
         <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
         <td>
-          <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
-          <div class="dash-txn-meta">
+          <div class="dash-txn-symbol-row">
+            <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
             ${_getModeBadge(txn.mode)}
           </div>
         </td>
@@ -6937,7 +6945,8 @@ function _renderDashRuns() {
   const container = document.getElementById('runs-list');
   const empty = document.getElementById('runs-empty');
   const pagEl = document.getElementById('runs-pagination-dash');
-  if (!_allRunsCache.length) {
+  const dashRuns = (_allRunsCache || []).filter(r => _normalizeMode(r.mode) === 'backtest');
+  if (!dashRuns.length) {
     if (empty) empty.style.display = 'block';
     if (container) container.innerHTML = '';
     if (pagEl) { pagEl.style.display = 'none'; }
@@ -6945,11 +6954,11 @@ function _renderDashRuns() {
     return;
   }
   if (empty) empty.style.display = 'none';
-  const total = _allRunsCache.length;
+  const total = dashRuns.length;
   const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
   if (_runsPageDash > totalPages) _runsPageDash = totalPages;
   const start = (_runsPageDash - 1) * _RUNS_PER_PAGE;
-  const pageData = _allRunsCache.slice(start, start + _RUNS_PER_PAGE);
+  const pageData = dashRuns.slice(start, start + _RUNS_PER_PAGE);
   let bulkHtml = '<div id="runs-bulk-bar-dash" class="bulk-bar" style="display:none;"></div>';
   if (container) container.innerHTML = bulkHtml + _buildRunsTable(pageData);
   if (pagEl) {
