@@ -78,6 +78,22 @@ class DummyBroker:
     async def async_get_funds(self):
         return {"availabelBalance": 100000.0}
 
+    def get_historical_data(
+        self,
+        security_id=None,
+        exchange_segment=None,
+        instrument_type=None,
+        from_date=None,
+        to_date=None,
+        candle_type=None,
+    ):
+        return _make_two_day_intraday_ohlcv().copy()
+
+
+class EmptyBootstrapFeed:
+    def bootstrap_history(self, instrument_id: str, timeframe: int, days: int = 7) -> pd.DataFrame:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
 
 class LivePaperParityTests(unittest.TestCase):
     def test_live_and_paper_recover_indicator_context_when_ws_snapshot_is_current_day_only(self):
@@ -126,6 +142,35 @@ class LivePaperParityTests(unittest.TestCase):
                     float(expected_paper.iloc[-1][column]),
                     places=8,
                 )
+
+    def test_live_and_paper_ws_bootstrap_fall_back_to_direct_history_when_feed_has_none(self):
+        live_engine = LiveEngine(dhan=DummyBroker(), run_id="live-ws-bootstrap-fallback")
+        live_engine.configure(
+            strategy={"instrument": "26000", "timeframe_minutes": 5, "indicators": ["CPR_0.2_0.5"]},
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        live_engine.set_feed(EmptyBootstrapFeed())
+
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            paper_engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-ws-bootstrap-fallback")
+        paper_engine.configure(
+            strategy={"instrument": "26000", "timeframe_minutes": 5, "indicators": ["CPR_0.2_0.5"]},
+            entry_conditions=[],
+            exit_conditions=[],
+        )
+        paper_engine.set_feed(EmptyBootstrapFeed())
+
+        live_seed = live_engine._get_ws_history_seed("26000", 5, days=7)
+        paper_seed = paper_engine._get_ws_history_seed("26000", 5, days=7)
+
+        self.assertFalse(live_seed.empty)
+        self.assertFalse(paper_seed.empty)
+        self.assertIn("WS bootstrap returned no history", live_engine.event_log[-1]["message"])
+        self.assertIn("WS bootstrap returned no history", paper_engine.event_log[-1]["message"])
+        self.assertGreater(len(live_engine._indicator_context_raw), 0)
+        self.assertGreater(len(paper_engine._indicator_context_raw), 0)
 
     def test_live_and_paper_prepare_same_mixed_indicator_frame(self):
         raw = _make_two_day_intraday_ohlcv()

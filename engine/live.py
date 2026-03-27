@@ -721,6 +721,30 @@ class LiveEngine:
             merged = merged.tail(max_rows)
         self._indicator_context_raw = merged.copy()
 
+    def _fetch_raw_history(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
+        from_date = (_now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
+        to_date = _now_ist().strftime("%Y-%m-%d")
+        inst_map = _get_instrument_map()
+        inst_info = inst_map.get(instrument, {})
+        df_raw = self.dhan.get_historical_data(
+            security_id=inst_info.get("dhan_id", "13"),
+            exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
+            instrument_type=inst_info.get("dhan_type", "INDEX"),
+            from_date=from_date,
+            to_date=to_date,
+            candle_type=str(fetch_timeframe),
+        )
+        self._remember_indicator_context(df_raw)
+        return df_raw
+
+    def _get_ws_history_seed(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
+        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=days)
+        if not history_df.empty:
+            self._remember_indicator_context(history_df)
+            return history_df
+        self.log_event("warning", "WS bootstrap returned no history; using direct historical warm-up fetch")
+        return self._fetch_raw_history(instrument, fetch_timeframe, days=days)
+
     def _reset_intraday_status(self, gate: str = "waiting_for_first_candle") -> None:
         """Clear stale UI/evaluation state when a session starts or a new day rolls over."""
         self.current_spot = 0.0
@@ -902,7 +926,7 @@ class LiveEngine:
             loop.call_soon_threadsafe(self._candle_event.set)
 
         # Bootstrap history for indicator warm-up
-        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=7)
+        history_df = self._get_ws_history_seed(instrument, fetch_timeframe, days=7)
         indicators = self.strategy.get("indicators", [])
 
         self._feed.set_candle_config(
@@ -1587,21 +1611,7 @@ class LiveEngine:
         execution_timeframe = tf_spec.requested
 
         instrument = self.strategy.get("instrument", "26000")
-        from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
-        to_date = _now_ist().strftime("%Y-%m-%d")
-
-        inst_map = _get_instrument_map()
-        inst_info = inst_map.get(instrument, {})
-
-        df_raw = self.dhan.get_historical_data(
-            security_id=inst_info.get("dhan_id", "13"),
-            exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
-            instrument_type=inst_info.get("dhan_type", "INDEX"),
-            from_date=from_date,
-            to_date=to_date,
-            candle_type=str(tf_spec.fetch),
-        )
-        self._remember_indicator_context(df_raw)
+        df_raw = self._fetch_raw_history(instrument, tf_spec.fetch, days=7)
 
         indicators = self.strategy.get("indicators", [])
         df = compute_dynamic_indicators(

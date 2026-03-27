@@ -584,6 +584,30 @@ class PaperTradingEngine:
             merged = merged.tail(max_rows)
         self._indicator_context_raw = merged.copy()
 
+    def _fetch_raw_history(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
+        from_date = (_now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
+        to_date = _now_ist().strftime("%Y-%m-%d")
+        inst_map = _get_instrument_map()
+        inst_info = inst_map.get(instrument, {})
+        df_raw = self.dhan.get_historical_data(
+            security_id=inst_info.get("dhan_id", "13"),
+            exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
+            instrument_type=inst_info.get("dhan_type", "INDEX"),
+            from_date=from_date,
+            to_date=to_date,
+            candle_type=str(fetch_timeframe),
+        )
+        self._remember_indicator_context(df_raw)
+        return df_raw
+
+    def _get_ws_history_seed(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
+        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=days)
+        if not history_df.empty:
+            self._remember_indicator_context(history_df)
+            return history_df
+        self.log_event("warning", "WS bootstrap returned no history; using direct historical warm-up fetch")
+        return self._fetch_raw_history(instrument, fetch_timeframe, days=days)
+
     def _arm_pending_entry(self, signal_candle_time: datetime, latest_row: pd.Series) -> None:
         self._entry_signal_pending = True
         self._pending_signal_candle_time = signal_candle_time
@@ -701,7 +725,7 @@ class PaperTradingEngine:
 
         # Configure candle aggregation on the feed
         # First bootstrap with historical data for indicator warm-up
-        history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=7)
+        history_df = self._get_ws_history_seed(instrument, fetch_timeframe, days=7)
         indicators = self.strategy.get("indicators", [])
 
         self._feed.set_candle_config(
@@ -1246,7 +1270,6 @@ class PaperTradingEngine:
 
     async def _fetch_live_data(self) -> pd.DataFrame:
         """Fetch live candle data with indicators"""
-        from datetime import timedelta
 
         tf_spec = self._get_timeframe_spec()
         execution_timeframe = tf_spec.requested
@@ -1254,22 +1277,7 @@ class PaperTradingEngine:
         instrument = self.strategy.get("instrument", "26000")
 
         # Fetch last 7 days to have enough data for indicators
-        from_date = (_now_ist() - timedelta(days=7)).strftime("%Y-%m-%d")
-        to_date = _now_ist().strftime("%Y-%m-%d")
-
-        # Get instrument mapping (lazy import to avoid circular dependency)
-        inst_map = _get_instrument_map()
-        inst_info = inst_map.get(instrument, {})
-
-        df_raw = self.dhan.get_historical_data(
-            security_id=inst_info.get("dhan_id", "13"),
-            exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
-            instrument_type=inst_info.get("dhan_type", "INDEX"),
-            from_date=from_date,
-            to_date=to_date,
-            candle_type=str(tf_spec.fetch),
-        )
-        self._remember_indicator_context(df_raw)
+        df_raw = self._fetch_raw_history(instrument, tf_spec.fetch, days=7)
 
         # Apply indicators
         indicators = self.strategy.get("indicators", [])
