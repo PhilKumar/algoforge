@@ -5941,6 +5941,13 @@ function showPage(id, btn, options = {}) {
       history.pushState(navState, '', nextHash);
     }
   }
+  if (options.scrollToTop) {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  }
 }
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 
@@ -7173,7 +7180,11 @@ async function viewRun(id, options = {}) {
     lastBacktestPayload = data;
     renderResults(data, data);
     const historyState = Object.assign({}, options.historyState || {}, { runId: id });
-    showPage('results-page', document.getElementById('nav-results'), Object.assign({}, options, { historyState }));
+    showPage(
+      'results-page',
+      document.getElementById('nav-results'),
+      Object.assign({}, options, { historyState, scrollToTop: true })
+    );
   } catch(e) { toast('Error loading run', 'danger'); }
 }
 
