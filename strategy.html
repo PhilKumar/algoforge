@@ -3162,6 +3162,96 @@
   .bulk-bar .bulk-del-btn { padding: 5px 14px; border: 1px solid rgba(239,68,68,0.4); background: linear-gradient(180deg, rgba(239,68,68,0.25) 0%, rgba(180,40,40,0.45) 100%); color: #fca5a5; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .bulk-bar .bulk-del-btn:hover { background: linear-gradient(180deg, rgba(239,68,68,0.4) 0%, rgba(180,40,40,0.6) 100%); color: #fff; }
   .tbl-chk { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .tbl-chk:disabled { opacity: 0.35; cursor: not-allowed; }
+  .dash-table-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .dash-table-toolbar-right { display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap; }
+  .dash-table-search {
+    width: 220px;
+    max-width: 100%;
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card2);
+    color: var(--text);
+  }
+  .dash-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(10,15,28,0.78);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .dash-table {
+    width: 100%;
+    min-width: 1180px;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 12px;
+  }
+  .dash-table thead th {
+    padding: 9px 10px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border-hi);
+    background: rgba(12,18,32,0.95);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+  }
+  .dash-table .filter-row th {
+    top: 34px;
+    padding: 8px 10px;
+    background: rgba(12,18,32,0.98);
+    border-bottom: 1px solid var(--border);
+  }
+  .dash-table tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: middle;
+  }
+  .dash-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+  .dash-table tbody tr:hover td { background: rgba(0,191,165,0.04); }
+  .dash-table-filter {
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+  }
+  .dash-txn-meta {
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-top:4px;
+    flex-wrap:wrap;
+  }
+  .dash-txn-run {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .dash-txn-actions {
+    display:flex;
+    justify-content:flex-end;
+    gap:6px;
+  }
+  .dash-txn-empty {
+    text-align:center;
+    padding: 24px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 900px) {
+    .dash-table-search { width: 100%; }
+    .dash-table-toolbar-right { width: 100%; justify-content: flex-start; margin-left: 0; }
+  }
 </style>
 <script src="/static/error-handler.js" defer></script>
 </head>
@@ -3618,24 +3708,61 @@
     <div id="runs-pagination-dash" class="pagination-bar" style="display:none;"></div>
     <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
   </div>
-  <div class="card" style="max-width: 1000px; margin: 0 auto;">
-    <h3 style="margin-bottom: 16px; font-size: 16px;">Recent Transactions</h3>
-    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
-    <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
-      <thead><tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-        <th style="padding: 8px 12px; text-align: left;">Instrument</th>
-        <th style="padding: 8px 12px; text-align: left; font-family: 'JetBrains Mono', monospace;">Entry Time</th>
-        <th style="padding: 8px 12px; text-align: left; font-family: 'JetBrains Mono', monospace;">Exit Time</th>
-        <th style="padding: 8px 12px; text-align: right;">Dir</th>
-        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
-        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
-        <th style="padding: 8px 12px; text-align: right;">Qty</th>
-        <th style="padding: 8px 12px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
-        <th style="padding: 8px 12px; text-align: right;">Reason</th>
-      </tr></thead>
-      <tbody id="transactions-body"><tr><td colspan="9" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr></tbody>
-    </table>
+  <div class="card" style="max-width: 1100px; margin: 0 auto;">
+    <div class="dash-table-toolbar">
+      <h3 style="margin: 0; font-size: 16px;">Recent Transactions</h3>
+      <div class="dash-table-toolbar-right">
+        <input
+          type="text"
+          id="transactions-search-input"
+          class="dash-table-search"
+          placeholder="Search transactions..."
+          oninput="setDashboardTransactionSearch(this.value)"
+        >
+      </div>
     </div>
+    <div id="transactions-bulk-bar" class="bulk-bar" style="display:none;"></div>
+    <div class="dash-table-wrap">
+      <table class="dash-table">
+        <thead>
+          <tr>
+            <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" onchange="toggleAllDashboardTransactions(this)"></th>
+            <th style="min-width: 200px;">Instrument</th>
+            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace;">Entry Time</th>
+            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace;">Exit Time</th>
+            <th style="width: 90px; text-align: right;">Dir</th>
+            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
+            <th style="width: 80px; text-align: right;">Qty</th>
+            <th style="width: 120px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
+            <th style="min-width: 140px; text-align: left;">Reason</th>
+            <th style="width: 90px; text-align: right;">Action</th>
+          </tr>
+          <tr class="filter-row">
+            <th></th>
+            <th><input type="text" id="txn-filter-symbol" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('symbol', this.value)"></th>
+            <th><input type="text" id="txn-filter-entryTime" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('entryTime', this.value)"></th>
+            <th><input type="text" id="txn-filter-exitTime" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('exitTime', this.value)"></th>
+            <th>
+              <select id="txn-filter-direction" class="dash-table-filter" onchange="setDashboardTransactionFilter('transactionType', this.value)">
+                <option value="">All</option>
+                <option value="BUY">Buy</option>
+                <option value="SELL">Sell</option>
+                <option value="TRADE">Trade</option>
+              </select>
+            </th>
+            <th><input type="text" id="txn-filter-entryPrice" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('entryPrice', this.value)"></th>
+            <th><input type="text" id="txn-filter-exitPrice" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('exitPrice', this.value)"></th>
+            <th><input type="text" id="txn-filter-quantity" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('quantity', this.value)"></th>
+            <th><input type="text" id="txn-filter-pnl" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('pnl', this.value)"></th>
+            <th><input type="text" id="txn-filter-reason" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('reason', this.value)"></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="transactions-body"><tr><td colspan="11" class="dash-txn-empty">No recent transactions</td></tr></tbody>
+      </table>
+    </div>
+    <div id="transactions-pagination" class="pagination-bar" style="display:none;"></div>
   </div>
 </div>
 
@@ -6097,16 +6224,32 @@ function loadTemplate(key) {
 // ══════════════════════════════════════════════════════════════
 let _allRunsCache = [];
 let _dashboardTransactionsCache = [];
+let _dashboardTxnByKey = new Map();
 let _currentRunFilter = 'all';
 let _runsPageDash = 1;
 let _runsPageResults = 1;
 const _RUNS_PER_PAGE = 10;
+const _DASHBOARD_TXN_PER_PAGE = 10;
 let _selectedRunIds = new Set();
+let _selectedDashboardTxnKeys = new Set();
 let _selectedScalpHistIds = new Set();
 let _selectedScalpRunIds = new Set();
 let _scalpTradesCache = [];
 let _scalpPage = 1;
 let _portfolioPaperPage = 1;
+let _dashboardTxnPage = 1;
+let _dashboardTxnSearchQuery = '';
+let _dashboardTxnFilters = {
+  symbol: '',
+  entryTime: '',
+  exitTime: '',
+  transactionType: '',
+  entryPrice: '',
+  exitPrice: '',
+  quantity: '',
+  pnl: '',
+  reason: '',
+};
 
 function _getModeBadge(mode) {
   const m = (mode || 'backtest').toLowerCase();
@@ -6465,22 +6608,40 @@ function _renderFilteredRuns() {
 
 function _goResultsPage(p) { _runsPageResults = p; _renderFilteredRuns(); }
 
-function _renderDashboardTransactions(transactions = null) {
-  const body = document.getElementById('transactions-body');
-  if (!body) return;
+function _dashboardTransactionRowKey(txn, idx) {
+  const base = [
+    txn.sourceKind || '',
+    txn.sourceId ?? '',
+    txn.tradeSignature || '',
+    txn.tradeOccurrence || 1,
+    txn.entryTime || '',
+    txn.exitTime || '',
+    txn.symbol || '',
+    idx,
+  ].join('|');
+  return base || ('dashboard-txn-' + idx);
+}
 
+function _normalizeDashboardTransactions(transactions = null) {
   const sourceTxns = Array.isArray(transactions) ? transactions : _dashboardTransactionsCache;
   const txns = Array.isArray(sourceTxns) && sourceTxns.length ? sourceTxns.map((txn, idx) => ({
     time: txn.time || txn.exit_time || txn.entry_time || '',
     symbol: txn.symbol || '—',
-    transactionType: txn.transaction_type || txn.action || 'TRADE',
+    transactionType: String(txn.transaction_type || txn.action || 'TRADE').toUpperCase(),
     entryTime: txn.entry_time || '',
     exitTime: txn.exit_time || '',
-    entryPrice: txn.entry_price ?? txn.price ?? 0,
-    exitPrice: txn.exit_price ?? txn.price ?? 0,
+    entryPrice: Number(txn.entry_price ?? txn.price ?? 0),
+    exitPrice: Number(txn.exit_price ?? txn.price ?? 0),
     quantity: txn.quantity ?? txn.lots ?? '—',
-    pnl: txn.pnl,
+    pnl: Number(txn.pnl ?? 0),
     reason: txn.reason || '—',
+    runName: txn.run_name || '',
+    mode: txn.mode || 'paper',
+    deletable: !!txn.deletable,
+    sourceKind: txn.source_kind || '',
+    sourceId: txn.source_id ?? '',
+    tradeSignature: txn.trade_signature || '',
+    tradeOccurrence: Number(txn.trade_occurrence || 1),
     _idx: idx,
   })) : [];
 
@@ -6493,19 +6654,30 @@ function _renderDashboardTransactions(transactions = null) {
         txns.push({
           time: trade.exit_time || trade.entry_time || run.created_at || '',
           symbol,
-          transactionType: trade.transaction_type || 'TRADE',
+          transactionType: String(trade.transaction_type || 'TRADE').toUpperCase(),
           entryTime: trade.entry_time || '',
           exitTime: trade.exit_time || '',
-          entryPrice: trade.entry_premium ?? trade.entry_price ?? trade.current_premium ?? 0,
-          exitPrice: trade.exit_premium ?? trade.exit_price ?? trade.current_premium ?? 0,
+          entryPrice: Number(trade.entry_premium ?? trade.entry_price ?? trade.current_premium ?? 0),
+          exitPrice: Number(trade.exit_premium ?? trade.exit_price ?? trade.current_premium ?? 0),
           quantity: trade.lots ?? trade.quantity ?? '—',
-          pnl: trade.pnl,
+          pnl: Number(trade.pnl ?? 0),
           reason: trade.exit_reason || trade.reason || '—',
+          runName: run.run_name || run.strategy_name || '',
+          mode: run.mode || 'backtest',
+          deletable: false,
+          sourceKind: '',
+          sourceId: '',
+          tradeSignature: '',
+          tradeOccurrence: 1,
           _idx: idx,
         });
       });
     });
   }
+
+  txns.forEach((txn, idx) => {
+    txn.rowKey = _dashboardTransactionRowKey(txn, idx);
+  });
 
   txns.sort((a, b) => {
     const ta = Date.parse(a.time || '') || 0;
@@ -6513,9 +6685,198 @@ function _renderDashboardTransactions(transactions = null) {
     return tb - ta || b._idx - a._idx;
   });
 
-  const pageData = txns.slice(0, 10);
-  if (!pageData.length) {
-    body.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 24px; color: var(--muted); font-size: 14px;">No recent transactions</td></tr>';
+  return txns;
+}
+
+function setDashboardTransactionSearch(value) {
+  _dashboardTxnSearchQuery = String(value || '').trim().toLowerCase();
+  _dashboardTxnPage = 1;
+  _renderDashboardTransactions();
+}
+
+function setDashboardTransactionFilter(key, value) {
+  _dashboardTxnFilters[key] = String(value || '').trim().toLowerCase();
+  _dashboardTxnPage = 1;
+  _renderDashboardTransactions();
+}
+
+function _dashboardTxnMatch(value, needle) {
+  if (!needle) return true;
+  return String(value ?? '').toLowerCase().includes(needle);
+}
+
+function _applyDashboardTransactionFilters(rows) {
+  const search = _dashboardTxnSearchQuery;
+  return (rows || []).filter(txn => {
+    const searchHaystack = [
+      txn.symbol,
+      txn.runName,
+      txn.mode,
+      txn.transactionType,
+      txn.reason,
+      txn.entryTime,
+      txn.exitTime,
+      txn.quantity,
+      txn.pnl,
+    ].join(' ').toLowerCase();
+    if (search && !searchHaystack.includes(search)) return false;
+    if (!_dashboardTxnMatch(txn.symbol, _dashboardTxnFilters.symbol)) return false;
+    if (!_dashboardTxnMatch(txn.entryTime, _dashboardTxnFilters.entryTime)) return false;
+    if (!_dashboardTxnMatch(txn.exitTime, _dashboardTxnFilters.exitTime)) return false;
+    if (_dashboardTxnFilters.transactionType && String(txn.transactionType || '').toLowerCase() !== _dashboardTxnFilters.transactionType) return false;
+    if (!_dashboardTxnMatch((txn.entryPrice ?? 0).toFixed(2), _dashboardTxnFilters.entryPrice)) return false;
+    if (!_dashboardTxnMatch((txn.exitPrice ?? 0).toFixed(2), _dashboardTxnFilters.exitPrice)) return false;
+    if (!_dashboardTxnMatch(txn.quantity, _dashboardTxnFilters.quantity)) return false;
+    if (!_dashboardTxnMatch((txn.pnl ?? 0).toFixed(2), _dashboardTxnFilters.pnl)) return false;
+    if (!_dashboardTxnMatch(txn.reason, _dashboardTxnFilters.reason)) return false;
+    return true;
+  });
+}
+
+function toggleDashboardTransactionCheck(el) {
+  const key = String(el.dataset.key || '');
+  if (!key) return;
+  if (el.checked) _selectedDashboardTxnKeys.add(key); else _selectedDashboardTxnKeys.delete(key);
+  _updateDashboardTransactionsBulkBar();
+}
+
+function toggleAllDashboardTransactions(el) {
+  document.querySelectorAll('.dashboard-txn-chk:not(:disabled)').forEach(box => {
+    box.checked = el.checked;
+    const key = String(box.dataset.key || '');
+    if (!key) return;
+    if (el.checked) _selectedDashboardTxnKeys.add(key); else _selectedDashboardTxnKeys.delete(key);
+  });
+  _updateDashboardTransactionsBulkBar();
+}
+
+function _dashboardTransactionDeleteItems(rows) {
+  return (rows || []).filter(txn => txn && txn.deletable).map(txn => ({
+    source_kind: txn.sourceKind,
+    source_id: txn.sourceId,
+    trade_signature: txn.tradeSignature,
+    trade_occurrence: txn.tradeOccurrence,
+  }));
+}
+
+function _updateDashboardTransactionsBulkBar(pageRows = null) {
+  const bar = document.getElementById('transactions-bulk-bar');
+  const headerBox = document.getElementById('transactions-check-all');
+  if (!bar) return;
+
+  const validKeys = new Set(_dashboardTxnByKey.keys());
+  Array.from(_selectedDashboardTxnKeys).forEach(key => {
+    const row = _dashboardTxnByKey.get(key);
+    if (!validKeys.has(key) || !row || !row.deletable) _selectedDashboardTxnKeys.delete(key);
+  });
+
+  const selectedCount = _selectedDashboardTxnKeys.size;
+  if (!selectedCount) {
+    bar.style.display = 'none';
+  } else {
+    bar.style.display = 'flex';
+    bar.innerHTML = '<span class="bulk-count">' + selectedCount + ' selected</span>'
+      + '<button class="bulk-del-btn" onclick="bulkDeleteDashboardTransactions()">' + ICO.trash(14) + ' Delete Selected</button>'
+      + '<button class="page-btn" onclick="_selectedDashboardTxnKeys.clear();_renderDashboardTransactions();" style="font-size:11px;">Clear</button>';
+  }
+
+  if (headerBox) {
+    const visibleRows = Array.isArray(pageRows) ? pageRows.filter(txn => txn.deletable) : [];
+    const checkedCount = visibleRows.filter(txn => _selectedDashboardTxnKeys.has(txn.rowKey)).length;
+    headerBox.checked = !!visibleRows.length && checkedCount === visibleRows.length;
+    headerBox.indeterminate = checkedCount > 0 && checkedCount < visibleRows.length;
+  }
+}
+
+async function _submitDashboardTransactionDelete(rows) {
+  const items = _dashboardTransactionDeleteItems(rows);
+  if (!items.length) {
+    toast('No saved transactions selected', 'warn');
+    return;
+  }
+  const res = await fetch('/api/dashboard/recent-transactions/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error('Delete failed');
+  return res.json();
+}
+
+async function deleteDashboardTransaction(rowKey) {
+  const txn = _dashboardTxnByKey.get(String(rowKey || ''));
+  if (!txn || !txn.deletable) {
+    toast('Only saved transactions can be deleted', 'warn');
+    return;
+  }
+  const ok = await customConfirm('Delete this recent transaction?<br><span style="font-size:11px;">This removes the saved trade record from history.</span>', {
+    title: 'Delete Transaction',
+    icon: ICO.trash(28),
+    okText: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await _submitDashboardTransactionDelete([txn]);
+    _selectedDashboardTxnKeys.delete(txn.rowKey);
+    toast('Transaction deleted', 'success');
+    await Promise.all([fetchRuns(), loadDashboardSummary()]);
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'danger');
+  }
+}
+
+async function bulkDeleteDashboardTransactions() {
+  const rows = Array.from(_selectedDashboardTxnKeys).map(key => _dashboardTxnByKey.get(key)).filter(Boolean);
+  const deletableRows = rows.filter(txn => txn.deletable);
+  if (!deletableRows.length) {
+    toast('No saved transactions selected', 'warn');
+    return;
+  }
+  const ok = await customConfirm('Delete <strong>' + deletableRows.length + '</strong> selected transaction' + (deletableRows.length > 1 ? 's' : '') + '?<br><span style="font-size:11px;">This removes the saved trade records from history.</span>', {
+    title: 'Bulk Delete',
+    icon: ICO.trash(28),
+    okText: 'Delete All',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await _submitDashboardTransactionDelete(deletableRows);
+    _selectedDashboardTxnKeys.clear();
+    toast(deletableRows.length + ' transaction' + (deletableRows.length > 1 ? 's' : '') + ' deleted', 'success');
+    await Promise.all([fetchRuns(), loadDashboardSummary()]);
+  } catch (e) {
+    toast('Bulk delete failed: ' + e.message, 'danger');
+  }
+}
+
+function _goDashboardTxnPage(page) {
+  _dashboardTxnPage = page;
+  _renderDashboardTransactions();
+}
+
+function _renderDashboardTransactions(transactions = null) {
+  const body = document.getElementById('transactions-body');
+  const pagEl = document.getElementById('transactions-pagination');
+  if (!body) return;
+
+  const txns = _normalizeDashboardTransactions(transactions);
+  _dashboardTxnByKey = new Map(txns.map(txn => [txn.rowKey, txn]));
+  const filtered = _applyDashboardTransactionFilters(txns);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / _DASHBOARD_TXN_PER_PAGE));
+  if (_dashboardTxnPage > totalPages) _dashboardTxnPage = totalPages;
+  if (_dashboardTxnPage < 1) _dashboardTxnPage = 1;
+  const start = (_dashboardTxnPage - 1) * _DASHBOARD_TXN_PER_PAGE;
+  const pageRows = filtered.slice(start, start + _DASHBOARD_TXN_PER_PAGE);
+
+  if (!pageRows.length) {
+    body.innerHTML = '<tr><td colspan="11" class="dash-txn-empty">' + (_dashboardTxnSearchQuery || Object.values(_dashboardTxnFilters).some(Boolean) ? 'No matching transactions' : 'No recent transactions') + '</td></tr>';
+    if (pagEl) {
+      pagEl.style.display = 'none';
+      pagEl.innerHTML = '';
+    }
+    _updateDashboardTransactionsBulkBar([]);
     return;
   }
 
@@ -6532,22 +6893,51 @@ function _renderDashboardTransactions(transactions = null) {
         hour12: false,
       });
     }
-    return escapeHtml(String(value));
+    return String(value);
   };
 
-  body.innerHTML = pageData.map((txn) => `
-    <tr style="border-bottom:1px solid var(--border);">
-      <td style="padding:8px 12px;">${escapeHtml(txn.symbol || '—')}</td>
-      <td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTxnTime(txn.entryTime))}</td>
-      <td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTxnTime(txn.exitTime))}</td>
-      <td style="padding:8px 12px;text-align:right;color:${String(txn.transactionType).toUpperCase()==='BUY'?'var(--success)':String(txn.transactionType).toUpperCase()==='SELL'?'var(--danger)':'var(--muted)'}">${escapeHtml(String(txn.transactionType || '—').replace(/_/g, ' '))}</td>
-      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(txn.entryPrice || 0).toFixed(2)}</td>
-      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(txn.exitPrice || 0).toFixed(2)}</td>
-      <td style="padding:8px 12px;text-align:right;">${escapeHtml(txn.quantity)}</td>
-      <td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${Number(txn.pnl||0)>=0?'var(--success)':'var(--danger)'}">₹${round2(txn.pnl || 0).toFixed(2)}</td>
-      <td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(txn.reason || '—')}</td>
-    </tr>
-  `).join('');
+  body.innerHTML = pageRows.map((txn) => {
+    const dir = String(txn.transactionType || '—').replace(/_/g, ' ');
+    const dirColor = dir === 'BUY' ? 'var(--success)' : dir === 'SELL' ? 'var(--danger)' : 'var(--muted)';
+    const chk = _selectedDashboardTxnKeys.has(txn.rowKey) ? ' checked' : '';
+    const disabled = txn.deletable ? '' : ' disabled';
+    const actionHtml = txn.deletable
+      ? '<button class="btn btn-danger btn-sm" onclick="deleteDashboardTransaction(\'' + escapeAttr(txn.rowKey) + '\')" style="font-size:11px;padding:5px 10px;">Del</button>'
+      : '<span style="font-size:11px;color:var(--muted);">Active</span>';
+    return `
+      <tr>
+        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}${disabled}></td>
+        <td>
+          <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
+          <div class="dash-txn-meta">
+            ${_getModeBadge(txn.mode)}
+            <span class="dash-txn-run">${escapeHtml(txn.runName || '—')}</span>
+          </div>
+        </td>
+        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(fmtTxnTime(txn.entryTime))}</td>
+        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(fmtTxnTime(txn.exitTime))}</td>
+        <td style="text-align:right;color:${dirColor};font-weight:700;">${escapeHtml(dir)}</td>
+        <td style="text-align:right;font-family:'JetBrains Mono', monospace;">₹${round2(txn.entryPrice || 0).toFixed(2)}</td>
+        <td style="text-align:right;font-family:'JetBrains Mono', monospace;">₹${round2(txn.exitPrice || 0).toFixed(2)}</td>
+        <td style="text-align:right;">${escapeHtml(txn.quantity)}</td>
+        <td style="text-align:right;font-family:'JetBrains Mono', monospace;color:${Number(txn.pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${round2(txn.pnl || 0).toFixed(2)}</td>
+        <td style="font-size:11px;color:var(--text-dim);">${escapeHtml(txn.reason || '—')}</td>
+        <td><div class="dash-txn-actions">${actionHtml}</div></td>
+      </tr>
+    `;
+  }).join('');
+
+  if (pagEl) {
+    const pHtml = _buildPagination(_dashboardTxnPage, filtered.length, _DASHBOARD_TXN_PER_PAGE, '_goDashboardTxnPage');
+    if (pHtml) {
+      pagEl.innerHTML = pHtml;
+      pagEl.style.display = 'flex';
+    } else {
+      pagEl.style.display = 'none';
+      pagEl.innerHTML = '';
+    }
+  }
+  _updateDashboardTransactionsBulkBar(pageRows);
 }
 
 function _renderDashRuns() {

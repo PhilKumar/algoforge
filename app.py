@@ -3362,6 +3362,134 @@ async def emergency_stop(request: Request):
 
 
 # ── Dashboard Summary ─────────────────────────────────────────────
+def _dashboard_trade_signature_text(trade: dict) -> str:
+    sig = _history_trade_signature(trade)
+    if not sig:
+        return ""
+    return json.dumps(sig, sort_keys=True, default=str)
+
+
+def _recompute_run_trade_summary(run: dict, trades: list[dict]) -> dict:
+    closed = [dict(trade or {}) for trade in (trades or []) if isinstance(trade, dict)]
+    pnls = [round(float((trade or {}).get("pnl") or 0), 2) for trade in closed]
+    winners = [pnl for pnl in pnls if pnl > 0]
+    losers = [pnl for pnl in pnls if pnl <= 0]
+    total_pnl = round(sum(pnls), 2)
+    win_rate = round(len(winners) / len(closed) * 100, 2) if closed else 0.0
+    profit_factor = round(sum(winners) / abs(sum(losers)), 2) if losers and abs(sum(losers)) > 0 else 999.0
+    avg_win = round(sum(winners) / len(winners), 2) if winners else 0.0
+    avg_loss = round(sum(losers) / len(losers), 2) if losers else 0.0
+
+    win_streak = 0
+    loss_streak = 0
+    current_win = 0
+    current_loss = 0
+    for pnl in pnls:
+        if pnl > 0:
+            current_win += 1
+            current_loss = 0
+        else:
+            current_loss += 1
+            current_win = 0
+        win_streak = max(win_streak, current_win)
+        loss_streak = max(loss_streak, current_loss)
+
+    summary = dict(run.get("stats") or run.get("summary") or {})
+    summary.update(
+        {
+            "total_trades": len(closed),
+            "winning_trades": len(winners),
+            "losing_trades": len(losers),
+            "win_rate": win_rate,
+            "total_pnl": total_pnl,
+            "avg_profit": avg_win,
+            "avg_loss": avg_loss,
+            "profit_factor": profit_factor,
+            "max_profit": round(max(pnls), 2) if pnls else 0.0,
+            "max_loss": round(min(pnls), 2) if pnls else 0.0,
+            "win_streak": win_streak,
+            "loss_streak": loss_streak,
+        }
+    )
+    run["trade_count"] = len(closed)
+    run["total_pnl"] = total_pnl
+    run["trades"] = closed
+    run["stats"] = summary
+    run["summary"] = summary
+    return run
+
+
+async def _delete_dashboard_recent_transaction_items(user_id: int, items: list[dict]) -> dict:
+    deleted = 0
+    skipped = 0
+    scalp_deleted_ids: list[int] = []
+    for raw in items or []:
+        item = raw if isinstance(raw, dict) else {}
+        source_kind = str(item.get("source_kind") or "").strip().lower()
+        if source_kind == "run_trade":
+            try:
+                run_id = int(item.get("source_id") or 0)
+                occurrence = max(1, int(item.get("trade_occurrence") or 1))
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            trade_signature = str(item.get("trade_signature") or "").strip()
+            if run_id <= 0 or not trade_signature:
+                skipped += 1
+                continue
+            run = await _db_mod.get_run(user_id, run_id)
+            if not run:
+                skipped += 1
+                continue
+            remaining: list[dict] = []
+            matches = 0
+            removed = False
+            for trade in run.get("trades") or []:
+                current_signature = _dashboard_trade_signature_text(trade)
+                if current_signature == trade_signature:
+                    matches += 1
+                    if not removed and matches == occurrence:
+                        removed = True
+                        continue
+                remaining.append(trade)
+            if not removed:
+                skipped += 1
+                continue
+            if remaining:
+                await _db_mod.replace_run_record(user_id, run_id, _recompute_run_trade_summary(run, remaining))
+            else:
+                await _db_mod.delete_run_record(user_id, run_id)
+            deleted += 1
+            continue
+
+        if source_kind == "scalp_trade":
+            try:
+                trade_id = int(item.get("source_id") or 0)
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            if trade_id <= 0:
+                skipped += 1
+                continue
+            if await _db_mod.delete_scalp_trade(user_id, trade_id):
+                deleted += 1
+                scalp_deleted_ids.append(trade_id)
+            else:
+                skipped += 1
+            continue
+
+        skipped += 1
+
+    if scalp_deleted_ids:
+        eng = _scalp_engines.get(int(user_id))
+        if eng is not None:
+            id_set = set(scalp_deleted_ids)
+            eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") not in id_set]
+        _notify_scalp_ws()
+
+    return {"deleted": deleted, "skipped": skipped}
+
+
 @app.get("/api/dashboard/summary")
 async def dashboard_summary(request: Request):
     """Aggregated dashboard data for the homepage"""
@@ -3509,7 +3637,17 @@ async def dashboard_summary(request: Request):
         if worst_run is None or pnl < float(worst_run.get("pnl") or 0):
             worst_run = candidate
 
-    def _add_recent_trade(trade: dict, run_name: str, mode: str):
+    def _add_recent_trade(
+        trade: dict,
+        run_name: str,
+        mode: str,
+        *,
+        source_kind: str = "",
+        source_id: int | str | None = None,
+        deletable: bool = False,
+        trade_signature: str = "",
+        trade_occurrence: int = 1,
+    ):
         if not isinstance(trade, dict):
             return
         symbol = trade.get("symbol") or " ".join(
@@ -3536,6 +3674,11 @@ async def dashboard_summary(request: Request):
             "quantity": trade.get("lots") or trade.get("quantity") or "—",
             "pnl": float(trade.get("pnl") or 0),
             "reason": trade.get("exit_reason") or trade.get("reason") or "—",
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "deletable": bool(deletable),
+            "trade_signature": trade_signature,
+            "trade_occurrence": int(trade_occurrence or 1),
         }
         dedupe_key = (
             ("trade_id", record["mode"], trade_identifier)
@@ -3568,7 +3711,14 @@ async def dashboard_summary(request: Request):
             }
         )
         for trade in status.get("closed_trades", []) or []:
-            _add_recent_trade(trade, status.get("strategy_name") or "Paper Run", "paper")
+            _add_recent_trade(
+                trade,
+                status.get("strategy_name") or "Paper Run",
+                "paper",
+                source_kind="active_engine_trade",
+                source_id=str(status.get("run_id") or status.get("strategy_name") or ""),
+                deletable=False,
+            )
     for status in live_statuses:
         _consider_leader(
             {
@@ -3580,7 +3730,14 @@ async def dashboard_summary(request: Request):
             }
         )
         for trade in status.get("closed_trades", []) or []:
-            _add_recent_trade(trade, status.get("strategy_name") or "Live Run", "live")
+            _add_recent_trade(
+                trade,
+                status.get("strategy_name") or "Live Run",
+                "live",
+                source_kind="active_engine_trade",
+                source_id=str(status.get("run_id") or status.get("strategy_name") or ""),
+                deletable=False,
+            )
 
     if scalp_running and isinstance(scalp_status, dict):
         _consider_leader(
@@ -3612,14 +3769,25 @@ async def dashboard_summary(request: Request):
                 r.get("mode") == "live" and run_key in active_live_run_keys
             ):
                 continue
+            run_trade_occurrences: Counter[str] = Counter()
             for trade in r.get("trades", []) or []:
+                trade_signature = _dashboard_trade_signature_text(trade)
+                trade_occurrence = 1
+                if trade_signature:
+                    run_trade_occurrences[trade_signature] += 1
+                    trade_occurrence = run_trade_occurrences[trade_signature]
                 _add_recent_trade(
                     trade,
                     r.get("run_name") or r.get("strategy_name") or f"Run #{r.get('id')}",
                     str(r.get("mode") or "paper"),
+                    source_kind="run_trade",
+                    source_id=r.get("id"),
+                    deletable=True,
+                    trade_signature=trade_signature,
+                    trade_occurrence=trade_occurrence,
                 )
         recent_transactions.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
-        recent_transactions = recent_transactions[:10]
+        recent_transactions = recent_transactions[:100]
 
     return {
         "strategy_count": len(real_strats),
@@ -3712,6 +3880,19 @@ async def dashboard_summary(request: Request):
         "worst_run": worst_run,
         "recent_transactions": recent_transactions,
     }
+
+
+@app.post("/api/dashboard/recent-transactions/bulk-delete")
+async def bulk_delete_dashboard_recent_transactions(request: Request):
+    token = _get_session_token(request)
+    if not await _validate_session_async(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    body = await request.json()
+    items = body.get("items", [])
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="items must be a non-empty list")
+    result = await _delete_dashboard_recent_transaction_items(_request_user_id(request), items)
+    return result
 
 
 # ── Strategy Validation ──────────────────────────────────────────

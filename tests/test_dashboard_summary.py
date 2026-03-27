@@ -299,6 +299,128 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["recent_transactions"]), 1)
         self.assertEqual(result["recent_transactions"][0]["run_name"], "Paper Alpha")
         self.assertEqual(result["recent_transactions"][0]["pnl"], 780.0)
+        self.assertFalse(result["recent_transactions"][0]["deletable"])
+        self.assertEqual(result["recent_transactions"][0]["source_kind"], "active_engine_trade")
+
+    async def test_dashboard_summary_marks_saved_recent_transactions_as_deletable(self):
+        today = app_module._ist_date_str()
+        request = _DummyRequest(user_id=7)
+        saved_trade = {
+            "symbol": "NIFTY 22800 PE",
+            "transaction_type": "BUY",
+            "entry_time": f"{today} 10:00:00",
+            "exit_time": f"{today} 10:05:00",
+            "entry_price": 120.0,
+            "exit_price": 128.5,
+            "quantity": 65,
+            "pnl": 552.5,
+            "reason": "TARGET",
+        }
+
+        with (
+            patch.object(app_module, "_get_session_token", return_value="tok"),
+            patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 7})),
+            patch.object(app_module._db_mod, "list_strategies", AsyncMock(return_value=[])),
+            patch.object(
+                app_module._db_mod,
+                "list_runs",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": 27,
+                            "mode": "paper",
+                            "run_name": "Saved Paper",
+                            "total_pnl": 552.5,
+                            "trades": [saved_trade],
+                        }
+                    ]
+                ),
+            ),
+            patch.object(app_module._db_mod, "list_scalp_trades", AsyncMock(return_value=[])),
+            patch.object(app_module, "_running_statuses_for_user", side_effect=[[], []]),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 7, "role": "user"}, None, "user")),
+            ),
+            patch.object(
+                app_module,
+                "_load_dashboard_real_snapshot",
+                AsyncMock(return_value=app_module._empty_dashboard_real_snapshot()),
+            ),
+            patch.object(
+                app_module, "_load_dashboard_fii_dii_snapshot", AsyncMock(return_value={"status": "unavailable"})
+            ),
+        ):
+            result = await app_module.dashboard_summary(request)
+
+        self.assertEqual(len(result["recent_transactions"]), 1)
+        txn = result["recent_transactions"][0]
+        self.assertTrue(txn["deletable"])
+        self.assertEqual(txn["source_kind"], "run_trade")
+        self.assertEqual(txn["source_id"], 27)
+        self.assertEqual(txn["trade_occurrence"], 1)
+        self.assertTrue(txn["trade_signature"])
+
+    async def test_delete_dashboard_recent_transaction_items_updates_saved_run(self):
+        user_id = 7
+        run = await app_module._db_mod.create_run_record(
+            user_id,
+            {
+                "mode": "paper",
+                "run_name": "Paper Delete Test",
+                "trade_count": 2,
+                "total_pnl": 300.0,
+                "stats": {"total_trades": 2, "winning_trades": 2, "losing_trades": 0, "total_pnl": 300.0},
+                "trades": [
+                    {
+                        "symbol": "NIFTY 22800 PE",
+                        "transaction_type": "BUY",
+                        "entry_time": "2026-03-27 09:15:00",
+                        "exit_time": "2026-03-27 09:20:00",
+                        "entry_price": 100.0,
+                        "exit_price": 120.0,
+                        "quantity": 65,
+                        "pnl": 1300.0,
+                        "reason": "TARGET",
+                    },
+                    {
+                        "symbol": "NIFTY 22900 PE",
+                        "transaction_type": "BUY",
+                        "entry_time": "2026-03-27 09:30:00",
+                        "exit_time": "2026-03-27 09:35:00",
+                        "entry_price": 90.0,
+                        "exit_price": 74.62,
+                        "quantity": 65,
+                        "pnl": -1000.0,
+                        "reason": "STOP",
+                    },
+                ],
+            },
+        )
+
+        delete_result = await app_module._delete_dashboard_recent_transaction_items(
+            user_id,
+            [
+                {
+                    "source_kind": "run_trade",
+                    "source_id": run["id"],
+                    "trade_signature": app_module._dashboard_trade_signature_text(run["trades"][0]),
+                    "trade_occurrence": 1,
+                }
+            ],
+        )
+
+        updated_run = await app_module._db_mod.get_run(user_id, run["id"])
+
+        self.assertEqual(delete_result["deleted"], 1)
+        self.assertEqual(delete_result["skipped"], 0)
+        self.assertIsNotNone(updated_run)
+        self.assertEqual(updated_run["trade_count"], 1)
+        self.assertEqual(len(updated_run["trades"]), 1)
+        self.assertEqual(updated_run["total_pnl"], -1000.0)
+        self.assertEqual(updated_run["stats"]["total_trades"], 1)
+        self.assertEqual(updated_run["stats"]["losing_trades"], 1)
 
     def test_normalize_fii_dii_snapshot_rows_collapses_categories_into_one_day(self):
         records = [
