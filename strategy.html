@@ -3727,36 +3727,16 @@
         <thead>
           <tr>
             <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" onchange="toggleAllDashboardTransactions(this)"></th>
-            <th style="min-width: 200px;">Instrument</th>
-            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace;">Entry Time</th>
-            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace;">Exit Time</th>
-            <th style="width: 90px; text-align: right;">Dir</th>
-            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
-            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace;">Exit</th>
-            <th style="width: 80px; text-align: right;">Qty</th>
-            <th style="width: 120px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
-            <th style="min-width: 140px; text-align: left;">Reason</th>
+            <th style="min-width: 200px; cursor: pointer;" onclick="_toggleDashboardTxnSort('symbol')">Instrument <span id="dash-txn-sort-symbol"></span></th>
+            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryTime')">Entry Time <span id="dash-txn-sort-entryTime"></span></th>
+            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitTime')">Exit Time <span id="dash-txn-sort-exitTime"></span></th>
+            <th style="width: 90px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('transactionType')">Dir <span id="dash-txn-sort-transactionType"></span></th>
+            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryPrice')">Entry <span id="dash-txn-sort-entryPrice"></span></th>
+            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitPrice')">Exit <span id="dash-txn-sort-exitPrice"></span></th>
+            <th style="width: 80px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('quantity')">Qty <span id="dash-txn-sort-quantity"></span></th>
+            <th style="width: 120px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('pnl')">P&amp;L <span id="dash-txn-sort-pnl"></span></th>
+            <th style="min-width: 140px; text-align: left; cursor: pointer;" onclick="_toggleDashboardTxnSort('reason')">Reason <span id="dash-txn-sort-reason"></span></th>
             <th style="width: 90px; text-align: right;">Action</th>
-          </tr>
-          <tr class="filter-row">
-            <th></th>
-            <th><input type="text" id="txn-filter-symbol" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('symbol', this.value)"></th>
-            <th><input type="text" id="txn-filter-entryTime" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('entryTime', this.value)"></th>
-            <th><input type="text" id="txn-filter-exitTime" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('exitTime', this.value)"></th>
-            <th>
-              <select id="txn-filter-direction" class="dash-table-filter" onchange="setDashboardTransactionFilter('transactionType', this.value)">
-                <option value="">All</option>
-                <option value="BUY">Buy</option>
-                <option value="SELL">Sell</option>
-                <option value="TRADE">Trade</option>
-              </select>
-            </th>
-            <th><input type="text" id="txn-filter-entryPrice" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('entryPrice', this.value)"></th>
-            <th><input type="text" id="txn-filter-exitPrice" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('exitPrice', this.value)"></th>
-            <th><input type="text" id="txn-filter-quantity" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('quantity', this.value)"></th>
-            <th><input type="text" id="txn-filter-pnl" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('pnl', this.value)"></th>
-            <th><input type="text" id="txn-filter-reason" class="dash-table-filter" placeholder="Filter" oninput="setDashboardTransactionFilter('reason', this.value)"></th>
-            <th></th>
           </tr>
         </thead>
         <tbody id="transactions-body"><tr><td colspan="11" class="dash-txn-empty">No recent transactions</td></tr></tbody>
@@ -6239,17 +6219,8 @@ let _scalpPage = 1;
 let _portfolioPaperPage = 1;
 let _dashboardTxnPage = 1;
 let _dashboardTxnSearchQuery = '';
-let _dashboardTxnFilters = {
-  symbol: '',
-  entryTime: '',
-  exitTime: '',
-  transactionType: '',
-  entryPrice: '',
-  exitPrice: '',
-  quantity: '',
-  pnl: '',
-  reason: '',
-};
+let _dashboardTxnSortCol = 'exitTime';
+let _dashboardTxnSortAsc = false;
 
 function _getModeBadge(mode) {
   const m = (mode || 'backtest').toLowerCase();
@@ -6694,20 +6665,26 @@ function setDashboardTransactionSearch(value) {
   _renderDashboardTransactions();
 }
 
-function setDashboardTransactionFilter(key, value) {
-  _dashboardTxnFilters[key] = String(value || '').trim().toLowerCase();
+function _dashboardTxnSortArrow(col) {
+  if (_dashboardTxnSortCol !== col) return '<span style="opacity:0.3;font-size:10px;margin-left:3px;">⇅</span>';
+  return _dashboardTxnSortAsc
+    ? '<span style="color:var(--accent);font-size:10px;margin-left:3px;">▲</span>'
+    : '<span style="color:var(--accent);font-size:10px;margin-left:3px;">▼</span>';
+}
+
+function _toggleDashboardTxnSort(col) {
+  if (_dashboardTxnSortCol === col) _dashboardTxnSortAsc = !_dashboardTxnSortAsc;
+  else {
+    _dashboardTxnSortCol = col;
+    _dashboardTxnSortAsc = true;
+  }
   _dashboardTxnPage = 1;
   _renderDashboardTransactions();
 }
 
-function _dashboardTxnMatch(value, needle) {
-  if (!needle) return true;
-  return String(value ?? '').toLowerCase().includes(needle);
-}
-
 function _applyDashboardTransactionFilters(rows) {
   const search = _dashboardTxnSearchQuery;
-  return (rows || []).filter(txn => {
+  const filtered = (rows || []).filter(txn => {
     const searchHaystack = [
       txn.symbol,
       txn.runName,
@@ -6720,17 +6697,30 @@ function _applyDashboardTransactionFilters(rows) {
       txn.pnl,
     ].join(' ').toLowerCase();
     if (search && !searchHaystack.includes(search)) return false;
-    if (!_dashboardTxnMatch(txn.symbol, _dashboardTxnFilters.symbol)) return false;
-    if (!_dashboardTxnMatch(txn.entryTime, _dashboardTxnFilters.entryTime)) return false;
-    if (!_dashboardTxnMatch(txn.exitTime, _dashboardTxnFilters.exitTime)) return false;
-    if (_dashboardTxnFilters.transactionType && String(txn.transactionType || '').toLowerCase() !== _dashboardTxnFilters.transactionType) return false;
-    if (!_dashboardTxnMatch((txn.entryPrice ?? 0).toFixed(2), _dashboardTxnFilters.entryPrice)) return false;
-    if (!_dashboardTxnMatch((txn.exitPrice ?? 0).toFixed(2), _dashboardTxnFilters.exitPrice)) return false;
-    if (!_dashboardTxnMatch(txn.quantity, _dashboardTxnFilters.quantity)) return false;
-    if (!_dashboardTxnMatch((txn.pnl ?? 0).toFixed(2), _dashboardTxnFilters.pnl)) return false;
-    if (!_dashboardTxnMatch(txn.reason, _dashboardTxnFilters.reason)) return false;
     return true;
   });
+
+  const sorted = filtered.slice().sort((a, b) => {
+    let left = a?.[_dashboardTxnSortCol];
+    let right = b?.[_dashboardTxnSortCol];
+    if (_dashboardTxnSortCol === 'entryTime' || _dashboardTxnSortCol === 'exitTime' || _dashboardTxnSortCol === 'time') {
+      left = Date.parse(left || '') || 0;
+      right = Date.parse(right || '') || 0;
+    } else if (_dashboardTxnSortCol === 'entryPrice' || _dashboardTxnSortCol === 'exitPrice' || _dashboardTxnSortCol === 'pnl') {
+      left = Number(left || 0);
+      right = Number(right || 0);
+    } else if (_dashboardTxnSortCol === 'quantity') {
+      left = parseFloat(left || 0) || 0;
+      right = parseFloat(right || 0) || 0;
+    } else {
+      left = String(left ?? '').toLowerCase();
+      right = String(right ?? '').toLowerCase();
+    }
+    if (left < right) return _dashboardTxnSortAsc ? -1 : 1;
+    if (left > right) return _dashboardTxnSortAsc ? 1 : -1;
+    return (b._idx || 0) - (a._idx || 0);
+  });
+  return sorted;
 }
 
 function toggleDashboardTransactionCheck(el) {
@@ -6741,7 +6731,7 @@ function toggleDashboardTransactionCheck(el) {
 }
 
 function toggleAllDashboardTransactions(el) {
-  document.querySelectorAll('.dashboard-txn-chk:not(:disabled)').forEach(box => {
+  document.querySelectorAll('.dashboard-txn-chk').forEach(box => {
     box.checked = el.checked;
     const key = String(box.dataset.key || '');
     if (!key) return;
@@ -6766,22 +6756,23 @@ function _updateDashboardTransactionsBulkBar(pageRows = null) {
 
   const validKeys = new Set(_dashboardTxnByKey.keys());
   Array.from(_selectedDashboardTxnKeys).forEach(key => {
-    const row = _dashboardTxnByKey.get(key);
-    if (!validKeys.has(key) || !row || !row.deletable) _selectedDashboardTxnKeys.delete(key);
+    if (!validKeys.has(key)) _selectedDashboardTxnKeys.delete(key);
   });
 
+  const selectedRows = Array.from(_selectedDashboardTxnKeys).map(key => _dashboardTxnByKey.get(key)).filter(Boolean);
   const selectedCount = _selectedDashboardTxnKeys.size;
+  const deletableCount = selectedRows.filter(row => row.deletable).length;
   if (!selectedCount) {
     bar.style.display = 'none';
   } else {
     bar.style.display = 'flex';
     bar.innerHTML = '<span class="bulk-count">' + selectedCount + ' selected</span>'
-      + '<button class="bulk-del-btn" onclick="bulkDeleteDashboardTransactions()">' + ICO.trash(14) + ' Delete Selected</button>'
+      + (deletableCount ? '<button class="bulk-del-btn" onclick="bulkDeleteDashboardTransactions()">' + ICO.trash(14) + ' Delete Selected</button>' : '<span style="font-size:11px;color:var(--muted);">Active rows cannot be deleted</span>')
       + '<button class="page-btn" onclick="_selectedDashboardTxnKeys.clear();_renderDashboardTransactions();" style="font-size:11px;">Clear</button>';
   }
 
   if (headerBox) {
-    const visibleRows = Array.isArray(pageRows) ? pageRows.filter(txn => txn.deletable) : [];
+    const visibleRows = Array.isArray(pageRows) ? pageRows : [];
     const checkedCount = visibleRows.filter(txn => _selectedDashboardTxnKeys.has(txn.rowKey)).length;
     headerBox.checked = !!visibleRows.length && checkedCount === visibleRows.length;
     headerBox.indeterminate = checkedCount > 0 && checkedCount < visibleRows.length;
@@ -6871,7 +6862,7 @@ function _renderDashboardTransactions(transactions = null) {
   const pageRows = filtered.slice(start, start + _DASHBOARD_TXN_PER_PAGE);
 
   if (!pageRows.length) {
-    body.innerHTML = '<tr><td colspan="11" class="dash-txn-empty">' + (_dashboardTxnSearchQuery || Object.values(_dashboardTxnFilters).some(Boolean) ? 'No matching transactions' : 'No recent transactions') + '</td></tr>';
+    body.innerHTML = '<tr><td colspan="11" class="dash-txn-empty">' + (_dashboardTxnSearchQuery ? 'No matching transactions' : 'No recent transactions') + '</td></tr>';
     if (pagEl) {
       pagEl.style.display = 'none';
       pagEl.innerHTML = '';
@@ -6900,13 +6891,12 @@ function _renderDashboardTransactions(transactions = null) {
     const dir = String(txn.transactionType || '—').replace(/_/g, ' ');
     const dirColor = dir === 'BUY' ? 'var(--success)' : dir === 'SELL' ? 'var(--danger)' : 'var(--muted)';
     const chk = _selectedDashboardTxnKeys.has(txn.rowKey) ? ' checked' : '';
-    const disabled = txn.deletable ? '' : ' disabled';
     const actionHtml = txn.deletable
       ? '<button class="btn btn-danger btn-sm" onclick="deleteDashboardTransaction(\'' + escapeAttr(txn.rowKey) + '\')" style="font-size:11px;padding:5px 10px;">Del</button>'
       : '<span style="font-size:11px;color:var(--muted);">Active</span>';
     return `
       <tr>
-        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}${disabled}></td>
+        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
         <td>
           <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
           <div class="dash-txn-meta">
@@ -6937,6 +6927,10 @@ function _renderDashboardTransactions(transactions = null) {
       pagEl.innerHTML = '';
     }
   }
+  ['symbol', 'entryTime', 'exitTime', 'transactionType', 'entryPrice', 'exitPrice', 'quantity', 'pnl', 'reason'].forEach(col => {
+    const el = document.getElementById('dash-txn-sort-' + col);
+    if (el) el.innerHTML = _dashboardTxnSortArrow(col);
+  });
   _updateDashboardTransactionsBulkBar(pageRows);
 }
 
