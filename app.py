@@ -914,7 +914,8 @@ def _load_dashboard_real_snapshot_sync(user_id: int, broker_client: DhanClient |
             "net_pnl": round(float(summary.get("net_pnl", 0) or 0), 2),
             "charges": round(float(summary.get("charges", 0) or 0), 2),
             "brokerage": round(float(summary.get("brokerage", 0) or 0), 2),
-            "trades": int(summary.get("trades", 0) or 0),
+            "trades": int(summary.get("order_count", summary.get("trades", 0)) or 0),
+            "fill_count": int(summary.get("trade_legs", summary.get("trades", 0)) or 0),
             "message": "Dhan tradebook",
             "stale": False,
         }

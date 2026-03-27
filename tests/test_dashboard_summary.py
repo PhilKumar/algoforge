@@ -172,6 +172,60 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["real_source_label"], "Dhan today")
         self.assertEqual(result["fii_dii"]["latest"]["display_date"], "25 Mar")
 
+    async def test_load_dashboard_real_snapshot_prefers_order_count_over_fill_count(self):
+        user_id = 7
+        broker_client = SimpleNamespace(
+            get_trades=lambda: [
+                {
+                    "exchangeTime": "2026-03-27 09:16:00",
+                    "orderId": "A1",
+                    "exchangeTradeId": "1",
+                    "transactionType": "BUY",
+                    "securityId": "123",
+                    "tradingSymbol": "NIFTY XYZ",
+                    "tradedPrice": 100,
+                    "tradedQuantity": 50,
+                },
+                {
+                    "exchangeTime": "2026-03-27 09:16:01",
+                    "orderId": "A1",
+                    "exchangeTradeId": "2",
+                    "transactionType": "BUY",
+                    "securityId": "123",
+                    "tradingSymbol": "NIFTY XYZ",
+                    "tradedPrice": 100,
+                    "tradedQuantity": 15,
+                },
+                {
+                    "exchangeTime": "2026-03-27 09:20:00",
+                    "orderId": "B1",
+                    "exchangeTradeId": "3",
+                    "transactionType": "SELL",
+                    "securityId": "123",
+                    "tradingSymbol": "NIFTY XYZ",
+                    "tradedPrice": 110,
+                    "tradedQuantity": 50,
+                },
+                {
+                    "exchangeTime": "2026-03-27 09:20:01",
+                    "orderId": "B1",
+                    "exchangeTradeId": "4",
+                    "transactionType": "SELL",
+                    "securityId": "123",
+                    "tradingSymbol": "NIFTY XYZ",
+                    "tradedPrice": 110,
+                    "tradedQuantity": 15,
+                },
+            ]
+        )
+
+        with patch.object(app_module, "_ist_date_str", return_value="2026-03-27"):
+            result = app_module._load_dashboard_real_snapshot_sync(user_id, broker_client)
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["trades"], 2)
+        self.assertEqual(result["fill_count"], 4)
+
     def test_normalize_fii_dii_snapshot_rows_collapses_categories_into_one_day(self):
         records = [
             {"category": "FII/FPI", "date": "25-Mar-2026", "netValue": "-1805.37"},
