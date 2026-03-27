@@ -1160,14 +1160,230 @@
     background: rgba(5,150,105,0.03) !important;
     box-shadow: inset 3px 0 0 #047857;
   }
+  /* ── Dashboard Layout ── */
+  #dash-summary-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.72fr) minmax(0, 0.72fr) minmax(0, 1fr);
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  #dash-fiidii-card {
+    padding: 12px 16px;
+    margin-bottom: 14px;
+  }
+  .dash-fiidii-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .dash-fiidii-title {
+    min-width: 150px;
+  }
+  .dash-fiidii-kicker {
+    font-size: 10px;
+    color: rgba(255,255,255,0.62);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+  }
+  .dash-fiidii-caption {
+    font-size: 11px;
+    color: rgba(255,255,255,0.78);
+    margin-top: 3px;
+  }
+  #dash-fiidii-strip-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    flex: 1 1 520px;
+    min-width: 0;
+  }
+  .dash-fiidii-metric {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.16);
+  }
+  .dash-fiidii-metric.neg {
+    border: 1px solid rgba(248,113,113,0.14);
+  }
+  .dash-fiidii-metric.pos {
+    border: 1px solid rgba(74,222,128,0.14);
+  }
+  .dash-fiidii-metric.soft-neg {
+    border: 1px solid rgba(248,113,113,0.08);
+  }
+  .dash-fiidii-metric.soft-pos {
+    border: 1px solid rgba(74,222,128,0.08);
+  }
+  .dash-fiidii-metric-label {
+    font-size: 9px;
+    color: rgba(255,255,255,0.58);
+    text-transform: uppercase;
+    letter-spacing: 0.55px;
+  }
+  .dash-fiidii-metric-value {
+    font-size: 18px;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 5px;
+  }
+  .dash-fiidii-meta {
+    min-width: 92px;
+    text-align: right;
+  }
+  .dash-fiidii-meta-line {
+    font-size: 10px;
+    margin-top: 3px;
+  }
+  .dash-fiidii-muted {
+    color: rgba(255,255,255,0.68);
+  }
+  .dash-fiidii-faint {
+    color: rgba(255,255,255,0.56);
+  }
+  #dash-today-card {
+    padding: 16px 18px;
+  }
+  .dash-today-split {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+  }
+  .dash-summary-divider {
+    width: 1px;
+    height: 54px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+  .dash-summary-mini {
+    padding: 12px 14px;
+  }
+  .dash-card-sub {
+    font-size: 10px;
+    color: rgba(255,255,255,0.68);
+    margin-top: 4px;
+  }
+  .dash-today-value {
+    font-size: 24px;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.05;
+    color: var(--muted);
+  }
+  .dash-card-meta {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+  #dash-active-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .dash-active-card {
+    display: none;
+    min-width: 0;
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(0,0,0,0.2);
+  }
+  #dash-paper-card {
+    border: 1px solid rgba(245,158,11,0.2);
+  }
+  #dash-live-card {
+    border: 1px solid rgba(59,130,246,0.2);
+  }
+  #dash-scalp-card {
+    border: 1px solid rgba(6,182,212,0.24);
+  }
+  .dash-active-name {
+    font-size: 13px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .dash-active-stats {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 12px;
+  }
+  .dash-card-note {
+    font-size: 10px;
+    color: rgba(255,255,255,0.68);
+    margin-top: 8px;
+  }
+  .dash-scalp-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+  .dash-split-box {
+    padding: 8px 10px;
+    border-radius: 8px;
+  }
+  .dash-split-box.paper {
+    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.14);
+  }
+  .dash-split-box.real {
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.14);
+  }
+  .dash-split-kicker {
+    font-size: 9px;
+    color: rgba(255,255,255,0.58);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .dash-split-note {
+    font-size: 10px;
+    color: rgba(255,255,255,0.64);
+    margin-top: 3px;
+  }
   /* ── Premium Light: Dashboard Cards ── */
   [data-theme="light"] #dash-best-run { border-left-color: #047857; }
   [data-theme="light"] #dash-worst-run { border-left-color: #b45309; }
+  [data-theme="light"] #dash-fiidii-card,
   [data-theme="light"] #dash-live-card,
   [data-theme="light"] #dash-paper-card,
   [data-theme="light"] #dash-scalp-card {
     background: rgba(248,250,252,0.8) !important;
     border-color: rgba(15,23,42,0.06) !important;
+  }
+  [data-theme="light"] #dash-fiidii-card::after {
+    background: none;
+  }
+  [data-theme="light"] .dash-fiidii-kicker,
+  [data-theme="light"] .dash-fiidii-caption,
+  [data-theme="light"] .dash-fiidii-muted,
+  [data-theme="light"] .dash-fiidii-faint,
+  [data-theme="light"] .dash-card-sub,
+  [data-theme="light"] .dash-card-note,
+  [data-theme="light"] .dash-split-kicker,
+  [data-theme="light"] .dash-split-note {
+    color: #64748b !important;
+  }
+  [data-theme="light"] .dash-fiidii-metric {
+    background: rgba(248,250,252,0.78);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+  }
+  [data-theme="light"] .dash-fiidii-meta {
+    color: #475569;
+  }
+  [data-theme="light"] .dash-split-box {
+    background: rgba(255,255,255,0.92);
+  }
+  [data-theme="light"] .dash-split-box.paper {
+    background: rgba(245,158,11,0.06);
+    border-color: rgba(245,158,11,0.16);
+  }
+  [data-theme="light"] .dash-split-box.real {
+    background: rgba(59,130,246,0.06);
+    border-color: rgba(59,130,246,0.16);
   }
   /* ── Premium Light: Kill Switch ── */
   [data-theme="light"] .kill-switch {
@@ -1374,12 +1590,62 @@
   }
 
   /* Dashboard summary grid responsive */
+  @media (max-width: 980px) {
+    #dash-summary-grid {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 0.95fr) !important;
+    }
+    .dash-fiidii-title {
+      min-width: 0;
+      width: 100%;
+    }
+    #dash-fiidii-strip-grid {
+      flex-basis: 100%;
+      width: 100%;
+    }
+    .dash-fiidii-meta {
+      width: 100%;
+      text-align: left;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+  }
+  @media (max-width: 860px) {
+    #dash-summary-grid {
+      grid-template-columns: 1fr 1fr !important;
+    }
+    #dash-today-card {
+      grid-column: 1 / -1;
+    }
+    #dash-active-grid {
+      grid-template-columns: 1fr !important;
+    }
+  }
+  @media (max-width: 560px) {
+    .dash-today-split {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .dash-summary-divider {
+      width: 100%;
+      height: 1px;
+    }
+    .dash-scalp-split {
+      grid-template-columns: 1fr;
+    }
+    .dash-today-value,
+    .dash-fiidii-metric-value {
+      font-size: 22px;
+    }
+  }
   @media (max-width: 700px) {
     #dashboard-page .stat-box { min-width: 0; }
     #dash-summary-grid { grid-template-columns: 1fr 1fr !important; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
     #dash-today-card { grid-column: 1 / -1; }
-    #dash-active-engines > div:last-child { grid-template-columns: 1fr !important; }
+    #dash-active-grid { grid-template-columns: 1fr !important; }
     #mood-widgets { grid-template-columns: 1fr !important; }
   }
   @media (max-width: 400px) {
@@ -2082,8 +2348,25 @@
     }
     #dash-today-card { grid-column: 1 / -1; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
+    .dash-today-split {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .dash-summary-divider {
+      width: 100%;
+      height: 1px;
+    }
+    .dash-fiidii-meta {
+      width: 100%;
+      text-align: left;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
     /* Active engines: stack */
-    #dash-active-engines > div:last-child,
+    #dash-active-grid,
     div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 14px"] {
       grid-template-columns: 1fr !important;
     }
@@ -2848,68 +3131,68 @@
 
 
   <div style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <div id="dash-fiidii-card" class="card-glass" style="padding: 12px 16px; margin-bottom: 14px; display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;">
-        <div style="min-width: 150px;">
-          <div style="font-size: 10px; color: rgba(255,255,255,0.62); text-transform: uppercase; letter-spacing: 0.7px;">FII / DII Flow</div>
-          <div id="dash-fiidii-caption" style="font-size: 11px; color: rgba(255,255,255,0.78); margin-top: 3px;">Official NSE feed</div>
+    <div id="dash-fiidii-card" class="card-glass" style="display: none;">
+      <div class="dash-fiidii-head">
+        <div class="dash-fiidii-title">
+          <div class="dash-fiidii-kicker">FII / DII Flow</div>
+          <div id="dash-fiidii-caption" class="dash-fiidii-caption">Official NSE feed</div>
         </div>
-        <div id="dash-fiidii-strip-grid" style="display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; flex: 1; min-width: 0;">
-          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(248,113,113,0.14);">
-            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">Latest FII</div>
-            <div id="dash-fiidii-latest-fii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+        <div id="dash-fiidii-strip-grid">
+          <div class="dash-fiidii-metric neg">
+            <div class="dash-fiidii-metric-label">Latest FII</div>
+            <div id="dash-fiidii-latest-fii" class="dash-fiidii-metric-value">₹0</div>
           </div>
-          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(74,222,128,0.14);">
-            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">Latest DII</div>
-            <div id="dash-fiidii-latest-dii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          <div class="dash-fiidii-metric pos">
+            <div class="dash-fiidii-metric-label">Latest DII</div>
+            <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0</div>
           </div>
-          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(248,113,113,0.08);">
-            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">30D FII</div>
-            <div id="dash-fiidii-rolling-fii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          <div class="dash-fiidii-metric soft-neg">
+            <div class="dash-fiidii-metric-label">30D FII</div>
+            <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0</div>
           </div>
-          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(74,222,128,0.08);">
-            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">30D DII</div>
-            <div id="dash-fiidii-rolling-dii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          <div class="dash-fiidii-metric soft-pos">
+            <div class="dash-fiidii-metric-label">30D DII</div>
+            <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0</div>
           </div>
         </div>
-        <div style="min-width: 92px; text-align: right;">
+        <div class="dash-fiidii-meta">
           <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
-          <div id="dash-fiidii-latest-date" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 3px;">—</div>
-          <div id="dash-fiidii-latest-days" style="font-size: 10px; color: rgba(255,255,255,0.56); margin-top: 3px;">—</div>
+          <div id="dash-fiidii-latest-date" class="dash-fiidii-meta-line dash-fiidii-muted">—</div>
+          <div id="dash-fiidii-latest-days" class="dash-fiidii-meta-line dash-fiidii-faint">—</div>
         </div>
       </div>
     </div>
 
-    <div id="dash-summary-grid" style="display: grid; grid-template-columns: minmax(330px, 1.45fr) minmax(140px, 0.72fr) minmax(140px, 0.72fr) minmax(220px, 1fr); gap: 14px; margin-bottom: 16px;">
-      <div id="dash-today-card" class="stat-box" style="padding: 16px 18px;">
+    <div id="dash-summary-grid">
+      <div id="dash-today-card" class="stat-box">
         <div class="stat-label" style="margin-bottom: 8px;">Today's P&L</div>
-        <div style="display: flex; gap: 16px; align-items: flex-end;">
+        <div class="dash-today-split">
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
-            <div id="dash-paper-pnl-card" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.05; color: var(--muted);">₹0.00</div>
-            <div id="dash-paper-pnl-sub" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 4px;">Strategy + SCALP</div>
-            <div id="dash-paper-pnl-trades" style="font-size: 10px; color: var(--muted); margin-top: 3px;">0 trades</div>
+            <div id="dash-paper-pnl-card" class="dash-today-value">₹0.00</div>
+            <div id="dash-paper-pnl-sub" class="dash-card-sub">Strategy + SCALP</div>
+            <div id="dash-paper-pnl-trades" class="dash-card-meta">0 trades</div>
           </div>
-          <div style="width: 1px; height: 54px; background: var(--border); flex-shrink: 0;"></div>
+          <div class="dash-summary-divider"></div>
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">REAL</div>
-            <div id="dash-real-pnl-card" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.05; color: var(--muted);">₹0.00</div>
-            <div id="dash-real-pnl-sub" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 4px;">Dhan today</div>
-            <div id="dash-real-pnl-trades" style="font-size: 10px; color: var(--muted); margin-top: 3px;">0 trades</div>
+            <div id="dash-real-pnl-card" class="dash-today-value">₹0.00</div>
+            <div id="dash-real-pnl-sub" class="dash-card-sub">Dhan today</div>
+            <div id="dash-real-pnl-trades" class="dash-card-meta">0 trades</div>
           </div>
         </div>
       </div>
-      <div id="dash-active-summary-card" class="stat-box" style="padding: 12px 14px;">
+      <div id="dash-active-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Active Strategies</div>
         <div class="stat-value" id="dash-active-count" style="color: var(--accent); font-size: 22px; line-height: 1.05;">0</div>
         <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-active-detail">No strategies running</div>
       </div>
-      <div id="dash-saved-summary-card" class="stat-box" style="padding: 12px 14px;">
+      <div id="dash-saved-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Saved Strategies</div>
         <div class="stat-value" id="dash-strategies-count" style="color: var(--accent2); font-size: 22px; line-height: 1.05;">0</div>
         <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-backtests-count">0 backtests</div>
       </div>
-      <div id="dash-broker-summary-card" class="stat-box" style="padding: 12px 14px;">
+      <div id="dash-broker-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Broker Status</div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
           <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
@@ -2928,47 +3211,47 @@
         <h3 style="font-size: 14px; margin: 0;" id="h-active-trading">Active Trading</h3>
         <button id="dash-active-open-btn" class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 11px; padding: 5px 14px;">Open Live Monitor →</button>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
-        <div id="dash-paper-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 12px;">
+      <div id="dash-active-grid">
+        <div id="dash-paper-card" class="dash-active-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Strategy</span>
             <span id="dash-paper-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-paper-name">—</div>
-          <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 12px;">
+          <div class="dash-active-name" id="dash-paper-name">—</div>
+          <div class="dash-active-stats">
             <span>P&L: <strong id="dash-paper-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
             <span>Trades: <strong id="dash-paper-trades">0</strong></span>
           </div>
-          <div id="dash-paper-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Paper strategy only</div>
+          <div id="dash-paper-note" class="dash-card-note">Paper strategy only</div>
         </div>
-        <div id="dash-live-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
+        <div id="dash-live-card" class="dash-active-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Live Trades</span>
             <span id="dash-live-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-live-name">—</div>
-          <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 12px;">
+          <div class="dash-active-name" id="dash-live-name">—</div>
+          <div class="dash-active-stats">
             <span>P&L: <strong id="dash-live-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
             <span>Trades: <strong id="dash-live-trades">0</strong></span>
           </div>
-          <div id="dash-live-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today excluding SCALP</div>
+          <div id="dash-live-note" class="dash-card-note">Dhan today excluding SCALP</div>
         </div>
-        <div id="dash-scalp-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(6,182,212,0.24); border-radius: 10px; padding: 12px;">
+        <div id="dash-scalp-card" class="dash-active-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">SCALP</span>
             <span id="dash-scalp-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-scalp-name">—</div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; font-size: 11px;">
-            <div style="padding: 8px 10px; border-radius: 8px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.14);">
-              <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px;">Paper</div>
+          <div class="dash-active-name" id="dash-scalp-name">—</div>
+          <div class="dash-scalp-split">
+            <div class="dash-split-box paper">
+              <div class="dash-split-kicker">Paper</div>
               <div id="dash-scalp-paper-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
-              <div id="dash-scalp-paper-trades" style="font-size: 10px; color: rgba(255,255,255,0.64); margin-top: 3px;">0 trades</div>
+              <div id="dash-scalp-paper-trades" class="dash-split-note">0 trades</div>
             </div>
-            <div style="padding: 8px 10px; border-radius: 8px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.14);">
-              <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px;">Real</div>
+            <div class="dash-split-box real">
+              <div class="dash-split-kicker">Real</div>
               <div id="dash-scalp-real-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
-              <div id="dash-scalp-real-trades" style="font-size: 10px; color: rgba(255,255,255,0.64); margin-top: 3px;">0 trades</div>
+              <div id="dash-scalp-real-trades" class="dash-split-note">0 trades</div>
             </div>
           </div>
         </div>
