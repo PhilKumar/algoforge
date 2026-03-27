@@ -11354,6 +11354,27 @@ async function loadPortfolioData() {
       return `${unique[0]} +${unique.length - 1}`;
     };
 
+    const countUniqueTradeOrders = (trades) => {
+      const keys = new Set();
+      (trades || []).forEach(trade => {
+        if (!trade || typeof trade !== 'object') return;
+        const orderKey = String(trade.orderId || trade.exchangeOrderId || '').trim();
+        if (orderKey) {
+          keys.add(orderKey);
+          return;
+        }
+        const fallbackKey = [
+          trade.transactionType || '',
+          trade.securityId || trade.tradingSymbol || '',
+          trade.createTime || trade.exchangeTime || trade.updateTime || '',
+          trade.tradedPrice || '',
+          trade.tradedQuantity || '',
+        ].join('|');
+        if (fallbackKey.replace(/\|/g, '').trim()) keys.add(fallbackKey);
+      });
+      return keys.size;
+    };
+
     const summarizeRunningPaperEngines = (engines) => {
       const snapshot = {
         activeCount: 0,
@@ -11503,6 +11524,7 @@ async function loadPortfolioData() {
     });
 
     console.log(`[Portfolio] Today (${todayDateStr}): ${todayDhanTrades.length} trades`);
+    const todayOrderCountFromTrades = countUniqueTradeOrders(todayDhanTrades);
 
     // Calculate today's P&L from Dhan trades by pairing BUY/SELL
     let todayPnL = 0;
@@ -11569,13 +11591,16 @@ async function loadPortfolioData() {
     document.getElementById('portfolio-today-pnl').textContent = '₹' + todayPnL.toFixed(2);
     document.getElementById('portfolio-today-pnl').style.color = todayPnL >= 0 ? 'var(--success)' : 'var(--danger)';
     const todayTradeCount = Number(
-      todayDhanTrades.length ||
+      todayHistoryEntry.real_order_count ||
       todayOrders.length ||
+      todayOrderCountFromTrades ||
       todayHistoryEntry.real_trade_legs ||
       todayHistoryEntry.real_trades ||
+      todayDhanTrades.length ||
       0
     ) || 0;
     document.getElementById('portfolio-total-trades').textContent = todayTradeCount;
+    window._portfolioTodayDisplayTradeCount = todayTradeCount;
     document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
 
     // ── Paper Trade P&L summary card ──
@@ -11751,6 +11776,8 @@ function renderMonthlyDailyGrid() {
   const ym = window._currentMonthlyView;
   const [year, month] = ym.split('-').map(Number);
   const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
+  const todayDateStr = getMarketDateKey(new Date());
+  const todayDisplayTradeCount = Number(window._portfolioTodayDisplayTradeCount || 0) || 0;
 
   document.getElementById('portfolio-monthly-label').textContent = monthName;
   const grid = document.getElementById('portfolio-monthly-grid');
@@ -11777,9 +11804,12 @@ function renderMonthlyDailyGrid() {
       const totalCosts = entry.real_total_costs || (charges + brokerage);
       const realTrades = entry.real_trade_legs || entry.real_trades || 0;
       const realOrderCount = entry.real_order_count || 0;
+      const displayTradeCount = dateStr === todayDateStr
+        ? (todayDisplayTradeCount || realOrderCount || realTrades)
+        : realTrades;
       const paperTrades = entry.paper_trades || 0;
       const tradeLegs = entry.real_trade_legs || 0;
-      const hasRealActivity = realTrades > 0 || tradeLegs > 0 || grossRealPnl !== 0 || netRealPnl !== 0 || charges > 0;
+      const hasRealActivity = displayTradeCount > 0 || tradeLegs > 0 || grossRealPnl !== 0 || netRealPnl !== 0 || charges > 0;
       dayEntries.push({
         day: d,
         dateStr,
@@ -11792,6 +11822,7 @@ function renderMonthlyDailyGrid() {
         paper: paperPnl,
         realTrades,
         realOrderCount,
+        displayTradeCount,
         paperTrades,
         hasRealActivity,
       });
@@ -11800,7 +11831,7 @@ function renderMonthlyDailyGrid() {
         totalNetRealPnl += netRealPnl;
         totalCharges += charges;
         totalBrokerage += brokerage;
-        totalTrades += realTrades;
+        totalTrades += displayTradeCount;
         tradingDays++;
         if (grossRealPnl > 0) profitDays++;
       }
@@ -11858,10 +11889,10 @@ function renderMonthlyDailyGrid() {
       if (e.paper !== 0) detailLines.push(`Paper: ₹${e.paper.toFixed(2)}`);
       const details = detailLines.length ? `\n${detailLines.join('\n')}` : '';
       html += `
-        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ₹${e.grossReal.toFixed(2)}${details} (${e.realTrades} trades)">
+        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ₹${e.grossReal.toFixed(2)}${details} (${e.displayTradeCount} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
           <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.grossReal.toFixed(0)}</div>
-          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.realTrades}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
+          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
         </div>
       `;
     });
@@ -11890,7 +11921,7 @@ function renderMonthlyDailyGrid() {
       const dateLabel = formatPortfolioDateLabel(e.dateStr);
       thtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
-        <td style="padding: 10px 8px; text-align: center;" title="${e.realOrderCount > 0 && e.realOrderCount !== e.realTrades ? `${e.realOrderCount} orders` : `${e.realTrades} trades`}">${e.realTrades}</td>
+        <td style="padding: 10px 8px; text-align: center;" title="${e.realOrderCount > 0 && e.realOrderCount !== e.realTrades ? `${e.realOrderCount} orders, ${e.realTrades} fills` : `${e.displayTradeCount} trades`}">${e.displayTradeCount}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netReal.toFixed(2)}</td>
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
