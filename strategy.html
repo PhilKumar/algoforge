@@ -1832,6 +1832,71 @@
   .tf-badge.active { background: rgba(59,130,246,0.25); border-color: var(--accent2); }
 
   /* ═══ HEADER BAR ═══ */
+  .header-shell {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 18px;
+  }
+  .header-brand-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 18px 14px;
+    background:
+      radial-gradient(circle at top left, rgba(52,211,153,0.12), transparent 46%),
+      radial-gradient(circle at bottom right, rgba(79,142,247,0.10), transparent 42%),
+      linear-gradient(180deg, rgba(13,18,34,0.985), rgba(10,14,26,0.985));
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .header-brand-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 24%, transparent 78%, rgba(255,255,255,0.025));
+    pointer-events: none;
+  }
+  .header-brand-panel::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 8%, rgba(0,191,165,0.48) 34%, rgba(79,142,247,0.35) 78%, transparent 96%);
+  }
+  .header-brand-logo {
+    width: 76px;
+    height: 76px;
+    object-fit: cover;
+    border-radius: 18px;
+    filter: drop-shadow(0 0 12px rgba(0,191,165,0.22));
+    box-shadow: 0 10px 28px rgba(0,0,0,0.34);
+    position: relative;
+    z-index: 1;
+  }
+  .header-brand-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+  .header-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
   .app-topbar {
     display: flex;
     align-items: center;
@@ -1840,7 +1905,8 @@
     margin-bottom: 0;
     background: rgba(13, 18, 34, 0.97);
     border: 1px solid var(--border);
-    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-radius: 0 12px 0 0;
     backdrop-filter: blur(48px) saturate(1.5);
     -webkit-backdrop-filter: blur(48px) saturate(1.5);
     box-shadow: 0 1px 0 var(--border-hi), 0 2px 16px rgba(0,0,0,0.35);
@@ -2212,6 +2278,7 @@
     padding: 7px 20px;
     background: rgba(10,13,22,0.82);
     border: 1px solid var(--border);
+    border-left: none;
     border-top: none;
     backdrop-filter: blur(20px);
   }
@@ -2242,11 +2309,12 @@
     padding: 0 16px;
     background: rgba(11,16,30,0.97);
     border: 1px solid var(--border);
+    border-left: none;
     border-top: none;
-    border-radius: 0 0 12px 12px;
+    border-radius: 0 0 12px 0;
     backdrop-filter: blur(40px);
     box-shadow: 0 8px 28px rgba(0,0,0,0.30);
-    margin-bottom: 18px;
+    margin-bottom: 0;
   }
   .nav-bar::before { display: none; }
   .nav-tabs {
@@ -2306,6 +2374,13 @@
   }
 
   /* ── Premium Light: Topbar — Glass Header ── */
+  [data-theme="light"] .header-brand-panel {
+    background:
+      radial-gradient(circle at top left, rgba(5,150,105,0.10), transparent 46%),
+      radial-gradient(circle at bottom right, rgba(37,99,235,0.08), transparent 42%),
+      linear-gradient(180deg, rgba(248,250,252,0.98), rgba(241,245,249,0.98));
+    border-color: rgba(15,23,42,0.06);
+  }
   [data-theme="light"] .app-topbar {
     background: rgba(255,255,255,0.95);
     border-color: rgba(15,23,42,0.06);
@@ -2503,11 +2578,30 @@
     body { padding: 0 !important; }
     .page-section { padding: 12px !important; }
 
+    .header-shell {
+      grid-template-columns: 1fr;
+      gap: 0;
+      margin-bottom: 18px;
+    }
+    .header-brand-panel {
+      border-right: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 12px 12px 0 0;
+      padding: 12px 14px;
+    }
+    .header-brand-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+    }
+
     /* -- Topbar: stack brand + clock, hide ticker -- */
     .app-topbar {
       flex-wrap: wrap;
       padding: 8px 12px !important;
       gap: 6px;
+      border-left: 1px solid var(--border);
+      border-radius: 0;
     }
     .topbar-ticker { display: none !important; }
     .topbar-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
@@ -2533,6 +2627,7 @@
       justify-content: flex-start !important;
       gap: 6px !important;
       padding: 6px 10px !important;
+      border-left: 1px solid var(--border);
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
     }
@@ -2540,7 +2635,7 @@
     .expiry-chip { flex-shrink: 0; font-size: 11px !important; padding: 4px 10px !important; white-space: nowrap; }
 
     /* -- Nav tabs: horizontal scroll with hidden scrollbar -- */
-    .nav-bar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .nav-bar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; border-left: 1px solid var(--border); border-radius: 0 0 12px 12px; }
     .nav-bar::-webkit-scrollbar { display: none; }
     .nav-tabs { flex-wrap: nowrap !important; justify-content: flex-start !important; min-width: max-content; }
     .nav-tab { padding: 10px 12px !important; font-size: 12px !important; gap: 4px !important; flex-shrink: 0; white-space: nowrap; }
@@ -3321,18 +3416,18 @@
 </button>
 
 <!-- ═══ HEADER: Top Bar ═══ -->
-<div class="app-topbar">
-  <!-- Left: Brand -->
-  <div class="topbar-brand" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));">
-    <img src="logo.png" alt="AlgoForge" title="Go to Dashboard">
-    <div>
-      <div class="topbar-brand-text">ALGOFORGE</div>
+<div class="header-shell">
+  <div class="header-brand-panel" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" title="Go to Dashboard">
+    <img class="header-brand-logo" src="logo.png" alt="PhilForge">
+    <div class="header-brand-copy">
+      <div class="topbar-brand-text">PHILFORGE</div>
       <div class="topbar-brand-sub">Algorithms Over Impulse</div>
     </div>
   </div>
-
-  <!-- Center: Ticker Strip -->
-  <div class="topbar-ticker">
+  <div class="header-main">
+    <div class="app-topbar">
+      <!-- Center: Ticker Strip -->
+      <div class="topbar-ticker">
     <div class="ticker-cell">
       <div class="tc-label">NIFTY 50</div>
       <div class="tc-price" id="ticker-nifty">--</div>
@@ -3360,43 +3455,42 @@
     </div>
   </div>
 
-  <!-- Right: Clock + Actions -->
-  <div class="topbar-right">
-    <div class="topbar-clock" id="header-clock">
-      <span id="clock-date" class="clock-date-text">--</span>
-      <span style="color: var(--muted)">|</span>
-      <span id="clock-time" style="font-weight: 700; color: var(--accent);">--:--:--</span>
-    </div>
-    <div class="topbar-actions">
-      <div class="topbar-user-meta">
-        <button class="topbar-user-chip" id="account-btn" onclick="openAccountModal()" title="Account Settings">
-          <span class="topbar-user-name" id="topbar-username">Account</span>
-          <span class="topbar-user-role" id="topbar-user-role">USER</span>
-        </button>
-        <button class="topbar-icon-btn" id="admin-btn" onclick="openAdminModal()" title="Admin Console" style="display:none;"></button>
+      <!-- Right: Clock + Actions -->
+      <div class="topbar-right">
+        <div class="topbar-clock" id="header-clock">
+          <span id="clock-date" class="clock-date-text">--</span>
+          <span style="color: var(--muted)">|</span>
+          <span id="clock-time" style="font-weight: 700; color: var(--accent);">--:--:--</span>
+        </div>
+        <div class="topbar-actions">
+          <div class="topbar-user-meta">
+            <button class="topbar-user-chip" id="account-btn" onclick="openAccountModal()" title="Account Settings">
+              <span class="topbar-user-name" id="topbar-username">Account</span>
+              <span class="topbar-user-role" id="topbar-user-role">USER</span>
+            </button>
+            <button class="topbar-icon-btn" id="admin-btn" onclick="openAdminModal()" title="Admin Console" style="display:none;"></button>
+          </div>
+          <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></button>
+          <button class="topbar-icon-btn" id="logout-btn" onclick="logoutUser()" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
+        </div>
       </div>
-      <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></button>
-      <button class="topbar-icon-btn" id="logout-btn" onclick="logoutUser()" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
     </div>
-  </div>
-</div>
+    <!-- Expiry strip -->
+    <div class="expiry-bar" id="expiry-info">
+      <div class="expiry-chip" style="background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.35); color: #a5b4fc;">
+        NIFTY <span id="expiry-nifty">--</span>
+      </div>
+      <div class="expiry-chip" style="background: rgba(245,158,11,0.14); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24;">
+        BANKNIFTY <span id="expiry-banknifty">--</span>
+      </div>
+      <div class="expiry-chip" style="background: rgba(236,72,153,0.14); border: 1px solid rgba(236,72,153,0.35); color: #f472b6;">
+        SENSEX <span id="expiry-sensex">--</span>
+      </div>
+    </div>
 
-<!-- Expiry strip -->
-<div class="expiry-bar" id="expiry-info">
-  <div class="expiry-chip" style="background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.35); color: #a5b4fc;">
-    NIFTY <span id="expiry-nifty">--</span>
-  </div>
-  <div class="expiry-chip" style="background: rgba(245,158,11,0.14); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24;">
-    BANKNIFTY <span id="expiry-banknifty">--</span>
-  </div>
-  <div class="expiry-chip" style="background: rgba(236,72,153,0.14); border: 1px solid rgba(236,72,153,0.35); color: #f472b6;">
-    SENSEX <span id="expiry-sensex">--</span>
-  </div>
-</div>
-
-<!-- ═══ NAVIGATION TABS ═══ -->
-<div class="nav-bar">
-  <div class="nav-tabs">
+    <!-- ═══ NAVIGATION TABS ═══ -->
+    <div class="nav-bar">
+      <div class="nav-tabs">
     <button id="nav-dashboard" class="nav-tab active" onclick="showPage('dashboard-page', this)">
       <span class="tab-icon" id="ico-dashboard"></span>
       <span class="tab-label">Dashboard</span>
@@ -3425,6 +3519,8 @@
       <span class="tab-icon" style="color: #a78bfa;" id="ico-charts"></span>
       <span class="tab-label">Journal</span>
     </button>
+      </div>
+    </div>
   </div>
 </div>
 
