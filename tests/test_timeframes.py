@@ -234,6 +234,83 @@ class DummyFeed:
         return self.snapshot.copy()
 
 
+class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_paper_tick_force_closes_open_position_at_market_close(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(option_ltp=112.0), run_id="paper-market-close")
+
+        engine.strategy = {"market_open": "09:15", "market_close": "15:25"}
+        engine.positions = [
+            {
+                "status": "open",
+                "leg_num": 1,
+                "transaction_type": "BUY",
+                "entry_premium": 100.0,
+                "current_premium": 112.0,
+                "quantity": 50,
+                "lot_size": 50,
+                "lots": 1,
+            }
+        ]
+        engine.in_trade = True
+
+        with patch("engine.paper_trading._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()):
+            await engine._tick()
+
+        self.assertFalse(engine.in_trade)
+        self.assertEqual(len(engine.positions), 0)
+        self.assertEqual(len(engine.closed_trades), 1)
+        self.assertEqual(engine.closed_trades[0]["exit_reason"], "MARKET_CLOSE")
+        self.assertEqual(engine.closed_trades[0]["exit_premium"], 112.0)
+
+    async def test_live_tick_force_exits_open_position_at_market_close(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-market-close")
+        engine.configure(
+            strategy={"instrument": "26000", "market_open": "09:15", "market_close": "15:25", "legs": []},
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        position = {
+            "status": "open",
+            "leg_num": 1,
+            "transaction_type": "BUY",
+            "entry_premium": 100.0,
+            "current_premium": 118.0,
+            "quantity": 50,
+            "lot_size": 50,
+            "lots": 1,
+            "underlying": "NIFTY",
+            "strike": 22950,
+            "option_type": "PE",
+            "expiry": "2026-03-27",
+            "trading_symbol": "NIFTY 22950 PE",
+        }
+        engine.positions = [position]
+        engine.in_trade = True
+
+        async def _fake_exit(pos, reason, exit_premium, callback=None):
+            pos["status"] = "closed"
+            pos["exit_reason"] = reason
+            pos["exit_premium"] = exit_premium
+            if pos in engine.positions:
+                engine.positions.remove(pos)
+            engine.closed_trades.append(pos.copy())
+            engine.in_trade = bool(engine.positions)
+
+        engine._exit_position = AsyncMock(side_effect=_fake_exit)
+
+        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-27 15:25:00").to_pydatetime()):
+            await engine._tick()
+
+        engine._exit_position.assert_awaited_once()
+        _, reason, exit_premium, _ = engine._exit_position.await_args.args
+        self.assertEqual(reason, "MARKET_CLOSE")
+        self.assertEqual(exit_premium, 118.0)
+        self.assertFalse(engine.in_trade)
+        self.assertEqual(len(engine.positions), 0)
+
+
 class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_pending_order_waits_until_next_candle_open_plus_one_second(self):
         engine = LiveEngine(dhan=DummyBroker(), run_id="timing-test")

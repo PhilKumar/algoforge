@@ -461,6 +461,55 @@ class PaperTradingEngine:
         except Exception:
             return default
 
+    def _market_close_time(self):
+        market_close = self.strategy.get("market_close", "15:25")
+        from datetime import time as time_class
+
+        if isinstance(market_close, str):
+            h, m = map(int, market_close.split(":"))
+            market_close = time_class(h, m)
+        return market_close
+
+    async def _force_market_close_if_needed(self, current_dt: datetime, callback=None) -> bool:
+        market_close = self._market_close_time()
+        if current_dt.time() < market_close:
+            return False
+
+        if self._entry_signal_pending:
+            self.log_event("info", "Pending entry cleared at market close")
+            self._clear_pending_entry()
+
+        if not self.positions:
+            return False
+
+        self.log_event(
+            "warning",
+            f"⏰ Market close reached ({market_close.strftime('%H:%M')}) — force closing {len(self.positions)} open position(s)",
+        )
+
+        for position in list(self.positions):
+            if position.get("status") == "closed":
+                continue
+
+            exit_px = self._safe_float(position.get("current_premium"), 0.0)
+            if exit_px <= 0:
+                exit_px = self._safe_float(self._get_premium_from_feed(position), 0.0)
+            if exit_px <= 0:
+                try:
+                    exit_px = self._safe_float(await self._get_current_premium(position), 0.0)
+                except Exception as exc:
+                    self.log_event(
+                        "warning", f"Market-close premium fetch failed for Leg {position.get('leg_num')}: {exc}"
+                    )
+            if exit_px <= 0:
+                exit_px = self._safe_float(position.get("entry_premium"), 0.0)
+
+            self._close_position(position, "MARKET_CLOSE", exit_px)
+
+        if callback:
+            await self._emit_callback(callback, {"type": "status", "message": "Market closed — positions squared off"})
+        return True
+
     def _apply_execution_costs(self, price: float, transaction_type: str, stage: str) -> float:
         base_price = max(0.05, float(price or 0.0))
         half_spread = self._spread_bps / 20000.0
@@ -786,6 +835,13 @@ class PaperTradingEngine:
                 if isinstance(market_close, str):
                     h, m = map(int, market_close.split(":"))
                     market_close = time_class(h, m)
+
+                if now.time() >= market_close:
+                    await self._force_market_close_if_needed(now, callback)
+                    await asyncio.sleep(5)
+                    if callback:
+                        await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
+                    continue
 
                 if not (market_open <= now.time() <= market_close):
                     await asyncio.sleep(5)
@@ -1161,6 +1217,12 @@ class PaperTradingEngine:
         if isinstance(market_close, str):
             h, m = map(int, market_close.split(":"))
             market_close = time_class(h, m)
+
+        if current_time >= market_close:
+            await self._force_market_close_if_needed(now, callback)
+            if callback:
+                await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
+            return
 
         if not (market_open <= current_time <= market_close):
             if callback:

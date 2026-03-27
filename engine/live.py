@@ -327,6 +327,41 @@ class LiveEngine:
         except Exception:
             return default
 
+    async def _force_market_close_if_needed(self, current_dt: datetime, callback=None) -> bool:
+        if current_dt.time() < self._market_close:
+            return False
+
+        if self._pending_order:
+            self.log_event("info", "Pending order cleared at market close")
+            self._clear_pending_order()
+
+        if not self.positions:
+            return False
+
+        self.log_event(
+            "warning",
+            f"⏰ Market close reached ({self._market_close.strftime('%H:%M')}) — force exiting {len(self.positions)} open position(s)",
+        )
+
+        for pos in list(self.positions):
+            if pos.get("status") == "closed":
+                continue
+
+            exit_px = self._safe_float(pos.get("current_premium"), 0.0)
+            if exit_px <= 0:
+                exit_px = self._safe_float(self._get_premium_from_feed(pos), 0.0)
+            if exit_px <= 0:
+                try:
+                    exit_px = self._safe_float(await self._get_current_premium(pos), 0.0)
+                except Exception as exc:
+                    self.log_event("warning", f"Market-close premium fetch failed for Leg {pos.get('leg_num')}: {exc}")
+            if exit_px <= 0:
+                exit_px = self._safe_float(pos.get("entry_premium"), 0.0)
+
+            await self._exit_position(pos, "MARKET_CLOSE", exit_px, callback)
+
+        return True
+
     async def _verify_order_execution(
         self,
         order_id: str,
@@ -977,6 +1012,13 @@ class LiveEngine:
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
 
                 # Market hours check (pre-parsed in configure())
+                if now.time() >= self._market_close:
+                    await self._force_market_close_if_needed(now, callback)
+                    await asyncio.sleep(5)
+                    if callback:
+                        await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+                    continue
+
                 if not (self._market_open <= now.time() <= self._market_close):
                     await asyncio.sleep(5)
                     if callback:
@@ -1470,6 +1512,12 @@ class LiveEngine:
             self.log_event("info", f"📅 New trading day: {self.session_date}")
 
         # Market hours check (pre-parsed in configure())
+        if cur_time >= self._market_close:
+            await self._force_market_close_if_needed(now, callback)
+            if callback:
+                await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+            return
+
         if not (self._market_open <= cur_time <= self._market_close):
             if callback:
                 await self._emit(callback, {"type": "status", "message": "Outside market hours"})
