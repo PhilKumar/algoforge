@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import re
 import shutil
 from copy import deepcopy
 from html import escape as _escape_html
@@ -3369,6 +3370,29 @@ def _dashboard_trade_signature_text(trade: dict) -> str:
     return json.dumps(sig, sort_keys=True, default=str)
 
 
+def _dashboard_trade_display_symbol(trade: dict) -> str:
+    if not isinstance(trade, dict):
+        return "—"
+    underlying = str(trade.get("underlying") or trade.get("underlying_symbol") or "").strip()
+    strike = str(trade.get("strike") or "").strip()
+    option_type = str(trade.get("option_type") or "").strip().upper()
+    if underlying and strike and option_type:
+        return f"{underlying} {strike} {option_type}".strip()
+
+    if underlying and strike:
+        return f"{underlying} {strike}".strip()
+
+    raw = str(trade.get("symbol") or trade.get("trading_symbol") or trade.get("customSymbol") or "").strip()
+    if not raw:
+        return "—"
+
+    cleaned = re.sub(r"\d{4}-\d{2}-\d{2}$", "", raw).strip()
+    m = re.match(r"^([A-Z]+)\s*(\d{3,6})\s*(CE|PE)$", cleaned.replace(" ", ""), re.IGNORECASE)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} {m.group(3).upper()}"
+    return cleaned
+
+
 def _recompute_run_trade_summary(run: dict, trades: list[dict]) -> dict:
     closed = [dict(trade or {}) for trade in (trades or []) if isinstance(trade, dict)]
     pnls = [round(float((trade or {}).get("pnl") or 0), 2) for trade in closed]
@@ -3650,9 +3674,7 @@ async def dashboard_summary(request: Request):
     ):
         if not isinstance(trade, dict):
             return
-        symbol = trade.get("symbol") or " ".join(
-            str(part) for part in (trade.get("underlying"), trade.get("strike"), trade.get("option_type")) if part
-        )
+        symbol = _dashboard_trade_display_symbol(trade)
         trade_identifier = str(
             trade.get("trade_id") or trade.get("id") or trade.get("entry_order_id") or trade.get("exit_order_id") or ""
         ).strip()

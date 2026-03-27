@@ -6901,7 +6901,6 @@ function _renderDashboardTransactions(transactions = null) {
           <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
           <div class="dash-txn-meta">
             ${_getModeBadge(txn.mode)}
-            <span class="dash-txn-run">${escapeHtml(txn.runName || '—')}</span>
           </div>
         </td>
         <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(fmtTxnTime(txn.entryTime))}</td>

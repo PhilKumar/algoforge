@@ -361,6 +361,7 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(txn["source_id"], 27)
         self.assertEqual(txn["trade_occurrence"], 1)
         self.assertTrue(txn["trade_signature"])
+        self.assertEqual(txn["symbol"], "NIFTY 22800 PE")
 
     async def test_dashboard_summary_includes_scalp_recent_transactions(self):
         today = app_module._ist_date_str()
@@ -372,6 +373,7 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "trade_id": 901,
                     "mode": "paper",
+                    "symbol": "SENSEX76000PE2026-04-02",
                     "underlying": "SENSEX",
                     "strike": 76000,
                     "option_type": "PE",
@@ -390,6 +392,7 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
             {
                 "trade_id": 901,
                 "mode": "paper",
+                "symbol": "SENSEX76000PE2026-04-02",
                 "underlying": "SENSEX",
                 "strike": 76000,
                 "option_type": "PE",
