@@ -1163,8 +1163,9 @@
   /* ── Premium Light: Dashboard Cards ── */
   [data-theme="light"] #dash-best-run { border-left-color: #047857; }
   [data-theme="light"] #dash-worst-run { border-left-color: #b45309; }
-  [data-theme="light"] #dash-real-card,
-  [data-theme="light"] #dash-paper-card {
+  [data-theme="light"] #dash-live-card,
+  [data-theme="light"] #dash-paper-card,
+  [data-theme="light"] #dash-scalp-card {
     background: rgba(248,250,252,0.8) !important;
     border-color: rgba(15,23,42,0.06) !important;
   }
@@ -2850,7 +2851,7 @@
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
             <div id="dash-paper-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
-            <div id="dash-paper-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Strategy ₹0.00 · SCAL ₹0.00</div>
+            <div id="dash-paper-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Strategy + SCAL</div>
             <div id="dash-paper-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
           </div>
           <div style="width: 1px; height: 36px; background: var(--border); flex-shrink: 0;"></div>
@@ -2894,7 +2895,7 @@
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
         <div id="dash-paper-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Flow</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Strategy</span>
             <span id="dash-paper-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
           <div style="font-size: 13px; font-weight: 600;" id="dash-paper-name">—</div>
@@ -2902,19 +2903,38 @@
             <span>P&L: <strong id="dash-paper-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
             <span>Trades: <strong id="dash-paper-trades">0</strong></span>
           </div>
-          <div id="dash-paper-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Strategy ₹0.00 · SCAL ₹0.00</div>
+          <div id="dash-paper-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Paper strategy only</div>
         </div>
-        <div id="dash-real-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
+        <div id="dash-live-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Real Flow</span>
-            <span id="dash-real-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Live Trades</span>
+            <span id="dash-live-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-real-name">—</div>
+          <div style="font-size: 13px; font-weight: 600;" id="dash-live-name">—</div>
           <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 12px;">
-            <span>P&L: <strong id="dash-real-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
-            <span>Trades: <strong id="dash-real-trades">0</strong></span>
+            <span>P&L: <strong id="dash-live-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
+            <span>Trades: <strong id="dash-live-trades">0</strong></span>
           </div>
-          <div id="dash-real-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today</div>
+          <div id="dash-live-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today excluding SCAL</div>
+        </div>
+        <div id="dash-scalp-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(6,182,212,0.24); border-radius: 10px; padding: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">SCAL</span>
+            <span id="dash-scalp-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
+          </div>
+          <div style="font-size: 13px; font-weight: 600;" id="dash-scalp-name">—</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; font-size: 11px;">
+            <div style="padding: 8px 10px; border-radius: 8px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.14);">
+              <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px;">Paper</div>
+              <div id="dash-scalp-paper-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
+              <div id="dash-scalp-paper-trades" style="font-size: 10px; color: rgba(255,255,255,0.64); margin-top: 3px;">0 trades</div>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 8px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.14);">
+              <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px;">Real</div>
+              <div id="dash-scalp-real-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
+              <div id="dash-scalp-real-trades" style="font-size: 10px; color: rgba(255,255,255,0.64); margin-top: 3px;">0 trades</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -11487,6 +11507,9 @@ async function loadDashboardSummary() {
 
     const paperFlow = d.paper_flow || {};
     const realFlow = d.real_flow || {};
+    const paperStrategyFlow = d.paper_strategy_flow || {};
+    const liveStrategyFlow = d.live_strategy_flow || {};
+    const scalpFlow = d.scalp_flow || {};
     const paperPnl = Number(paperFlow.pnl ?? d.paper_total_pnl ?? d.paper_pnl ?? 0);
     const realPnl = Number(realFlow.pnl ?? d.real_total_pnl ?? d.real_pnl ?? 0);
     const paperTrades = Number(paperFlow.trades ?? d.paper_total_trades ?? d.paper_trades ?? 0);
@@ -11495,13 +11518,13 @@ async function loadDashboardSummary() {
     const ppEl = document.getElementById('dash-paper-pnl-card');
     ppEl.textContent = _dashMoney(paperPnl);
     ppEl.style.color = _dashValueColor(paperPnl);
-    document.getElementById('dash-paper-pnl-sub').textContent = `Strategy ${_dashMoney(paperFlow.strategy_pnl || d.paper_strategy_pnl || 0)} · SCAL ${_dashMoney(paperFlow.scalp_pnl || d.paper_scalp_pnl || 0)}`;
-    document.getElementById('dash-paper-pnl-trades').textContent = `${paperTrades} trades${paperFlow.active ? ' · Active' : ''}`;
+    document.getElementById('dash-paper-pnl-sub').textContent = 'Strategy + SCAL';
+    document.getElementById('dash-paper-pnl-trades').textContent = `${paperTrades} trades`;
 
     const rpEl = document.getElementById('dash-real-pnl-card');
     rpEl.textContent = _dashMoney(realPnl);
     rpEl.style.color = _dashValueColor(realPnl);
-    document.getElementById('dash-real-pnl-sub').textContent = `${realFlow.source_label || d.real_source_label || 'Engine view'} · Strategy ${_dashMoney(realFlow.strategy_pnl || d.real_strategy_pnl || 0)} · SCAL ${_dashMoney(realFlow.scalp_pnl || d.real_scalp_pnl || 0)}`;
+    document.getElementById('dash-real-pnl-sub').textContent = realFlow.source_label || d.real_source_label || 'Dhan today';
     document.getElementById('dash-real-pnl-trades').textContent = `${realTrades} trades${d.real_stale ? ' · Cached' : ''}`;
 
     // Active count
@@ -11514,19 +11537,19 @@ async function loadDashboardSummary() {
     // Active engines panel
     const enginesPanel = document.getElementById('dash-active-engines');
     const activeOpenBtn = document.getElementById('dash-active-open-btn');
-    if (paperFlow.active || realFlow.active) {
+    if (paperStrategyFlow.active || liveStrategyFlow.active || scalpFlow.active) {
       enginesPanel.style.display = 'block';
-      if (!realFlow.active && paperFlow.active) {
-        activeOpenBtn.textContent = 'Open Paper Monitor →';
-        activeOpenBtn.onclick = () => {
-          showPage('live-page', document.getElementById('nav-live'));
-          startLiveMonitor();
-        };
-      } else if (!d.live_running && d.scalp_running) {
+      if (scalpFlow.active && !paperStrategyFlow.active && !liveStrategyFlow.active) {
         activeOpenBtn.textContent = 'Open Scalp →';
         activeOpenBtn.onclick = () => {
           showPage('scalp-page', document.getElementById('nav-scalp'));
           initScalpPage();
+        };
+      } else if (!liveStrategyFlow.active && paperStrategyFlow.active) {
+        activeOpenBtn.textContent = 'Open Paper Monitor →';
+        activeOpenBtn.onclick = () => {
+          showPage('live-page', document.getElementById('nav-live'));
+          startLiveMonitor();
         };
       } else {
         activeOpenBtn.textContent = 'Open Live Monitor →';
@@ -11536,26 +11559,42 @@ async function loadDashboardSummary() {
         };
       }
 
-      if (paperFlow.active) {
+      if (paperStrategyFlow.active) {
         document.getElementById('dash-paper-card').style.display = 'block';
-        document.getElementById('dash-paper-name').textContent = paperFlow.name || 'Paper Flow';
-        document.getElementById('dash-paper-pnl').textContent = _dashMoney(paperPnl);
-        document.getElementById('dash-paper-pnl').style.color = _dashValueColor(paperPnl);
-        document.getElementById('dash-paper-trades').textContent = paperTrades || 0;
-        document.getElementById('dash-paper-note').textContent = `Strategy ${_dashMoney(paperFlow.strategy_pnl || 0)} · SCAL ${_dashMoney(paperFlow.scalp_pnl || 0)}`;
+        document.getElementById('dash-paper-name').textContent = paperStrategyFlow.name || d.paper_strategy || 'Paper Strategy';
+        document.getElementById('dash-paper-pnl').textContent = _dashMoney(paperStrategyFlow.pnl || d.paper_strategy_pnl || 0);
+        document.getElementById('dash-paper-pnl').style.color = _dashValueColor(paperStrategyFlow.pnl || d.paper_strategy_pnl || 0);
+        document.getElementById('dash-paper-trades').textContent = paperStrategyFlow.trades ?? d.paper_strategy_trades ?? 0;
+        document.getElementById('dash-paper-note').textContent = 'Paper strategy only';
       } else {
         document.getElementById('dash-paper-card').style.display = 'none';
       }
 
-      if (realFlow.active) {
-        document.getElementById('dash-real-card').style.display = 'block';
-        document.getElementById('dash-real-name').textContent = realFlow.name || 'Real Flow';
-        document.getElementById('dash-real-pnl').textContent = _dashMoney(realPnl);
-        document.getElementById('dash-real-pnl').style.color = _dashValueColor(realPnl);
-        document.getElementById('dash-real-trades').textContent = realTrades || 0;
-        document.getElementById('dash-real-note').textContent = `${realFlow.source_label || 'Engine view'} · Strategy ${_dashMoney(realFlow.strategy_pnl || 0)} · SCAL ${_dashMoney(realFlow.scalp_pnl || 0)}`;
+      if (liveStrategyFlow.active) {
+        const livePnl = Number(liveStrategyFlow.pnl ?? 0);
+        document.getElementById('dash-live-card').style.display = 'block';
+        document.getElementById('dash-live-name').textContent = liveStrategyFlow.name || d.live_strategy || 'Live Trades';
+        document.getElementById('dash-live-pnl').textContent = _dashMoney(livePnl);
+        document.getElementById('dash-live-pnl').style.color = _dashValueColor(livePnl);
+        document.getElementById('dash-live-trades').textContent = liveStrategyFlow.trades ?? 0;
+        document.getElementById('dash-live-note').textContent = `${liveStrategyFlow.source_label || d.real_source_label || 'Dhan today'} excluding SCAL`;
       } else {
-        document.getElementById('dash-real-card').style.display = 'none';
+        document.getElementById('dash-live-card').style.display = 'none';
+      }
+
+      if (scalpFlow.active) {
+        const scalpPaperPnl = Number(scalpFlow.paper_pnl ?? d.paper_scalp_pnl ?? 0);
+        const scalpRealPnl = Number(scalpFlow.real_pnl ?? d.real_scalp_pnl ?? 0);
+        document.getElementById('dash-scalp-card').style.display = 'block';
+        document.getElementById('dash-scalp-name').textContent = scalpFlow.name || d.scalp_strategy || 'SCAL';
+        document.getElementById('dash-scalp-paper-pnl').textContent = _dashMoney(scalpPaperPnl);
+        document.getElementById('dash-scalp-paper-pnl').style.color = _dashValueColor(scalpPaperPnl);
+        document.getElementById('dash-scalp-paper-trades').textContent = `${scalpFlow.paper_trades ?? d.paper_scalp_trades ?? 0} trades`;
+        document.getElementById('dash-scalp-real-pnl').textContent = _dashMoney(scalpRealPnl);
+        document.getElementById('dash-scalp-real-pnl').style.color = _dashValueColor(scalpRealPnl);
+        document.getElementById('dash-scalp-real-trades').textContent = `${scalpFlow.real_trades ?? d.real_scalp_trades ?? 0} trades`;
+      } else {
+        document.getElementById('dash-scalp-card').style.display = 'none';
       }
     } else {
       enginesPanel.style.display = 'none';

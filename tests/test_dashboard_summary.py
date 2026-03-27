@@ -165,6 +165,10 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["active_count"], 3)
         self.assertEqual(result["paper_flow"]["name"], "Paper Alpha · SCAL NIFTY")
         self.assertEqual(result["real_flow"]["name"], "Live Beta · SCAL BANKNIFTY")
+        self.assertEqual(result["paper_strategy_flow"]["pnl"], 250.0)
+        self.assertEqual(result["live_strategy_flow"]["pnl"], 710.0)
+        self.assertEqual(result["scalp_flow"]["paper_pnl"], 150.0)
+        self.assertEqual(result["scalp_flow"]["real_pnl"], -10.0)
         self.assertEqual(result["real_source_label"], "Dhan today")
         self.assertEqual(result["fii_dii"]["latest"]["display_date"], "25 Mar")
 

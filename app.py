@@ -3398,11 +3398,11 @@ async def dashboard_summary(request: Request):
         # Show last paper run P&L from today (from runs.json)
         from datetime import date as _date
 
-        today_str = str(_date.today())
+        paper_today_str = str(_date.today())
         for r in reversed(runs):
             if r.get("mode") == "paper":
                 created = r.get("created_at", "")
-                if created.startswith(today_str):
+                if created.startswith(paper_today_str):
                     paper_strategy_pnl_val = float(r.get("total_pnl", 0) or 0)
                     paper_strategy_trades_val = int(r.get("trade_count", len(r.get("trades", []))) or 0)
                 break
@@ -3437,7 +3437,7 @@ async def dashboard_summary(request: Request):
     live_scalp_pnl = float(scalp_flow["live"]["pnl"] or 0)
     live_scalp_trades = int(scalp_flow["live"]["trades"] or 0)
 
-    user, broker_client, broker_source = await _request_broker_context(request)
+    _user, broker_client, broker_source = await _request_broker_context(request)
     real_snapshot = await _load_dashboard_real_snapshot(user_id, broker_client)
     fii_dii_snapshot = await _load_dashboard_fii_dii_snapshot()
 
@@ -3454,6 +3454,8 @@ async def dashboard_summary(request: Request):
         if real_snapshot.get("available")
         else (live_strategy_trades_val + live_scalp_trades)
     )
+    real_live_pnl = round(real_total_pnl - live_scalp_pnl, 2)
+    real_live_trades = max(real_total_trades - live_scalp_trades, 0)
     scalp_pnl_val = round(paper_scalp_pnl + live_scalp_pnl, 2)
     scalp_trades_val = paper_scalp_trades + live_scalp_trades
     today_pnl = round(paper_total_pnl + real_total_pnl, 2)
@@ -3467,6 +3469,8 @@ async def dashboard_summary(request: Request):
         live_labels.append(_scalp_label(scalp_flow["live"]["underlyings"]))
     paper_flow_name = _compact_label_list(paper_labels, "Paper Flow")
     real_flow_name = _compact_label_list(live_labels, "Real Flow")
+    scalp_labels = scalp_flow["paper"]["underlyings"] + scalp_flow["live"]["underlyings"]
+    scalp_card_name = _compact_label_list([_scalp_label(scalp_labels)], "SCAL")
     active_detail_parts = []
     if paper_statuses or scalp_flow["paper"]["active"]:
         active_detail_parts.append("Paper active")
@@ -3644,6 +3648,14 @@ async def dashboard_summary(request: Request):
             "scalp_pnl": round(paper_scalp_pnl, 2),
             "scalp_trades": paper_scalp_trades,
         },
+        "paper_strategy_flow": {
+            "active": bool(
+                paper_running or paper_strategy_trades_val or abs(float(paper_strategy_pnl_val or 0)) > 1e-9
+            ),
+            "name": _compact_label_list(paper_labels[: len(paper_statuses)] or ["Paper Strategy"], "Paper Strategy"),
+            "pnl": round(paper_strategy_pnl_val, 2),
+            "trades": paper_strategy_trades_val,
+        },
         "real_flow": {
             "active": bool(live_statuses or scalp_flow["live"]["active"]),
             "name": real_flow_name,
@@ -3655,6 +3667,23 @@ async def dashboard_summary(request: Request):
             "scalp_trades": live_scalp_trades,
             "source_label": str(real_snapshot.get("source_label") or "Engine view"),
             "available": bool(real_snapshot.get("available")),
+        },
+        "live_strategy_flow": {
+            "active": bool(live_running or real_live_trades or abs(float(real_live_pnl or 0)) > 1e-9),
+            "name": _compact_label_list(live_labels[: len(live_statuses)] or ["Live Trades"], "Live Trades"),
+            "pnl": real_live_pnl,
+            "trades": real_live_trades,
+            "engine_pnl": round(live_strategy_pnl_val, 2),
+            "engine_trades": live_strategy_trades_val,
+            "source_label": str(real_snapshot.get("source_label") or "Engine view"),
+        },
+        "scalp_flow": {
+            "active": bool(scalp_running or paper_scalp_trades or live_scalp_trades),
+            "name": scalp_card_name,
+            "paper_pnl": round(paper_scalp_pnl, 2),
+            "paper_trades": paper_scalp_trades,
+            "real_pnl": round(live_scalp_pnl, 2),
+            "real_trades": live_scalp_trades,
         },
         "fii_dii": fii_dii_snapshot,
         "best_run": best_run,
