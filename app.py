@@ -3739,6 +3739,41 @@ async def dashboard_summary(request: Request):
                 deletable=False,
             )
 
+    persisted_scalp_seen_ids: set[int] = set()
+    if isinstance(scalp_status, dict):
+        for trade in scalp_status.get("closed_trades", []) or []:
+            trade_id = trade.get("trade_id")
+            if trade_id is not None:
+                try:
+                    persisted_scalp_seen_ids.add(int(trade_id))
+                except (TypeError, ValueError):
+                    pass
+            _add_recent_trade(
+                trade,
+                scalp_name or "Scalp Session",
+                "scalp",
+                source_kind="scalp_trade",
+                source_id=trade.get("trade_id"),
+                deletable=bool(trade.get("trade_id")),
+            )
+
+    for trade in persisted_scalp_trades or []:
+        trade_id = trade.get("trade_id")
+        if trade_id is not None:
+            try:
+                if int(trade_id) in persisted_scalp_seen_ids:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        _add_recent_trade(
+            trade,
+            trade.get("run_name") or scalp_name or "Scalp Session",
+            "scalp",
+            source_kind="scalp_trade",
+            source_id=trade_id,
+            deletable=bool(trade_id),
+        )
+
     if scalp_running and isinstance(scalp_status, dict):
         _consider_leader(
             {

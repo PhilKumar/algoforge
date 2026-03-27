@@ -362,6 +362,80 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(txn["trade_occurrence"], 1)
         self.assertTrue(txn["trade_signature"])
 
+    async def test_dashboard_summary_includes_scalp_recent_transactions(self):
+        today = app_module._ist_date_str()
+        request = _DummyRequest(user_id=7)
+        scalp_status = {
+            "running": True,
+            "open_trades": [],
+            "closed_trades": [
+                {
+                    "trade_id": 901,
+                    "mode": "paper",
+                    "underlying": "SENSEX",
+                    "strike": 76000,
+                    "option_type": "PE",
+                    "entry_time": f"{today} 10:00:00",
+                    "exit_time": f"{today} 10:05:00",
+                    "entry_premium": 210.0,
+                    "exit_premium": 236.0,
+                    "lots": 1,
+                    "pnl": 520.0,
+                    "exit_reason": "TARGET",
+                }
+            ],
+            "total_pnl": 520.0,
+        }
+        persisted_scalp = [
+            {
+                "trade_id": 901,
+                "mode": "paper",
+                "underlying": "SENSEX",
+                "strike": 76000,
+                "option_type": "PE",
+                "entry_time": f"{today} 10:00:00",
+                "exit_time": f"{today} 10:05:00",
+                "entry_premium": 210.0,
+                "exit_premium": 236.0,
+                "lots": 1,
+                "pnl": 520.0,
+                "exit_reason": "TARGET",
+            }
+        ]
+
+        app_module._scalp_engines[7] = _DummyScalpEngine(scalp_status)
+
+        with (
+            patch.object(app_module, "_get_session_token", return_value="tok"),
+            patch.object(app_module, "_validate_session_async", AsyncMock(return_value={"user_id": 7})),
+            patch.object(app_module._db_mod, "list_strategies", AsyncMock(return_value=[])),
+            patch.object(app_module._db_mod, "list_runs", AsyncMock(return_value=[])),
+            patch.object(app_module._db_mod, "list_scalp_trades", AsyncMock(return_value=persisted_scalp)),
+            patch.object(app_module, "_running_statuses_for_user", side_effect=[[], []]),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 7, "role": "user"}, None, "user")),
+            ),
+            patch.object(
+                app_module,
+                "_load_dashboard_real_snapshot",
+                AsyncMock(return_value=app_module._empty_dashboard_real_snapshot()),
+            ),
+            patch.object(
+                app_module, "_load_dashboard_fii_dii_snapshot", AsyncMock(return_value={"status": "unavailable"})
+            ),
+        ):
+            result = await app_module.dashboard_summary(request)
+
+        self.assertEqual(len(result["recent_transactions"]), 1)
+        txn = result["recent_transactions"][0]
+        self.assertEqual(txn["mode"], "scalp")
+        self.assertEqual(txn["source_kind"], "scalp_trade")
+        self.assertEqual(txn["source_id"], 901)
+        self.assertEqual(txn["symbol"], "SENSEX 76000 PE")
+        self.assertTrue(txn["deletable"])
+
     async def test_delete_dashboard_recent_transaction_items_updates_saved_run(self):
         user_id = 7
         run = await app_module._db_mod.create_run_record(
