@@ -1376,12 +1376,15 @@
   /* Dashboard summary grid responsive */
   @media (max-width: 700px) {
     #dashboard-page .stat-box { min-width: 0; }
-    #dashboard-page > div:first-child > div:first-child { grid-template-columns: 1fr 1fr !important; }
+    #dash-summary-grid { grid-template-columns: 1fr 1fr !important; }
+    #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
+    #dash-today-card { grid-column: 1 / -1; }
     #dash-active-engines > div:last-child { grid-template-columns: 1fr !important; }
     #mood-widgets { grid-template-columns: 1fr !important; }
   }
   @media (max-width: 400px) {
-    #dashboard-page > div:first-child > div:first-child { grid-template-columns: 1fr !important; }
+    #dash-summary-grid { grid-template-columns: 1fr !important; }
+    #dash-fiidii-strip-grid { grid-template-columns: 1fr !important; }
   }
 
   /* ── BACKTEST COMPARISON ── */
@@ -2074,9 +2077,11 @@
     .nav-tab .live-dot { margin: 0; }
 
     /* -- Dashboard: 2-col stat boxes on mobile -- */
-    #dashboard-page > div > div[style*="repeat(4"] {
+    #dash-summary-grid {
       grid-template-columns: 1fr 1fr !important;
     }
+    #dash-today-card { grid-column: 1 / -1; }
+    #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
     /* Active engines: stack */
     #dash-active-engines > div:last-child,
     div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 14px"] {
@@ -2842,38 +2847,69 @@
 <div id="dashboard-page" class="page-section active-page">
 
 
-  <!-- Dashboard Summary Cards Row -->
   <div style="max-width: 1100px; margin: 0 auto 20px auto;">
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px;">
-      <div class="stat-box" style="padding: 14px 16px;">
+    <div id="dash-fiidii-card" class="card-glass" style="padding: 12px 16px; margin-bottom: 14px; display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;">
+        <div style="min-width: 150px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.62); text-transform: uppercase; letter-spacing: 0.7px;">FII / DII Flow</div>
+          <div id="dash-fiidii-caption" style="font-size: 11px; color: rgba(255,255,255,0.78); margin-top: 3px;">Official NSE feed</div>
+        </div>
+        <div id="dash-fiidii-strip-grid" style="display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; flex: 1; min-width: 0;">
+          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(248,113,113,0.14);">
+            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">Latest FII</div>
+            <div id="dash-fiidii-latest-fii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          </div>
+          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(74,222,128,0.14);">
+            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">Latest DII</div>
+            <div id="dash-fiidii-latest-dii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          </div>
+          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(248,113,113,0.08);">
+            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">30D FII</div>
+            <div id="dash-fiidii-rolling-fii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          </div>
+          <div style="padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.16); border: 1px solid rgba(74,222,128,0.08);">
+            <div style="font-size: 9px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.55px;">30D DII</div>
+            <div id="dash-fiidii-rolling-dii" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 5px;">₹0</div>
+          </div>
+        </div>
+        <div style="min-width: 92px; text-align: right;">
+          <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
+          <div id="dash-fiidii-latest-date" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 3px;">—</div>
+          <div id="dash-fiidii-latest-days" style="font-size: 10px; color: rgba(255,255,255,0.56); margin-top: 3px;">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="dash-summary-grid" style="display: grid; grid-template-columns: minmax(330px, 1.45fr) minmax(140px, 0.72fr) minmax(140px, 0.72fr) minmax(220px, 1fr); gap: 14px; margin-bottom: 16px;">
+      <div id="dash-today-card" class="stat-box" style="padding: 16px 18px;">
         <div class="stat-label" style="margin-bottom: 8px;">Today's P&L</div>
         <div style="display: flex; gap: 16px; align-items: flex-end;">
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
-            <div id="dash-paper-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
-            <div id="dash-paper-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Strategy + SCAL</div>
-            <div id="dash-paper-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
+            <div id="dash-paper-pnl-card" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.05; color: var(--muted);">₹0.00</div>
+            <div id="dash-paper-pnl-sub" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 4px;">Strategy + SCALP</div>
+            <div id="dash-paper-pnl-trades" style="font-size: 10px; color: var(--muted); margin-top: 3px;">0 trades</div>
           </div>
-          <div style="width: 1px; height: 36px; background: var(--border); flex-shrink: 0;"></div>
+          <div style="width: 1px; height: 54px; background: var(--border); flex-shrink: 0;"></div>
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">REAL</div>
-            <div id="dash-real-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
-            <div id="dash-real-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Dhan today</div>
-            <div id="dash-real-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
+            <div id="dash-real-pnl-card" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.05; color: var(--muted);">₹0.00</div>
+            <div id="dash-real-pnl-sub" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 4px;">Dhan today</div>
+            <div id="dash-real-pnl-trades" style="font-size: 10px; color: var(--muted); margin-top: 3px;">0 trades</div>
           </div>
         </div>
       </div>
-      <div class="stat-box">
+      <div id="dash-active-summary-card" class="stat-box" style="padding: 12px 14px;">
         <div class="stat-label">Active Strategies</div>
-        <div class="stat-value" id="dash-active-count" style="color: var(--accent);">0</div>
+        <div class="stat-value" id="dash-active-count" style="color: var(--accent); font-size: 22px; line-height: 1.05;">0</div>
         <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-active-detail">No strategies running</div>
       </div>
-      <div class="stat-box">
+      <div id="dash-saved-summary-card" class="stat-box" style="padding: 12px 14px;">
         <div class="stat-label">Saved Strategies</div>
-        <div class="stat-value" id="dash-strategies-count" style="color: var(--accent2);">0</div>
+        <div class="stat-value" id="dash-strategies-count" style="color: var(--accent2); font-size: 22px; line-height: 1.05;">0</div>
         <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-backtests-count">0 backtests</div>
       </div>
-      <div class="stat-box">
+      <div id="dash-broker-summary-card" class="stat-box" style="padding: 12px 14px;">
         <div class="stat-label">Broker Status</div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
           <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
@@ -2915,11 +2951,11 @@
             <span>P&L: <strong id="dash-live-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
             <span>Trades: <strong id="dash-live-trades">0</strong></span>
           </div>
-          <div id="dash-live-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today excluding SCAL</div>
+          <div id="dash-live-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today excluding SCALP</div>
         </div>
         <div id="dash-scalp-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(6,182,212,0.24); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">SCAL</span>
+            <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">SCALP</span>
             <span id="dash-scalp-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
           <div style="font-size: 13px; font-weight: 600;" id="dash-scalp-name">—</div>
@@ -2936,45 +2972,6 @@
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div id="dash-fiidii-card" class="card-glass" style="padding: 16px; margin-bottom: 16px; display: none;">
-      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
-        <div>
-          <h3 style="font-size: 14px; margin: 0;">FII / DII Flow</h3>
-          <div id="dash-fiidii-caption" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 3px;">Official NSE combined feed</div>
-        </div>
-        <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
-      </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px;">
-        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(248,113,113,0.18); border-radius: 10px; padding: 12px;">
-          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">Latest FII</div>
-          <div id="dash-fiidii-latest-fii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
-          <div id="dash-fiidii-latest-date" style="font-size: 10px; color: var(--muted); margin-top: 4px;">—</div>
-        </div>
-        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(74,222,128,0.18); border-radius: 10px; padding: 12px;">
-          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">Latest DII</div>
-          <div id="dash-fiidii-latest-dii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
-          <div id="dash-fiidii-latest-days" style="font-size: 10px; color: var(--muted); margin-top: 4px;">Rolling 30D</div>
-        </div>
-        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(248,113,113,0.12); border-radius: 10px; padding: 12px;">
-          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">30D FII</div>
-          <div id="dash-fiidii-rolling-fii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
-        </div>
-        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(74,222,128,0.12); border-radius: 10px; padding: 12px;">
-          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">30D DII</div>
-          <div id="dash-fiidii-rolling-dii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
-        </div>
-      </div>
-      <div id="dash-fiidii-empty" style="display: none; font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.14); border: 1px dashed rgba(255,255,255,0.12); border-radius: 10px; padding: 12px;">Rolling history will build automatically from the official NSE daily feed.</div>
-      <div id="dash-fiidii-trend-wrap" style="display: none; background: rgba(0,0,0,0.14); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; overflow: hidden;">
-        <div style="display: grid; grid-template-columns: 110px 1fr 1fr; gap: 0; padding: 10px 12px; background: rgba(255,255,255,0.03); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.62);">
-          <div>Date</div>
-          <div>FII</div>
-          <div>DII</div>
-        </div>
-        <div id="dash-fiidii-trend"></div>
       </div>
     </div>
 
@@ -11440,9 +11437,9 @@ function _renderDashboardFiiDiiPanel(block) {
     return;
   }
   panel.style.display = 'block';
-  document.getElementById('dash-fiidii-caption').textContent = block.message
-    ? (block.source || 'Official NSE combined feed') + ' · ' + block.message
-    : (block.source || 'Official NSE combined feed');
+  document.getElementById('dash-fiidii-caption').textContent = (block.status === 'partial')
+    ? 'Official NSE feed · building 30D history'
+    : (block.source || 'Official NSE feed');
   document.getElementById('dash-fiidii-asof').textContent = block.as_of ? ('As of ' + block.as_of) : '—';
 
   const latest = block.latest || {};
@@ -11469,33 +11466,7 @@ function _renderDashboardFiiDiiPanel(block) {
   rollingDiiEl.style.color = _dashValueColor(rollingDii);
 
   document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
-  document.getElementById('dash-fiidii-latest-days').textContent = (rolling.days || 0) + ' sessions in rolling window';
-
-  const trendRows = Array.isArray(block.trend) ? block.trend : [];
-  const trendWrap = document.getElementById('dash-fiidii-trend-wrap');
-  const trendEl = document.getElementById('dash-fiidii-trend');
-  const emptyEl = document.getElementById('dash-fiidii-empty');
-
-  if (trendRows.length > 1) {
-    emptyEl.style.display = 'none';
-    trendWrap.style.display = 'block';
-    trendEl.innerHTML = trendRows.map(row => {
-      const fiiNet = Number(row.fii_net || 0);
-      const diiNet = Number(row.dii_net || 0);
-      const fiiBg = fiiNet >= 0 ? 'rgba(74,222,128,0.14)' : 'rgba(248,113,113,0.18)';
-      const diiBg = diiNet >= 0 ? 'rgba(74,222,128,0.14)' : 'rgba(248,113,113,0.18)';
-      return `
-        <div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:0;border-top:1px solid rgba(255,255,255,0.05);font-size:12px;">
-          <div style="padding:10px 12px;color:rgba(255,255,255,0.82);">${row.display_date || row.date || '—'}</div>
-          <div style="padding:10px 12px;background:${fiiBg};color:${_dashValueColor(fiiNet)};font-family:'JetBrains Mono',monospace;">${_dashMoney(fiiNet)}</div>
-          <div style="padding:10px 12px;background:${diiBg};color:${_dashValueColor(diiNet)};font-family:'JetBrains Mono',monospace;">${_dashMoney(diiNet)}</div>
-        </div>`;
-    }).join('');
-  } else {
-    trendWrap.style.display = 'none';
-    emptyEl.style.display = 'block';
-    emptyEl.textContent = block.message || 'Rolling history will build automatically from the official NSE daily feed.';
-  }
+  document.getElementById('dash-fiidii-latest-days').textContent = `${rolling.days || 0} sessions`;
 }
 
 async function loadDashboardSummary() {
@@ -11518,7 +11489,7 @@ async function loadDashboardSummary() {
     const ppEl = document.getElementById('dash-paper-pnl-card');
     ppEl.textContent = _dashMoney(paperPnl);
     ppEl.style.color = _dashValueColor(paperPnl);
-    document.getElementById('dash-paper-pnl-sub').textContent = 'Strategy + SCAL';
+    document.getElementById('dash-paper-pnl-sub').textContent = 'Strategy + SCALP';
     document.getElementById('dash-paper-pnl-trades').textContent = `${paperTrades} trades`;
 
     const rpEl = document.getElementById('dash-real-pnl-card');
@@ -11577,7 +11548,7 @@ async function loadDashboardSummary() {
         document.getElementById('dash-live-pnl').textContent = _dashMoney(livePnl);
         document.getElementById('dash-live-pnl').style.color = _dashValueColor(livePnl);
         document.getElementById('dash-live-trades').textContent = liveStrategyFlow.trades ?? 0;
-        document.getElementById('dash-live-note').textContent = `${liveStrategyFlow.source_label || d.real_source_label || 'Dhan today'} excluding SCAL`;
+        document.getElementById('dash-live-note').textContent = `${liveStrategyFlow.source_label || d.real_source_label || 'Dhan today'} excluding SCALP`;
       } else {
         document.getElementById('dash-live-card').style.display = 'none';
       }
@@ -11586,7 +11557,7 @@ async function loadDashboardSummary() {
         const scalpPaperPnl = Number(scalpFlow.paper_pnl ?? d.paper_scalp_pnl ?? 0);
         const scalpRealPnl = Number(scalpFlow.real_pnl ?? d.real_scalp_pnl ?? 0);
         document.getElementById('dash-scalp-card').style.display = 'block';
-        document.getElementById('dash-scalp-name').textContent = scalpFlow.name || d.scalp_strategy || 'SCAL';
+        document.getElementById('dash-scalp-name').textContent = scalpFlow.name || d.scalp_strategy || 'SCALP';
         document.getElementById('dash-scalp-paper-pnl').textContent = _dashMoney(scalpPaperPnl);
         document.getElementById('dash-scalp-paper-pnl').style.color = _dashValueColor(scalpPaperPnl);
         document.getElementById('dash-scalp-paper-trades').textContent = `${scalpFlow.paper_trades ?? d.paper_scalp_trades ?? 0} trades`;

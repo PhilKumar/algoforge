@@ -864,10 +864,10 @@ def _scalp_label(underlyings: list[str]) -> str:
     unique = [str(item).strip() for item in underlyings if str(item).strip()]
     unique = list(dict.fromkeys(unique))
     if not unique:
-        return "SCAL"
+        return "SCALP"
     if len(unique) == 1:
-        return f"SCAL {unique[0]}"
-    return f"SCAL {unique[0]} +{len(unique) - 1}"
+        return f"SCALP {unique[0]}"
+    return f"SCALP {unique[0]} +{len(unique) - 1}"
 
 
 def _empty_dashboard_real_snapshot(message: str = "") -> dict:
@@ -3470,14 +3470,14 @@ async def dashboard_summary(request: Request):
     paper_flow_name = _compact_label_list(paper_labels, "Paper Flow")
     real_flow_name = _compact_label_list(live_labels, "Real Flow")
     scalp_labels = scalp_flow["paper"]["underlyings"] + scalp_flow["live"]["underlyings"]
-    scalp_card_name = _compact_label_list([_scalp_label(scalp_labels)], "SCAL")
+    scalp_card_name = _compact_label_list([_scalp_label(scalp_labels)], "SCALP")
     active_detail_parts = []
     if paper_statuses or scalp_flow["paper"]["active"]:
         active_detail_parts.append("Paper active")
     if live_statuses:
         active_detail_parts.append("Auto active")
     if scalp_flow["live"]["active"]:
-        active_detail_parts.append("SCAL active")
+        active_detail_parts.append("SCALP active")
     active_detail = " · ".join(active_detail_parts) if active_detail_parts else "No strategies running"
 
     # Best/worst across persisted runs + currently running engines/scalp session
