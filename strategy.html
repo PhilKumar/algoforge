@@ -1163,7 +1163,7 @@
   /* ── Premium Light: Dashboard Cards ── */
   [data-theme="light"] #dash-best-run { border-left-color: #047857; }
   [data-theme="light"] #dash-worst-run { border-left-color: #b45309; }
-  [data-theme="light"] #dash-auto-card,
+  [data-theme="light"] #dash-real-card,
   [data-theme="light"] #dash-paper-card {
     background: rgba(248,250,252,0.8) !important;
     border-color: rgba(15,23,42,0.06) !important;
@@ -2850,12 +2850,14 @@
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
             <div id="dash-paper-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+            <div id="dash-paper-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Strategy ₹0.00 · SCAL ₹0.00</div>
             <div id="dash-paper-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
           </div>
           <div style="width: 1px; height: 36px; background: var(--border); flex-shrink: 0;"></div>
           <div style="flex: 1;">
             <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">REAL</div>
             <div id="dash-real-pnl-card" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+            <div id="dash-real-pnl-sub" style="font-size: 9px; color: rgba(255,255,255,0.68); margin-top: 2px;">Dhan today</div>
             <div id="dash-real-pnl-trades" style="font-size: 9px; color: var(--muted); margin-top: 2px;">0 trades</div>
           </div>
         </div>
@@ -2889,10 +2891,10 @@
         <h3 style="font-size: 14px; margin: 0;" id="h-active-trading">Active Trading</h3>
         <button id="dash-active-open-btn" class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 11px; padding: 5px 14px;">Open Live Monitor →</button>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
         <div id="dash-paper-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Trade</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Flow</span>
             <span id="dash-paper-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
           <div style="font-size: 13px; font-weight: 600;" id="dash-paper-name">—</div>
@@ -2900,29 +2902,59 @@
             <span>P&L: <strong id="dash-paper-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
             <span>Trades: <strong id="dash-paper-trades">0</strong></span>
           </div>
+          <div id="dash-paper-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Strategy ₹0.00 · SCAL ₹0.00</div>
         </div>
-        <div id="dash-auto-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
+        <div id="dash-real-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Auto Trade</span>
-            <span id="dash-auto-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
+            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Real Flow</span>
+            <span id="dash-real-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
           </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-auto-name">—</div>
+          <div style="font-size: 13px; font-weight: 600;" id="dash-real-name">—</div>
           <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 12px;">
-            <span>P&L: <strong id="dash-auto-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
-            <span>Trades: <strong id="dash-auto-trades">0</strong></span>
+            <span>P&L: <strong id="dash-real-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
+            <span>Trades: <strong id="dash-real-trades">0</strong></span>
           </div>
+          <div id="dash-real-note" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 8px;">Dhan today</div>
         </div>
-        <div id="dash-scalp-card" style="display:none; background: rgba(0,0,0,0.2); border: 1px solid rgba(6,182,212,0.24); border-radius: 10px; padding: 12px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">Scalp Trade</span>
-            <span style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
-          </div>
-          <div style="font-size: 13px; font-weight: 600;" id="dash-scalp-name">—</div>
-          <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 12px;">
-            <span>P&L: <strong id="dash-scalp-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
-            <span>Trades: <strong id="dash-scalp-trades">0</strong></span>
-          </div>
+      </div>
+    </div>
+
+    <div id="dash-fiidii-card" class="card-glass" style="padding: 16px; margin-bottom: 16px; display: none;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+        <div>
+          <h3 style="font-size: 14px; margin: 0;">FII / DII Flow</h3>
+          <div id="dash-fiidii-caption" style="font-size: 10px; color: rgba(255,255,255,0.68); margin-top: 3px;">Official NSE combined feed</div>
         </div>
+        <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px;">
+        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(248,113,113,0.18); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">Latest FII</div>
+          <div id="dash-fiidii-latest-fii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
+          <div id="dash-fiidii-latest-date" style="font-size: 10px; color: var(--muted); margin-top: 4px;">—</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(74,222,128,0.18); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">Latest DII</div>
+          <div id="dash-fiidii-latest-dii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
+          <div id="dash-fiidii-latest-days" style="font-size: 10px; color: var(--muted); margin-top: 4px;">Rolling 30D</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(248,113,113,0.12); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">30D FII</div>
+          <div id="dash-fiidii-rolling-fii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.18); border: 1px solid rgba(74,222,128,0.12); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.6px;">30D DII</div>
+          <div id="dash-fiidii-rolling-dii" style="font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px;">₹0</div>
+        </div>
+      </div>
+      <div id="dash-fiidii-empty" style="display: none; font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.14); border: 1px dashed rgba(255,255,255,0.12); border-radius: 10px; padding: 12px;">Rolling history will build automatically from the official NSE daily feed.</div>
+      <div id="dash-fiidii-trend-wrap" style="display: none; background: rgba(0,0,0,0.14); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; overflow: hidden;">
+        <div style="display: grid; grid-template-columns: 110px 1fr 1fr; gap: 0; padding: 10px 12px; background: rgba(255,255,255,0.03); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.62);">
+          <div>Date</div>
+          <div>FII</div>
+          <div>DII</div>
+        </div>
+        <div id="dash-fiidii-trend"></div>
       </div>
     </div>
 
@@ -11370,6 +11402,82 @@ setTimeout(updateKillSwitchVisibility, 2000);
 // ══════════════════════════════════════════════════════════════
 //  DASHBOARD SUMMARY
 // ══════════════════════════════════════════════════════════════
+function _dashMoney(value) {
+  const num = Number(value || 0);
+  return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function _dashValueColor(value) {
+  const num = Number(value || 0);
+  return num > 0 ? 'var(--success)' : num < 0 ? 'var(--danger)' : 'var(--muted)';
+}
+
+function _renderDashboardFiiDiiPanel(block) {
+  const panel = document.getElementById('dash-fiidii-card');
+  if (!panel) return;
+  if (!block || block.status === 'unavailable') {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  document.getElementById('dash-fiidii-caption').textContent = block.message
+    ? (block.source || 'Official NSE combined feed') + ' · ' + block.message
+    : (block.source || 'Official NSE combined feed');
+  document.getElementById('dash-fiidii-asof').textContent = block.as_of ? ('As of ' + block.as_of) : '—';
+
+  const latest = block.latest || {};
+  const latestFii = Number(latest.fii_net || 0);
+  const latestDii = Number(latest.dii_net || 0);
+  const rolling = block.rolling_30d || {};
+  const rollingFii = Number(rolling.fii_net || 0);
+  const rollingDii = Number(rolling.dii_net || 0);
+
+  const latestFiiEl = document.getElementById('dash-fiidii-latest-fii');
+  latestFiiEl.textContent = _dashMoney(latestFii);
+  latestFiiEl.style.color = _dashValueColor(latestFii);
+
+  const latestDiiEl = document.getElementById('dash-fiidii-latest-dii');
+  latestDiiEl.textContent = _dashMoney(latestDii);
+  latestDiiEl.style.color = _dashValueColor(latestDii);
+
+  const rollingFiiEl = document.getElementById('dash-fiidii-rolling-fii');
+  rollingFiiEl.textContent = _dashMoney(rollingFii);
+  rollingFiiEl.style.color = _dashValueColor(rollingFii);
+
+  const rollingDiiEl = document.getElementById('dash-fiidii-rolling-dii');
+  rollingDiiEl.textContent = _dashMoney(rollingDii);
+  rollingDiiEl.style.color = _dashValueColor(rollingDii);
+
+  document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
+  document.getElementById('dash-fiidii-latest-days').textContent = (rolling.days || 0) + ' sessions in rolling window';
+
+  const trendRows = Array.isArray(block.trend) ? block.trend : [];
+  const trendWrap = document.getElementById('dash-fiidii-trend-wrap');
+  const trendEl = document.getElementById('dash-fiidii-trend');
+  const emptyEl = document.getElementById('dash-fiidii-empty');
+
+  if (trendRows.length > 1) {
+    emptyEl.style.display = 'none';
+    trendWrap.style.display = 'block';
+    trendEl.innerHTML = trendRows.map(row => {
+      const fiiNet = Number(row.fii_net || 0);
+      const diiNet = Number(row.dii_net || 0);
+      const fiiBg = fiiNet >= 0 ? 'rgba(74,222,128,0.14)' : 'rgba(248,113,113,0.18)';
+      const diiBg = diiNet >= 0 ? 'rgba(74,222,128,0.14)' : 'rgba(248,113,113,0.18)';
+      return `
+        <div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:0;border-top:1px solid rgba(255,255,255,0.05);font-size:12px;">
+          <div style="padding:10px 12px;color:rgba(255,255,255,0.82);">${row.display_date || row.date || '—'}</div>
+          <div style="padding:10px 12px;background:${fiiBg};color:${_dashValueColor(fiiNet)};font-family:'JetBrains Mono',monospace;">${_dashMoney(fiiNet)}</div>
+          <div style="padding:10px 12px;background:${diiBg};color:${_dashValueColor(diiNet)};font-family:'JetBrains Mono',monospace;">${_dashMoney(diiNet)}</div>
+        </div>`;
+    }).join('');
+  } else {
+    trendWrap.style.display = 'none';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = block.message || 'Rolling history will build automatically from the official NSE daily feed.';
+  }
+}
+
 async function loadDashboardSummary() {
   try {
     const res = await fetch('/api/dashboard/summary');
@@ -11377,29 +11485,28 @@ async function loadDashboardSummary() {
     if (!res.ok) return;
     const d = await res.json();
 
-    // Summary cards — Split Paper / Real P&L
-    const paperPnl = d.paper_pnl || 0;
-    const realPnl = (d.live_pnl || 0) + (d.scalp_pnl || 0);
-    const realTrades = (d.live_trades || 0) + (d.scalp_trades || 0);
-    const activeModes = [d.paper_running && 'Paper', d.live_running && 'Auto', d.scalp_running && 'Scalp'].filter(Boolean);
-    const realModes = [d.live_running && 'Auto', d.scalp_running && 'Scalp'].filter(Boolean);
+    const paperFlow = d.paper_flow || {};
+    const realFlow = d.real_flow || {};
+    const paperPnl = Number(paperFlow.pnl ?? d.paper_total_pnl ?? d.paper_pnl ?? 0);
+    const realPnl = Number(realFlow.pnl ?? d.real_total_pnl ?? d.real_pnl ?? 0);
+    const paperTrades = Number(paperFlow.trades ?? d.paper_total_trades ?? d.paper_trades ?? 0);
+    const realTrades = Number(realFlow.trades ?? d.real_total_trades ?? d.real_trades ?? 0);
 
     const ppEl = document.getElementById('dash-paper-pnl-card');
-    ppEl.textContent = '₹' + paperPnl.toFixed(2);
-    ppEl.style.color = paperPnl > 0 ? 'var(--success)' : paperPnl < 0 ? 'var(--danger)' : 'var(--muted)';
-    document.getElementById('dash-paper-pnl-trades').textContent = (d.paper_trades || 0) + ' trades' + (d.paper_running ? ' · Running' : '');
+    ppEl.textContent = _dashMoney(paperPnl);
+    ppEl.style.color = _dashValueColor(paperPnl);
+    document.getElementById('dash-paper-pnl-sub').textContent = `Strategy ${_dashMoney(paperFlow.strategy_pnl || d.paper_strategy_pnl || 0)} · SCAL ${_dashMoney(paperFlow.scalp_pnl || d.paper_scalp_pnl || 0)}`;
+    document.getElementById('dash-paper-pnl-trades').textContent = `${paperTrades} trades${paperFlow.active ? ' · Active' : ''}`;
 
     const rpEl = document.getElementById('dash-real-pnl-card');
-    rpEl.textContent = '₹' + realPnl.toFixed(2);
-    rpEl.style.color = realPnl > 0 ? 'var(--success)' : realPnl < 0 ? 'var(--danger)' : 'var(--muted)';
-    document.getElementById('dash-real-pnl-trades').textContent = realTrades + ' trades' + (realModes.length ? ' · ' + realModes.join(' + ') + ' running' : '');
+    rpEl.textContent = _dashMoney(realPnl);
+    rpEl.style.color = _dashValueColor(realPnl);
+    document.getElementById('dash-real-pnl-sub').textContent = `${realFlow.source_label || d.real_source_label || 'Engine view'} · Strategy ${_dashMoney(realFlow.strategy_pnl || d.real_strategy_pnl || 0)} · SCAL ${_dashMoney(realFlow.scalp_pnl || d.real_scalp_pnl || 0)}`;
+    document.getElementById('dash-real-pnl-trades').textContent = `${realTrades} trades${d.real_stale ? ' · Cached' : ''}`;
 
     // Active count
-    const activeCount = activeModes.length;
-    document.getElementById('dash-active-count').textContent = activeCount;
-    document.getElementById('dash-active-detail').textContent = activeCount > 0
-      ? activeModes.join(' + ') + ' running'
-      : 'No strategies running';
+    document.getElementById('dash-active-count').textContent = d.active_count || 0;
+    document.getElementById('dash-active-detail').textContent = d.active_detail || 'No strategies running';
 
     document.getElementById('dash-strategies-count').textContent = d.strategy_count || 0;
     document.getElementById('dash-backtests-count').textContent = (d.backtest_count || 0) + ' backtests';
@@ -11407,9 +11514,15 @@ async function loadDashboardSummary() {
     // Active engines panel
     const enginesPanel = document.getElementById('dash-active-engines');
     const activeOpenBtn = document.getElementById('dash-active-open-btn');
-    if (d.paper_running || d.live_running || d.scalp_running) {
+    if (paperFlow.active || realFlow.active) {
       enginesPanel.style.display = 'block';
-      if (!d.paper_running && !d.live_running && d.scalp_running) {
+      if (!realFlow.active && paperFlow.active) {
+        activeOpenBtn.textContent = 'Open Paper Monitor →';
+        activeOpenBtn.onclick = () => {
+          showPage('live-page', document.getElementById('nav-live'));
+          startLiveMonitor();
+        };
+      } else if (!d.live_running && d.scalp_running) {
         activeOpenBtn.textContent = 'Open Scalp →';
         activeOpenBtn.onclick = () => {
           showPage('scalp-page', document.getElementById('nav-scalp'));
@@ -11423,37 +11536,32 @@ async function loadDashboardSummary() {
         };
       }
 
-      if (d.paper_running) {
+      if (paperFlow.active) {
         document.getElementById('dash-paper-card').style.display = 'block';
-        document.getElementById('dash-paper-name').textContent = d.paper_strategy || 'Paper Strategy';
-        document.getElementById('dash-paper-pnl').textContent = '₹' + (d.paper_pnl || 0).toFixed(2);
-        document.getElementById('dash-paper-pnl').style.color = (d.paper_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-        document.getElementById('dash-paper-trades').textContent = d.paper_trades || 0;
+        document.getElementById('dash-paper-name').textContent = paperFlow.name || 'Paper Flow';
+        document.getElementById('dash-paper-pnl').textContent = _dashMoney(paperPnl);
+        document.getElementById('dash-paper-pnl').style.color = _dashValueColor(paperPnl);
+        document.getElementById('dash-paper-trades').textContent = paperTrades || 0;
+        document.getElementById('dash-paper-note').textContent = `Strategy ${_dashMoney(paperFlow.strategy_pnl || 0)} · SCAL ${_dashMoney(paperFlow.scalp_pnl || 0)}`;
       } else {
         document.getElementById('dash-paper-card').style.display = 'none';
       }
 
-      if (d.live_running) {
-        document.getElementById('dash-auto-card').style.display = 'block';
-        document.getElementById('dash-auto-name').textContent = d.live_strategy || 'Auto Strategy';
-        document.getElementById('dash-auto-pnl').textContent = '₹' + (d.live_pnl || 0).toFixed(2);
-        document.getElementById('dash-auto-pnl').style.color = (d.live_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-        document.getElementById('dash-auto-trades').textContent = d.live_trades || 0;
+      if (realFlow.active) {
+        document.getElementById('dash-real-card').style.display = 'block';
+        document.getElementById('dash-real-name').textContent = realFlow.name || 'Real Flow';
+        document.getElementById('dash-real-pnl').textContent = _dashMoney(realPnl);
+        document.getElementById('dash-real-pnl').style.color = _dashValueColor(realPnl);
+        document.getElementById('dash-real-trades').textContent = realTrades || 0;
+        document.getElementById('dash-real-note').textContent = `${realFlow.source_label || 'Engine view'} · Strategy ${_dashMoney(realFlow.strategy_pnl || 0)} · SCAL ${_dashMoney(realFlow.scalp_pnl || 0)}`;
       } else {
-        document.getElementById('dash-auto-card').style.display = 'none';
-      }
-      if (d.scalp_running) {
-        document.getElementById('dash-scalp-card').style.display = 'block';
-        document.getElementById('dash-scalp-name').textContent = d.scalp_strategy || 'Scalp Session';
-        document.getElementById('dash-scalp-pnl').textContent = '₹' + (d.scalp_pnl || 0).toFixed(2);
-        document.getElementById('dash-scalp-pnl').style.color = (d.scalp_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-        document.getElementById('dash-scalp-trades').textContent = d.scalp_trades || 0;
-      } else {
-        document.getElementById('dash-scalp-card').style.display = 'none';
+        document.getElementById('dash-real-card').style.display = 'none';
       }
     } else {
       enginesPanel.style.display = 'none';
     }
+
+    _renderDashboardFiiDiiPanel(d.fii_dii);
 
     // Best / Worst run
     if (d.best_run) {

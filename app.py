@@ -728,6 +728,386 @@ def _iter_user_state_files(prefix: str):
                 yield user_id, state_dir, fname, os.path.join(state_dir, fname)
 
 
+_DASHBOARD_REAL_CACHE: Dict[int, dict] = {}
+_DASHBOARD_REAL_CACHE_TTL_SECONDS = 20.0
+_FII_DII_CACHE = {"timestamp": 0.0, "ttl": 1800.0, "data": None}
+_FII_DII_HISTORY_ROWS: list[dict] | None = None
+
+
+def _market_cache_dir(create: bool = True) -> str:
+    cache_dir = os.path.join(_HERE, "market_cache")
+    if create:
+        os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+
+def _fii_dii_history_file() -> str:
+    return os.path.join(_market_cache_dir(), "fii_dii_history.json")
+
+
+def _trade_day_text(trade: dict, *, prefer_exit: bool = True) -> str:
+    if not isinstance(trade, dict):
+        return ""
+    keys = (
+        ("exit_time", "closed_at", "entry_time", "created_at")
+        if prefer_exit
+        else (
+            "entry_time",
+            "created_at",
+            "exit_time",
+            "closed_at",
+        )
+    )
+    for key in keys:
+        value = str(trade.get(key) or "").strip()
+        if len(value) >= 10:
+            return value[:10]
+    return ""
+
+
+def _trade_unique_key(trade: dict) -> str:
+    if not isinstance(trade, dict):
+        return ""
+    trade_id = str(trade.get("trade_id") or "").strip()
+    if trade_id:
+        return f"trade_id:{trade_id}"
+    parts = [
+        str(trade.get("mode") or ""),
+        str(trade.get("symbol") or trade.get("underlying") or ""),
+        str(trade.get("entry_time") or ""),
+        str(trade.get("exit_time") or ""),
+        str(trade.get("transaction_type") or ""),
+        str(trade.get("lots") or trade.get("quantity") or ""),
+    ]
+    return "|".join(parts)
+
+
+def _empty_scalp_flow_bucket() -> dict:
+    return {
+        "pnl": 0.0,
+        "trades": 0,
+        "open_count": 0,
+        "closed_count": 0,
+        "underlyings": [],
+        "active": False,
+    }
+
+
+def _collect_dashboard_scalp_snapshot(
+    today_str: str,
+    persisted_trades: list[dict] | None,
+    scalp_status: dict | None,
+) -> dict:
+    buckets = {
+        "paper": _empty_scalp_flow_bucket(),
+        "live": _empty_scalp_flow_bucket(),
+    }
+
+    def _register_trade(trade: dict, *, bucket_name: str, open_trade: bool):
+        bucket = buckets[bucket_name]
+        bucket["pnl"] += float(trade.get("pnl") or 0)
+        bucket["trades"] += 1
+        bucket["open_count"] += 1 if open_trade else 0
+        bucket["closed_count"] += 0 if open_trade else 1
+        underlying = str(trade.get("underlying") or "").strip()
+        if underlying and underlying not in bucket["underlyings"]:
+            bucket["underlyings"].append(underlying)
+
+    seen_closed: set[str] = set()
+    for trade in list(persisted_trades or []) + list((scalp_status or {}).get("closed_trades") or []):
+        if not isinstance(trade, dict):
+            continue
+        if _trade_day_text(trade, prefer_exit=True) != today_str:
+            continue
+        mode = _trade_mode_value(trade)
+        if mode not in buckets:
+            continue
+        trade_key = _trade_unique_key(trade)
+        if trade_key in seen_closed:
+            continue
+        seen_closed.add(trade_key)
+        _register_trade(trade, bucket_name=mode, open_trade=False)
+
+    seen_open: set[str] = set()
+    for trade in list((scalp_status or {}).get("open_trades") or []):
+        if not isinstance(trade, dict):
+            continue
+        if _trade_day_text(trade, prefer_exit=False) != today_str:
+            continue
+        mode = _trade_mode_value(trade)
+        if mode not in buckets:
+            continue
+        trade_key = _trade_unique_key(trade)
+        if trade_key in seen_open or trade_key in seen_closed:
+            continue
+        seen_open.add(trade_key)
+        _register_trade(trade, bucket_name=mode, open_trade=True)
+
+    engine_running = bool((scalp_status or {}).get("running"))
+    for bucket in buckets.values():
+        bucket["pnl"] = round(bucket["pnl"], 2)
+        bucket["active"] = bool(bucket["open_count"] or (engine_running and bucket["trades"]))
+    return buckets
+
+
+def _compact_label_list(labels: list[str], default_label: str) -> str:
+    unique = [str(label).strip() for label in labels if str(label).strip()]
+    unique = list(dict.fromkeys(unique))
+    if not unique:
+        return default_label
+    if len(unique) <= 2:
+        return " · ".join(unique)
+    return " · ".join(unique[:2]) + f" +{len(unique) - 2}"
+
+
+def _scalp_label(underlyings: list[str]) -> str:
+    unique = [str(item).strip() for item in underlyings if str(item).strip()]
+    unique = list(dict.fromkeys(unique))
+    if not unique:
+        return "SCAL"
+    if len(unique) == 1:
+        return f"SCAL {unique[0]}"
+    return f"SCAL {unique[0]} +{len(unique) - 1}"
+
+
+def _empty_dashboard_real_snapshot(message: str = "") -> dict:
+    return {
+        "available": False,
+        "source": "engine_fallback",
+        "source_label": "Engine view",
+        "gross_pnl": 0.0,
+        "net_pnl": 0.0,
+        "charges": 0.0,
+        "brokerage": 0.0,
+        "trades": 0,
+        "message": message,
+        "stale": False,
+    }
+
+
+def _load_dashboard_real_snapshot_sync(user_id: int, broker_client: DhanClient | None) -> dict:
+    today_str = _ist_date_str()
+    now = time.time()
+    cached = _DASHBOARD_REAL_CACHE.get(int(user_id))
+    if (
+        cached
+        and cached.get("date") == today_str
+        and (now - float(cached.get("timestamp") or 0)) < _DASHBOARD_REAL_CACHE_TTL_SECONDS
+    ):
+        return deepcopy(cached.get("data") or _empty_dashboard_real_snapshot())
+
+    if broker_client is None:
+        if cached and cached.get("date") == today_str:
+            payload = deepcopy(cached.get("data") or _empty_dashboard_real_snapshot())
+            payload["stale"] = True
+            return payload
+        return _empty_dashboard_real_snapshot("Broker not connected")
+
+    try:
+        trades = broker_client.get_trades()
+        summary = _summarize_real_trade_fills(trades or []) or {}
+        payload = {
+            "available": True,
+            "source": "dhan",
+            "source_label": "Dhan today",
+            "gross_pnl": round(float(summary.get("pnl", 0) or 0), 2),
+            "net_pnl": round(float(summary.get("net_pnl", 0) or 0), 2),
+            "charges": round(float(summary.get("charges", 0) or 0), 2),
+            "brokerage": round(float(summary.get("brokerage", 0) or 0), 2),
+            "trades": int(summary.get("trades", 0) or 0),
+            "message": "Dhan tradebook",
+            "stale": False,
+        }
+        if not summary:
+            payload["message"] = "No Dhan trades today"
+        _DASHBOARD_REAL_CACHE[int(user_id)] = {
+            "date": today_str,
+            "timestamp": now,
+            "data": deepcopy(payload),
+        }
+        return payload
+    except Exception as exc:
+        if cached and cached.get("date") == today_str:
+            payload = deepcopy(cached.get("data") or _empty_dashboard_real_snapshot())
+            payload["stale"] = True
+            payload["message"] = "Using cached Dhan tradebook"
+            return payload
+        return _empty_dashboard_real_snapshot(str(exc))
+
+
+async def _load_dashboard_real_snapshot(user_id: int, broker_client: DhanClient | None) -> dict:
+    return await asyncio.to_thread(_load_dashboard_real_snapshot_sync, int(user_id), broker_client)
+
+
+def _parse_fii_dii_date(value: str) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%d-%b-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _display_fii_dii_date(value: str) -> str:
+    parsed = _parse_fii_dii_date(value)
+    if parsed is None:
+        return str(value or "").strip()
+    return parsed.strftime("%d %b")
+
+
+def _load_fii_dii_history_rows() -> list[dict]:
+    global _FII_DII_HISTORY_ROWS
+    if _FII_DII_HISTORY_ROWS is not None:
+        return deepcopy(_FII_DII_HISTORY_ROWS)
+    file_path = _fii_dii_history_file()
+    rows: list[dict] = []
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, list):
+                rows = [row for row in payload if isinstance(row, dict)]
+        except Exception:
+            rows = []
+    _FII_DII_HISTORY_ROWS = rows
+    return deepcopy(rows)
+
+
+def _save_fii_dii_history_rows(rows: list[dict]) -> None:
+    global _FII_DII_HISTORY_ROWS
+    _FII_DII_HISTORY_ROWS = deepcopy(rows)
+    file_path = _fii_dii_history_file()
+    tmp_path = file_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle, ensure_ascii=True)
+    os.replace(tmp_path, file_path)
+
+
+def _normalize_fii_dii_snapshot_rows(records: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        raw_date = str(record.get("date") or "").strip()
+        parsed_date = _parse_fii_dii_date(raw_date)
+        if parsed_date is None:
+            continue
+        iso_date = parsed_date.isoformat()
+        row = grouped.setdefault(
+            iso_date,
+            {
+                "date": iso_date,
+                "display_date": parsed_date.strftime("%d %b"),
+                "fii_net": 0.0,
+                "dii_net": 0.0,
+            },
+        )
+        category = str(record.get("category") or "").upper()
+        try:
+            net_value = float(record.get("netValue") or 0)
+        except (TypeError, ValueError):
+            net_value = 0.0
+        if "FII" in category or "FPI" in category:
+            row["fii_net"] = round(net_value, 2)
+        elif "DII" in category:
+            row["dii_net"] = round(net_value, 2)
+    rows = list(grouped.values())
+    rows.sort(key=lambda item: item["date"], reverse=True)
+    return rows
+
+
+def _merge_fii_dii_history_rows(existing: list[dict], snapshot_rows: list[dict]) -> list[dict]:
+    merged = {str(row.get("date") or ""): dict(row) for row in existing if isinstance(row, dict)}
+    for row in snapshot_rows:
+        if isinstance(row, dict) and row.get("date"):
+            merged[str(row["date"])] = dict(row)
+    rows = [row for row in merged.values() if row.get("date")]
+    rows.sort(key=lambda item: str(item.get("date") or ""), reverse=True)
+    return rows[:45]
+
+
+def _load_dashboard_fii_dii_snapshot_sync() -> dict:
+    now = time.time()
+    cached = _FII_DII_CACHE.get("data")
+    if cached and (now - float(_FII_DII_CACHE.get("timestamp") or 0)) < float(_FII_DII_CACHE.get("ttl") or 0):
+        return deepcopy(cached)
+
+    history_rows = _load_fii_dii_history_rows()
+    snapshot_rows: list[dict] = []
+    error_text = ""
+
+    try:
+        import httpx
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.nseindia.com/reports/fii-dii",
+        }
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=8) as client:
+            response = client.get("https://www.nseindia.com/api/fiidiiTradeReact")
+            if response.status_code == 200:
+                snapshot_rows = _normalize_fii_dii_snapshot_rows(response.json())
+            else:
+                error_text = f"NSE returned {response.status_code}"
+    except Exception as exc:
+        error_text = str(exc)
+
+    if snapshot_rows:
+        merged_rows = _merge_fii_dii_history_rows(history_rows, snapshot_rows)
+        if merged_rows != history_rows:
+            _save_fii_dii_history_rows(merged_rows)
+        history_rows = merged_rows
+
+    if not history_rows:
+        payload = {
+            "status": "unavailable",
+            "source": "Official NSE combined feed",
+            "as_of": "",
+            "latest": None,
+            "rolling_30d": {"fii_net": 0.0, "dii_net": 0.0, "days": 0},
+            "trend": [],
+            "message": error_text or "FII / DII data unavailable",
+        }
+        _FII_DII_CACHE["timestamp"] = now
+        _FII_DII_CACHE["data"] = deepcopy(payload)
+        return payload
+
+    window_start = _now_ist().date() - timedelta(days=31)
+    rolling_rows = []
+    for row in history_rows:
+        parsed_date = _parse_fii_dii_date(str(row.get("date") or ""))
+        if parsed_date is None:
+            continue
+        if parsed_date >= window_start:
+            rolling_rows.append(row)
+
+    latest = history_rows[0]
+    payload = {
+        "status": "ok" if len(rolling_rows) >= 10 else "partial",
+        "source": "Official NSE combined feed",
+        "as_of": latest.get("display_date") or _display_fii_dii_date(latest.get("date") or ""),
+        "latest": latest,
+        "rolling_30d": {
+            "fii_net": round(sum(float(row.get("fii_net") or 0) for row in rolling_rows), 2),
+            "dii_net": round(sum(float(row.get("dii_net") or 0) for row in rolling_rows), 2),
+            "days": len(rolling_rows),
+        },
+        "trend": history_rows[:10],
+        "message": "" if len(rolling_rows) >= 10 else "Rolling history builds from the official NSE daily feed.",
+    }
+    _FII_DII_CACHE["timestamp"] = now
+    _FII_DII_CACHE["data"] = deepcopy(payload)
+    return payload
+
+
+async def _load_dashboard_fii_dii_snapshot() -> dict:
+    return await asyncio.to_thread(_load_dashboard_fii_dii_snapshot_sync)
+
+
 # Backfill status — read by /api/backfill/status
 _backfill_state: Dict[str, object] = {
     "status": "idle",  # idle | running | done | error
@@ -2988,6 +3368,7 @@ async def dashboard_summary(request: Request):
     if not await _validate_session_async(token):
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = _request_user_id(request)
+    today_str = _ist_date_str()
 
     # Strategies count
     strats = await _db_mod.list_strategies(user_id)
@@ -3002,19 +3383,17 @@ async def dashboard_summary(request: Request):
     paper_running = bool(paper_statuses)
     live_running = bool(live_statuses)
     scalp_running = False
-    scalp_pnl_val = 0.0
-    scalp_trades_val = 0
     scalp_name = ""
 
-    # Today's P&L from engines (+ history for idle engines)
-    paper_pnl_val = 0
-    paper_trades_val = 0
-    live_pnl_val = 0
-    live_trades_val = 0
+    # Today's P&L from strategy engines
+    paper_strategy_pnl_val = 0.0
+    paper_strategy_trades_val = 0
+    live_strategy_pnl_val = 0.0
+    live_strategy_trades_val = 0
 
     if paper_statuses:
-        paper_pnl_val = sum(s.get("total_pnl", 0) for s in paper_statuses)
-        paper_trades_val = sum(s.get("trades_today", 0) for s in paper_statuses)
+        paper_strategy_pnl_val = sum(float(s.get("total_pnl", 0) or 0) for s in paper_statuses)
+        paper_strategy_trades_val = sum(int(s.get("trades_today", 0) or 0) for s in paper_statuses)
     else:
         # Show last paper run P&L from today (from runs.json)
         from datetime import date as _date
@@ -3024,13 +3403,13 @@ async def dashboard_summary(request: Request):
             if r.get("mode") == "paper":
                 created = r.get("created_at", "")
                 if created.startswith(today_str):
-                    paper_pnl_val = r.get("total_pnl", 0)
-                    paper_trades_val = r.get("trade_count", len(r.get("trades", [])))
+                    paper_strategy_pnl_val = float(r.get("total_pnl", 0) or 0)
+                    paper_strategy_trades_val = int(r.get("trade_count", len(r.get("trades", []))) or 0)
                 break
 
     if live_statuses:
-        live_pnl_val = sum(s.get("total_pnl", 0) for s in live_statuses)
-        live_trades_val = sum(s.get("trades_today", 0) for s in live_statuses)
+        live_strategy_pnl_val = sum(float(s.get("total_pnl", 0) or 0) for s in live_statuses)
+        live_strategy_trades_val = sum(int(s.get("trades_today", 0) or 0) for s in live_statuses)
 
     scalp_engine = _scalp_engines.get(int(user_id))
     scalp_status = None
@@ -3041,8 +3420,6 @@ async def dashboard_summary(request: Request):
             scalp_status = None
     if isinstance(scalp_status, dict) and scalp_status.get("running"):
         scalp_running = True
-        scalp_pnl_val = float(scalp_status.get("total_pnl") or 0)
-        scalp_trades_val = len(scalp_status.get("closed_trades") or [])
         scalp_trades = list(scalp_status.get("open_trades") or []) + list(scalp_status.get("closed_trades") or [])
         scalp_underlyings = list(
             dict.fromkeys(
@@ -3053,7 +3430,51 @@ async def dashboard_summary(request: Request):
         if scalp_underlyings:
             scalp_name = "Scalp — " + ", ".join(scalp_underlyings[:3])
 
-    today_pnl = paper_pnl_val + live_pnl_val + scalp_pnl_val
+    persisted_scalp_trades = await _db_mod.list_scalp_trades(user_id)
+    scalp_flow = _collect_dashboard_scalp_snapshot(today_str, persisted_scalp_trades, scalp_status)
+    paper_scalp_pnl = float(scalp_flow["paper"]["pnl"] or 0)
+    paper_scalp_trades = int(scalp_flow["paper"]["trades"] or 0)
+    live_scalp_pnl = float(scalp_flow["live"]["pnl"] or 0)
+    live_scalp_trades = int(scalp_flow["live"]["trades"] or 0)
+
+    user, broker_client, broker_source = await _request_broker_context(request)
+    real_snapshot = await _load_dashboard_real_snapshot(user_id, broker_client)
+    fii_dii_snapshot = await _load_dashboard_fii_dii_snapshot()
+
+    paper_total_pnl = round(paper_strategy_pnl_val + paper_scalp_pnl, 2)
+    paper_total_trades = paper_strategy_trades_val + paper_scalp_trades
+    real_total_pnl = round(
+        float(real_snapshot.get("net_pnl", 0) or 0)
+        if real_snapshot.get("available")
+        else (live_strategy_pnl_val + live_scalp_pnl),
+        2,
+    )
+    real_total_trades = int(
+        real_snapshot.get("trades", 0) or 0
+        if real_snapshot.get("available")
+        else (live_strategy_trades_val + live_scalp_trades)
+    )
+    scalp_pnl_val = round(paper_scalp_pnl + live_scalp_pnl, 2)
+    scalp_trades_val = paper_scalp_trades + live_scalp_trades
+    today_pnl = round(paper_total_pnl + real_total_pnl, 2)
+    active_count = len(paper_statuses) + len(live_statuses) + (1 if scalp_running else 0)
+
+    paper_labels = [str(s.get("strategy_name") or s.get("run_id") or "Paper Strategy") for s in paper_statuses]
+    live_labels = [str(s.get("strategy_name") or s.get("run_id") or "Live Strategy") for s in live_statuses]
+    if paper_scalp_trades or scalp_flow["paper"]["active"]:
+        paper_labels.append(_scalp_label(scalp_flow["paper"]["underlyings"]))
+    if live_scalp_trades or scalp_flow["live"]["active"]:
+        live_labels.append(_scalp_label(scalp_flow["live"]["underlyings"]))
+    paper_flow_name = _compact_label_list(paper_labels, "Paper Flow")
+    real_flow_name = _compact_label_list(live_labels, "Real Flow")
+    active_detail_parts = []
+    if paper_statuses or scalp_flow["paper"]["active"]:
+        active_detail_parts.append("Paper active")
+    if live_statuses:
+        active_detail_parts.append("Auto active")
+    if scalp_flow["live"]["active"]:
+        active_detail_parts.append("SCAL active")
+    active_detail = " · ".join(active_detail_parts) if active_detail_parts else "No strategies running"
 
     # Best/worst across persisted runs + currently running engines/scalp session
     best_run = None
@@ -3177,19 +3598,65 @@ async def dashboard_summary(request: Request):
     return {
         "strategy_count": len(real_strats),
         "backtest_count": total_backtests,
+        "active_count": active_count,
+        "active_detail": active_detail,
         "paper_running": paper_running,
         "live_running": live_running,
         "scalp_running": scalp_running,
         "paper_strategy": ", ".join(s.get("strategy_name", "") for s in paper_statuses) if paper_statuses else "",
         "live_strategy": ", ".join(s.get("strategy_name", "") for s in live_statuses) if live_statuses else "",
         "scalp_strategy": scalp_name,
-        "today_pnl": round(today_pnl, 2),
-        "paper_pnl": round(paper_pnl_val, 2),
-        "live_pnl": round(live_pnl_val, 2),
-        "scalp_pnl": round(scalp_pnl_val, 2),
-        "paper_trades": paper_trades_val,
-        "live_trades": live_trades_val,
+        "today_pnl": today_pnl,
+        "paper_pnl": paper_total_pnl,
+        "paper_total_pnl": paper_total_pnl,
+        "paper_strategy_pnl": round(paper_strategy_pnl_val, 2),
+        "paper_scalp_pnl": round(paper_scalp_pnl, 2),
+        "live_pnl": round(live_strategy_pnl_val, 2),
+        "live_strategy_pnl": round(live_strategy_pnl_val, 2),
+        "real_pnl": real_total_pnl,
+        "real_total_pnl": real_total_pnl,
+        "real_strategy_pnl": round(live_strategy_pnl_val, 2),
+        "real_scalp_pnl": round(live_scalp_pnl, 2),
+        "scalp_pnl": scalp_pnl_val,
+        "paper_trades": paper_total_trades,
+        "paper_total_trades": paper_total_trades,
+        "paper_strategy_trades": paper_strategy_trades_val,
+        "paper_scalp_trades": paper_scalp_trades,
+        "live_trades": live_strategy_trades_val,
+        "live_strategy_trades": live_strategy_trades_val,
+        "real_trades": real_total_trades,
+        "real_total_trades": real_total_trades,
+        "real_scalp_trades": live_scalp_trades,
         "scalp_trades": scalp_trades_val,
+        "real_source": str(real_snapshot.get("source") or "engine_fallback"),
+        "real_source_label": str(real_snapshot.get("source_label") or "Engine view"),
+        "real_available": bool(real_snapshot.get("available")),
+        "real_message": str(real_snapshot.get("message") or ""),
+        "real_stale": bool(real_snapshot.get("stale")),
+        "broker_source": broker_source,
+        "paper_flow": {
+            "active": bool(paper_statuses or scalp_flow["paper"]["active"]),
+            "name": paper_flow_name,
+            "pnl": paper_total_pnl,
+            "trades": paper_total_trades,
+            "strategy_pnl": round(paper_strategy_pnl_val, 2),
+            "strategy_trades": paper_strategy_trades_val,
+            "scalp_pnl": round(paper_scalp_pnl, 2),
+            "scalp_trades": paper_scalp_trades,
+        },
+        "real_flow": {
+            "active": bool(live_statuses or scalp_flow["live"]["active"]),
+            "name": real_flow_name,
+            "pnl": real_total_pnl,
+            "trades": real_total_trades,
+            "strategy_pnl": round(live_strategy_pnl_val, 2),
+            "strategy_trades": live_strategy_trades_val,
+            "scalp_pnl": round(live_scalp_pnl, 2),
+            "scalp_trades": live_scalp_trades,
+            "source_label": str(real_snapshot.get("source_label") or "Engine view"),
+            "available": bool(real_snapshot.get("available")),
+        },
+        "fii_dii": fii_dii_snapshot,
         "best_run": best_run,
         "worst_run": worst_run,
         "recent_transactions": recent_transactions,
