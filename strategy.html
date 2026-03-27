@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>AlgoForge — Strategy Platform</title>
-<link rel="icon" href="/static/logo.png" type="image/png">
+<link rel="icon" href="/static/logo.png?v=20260327-1" type="image/png">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3418,7 +3418,7 @@
 <!-- ═══ HEADER: Top Bar ═══ -->
 <div class="header-shell">
   <div class="header-brand-panel" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" title="Go to Dashboard">
-    <img class="header-brand-logo" src="logo.png" alt="PhilForge">
+    <img class="header-brand-logo" src="/static/logo.png?v=20260327-1" alt="PhilForge">
     <div class="header-brand-copy">
       <div class="topbar-brand-text">PHILFORGE</div>
       <div class="topbar-brand-sub">Algorithms Over Impulse</div>
@@ -13280,7 +13280,7 @@ function sendTradeNotification(trade) {
     const icon = pnl >= 0 ? '▲' : '▼';
     const title = `${icon} AlgoForge Trade`;
     const body = `${trade.instrument || trade.symbol || 'Trade'}: ${trade.action || trade.type || ''} ₹${Math.abs(pnl).toFixed(2)}`;
-    new Notification(title, { body, icon: 'logo.jpg', tag: 'algoforge-trade-' + Date.now() });
+    new Notification(title, { body, icon: '/static/logo.png?v=20260327-1', tag: 'algoforge-trade-' + Date.now() });
   } catch(e) {}
 }
 
