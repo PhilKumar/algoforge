@@ -307,13 +307,6 @@
   .page-section { display: none; animation: fadeIn 0.3s ease; }
   .page-section.active-page { display: block; }
   html:not([data-nav-ready="1"]) .page-section { display: none !important; animation: none !important; }
-  .page-rail {
-    padding-left: var(--brand-rail-space);
-  }
-  .page-rail-inner {
-    max-width: 1100px;
-    margin: 0 auto;
-  }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(0,200,150,0.7); } 50% { box-shadow: 0 0 0 10px rgba(0,200,150,0); } }
   .input-group { margin-bottom: 16px; }
@@ -1560,8 +1553,7 @@
   }
   /* ── Strategy Arsenal ── */
   .arsenal-shell {
-    max-width: 1100px;
-    margin: 0 auto 20px auto;
+    margin: 0 0 20px;
   }
   .arsenal-heading {
     display: flex;
@@ -2078,6 +2070,9 @@
     box-shadow: none;
   }
   .header-brand-mark::before { display: none; }
+  .theme-logo.light-variant { display: none; }
+  [data-theme="light"] .theme-logo.dark-variant { display: none; }
+  [data-theme="light"] .theme-logo.light-variant { display: block; }
   .header-brand-logo {
     width: 92px;
     height: 92px;
@@ -2829,7 +2824,6 @@
     /* -- Global -- */
     body { padding: 0 !important; }
     .page-section { padding: 12px !important; }
-    .page-rail { padding-left: 0 !important; }
 
     .header-shell {
       padding-left: 0;
@@ -3890,7 +3884,8 @@
 <div class="header-shell">
   <div class="header-brand-panel" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" title="Go to Dashboard">
     <div class="header-brand-mark">
-      <img class="header-brand-logo" src="/static/logo.png?v=20260327-2" alt="PhilForge">
+      <img class="header-brand-logo theme-logo dark-variant" src="/static/logo.png?v=20260327-2" alt="PhilForge">
+      <img class="header-brand-logo theme-logo light-variant" src="/static/logolight.png?v=20260328-1" alt="PhilForge">
     </div>
     <div class="header-brand-copy">
       <div class="topbar-brand-text">PhilForge</div>
@@ -3998,10 +3993,10 @@
 </div>
 
 <!-- ═══ DASHBOARD ═══ -->
-<div id="dashboard-page" class="page-section page-rail active-page">
+<div id="dashboard-page" class="page-section active-page">
 
 
-  <div style="max-width: 1100px; margin: 0 auto 20px auto;">
+  <div style="margin: 0 0 20px;">
     <div id="dash-fiidii-card" class="card-glass" style="display: none;">
       <div class="dash-fiidii-head">
         <div class="dash-fiidii-title">
@@ -4229,7 +4224,7 @@
   </div>
 
   <!-- Trader's Edge — Mood Widgets -->
-  <div style="max-width: 1100px; margin: 0 auto 20px auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;" id="mood-widgets">
+  <div style="margin: 0 0 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;" id="mood-widgets">
     <!-- Daily Trading Mantra -->
     <div class="card" style="padding: 14px 18px; position: relative; overflow: hidden;">
       <div style="position:absolute;top:-16px;right:-16px;width:64px;height:64px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;"></div>
@@ -4269,7 +4264,7 @@
       <div style="display:flex;gap:4px;margin-top:8px;" id="win-streak-dots"></div>
     </div>
   </div>
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+  <div class="card" style="margin: 0 0 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
       <h3 style="margin: 0;">Saved Strategies</h3>
       <button class="btn btn-sm" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px; --btn-bg: rgba(168,85,247,0.15); --btn-color: rgb(168,85,247); --btn-border: rgba(168,85,247,0.4);">+ New Folder</button>
@@ -4277,13 +4272,13 @@
     <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
   </div>
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+  <div class="card" style="margin: 0 0 20px;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
     <div id="runs-list" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="runs-pagination-dash" class="pagination-bar" style="display:none;"></div>
     <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
   </div>
-  <div class="card" style="max-width: 1100px; margin: 0 auto;">
+  <div class="card" style="margin: 0;">
     <div class="dash-table-toolbar">
       <h3 style="margin: 0; font-size: 16px;">Recent Transactions</h3>
       <div class="dash-table-toolbar-right">
@@ -4595,9 +4590,9 @@
 </div>
 
 <!-- ═══ RESULTS ═══ -->
-<div id="results-page" class="page-section page-rail">
+<div id="results-page" class="page-section">
 
-  <div id="results-empty" class="card" style="max-width: 1000px; margin: 0 auto 20px auto; text-align: center; padding: 50px;">
+  <div id="results-empty" class="card" style="margin: 0 0 20px; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
   </div>
   <div id="results-content" style="display: none;">
@@ -4729,7 +4724,7 @@
   </div>
 
   <!-- Backtest Comparison Panel -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+  <div class="card" style="margin: 0 0 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0; font-size: 16px;">Compare Backtests</h3>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -4752,7 +4747,7 @@
   </div>
 
   <!-- All Runs Panel -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 20px auto;">
+  <div class="card" style="margin: 0 0 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0; font-size: 16px;">All Runs</h3>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -5181,8 +5176,7 @@
 </div>
 
 <!-- ═══ SCALP PAGE ═══ -->
-<div id="scalp-page" class="page-section page-rail">
-  <div class="page-rail-inner">
+<div id="scalp-page" class="page-section">
 
   <!-- Engine Status Bar -->
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
@@ -5396,7 +5390,6 @@
   </div>
 
 </div>
-  </div>
 
 <!-- ═══ CHARTS VIEWER ═══ -->
 <div id="charts-page" class="page-section" style="margin: 0 auto;">
