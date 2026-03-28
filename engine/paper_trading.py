@@ -294,10 +294,13 @@ class PaperTradingEngine:
             with open(self._state_file, "r") as f:
                 state = _json.load(f)
 
-            # Only restore live trading state if the session was from today
             saved_date = state.get("session_date")
             today = str(date_type.today())
-            if saved_date != today:
+            saved_positions = [
+                position for position in (state.get("positions") or []) if (position or {}).get("status") != "closed"
+            ]
+            restoring_stale_positions = saved_date != today and bool(saved_positions)
+            if saved_date != today and not restoring_stale_positions:
                 # Stale session — save any closed trades to history before discarding
                 stale_trades = state.get("closed_trades", [])
                 if stale_trades:
@@ -310,8 +313,9 @@ class PaperTradingEngine:
 
             # Restore fields
             self.session_date = date_type.today()
-            self.in_trade = state.get("in_trade", False)
             self.positions = state.get("positions", [])
+            open_positions = [position for position in self.positions if (position or {}).get("status") != "closed"]
+            self.in_trade = bool(open_positions) or bool(state.get("in_trade", False))
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
             self.daily_pnl = state.get("daily_pnl", 0.0)
@@ -355,6 +359,39 @@ class PaperTradingEngine:
                 except Exception:
                     t = _now_ist()
                 self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
+
+            if restoring_stale_positions:
+                if self._is_intraday_product(self.strategy):
+                    self.current_time = _now_ist()
+                    self.log_event(
+                        "warning",
+                        f"Stale intraday paper session restored from {saved_date} — closing {len(open_positions)} open position(s)",
+                    )
+                    for position in list(self.positions):
+                        if position.get("status") == "closed":
+                            continue
+                        exit_px = self._safe_float(position.get("current_premium"), 0.0)
+                        if exit_px <= 0:
+                            exit_px = self._safe_float(position.get("entry_premium"), 0.0)
+                        self._close_position(position, "MIS_SESSION_ROLLOVER", exit_px)
+                    self.trades_today = 0
+                    self.daily_pnl = 0.0
+                    self._reset_intraday_status("restored_stale_intraday")
+                    self._save_state()
+                    print(
+                        f"[PAPER] Restored stale intraday state from {saved_date}: "
+                        f"{len(open_positions)} position(s) closed"
+                    )
+                else:
+                    self.log_event(
+                        "info",
+                        f"Carry paper position restored from {saved_date} — {len(open_positions)} position(s) remain open",
+                    )
+                    self._save_state()
+                    print(
+                        f"[PAPER] Restored carry state from {saved_date}: "
+                        f"{len(open_positions)} open position(s) preserved"
+                    )
 
             n_trades = len(self.closed_trades)
             n_pos = len(self.positions)
@@ -408,6 +445,7 @@ class PaperTradingEngine:
         self._exit_slippage_bps = max(0.0, float(strategy.get("exit_slippage_bps", 0) or 0))
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
+        self.log_event("info", f"Product: {self._product_type(strategy)}")
         if sl_rupees > 0 or sl_pct > 0:
             self.log_event("info", f"Strategy SL: ₹{sl_rupees:,.0f}" if sl_rupees > 0 else f"Strategy SL: {sl_pct}%")
         if tp_rupees > 0 or tp_pct > 0:
@@ -507,6 +545,24 @@ class PaperTradingEngine:
         except Exception:
             return default
 
+    @staticmethod
+    def _normalize_product_type(product_type: str | None) -> str:
+        normalized = str(product_type or "").strip().upper()
+        if normalized in ("", "MIS", "INTRADAY"):
+            return "MIS"
+        if normalized in ("NRML", "NORMAL", "MARGIN"):
+            return "NRML"
+        return normalized
+
+    def _product_type(self, strategy: dict | None = None) -> str:
+        strategy = strategy if isinstance(strategy, dict) else (self.strategy or {})
+        deploy_config = strategy.get("deploy_config", {}) or {}
+        raw = deploy_config.get("product_type") or strategy.get("product_type")
+        return self._normalize_product_type(raw)
+
+    def _is_intraday_product(self, strategy: dict | None = None) -> bool:
+        return self._product_type(strategy) == "MIS"
+
     def _market_close_time(self):
         market_close = self.strategy.get("market_close", "15:25")
         from datetime import time as time_class
@@ -553,6 +609,10 @@ class PaperTradingEngine:
             if changed:
                 self._save_state()
             return changed
+        if not self._is_intraday_product():
+            if changed:
+                self._save_state()
+            return changed
 
         self.log_event(
             "warning",
@@ -594,6 +654,8 @@ class PaperTradingEngine:
             self._clear_pending_entry()
 
         if not self.positions:
+            return False
+        if not self._is_intraday_product():
             return False
 
         self.log_event(
@@ -1742,18 +1804,19 @@ class PaperTradingEngine:
             if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
                 return "EXIT_SIGNAL"
 
-        # Square off time
-        sqoff_time = self.strategy.get("combined_sqoff_time", "15:20")
-        if not sqoff_time:
-            sqoff_time = position.get("sqoff_time", "15:20")
-        if isinstance(sqoff_time, str):
-            h, m = map(int, sqoff_time.split(":"))
-            from datetime import time as time_class
+        if self._is_intraday_product():
+            # Square off time
+            sqoff_time = self.strategy.get("combined_sqoff_time", "15:20")
+            if not sqoff_time:
+                sqoff_time = position.get("sqoff_time", "15:20")
+            if isinstance(sqoff_time, str):
+                h, m = map(int, sqoff_time.split(":"))
+                from datetime import time as time_class
 
-            sqoff_time = time_class(h, m)
+                sqoff_time = time_class(h, m)
 
-        if self.current_time.time() >= sqoff_time:
-            return "SQUARE_OFF"
+            if self.current_time.time() >= sqoff_time:
+                return "SQUARE_OFF"
 
         return None
 

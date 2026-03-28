@@ -12314,8 +12314,16 @@ async function _forceExitPosition(apiPath, runId, posIndex) {
     const data = await res.json();
     if (data.status === 'ok') {
       showToast(data.message || 'Position exited', 'success');
+      loadLiveMonitor();
+    } else if (data.status === 'partial') {
+      showToast(data.message || 'Position partially exited', 'warning');
+      loadLiveMonitor();
+    } else if (data.status === 'pending') {
+      showToast(data.message || 'Exit retry pending', 'warning');
+      loadLiveMonitor();
     } else {
       showToast(data.message || 'Exit failed', 'error');
+      loadLiveMonitor();
     }
   } catch (e) {
     showToast('Exit request failed: ' + e.message, 'error');

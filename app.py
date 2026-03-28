@@ -1190,12 +1190,18 @@ def _save_stopped_engines(user_id: int):
         pass
 
 
-def _state_file_snapshots(user_id: int) -> list[dict]:
-    """Build Live-page snapshots from today's persisted engine state files.
+def _state_has_open_positions(state: dict) -> bool:
+    if not isinstance(state, dict):
+        return False
+    positions = state.get("positions") or []
+    return any((position or {}).get("status") != "closed" for position in positions)
 
-    This preserves previously visible Live tabs after migration/redeploy even
-    when the in-memory engine bucket is empty and no stopped snapshot file has
-    been written yet.
+
+def _state_file_snapshots(user_id: int) -> list[dict]:
+    """Build Live-page snapshots from persisted engine state files.
+
+    This preserves previously visible Live tabs after migration/redeploy,
+    including valid cross-day carry positions.
     """
 
     state_dir = _engine_state_dir(user_id, create=False)
@@ -1256,7 +1262,7 @@ def _state_file_snapshots(user_id: int) -> list[dict]:
 
         if not isinstance(state, dict):
             continue
-        if state.get("session_date") != today:
+        if state.get("session_date") != today and not _state_has_open_positions(state):
             continue
 
         snap = _snapshot_from_state(fname, state, mode)
@@ -6069,8 +6075,43 @@ async def live_exit_position(request: Request):
 
     pos = engine.positions[pos_index]
     current_premium = pos.get("current_premium", pos.get("entry_premium", 0))
-    await engine._exit_position(pos, "MANUAL_EXIT", current_premium)
-    return {"status": "ok", "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exit order placed"}
+
+    async def broadcast(event: dict):
+        await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
+        _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+        if event.get("type") == "exit" and event.get("trade"):
+            await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
+
+    result = await engine._exit_position(pos, "MANUAL_EXIT", current_premium, callback=broadcast)
+    status = str((result or {}).get("status") or "error").lower()
+    symbol = pos.get("trading_symbol", pos.get("symbol", "position"))
+
+    if status == "ok":
+        return {
+            "status": "ok",
+            "message": result.get("message") or f"Position {symbol} exited",
+            "engine_status": engine.get_status(),
+            "trade": result.get("trade"),
+        }
+    if status == "partial":
+        return {
+            "status": "partial",
+            "message": result.get("message") or f"Position {symbol} partially exited",
+            "remaining_qty": result.get("remaining_qty", 0),
+            "engine_status": engine.get_status(),
+            "trade": result.get("trade"),
+        }
+    if status == "pending":
+        return {
+            "status": "pending",
+            "message": result.get("message") or f"Position {symbol} exit retry pending",
+            "engine_status": engine.get_status(),
+        }
+    return {
+        "status": "error",
+        "message": result.get("message") or f"Position {symbol} exit failed",
+        "engine_status": engine.get_status(),
+    }
 
 
 def _history_trade_signature(trade: dict) -> dict | None:
@@ -8085,8 +8126,7 @@ async def _restore_live_engines():
             with open(fpath, "r") as f:
                 state = _json.load(f)
 
-            # Skip stale sessions (not from today)
-            if state.get("session_date") != today:
+            if state.get("session_date") != today and not _state_has_open_positions(state):
                 print(f"🔄 [Restore] Skipping stale state: {fname} (date={state.get('session_date')})")
                 continue
 
@@ -8169,8 +8209,7 @@ async def _restore_paper_engines():
             with open(fpath, "r") as f:
                 state = _json.load(f)
 
-            # Skip stale sessions (not from today)
-            if state.get("session_date") != today:
+            if state.get("session_date") != today and not _state_has_open_positions(state):
                 print(f"🔄 [Restore] Skipping stale paper state: {fname} (date={state.get('session_date')})")
                 continue
 

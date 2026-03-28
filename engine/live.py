@@ -52,6 +52,51 @@ from engine.timeframes import (
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
+_NSE_CAPITAL_MARKET_HOLIDAYS = {
+    "2024-01-26",
+    "2024-03-08",
+    "2024-03-25",
+    "2024-03-29",
+    "2024-04-11",
+    "2024-04-17",
+    "2024-05-01",
+    "2024-06-17",
+    "2024-07-17",
+    "2024-08-15",
+    "2024-10-02",
+    "2024-11-01",
+    "2024-11-15",
+    "2024-12-25",
+    "2025-02-26",
+    "2025-03-14",
+    "2025-03-31",
+    "2025-04-10",
+    "2025-04-14",
+    "2025-04-18",
+    "2025-05-01",
+    "2025-08-15",
+    "2025-08-27",
+    "2025-10-02",
+    "2025-10-21",
+    "2025-10-22",
+    "2025-11-05",
+    "2025-12-25",
+    "2026-01-26",
+    "2026-03-03",
+    "2026-03-26",
+    "2026-03-31",
+    "2026-04-03",
+    "2026-04-14",
+    "2026-05-01",
+    "2026-05-28",
+    "2026-06-26",
+    "2026-09-14",
+    "2026-10-02",
+    "2026-10-20",
+    "2026-11-10",
+    "2026-11-24",
+    "2026-12-25",
+}
 
 
 # Lazy import to avoid circular dependency
@@ -330,6 +375,189 @@ class LiveEngine:
         except Exception:
             return default
 
+    @staticmethod
+    def _normalize_product_type(product_type: str | None) -> str:
+        normalized = str(product_type or "").strip().upper()
+        if normalized in ("", "MIS", "INTRADAY"):
+            return "MIS"
+        if normalized in ("NRML", "NORMAL", "MARGIN"):
+            return "NRML"
+        return normalized
+
+    def _product_type(self, strategy: dict | None = None, deploy_config: dict | None = None) -> str:
+        strategy = strategy if isinstance(strategy, dict) else (self.strategy or {})
+        deploy_config = (
+            deploy_config
+            if isinstance(deploy_config, dict)
+            else (self.deploy_config or strategy.get("deploy_config", {}) or {})
+        )
+        raw = (deploy_config or {}).get("product_type") or strategy.get("product_type")
+        return self._normalize_product_type(raw)
+
+    def _is_intraday_product(self, strategy: dict | None = None, deploy_config: dict | None = None) -> bool:
+        return self._product_type(strategy, deploy_config) == "MIS"
+
+    @staticmethod
+    def _is_closed_market_day(target_date: date_type | None) -> bool:
+        if target_date is None:
+            return False
+        return target_date.weekday() >= 5 or target_date.isoformat() in _NSE_CAPITAL_MARKET_HOLIDAYS
+
+    def _mark_intraday_rollover_positions(self, reason: str = "MIS_SESSION_ROLLOVER") -> bool:
+        if not self.positions or not self._is_intraday_product():
+            return False
+        marked = 0
+        for pos in self.positions:
+            if pos.get("status") == "closed":
+                continue
+            if pos.get("_force_exit_reason") == reason:
+                continue
+            pos["_force_exit_reason"] = reason
+            marked += 1
+        if marked:
+            self.in_trade = True
+            self.log_event(
+                "warning",
+                f"Intraday position carried past session close — {marked} open leg(s) will exit when the market opens",
+            )
+            self._save_state()
+        return marked > 0
+
+    @staticmethod
+    def _broker_position_quantity(position: dict | None) -> int:
+        if not isinstance(position, dict):
+            return 0
+        for key in ("netQty", "netQuantity", "quantity", "qty"):
+            value = position.get(key)
+            if value is None or value == "":
+                continue
+            parsed_qty = None
+            try:
+                parsed_qty = int(round(abs(float(value))))
+            except (TypeError, ValueError):
+                parsed_qty = None
+            if parsed_qty is None:
+                continue
+            return max(0, parsed_qty)
+        return 0
+
+    def _resolve_position_security_id(self, pos: dict) -> str:
+        security_id = str(pos.get("security_id") or pos.get("securityId") or "").strip()
+        if security_id:
+            return security_id
+        try:
+            security_id = str(
+                ScripMaster.lookup(
+                    pos.get("underlying", ""),
+                    int(pos.get("strike") or 0),
+                    pos.get("expiry", ""),
+                    pos.get("option_type", ""),
+                )
+                or ""
+            ).strip()
+        except Exception:
+            security_id = ""
+        if security_id:
+            pos["security_id"] = security_id
+        return security_id
+
+    def _broker_exit_premium(self, pos: dict, broker_position: dict | None = None) -> float:
+        candidates = []
+        if isinstance(broker_position, dict):
+            candidates.extend(
+                [
+                    broker_position.get("lastTradedPrice"),
+                    broker_position.get("lastPrice"),
+                    broker_position.get("ltp"),
+                    broker_position.get("averagePrice"),
+                    broker_position.get("buyAvg"),
+                    broker_position.get("sellAvg"),
+                    broker_position.get("buyAvgPrice"),
+                    broker_position.get("sellAvgPrice"),
+                    broker_position.get("costPrice"),
+                ]
+            )
+        candidates.extend([pos.get("current_premium"), pos.get("entry_premium")])
+        for candidate in candidates:
+            premium = self._safe_float(candidate, 0.0)
+            if premium > 0:
+                return premium
+        return 0.0
+
+    async def _reconcile_broker_positions(self, callback=None) -> bool:
+        if not self.positions:
+            return False
+        try:
+            broker_positions = await self.dhan.async_get_positions()
+        except Exception as exc:
+            self.log_event("warning", f"Broker position sync failed: {exc}")
+            return False
+
+        broker_map: dict[str, dict] = {}
+        for broker_position in broker_positions or []:
+            if not isinstance(broker_position, dict):
+                continue
+            security_id = str(broker_position.get("securityId") or broker_position.get("security_id") or "").strip()
+            if security_id:
+                broker_map[security_id] = broker_position
+
+        changed = False
+        for pos in list(self.positions):
+            if pos.get("status") == "closed":
+                continue
+            if pos.get("_exit_in_flight"):
+                continue
+            engine_qty = self._position_quantity(pos)
+            if engine_qty <= 0:
+                continue
+
+            security_id = self._resolve_position_security_id(pos)
+            broker_position = broker_map.get(security_id) if security_id else None
+            broker_qty = self._broker_position_quantity(broker_position)
+            if broker_qty >= engine_qty:
+                continue
+
+            exit_premium = self._broker_exit_premium(pos, broker_position)
+            if exit_premium <= 0:
+                exit_premium = self._safe_float(pos.get("entry_premium"), 0.0)
+
+            if broker_qty <= 0:
+                closed_trade = await self._record_closed_trade(pos, "BROKER_MANUAL_EXIT", exit_premium, engine_qty)
+                async with self._trades_lock:
+                    if pos in self.positions:
+                        self.positions.remove(pos)
+                self.log_event(
+                    "warning",
+                    f"Broker exit detected outside engine for Leg {pos.get('leg_num')}: synced full close",
+                )
+            else:
+                closed_qty = max(0, engine_qty - broker_qty)
+                if closed_qty <= 0:
+                    continue
+                closed_trade = await self._record_closed_trade(pos, "BROKER_PARTIAL_EXIT", exit_premium, closed_qty)
+                pos["quantity"] = broker_qty
+                pos["lots"] = broker_qty / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
+                pos["current_premium"] = exit_premium
+                pos["unrealized_pnl"] = round(self._position_unrealized_pnl(pos, exit_premium), 2)
+                pos.pop("_force_exit_reason", None)
+                pos["partial_exit_count"] = int(pos.get("partial_exit_count", 0) or 0) + 1
+                self.log_event(
+                    "warning",
+                    f"Broker partial exit detected for Leg {pos.get('leg_num')}: synced {closed_qty} qty, {broker_qty} remaining",
+                )
+
+            changed = True
+            self.in_trade = bool(self.positions)
+            if not self.positions:
+                self._signal_candle = None
+                self.strat_sl_val = 0
+                self.strat_tp_val = 0
+            self._save_state()
+            if callback and closed_trade:
+                await self._emit(callback, {"type": "exit", "trade": closed_trade, **self.get_status()})
+
+        return changed
+
     async def _force_market_close_if_needed(self, current_dt: datetime, callback=None) -> bool:
         if current_dt.time() < self._market_close:
             return False
@@ -339,6 +567,8 @@ class LiveEngine:
             self._clear_pending_order()
 
         if not self.positions:
+            return False
+        if not self._is_intraday_product():
             return False
 
         self.log_event(
@@ -638,10 +868,13 @@ class LiveEngine:
             with open(self._state_file, "r") as f:
                 state = _json.load(f)
 
-            # Only restore if the session was from today (stale sessions are ignored)
             saved_date = state.get("session_date")
             today = str(date_type.today())
-            if saved_date != today:
+            saved_positions = [
+                position for position in (state.get("positions") or []) if (position or {}).get("status") != "closed"
+            ]
+            restoring_stale_positions = saved_date != today and bool(saved_positions)
+            if saved_date != today and not restoring_stale_positions:
                 print(f"[LIVE] Stale state from {saved_date} (today={today}) — ignoring")
                 return
 
@@ -663,8 +896,9 @@ class LiveEngine:
             )
 
             # Restore trading state
-            self.in_trade = state.get("in_trade", False)
             self.positions = state.get("positions", [])
+            open_positions = [position for position in self.positions if (position or {}).get("status") != "closed"]
+            self.in_trade = bool(open_positions) or bool(state.get("in_trade", False))
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
             self.daily_pnl = state.get("daily_pnl", 0.0)
@@ -690,6 +924,24 @@ class LiveEngine:
                 except Exception:
                     t = _now_ist()
                 self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
+
+            if restoring_stale_positions:
+                if self._is_intraday_product(self.strategy, self.deploy_config):
+                    self._mark_intraday_rollover_positions()
+                    print(
+                        f"[LIVE] Restored stale intraday state from {saved_date}: "
+                        f"{len(open_positions)} position(s) queued for next-session exit"
+                    )
+                else:
+                    self.log_event(
+                        "info",
+                        f"Carry product restored from {saved_date} — {len(open_positions)} position(s) remain open",
+                    )
+                    self._save_state()
+                    print(
+                        f"[LIVE] Restored carry state from {saved_date}: "
+                        f"{len(open_positions)} open position(s) preserved"
+                    )
 
             n_trades = len(self.closed_trades)
             n_pos = len(self.positions)
@@ -1019,11 +1271,29 @@ class LiveEngine:
 
                 # New day reset
                 if now.date() != self.session_date:
+                    if self.positions:
+                        if self._is_intraday_product():
+                            self._mark_intraday_rollover_positions()
+                        else:
+                            self.log_event(
+                                "info", f"Carry position preserved into new session ({self._product_type()})"
+                            )
+                            self._save_state()
                     self.trades_today = 0
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
                     self._reset_intraday_status()
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
+
+                if self._is_closed_market_day(now.date()):
+                    if self._pending_order:
+                        self.log_event("info", "Pending order cleared on closed market day")
+                        self._clear_pending_order()
+                        self._save_state()
+                    await asyncio.sleep(5)
+                    if callback:
+                        await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+                    continue
 
                 # Market hours check (pre-parsed in configure())
                 allow_final_candle_grace = now <= now.replace(
@@ -1097,8 +1367,11 @@ class LiveEngine:
                             qty = self._position_quantity(pos)
                             pos["unrealized_pnl"] = round((current_premium - pos["entry_premium"]) * direction * qty, 2)
 
+                    if self.in_trade:
+                        await self._reconcile_broker_positions(callback)
+
                     latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                    if latest_row is not None:
+                    if self.in_trade and latest_row is not None:
                         strategy_exit = self._check_strategy_exit()
                         if strategy_exit:
                             for pos in list(self.positions):
@@ -1571,10 +1844,25 @@ class LiveEngine:
 
         # New day reset
         if now.date() != self.session_date:
+            if self.positions:
+                if self._is_intraday_product():
+                    self._mark_intraday_rollover_positions()
+                else:
+                    self.log_event("info", f"Carry position preserved into new session ({self._product_type()})")
+                    self._save_state()
             self.trades_today = 0
             self.daily_pnl = 0.0
             self.session_date = now.date()
             self.log_event("info", f"📅 New trading day: {self.session_date}")
+
+        if self._is_closed_market_day(now.date()):
+            if self._pending_order:
+                self.log_event("info", "Pending order cleared on closed market day")
+                self._clear_pending_order()
+                self._save_state()
+            if callback:
+                await self._emit(callback, {"type": "status", "message": "Outside market hours"})
+            return
 
         # Market hours check (pre-parsed in configure())
         if cur_time < self._market_open:
@@ -1624,7 +1912,10 @@ class LiveEngine:
             qty = self._position_quantity(pos)
             pos["unrealized_pnl"] = round((current_premium - pos["entry_premium"]) * direction * qty, 2)
 
-        if candle_in_session:
+        if self.in_trade:
+            await self._reconcile_broker_positions(callback)
+
+        if candle_in_session and self.in_trade:
             strategy_exit = self._check_strategy_exit()
             if strategy_exit:
                 for pos in list(self.positions):
@@ -2023,6 +2314,7 @@ class LiveEngine:
             ws_sec_id = None
             if self._ws_mode and self._feed:
                 ws_sec_id = self._feed.subscribe_option(underlying, strike, expiry, opt_type)
+            security_id = str(ScripMaster.lookup(underlying, strike, expiry, opt_type) or "").strip()
 
             entry_premium = self._safe_float(verification.get("avg_price"), 0.0)
             if entry_premium <= 0 and scanned_premium > 0:
@@ -2071,6 +2363,7 @@ class LiveEngine:
                 "symbol": trading_symbol,
                 "status": "open",
                 "ws_sec_id": ws_sec_id,
+                "security_id": security_id,
                 "_exit_attempts": 0,
             }
 
@@ -2197,10 +2490,10 @@ class LiveEngine:
     async def _handle_partial_exit_fill(self, pos: dict, reason: str, verification: dict):
         filled_qty = min(self._position_quantity(pos), int(verification.get("filled_qty") or 0))
         if filled_qty <= 0:
-            return False
+            return None
 
         exit_premium = self._safe_float(verification.get("avg_price"), pos.get("current_premium", pos["entry_premium"]))
-        await self._record_closed_trade(pos, reason, exit_premium, filled_qty)
+        closed_trade = await self._record_closed_trade(pos, reason, exit_premium, filled_qty)
 
         remaining_qty = max(0, self._position_quantity(pos) - filled_qty)
         if remaining_qty <= 0:
@@ -2213,7 +2506,7 @@ class LiveEngine:
                 self.strat_sl_val = 0
                 self.strat_tp_val = 0
             self._save_state()
-            return True
+            return {"trade": closed_trade, "remaining_qty": 0}
 
         pos["quantity"] = remaining_qty
         pos["lots"] = remaining_qty / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
@@ -2227,12 +2520,27 @@ class LiveEngine:
             f"Partial exit fill for Leg {pos['leg_num']}: closed {filled_qty}, remaining {remaining_qty}. Retrying remaining exposure.",
         )
         self._save_state()
-        return True
+        return {"trade": closed_trade, "remaining_qty": remaining_qty}
 
     async def _exit_position(self, pos: dict, reason: str, exit_premium: float, callback=None):
         """Exit a position: cancel SL + place exit order (async, non-blocking)."""
+        retry_after = pos.get("_exit_retry_after")
+        if isinstance(retry_after, datetime) and _now_ist() < retry_after:
+            return {
+                "status": "pending",
+                "closed": False,
+                "message": f"Exit retry throttled until {retry_after.strftime('%H:%M:%S')}",
+            }
+        if pos.get("_exit_in_flight"):
+            return {
+                "status": "pending",
+                "closed": False,
+                "message": f"Exit already in progress for {pos.get('trading_symbol', pos.get('symbol', 'position'))}",
+            }
+
         opposite_txn = "SELL" if pos["transaction_type"] == "BUY" else "BUY"
         pos["_force_exit_reason"] = reason
+        pos["_exit_in_flight"] = True
 
         exit_order_type = self.deploy_config.get("exit_order", "MARKET")
         product_type = self.deploy_config.get("product_type", "INTRADAY")
@@ -2263,75 +2571,140 @@ class LiveEngine:
             )
 
         try:
-            # Fire SL cancel + exit order in parallel
-            _, result = await asyncio.gather(_cancel_sl(), _place_exit())
-            order_id = result.get("orderId", "")
-            pos["exit_order_id"] = order_id
-            self.log_event(
-                "order",
-                f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} | OrderID: {order_id}",
-            )
-            verification = await self._verify_order_execution(
-                order_id,
-                self._position_quantity(pos),
-                stage="exit",
-                label=f"Leg {pos['leg_num']} {pos['trading_symbol']}",
-                timeout_sec=self._exit_fill_timeout_sec,
-            )
-        except Exception as e:
-            pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
-            attempt = pos["_exit_attempts"]
-            self.log_event("error", f"❌ Exit order FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {e}")
-            if attempt >= 3:
+            try:
+                # Fire SL cancel + exit order in parallel
+                _, result = await asyncio.gather(_cancel_sl(), _place_exit())
+                order_id = result.get("orderId", "")
+                pos["exit_order_id"] = order_id
+                pos.pop("_exit_retry_after", None)
+                self.log_event(
+                    "order",
+                    f"✅ Exit order placed: {opposite_txn} {pos['trading_symbol']} | OrderID: {order_id}",
+                )
+                verification = await self._verify_order_execution(
+                    order_id,
+                    self._position_quantity(pos),
+                    stage="exit",
+                    label=f"Leg {pos['leg_num']} {pos['trading_symbol']}",
+                    timeout_sec=self._exit_fill_timeout_sec,
+                )
+            except Exception as e:
+                pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
+                attempt = pos["_exit_attempts"]
+                self.log_event("error", f"❌ Exit order FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {e}")
+                if attempt >= 3:
+                    self.manual_intervention_required = True
+                    pos["_exit_retry_after"] = _now_ist() + timedelta(seconds=5)
+                    if reason == "MANUAL_EXIT":
+                        pos.pop("_force_exit_reason", None)
+                        self._save_state()
+                        self.log_event(
+                            "error",
+                            f"CRITICAL: Manual exit failed 3 times for Leg {pos['leg_num']} "
+                            f"({pos['trading_symbol']}). Manual intervention required. Engine continues running.",
+                        )
+                        return {
+                            "status": "error",
+                            "closed": False,
+                            "message": "Manual exit could not be confirmed after 3 attempts. Check broker position.",
+                        }
+                    self.log_event(
+                        "error",
+                        f"CRITICAL: Exit failed 3 times for Leg {pos['leg_num']} "
+                        f"({pos['trading_symbol']}). "
+                        f"MANUAL INTERVENTION REQUIRED. Engine stopping.",
+                    )
+                    self.running = False
+                    self._save_state()
+                return {
+                    "status": "error",
+                    "closed": False,
+                    "message": f"Exit order failed for {pos.get('trading_symbol', pos.get('symbol', 'position'))}",
+                }  # position stays open — next cycle will retry
+
+            if verification.get("partial_fill"):
+                partial_result = await self._handle_partial_exit_fill(pos, reason, verification)
+                if partial_result and callback and partial_result.get("trade"):
+                    await self._emit(callback, {"type": "exit", "trade": partial_result["trade"], **self.get_status()})
+                if partial_result:
+                    return {
+                        "status": "partial" if partial_result.get("remaining_qty", 0) > 0 else "ok",
+                        "closed": partial_result.get("remaining_qty", 0) <= 0,
+                        "trade": partial_result.get("trade"),
+                        "remaining_qty": partial_result.get("remaining_qty", 0),
+                        "message": "Exit partially filled"
+                        if partial_result.get("remaining_qty", 0) > 0
+                        else "Position exited",
+                    }
+                return {"status": "error", "closed": False, "message": "Exit fill could not be confirmed"}
+            if not verification.get("passed"):
+                pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
+                attempt = pos["_exit_attempts"]
                 self.log_event(
                     "error",
-                    f"CRITICAL: Exit failed 3 times for Leg {pos['leg_num']} "
-                    f"({pos['trading_symbol']}). "
-                    f"MANUAL INTERVENTION REQUIRED. Engine stopping.",
+                    f"❌ Exit verification FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {verification.get('status')} {verification.get('message', '')}".strip(),
                 )
-                self.running = False
-            return  # position stays open — next cycle will retry
+                if attempt >= 3:
+                    self.manual_intervention_required = True
+                    pos["_exit_retry_after"] = _now_ist() + timedelta(seconds=5)
+                    if reason == "MANUAL_EXIT":
+                        pos.pop("_force_exit_reason", None)
+                        self._save_state()
+                        self.log_event(
+                            "error",
+                            f"CRITICAL: Manual exit not confirmed after {attempt} attempts for Leg {pos['leg_num']} ({pos['trading_symbol']}). Manual intervention required. Engine continues running.",
+                        )
+                        return {
+                            "status": "error",
+                            "closed": False,
+                            "message": "Manual exit was placed but not confirmed. Check broker position.",
+                        }
+                    self.running = False
+                    self.log_event(
+                        "error",
+                        f"CRITICAL: Exit not confirmed after {attempt} attempts for Leg {pos['leg_num']} ({pos['trading_symbol']}). Manual intervention required.",
+                    )
+                    self._save_state()
+                return {
+                    "status": "error",
+                    "closed": False,
+                    "message": verification.get("message") or "Exit order not confirmed",
+                }
 
-        if verification.get("partial_fill"):
-            await self._handle_partial_exit_fill(pos, reason, verification)
-            return
-        if not verification.get("passed"):
-            pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
-            attempt = pos["_exit_attempts"]
-            self.log_event(
-                "error",
-                f"❌ Exit verification FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {verification.get('status')} {verification.get('message', '')}".strip(),
+            pos["_exit_attempts"] = 0
+            pos.pop("_exit_retry_after", None)
+            actual_exit_premium = self._safe_float(verification.get("avg_price"), exit_premium)
+            closed_trade = await self._record_closed_trade(
+                pos, reason, actual_exit_premium, self._position_quantity(pos)
             )
-            if attempt >= 3:
-                self.manual_intervention_required = True
-                self.running = False
+
+            async with self._trades_lock:
+                if pos in self.positions:
+                    self.positions.remove(pos)
+
+            # Check if all legs closed
+            if not self.positions:
+                self.in_trade = False
+                self._signal_candle = None
+                self.strat_sl_val = 0
+                self.strat_tp_val = 0
+                trade_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
                 self.log_event(
-                    "error",
-                    f"CRITICAL: Exit not confirmed after {attempt} attempts for Leg {pos['leg_num']} ({pos['trading_symbol']}). Manual intervention required.",
+                    "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | Daily P&L: ₹{self.daily_pnl:,.2f}"
                 )
-            return
-
-        pos["_exit_attempts"] = 0
-        actual_exit_premium = self._safe_float(verification.get("avg_price"), exit_premium)
-        await self._record_closed_trade(pos, reason, actual_exit_premium, self._position_quantity(pos))
-
-        async with self._trades_lock:
-            if pos in self.positions:
-                self.positions.remove(pos)
-
-        # Check if all legs closed
-        if not self.positions:
-            self.in_trade = False
-            self._signal_candle = None
-            self.strat_sl_val = 0
-            self.strat_tp_val = 0
-            trade_pnl = sum(t["pnl"] for t in self.closed_trades if t.get("exit_time") == self.current_time)
-            self.log_event(
-                "info", f"📊 All legs closed. Trade P&L: ₹{trade_pnl:,.2f} | Daily P&L: ₹{self.daily_pnl:,.2f}"
-            )
-        else:
-            self.in_trade = True
-        self._save_state()  # Persist after trade close
+            else:
+                self.in_trade = True
+            self._save_state()  # Persist after trade close
+            if callback and closed_trade:
+                await self._emit(callback, {"type": "exit", "trade": closed_trade, **self.get_status()})
+            return {
+                "status": "ok",
+                "closed": True,
+                "trade": closed_trade,
+                "message": f"Position {pos.get('trading_symbol', pos.get('symbol', ''))} exited",
+            }
+        finally:
+            pos.pop("_exit_in_flight", None)
 
     # ── Exit Condition Check ──────────────────────────────────
     def _check_exit_conditions(
@@ -2436,15 +2809,16 @@ class LiveEngine:
             if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
                 return "EXIT_SIGNAL"
 
-        # Square-off time — check strategy-level combined_sqoff_time first
-        sqoff = self.strategy.get("combined_sqoff_time", "15:20")
-        if not sqoff:
-            sqoff = pos.get("sqoff_time", "15:20")
-        if isinstance(sqoff, str):
-            h, m = map(int, sqoff.split(":"))
-            sqoff = time(h, m)
-        if self.current_time and self.current_time.time() >= sqoff:
-            return "SQUARE_OFF"
+        if self._is_intraday_product():
+            # Square-off time — check strategy-level combined_sqoff_time first
+            sqoff = self.strategy.get("combined_sqoff_time", "15:20")
+            if not sqoff:
+                sqoff = pos.get("sqoff_time", "15:20")
+            if isinstance(sqoff, str):
+                h, m = map(int, sqoff.split(":"))
+                sqoff = time(h, m)
+            if self.current_time and self.current_time.time() >= sqoff:
+                return "SQUARE_OFF"
 
         return None
 
