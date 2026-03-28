@@ -197,14 +197,13 @@ body::after {
 .brand-title,
 .card-heading h1,
 .card-heading h2,
-.rail-heading h3,
 .hero-symbol {
   font-family: 'Syne', sans-serif;
   letter-spacing: -0.04em;
 }
 
 .brand-title {
-  font-size: clamp(1.5rem, 2vw, 2rem);
+  font-size: clamp(1.38rem, 1.8vw, 1.78rem);
   font-weight: 700;
 }
 
@@ -349,12 +348,16 @@ body::after {
 .card-heading h2,
 .rail-heading h3 {
   margin: 6px 0 0;
-  font-size: clamp(1.32rem, 2vw, 1.9rem);
+  font-size: clamp(1.14rem, 1.5vw, 1.55rem);
   line-height: 1;
 }
 
 .card-heading h2 {
-  font-size: clamp(1.15rem, 1.4vw, 1.55rem);
+  font-size: clamp(1.02rem, 1.25vw, 1.28rem);
+}
+
+.rail-heading h3 {
+  font-size: clamp(0.98rem, 1.1vw, 1.18rem);
 }
 
 .sync-meta,
@@ -393,7 +396,7 @@ body::after {
 
 .pulse-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(1.2rem, 2vw, 1.65rem);
+  font-size: clamp(1.05rem, 1.4vw, 1.32rem);
   font-weight: 700;
 }
 
@@ -500,18 +503,18 @@ body::after {
 
 .hero-symbol {
   margin: 0 0 8px;
-  font-size: clamp(1.75rem, 3vw, 2.65rem);
+  font-size: clamp(1.38rem, 2.15vw, 2rem);
 }
 
 .hero-company {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .hero-change {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(1.3rem, 2vw, 1.85rem);
+  font-size: clamp(1.02rem, 1.45vw, 1.28rem);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -520,7 +523,7 @@ body::after {
   display: grid;
   gap: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .hero-stats strong {
@@ -617,14 +620,14 @@ body::after {
 
 .tile-symbol {
   font-family: 'Syne', sans-serif;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
 
 .tile-industry {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.72);
 }
 
@@ -640,13 +643,13 @@ body::after {
 
 .tile-price {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .tile-change {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -655,7 +658,7 @@ body::after {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.74);
 }
 
@@ -729,7 +732,7 @@ body::after {
 .rail-symbol,
 .industry-name {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -738,7 +741,7 @@ body::after {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -747,7 +750,7 @@ body::after {
 .rail-move,
 .industry-move {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 

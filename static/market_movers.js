@@ -60,6 +60,13 @@ function formatSignedPercent(value) {
   return `${sign}${amount.toFixed(2)}%`;
 }
 
+function toneClass(value) {
+  const amount = Number(value || 0);
+  if (amount > 0) return 'positive';
+  if (amount < 0) return 'negative';
+  return 'neutral';
+}
+
 function formatVolume(value) {
   const amount = Math.max(0, Number(value || 0));
   if (amount >= 1e7) return `${(amount / 1e7).toFixed(amount >= 5e7 ? 0 : 1)}Cr`;
@@ -163,8 +170,7 @@ function renderHero(cardId, item, priceId, absId, volumeId) {
   symbolEl.textContent = item.symbol || '--';
   companyEl.textContent = item.name || item.industry || 'Awaiting quote';
   changeEl.textContent = formatSignedPercent(item.change_pct);
-  changeEl.classList.toggle('positive', Number(item.change_pct || 0) >= 0);
-  changeEl.classList.toggle('negative', Number(item.change_pct || 0) < 0);
+  changeEl.className = `hero-change ${toneClass(item.change_pct)}`;
   priceEl.textContent = formatCurrency(item.price || 0);
   absEl.textContent = formatSignedCurrency(item.change || 0);
   volumeEl.textContent = formatVolume(item.volume || 0);
@@ -186,7 +192,7 @@ function renderRailList(containerId, items, emptyMessage) {
             <span class="rail-symbol">${item.symbol}</span>
             <span class="rail-company">${item.name}</span>
           </div>
-          <span class="rail-move ${Number(item.change_pct || 0) >= 0 ? 'positive' : 'negative'}">${formatSignedPercent(item.change_pct)}</span>
+          <span class="rail-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
         </div>
       `
     )
@@ -209,7 +215,7 @@ function renderIndustryList(items) {
             <span class="industry-name">${item.industry}</span>
             <span class="industry-meta">${item.count} stocks • ${formatVolume(item.volume)} volume</span>
           </div>
-          <span class="industry-move ${item.change_pct >= 0 ? 'positive' : 'negative'}">${formatSignedPercent(item.change_pct)}</span>
+          <span class="industry-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
         </div>
       `
     )
@@ -240,7 +246,7 @@ function renderHeatmap(items) {
               <div class="tile-symbol">${item.symbol}</div>
               <div class="tile-industry">${item.industry || 'Industry'}</div>
             </div>
-            <span class="tile-change ${Number(item.change_pct || 0) >= 0 ? 'positive' : 'negative'}">${item.unavailable ? 'No feed' : formatSignedPercent(item.change_pct)}</span>
+            <span class="tile-change ${toneClass(item.change_pct)}">${item.unavailable ? 'No feed' : formatSignedPercent(item.change_pct)}</span>
           </div>
           <div class="tile-body">
             <div class="tile-price">${item.unavailable ? 'Awaiting quote' : formatCurrency(item.price || 0)}</div>
@@ -266,7 +272,9 @@ function updateBreadth(payload, industryMoves) {
 
   document.getElementById('breadth-advancers').textContent = advancers;
   document.getElementById('breadth-decliners').textContent = decliners;
-  document.getElementById('breadth-median').textContent = formatSignedPercent(median);
+  const medianEl = document.getElementById('breadth-median');
+  medianEl.textContent = formatSignedPercent(median);
+  medianEl.className = `pulse-value ${toneClass(median)}`;
   document.getElementById('breadth-bar-advancers').style.width = `${(advancers / total) * 100}%`;
   document.getElementById('breadth-bar-flat').style.width = `${(flat / total) * 100}%`;
   document.getElementById('breadth-bar-decliners').style.width = `${(decliners / total) * 100}%`;

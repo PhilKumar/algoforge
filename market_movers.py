@@ -292,15 +292,28 @@ def _finalize_payload(items: list[dict], *, source: str, message: str = "", stal
 
 def _dhan_snapshot(client: DhanClient) -> dict:
     security_map = _get_security_map()
+    if not security_map:
+        raise RuntimeError("No Dhan security map available for Nifty 50 equities")
+
     segments = {"NSE_EQ": list(security_map.values())}
     quote_data = client.get_quote_multi(segments)
+    ohlc_data = client.get_ohlc_multi(segments)
     nse_quotes = quote_data.get("NSE_EQ", {}) if isinstance(quote_data, dict) else {}
+    nse_ohlc = ohlc_data.get("NSE_EQ", {}) if isinstance(ohlc_data, dict) else {}
 
     items: list[dict] = []
     for base in NIFTY_50_CONSTITUENTS:
         symbol = base["symbol"]
         sec_id = security_map.get(symbol)
-        raw = nse_quotes.get(str(sec_id)) or nse_quotes.get(sec_id) or {}
+        quote_raw = nse_quotes.get(str(sec_id)) or nse_quotes.get(sec_id) or {}
+        ohlc_raw = nse_ohlc.get(str(sec_id)) or nse_ohlc.get(sec_id) or {}
+        raw = {}
+        if isinstance(ohlc_raw, dict):
+            raw.update(ohlc_raw)
+        if isinstance(quote_raw, dict):
+            raw.update(quote_raw)
+        if "ohlc" not in raw and isinstance(ohlc_raw, dict) and isinstance(ohlc_raw.get("ohlc"), dict):
+            raw["ohlc"] = ohlc_raw["ohlc"]
         price, change, change_pct, volume = _extract_quote_metrics(raw)
         items.append(
             {
@@ -325,7 +338,7 @@ def _yfinance_snapshot() -> dict:
     yf_symbols = [f"{symbol}.NS" for symbol in symbols]
     data = yf.download(
         tickers=" ".join(yf_symbols),
-        period="2d",
+        period="10d",
         interval="1d",
         progress=False,
         auto_adjust=False,
