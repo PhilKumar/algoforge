@@ -313,6 +313,16 @@
   .input-group label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
   input, select { width: 100%; background: rgba(12,16,26,0.7); border: 1px solid rgba(255,255,255,0.06); border-top: 1px solid rgba(255,255,255,0.08); color: var(--text); padding: 11px 12px; border-radius: 8px; font-family: 'Outfit', sans-serif; font-size: 15px; backdrop-filter: blur(10px); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.04); transition: border-color 0.2s, box-shadow 0.2s; }
   input:focus, select:focus { border-color: rgba(0,200,150,0.3); box-shadow: 0 0 0 2px rgba(0,200,150,0.1), inset 0 1px 3px rgba(0,0,0,0.3); outline: none; }
+  #bt-from-date::-webkit-calendar-picker-indicator,
+  #bt-to-date::-webkit-calendar-picker-indicator {
+    filter: brightness(0) saturate(100%) invert(66%) sepia(88%) saturate(1510%) hue-rotate(357deg) brightness(102%) contrast(96%);
+    opacity: 0.95;
+    cursor: pointer;
+  }
+  #bt-from-date::-webkit-calendar-picker-indicator:hover,
+  #bt-to-date::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
   /* Hide number input spinners for lot-size and strike */
   #scalp-lot-size::-webkit-outer-spin-button, #scalp-lot-size::-webkit-inner-spin-button,
   #scalp-strike::-webkit-outer-spin-button, #scalp-strike::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -2657,6 +2667,11 @@
     --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.16) 100%) !important;
     --btn-color: #5b21b6 !important;
     --btn-border: rgba(124,58,237,0.20) !important;
+  }
+  [data-theme="light"] #bt-from-date::-webkit-calendar-picker-indicator,
+  [data-theme="light"] #bt-to-date::-webkit-calendar-picker-indicator {
+    filter: none;
+    opacity: 0.72;
   }
   [data-theme="light"] #portfolio-yearly-grid .portfolio-ytd-table {
     background: transparent;
