@@ -1,4 +1,5 @@
 const MARKET_MOVERS_REFRESH_MS = 30000;
+const MARKET_MOVERS_FETCH_TIMEOUT_MS = 12000;
 let moversNextRefreshAt = 0;
 let moversRefreshTimer = null;
 let moversCountdownTimer = null;
@@ -316,11 +317,14 @@ function updateCountdown() {
 async function loadMarketMovers() {
   if (marketMoversLoading) return;
   marketMoversLoading = true;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), MARKET_MOVERS_FETCH_TIMEOUT_MS);
   try {
     const response = await fetch('/api/market-movers/nifty50', {
       credentials: 'same-origin',
       cache: 'no-store',
       headers: { Accept: 'application/json' },
+      signal: controller.signal,
     });
     if (response.status === 401) {
       window.location.href = '/';
@@ -331,10 +335,12 @@ async function loadMarketMovers() {
     renderSnapshot(payload);
   } catch (error) {
     document.getElementById('market-status').textContent = 'Feed unavailable';
+    document.getElementById('market-source').textContent = 'Feed unavailable';
     document.getElementById('page-message').textContent = latestPayload
       ? 'Unable to refresh right now. Showing the latest available snapshot.'
       : 'Unable to fetch market movers right now.';
   } finally {
+    window.clearTimeout(timeoutId);
     marketMoversLoading = false;
     moversNextRefreshAt = Date.now() + MARKET_MOVERS_REFRESH_MS;
     updateCountdown();

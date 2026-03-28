@@ -4,8 +4,7 @@ import csv
 import json
 import os
 import time
-from datetime import datetime, timedelta
-from datetime import time as dt_time
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -109,7 +108,6 @@ _WEIGHT_OVERRIDES = {
 _CONSTITUENT_LOOKUP = {item["symbol"]: item for item in NIFTY_50_CONSTITUENTS}
 _SNAPSHOT_CACHE: dict[str, Any] = {"timestamp": 0.0, "payload": None}
 _SECURITY_MAP_CACHE: dict[str, Any] = {"loaded": False, "payload": {}}
-_DAILY_BASELINE_CACHE: dict[str, Any] = {"key": "", "payload": {}}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -123,14 +121,6 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _now_ist_iso() -> str:
     return datetime.now(IST).replace(microsecond=0).isoformat()
-
-
-def _is_market_open_ist(now: datetime | None = None) -> bool:
-    current = now or datetime.now(IST)
-    if current.weekday() >= 5:
-        return False
-    current_time = current.time()
-    return dt_time(9, 15) <= current_time <= dt_time(15, 30)
 
 
 def _empty_snapshot(message: str, *, source: str = "unavailable", stale: bool = False) -> dict:
@@ -248,6 +238,15 @@ def _extract_quote_metrics(raw: dict | None) -> tuple[float, float, float, int]:
     ohlc = raw.get("ohlc") if isinstance(raw.get("ohlc"), dict) else {}
     if ohlc:
         prev_close = _safe_float(ohlc.get("close") or ohlc.get("prev_close") or ohlc.get("previous_close"), 0.0)
+    if prev_close <= 0:
+        prev_close = _safe_float(
+            raw.get("close")
+            or raw.get("prev_close")
+            or raw.get("previous_close")
+            or raw.get("previousClose")
+            or raw.get("ohlc_close"),
+            0.0,
+        )
     change = _safe_float(raw.get("net_change") or raw.get("change") or raw.get("netChange"), 0.0)
     if abs(change) < 1e-9 and price > 0 and prev_close > 0:
         change = price - prev_close
@@ -273,122 +272,6 @@ def _extract_quote_metrics(raw: dict | None) -> tuple[float, float, float, int]:
         )
     )
     return round(price, 2), round(change, 2), round(pct, 2), max(0, volume)
-
-
-def _resolve_daily_baseline_from_frame(frame) -> tuple[float, float]:
-    frame = frame.dropna(how="all")
-    close_series = frame.get("Close") if hasattr(frame, "get") else None
-    if close_series is None:
-        close_series = frame.get("close") if hasattr(frame, "get") else None
-    if close_series is None:
-        return 0.0, 0.0
-    close_series = close_series.dropna()
-    if close_series.empty:
-        return 0.0, 0.0
-
-    latest_close = _safe_float(close_series.iloc[-1], 0.0)
-    if latest_close <= 0:
-        return 0.0, 0.0
-
-    if len(close_series) < 2:
-        return round(latest_close, 2), round(latest_close, 2)
-
-    latest_index = close_series.index[-1]
-    latest_bar_date = latest_index.date() if hasattr(latest_index, "date") else datetime.now(IST).date()
-    today = datetime.now(IST).date()
-    market_open = _is_market_open_ist()
-
-    if market_open and latest_bar_date < today:
-        prev_close = latest_close
-    else:
-        prev_close = _safe_float(close_series.iloc[-2], latest_close)
-
-    return round(latest_close, 2), round(prev_close, 2)
-
-
-def _get_daily_baselines_yfinance() -> dict[str, dict[str, float]]:
-    import yfinance as yf
-
-    symbols = [item["symbol"] for item in NIFTY_50_CONSTITUENTS]
-    yf_symbols = [f"{symbol}.NS" for symbol in symbols]
-    data = yf.download(
-        tickers=" ".join(yf_symbols),
-        period="10d",
-        interval="1d",
-        progress=False,
-        auto_adjust=False,
-        threads=True,
-        group_by="ticker",
-    )
-
-    baselines: dict[str, dict[str, float]] = {}
-    for symbol in symbols:
-        yf_symbol = f"{symbol}.NS"
-        baseline = None
-        try:
-            frame = data[yf_symbol] if hasattr(data.columns, "levels") else data
-            latest_close, prev_close = _resolve_daily_baseline_from_frame(frame)
-            if latest_close > 0 and prev_close > 0:
-                baseline = {"latest_close": latest_close, "prev_close": prev_close}
-        except Exception:
-            baseline = None
-        if baseline:
-            baselines[symbol] = baseline
-    return baselines
-
-
-def _get_daily_baselines_dhan(client: DhanClient, security_map: dict[str, int]) -> dict[str, dict[str, float]]:
-    baselines: dict[str, dict[str, float]] = {}
-    today = datetime.now(IST).date()
-    from_date = (today - timedelta(days=10)).strftime("%Y-%m-%d")
-    to_date = today.strftime("%Y-%m-%d")
-
-    for symbol, security_id in security_map.items():
-        frame = None
-        try:
-            frame = client.get_historical_data(
-                security_id=str(security_id),
-                exchange_segment="NSE_EQ",
-                instrument_type="EQUITY",
-                from_date=from_date,
-                to_date=to_date,
-                candle_type="D",
-            )
-        except Exception:
-            frame = None
-        if frame is None or getattr(frame, "empty", True):
-            continue
-        latest_close, prev_close = _resolve_daily_baseline_from_frame(frame)
-        if latest_close > 0 and prev_close > 0:
-            baselines[symbol] = {"latest_close": latest_close, "prev_close": prev_close}
-    return baselines
-
-
-def _get_daily_baselines(
-    broker_client: DhanClient | None,
-    security_map: dict[str, int],
-) -> dict[str, dict[str, float]]:
-    cache_key = f"{datetime.now(IST).date().isoformat()}:{'open' if _is_market_open_ist() else 'closed'}"
-    if _DAILY_BASELINE_CACHE.get("key") == cache_key:
-        return dict(_DAILY_BASELINE_CACHE.get("payload") or {})
-
-    baselines: dict[str, dict[str, float]] = {}
-    try:
-        baselines = _get_daily_baselines_yfinance()
-    except Exception:
-        baselines = {}
-
-    if broker_client and getattr(broker_client, "_is_configured", lambda: False)():
-        missing = {symbol: sec_id for symbol, sec_id in security_map.items() if symbol not in baselines}
-        if missing:
-            try:
-                baselines.update(_get_daily_baselines_dhan(broker_client, missing))
-            except Exception:
-                pass
-
-    _DAILY_BASELINE_CACHE["key"] = cache_key
-    _DAILY_BASELINE_CACHE["payload"] = dict(baselines)
-    return baselines
 
 
 def _ranked_items(items: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -423,31 +306,24 @@ def _dhan_snapshot(client: DhanClient) -> dict:
 
     segments = {"NSE_EQ": list(security_map.values())}
     quote_data = client.get_quote_multi(segments)
+    ohlc_data = client.get_ohlc_multi(segments)
     nse_quotes = quote_data.get("NSE_EQ", {}) if isinstance(quote_data, dict) else {}
-    daily_baselines = _get_daily_baselines(client, security_map)
+    nse_ohlc = ohlc_data.get("NSE_EQ", {}) if isinstance(ohlc_data, dict) else {}
 
     items: list[dict] = []
     for base in NIFTY_50_CONSTITUENTS:
         symbol = base["symbol"]
         sec_id = security_map.get(symbol)
-        raw = nse_quotes.get(str(sec_id)) or nse_quotes.get(sec_id) or {}
+        quote_raw = nse_quotes.get(str(sec_id)) or nse_quotes.get(sec_id) or {}
+        ohlc_raw = nse_ohlc.get(str(sec_id)) or nse_ohlc.get(sec_id) or {}
+        raw = {}
+        if isinstance(ohlc_raw, dict):
+            raw.update(ohlc_raw)
+        if isinstance(quote_raw, dict):
+            raw.update(quote_raw)
+        if "ohlc" not in raw and isinstance(ohlc_raw, dict) and isinstance(ohlc_raw.get("ohlc"), dict):
+            raw["ohlc"] = ohlc_raw["ohlc"]
         price, change, change_pct, volume = _extract_quote_metrics(raw)
-        baseline = daily_baselines.get(symbol) or {}
-        baseline_price = _safe_float(baseline.get("latest_close"), 0.0)
-        prev_close = _safe_float(baseline.get("prev_close"), 0.0)
-
-        if price <= 0 and baseline_price > 0:
-            price = baseline_price
-
-        if price > 0 and prev_close > 0:
-            computed_change = round(price - prev_close, 2)
-            computed_pct = round((computed_change / prev_close) * 100, 2) if prev_close else 0.0
-            if abs(change) < 1e-9 and abs(change_pct) < 1e-9:
-                change = computed_change
-                change_pct = computed_pct
-            elif abs(computed_change - change) > 0.05 or abs(computed_pct - change_pct) > 0.05:
-                change = computed_change
-                change_pct = computed_pct
 
         items.append(
             {
