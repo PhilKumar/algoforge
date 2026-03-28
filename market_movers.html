@@ -13,7 +13,7 @@
     }
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="/static/market_movers.css?v=20260328-2">
+<link rel="stylesheet" href="/static/market_movers.css?v=20260328-3">
 </head>
 <body>
   <div class="movers-page">
@@ -47,7 +47,7 @@
             </div>
             <div class="sync-meta">
               <span class="meta-pill" id="market-source">Waiting for feed</span>
-              <span class="meta-pill" id="market-age">Refresh in --s</span>
+              <span class="meta-pill" id="market-age">Auto-refresh active</span>
             </div>
           </div>
 
@@ -141,7 +141,7 @@
         </article>
 
         <aside class="side-rail">
-          <article class="surface-card rail-card">
+          <article class="surface-card rail-card" data-tone="positive">
             <div class="rail-heading">
               <span class="eyebrow">Leaders</span>
               <h3>Positive Movers</h3>
@@ -149,7 +149,7 @@
             <div class="rail-list" id="leaders-list"></div>
           </article>
 
-          <article class="surface-card rail-card">
+          <article class="surface-card rail-card" data-tone="negative">
             <div class="rail-heading">
               <span class="eyebrow">Pressure Zone</span>
               <h3>Negative Movers</h3>
@@ -157,7 +157,7 @@
             <div class="rail-list" id="laggards-list"></div>
           </article>
 
-          <article class="surface-card rail-card sector-card">
+          <article class="surface-card rail-card sector-card" data-tone="sector">
             <div class="rail-heading">
               <span class="eyebrow">Industry Pulse</span>
               <h3>Sector Drift</h3>
@@ -169,6 +169,6 @@
     </main>
   </div>
 
-  <script src="/static/market_movers.js?v=20260328-4"></script>
+  <script src="/static/market_movers.js?v=20260328-5"></script>
 </body>
 </html>

@@ -2,9 +2,27 @@ const MARKET_MOVERS_REFRESH_MS = 30000;
 const MARKET_MOVERS_FETCH_TIMEOUT_MS = 12000;
 let moversNextRefreshAt = 0;
 let moversRefreshTimer = null;
-let moversCountdownTimer = null;
 let latestPayload = null;
 let marketMoversLoading = false;
+
+const INDUSTRY_PALETTE = {
+  'Financial Services': { rgb: '79, 142, 247' },
+  'Information Technology': { rgb: '167, 139, 250' },
+  Healthcare: { rgb: '52, 211, 153' },
+  'Automobile and Auto Components': { rgb: '251, 191, 36' },
+  'Oil Gas & Consumable Fuels': { rgb: '251, 146, 60' },
+  'Fast Moving Consumer Goods': { rgb: '34, 197, 94' },
+  'Metals & Mining': { rgb: '244, 114, 182' },
+  'Capital Goods': { rgb: '6, 182, 212' },
+  Power: { rgb: '14, 165, 233' },
+  'Consumer Durables': { rgb: '99, 102, 241' },
+  'Consumer Services': { rgb: '236, 72, 153' },
+  Construction: { rgb: '248, 113, 113' },
+  'Construction Materials': { rgb: '249, 115, 22' },
+  Telecommunication: { rgb: '168, 85, 247' },
+  Services: { rgb: '56, 189, 248' },
+  Other: { rgb: '148, 163, 184' },
+};
 
 function moversSunIcon() {
   return `
@@ -66,6 +84,10 @@ function toneClass(value) {
   if (amount > 0) return 'positive';
   if (amount < 0) return 'negative';
   return 'neutral';
+}
+
+function industryAccent(industry) {
+  return INDUSTRY_PALETTE[industry] || INDUSTRY_PALETTE.Other;
 }
 
 function formatVolume(value) {
@@ -140,12 +162,43 @@ function tileSize(weight) {
 }
 
 function tileTone(item) {
-  if (item.unavailable) return { rgb: '107, 114, 128', alpha: '0.10', state: 'is-unavailable' };
+  const accent = industryAccent(item.industry).rgb;
+  if (item.unavailable) {
+    return {
+      moveRgb: '107, 114, 128',
+      accentRgb: accent,
+      alpha: '0.10',
+      accentAlpha: '0.12',
+      state: 'is-unavailable',
+    };
+  }
   const pct = Number(item.change_pct || 0);
   const intensity = Math.min(Math.abs(pct) / 4.5, 1);
-  if (pct > 0) return { rgb: '49, 212, 191', alpha: (0.14 + intensity * 0.20).toFixed(3), state: 'is-positive' };
-  if (pct < 0) return { rgb: '255, 123, 130', alpha: (0.14 + intensity * 0.20).toFixed(3), state: 'is-negative' };
-  return { rgb: '147, 164, 188', alpha: '0.12', state: 'is-flat' };
+  if (pct > 0) {
+    return {
+      moveRgb: '49, 212, 191',
+      accentRgb: accent,
+      alpha: (0.14 + intensity * 0.20).toFixed(3),
+      accentAlpha: '0.18',
+      state: 'is-positive',
+    };
+  }
+  if (pct < 0) {
+    return {
+      moveRgb: '255, 123, 130',
+      accentRgb: accent,
+      alpha: (0.14 + intensity * 0.20).toFixed(3),
+      accentAlpha: '0.18',
+      state: 'is-negative',
+    };
+  }
+  return {
+    moveRgb: accent,
+    accentRgb: accent,
+    alpha: '0.11',
+    accentAlpha: '0.20',
+    state: 'is-flat',
+  };
 }
 
 function renderHero(cardId, item, priceId, absId, volumeId) {
@@ -186,8 +239,10 @@ function renderRailList(containerId, items, emptyMessage) {
   }
   host.innerHTML = items
     .map(
-      (item, index) => `
-        <div class="rail-row">
+      (item, index) => {
+        const accent = industryAccent(item.industry);
+        return `
+        <div class="rail-row" style="--rail-accent-rgb:${accent.rgb};">
           <span class="rail-rank">${index + 1}</span>
           <div class="rail-main">
             <span class="rail-symbol">${item.symbol}</span>
@@ -195,7 +250,8 @@ function renderRailList(containerId, items, emptyMessage) {
           </div>
           <span class="rail-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
         </div>
-      `
+      `;
+      }
     )
     .join('');
 }
@@ -209,17 +265,18 @@ function renderIndustryList(items) {
   }
   host.innerHTML = items
     .slice(0, 6)
-    .map(
-      (item) => `
-        <div class="industry-row">
+    .map((item) => {
+      const accent = industryAccent(item.industry);
+      return `
+        <div class="industry-row" style="--rail-accent-rgb:${accent.rgb};">
           <div class="industry-main">
             <span class="industry-name">${item.industry}</span>
             <span class="industry-meta">${item.count} stocks • ${formatVolume(item.volume)} volume</span>
           </div>
           <span class="industry-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
         </div>
-      `
-    )
+      `;
+    })
     .join('');
 }
 
@@ -241,7 +298,7 @@ function renderHeatmap(items) {
     .map((item) => {
       const tone = tileTone(item);
       return `
-        <article class="heatmap-tile ${tileSize(item.weight)} ${tone.state}" style="--tile-rgb:${tone.rgb}; --tile-alpha:${tone.alpha};">
+        <article class="heatmap-tile ${tileSize(item.weight)} ${tone.state}" style="--tile-move-rgb:${tone.moveRgb}; --tile-accent-rgb:${tone.accentRgb}; --tile-alpha:${tone.alpha}; --tile-accent-alpha:${tone.accentAlpha};">
           <div class="tile-head">
             <div>
               <div class="tile-symbol">${item.symbol}</div>
@@ -252,8 +309,8 @@ function renderHeatmap(items) {
           <div class="tile-body">
             <div class="tile-price">${item.unavailable ? 'Awaiting quote' : formatCurrency(item.price || 0)}</div>
             <div class="tile-foot">
-              <span>${item.name || ''}</span>
-              <span>${formatVolume(item.volume || 0)}</span>
+              <span class="tile-company">${item.name || ''}</span>
+              <span class="tile-volume">${formatVolume(item.volume || 0)}</span>
             </div>
           </div>
         </article>
@@ -309,9 +366,8 @@ function renderSnapshot(payload) {
 
 function updateCountdown() {
   const age = document.getElementById('market-age');
-  if (!age || !moversNextRefreshAt) return;
-  const remaining = Math.max(0, Math.ceil((moversNextRefreshAt - Date.now()) / 1000));
-  age.textContent = `Refresh in ${remaining}s`;
+  if (!age) return;
+  age.textContent = latestPayload?.stale ? 'Cached snapshot' : 'Auto-refresh active';
 }
 
 async function loadMarketMovers() {
@@ -352,7 +408,6 @@ function startMarketMovers() {
   document.getElementById('theme-toggle')?.addEventListener('click', toggleMarketTheme);
   loadMarketMovers();
   moversRefreshTimer = window.setInterval(loadMarketMovers, MARKET_MOVERS_REFRESH_MS);
-  moversCountdownTimer = window.setInterval(updateCountdown, 1000);
 }
 
 document.addEventListener('DOMContentLoaded', startMarketMovers);
