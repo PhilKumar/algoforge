@@ -135,7 +135,7 @@ def _generate_startup_token_once():
 
 
 # Initialize FastAPI app
-app = FastAPI(title="PHILFORGE", version="1.0.0")
+app = FastAPI(title="PhilForge", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -8252,7 +8252,7 @@ if __name__ == "__main__":
         _loop_name = "asyncio (install uvloop for +30% speed)"
 
     print("=" * 60)
-    print("  PHILFORGE — Starting Backend")
+    print("  PhilForge — Starting Backend")
     print(f"  Event loop : {_loop_name}")
     print(f"  Open: http://{config.APP_HOST}:{config.APP_PORT}")
     print("=" * 60)

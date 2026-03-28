@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>PHILFORGE — Strategy Platform</title>
+<title>PhilForge — Strategy Platform</title>
 <link rel="icon" href="/static/logo.png?v=20260327-2" type="image/png">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -557,6 +557,18 @@
   }
   .btn-outline::before { display: none; }
   .btn-outline:hover { --btn-bg: rgba(255,255,255,0.04); }
+  .deploy-cta-btn {
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.24) 0%, rgba(109,40,217,0.42) 100%);
+    --btn-color: #d8b4fe;
+    --btn-border: rgba(139,92,246,0.42);
+    box-shadow: 0 14px 26px -24px rgba(139,92,246,0.9);
+  }
+  .arsenal-running-edit-btn {
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.18) 0%, rgba(109,40,217,0.28) 100%);
+    --btn-color: #d8b4fe;
+    --btn-border: rgba(139,92,246,0.34);
+    box-shadow: 0 10px 18px -16px rgba(139,92,246,0.85);
+  }
   .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 999px; }
   .flex-row { display: flex; gap: 10px; align-items: center; }
   .condition-row { flex-wrap: wrap; }
@@ -811,40 +823,41 @@
     --glass-lo: rgba(15,23,42,0.012);
   }
   [data-theme="light"] body {
-    background: #f8fafc;
+    background: linear-gradient(180deg, #fcfdff 0%, #f7fafc 44%, #eef4fb 100%);
     background-image:
-      radial-gradient(ellipse 900px 700px at 15% 25%, rgba(5,150,105,0.035) 0%, transparent 68%),
-      radial-gradient(ellipse 700px 600px at 82% 72%, rgba(37,99,235,0.025) 0%, transparent 68%);
+      radial-gradient(ellipse 960px 720px at 12% 20%, rgba(5,150,105,0.055) 0%, transparent 68%),
+      radial-gradient(ellipse 760px 620px at 84% 16%, rgba(37,99,235,0.05) 0%, transparent 66%),
+      radial-gradient(ellipse 880px 720px at 82% 82%, rgba(148,163,184,0.11) 0%, transparent 70%);
     color: #0f172a;
   }
   [data-theme="light"] body::before,
   [data-theme="light"] body::after { display: none; }
   /* ── Premium Light: Cards & Panels — Floating Glassmorphism ── */
   [data-theme="light"] .card {
-    background: rgba(255,255,255,0.97);
-    border: 1px solid rgba(15,23,42,0.12);
-    border-top: 1px solid rgba(15,23,42,0.08);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px -4px rgba(0,0,0,0.08);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 100%);
+    border: 1px solid rgba(148,163,184,0.22);
+    border-top: 1px solid rgba(255,255,255,0.92);
+    box-shadow: 0 22px 40px -34px rgba(15,23,42,0.32), 0 10px 18px -16px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.82);
   }
   [data-theme="light"] .card::after { background: none; }
   [data-theme="light"] .card-glass {
-    background: rgba(255,255,255,0.96);
-    border: 1px solid rgba(15,23,42,0.12);
-    border-top: 1px solid rgba(15,23,42,0.08);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 6px 20px -6px rgba(0,0,0,0.10);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,249,253,0.96) 100%);
+    border: 1px solid rgba(148,163,184,0.20);
+    border-top: 1px solid rgba(255,255,255,0.94);
+    box-shadow: 0 24px 46px -34px rgba(15,23,42,0.34), 0 12px 22px -18px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.88);
   }
   [data-theme="light"] .card-glass::before { background: linear-gradient(90deg, transparent, rgba(5,150,105,0.06), transparent); }
   [data-theme="light"] .card-glass::after { background: none; }
   [data-theme="light"] .stat-box {
-    background: #ffffff;
-    border: 1px solid rgba(15,23,42,0.10);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.06);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%);
+    border: 1px solid rgba(148,163,184,0.18);
+    box-shadow: 0 18px 32px -30px rgba(15,23,42,0.30), 0 8px 16px -14px rgba(15,23,42,0.16), inset 0 1px 0 rgba(255,255,255,0.82);
   }
   [data-theme="light"] .stat-box::after { background: none; }
   [data-theme="light"] .stat-box::before { background: linear-gradient(90deg, transparent, rgba(5,150,105,0.08), transparent); }
   [data-theme="light"] .stat-box:hover {
     border-color: rgba(5,150,105,0.18);
-    box-shadow: 0 4px 16px -4px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: 0 24px 34px -28px rgba(15,23,42,0.32), 0 14px 22px -18px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.88);
   }
   [data-theme="light"] .stat-label { color: #475569; font-weight: 600; }
   [data-theme="light"] .stat-value, [data-theme="light"] .stat-value-lg { color: #0f172a; }
@@ -1256,7 +1269,7 @@
     letter-spacing: 0.55px;
   }
   .dash-fiidii-metric-value {
-    font-size: 18px;
+    font-size: clamp(15px, 1.55vw, 17px);
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     margin-top: 5px;
@@ -1298,7 +1311,7 @@
     margin-top: 4px;
   }
   .dash-today-value {
-    font-size: 24px;
+    font-size: clamp(18px, 2vw, 21px);
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     line-height: 1.05;
@@ -1320,6 +1333,114 @@
     border-radius: 10px;
     padding: 12px;
     background: rgba(0,0,0,0.2);
+  }
+  .builder-status-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .builder-status-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+  .builder-status-card.paper {
+    background: linear-gradient(180deg, rgba(245,158,11,0.09) 0%, rgba(15,23,42,0.18) 100%);
+    border-color: rgba(245,158,11,0.20);
+  }
+  .builder-status-card.paper::before {
+    background: linear-gradient(90deg, var(--warn), rgba(245,158,11,0.3));
+  }
+  .builder-status-card.auto {
+    background: linear-gradient(180deg, rgba(96,165,250,0.10) 0%, rgba(76,29,149,0.16) 100%);
+    border-color: rgba(96,165,250,0.20);
+  }
+  .builder-status-card.auto::before {
+    background: linear-gradient(90deg, var(--accent2), rgba(139,92,246,0.34));
+  }
+  .builder-status-title {
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .builder-status-title.paper { color: var(--warn); }
+  .builder-status-title.auto { color: var(--accent2); }
+  .builder-status-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.55px;
+  }
+  .builder-status-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .builder-status-metric {
+    text-align: center;
+  }
+  .builder-status-metric-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    letter-spacing: 0.55px;
+  }
+  .builder-status-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .builder-status-value {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .builder-status-trades {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .builder-status-monitor-btn {
+    width: 100%;
+    justify-content: center;
+    font-size: 10px;
+    padding: 5px 14px;
+  }
+  .builder-status-monitor-btn.paper {
+    --btn-bg: rgba(245,158,11,0.12);
+    --btn-color: var(--warn);
+    --btn-border: rgba(245,158,11,0.25);
+  }
+  .builder-status-monitor-btn.auto {
+    --btn-bg: rgba(139,92,246,0.12);
+    --btn-color: var(--accent2);
+    --btn-border: rgba(139,92,246,0.25);
+  }
+  .portfolio-ytd-table {
+    width: 100%;
+    min-width: 700px;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .portfolio-ytd-total-cell {
+    border-radius: 10px;
+    background: rgba(0,0,0,0.1);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .portfolio-ytd-total-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
   }
   #dash-paper-card {
     border: 1px solid rgba(245,158,11,0.2);
@@ -1628,9 +1749,9 @@
     color: #475569 !important;
   }
   [data-theme="light"] #results-content .btn[onclick*="openDeployModal"] {
-    --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.22) 100%) !important;
-    --btn-color: #6d28d9 !important;
-    --btn-border: rgba(124,58,237,0.30) !important;
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.18) 0%, rgba(167,139,250,0.26) 100%) !important;
+    --btn-color: #4c1d95 !important;
+    --btn-border: rgba(124,58,237,0.24) !important;
   }
   [data-theme="light"] #results-content .btn[onclick*="copyEditStrategy"] {
     --btn-bg: rgba(37,99,235,0.10) !important;
@@ -1798,10 +1919,8 @@
     .dash-scalp-split {
       grid-template-columns: 1fr;
     }
-    .dash-today-value,
-    .dash-fiidii-metric-value {
-      font-size: 22px;
-    }
+    .dash-today-value { font-size: 18px; }
+    .dash-fiidii-metric-value { font-size: 15px; }
   }
   @media (max-width: 700px) {
     #dashboard-page .stat-box { min-width: 0; }
@@ -1814,6 +1933,8 @@
   @media (max-width: 400px) {
     #dash-summary-grid { grid-template-columns: 1fr !important; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr !important; }
+    .dash-fiidii-metric-value { font-size: 15px; }
+    .dash-today-value { font-size: 17px; }
   }
 
   /* ── BACKTEST COMPARISON ── */
@@ -1875,7 +1996,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 14px;
     padding: 18px 14px;
     background:
       radial-gradient(circle at top left, rgba(52,211,153,0.12), transparent 46%),
@@ -1904,15 +2025,31 @@
     height: 2px;
     background: linear-gradient(90deg, transparent 8%, rgba(0,191,165,0.48) 34%, rgba(79,142,247,0.35) 78%, transparent 96%);
   }
-  .header-brand-logo {
-    width: 76px;
-    height: 76px;
-    object-fit: cover;
+  .header-brand-mark {
+    position: relative;
+    padding: 10px;
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 100%);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -10px 24px rgba(0,0,0,0.18), 0 18px 30px -24px rgba(0,0,0,0.82);
+  }
+  .header-brand-mark::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
     border-radius: 18px;
-    filter: drop-shadow(0 0 12px rgba(0,191,165,0.22));
-    box-shadow: 0 10px 28px rgba(0,0,0,0.34);
+    background: radial-gradient(circle at top, rgba(255,255,255,0.16), transparent 58%);
+    pointer-events: none;
+  }
+  .header-brand-logo {
+    width: 106px;
+    height: 106px;
+    object-fit: contain;
+    border-radius: 18px;
+    filter: saturate(1.04) drop-shadow(0 12px 14px rgba(0,191,165,0.16));
     position: relative;
     z-index: 1;
+    display: block;
   }
   .header-brand-copy {
     display: flex;
@@ -1967,20 +2104,20 @@
   }
   .topbar-brand-text {
     font-family: 'Syne', sans-serif;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 800;
-    letter-spacing: 1.5px;
+    letter-spacing: 0.4px;
     background: linear-gradient(130deg, #34d399 0%, #4f8ef7 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    text-transform: none;
   }
   .topbar-brand-sub {
     font-size: 9px;
     color: var(--muted);
-    letter-spacing: 1.8px;
-    text-transform: uppercase;
-    font-weight: 400;
+    letter-spacing: 1.25px;
+    font-weight: 500;
     margin-top: -1px;
   }
   .topbar-ticker {
@@ -2407,21 +2544,30 @@
   /* ── Premium Light: Topbar — Glass Header ── */
   [data-theme="light"] .header-brand-panel {
     background:
-      radial-gradient(circle at top left, rgba(5,150,105,0.10), transparent 46%),
-      radial-gradient(circle at bottom right, rgba(37,99,235,0.08), transparent 42%),
-      linear-gradient(180deg, rgba(248,250,252,0.98), rgba(241,245,249,0.98));
-    border-color: rgba(15,23,42,0.06);
+      radial-gradient(circle at top left, rgba(5,150,105,0.11), transparent 46%),
+      radial-gradient(circle at bottom right, rgba(37,99,235,0.09), transparent 44%),
+      linear-gradient(180deg, rgba(255,255,255,0.98), rgba(241,245,249,0.96));
+    border-color: rgba(148,163,184,0.18);
+    box-shadow: 0 24px 42px -34px rgba(15,23,42,0.36), 0 12px 20px -20px rgba(15,23,42,0.18);
+  }
+  [data-theme="light"] .header-brand-mark {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.90) 100%);
+    border-color: rgba(148,163,184,0.24);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.96), inset 0 -12px 24px rgba(148,163,184,0.14), 0 24px 34px -28px rgba(15,23,42,0.42);
   }
   [data-theme="light"] .app-topbar {
-    background: rgba(255,255,255,0.95);
-    border-color: rgba(15,23,42,0.06);
-    box-shadow: 0 2px 10px -3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%);
+    border-color: rgba(148,163,184,0.18);
+    box-shadow: 0 22px 36px -34px rgba(15,23,42,0.32), 0 10px 16px -14px rgba(15,23,42,0.16), inset 0 1px 0 rgba(255,255,255,0.92);
     backdrop-filter: blur(20px) saturate(1.2);
   }
   [data-theme="light"] .app-topbar::before { background: linear-gradient(90deg, transparent 5%, rgba(5,150,105,0.35) 30%, rgba(37,99,235,0.25) 70%, transparent 95%); }
   [data-theme="light"] .app-topbar::after { background: none; }
+  [data-theme="light"] .header-brand-logo {
+    filter: saturate(1.06) drop-shadow(0 14px 18px rgba(15,23,42,0.14));
+  }
   [data-theme="light"] .topbar-brand-text { background: linear-gradient(130deg, #047857 0%, #1d4ed8 100%); -webkit-background-clip: text; background-clip: text; }
-  [data-theme="light"] .topbar-ticker { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); }
+  [data-theme="light"] .topbar-ticker { background: rgba(248,250,252,0.84); border-color: rgba(148,163,184,0.16); }
   [data-theme="light"] .ticker-cell { border-right-color: rgba(15,23,42,0.04); }
   [data-theme="light"] .ticker-cell:hover { background: rgba(15,23,42,0.02); }
   [data-theme="light"] .tc-label { color: #475569; }
@@ -2437,6 +2583,53 @@
   [data-theme="light"] .topbar-user-role { color: #047857; }
   [data-theme="light"] .topbar-icon-btn { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); color: #475569; }
   [data-theme="light"] .topbar-icon-btn:hover { background: rgba(15,23,42,0.06); color: #0f172a; }
+  [data-theme="light"] .deploy-cta-btn {
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.18) 0%, rgba(167,139,250,0.26) 100%) !important;
+    --btn-color: #4c1d95 !important;
+    --btn-border: rgba(124,58,237,0.24) !important;
+    box-shadow: 0 16px 24px -20px rgba(124,58,237,0.52), inset 0 1px 0 rgba(255,255,255,0.84) !important;
+  }
+  [data-theme="light"] .arsenal-running-edit-btn {
+    --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.11) 0%, rgba(139,92,246,0.18) 100%) !important;
+    --btn-color: #6d28d9 !important;
+    --btn-border: rgba(124,58,237,0.22) !important;
+    box-shadow: 0 12px 18px -18px rgba(124,58,237,0.5), inset 0 1px 0 rgba(255,255,255,0.82) !important;
+  }
+  [data-theme="light"] .builder-status-card.paper {
+    background: linear-gradient(180deg, rgba(255,247,237,0.98) 0%, rgba(255,237,213,0.92) 100%);
+    border-color: rgba(245,158,11,0.22);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 18px 28px -24px rgba(245,158,11,0.45);
+  }
+  [data-theme="light"] .builder-status-card.auto {
+    background: linear-gradient(180deg, rgba(239,246,255,0.98) 0%, rgba(237,233,254,0.92) 100%);
+    border-color: rgba(96,165,250,0.20);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 18px 28px -24px rgba(96,165,250,0.34);
+  }
+  [data-theme="light"] .builder-status-metric-label {
+    color: #64748b;
+  }
+  [data-theme="light"] .builder-status-name,
+  [data-theme="light"] .builder-status-trades {
+    color: #0f172a;
+  }
+  [data-theme="light"] .builder-status-monitor-btn.paper {
+    --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.10) 0%, rgba(245,158,11,0.16) 100%) !important;
+    --btn-color: #92400e !important;
+    --btn-border: rgba(217,119,6,0.20) !important;
+  }
+  [data-theme="light"] .builder-status-monitor-btn.auto {
+    --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.16) 100%) !important;
+    --btn-color: #5b21b6 !important;
+    --btn-border: rgba(124,58,237,0.20) !important;
+  }
+  [data-theme="light"] #portfolio-yearly-grid .portfolio-ytd-table {
+    background: transparent;
+  }
+  [data-theme="light"] #portfolio-yearly-grid .portfolio-ytd-total-cell {
+    background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(241,245,249,0.94) 100%);
+    border-left: 1px solid rgba(148,163,184,0.16);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 14px 20px -24px rgba(15,23,42,0.35);
+  }
   [data-theme="light"] .settings-section,
   [data-theme="light"] .admin-summary-card,
   [data-theme="light"] .settings-meta-card {
@@ -2567,7 +2760,7 @@
     .admin-toolbar { flex-direction: column; }
   }
   @media (max-width: 480px) {
-    .topbar-brand-text { font-size: 15px; }
+    .topbar-brand-text { font-size: 15px; letter-spacing: 0.2px; }
     .topbar-brand-sub { display: none; }
     .topbar-brand img { height: 32px; }
     .topbar-clock .clock-date-text { display: none; }
@@ -2620,9 +2813,13 @@
       border-radius: 12px 12px 0 0;
       padding: 12px 14px;
     }
+    .header-brand-mark {
+      padding: 7px;
+      border-radius: 18px;
+    }
     .header-brand-logo {
-      width: 48px;
-      height: 48px;
+      width: 64px;
+      height: 64px;
       border-radius: 12px;
     }
 
@@ -2647,7 +2844,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .topbar-brand-text { font-size: 14px; }
+    .topbar-brand-text { font-size: 15px; letter-spacing: 0.25px; }
     .topbar-brand-sub { display: none; }
     .topbar-brand img { height: 30px; }
 
@@ -3387,8 +3584,8 @@
 
   /* ── Light Theme Audit Layer: shared readability + component parity ── */
   [data-theme="light"] {
-    --shadow-soft: 0 1px 3px rgba(15,23,42,0.06), 0 10px 24px -18px rgba(15,23,42,0.18);
-    --shadow-panel: 0 14px 36px -26px rgba(15,23,42,0.24), 0 4px 12px -10px rgba(15,23,42,0.12);
+    --shadow-soft: 0 12px 24px -20px rgba(15,23,42,0.24), 0 4px 10px -8px rgba(15,23,42,0.16), 0 1px 2px rgba(15,23,42,0.06);
+    --shadow-panel: 0 30px 48px -34px rgba(15,23,42,0.34), 0 14px 24px -22px rgba(15,23,42,0.20), 0 2px 6px rgba(15,23,42,0.08);
   }
   [data-theme="light"] .page-section,
   [data-theme="light"] .page-section h1,
@@ -3663,9 +3860,11 @@
 <!-- ═══ HEADER: Top Bar ═══ -->
 <div class="header-shell">
   <div class="header-brand-panel" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" title="Go to Dashboard">
-    <img class="header-brand-logo" src="/static/logo.png?v=20260327-2" alt="PhilForge">
+    <div class="header-brand-mark">
+      <img class="header-brand-logo" src="/static/logo.svg?v=20260328-1" alt="PhilForge">
+    </div>
     <div class="header-brand-copy">
-      <div class="topbar-brand-text">PHILFORGE</div>
+      <div class="topbar-brand-text">PhilForge</div>
       <div class="topbar-brand-sub">Algorithms Over Impulse</div>
     </div>
   </div>
@@ -4240,7 +4439,7 @@
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
         <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">Run Backtest</button>
-        <button class="btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
+        <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
         <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">Save</button>
       </div>
     </div>
@@ -4310,54 +4509,52 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
 
           <!-- Paper Trade Card -->
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 10px; padding: 14px; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--warn), rgba(245,158,11,0.3));"></div>
+          <div class="builder-status-card paper">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 12px; font-weight: 700; color: var(--warn);">Paper Trade</span>
-              <span id="bp-paper-badge" style="padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; background: rgba(239,68,68,0.15); color: #f87171; letter-spacing: 0.5px;">STOPPED</span>
+              <span class="builder-status-title paper">Paper Trade</span>
+              <span id="bp-paper-badge" class="builder-status-badge" style="background: rgba(239,68,68,0.15); color: #f87171;">STOPPED</span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">Strategy</div>
-                <div id="bp-paper-name" style="font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="">—</div>
+            <div class="builder-status-metrics">
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">Strategy</div>
+                <div id="bp-paper-name" class="builder-status-name" title="">—</div>
               </div>
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">P&L</div>
-                <div id="bp-paper-pnl" style="font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">P&L</div>
+                <div id="bp-paper-pnl" class="builder-status-value" style="color: var(--muted);">₹0.00</div>
               </div>
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">Trades</div>
-                <div id="bp-paper-trades" style="font-size: 13px; font-weight: 700; color: var(--text);">0</div>
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">Trades</div>
+                <div id="bp-paper-trades" class="builder-status-trades">0</div>
               </div>
             </div>
             <div style="margin-top: 10px; text-align: center;">
-              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; --btn-bg: rgba(245,158,11,0.12); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.25); width: 100%;">View in Live Monitor →</button>
+              <button class="btn builder-status-monitor-btn paper" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();">View in Live Monitor →</button>
             </div>
           </div>
 
           <!-- Auto Trade Card -->
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 10px; padding: 14px; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent2), rgba(139,92,246,0.3));"></div>
+          <div class="builder-status-card auto">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 12px; font-weight: 700; color: var(--accent2);">Auto Trade</span>
-              <span id="bp-auto-badge" style="padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; background: rgba(239,68,68,0.15); color: #f87171; letter-spacing: 0.5px;">STOPPED</span>
+              <span class="builder-status-title auto">Auto Trade</span>
+              <span id="bp-auto-badge" class="builder-status-badge" style="background: rgba(239,68,68,0.15); color: #f87171;">STOPPED</span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">Strategy</div>
-                <div id="bp-auto-name" style="font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="">—</div>
+            <div class="builder-status-metrics">
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">Strategy</div>
+                <div id="bp-auto-name" class="builder-status-name" title="">—</div>
               </div>
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">P&L</div>
-                <div id="bp-auto-pnl" style="font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--muted);">₹0.00</div>
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">P&L</div>
+                <div id="bp-auto-pnl" class="builder-status-value" style="color: var(--muted);">₹0.00</div>
               </div>
-              <div style="text-align: center;">
-                <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px;">Trades</div>
-                <div id="bp-auto-trades" style="font-size: 13px; font-weight: 700; color: var(--text);">0</div>
+              <div class="builder-status-metric">
+                <div class="builder-status-metric-label">Trades</div>
+                <div id="bp-auto-trades" class="builder-status-trades">0</div>
               </div>
             </div>
             <div style="margin-top: 10px; text-align: center;">
-              <button class="btn" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 10px; padding: 5px 14px; --btn-bg: rgba(139,92,246,0.12); --btn-color: var(--accent2); --btn-border: rgba(139,92,246,0.25); width: 100%;">View in Live Monitor →</button>
+              <button class="btn builder-status-monitor-btn auto" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();">View in Live Monitor →</button>
             </div>
           </div>
 
@@ -4387,7 +4584,7 @@
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;"><span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span> Completed</span></div>
       <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
-        <button class="btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
+        <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
         <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">Copy & Edit</button>
         <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(139,92,246,0.15); --btn-border: rgba(139,92,246,0.3); --btn-color: #c4b5fd;" title="View strategy details">View Strategy</button>
       </div>
@@ -4770,7 +4967,7 @@
     </div>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-      <button class="btn" onclick="deployStrategy()" style="padding: 10px 30px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250);">Deploy Strategy in Live</button>
+      <button class="btn deploy-cta-btn" onclick="deployStrategy()" style="padding: 10px 30px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250);">Deploy Strategy in Live</button>
     </div>
   </div>
 </div>
@@ -9057,7 +9254,7 @@ function renderRunningArsenal(engines) {
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <span class="arsenal-tag instrument" style="font-size:10px;padding:3px 8px;">${escapeHtml(instLabel)}</span>
         <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}',${strategyId || 0})" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
-        ${savedStrategy ? `<button class="btn btn-sm" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;--btn-bg: rgba(236,72,153,0.14);--btn-color: rgb(244,114,182);--btn-border: rgba(236,72,153,0.32);">Edit</button>` : ''}
+        ${savedStrategy ? `<button class="btn btn-sm arsenal-running-edit-btn" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;">Edit</button>` : ''}
       </div>
       <div style="display:flex;justify-content:center;align-items:center;">
         <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="font-size:11px;padding:5px 18px;min-width:108px;text-align:center;">Open Live</button>
@@ -12716,7 +12913,7 @@ function renderYearlyMonthlyTable() {
   for (let y = currentYear; y >= startYear; y--) years.push(y);
 
   // Build table
-  let html = `<table style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: 700px;">
+  let html = `<table class="portfolio-ytd-table">
     <thead>
       <tr style="border-bottom: 2px solid var(--border);">
         <th style="padding: 8px 6px; text-align: left; color: var(--muted); font-size: 11px; font-weight: 600;">Year</th>`;
@@ -12759,7 +12956,7 @@ function renderYearlyMonthlyTable() {
     }
 
     const isYearWin = yearTotal >= 0;
-    html += `<td style="padding: 10px 6px; text-align: center; font-weight: 700; color: ${yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)'}; font-family: 'JetBrains Mono'; font-size: 12px; background: rgba(0,0,0,0.1); border-radius: 4px;">₹${yearTotal.toFixed(0)}</td>`;
+    html += `<td class="portfolio-ytd-total-cell" style="padding: 10px 6px; text-align: center; color: ${yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)'};"><span class="portfolio-ytd-total-value">₹${yearTotal.toFixed(0)}</span></td>`;
     html += `</tr>`;
   });
 
@@ -13528,7 +13725,7 @@ function sendTradeNotification(trade) {
   try {
     const pnl = trade.pnl || trade.profit || 0;
     const icon = pnl >= 0 ? '▲' : '▼';
-    const title = `${icon} PHILFORGE Trade`;
+    const title = `${icon} PhilForge Trade`;
     const body = `${trade.instrument || trade.symbol || 'Trade'}: ${trade.action || trade.type || ''} ₹${Math.abs(pnl).toFixed(2)}`;
     new Notification(title, { body, icon: '/static/logo.png?v=20260327-2', tag: 'philforge-trade-' + Date.now() });
   } catch(e) {}
