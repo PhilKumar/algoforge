@@ -2059,6 +2059,8 @@
     overflow: visible;
     cursor: pointer;
     z-index: 2;
+    text-decoration: none;
+    color: inherit;
   }
   .header-brand-panel::before,
   .header-brand-panel::after { display: none; }
@@ -2070,16 +2072,16 @@
     box-shadow: none;
   }
   .header-brand-mark::before { display: none; }
-  .theme-logo.light-variant { display: none; }
-  [data-theme="light"] .theme-logo.dark-variant { display: none; }
-  [data-theme="light"] .theme-logo.light-variant { display: block; }
   .header-brand-logo {
     width: 92px;
     height: 92px;
-    object-fit: cover;
     border-radius: 18px;
+    background: center / cover no-repeat url('/static/logo.png?v=20260327-2');
     filter: drop-shadow(0 2px 0 rgba(255,255,255,0.08)) drop-shadow(0 12px 18px rgba(0,0,0,0.22));
     display: block;
+  }
+  [data-theme="light"] .header-brand-logo {
+    background-image: url('/static/logolight.png?v=20260328-1');
   }
   .header-brand-copy {
     display: flex;
@@ -3882,16 +3884,15 @@
 
 <!-- ═══ HEADER: Top Bar ═══ -->
 <div class="header-shell">
-  <div class="header-brand-panel" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard'));" title="Go to Dashboard">
+  <a class="header-brand-panel" href="#dashboard-page" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard')); return false;" title="Go to Dashboard" aria-label="Go to Dashboard">
     <div class="header-brand-mark">
-      <img class="header-brand-logo theme-logo dark-variant" src="/static/logo.png?v=20260327-2" alt="PhilForge">
-      <img class="header-brand-logo theme-logo light-variant" src="/static/logolight.png?v=20260328-1" alt="PhilForge">
+      <span class="header-brand-logo" aria-hidden="true"></span>
     </div>
     <div class="header-brand-copy">
       <div class="topbar-brand-text">PhilForge</div>
       <div class="topbar-brand-sub">Algorithms Over Impulse</div>
     </div>
-  </div>
+  </a>
   <div class="header-main">
     <div class="app-topbar">
       <!-- Center: Ticker Strip -->
