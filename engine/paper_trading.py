@@ -53,6 +53,51 @@ from engine.timeframes import (
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
 _DEFAULT_STATE_FILE = os.path.join(_STATE_DIR, "paper_state.json")
+_NSE_CAPITAL_MARKET_HOLIDAYS = {
+    "2024-01-26",
+    "2024-03-08",
+    "2024-03-25",
+    "2024-03-29",
+    "2024-04-11",
+    "2024-04-17",
+    "2024-05-01",
+    "2024-06-17",
+    "2024-07-17",
+    "2024-08-15",
+    "2024-10-02",
+    "2024-11-01",
+    "2024-11-15",
+    "2024-12-25",
+    "2025-02-26",
+    "2025-03-14",
+    "2025-03-31",
+    "2025-04-10",
+    "2025-04-14",
+    "2025-04-18",
+    "2025-05-01",
+    "2025-08-15",
+    "2025-08-27",
+    "2025-10-02",
+    "2025-10-21",
+    "2025-10-22",
+    "2025-11-05",
+    "2025-12-25",
+    "2026-01-26",
+    "2026-03-03",
+    "2026-03-26",
+    "2026-03-31",
+    "2026-04-03",
+    "2026-04-14",
+    "2026-05-01",
+    "2026-05-28",
+    "2026-06-26",
+    "2026-09-14",
+    "2026-10-02",
+    "2026-10-20",
+    "2026-11-10",
+    "2026-11-24",
+    "2026-12-25",
+}
 
 
 # Import INSTRUMENT_MAP lazily to avoid circular imports
@@ -485,6 +530,60 @@ class PaperTradingEngine:
             <= self._market_close_time()
         )
 
+    @staticmethod
+    def _is_closed_market_day(target_date: date_type | None) -> bool:
+        if target_date is None:
+            return False
+        return target_date.weekday() >= 5 or target_date.isoformat() in _NSE_CAPITAL_MARKET_HOLIDAYS
+
+    async def _resolve_stale_positions(
+        self,
+        current_dt: datetime,
+        reason: str,
+        context_label: str,
+        callback=None,
+    ) -> bool:
+        changed = False
+        if self._entry_signal_pending:
+            self.log_event("info", f"Pending entry cleared during {context_label.lower()}")
+            self._clear_pending_entry()
+            changed = True
+
+        if not self.positions:
+            if changed:
+                self._save_state()
+            return changed
+
+        self.log_event(
+            "warning",
+            f"{context_label} — resolving {len(self.positions)} stale paper position(s)",
+        )
+
+        self.current_time = current_dt
+        for position in list(self.positions):
+            if position.get("status") == "closed":
+                continue
+
+            exit_px = self._safe_float(position.get("current_premium"), 0.0)
+            if exit_px <= 0:
+                exit_px = self._safe_float(self._get_premium_from_feed(position), 0.0)
+            if exit_px <= 0:
+                try:
+                    exit_px = self._safe_float(await self._get_current_premium(position), 0.0)
+                except Exception as exc:
+                    self.log_event(
+                        "warning",
+                        f"{context_label} premium fetch failed for Leg {position.get('leg_num')}: {exc}",
+                    )
+            if exit_px <= 0:
+                exit_px = self._safe_float(position.get("entry_premium"), 0.0)
+
+            self._close_position(position, reason, exit_px)
+
+        if callback:
+            await self._emit_callback(callback, {"type": "status", "message": context_label})
+        return True
+
     async def _force_market_close_if_needed(self, current_dt: datetime, callback=None) -> bool:
         market_close = self._market_close_time()
         if current_dt.time() < market_close:
@@ -833,6 +932,7 @@ class PaperTradingEngine:
 
                 # Check if new day
                 if now.date() != self.session_date:
+                    await self._resolve_stale_positions(now, "SESSION_ROLLOVER", "Session rollover", callback)
                     self.trades_today = 0
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
@@ -850,6 +950,13 @@ class PaperTradingEngine:
                 if isinstance(market_close, str):
                     h, m = map(int, market_close.split(":"))
                     market_close = time_class(h, m)
+
+                if self._is_closed_market_day(now.date()):
+                    await self._resolve_stale_positions(now, "NON_TRADING_DAY", "Market closed today", callback)
+                    await asyncio.sleep(5)
+                    if callback:
+                        await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
+                    continue
 
                 after_market_close = now.time() >= market_close
                 allow_final_candle_grace = now <= now.replace(
@@ -1258,9 +1365,11 @@ class PaperTradingEngine:
 
         # Check if new day
         if now.date() != self.session_date:
+            await self._resolve_stale_positions(now, "SESSION_ROLLOVER", "Session rollover", callback)
             self.trades_today = 0
             self.daily_pnl = 0.0
             self.session_date = now.date()
+            self._reset_intraday_status()
             self.log_event("info", f"📅 New trading day: {self.session_date}")
 
         # Check market hours
@@ -1275,6 +1384,12 @@ class PaperTradingEngine:
         if isinstance(market_close, str):
             h, m = map(int, market_close.split(":"))
             market_close = time_class(h, m)
+
+        if self._is_closed_market_day(now.date()):
+            await self._resolve_stale_positions(now, "NON_TRADING_DAY", "Market closed today", callback)
+            if callback:
+                await self._emit_callback(callback, {"type": "status", "message": "Outside market hours"})
+            return
 
         if current_time < market_open:
             if callback:

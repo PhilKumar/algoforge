@@ -1125,21 +1125,56 @@ def _stopped_engines_file(user_id: int) -> str:
     return os.path.join(_engine_state_dir(user_id), "stopped_engines.json")
 
 
+def _normalize_engine_mode(mode: str | None) -> str:
+    return "paper" if str(mode or "").strip().casefold() == "paper" else "auto"
+
+
+def _engine_snapshot_key(run_id: str, mode: str | None) -> str:
+    return f"{_normalize_engine_mode(mode)}:{str(run_id or '').strip()}"
+
+
+def _engine_status_key(status: dict) -> str:
+    return _engine_snapshot_key(status.get("run_id", ""), status.get("mode"))
+
+
 def _load_stopped_engines(user_id: int) -> dict:
     cached = _stopped_engines.get(int(user_id))
     if cached is not None:
         return cached
     data: dict = {}
+    normalized = False
     file_path = _stopped_engines_file(user_id)
     if os.path.exists(file_path):
         try:
             with open(file_path, "r") as f:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
-                data = loaded
+                for raw_key, snapshot in loaded.items():
+                    if not isinstance(snapshot, dict):
+                        continue
+                    raw_key_str = str(raw_key or "")
+                    key_mode = None
+                    key_run_id = raw_key_str
+                    if ":" in raw_key_str:
+                        maybe_mode, maybe_run_id = raw_key_str.split(":", 1)
+                        if maybe_run_id:
+                            key_mode = maybe_mode
+                            key_run_id = maybe_run_id
+                    run_id = str(snapshot.get("run_id") or key_run_id or "").strip()
+                    if not run_id:
+                        continue
+                    mode = _normalize_engine_mode(snapshot.get("mode") or key_mode)
+                    snapshot["run_id"] = run_id
+                    snapshot["mode"] = mode
+                    new_key = _engine_snapshot_key(run_id, mode)
+                    data[new_key] = snapshot
+                    if new_key != raw_key_str:
+                        normalized = True
         except Exception:
             data = {}
     _stopped_engines[int(user_id)] = data
+    if normalized:
+        _save_stopped_engines(user_id)
     return data
 
 
@@ -5542,8 +5577,8 @@ async def live_start(req: LiveStartRequest, request: Request):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "live") or "live"
 
-    # Clear any stopped snapshot for this run_id
-    stopped_engines.pop(run_id, None)
+    # Clear only the stopped snapshot for this exact engine identity
+    stopped_engines.pop(_engine_snapshot_key(run_id, "auto"), None)
     _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
@@ -5657,7 +5692,7 @@ async def live_stop(request: Request):
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "auto"
-    stopped_engines[run_id] = status_before
+    stopped_engines[_engine_snapshot_key(run_id, "auto")] = status_before
     _save_stopped_engines(user_id)
     _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
@@ -5854,8 +5889,8 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     # Generate run_id from strategy name
     run_id = strategy_dict.get("run_name", "paper") or "paper"
 
-    # Clear any stopped snapshot for this run_id
-    stopped_engines.pop(run_id, None)
+    # Clear only the stopped snapshot for this exact engine identity
+    stopped_engines.pop(_engine_snapshot_key(run_id, "paper"), None)
     _save_stopped_engines(user_id)
 
     # If an engine with same run_id exists, save its results before replacing
@@ -5968,7 +6003,7 @@ async def paper_stop(request: Request):
     status_before["running"] = False
     status_before["run_id"] = run_id
     status_before["mode"] = "paper"
-    stopped_engines[run_id] = status_before
+    stopped_engines[_engine_snapshot_key(run_id, "paper")] = status_before
     _save_stopped_engines(user_id)
     _alert_state.pop(_alert_state_key(user_id, run_id), None)
 
@@ -6463,21 +6498,22 @@ async def engines_all(request: Request):
             engines.append(st)
 
     # Add stopped engine snapshots (persisted panels)
-    active_ids = {e["run_id"] for e in engines}
-    for run_id, snapshot in stopped_engines.items():
-        if run_id not in active_ids:
+    active_ids = {_engine_status_key(e) for e in engines}
+    for snapshot in stopped_engines.values():
+        snapshot_key = _engine_status_key(snapshot)
+        if snapshot_key not in active_ids:
             engines.append(_attach_strategy_folder(snapshot))
-            active_ids.add(run_id)
+            active_ids.add(snapshot_key)
 
     # Fallback for migrated/admin sessions: if today's persisted engine state
     # exists but restore/stopped snapshots are absent, synthesize idle panels so
     # the Live page does not appear blank.
     if not engines:
         for snapshot in _state_file_snapshots(user_id):
-            run_id = snapshot.get("run_id")
-            if run_id and run_id not in active_ids:
+            snapshot_key = _engine_status_key(snapshot)
+            if snapshot.get("run_id") and snapshot_key not in active_ids:
                 engines.append(_attach_strategy_folder(snapshot))
-                active_ids.add(run_id)
+                active_ids.add(snapshot_key)
 
     return {"engines": engines, "count": len(engines)}
 
@@ -6493,8 +6529,20 @@ async def engines_dismiss(request: Request):
     except Exception:
         pass
     run_id = body.get("run_id", "")
-    if run_id and run_id in stopped_engines:
-        stopped_engines.pop(run_id)
+    mode = body.get("mode", "")
+    if run_id and mode:
+        snapshot_key = _engine_snapshot_key(run_id, mode)
+        if snapshot_key not in stopped_engines:
+            return {"status": "not_found", "run_id": run_id, "mode": _normalize_engine_mode(mode)}
+        stopped_engines.pop(snapshot_key, None)
+        _save_stopped_engines(user_id)
+        return {"status": "dismissed", "run_id": run_id, "mode": _normalize_engine_mode(mode)}
+    if run_id:
+        removed = [key for key, snapshot in stopped_engines.items() if str(snapshot.get("run_id") or "") == str(run_id)]
+        for key in removed:
+            stopped_engines.pop(key, None)
+        if not removed:
+            return {"status": "not_found", "run_id": run_id}
         _save_stopped_engines(user_id)
         return {"status": "dismissed", "run_id": run_id}
     return {"status": "not_found", "run_id": run_id}

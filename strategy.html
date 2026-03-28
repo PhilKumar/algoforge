@@ -2996,6 +2996,20 @@
     #results-page select[style*="width: 180px"] {
       width: 100% !important;
     }
+    #results-page input[style*="width: 160px"],
+    #results-page input[style*="width: 180px"] {
+      width: 100% !important;
+    }
+    #runs-filter-bar {
+      width: 100%;
+      flex-wrap: nowrap !important;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    #runs-filter-bar::-webkit-scrollbar { display: none; }
+    #runs-filter-bar .runs-filter-btn { flex-shrink: 0; }
 
     /* -- Portfolio: single column for outer grids -- */
     #portfolio-dual-grid {
@@ -3151,6 +3165,69 @@
       padding: 8px 0 8px 8px !important;
     }
 
+    /* -- Journal / Charts: touch-first behavior -- */
+    .arsenal-heading {
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    #arsenal-running-grid,
+    #template-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .charts-layout,
+    .cj-split,
+    .cj-left-inner {
+      gap: 12px;
+    }
+    .charts-sidebar-inner,
+    .cj-journal-panel {
+      padding: 16px;
+    }
+    .cj-journal-panel {
+      position: static;
+      top: auto;
+    }
+    .charts-sidebar,
+    .charts-main,
+    .cj-left,
+    .cj-right {
+      min-width: 0;
+    }
+    #charts-page #ch-content > div {
+      min-height: 280px !important;
+    }
+    .charts-sidebar-title {
+      font-size: 12px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+    }
+    .chtree-toggle,
+    .chday-btn {
+      min-height: 40px;
+    }
+    .chday-btn {
+      padding-left: 18px;
+    }
+    .ch-delete-btn {
+      opacity: 1;
+      width: 32px;
+      height: 32px;
+      line-height: 30px;
+    }
+    .cj-panel-tabs {
+      flex-direction: column;
+    }
+    .cj-toast {
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      text-align: center;
+    }
+    .ch-lb-caption {
+      max-width: 90vw;
+      padding: 0 12px;
+    }
+
     /* -- Modals: full-width on mobile -- */
     .modal {
       width: 95vw !important;
@@ -3204,6 +3281,22 @@
     #scalp-page div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
       grid-template-columns: 1fr 1fr !important;
       gap: 4px !important;
+    }
+    .cj-journal-panel {
+      padding: 14px;
+    }
+    .ch-grid {
+      grid-template-columns: 1fr;
+    }
+    .ch-card-info {
+      padding: 10px 12px;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .ch-card-name {
+      max-width: none;
+      white-space: normal;
+      line-height: 1.35;
     }
   }
 
@@ -9203,11 +9296,30 @@ async function openSavedStrategyFolder(strategyName, folderName = '', strategyId
   _highlightSavedStrategyRow(targetRow);
 }
 
-async function openLiveRunMonitor(runId) {
+function _liveEngineIdentityKey(runId, mode = '') {
+  return `${String(mode || '').trim()}:${String(runId || '').trim()}`;
+}
+
+function _findLiveEngineIndex(runId, mode = '') {
+  const targetRunId = String(runId || '');
+  const targetMode = String(mode || '');
+  return (_liveEngines || []).findIndex((engine) => {
+    const sameRunId = String(engine.run_id || '') === targetRunId;
+    if (!sameRunId) return false;
+    return !targetMode || String(engine.mode || '') === targetMode;
+  });
+}
+
+function _findLiveEngine(runId, mode = '') {
+  const idx = _findLiveEngineIndex(runId, mode);
+  return idx >= 0 ? _liveEngines[idx] : null;
+}
+
+async function openLiveRunMonitor(runId, mode = '') {
   showPage('live-page', document.getElementById('nav-live'));
   startLiveMonitor();
   await loadLiveMonitor();
-  const idx = (_liveEngines || []).findIndex((engine) => String(engine.run_id || '') === String(runId || ''));
+  const idx = _findLiveEngineIndex(runId, mode);
   if (idx >= 0) {
     selectLiveTab(idx);
     return;
@@ -9243,12 +9355,13 @@ async function openDashboardLeaderboardCard(el) {
   const kind = String(el.dataset.kind || '');
   const rid = Number(el.dataset.rid || 0);
   const runId = String(el.dataset.runId || '');
+  const mode = String(el.dataset.mode || '');
   if (kind === 'run' && rid) {
     await viewRun(rid);
     return;
   }
   if (kind === 'engine' && runId) {
-    await openLiveRunMonitor(runId);
+    await openLiveRunMonitor(runId, mode);
     return;
   }
   if (kind === 'scalp') {
@@ -9286,7 +9399,7 @@ function renderRunningArsenal(engines) {
     const instLabel = INST_NAMES[engine.instrument] || (engine.instrument ? `Instrument ${engine.instrument}` : 'NIFTY');
     const statusLabel = engine.in_trade ? 'In Trade' : 'Waiting';
     const statusColor = engine.in_trade ? '#4ade80' : '#f59e0b';
-    return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
+    return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}','${escapeJsSingleQuoted(engine.mode || '')}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
       <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
         <div style="min-width:0;">
@@ -9307,7 +9420,7 @@ function renderRunningArsenal(engines) {
         ${savedStrategy ? `<button class="btn btn-sm arsenal-running-edit-btn" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;">Edit</button>` : ''}
       </div>
       <div style="display:flex;justify-content:center;align-items:center;">
-        <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}')" style="font-size:11px;padding:5px 18px;min-width:108px;text-align:center;">Open Live</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}','${escapeJsSingleQuoted(engine.mode || '')}')" style="font-size:11px;padding:5px 18px;min-width:108px;text-align:center;">Open Live</button>
       </div>
     </div>`;
   }).join('');
@@ -11699,7 +11812,7 @@ let _activeRunMode = 'paper'; // 'paper' or 'auto' (for backward compat)
 let _liveEngines = [];        // cached engine list from /api/engines/all
 let _selectedLiveTab = 0;     // index of selected tab
 const _LIVE_TRADES_PER_PAGE = 10;
-let _liveClosedPages = {};    // run_id → current page number
+let _liveClosedPages = {};    // mode:run_id → current page number
 
 function startLiveMonitor() {
   loadLiveMonitor();
@@ -11742,7 +11855,7 @@ async function stopEngine(runId, mode) {
 
 function viewRunningStrategy(runId, mode) {
   // Find the engine data from the cache
-  const eng = _liveEngines.find(e => (e.run_id || '') === runId) || _liveEngines[_selectedLiveTab];
+  const eng = _findLiveEngine(runId, mode) || _liveEngines[_selectedLiveTab];
   if (!eng) { toast('Engine data not found', 'danger'); return; }
   const strat = eng.strategy || {};
   if (!strat.run_name && !strat.indicators) {
@@ -11761,10 +11874,14 @@ async function stopPaperTrade() {
   }
 }
 
-async function dismissEngine(runId) {
+async function dismissEngine(runId, mode = '') {
   try {
-    await fetch('/api/engines/dismiss', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId }) });
-    _liveEngines = _liveEngines.filter(e => (e.run_id || '') !== runId);
+    await fetch('/api/engines/dismiss', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId, mode }) });
+    _liveEngines = _liveEngines.filter((e) => {
+      const sameRunId = String(e.run_id || '') === String(runId || '');
+      if (!sameRunId) return true;
+      return mode ? String(e.mode || '') !== String(mode || '') : false;
+    });
     if (_selectedLiveTab >= _liveEngines.length) _selectedLiveTab = Math.max(0, _liveEngines.length - 1);
     renderLiveTabs();
     if (_liveEngines.length > 0) {
@@ -11780,7 +11897,7 @@ async function dismissEngine(runId) {
 }
 
 async function restartEngine(runId, mode) {
-  const eng = _liveEngines.find(e => (e.run_id || '') === runId);
+  const eng = _findLiveEngine(runId, mode);
   if (!eng) { toast('Engine data not found', 'danger'); return; }
   const strat = eng.strategy || {};
   if (!strat.run_name && !strat.entry_conditions) {
@@ -11905,6 +12022,7 @@ function renderLivePanel(d, idx) {
   const safeName = escapeHtml(name);
   const safeRunIdJs = escapeJsSingleQuoted(runId);
   const safeModeJs = escapeJsSingleQuoted(mode);
+  const liveIdentityKey = _liveEngineIdentityKey(runId, mode);
 
   // Status badge
   let badgeHtml, statusText, statusColor;
@@ -12011,9 +12129,9 @@ function renderLivePanel(d, idx) {
   const closed = (d.closed_trades || []).slice().reverse();
   const closedTotal = closed.length;
   const closedTotalPages = Math.max(1, Math.ceil(closedTotal / _LIVE_TRADES_PER_PAGE));
-  if (!_liveClosedPages[runId]) _liveClosedPages[runId] = 1;
-  if (_liveClosedPages[runId] > closedTotalPages) _liveClosedPages[runId] = closedTotalPages;
-  const closedPage = _liveClosedPages[runId];
+  if (!_liveClosedPages[liveIdentityKey]) _liveClosedPages[liveIdentityKey] = 1;
+  if (_liveClosedPages[liveIdentityKey] > closedTotalPages) _liveClosedPages[liveIdentityKey] = closedTotalPages;
+  const closedPage = _liveClosedPages[liveIdentityKey];
   const closedStart = (closedPage - 1) * _LIVE_TRADES_PER_PAGE;
   const closedSlice = closed.slice(closedStart, closedStart + _LIVE_TRADES_PER_PAGE);
   let closedHtml;
@@ -12029,9 +12147,9 @@ function renderLivePanel(d, idx) {
   const closedPagHtml = closedTotal > _LIVE_TRADES_PER_PAGE ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--border);">
     <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Showing ${closedStart+1}–${Math.min(closedStart+_LIVE_TRADES_PER_PAGE, closedTotal)} of ${closedTotal}</span>
     <div style="display:flex;gap:3px;">
-      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}',${closedPage-1})" style="font-size:11px;padding:5px 10px;" ${closedPage<=1?'disabled':''}>‹</button>
+      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}',${closedPage-1})" style="font-size:11px;padding:5px 10px;" ${closedPage<=1?'disabled':''}>‹</button>
       <span style="font-size:11px;padding:5px 8px;color:var(--muted);">Page ${closedPage} / ${closedTotalPages}</span>
-      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}',${closedPage+1})" style="font-size:11px;padding:5px 10px;" ${closedPage>=closedTotalPages?'disabled':''}>›</button>
+      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}',${closedPage+1})" style="font-size:11px;padding:5px 10px;" ${closedPage>=closedTotalPages?'disabled':''}>›</button>
     </div>
   </div>` : '';
 
@@ -12083,7 +12201,7 @@ function renderLivePanel(d, idx) {
       <button class="btn" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
       ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
       ${!running && runId ? `<button class="btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
-      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${safeRunIdJs}') " style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
+      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
       <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
     </div>
   </div>
@@ -12175,12 +12293,12 @@ function renderLivePanel(d, idx) {
   </div>`;
 }
 
-function _goLiveClosedPage(runId, page) {
+function _goLiveClosedPage(runId, mode, page) {
   const eng = _liveEngines[_selectedLiveTab];
   if (!eng) return;
   const closed = (eng.closed_trades || []);
   const tp = Math.max(1, Math.ceil(closed.length / _LIVE_TRADES_PER_PAGE));
-  _liveClosedPages[runId] = Math.max(1, Math.min(page, tp));
+  _liveClosedPages[_liveEngineIdentityKey(runId, mode)] = Math.max(1, Math.min(page, tp));
   renderLivePanel(eng, _selectedLiveTab);
 }
 

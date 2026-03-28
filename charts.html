@@ -41,6 +41,7 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
 }
 body::before {
   content: '';
@@ -69,8 +70,10 @@ body::before {
   align-items: center;
   gap: 10px;
   text-decoration: none;
+  min-width: 0;
 }
 .topbar-brand img { width: 32px; height: 32px; border-radius: 8px; }
+.topbar-brand > div { min-width: 0; }
 .topbar-brand-text {
   font-family: 'Syne', sans-serif;
   font-weight: 700;
@@ -425,10 +428,99 @@ body::before {
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .layout { flex-direction: column; padding: 12px; }
-  .sidebar { width: 100%; position: static; max-height: none; }
+  body {
+    overflow-y: auto;
+  }
+  .app-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .topbar-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .topbar-btn {
+    flex: 1 1 140px;
+    justify-content: center;
+    min-height: 44px;
+  }
+  .layout { flex-direction: column; padding: 12px; gap: 12px; min-height: auto; }
+  .sidebar { width: 100%; position: static; top: auto; max-height: none; }
+  .sidebar-card { padding: 14px; }
+  .sidebar-title {
+    font-size: 12px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+  .tree-toggle,
+  .day-btn {
+    min-height: 40px;
+  }
+  .day-btn {
+    padding-left: 18px;
+  }
+  .content-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .empty-state {
+    min-height: 240px;
+    padding: 12px 0;
+  }
   .chart-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .lightbox-close {
+    top: 12px;
+    right: 12px;
+    width: 38px;
+    height: 38px;
+  }
   .lightbox-nav { width: 36px; height: 36px; font-size: 16px; }
+  .lightbox-nav.prev { left: 12px; }
+  .lightbox-nav.next { right: 12px; }
+  .lightbox-caption {
+    max-width: 90vw;
+    padding: 0 12px;
+  }
+  .lightbox-img-wrap,
+  .lightbox-img-wrap img {
+    max-width: 88vw;
+    max-height: 72vh;
+  }
+}
+@media (max-width: 480px) {
+  .topbar-brand-text {
+    font-size: 15px;
+    letter-spacing: 0.3px;
+  }
+  .topbar-brand-sub {
+    display: none;
+  }
+  .topbar-btn {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-card-info {
+    padding: 10px 12px;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .chart-card-name {
+    max-width: none;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .tree-toggle {
+    padding: 8px 8px;
+  }
+  .day-btn {
+    padding: 8px 8px 8px 20px;
+  }
 }
 </style>
 </head>
