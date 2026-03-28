@@ -12763,12 +12763,17 @@ function updateLiveTabDot(engines = _liveEngines) {
   const liveDot = document.getElementById('live-tab-dot');
   if (!liveDot) return;
   liveDot.classList.remove('market-open', 'in-trade', 'market-closed');
+  const marketOpen = isMarketSessionOpen();
+  if (!marketOpen) {
+    liveDot.classList.add('market-closed');
+    return;
+  }
   const anyInTrade = Array.isArray(engines) && engines.some((engine) => engine.running && engine.in_trade);
   if (anyInTrade) {
     liveDot.classList.add('in-trade');
     return;
   }
-  liveDot.classList.add(isMarketSessionOpen() ? 'market-open' : 'market-closed');
+  liveDot.classList.add('market-open');
 }
 
 async function refreshLiveTabStatus() {
