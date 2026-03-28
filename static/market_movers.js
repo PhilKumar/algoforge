@@ -89,7 +89,7 @@ function formatAsOf(value) {
 function sourceLabel(payload) {
   if (!payload) return 'Waiting for feed';
   if (payload.stale) return 'Cached Snapshot';
-  if (payload.source === 'dhan_quote') return 'Dhan Multi-Quote';
+  if (payload.source === 'dhan_quote') return 'Dhan Live + Daily Close';
   if (payload.source === 'yfinance_fallback') return 'Fallback Feed';
   return 'Market Snapshot';
 }
