@@ -4,7 +4,9 @@ import csv
 import json
 import os
 import time
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
+from datetime import datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -108,6 +110,9 @@ _WEIGHT_OVERRIDES = {
 _CONSTITUENT_LOOKUP = {item["symbol"]: item for item in NIFTY_50_CONSTITUENTS}
 _SNAPSHOT_CACHE: dict[str, Any] = {"timestamp": 0.0, "payload": None}
 _SECURITY_MAP_CACHE: dict[str, Any] = {"loaded": False, "payload": {}}
+_HISTORICAL_BASELINE_CACHE: dict[str, Any] = {"key": "", "payload": {}}
+_HISTORICAL_FETCH_WORKERS = 8
+_HISTORICAL_FETCH_TIMEOUT_SEC = 12
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -121,6 +126,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _now_ist_iso() -> str:
     return datetime.now(IST).replace(microsecond=0).isoformat()
+
+
+def _is_session_window_ist(now: datetime | None = None) -> bool:
+    current = now or datetime.now(IST)
+    if current.weekday() >= 5:
+        return False
+    current_time = current.time()
+    return dt_time(9, 15) <= current_time <= dt_time(15, 30)
 
 
 def _empty_snapshot(message: str, *, source: str = "unavailable", stale: bool = False) -> dict:
@@ -299,6 +312,88 @@ def _finalize_payload(items: list[dict], *, source: str, message: str = "", stal
     }
 
 
+def _historical_prev_close_for_symbol(
+    client: DhanClient,
+    symbol: str,
+    security_id: int,
+    *,
+    treat_as_closed: bool,
+) -> tuple[str, dict[str, float] | None]:
+    from_date = (datetime.now(IST) - timedelta(days=10)).strftime("%Y-%m-%d")
+    to_date = datetime.now(IST).strftime("%Y-%m-%d")
+    frame = client.get_historical_data(
+        security_id=str(security_id),
+        exchange_segment="NSE_EQ",
+        instrument_type="EQUITY",
+        from_date=from_date,
+        to_date=to_date,
+        candle_type="D",
+    )
+    if frame is None or getattr(frame, "empty", True) or "close" not in frame:
+        return symbol, None
+
+    frame = frame.sort_index()
+    closes = frame["close"].dropna()
+    if closes.empty:
+        return symbol, None
+
+    latest_close = _safe_float(closes.iloc[-1], 0.0)
+    if latest_close <= 0:
+        return symbol, None
+
+    if treat_as_closed:
+        prev_close = _safe_float(closes.iloc[-2], latest_close) if len(closes) >= 2 else latest_close
+    else:
+        prev_close = latest_close
+
+    if prev_close <= 0:
+        return symbol, None
+    return symbol, {"latest_close": round(latest_close, 2), "prev_close": round(prev_close, 2)}
+
+
+def _get_historical_change_baselines(
+    client: DhanClient,
+    security_map: dict[str, int],
+    *,
+    treat_as_closed: bool,
+) -> dict[str, dict[str, float]]:
+    cache_key = f"{datetime.now(IST).date().isoformat()}:{'closed' if treat_as_closed else 'open'}"
+    if _HISTORICAL_BASELINE_CACHE.get("key") == cache_key:
+        return dict(_HISTORICAL_BASELINE_CACHE.get("payload") or {})
+
+    baselines: dict[str, dict[str, float]] = {}
+    with ThreadPoolExecutor(max_workers=_HISTORICAL_FETCH_WORKERS) as pool:
+        futures = {
+            pool.submit(
+                _historical_prev_close_for_symbol,
+                client,
+                symbol,
+                security_id,
+                treat_as_closed=treat_as_closed,
+            ): symbol
+            for symbol, security_id in security_map.items()
+        }
+        try:
+            for future in as_completed(futures, timeout=_HISTORICAL_FETCH_TIMEOUT_SEC):
+                result = None
+                try:
+                    result = future.result()
+                except Exception:
+                    result = None
+                if not result:
+                    continue
+                symbol, baseline = result
+                if baseline:
+                    baselines[symbol] = baseline
+        except TimeoutError:
+            pass
+
+    if baselines:
+        _HISTORICAL_BASELINE_CACHE["key"] = cache_key
+        _HISTORICAL_BASELINE_CACHE["payload"] = dict(baselines)
+    return baselines
+
+
 def _dhan_snapshot(client: DhanClient) -> dict:
     security_map = _get_security_map()
     if not security_map:
@@ -338,6 +433,34 @@ def _dhan_snapshot(client: DhanClient) -> dict:
                 "unavailable": price <= 0,
             }
         )
+
+    available_items = [item for item in items if not item.get("unavailable")]
+    all_flat = bool(available_items) and all(
+        abs(float(item.get("change") or 0.0)) < 1e-9 and abs(float(item.get("change_pct") or 0.0)) < 1e-9
+        for item in available_items
+    )
+    needs_baseline = all_flat or not available_items
+
+    if needs_baseline:
+        treat_as_closed = not _is_session_window_ist() or all_flat
+        baselines = _get_historical_change_baselines(client, security_map, treat_as_closed=treat_as_closed)
+        if baselines:
+            for item in items:
+                baseline = baselines.get(item["symbol"])
+                if not baseline:
+                    continue
+                prev_close = _safe_float(baseline.get("prev_close"), 0.0)
+                latest_close = _safe_float(baseline.get("latest_close"), 0.0)
+                price = _safe_float(item.get("price"), 0.0) or latest_close
+                if price <= 0 or prev_close <= 0:
+                    continue
+                change = round(price - prev_close, 2)
+                pct = round((change / prev_close) * 100, 2) if prev_close else 0.0
+                item["price"] = round(price, 2)
+                item["change"] = change
+                item["change_pct"] = pct
+                item["unavailable"] = price <= 0
+
     return _finalize_payload(items, source="dhan_quote")
 
 
