@@ -9,6 +9,7 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
+    --brand-rail-space: 212px;
     --bg:         #080d14;
     --surface:    rgba(15, 22, 36, 0.88);
     --card:       rgba(18, 26, 42, 0.85);
@@ -306,6 +307,16 @@
   .page-section { display: none; animation: fadeIn 0.3s ease; }
   .page-section.active-page { display: block; }
   html:not([data-nav-ready="1"]) .page-section { display: none !important; animation: none !important; }
+  .page-rail {
+    padding-left: var(--brand-rail-space);
+  }
+  .page-rail-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  #live-page.page-rail {
+    padding: 0 0 0 var(--brand-rail-space) !important;
+  }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(0,200,150,0.7); } 50% { box-shadow: 0 0 0 10px rgba(0,200,150,0); } }
   .input-group { margin-bottom: 16px; }
@@ -2038,7 +2049,7 @@
   /* ═══ HEADER BAR ═══ */
   .header-shell {
     position: relative;
-    padding-left: 212px;
+    padding-left: var(--brand-rail-space);
     margin-bottom: 12px;
   }
   .header-brand-panel {
@@ -2821,6 +2832,8 @@
     /* -- Global -- */
     body { padding: 0 !important; }
     .page-section { padding: 12px !important; }
+    .page-rail { padding-left: 0 !important; }
+    #live-page.page-rail { padding: 0 !important; }
 
     .header-shell {
       padding-left: 0;
@@ -3989,7 +4002,7 @@
 </div>
 
 <!-- ═══ DASHBOARD ═══ -->
-<div id="dashboard-page" class="page-section active-page">
+<div id="dashboard-page" class="page-section page-rail active-page">
 
 
   <div style="max-width: 1100px; margin: 0 auto 20px auto;">
@@ -4313,7 +4326,7 @@
 </div>
 
 <!-- ═══ STRATEGY BUILDER ═══ -->
-<div id="builder-page" class="page-section">
+<div id="builder-page" class="page-section page-rail">
   <!-- Warning Banner -->
   <div id="premium-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
     <div style="font-size: 24px; color: var(--warn);"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span></div>
@@ -4586,7 +4599,7 @@
 </div>
 
 <!-- ═══ RESULTS ═══ -->
-<div id="results-page" class="page-section">
+<div id="results-page" class="page-section page-rail">
 
   <div id="results-empty" class="card" style="max-width: 1000px; margin: 0 auto 20px auto; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
@@ -4993,7 +5006,7 @@
 </div>
 
 <!-- ═══ LIVE MONITOR PAGE ═══ -->
-<div id="live-page" class="page-section" style="padding: 0;">
+<div id="live-page" class="page-section page-rail" style="padding: 0;">
 
   <!-- Tab bar for multi-strategy switching -->
   <div id="live-tabs-bar" style="display:flex; align-items:center; gap:0; padding:0 28px; background:var(--card); border-bottom:1px solid var(--border); overflow-x:auto;">
@@ -5060,7 +5073,7 @@
 </div>
 
 <!-- ═══ PORTFOLIO / PROFILE PAGE ═══ -->
-<div id="portfolio-page" class="page-section">
+<div id="portfolio-page" class="page-section page-rail">
   <!-- Account Summary Cards -->
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px;">
     <div class="card" style="padding: 20px;">
@@ -5172,7 +5185,8 @@
 </div>
 
 <!-- ═══ SCALP PAGE ═══ -->
-<div id="scalp-page" class="page-section" style="max-width: 1100px; margin: 0 auto;">
+<div id="scalp-page" class="page-section page-rail">
+  <div class="page-rail-inner">
 
   <!-- Engine Status Bar -->
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
@@ -5386,9 +5400,10 @@
   </div>
 
 </div>
+  </div>
 
 <!-- ═══ CHARTS VIEWER ═══ -->
-<div id="charts-page" class="page-section" style="margin: 0 auto;">
+<div id="charts-page" class="page-section page-rail" style="margin: 0 auto;">
   <div id="charts-shell" class="cj-split">
     <!-- LEFT: Date Sidebar + Chart Grid (65%) -->
     <div class="cj-left">
