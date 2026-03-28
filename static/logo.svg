@@ -209,14 +209,14 @@
   <!-- Text shadow -->
   <text x="256" y="428" text-anchor="middle"
         font-family="'Syne','Inter','SF Pro Display',system-ui,sans-serif"
-        font-weight="800" font-size="36" letter-spacing="3"
-        fill="#000" opacity="0.4" transform="translate(0,2)">PhilForge</text>
+        font-weight="800" font-size="38" letter-spacing="8"
+        fill="#000" opacity="0.4" transform="translate(0,2)">ALGOFORGE</text>
 
   <!-- Main text -->
   <text x="256" y="428" text-anchor="middle"
         font-family="'Syne','Inter','SF Pro Display',system-ui,sans-serif"
-        font-weight="800" font-size="36" letter-spacing="3"
-        fill="url(#g1)">PhilForge</text>
+        font-weight="800" font-size="38" letter-spacing="8"
+        fill="url(#g1)">ALGOFORGE</text>
 
   <!-- Decorative lines flanking bottom -->
   <line x1="100" y1="442" x2="195" y2="442" stroke="url(#g1)" stroke-width="1" opacity="0.2"/>
