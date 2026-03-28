@@ -81,6 +81,7 @@ from engine.timeframes import (
     describe_timeframe,
     resolve_strategy_timeframe,
 )
+from market_movers import get_nifty50_market_movers_snapshot
 
 try:
     from scalp import ScalpEngine as _ScalpEngineClass
@@ -1667,6 +1668,7 @@ async def auth_middleware(request: Request, call_next):
         "/login",
         "/",
         "/charts-viewer",
+        "/market-movers",
         "/logo.jpg",
         "/logo.png",
         "/favicon.ico",
@@ -1981,6 +1983,35 @@ async def serve_charts_viewer(request: Request):
         with open(html_path, encoding="utf-8") as f:
             return HTMLResponse(f.read())
     return HTMLResponse("<h2>charts.html not found. Place it beside app.py</h2>")
+
+
+@app.get("/market-movers", response_class=HTMLResponse)
+async def serve_market_movers(request: Request):
+    """Serve the standalone Nifty 50 market movers page (auth-protected)."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    html_path = os.path.join(_HERE, "market_movers.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("<h2>market_movers.html not found. Place it beside app.py</h2>")
+
+
+@app.get("/api/market-movers/nifty50")
+async def api_market_movers_nifty50(request: Request):
+    """Standalone Nifty 50 cash-stock snapshot used by the market movers page."""
+    broker_client = None
+    try:
+        _, broker_client, _ = await _request_broker_context(request)
+    except Exception:
+        broker_client = None
+    fallback_client = dhan if dhan._is_configured() and dhan is not broker_client else None
+    return await asyncio.to_thread(
+        get_nifty50_market_movers_snapshot,
+        broker_client,
+        fallback_client,
+    )
 
 
 @app.get("/api/charts/tree")

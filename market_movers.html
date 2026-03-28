@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PhilForge — Market Movers</title>
+<link rel="icon" href="/static/logo.png?v=20260327-2" type="image/png">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script>
+  try {
+    if (localStorage.getItem('algoforge_theme') === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  } catch (e) {}
+</script>
+<link rel="stylesheet" href="/static/market_movers.css?v=20260328-1">
+</head>
+<body>
+  <div class="movers-page">
+    <header class="movers-topbar">
+      <a class="brand-link" href="/" aria-label="Back to PhilForge dashboard">
+        <span class="brand-logo-shell">
+          <img src="/static/logo.png?v=20260327-2" alt="PhilForge" class="brand-logo theme-logo dark-variant">
+          <img src="/static/logolight.png?v=20260328-1" alt="PhilForge" class="brand-logo theme-logo light-variant">
+        </span>
+        <span class="brand-copy">
+          <span class="brand-kicker">Standalone Market View</span>
+          <strong class="brand-title">Nifty 50 Heatmap</strong>
+          <span class="brand-sub">Cash equities only. Independent from the strategy engine.</span>
+        </span>
+      </a>
+
+      <div class="topbar-actions">
+        <div class="status-chip" id="market-status">Loading live breadth...</div>
+        <button class="shell-btn icon-only" id="theme-toggle" type="button" aria-label="Toggle theme"></button>
+        <a class="shell-btn shell-btn-primary" href="/">Back To Dashboard</a>
+      </div>
+    </header>
+
+    <main class="movers-shell">
+      <section class="hero-ribbon">
+        <article class="surface-card pulse-card">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">Session Pulse</span>
+              <h1>Market Movers</h1>
+            </div>
+            <div class="sync-meta">
+              <span class="meta-pill" id="market-source">Waiting for feed</span>
+              <span class="meta-pill" id="market-age">Refresh in --s</span>
+            </div>
+          </div>
+
+          <div class="pulse-grid">
+            <div class="pulse-metric">
+              <span class="pulse-label">Advancers</span>
+              <strong class="pulse-value positive" id="breadth-advancers">0</strong>
+            </div>
+            <div class="pulse-metric">
+              <span class="pulse-label">Decliners</span>
+              <strong class="pulse-value negative" id="breadth-decliners">0</strong>
+            </div>
+            <div class="pulse-metric">
+              <span class="pulse-label">Median Move</span>
+              <strong class="pulse-value neutral" id="breadth-median">0.00%</strong>
+            </div>
+          </div>
+
+          <div class="breadth-bar" aria-hidden="true">
+            <span class="breadth-segment positive" id="breadth-bar-advancers"></span>
+            <span class="breadth-segment flat" id="breadth-bar-flat"></span>
+            <span class="breadth-segment negative" id="breadth-bar-decliners"></span>
+          </div>
+
+          <div class="pulse-foot">
+            <div class="pulse-note">
+              <span class="pulse-note-label">As Of</span>
+              <strong id="market-as-of">--</strong>
+            </div>
+            <div class="pulse-note">
+              <span class="pulse-note-label">Strongest Industry</span>
+              <strong id="market-strongest-industry">--</strong>
+            </div>
+            <div class="pulse-note">
+              <span class="pulse-note-label">Weakest Industry</span>
+              <strong id="market-weakest-industry">--</strong>
+            </div>
+          </div>
+
+          <div class="page-message" id="page-message">Fetching the latest Nifty 50 cash-market snapshot.</div>
+        </article>
+
+        <article class="surface-card hero-card hero-card-positive" id="top-gainer-card">
+          <span class="eyebrow">Top Gainer</span>
+          <div class="hero-card-body">
+            <div>
+              <h2 class="hero-symbol">--</h2>
+              <p class="hero-company">Awaiting quote</p>
+            </div>
+            <strong class="hero-change positive">+0.00%</strong>
+          </div>
+          <div class="hero-stats">
+            <span>Price <strong id="top-gainer-price">--</strong></span>
+            <span>Move <strong id="top-gainer-abs">--</strong></span>
+            <span>Volume <strong id="top-gainer-volume">--</strong></span>
+          </div>
+        </article>
+
+        <article class="surface-card hero-card hero-card-negative" id="top-laggard-card">
+          <span class="eyebrow">Top Laggard</span>
+          <div class="hero-card-body">
+            <div>
+              <h2 class="hero-symbol">--</h2>
+              <p class="hero-company">Awaiting quote</p>
+            </div>
+            <strong class="hero-change negative">-0.00%</strong>
+          </div>
+          <div class="hero-stats">
+            <span>Price <strong id="top-laggard-price">--</strong></span>
+            <span>Move <strong id="top-laggard-abs">--</strong></span>
+            <span>Volume <strong id="top-laggard-volume">--</strong></span>
+          </div>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="surface-card heatmap-panel">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">Mosaic Heatmap</span>
+              <h2>Weighted Nifty Canvas</h2>
+            </div>
+            <div class="meta-stack">
+              <span class="meta-label">50 cash stocks</span>
+              <span class="meta-label">Hover for depth</span>
+            </div>
+          </div>
+          <div class="heatmap-grid" id="heatmap-grid">
+            <div class="heatmap-empty">Loading the Nifty 50 mosaic...</div>
+          </div>
+        </article>
+
+        <aside class="side-rail">
+          <article class="surface-card rail-card">
+            <div class="rail-heading">
+              <span class="eyebrow">Leaders</span>
+              <h3>Positive Movers</h3>
+            </div>
+            <div class="rail-list" id="leaders-list"></div>
+          </article>
+
+          <article class="surface-card rail-card">
+            <div class="rail-heading">
+              <span class="eyebrow">Pressure Zone</span>
+              <h3>Negative Movers</h3>
+            </div>
+            <div class="rail-list" id="laggards-list"></div>
+          </article>
+
+          <article class="surface-card rail-card sector-card">
+            <div class="rail-heading">
+              <span class="eyebrow">Industry Pulse</span>
+              <h3>Sector Drift</h3>
+            </div>
+            <div class="industry-list" id="industry-list"></div>
+          </article>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/market_movers.js?v=20260328-1"></script>
+</body>
+</html>
