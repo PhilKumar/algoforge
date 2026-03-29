@@ -572,7 +572,7 @@
   </div>
 
   <div class="mode-switch-row">
-    <button type="button" class="mode-switch-btn" id="mode-switch-btn">Use 6-digit PIN instead</button>
+    <button type="button" class="mode-switch-btn hidden" id="mode-switch-btn" aria-hidden="true">Use password instead</button>
   </div>
 
   <div class="pin-section hidden" id="pin-section">
@@ -618,7 +618,7 @@
     </div>
   </div>
 
-  <div class="unlock-footer">Password login supported &middot; 6-digit PIN optional &middot; Auto-locks after 24h</div>
+  <div class="unlock-footer">Password login only &middot; Auto-locks after 24h</div>
 </div>
 
 <script>
@@ -647,7 +647,7 @@ const unlockBtn = document.getElementById('unlock-btn');
 const keypad = document.getElementById('keypad');
 
 function baseStatusMessage() {
-  return loginMode === PIN_MODE ? 'Enter username & 6-digit PIN' : 'Enter username & password';
+  return 'Enter username & password';
 }
 
 function updateDots() {
@@ -670,18 +670,18 @@ function setIdleStatus() {
 }
 
 function setMode(mode, focus = true) {
-  loginMode = mode === PIN_MODE ? PIN_MODE : PASSWORD_MODE;
-  passwordField.classList.toggle('hidden', loginMode === PIN_MODE);
-  pinSection.classList.toggle('hidden', loginMode !== PIN_MODE);
-  modeSwitchBtn.textContent = loginMode === PIN_MODE ? 'Use password instead' : 'Use 6-digit PIN instead';
-  unlockBtn.textContent = loginMode === PIN_MODE ? 'Unlock with PIN' : 'Unlock';
-  resetSecrets(loginMode === PIN_MODE);
+  loginMode = PASSWORD_MODE;
+  passwordField.classList.remove('hidden');
+  pinSection.classList.add('hidden');
+  modeSwitchBtn.classList.add('hidden');
+  modeSwitchBtn.setAttribute('aria-hidden', 'true');
+  unlockBtn.textContent = 'Unlock';
+  resetSecrets(true);
   locked = false;
   setIdleStatus();
   if (!focus) return;
   if (!usernameInput.value.trim()) usernameInput.focus();
-  else if (loginMode === PASSWORD_MODE) passwordInput.focus();
-  else usernameInput.blur();
+  else passwordInput.focus();
 }
 
 function showValidationError(msg, focusEl = null) {
@@ -736,11 +736,7 @@ async function tryUnlock() {
     return;
   }
   if (!secret) {
-    showValidationError(loginMode === PIN_MODE ? 'Enter your 6-digit PIN' : 'Enter your password', loginMode === PASSWORD_MODE ? passwordInput : null);
-    return;
-  }
-  if (loginMode === PIN_MODE && pin.length !== PIN_LENGTH) {
-    showValidationError('PIN must be exactly 6 digits');
+    showValidationError('Enter your password', passwordInput);
     return;
   }
 
@@ -793,13 +789,7 @@ function clearAll() {
 usernameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    if (loginMode === PIN_MODE) {
-      usernameInput.blur();
-      status.textContent = 'Now enter your 6-digit PIN';
-      status.className = 'unlock-status';
-    } else {
-      passwordInput.focus();
-    }
+    passwordInput.focus();
   }
 });
 

@@ -5983,12 +5983,12 @@ function createStatusChip(text, tone) {
   return chip;
 }
 
-const PASSWORD_POLICY_HINT = 'Use at least 8 characters, or exactly 6 digits for PIN mode.';
+const PASSWORD_POLICY_HINT = 'Use at least 8 characters.';
 
 function validatePasswordRule(password, label = 'Password') {
   const value = String(password || '');
-  if (/^\d{6}$/.test(value) || value.length >= 8) return '';
-  return `${label} must be at least 8 characters, or exactly 6 digits for PIN mode.`;
+  if (value.length >= 8) return '';
+  return `${label} must be at least 8 characters.`;
 }
 
 async function logoutUser() {
@@ -6439,7 +6439,7 @@ async function resetAdminUserPassword(userId, username) {
       okText: 'Reset',
       prompt: true,
       promptType: 'password',
-      promptPlaceholder: '8+ characters or 6-digit PIN',
+      promptPlaceholder: 'At least 8 characters',
       promptValue: ''
     }
   );
@@ -8220,6 +8220,7 @@ async function stopScalpEngine() {
   } catch(e) {
     if (stopBtn) stopBtn.disabled = false;
     toast(e.message || 'Failed to stop engine', 'error');
+    refreshScalpStatus();
   }
 }
 
@@ -11842,19 +11843,29 @@ function downloadPaperCSV() {
 
 async function stopEngine(runId, mode) {
   const label = mode === 'auto' ? 'auto trading' : 'paper trade';
-  const ok = await customConfirm(`Stop <strong>${label}</strong> run "<strong>${runId}</strong>"?<br><br>Open positions will remain as-is.`, { title: 'Stop Trading', icon: ICO.sqstop(28), okText: 'Stop', danger: true });
+  const ok = await customConfirm(`Stop <strong>${label}</strong> run "<strong>${runId}</strong>"?<br><br>Any open broker positions will be squared off first. If the broker exit is not confirmed, the engine will stay running.`, { title: 'Stop Trading', icon: ICO.sqstop(28), okText: 'Stop', danger: true });
   if (!ok) return;
   try {
     const endpoint = mode === 'auto' ? '/api/live/stop' : '/api/paper/stop';
-    await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId }) });
-    toast(`${label} "${runId}" stopped`, 'warn');
+    const res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status === 'error' || data.status === 'pending') {
+      throw new Error(data.detail || data.message || 'Broker square-off is still pending');
+    }
+    if (data.status !== 'stopped') {
+      throw new Error(data.detail || data.message || 'Failed to stop engine');
+    }
+    toast(data.message || `${label} "${runId}" stopped`, 'warn');
     // Sync strategy builder buttons
     const startBtn = document.getElementById('start-paper-btn');
     const stopBtn = document.getElementById('stop-paper-btn');
     if (mode === 'paper' && startBtn) startBtn.style.display = 'block';
     if (mode === 'paper' && stopBtn) stopBtn.style.display = 'none';
     setTimeout(() => loadLiveMonitor(), 500);
-  } catch(e) { toast('Error stopping trade', 'danger'); }
+  } catch(e) {
+    toast(e.message || 'Error stopping trade', 'danger');
+    loadLiveMonitor();
+  }
 }
 
 function viewRunningStrategy(runId, mode) {
@@ -13230,15 +13241,17 @@ function toggleTheme() {
 // ══════════════════════════════════════════════════════════════
 async function emergencyStop() {
   const confirmed = await customConfirm(
-    'This will <strong style="color:var(--danger)">immediately stop ALL</strong> running strategies (paper + auto).<br><br>Any open positions will NOT be squared off automatically.',
+    'This will <strong style="color:var(--danger)">immediately stop ALL</strong> running strategies (paper + auto) and attempt broker square-off for live positions first.<br><br>If any broker exit is not confirmed, that engine will be left running so it does not lose tracking.',
     { title: ICO.stop(20) + ' EMERGENCY STOP', icon: ICO.siren(28), okText: 'KILL ALL', danger: true }
   );
   if (!confirmed) return;
   try {
     const res = await fetch('/api/emergency-stop', { method: 'POST' });
     const data = await res.json();
-    toast((data.message || 'All engines stopped'), data.stopped > 0 ? 'warn' : 'success');
+    toast((data.message || 'Emergency stop executed'), data.stopped > 0 ? 'warn' : 'success');
     updateKillSwitchVisibility();
+    loadLiveMonitor();
+    refreshScalpStatus();
   } catch(e) {
     toast('Failed to execute emergency stop', 'danger');
   }

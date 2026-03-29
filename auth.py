@@ -5,6 +5,7 @@ Handles password hashing (bcrypt), Fernet encryption for broker creds,
 session creation/validation, and the get_current_user FastAPI dependency.
 """
 
+import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -82,11 +83,17 @@ def decrypt_value(ciphertext: str) -> str:
 # ── Session Management ───────────────────────────────────────────
 
 
+def _session_storage_key(token: str) -> str:
+    """Return the DB storage key for a bearer session token."""
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
 async def create_session(user_id: int) -> str:
     """Create a new session token for a user. Returns the token string."""
     token = secrets.token_hex(32)
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=config.SESSION_TTL_HOURS)).isoformat()
-    await db.create_session(token, user_id, expires_at)
+    await db.create_session(_session_storage_key(token), user_id, expires_at)
     return token
 
 
@@ -94,11 +101,18 @@ async def validate_session(token: str) -> dict | None:
     """Validate a session token. Returns session dict (with user_id) or None."""
     if not token:
         return None
+    session = await db.get_session(_session_storage_key(token))
+    if session:
+        return session
+    # Backward compatibility for legacy raw-token session rows created before hashing-at-rest.
     return await db.get_session(token)
 
 
 async def destroy_session(token: str) -> None:
     """Destroy a session (logout)."""
+    if not token:
+        return
+    await db.delete_session(_session_storage_key(token))
     await db.delete_session(token)
 
 

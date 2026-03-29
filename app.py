@@ -15,6 +15,7 @@ import shutil
 from copy import deepcopy
 from html import escape as _escape_html
 from urllib.parse import quote as _url_quote
+from urllib.parse import urlparse as _urlparse
 
 try:
     import orjson as _orjson
@@ -137,15 +138,16 @@ def _generate_startup_token_once():
 
 # Initialize FastAPI app
 app = FastAPI(title="PhilForge", version="1.0.0")
+_CORS_ALLOWED_ORIGINS = [
+    "https://philipalgo.github.io",
+    "http://philipalgoforge.local",
+    "http://65.1.213.207",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://philipalgo.github.io",
-        "http://philipalgoforge.local",
-        "http://65.1.213.207",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-    ],
+    allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1613,6 +1615,101 @@ def _engine_status_summary(engine, run_id: str, default_mode: str) -> dict:
     }
 
 
+def _live_exit_reason_for_stop(reason: str) -> str:
+    normalized = str(reason or "").strip().upper()
+    if normalized in {"EMERGENCY_STOP", "ENGINE_REPLACE"}:
+        return normalized
+    return "ENGINE_STOP"
+
+
+async def _live_engine_broadcast(user_id: int, run_id: str, event: dict):
+    await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
+    _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+    if event.get("type") == "exit" and event.get("trade"):
+        await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
+
+
+async def _square_off_live_engine_positions(engine, user_id: int, run_id: str, *, reason: str = "ENGINE_STOP") -> dict:
+    """Attempt broker-aware square-off for all open live positions.
+
+    Returns a summary without stopping the engine when exits cannot be confirmed.
+    """
+
+    async def broadcast(event: dict):
+        await _live_engine_broadcast(user_id, run_id, event)
+
+    try:
+        await engine._reconcile_broker_positions(callback=broadcast)
+    except Exception:
+        pass
+
+    positions = list(getattr(engine, "positions", []) or [])
+    if not positions:
+        return {"status": "ok", "ok": True, "attempted": 0, "remaining": 0, "results": []}
+
+    results = []
+    exit_reason = _live_exit_reason_for_stop(reason)
+    for pos in positions:
+        current_premium = pos.get("current_premium", pos.get("entry_premium", 0))
+        result = await engine._exit_position(pos, exit_reason, current_premium, callback=broadcast)
+        results.append(
+            {
+                "symbol": pos.get("trading_symbol", pos.get("symbol", "")),
+                "leg_num": pos.get("leg_num"),
+                "status": str((result or {}).get("status") or "error").lower(),
+                "message": str((result or {}).get("message") or ""),
+            }
+        )
+
+    reconcile_error = ""
+    try:
+        await engine._reconcile_broker_positions(callback=broadcast)
+    except Exception as exc:
+        reconcile_error = str(exc)
+
+    remaining_positions = list(getattr(engine, "positions", []) or [])
+    remaining = len(remaining_positions)
+    pending = any(item["status"] == "pending" for item in results)
+    errored = any(item["status"] == "error" for item in results) or bool(reconcile_error)
+    if remaining <= 0:
+        status = "ok"
+    elif pending:
+        status = "pending"
+    else:
+        status = "error" if errored else "pending"
+    summary = {
+        "status": status,
+        "ok": remaining <= 0,
+        "attempted": len(positions),
+        "remaining": remaining,
+        "results": results,
+    }
+    if reconcile_error:
+        summary["reconcile_error"] = reconcile_error
+    return summary
+
+
+async def _square_off_scalp_engine_trades(eng) -> dict:
+    """Attempt to close all open scalp trades without stopping the engine on failure."""
+    open_before = len(getattr(eng, "open_trades", {}) or {})
+    if open_before <= 0:
+        return {"status": "ok", "ok": True, "attempted": 0, "remaining": 0, "closed": 0}
+
+    result = await eng.kill_all_trades()
+    remaining = len(getattr(eng, "open_trades", {}) or {})
+    status = "ok" if remaining <= 0 else "error"
+    summary = {
+        "status": status,
+        "ok": remaining <= 0,
+        "attempted": open_before,
+        "closed": int((result or {}).get("closed", 0) or 0),
+        "remaining": remaining,
+        "message": str((result or {}).get("message") or ""),
+    }
+    _notify_scalp_ws()
+    return summary
+
+
 # ── DB-backed session helpers (thin wrappers for sync-style code paths) ──
 # These bridge the old middleware (sync-ish) to the async DB via asyncio
 
@@ -1643,6 +1740,58 @@ async def _get_page_user(request: Request) -> dict | None:
     return user
 
 
+def _request_is_https(request: Request) -> bool:
+    proto = str(request.headers.get("x-forwarded-proto", "") or "").split(",")[0].strip().lower()
+    if proto == "https":
+        return True
+    forwarded = str(request.headers.get("forwarded", "") or "").lower()
+    if "proto=https" in forwarded:
+        return True
+    return str(getattr(request.url, "scheme", "") or "").lower() == "https"
+
+
+def _normalize_origin_value(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = _urlparse(text)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _allowed_request_origins(request: Request) -> set[str]:
+    allowed = {_normalize_origin_value(origin) for origin in _CORS_ALLOWED_ORIGINS}
+    allowed.discard("")
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or "").strip().lower()
+    if host:
+        allowed.add(f"https://{host}")
+        allowed.add(f"http://{host}")
+        if _request_is_https(request):
+            allowed.add(f"https://{host}")
+        else:
+            allowed.add(f"http://{host}")
+    return allowed
+
+
+def _browser_origin_allowed(request: Request) -> bool:
+    sec_fetch_site = str(request.headers.get("sec-fetch-site", "") or "").strip().lower()
+    if sec_fetch_site and sec_fetch_site not in ("same-origin", "same-site", "none"):
+        return False
+
+    allowed = _allowed_request_origins(request)
+    origin = _normalize_origin_value(request.headers.get("origin", ""))
+    if origin:
+        return origin in allowed
+
+    referer = _normalize_origin_value(request.headers.get("referer", ""))
+    if referer:
+        return referer in allowed
+
+    # Non-browser/API clients commonly omit Origin and Referer.
+    return True
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """Attach a unique request-id to every request for log tracing."""
@@ -1653,6 +1802,21 @@ async def request_id_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid
     return response
+
+
+@app.middleware("http")
+async def browser_origin_guard_middleware(request: Request, call_next):
+    """Best-effort CSRF/origin guard for browser-driven mutating requests."""
+    path = request.url.path
+    if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return await call_next(request)
+    if path == "/api/save-state":
+        return await call_next(request)
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if not _browser_origin_allowed(request):
+        return JSONResponse(status_code=403, content={"detail": "Blocked cross-origin request"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -2445,12 +2609,12 @@ _LEGACY_PIN_LENGTH = 6
 
 
 def _password_policy_message(label: str = "Password") -> str:
-    return f"{label} must be at least 8 characters, or exactly 6 digits for PIN mode"
+    return f"{label} must be at least 8 characters"
 
 
 def _is_valid_account_password(password: str) -> bool:
     password = str(password or "")
-    return bool(_re.fullmatch(rf"\d{{{_LEGACY_PIN_LENGTH}}}", password)) or len(password) >= 8
+    return len(password) >= 8
 
 
 def _require_valid_account_password(password: str, label: str = "Password") -> None:
@@ -2555,14 +2719,13 @@ async def auth_login(request: Request):
             "role": user["role"],
         }
     )
-    is_https = request.headers.get("x-forwarded-proto") == "https"
     resp.set_cookie(
         "algoforge_session",
         token,
         max_age=config.SESSION_TTL_HOURS * 3600,
         httponly=True,
         samesite="lax",
-        secure=is_https,
+        secure=_request_is_https(request),
     )
     return resp
 
@@ -3376,7 +3539,7 @@ async def emergency_stop(request: Request):
     user = getattr(request.state, "current_user", {}) or {}
     caller_id = _request_user_id(request)
     if user.get("role") == "admin":
-        target_user_ids = sorted(set(paper_engines) | set(live_engines))
+        target_user_ids = sorted(set(paper_engines) | set(live_engines) | set(_scalp_engines))
     else:
         target_user_ids = [caller_id]
 
@@ -3401,8 +3564,16 @@ async def emergency_stop(request: Request):
         for run_id, engine in list(live_bucket.items()):
             try:
                 if engine.running:
+                    sqoff = await _square_off_live_engine_positions(engine, owner_id, run_id, reason="EMERGENCY_STOP")
+                    if not sqoff.get("ok"):
+                        results[f"live:{owner_id}:{run_id}"] = {
+                            "status": sqoff.get("status", "error"),
+                            "message": "Emergency stop could not confirm broker square-off. Engine left running.",
+                            "square_off": sqoff,
+                        }
+                        continue
                     engine.stop()
-                    results[f"live:{owner_id}:{run_id}"] = "stopped"
+                    results[f"live:{owner_id}:{run_id}"] = {"status": "stopped", "square_off": sqoff}
                     stopped_count += 1
                 else:
                     results[f"live:{owner_id}:{run_id}"] = "not_running"
@@ -3410,20 +3581,53 @@ async def emergency_stop(request: Request):
             except Exception as e:
                 results[f"live:{owner_id}:{run_id}"] = f"error: {str(e)}"
 
-    # Cancel background tasks and clear registries for target users
+    # Stop all scalp engines for target users
+    for owner_id in target_user_ids:
+        eng = _scalp_engines.get(owner_id)
+        if not eng:
+            continue
+        try:
+            if getattr(eng, "_running", False):
+                sqoff = await _square_off_scalp_engine_trades(eng)
+                if not sqoff.get("ok"):
+                    results[f"scalp:{owner_id}"] = {
+                        "status": sqoff.get("status", "error"),
+                        "message": "Emergency stop could not confirm scalp broker exits. Engine left running.",
+                        "square_off": sqoff,
+                    }
+                    continue
+                eng.stop()
+                results[f"scalp:{owner_id}"] = {"status": "stopped", "square_off": sqoff}
+                stopped_count += 1
+            else:
+                results[f"scalp:{owner_id}"] = "not_running"
+        except Exception as e:
+            results[f"scalp:{owner_id}"] = f"error: {str(e)}"
+
+    # Cancel background tasks and clear stopped registries for target users
     for owner_id in target_user_ids:
         for tasks_dict in (_live_tasks, _paper_tasks):
             task_bucket = _registry_bucket(tasks_dict, owner_id)
-            for _, task_ref in list(task_bucket.items()):
+            engine_bucket = _registry_bucket(live_engines if tasks_dict is _live_tasks else paper_engines, owner_id)
+            for run_id, task_ref in list(task_bucket.items()):
+                engine = engine_bucket.get(run_id)
+                if engine and getattr(engine, "running", False):
+                    continue
                 if task_ref and not task_ref.done():
                     task_ref.cancel()
                     try:
                         await task_ref
                     except asyncio.CancelledError:
                         pass
-            task_bucket.clear()
-        _registry_bucket(live_engines, owner_id).clear()
-        _registry_bucket(paper_engines, owner_id).clear()
+                task_bucket.pop(run_id, None)
+        for registry in (live_engines, paper_engines):
+            bucket = _registry_bucket(registry, owner_id)
+            for run_id, engine in list(bucket.items()):
+                if not getattr(engine, "running", False):
+                    bucket.pop(run_id, None)
+        scalp_engine = _scalp_engines.get(owner_id)
+        if scalp_engine and not getattr(scalp_engine, "_running", False):
+            _scalp_engines.pop(owner_id, None)
 
     return {
         "status": "ok",
@@ -5621,6 +5825,11 @@ async def live_start(req: LiveStartRequest, request: Request):
     # If an engine with same run_id exists, save its results before replacing
     old_engine = live_bucket.get(run_id)
     if old_engine:
+        if old_engine.running and getattr(old_engine, "positions", None):
+            return {
+                "status": "error",
+                "message": "An active live engine with open broker positions already exists for this run. Stop it and wait for square-off before redeploying.",
+            }
         try:
             old_status = old_engine.get_status()
             if old_engine.running:
@@ -5706,7 +5915,18 @@ async def live_stop(request: Request):
     if not engine:
         return {"status": "not_found", "run_id": run_id}
 
-    # Capture results BEFORE stopping
+    if getattr(engine, "positions", None):
+        sqoff = await _square_off_live_engine_positions(engine, user_id, run_id, reason="ENGINE_STOP")
+        if not sqoff.get("ok"):
+            return {
+                "status": sqoff.get("status", "error"),
+                "run_id": run_id,
+                "message": "Live engine stop aborted because broker square-off is not fully confirmed yet.",
+                "square_off": sqoff,
+                "engine_status": engine.get_status(),
+            }
+
+    # Capture results AFTER any required square-off and BEFORE stopping
     status_before = engine.get_status()
 
     engine.stop()
@@ -6649,6 +6869,10 @@ def _ws_serialize(payload: dict) -> bytes:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    origin = _normalize_origin_value(ws.headers.get("origin", ""))
+    if origin and origin not in _allowed_request_origins(ws):
+        await ws.close(code=4003, reason="Forbidden origin")
+        return
     # Authenticate WebSocket via session cookie (DB-backed)
     token = ws.cookies.get("algoforge_session", "")
     session = await _validate_session_async(token)
@@ -7185,10 +7409,18 @@ async def start_scalp_engine(request: Request):
 async def stop_scalp_engine(request: Request):
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
+    sqoff = await _square_off_scalp_engine_trades(eng)
+    if not sqoff.get("ok"):
+        return {
+            "status": sqoff.get("status", "error"),
+            "message": "Scalp stop aborted because broker exits are not fully confirmed yet.",
+            "square_off": sqoff,
+            "engine_status": eng.get_status(),
+        }
     await _save_scalp_run_to_history(eng, explicit_user_id=user_id)
     eng.stop()
     _notify_scalp_ws()
-    return {"status": "stopped"}
+    return {"status": "stopped", "square_off": sqoff}
 
 
 class ScalpEntryReq(BaseModel):
