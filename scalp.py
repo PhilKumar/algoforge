@@ -18,6 +18,13 @@ from broker.dhan import ScripMaster, enable_marketfeed_throttle
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+SCALP_EXIT_GRACE_SEC = 1.0
+SCALP_MONITOR_INTERVAL_SEC = 0.25
+SCALP_IDLE_SLEEP_SEC = 0.5
+SCALP_SUPER_SYNC_INTERVAL_SEC = 0.75
+SCALP_POSITION_SYNC_INTERVAL_SEC = 1.5
+SCALP_POSITION_CACHE_TTL_SEC = 1.0
+
 
 def _now_ist():
     return datetime.now(IST).replace(tzinfo=None)
@@ -126,9 +133,9 @@ class ScalpTrade:
         if self.entry_premium <= 0:
             return None
 
-        # Grace period: don't auto-exit within 3 seconds of entry.
+        # Brief debounce: avoid evaluating exit on the same instant as entry fill.
         elapsed = (now - self.entry_time).total_seconds()
-        if elapsed < 3:
+        if elapsed < SCALP_EXIT_GRACE_SEC:
             return None
 
         pnl = self._compute_pnl(current_prem)
@@ -209,7 +216,7 @@ class ScalpTrade:
 class ScalpEngine:
     """
     Manages all active scalp trades.
-    • Runs a background monitoring loop.
+    • Runs a low-latency background monitoring loop.
     • Uses _market_feed LTP cache for zero-latency price checks.
     • Falls back to REST `get_option_ltp` every 2s if no WS feed.
     """
@@ -509,7 +516,7 @@ class ScalpEngine:
     # ── Internal monitoring ───────────────────────────────────────
 
     async def _monitor_loop(self):
-        """Poll/WS prices every ~1s and trigger auto-exits."""
+        """Poll/WS prices with scalp-friendly latency and trigger auto-exits."""
         _last_rest_call = 0.0
         _last_ws_health_check = 0.0
         _last_super_sync = 0.0
@@ -524,13 +531,13 @@ class ScalpEngine:
                         self._log("info", "📡 WS feed stale — triggering reconnect")
                 except Exception:
                     pass
-            if now_mono - _last_super_sync > 2.0:
+            if now_mono - _last_super_sync > SCALP_SUPER_SYNC_INTERVAL_SEC:
                 _last_super_sync = now_mono
                 try:
                     await self._sync_super_orders()
                 except Exception as e:
                     self._log("error", f"Super Order monitor sync failed: {e}")
-            if now_mono - _last_position_sync > 5.0:
+            if now_mono - _last_position_sync > SCALP_POSITION_SYNC_INTERVAL_SEC:
                 _last_position_sync = now_mono
                 try:
                     await self._sync_broker_positions()
@@ -539,7 +546,7 @@ class ScalpEngine:
             try:
                 trades = list(self.open_trades.items())
                 if not trades:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(SCALP_IDLE_SLEEP_SEC)
                     continue
 
                 # Batch-fetch all LTPs in ONE non-blocking call
@@ -579,7 +586,7 @@ class ScalpEngine:
                         await self._close_trade(trade, reason)
             except Exception as e:
                 self._log("error", f"Monitor error: {e}")
-            await asyncio.sleep(1)
+            await asyncio.sleep(SCALP_MONITOR_INTERVAL_SEC)
 
     async def _activate_pending_trade(self, trade: ScalpTrade):
         """Place broker order for a pending stop-limit trade when premium enters the trigger range."""
@@ -726,7 +733,7 @@ class ScalpEngine:
         if not live_trades:
             return
         try:
-            positions = await asyncio.to_thread(self.dhan.get_positions_cached, 3.0)
+            positions = await asyncio.to_thread(self.dhan.get_positions_cached, SCALP_POSITION_CACHE_TTL_SEC)
         except Exception as e:
             self._log("error", f"Broker position sync failed: {e}")
             return
@@ -1027,15 +1034,23 @@ class ScalpEngine:
 
     async def _cancel_broker_orders(self, trade: ScalpTrade):
         """Cancel pending broker-side SL/TP orders (called before software-triggered exit)."""
+
+        async def _cancel_one(label: str, oid_attr: str, oid: str):
+            try:
+                await asyncio.to_thread(self.dhan.cancel_order, oid)
+                self._log("info", f"🚫 Broker {label} cancelled: orderId={oid}")
+            except Exception as e:
+                self._log("error", f"Broker {label} cancel failed ({oid}): {e}")
+            finally:
+                setattr(trade, oid_attr, "")
+
+        tasks = []
         for label, oid_attr in [("SL", "broker_sl_order_id"), ("TP", "broker_tp_order_id")]:
             oid = getattr(trade, oid_attr, "")
             if oid:
-                try:
-                    await asyncio.to_thread(self.dhan.cancel_order, oid)
-                    self._log("info", f"🚫 Broker {label} cancelled: orderId={oid}")
-                except Exception as e:
-                    self._log("error", f"Broker {label} cancel failed ({oid}): {e}")
-                setattr(trade, oid_attr, "")
+                tasks.append(asyncio.create_task(_cancel_one(label, oid_attr, oid)))
+        if tasks:
+            await asyncio.gather(*tasks)
 
     async def _modify_broker_sl_tp(self, trade: ScalpTrade, **kwargs):
         """Modify broker-side SL/TP orders when user updates targets (live mode only)."""

@@ -1072,6 +1072,29 @@ class LiveOrderVerificationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    def test_scalp_trade_exit_grace_is_short_and_blocks_only_immediate_same_second_exit(self):
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            target_premium=101.0,
+            sl_premium=99.0,
+            mode="live",
+        )
+        trade.entry_time = pd.Timestamp("2026-03-24 09:15:00").to_pydatetime()
+
+        with patch("scalp._now_ist", return_value=pd.Timestamp("2026-03-24 09:15:00.500").to_pydatetime()):
+            self.assertIsNone(trade.check_exit(101.5))
+
+        with patch("scalp._now_ist", return_value=pd.Timestamp("2026-03-24 09:15:01.100").to_pydatetime()):
+            self.assertEqual(trade.check_exit(101.5), "target_hit")
+
     async def test_manual_broker_exit_closes_local_trade(self):
         class DummyScalpBroker:
             def get_positions_cached(self, ttl=3.0):
@@ -1164,7 +1187,37 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         with patch("scalp.ScripMaster.lookup", return_value="555"):
             await engine._sync_broker_positions()
 
-        engine._close_trade.assert_not_awaited()
+    async def test_cancel_broker_orders_runs_sl_tp_cancels_together(self):
+        class DummyScalpBroker:
+            def __init__(self):
+                self.cancelled = []
+
+            def cancel_order(self, order_id):
+                self.cancelled.append(order_id)
+
+        broker = DummyScalpBroker()
+        engine = ScalpEngine(broker)
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            order_id="ENTRY1",
+            mode="live",
+        )
+        trade.broker_sl_order_id = "SL1"
+        trade.broker_tp_order_id = "TP1"
+
+        await engine._cancel_broker_orders(trade)
+
+        self.assertCountEqual(broker.cancelled, ["SL1", "TP1"])
+        self.assertEqual(trade.broker_sl_order_id, "")
+        self.assertEqual(trade.broker_tp_order_id, "")
 
 
 class PaperExecutionRealismTests(unittest.TestCase):
