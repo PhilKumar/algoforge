@@ -1,4 +1,6 @@
 import unittest
+from datetime import timedelta
+from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -676,6 +678,78 @@ class IntradayUiResetRegressionTests(unittest.TestCase):
         self.assertFalse(engine._entry_signal_pending)
         self.assertIsNone(engine._pending_order)
         self.assertEqual(engine._condition_debug["gate"], "waiting_for_first_candle")
+
+    def test_paper_stale_carry_restore_resets_daily_trade_counter(self):
+        saved_date = (pd.Timestamp.now().date() - timedelta(days=1)).isoformat()
+        with TemporaryDirectory() as tempdir:
+            state_path = f"{tempdir}/paper_state_carry-reset.json"
+            with open(state_path, "w", encoding="utf-8") as handle:
+                import json
+
+                json.dump(
+                    {
+                        "session_date": saved_date,
+                        "strategy": {
+                            "run_name": "Carry Paper",
+                            "instrument": "26000",
+                            "product_type": "NRML",
+                            "timeframe_minutes": 5,
+                            "indicators": [],
+                        },
+                        "entry_conditions": [],
+                        "exit_conditions": [],
+                        "positions": [{"status": "open", "entry_premium": 100.0}],
+                        "in_trade": True,
+                        "closed_trades": [],
+                        "trades_today": 10,
+                        "daily_pnl": -2500.0,
+                    },
+                    handle,
+                )
+
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="carry-reset", state_dir=tempdir)
+
+            self.assertEqual(engine.trades_today, 0)
+            self.assertEqual(engine.daily_pnl, 0.0)
+            self.assertTrue(engine.in_trade)
+            self.assertEqual(len(engine.positions), 1)
+
+    def test_live_stale_carry_restore_resets_daily_trade_counter(self):
+        saved_date = (pd.Timestamp.now().date() - timedelta(days=1)).isoformat()
+        with TemporaryDirectory() as tempdir:
+            state_path = f"{tempdir}/live_state_carry-reset.json"
+            with open(state_path, "w", encoding="utf-8") as handle:
+                import json
+
+                json.dump(
+                    {
+                        "session_date": saved_date,
+                        "strategy": {
+                            "run_name": "Carry Live",
+                            "instrument": "26000",
+                            "product_type": "NRML",
+                            "timeframe_minutes": 5,
+                            "indicators": [],
+                        },
+                        "deploy_config": {"product_type": "NRML"},
+                        "entry_conditions": [],
+                        "exit_conditions": [],
+                        "positions": [{"status": "open", "entry_premium": 100.0}],
+                        "in_trade": True,
+                        "closed_trades": [],
+                        "trades_today": 10,
+                        "daily_pnl": -2500.0,
+                    },
+                    handle,
+                )
+
+            engine = LiveEngine(dhan=DummyBroker(), run_id="carry-reset", state_dir=tempdir)
+            engine._load_state()
+
+            self.assertEqual(engine.trades_today, 0)
+            self.assertEqual(engine.daily_pnl, 0.0)
+            self.assertTrue(engine.in_trade)
+            self.assertEqual(len(engine.positions), 1)
 
 
 class PaperIntrabarExitRegressionTests(unittest.TestCase):

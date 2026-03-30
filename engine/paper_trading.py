@@ -361,6 +361,8 @@ class PaperTradingEngine:
                 self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
 
             if restoring_stale_positions:
+                self.trades_today = 0
+                self.daily_pnl = 0.0
                 if self._is_intraday_product(self.strategy):
                     self.current_time = _now_ist()
                     self.log_event(
@@ -374,8 +376,6 @@ class PaperTradingEngine:
                         if exit_px <= 0:
                             exit_px = self._safe_float(position.get("entry_premium"), 0.0)
                         self._close_position(position, "MIS_SESSION_ROLLOVER", exit_px)
-                    self.trades_today = 0
-                    self.daily_pnl = 0.0
                     self._reset_intraday_status("restored_stale_intraday")
                     self._save_state()
                     print(
@@ -385,7 +385,8 @@ class PaperTradingEngine:
                 else:
                     self.log_event(
                         "info",
-                        f"Carry paper position restored from {saved_date} — {len(open_positions)} position(s) remain open",
+                        f"Carry paper position restored from {saved_date} — daily counters reset, "
+                        f"{len(open_positions)} position(s) remain open",
                     )
                     self._save_state()
                     print(

@@ -940,6 +940,8 @@ class LiveEngine:
                 self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
 
             if restoring_stale_positions:
+                self.trades_today = 0
+                self.daily_pnl = 0.0
                 if self._is_intraday_product(self.strategy, self.deploy_config):
                     self._mark_intraday_rollover_positions()
                     print(
@@ -949,7 +951,8 @@ class LiveEngine:
                 else:
                     self.log_event(
                         "info",
-                        f"Carry product restored from {saved_date} — {len(open_positions)} position(s) remain open",
+                        f"Carry product restored from {saved_date} — daily counters reset, "
+                        f"{len(open_positions)} position(s) remain open",
                     )
                     self._save_state()
                     print(
