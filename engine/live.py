@@ -595,16 +595,30 @@ class LiveEngine:
 
         return True
 
-    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+    def _strategy_candle_is_current_session(
+        self,
+        strategy_candle_time: datetime | None,
+        current_dt: datetime | None = None,
+    ) -> bool:
         if strategy_candle_time is None:
             return False
+        session_dt = current_dt or self.current_time or _now_ist()
+        session_date = session_dt.date() if isinstance(session_dt, datetime) else self.session_date
+        if not isinstance(session_date, date_type):
+            session_date = date_type.today()
+        return strategy_candle_time.date() == session_date
+
+    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+        if not self._strategy_candle_is_current_session(strategy_candle_time):
+            return False
         close_time = candle_close_time(strategy_candle_time, self._get_timeframe_spec().requested)
-        return close_time.time() <= self._market_close
+        return self._market_open < close_time.time() <= self._market_close
 
     def _entry_can_be_scheduled(self, signal_candle_time) -> bool:
-        if signal_candle_time is None:
+        if not self._strategy_candle_is_current_session(signal_candle_time):
             return False
-        return self._pending_order_ready_at(signal_candle_time).time() <= self._market_close
+        ready_at = self._pending_order_ready_at(signal_candle_time)
+        return ready_at.date() == signal_candle_time.date() and ready_at.time() <= self._market_close
 
     async def _verify_order_execution(
         self,
@@ -1454,6 +1468,12 @@ class LiveEngine:
                 )
 
                 candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+                if (
+                    not candle_in_session
+                    and not self.in_trade
+                    and not self._strategy_candle_is_current_session(strategy_candle_time, now)
+                ):
+                    self._condition_debug = {"gate": "waiting_for_first_candle", "conditions": []}
 
                 if candle_in_session and self.in_trade:
                     strategy_exit = self._check_strategy_exit()
@@ -1485,6 +1505,9 @@ class LiveEngine:
                         # Double-trigger guard
                         if now.time() >= self._market_close:
                             self.log_event("info", "Pending order cleared at session end")
+                            self._clear_pending_order()
+                        elif not self._pending_order_is_current_session(po, now):
+                            self.log_event("info", "Pending order cleared — stale session signal")
                             self._clear_pending_order()
                         elif not self._is_pending_order_ready(po, now):
                             pass
@@ -1727,8 +1750,18 @@ class LiveEngine:
     def _pending_order_ready_at(self, signal_candle_time: datetime) -> datetime:
         return next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested)
 
-    @staticmethod
-    def _is_pending_order_ready(pending_order: dict, now: datetime) -> bool:
+    def _pending_order_is_current_session(self, pending_order: dict, now: datetime) -> bool:
+        signal_candle_time = pending_order.get("signal_candle_time")
+        if not self._strategy_candle_is_current_session(signal_candle_time, now):
+            return False
+        ready_at = pending_order.get("ready_at")
+        if isinstance(ready_at, datetime) and ready_at.date() != now.date():
+            return False
+        return True
+
+    def _is_pending_order_ready(self, pending_order: dict, now: datetime) -> bool:
+        if not self._pending_order_is_current_session(pending_order, now):
+            return False
         ready_at = pending_order.get("ready_at")
         return ready_at is None or now >= ready_at
 
@@ -1780,6 +1813,11 @@ class LiveEngine:
 
         if now.time() >= self._market_close:
             self.log_event("info", "Pending order cleared at session end")
+            self._clear_pending_order()
+            return
+
+        if not self._pending_order_is_current_session(po, now):
+            self.log_event("info", "Pending order cleared — stale session signal")
             self._clear_pending_order()
             return
 
@@ -1896,6 +1934,12 @@ class LiveEngine:
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
         candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+        if (
+            not candle_in_session
+            and not self.in_trade
+            and not self._strategy_candle_is_current_session(strategy_candle_time, now)
+        ):
+            self._condition_debug = {"gate": "waiting_for_first_candle", "conditions": []}
         prev_row = eval_df.iloc[-2] if len(eval_df) >= 2 else self._prev_row
 
         # ── Manage open positions ──
@@ -1944,6 +1988,9 @@ class LiveEngine:
                 # Retry timing check
                 if cur_time >= self._market_close:
                     self.log_event("info", "Pending order cleared at session end")
+                    self._clear_pending_order()
+                elif not self._pending_order_is_current_session(po, now):
+                    self.log_event("info", "Pending order cleared — stale session signal")
                     self._clear_pending_order()
                 elif po.get("retry_at") and now < po["retry_at"]:
                     pass  # Wait for retry window

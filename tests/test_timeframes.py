@@ -328,6 +328,7 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
         engine.in_trade = True
+        engine.session_date = pd.Timestamp("2026-03-27").date()
         df = _make_ohlcv("2026-03-27 15:15", [100.0, 101.0], freq="5min")
 
         with (
@@ -392,6 +393,7 @@ class SessionCloseRegressionTests(unittest.IsolatedAsyncioTestCase):
         }
         engine.positions = [position]
         engine.in_trade = True
+        engine.session_date = pd.Timestamp("2026-03-27").date()
         df = _make_ohlcv("2026-03-27 15:15", [100.0, 101.0], freq="5min")
 
         async def _fake_exit(pos, reason, exit_premium, callback=None):
@@ -521,6 +523,38 @@ class LivePendingEntryTimingTests(unittest.IsolatedAsyncioTestCase):
         engine._flush_pending_order.assert_not_awaited()
         self.assertIsNone(engine._pending_order)
 
+    async def test_live_try_flush_pending_order_clears_previous_session_signal(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="timing-stale-session-test")
+        engine.configure(
+            strategy={
+                "instrument": "26000",
+                "market_open": "09:15",
+                "market_close": "15:25",
+                "timeframe_minutes": 5,
+                "indicators": [],
+                "max_trades_per_day": 1,
+            },
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        signal_ts = pd.Timestamp("2026-03-27 15:20").to_pydatetime()
+        engine._pending_order = {
+            "signal_candle_time": signal_ts,
+            "created_at": pd.Timestamp("2026-03-27 15:25:00").to_pydatetime(),
+            "ready_at": next_entry_ready_at(signal_ts, 5),
+            "row": pd.Series({"open": 100.0}),
+            "attempts": 0,
+            "retry_at": None,
+        }
+        engine._flush_pending_order = AsyncMock()
+
+        with patch("engine.live._now_ist", return_value=pd.Timestamp("2026-03-30 09:15:02").to_pydatetime()):
+            await engine._try_flush_pending_order()
+
+        engine._flush_pending_order.assert_not_awaited()
+        self.assertIsNone(engine._pending_order)
+
 
 class WsClosedCandleGuardTests(unittest.TestCase):
     def test_live_ws_frame_ignores_first_forming_5m_candle(self):
@@ -537,6 +571,26 @@ class WsClosedCandleGuardTests(unittest.TestCase):
 
         self.assertEqual(list(result.index.strftime("%H:%M")), ["09:10"])
 
+    def test_live_previous_session_candle_is_not_treated_as_current_session_signal(self):
+        engine = LiveEngine(dhan=DummyBroker(), run_id="live-session-guard")
+        engine.configure(
+            strategy={
+                "instrument": "26000",
+                "market_open": "09:15",
+                "market_close": "15:25",
+                "timeframe_minutes": 5,
+                "indicators": [],
+            },
+            entry_conditions=[],
+            exit_conditions=[],
+            deploy_config={},
+        )
+        engine.current_time = pd.Timestamp("2026-03-30 09:15:02").to_pydatetime()
+        signal_ts = pd.Timestamp("2026-03-27 15:20").to_pydatetime()
+
+        self.assertFalse(engine._strategy_candle_closes_in_session(signal_ts))
+        self.assertFalse(engine._entry_can_be_scheduled(signal_ts))
+
     def test_paper_ws_frame_ignores_first_forming_5m_candle(self):
         with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
             engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-ws-guard")
@@ -551,6 +605,28 @@ class WsClosedCandleGuardTests(unittest.TestCase):
         )
 
         self.assertEqual(list(result.index.strftime("%H:%M")), ["09:10"])
+
+    def test_paper_previous_session_candle_is_not_treated_as_current_session_signal(self):
+        with patch.object(PaperTradingEngine, "_load_state", autospec=True, return_value=None):
+            engine = PaperTradingEngine(dhan=DummyBroker(), run_id="paper-session-guard")
+        engine.configure(
+            strategy={
+                "instrument": "26000",
+                "market_open": "09:15",
+                "market_close": "15:25",
+                "timeframe_minutes": 5,
+                "indicators": [],
+            },
+            entry_conditions=[],
+            exit_conditions=[],
+        )
+        engine.current_time = pd.Timestamp("2026-03-30 09:15:02").to_pydatetime()
+        signal_ts = pd.Timestamp("2026-03-27 15:20").to_pydatetime()
+        engine._arm_pending_entry(signal_ts, pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0}))
+
+        self.assertFalse(engine._strategy_candle_closes_in_session(signal_ts))
+        self.assertFalse(engine._entry_can_be_scheduled(signal_ts))
+        self.assertFalse(engine._pending_entry_is_ready(pd.Timestamp("2026-03-30 09:15:02").to_pydatetime()))
 
 
 class FeedDisconnectRegressionTests(unittest.TestCase):

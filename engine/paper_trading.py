@@ -572,19 +572,39 @@ class PaperTradingEngine:
             market_close = time_class(h, m)
         return market_close
 
-    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+    def _market_open_time(self):
+        market_open = self.strategy.get("market_open", "09:15")
+        from datetime import time as time_class
+
+        if isinstance(market_open, str):
+            h, m = map(int, market_open.split(":"))
+            market_open = time_class(h, m)
+        return market_open
+
+    def _strategy_candle_is_current_session(
+        self,
+        strategy_candle_time: datetime | None,
+        current_dt: datetime | None = None,
+    ) -> bool:
         if strategy_candle_time is None:
             return False
+        session_dt = current_dt or self.current_time or _now_ist()
+        session_date = session_dt.date() if isinstance(session_dt, datetime) else self.session_date
+        if not isinstance(session_date, date_type):
+            session_date = date_type.today()
+        return strategy_candle_time.date() == session_date
+
+    def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
+        if not self._strategy_candle_is_current_session(strategy_candle_time):
+            return False
         close_time = candle_close_time(strategy_candle_time, self._get_timeframe_spec().requested)
-        return close_time.time() <= self._market_close_time()
+        return self._market_open_time() < close_time.time() <= self._market_close_time()
 
     def _entry_can_be_scheduled(self, signal_candle_time) -> bool:
-        if signal_candle_time is None:
+        if not self._strategy_candle_is_current_session(signal_candle_time):
             return False
-        return (
-            next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested).time()
-            <= self._market_close_time()
-        )
+        ready_at = next_entry_ready_at(signal_candle_time, self._get_timeframe_spec().requested)
+        return ready_at.date() == signal_candle_time.date() and ready_at.time() <= self._market_close_time()
 
     @staticmethod
     def _is_closed_market_day(target_date: date_type | None) -> bool:
@@ -850,8 +870,19 @@ class PaperTradingEngine:
         self._pending_signal_candle_time = None
         self._signal_candle = None
 
+    def _pending_entry_is_current_session(self, now: datetime) -> bool:
+        if not self._strategy_candle_is_current_session(self._pending_signal_candle_time, now):
+            return False
+        if isinstance(self._pending_entry_ready_at, datetime) and self._pending_entry_ready_at.date() != now.date():
+            return False
+        return True
+
     def _pending_entry_is_ready(self, now: datetime) -> bool:
-        return self._pending_entry_ready_at is not None and now >= self._pending_entry_ready_at
+        return (
+            self._pending_entry_ready_at is not None
+            and self._pending_entry_is_current_session(now)
+            and now >= self._pending_entry_ready_at
+        )
 
     def _reset_intraday_status(self, gate: str = "waiting_for_first_candle") -> None:
         """Clear stale UI/evaluation state when a session starts or a new day rolls over."""
@@ -1119,27 +1150,35 @@ class PaperTradingEngine:
                                     self._close_position(position, exit_triggered, position["current_premium"])
 
                 # ── Execute pending entry only after the next candle boundary ──
-                if self._entry_signal_pending and not self.in_trade and self._pending_entry_is_ready(_now_ist()):
-                    if _now_ist().time() >= market_close:
-                        self.log_event("info", "Pending entry cleared at session end")
+                pending_now = _now_ist()
+                if self._entry_signal_pending and not self.in_trade:
+                    if not self._pending_entry_is_current_session(pending_now):
+                        self.log_event("info", "Pending entry cleared — stale session signal")
                         self._clear_pending_entry()
                         if callback:
                             await self._emit_callback(callback, self.get_status())
                         continue
-                    max_trades = self.strategy.get("max_trades_per_day", 1)
-                    daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
-                    if self.trades_today < max_trades and not daily_loss_hit:
-                        self._clear_pending_entry()
-                        latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
-                        if latest_row is not None:
-                            self.log_event(
-                                "entry",
-                                f"🚀 Executing pending entry at {_now_ist().strftime('%H:%M:%S')} (next candle open)",
-                            )
-                            await self._enter_trade(latest_row)
-                    if callback:
-                        await self._emit_callback(callback, self.get_status())
-                    continue
+                    if self._pending_entry_is_ready(pending_now):
+                        if pending_now.time() >= market_close:
+                            self.log_event("info", "Pending entry cleared at session end")
+                            self._clear_pending_entry()
+                            if callback:
+                                await self._emit_callback(callback, self.get_status())
+                            continue
+                        max_trades = self.strategy.get("max_trades_per_day", 1)
+                        daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+                        if self.trades_today < max_trades and not daily_loss_hit:
+                            self._clear_pending_entry()
+                            latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+                            if latest_row is not None:
+                                self.log_event(
+                                    "entry",
+                                    f"🚀 Executing pending entry at {pending_now.strftime('%H:%M:%S')} (next candle open)",
+                                )
+                                await self._enter_trade(latest_row)
+                        if callback:
+                            await self._emit_callback(callback, self.get_status())
+                        continue
 
                 # ── Wait for candle close event (with timeout for position monitoring) ──
                 try:
@@ -1199,6 +1238,12 @@ class PaperTradingEngine:
                 )
 
                 candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+                if (
+                    not candle_in_session
+                    and not self.in_trade
+                    and not self._strategy_candle_is_current_session(strategy_candle_time, now)
+                ):
+                    self._condition_debug = {"gate": "waiting_for_first_candle", "conditions": []}
 
                 if candle_in_session and self.in_trade:
                     strategy_exit = self._check_strategy_exit()
@@ -1223,7 +1268,10 @@ class PaperTradingEngine:
                 if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit and candle_in_session:
                     # Execute pending signal from previous candle (enter on THIS candle's open)
                     if self._entry_signal_pending:
-                        if self._pending_entry_is_ready(now):
+                        if not self._pending_entry_is_current_session(now):
+                            self.log_event("info", "Pending entry cleared — stale session signal")
+                            self._clear_pending_entry()
+                        elif self._pending_entry_is_ready(now):
                             self._clear_pending_entry()
                             self.log_event(
                                 "entry", f"🚀 Executing pending entry at {now.strftime('%H:%M:%S')} (next candle open)"
@@ -1489,6 +1537,12 @@ class PaperTradingEngine:
         strategy_candle_time = latest_row.name if hasattr(latest_row, "name") else None
         is_new_strategy_candle = strategy_candle_time != self._last_strategy_candle_time
         candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
+        if (
+            not candle_in_session
+            and not self.in_trade
+            and not self._strategy_candle_is_current_session(strategy_candle_time, now)
+        ):
+            self._condition_debug = {"gate": "waiting_for_first_candle", "conditions": []}
 
         # Manage existing positions
         for position in list(self.positions):
@@ -1530,7 +1584,10 @@ class PaperTradingEngine:
         elif self.trades_today < max_trades and not self.in_trade and candle_in_session:
             # Execute pending signal from previous tick (enter on THIS candle)
             if self._entry_signal_pending:
-                if self._pending_entry_is_ready(now):
+                if not self._pending_entry_is_current_session(now):
+                    self.log_event("info", "Pending entry cleared — stale session signal")
+                    self._clear_pending_entry()
+                elif self._pending_entry_is_ready(now):
                     if current_time >= market_close:
                         self.log_event("info", "Pending entry cleared at session end")
                         self._clear_pending_entry()
