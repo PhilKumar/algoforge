@@ -6588,6 +6588,8 @@ async function ensureStrategiesLoaded(force = false) {
 }
 
 function showPage(id, btn, options = {}) {
+  const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
+  if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active-page');
@@ -8006,13 +8008,8 @@ async function _restoreScalpFormState() {
 async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
-  if (!_scalpFormInitialized) {
-    _scalpFormInitialized = true;
-    await _restoreScalpFormState();
-  } else {
-    fetchScalpLTPThrottled();
-    updateScalpMargin(true);
-  }
+  await _restoreScalpFormState();
+  _scalpFormInitialized = true;
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
@@ -8258,6 +8255,7 @@ async function loadScalpExpiries(options = {}) {
     const sel = document.getElementById('scalp-expiry');
     if (!sel) return;
     sel.innerHTML = '';
+    sel.dataset.underlying = underlying;
     const expiries = (data.status === 'ok' && data.expiries) ? data.expiries : [];
     // Show up to 8 nearest real expiry dates
     expiries.slice(0, 8).forEach(d => {
