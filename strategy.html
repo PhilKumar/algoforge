@@ -7924,15 +7924,95 @@ async function deleteScalpTrade(tid) {
 // ══════════════════════════════════════════════════════════════
 let _scalpPollTimer = null;
 let _scalpLTPTimer = null;
+let _scalpFormInitialized = false;
+let _scalpRestoringState = false;
+const _SCALP_FORM_STORAGE_KEY = 'algoforge_scalp_form_state_v1';
 // Correct lot sizes as of Jan 2026
 const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
 // Strike step intervals per underlying
 const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100 };
 
-function initScalpPage() {
+function _readScalpFormState() {
+  const read = (id) => document.getElementById(id)?.value ?? '';
+  return {
+    underlying: read('scalp-underlying') || 'NIFTY',
+    expiry: read('scalp-expiry'),
+    option_type: read('scalp-option-type') || 'CE',
+    strike: read('scalp-strike'),
+    lots: read('scalp-lots'),
+    sqoff: read('scalp-sqoff'),
+    sl_rs: read('scalp-sl-rs'),
+    target_rs: read('scalp-target-rs'),
+    sl_prem: read('scalp-sl-prem'),
+    target_prem: read('scalp-target-prem'),
+    mode: read('scalp-mode') || 'paper',
+    entry_limit_price: read('scalp-limit-price'),
+    entry_limit_max: read('scalp-limit-max'),
+  };
+}
+
+function _persistScalpFormState() {
+  if (_scalpRestoringState) return;
+  try {
+    localStorage.setItem(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()));
+  } catch (e) {}
+}
+
+function _loadSavedScalpFormState() {
+  try {
+    const raw = localStorage.getItem(_SCALP_FORM_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _applyScalpFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el || value === undefined || value === null || value === '') return;
+  el.value = value;
+}
+
+async function _restoreScalpFormState() {
+  const saved = _loadSavedScalpFormState();
+  if (!saved) {
+    await loadScalpExpiries();
+    return;
+  }
+  _scalpRestoringState = true;
+  try {
+    _applyScalpFieldValue('scalp-underlying', saved.underlying);
+    _applyScalpFieldValue('scalp-option-type', saved.option_type);
+    _applyScalpFieldValue('scalp-mode', saved.mode);
+    _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
+    _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+    _applyScalpFieldValue('scalp-lots', saved.lots);
+    _applyScalpFieldValue('scalp-sqoff', saved.sqoff);
+    _applyScalpFieldValue('scalp-sl-rs', saved.sl_rs);
+    _applyScalpFieldValue('scalp-target-rs', saved.target_rs);
+    _applyScalpFieldValue('scalp-sl-prem', saved.sl_prem);
+    _applyScalpFieldValue('scalp-target-prem', saved.target_prem);
+    _applyScalpFieldValue('scalp-limit-price', saved.entry_limit_price);
+    _applyScalpFieldValue('scalp-limit-max', saved.entry_limit_max);
+    await loadScalpExpiries({ preserveState: saved });
+  } finally {
+    _scalpRestoringState = false;
+  }
+  _persistScalpFormState();
+}
+
+async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
-  loadScalpExpiries();
+  if (!_scalpFormInitialized) {
+    _scalpFormInitialized = true;
+    await _restoreScalpFormState();
+  } else {
+    fetchScalpLTPThrottled();
+    updateScalpMargin(true);
+  }
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
@@ -7963,6 +8043,7 @@ function setScalpOptionType(value) {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   updateScalpStrike();
   fetchScalpLTPThrottled();
+  _persistScalpFormState();
 }
 
 function setScalpMode(value) {
@@ -7970,6 +8051,7 @@ function setScalpMode(value) {
   if (!input || input.value === value) return;
   input.value = value;
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+  _persistScalpFormState();
 }
 
 function stepScalpStrike(dir) {
@@ -7980,6 +8062,7 @@ function stepScalpStrike(dir) {
   if (cur === 0) return;  // Don't step from 0 — wait for auto-populate
   inp.value = cur + dir * step;
   fetchScalpLTP();
+  _persistScalpFormState();
 }
 
 // Track user-edited scalp inputs — suppress WS/REST overwrites for 5s
@@ -8159,8 +8242,9 @@ async function _fetchScalpSpotPrices() {
   } catch(e) { /* silent */ }
 }
 
-async function loadScalpExpiries() {
+async function loadScalpExpiries(options = {}) {
   try {
+    const preserve = options && options.preserveState ? options.preserveState : null;
     const underlying = document.getElementById('scalp-underlying').value;
     // Update lot size (read-only, auto)
     const ls = document.getElementById('scalp-lot-size');
@@ -8185,11 +8269,54 @@ async function loadScalpExpiries() {
       opt.textContent = `${dayName} ${label}`;
       sel.appendChild(opt);
     });
+    const preferredExpiry = preserve?.expiry || '';
+    if (preferredExpiry && expiries.includes(preferredExpiry)) {
+      sel.value = preferredExpiry;
+    } else if (sel.options.length > 0) {
+      sel.selectedIndex = 0;
+    }
     // Set ITM-2 default strike from live spot per underlying
     await _fetchScalpSpotPrices();
-    updateScalpStrike();
+    const preservedStrike = parseInt(preserve?.strike, 10) || 0;
+    if (preservedStrike > 0) {
+      document.getElementById('scalp-strike').value = preservedStrike;
+      fetchScalpLTP();
+    } else {
+      updateScalpStrike();
+    }
+    updateScalpMargin(true);
+    _persistScalpFormState();
   } catch(e) { /* silent */ }
 }
+
+const _SCALP_FORM_IDS = new Set([
+  'scalp-underlying',
+  'scalp-expiry',
+  'scalp-option-type',
+  'scalp-strike',
+  'scalp-lots',
+  'scalp-sqoff',
+  'scalp-sl-rs',
+  'scalp-target-rs',
+  'scalp-sl-prem',
+  'scalp-target-prem',
+  'scalp-mode',
+  'scalp-limit-price',
+  'scalp-limit-max',
+]);
+
+document.addEventListener('change', function(e) {
+  const id = e.target && e.target.id;
+  if (!_SCALP_FORM_IDS.has(id)) return;
+  if (id === 'scalp-expiry') fetchScalpLTPThrottled();
+  _persistScalpFormState();
+});
+
+document.addEventListener('input', function(e) {
+  const id = e.target && e.target.id;
+  if (!_SCALP_FORM_IDS.has(id)) return;
+  _persistScalpFormState();
+});
 
 async function startScalpEngine() {
   const startBtn = document.getElementById('scalp-start-btn');
