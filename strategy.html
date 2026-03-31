@@ -14242,26 +14242,70 @@ fetchRuns = async function() {
   let _cjPlanner = null;
   const _cjPlanMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  window.initChartsPage = function() {
-    if (_chLoaded) return;
-    _chLoaded = true;
+  function _chTodayIso() {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const map = {};
+    parts.forEach((part) => {
+      if (part.type !== 'literal') map[part.type] = part.value;
+    });
+    return `${map.year}-${map.month}-${map.day}`;
+  }
+
+  function _chRenderEmptyState() {
+    const area = document.getElementById('ch-content');
+    if (!area) return;
     const phIcon = document.getElementById('ch-placeholder-icon');
-    if (phIcon) phIcon.innerHTML = ICO.candle(52);
-    // Inject SVG icons replacing emojis
-    const sideTitle = document.getElementById('ch-sidebar-title');
-    if (sideTitle) sideTitle.insertAdjacentHTML('afterbegin', ICO.folder(14) + ' ');
-    const jIco = document.getElementById('cj-journal-ico');
-    if (jIco) jIco.innerHTML = ICO.edit(24);
-    const saveIco = document.getElementById('cj-save-ico');
-    if (saveIco) saveIco.innerHTML = ICO.save(14);
-    const toastIco = document.getElementById('cj-toast-ico');
-    if (toastIco) toastIco.innerHTML = ICO.download(14);
+    if (phIcon && !phIcon.innerHTML) phIcon.innerHTML = ICO.candle(52);
+    area.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;text-align:center;color:var(--muted);">
+        <div style="margin-bottom:16px;opacity:0.5;" id="ch-placeholder-icon">${ICO.candle(52)}</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:18px;color:var(--text-dim);margin-bottom:6px;">Select a Date</h3>
+        <p style="font-size:13px;max-width:340px;line-height:1.6;">Choose a year, month, and day from the sidebar to browse your historical trading charts.</p>
+        <p style="font-size:12px;color:var(--accent);margin-top:12px;opacity:0.7;">💡 Pro tip: Press <kbd style="background:rgba(255,255,255,0.08);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:11px;">Ctrl+V</kbd> to paste a screenshot directly into today&apos;s journal.</p>
+      </div>
+    `;
+  }
+
+  function _chResetSelection() {
+    _chImages = [];
+    _chDateLabel = '';
+    _cjCurrentDate = '';
+    _cjCurrentDayMeta = null;
+    document.querySelectorAll('.chday-btn.active').forEach((btn) => btn.classList.remove('active'));
+    document.querySelectorAll('.cj-entry-item.active').forEach((el) => el.classList.remove('active'));
+    const dateLabel = document.getElementById('cj-date-label');
+    if (dateLabel) dateLabel.textContent = 'Select a date';
+    _cjClearForm();
+    _chRenderEmptyState();
+  }
+
+  window.initChartsPage = function() {
+    if (!_chLoaded) {
+      _chLoaded = true;
+      const phIcon = document.getElementById('ch-placeholder-icon');
+      if (phIcon) phIcon.innerHTML = ICO.candle(52);
+      // Inject SVG icons replacing emojis
+      const sideTitle = document.getElementById('ch-sidebar-title');
+      if (sideTitle) sideTitle.insertAdjacentHTML('afterbegin', ICO.folder(14) + ' ');
+      const jIco = document.getElementById('cj-journal-ico');
+      if (jIco) jIco.innerHTML = ICO.edit(24);
+      const saveIco = document.getElementById('cj-save-ico');
+      if (saveIco) saveIco.innerHTML = ICO.save(14);
+      const toastIco = document.getElementById('cj-toast-ico');
+      if (toastIco) toastIco.innerHTML = ICO.download(14);
+      _cjBindForm();
+      _cjBindPaste();
+      _cjLoadPlanner();
+      window._cjShowPanel('journal');
+    }
+    _chResetSelection();
     _chLoadTree();
-    _cjBindForm();
-    _cjBindPaste();
     _cjLoadEntries();
-    _cjLoadPlanner();
-    window._cjShowPanel('journal');
   };
 
   // ── Tree loading ──
@@ -14343,23 +14387,27 @@ fetchRuns = async function() {
       el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">No charts found.<br>Add images to <code style="color:var(--accent);font-size:11px;">Daily Charts/</code></div>';
       return;
     }
+    const selectedYear = _cjCurrentDayMeta ? String(_cjCurrentDayMeta.year) : '';
+    const selectedMonth = _cjCurrentDayMeta ? String(_cjCurrentDayMeta.monthFolder) : '';
+    const selectedDay = _cjCurrentDayMeta ? String(_cjCurrentDayMeta.dayFolder) : '';
     let h = '';
     years.forEach((year, yi) => {
       const months = _chTree[year];
       const totalDays = months.reduce((s, m) => s + m.days.length, 0);
-      const yo = yi === 0 ? ' open' : '';
+      const yo = String(year) === selectedYear ? ' open' : '';
       h += '<div>';
       h += '<button class="chtree-toggle' + yo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="yr-label">' + ICO.calendar(14) + ' ' + year + '</span><span class="cnt">' + totalDays + 'd</span></button>';
       h += '<div class="chtree-children' + yo + '">';
       months.forEach((mo, mi) => {
-        const moo = yi === 0 && mi === 0 ? ' open' : '';
+        const moo = String(year) === selectedYear && mo.folder === selectedMonth ? ' open' : '';
         h += '<div>';
         h += '<button class="chtree-toggle' + moo + '" onclick="window._chToggle(this)"><span class="arrow">▶</span><span class="mo-label">' + escapeHtml(mo.label) + '</span><span class="cnt">' + mo.days.length + '</span></button>';
         h += '<div class="chtree-children' + moo + '">';
         mo.days.forEach((day, di) => {
+          const activeDay = String(year) === selectedYear && mo.folder === selectedMonth && day.folder === selectedDay ? ' active' : '';
           h += '<div class="ch-drag-item" draggable="true" data-year="' + escapeAttr(year) + '" data-month="' + escapeAttr(mo.folder) + '" data-folder="' + escapeAttr(day.folder) + '" data-idx="' + di + '" style="display:flex;align-items:center;gap:2px;position:relative;">';
           h += '<span class="ch-drag-handle" style="cursor:grab;opacity:0.2;padding:2px 3px;font-size:10px;flex-shrink:0;user-select:none;" title="Drag to reorder">&#9776;</span>';
-          h += '<button class="chday-btn" data-year="' + escapeAttr(year) + '" data-month="' + escapeAttr(mo.folder) + '" data-day="' + escapeAttr(day.folder) + '" data-sort="' + escapeAttr(day.sort) + '" style="flex:1;" onclick="window._chSelectDay(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\',\'' + escapeJsSingleQuoted(day.label + ' ' + year) + '\',\'' + escapeJsSingleQuoted(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + escapeHtml(day.label) + '</button>';
+          h += '<button class="chday-btn' + activeDay + '" data-year="' + escapeAttr(year) + '" data-month="' + escapeAttr(mo.folder) + '" data-day="' + escapeAttr(day.folder) + '" data-sort="' + escapeAttr(day.sort) + '" style="flex:1;" onclick="window._chSelectDay(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\',\'' + escapeJsSingleQuoted(day.label + ' ' + year) + '\',\'' + escapeJsSingleQuoted(day.sort) + '\',this)"><span style="opacity:0.5;">' + ICO.doc(12) + '</span> ' + escapeHtml(day.label) + '</button>';
           h += '<span class="ch-edit-btn" onclick="event.stopPropagation();window._chRenameFolder(\'' + escapeJsSingleQuoted(year) + '\',\'' + escapeJsSingleQuoted(mo.folder) + '\',\'' + escapeJsSingleQuoted(day.folder) + '\')" title="Rename" style="cursor:pointer;opacity:0.3;padding:2px 4px;font-size:11px;flex-shrink:0;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">&#9998;</span>';
           h += '</div>';
         });
@@ -14543,11 +14591,10 @@ fetchRuns = async function() {
 
   // ── Day selection → load images + journal ──
   window._chSelectDay = async function(year, monthFolder, dayFolder, dateLabel, sortKey, btn) {
-    document.querySelectorAll('.chday-btn.active').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
     _chDateLabel = dateLabel;
     _cjCurrentDate = sortKey;
     _cjCurrentDayMeta = { year, monthFolder, dayFolder };
+    _chRenderTree();
     document.getElementById('cj-date-label').textContent = dateLabel + ' (' + sortKey + ')';
 
     const area = document.getElementById('ch-content');
@@ -15162,7 +15209,7 @@ fetchRuns = async function() {
       try {
         const fd = new FormData();
         fd.append('file', imageFile, 'screenshot.png');
-        const uploadTarget = _cjCurrentDayMeta || _chBuildTargetFromDate(_cjCurrentDate);
+        const uploadTarget = _cjCurrentDayMeta || _chBuildTargetFromDate(_cjCurrentDate) || _chBuildTargetFromDate(_chTodayIso());
         if (uploadTarget) {
           fd.append('target_year', uploadTarget.year);
           fd.append('target_month', uploadTarget.monthFolder);
@@ -15232,9 +15279,10 @@ fetchRuns = async function() {
 
       let h = '<div class="cj-entries-title">' + ICO.clip(12) + ' Journal Entries</div>';
       const keys = Object.keys(months).sort().reverse();
+      const selectedMonthKey = String(_cjCurrentDate || '').slice(0, 7);
       keys.forEach((key, ki) => {
         const mo = months[key];
-        const isOpen = ki === 0 ? ' open' : '';
+        const isOpen = key === selectedMonthKey ? ' open' : '';
         h += '<div>';
         h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + mo.label + '<span class="cnt">' + mo.entries.length + '</span></button>';
         h += '<div class="cj-month-children' + isOpen + '">';
