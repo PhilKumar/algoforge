@@ -578,7 +578,7 @@ body::after {
 .heatmap-grid {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
-  grid-auto-rows: minmax(86px, auto);
+  grid-auto-rows: minmax(118px, auto);
   grid-auto-flow: dense;
   gap: 14px;
 }
@@ -604,8 +604,8 @@ body::after {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 112px;
-  padding: 15px;
+  min-height: 118px;
+  padding: 15px 16px;
   border-radius: 22px;
   border: 1px solid rgba(var(--tile-accent-rgb, 147, 164, 188), calc(var(--tile-accent-alpha, 0.16) + 0.08));
   background:
@@ -661,12 +661,10 @@ body::after {
 
 .heatmap-tile.tile-xl {
   grid-column: span 4;
-  grid-row: span 2;
 }
 
 .heatmap-tile.tile-lg {
   grid-column: span 3;
-  grid-row: span 2;
 }
 
 .heatmap-tile.tile-wide {
@@ -764,11 +762,11 @@ body::after {
 }
 
 .heatmap-tile.tile-xl .tile-symbol {
-  font-size: 1.15rem;
+  font-size: 1.06rem;
 }
 
 .heatmap-tile.tile-lg .tile-symbol {
-  font-size: 1.03rem;
+  font-size: 1rem;
 }
 
 .heatmap-tile.tile-sm .tile-company,
@@ -788,6 +786,18 @@ body::after {
 
 .heatmap-tile.tile-sm .tile-price {
   font-size: 13px;
+}
+
+.heatmap-tile.tile-xl .tile-company,
+.heatmap-tile.tile-lg .tile-company,
+.heatmap-tile.tile-wide .tile-company {
+  -webkit-line-clamp: 2;
+}
+
+.heatmap-tile.tile-xl .tile-body,
+.heatmap-tile.tile-lg .tile-body,
+.heatmap-tile.tile-wide .tile-body {
+  gap: 7px;
 }
 
 .heatmap-tile.is-unavailable {

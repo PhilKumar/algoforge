@@ -155,10 +155,8 @@ function computeIndustryMoves(items) {
 function tileSize(weight) {
   const value = Number(weight || 1);
   if (value >= 2.2) return 'tile-xl';
-  if (value >= 1.7) return 'tile-lg';
-  if (value >= 1.2) return 'tile-wide';
-  if (value >= 1.05) return 'tile-md';
-  return 'tile-sm';
+  if (value >= 1.45) return 'tile-lg';
+  return 'tile-md';
 }
 
 function tileTone(item) {
