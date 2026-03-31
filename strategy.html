@@ -1345,9 +1345,10 @@
   }
   .dash-fiidii-metric-label {
     font-size: 8px;
-    color: rgba(255,255,255,0.58);
+    color: rgba(255,255,255,0.72);
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.45px;
+    letter-spacing: 0.5px;
   }
   .dash-fiidii-metric-value {
     font-size: clamp(14px, 1.4vw, 16px);
@@ -1384,9 +1385,10 @@
   .dash-fiidii-rollup-total-label {
     display: inline;
     font-size: 8px;
-    color: rgba(255,255,255,0.52);
+    color: rgba(255,255,255,0.68);
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.42px;
+    letter-spacing: 0.46px;
     white-space: nowrap;
   }
   .dash-fiidii-rollup-total-value {
@@ -1436,15 +1438,17 @@
     border-top: 1px dashed rgba(255,255,255,0.06);
   }
   .dash-fiidii-rollup-date {
-    color: var(--muted);
+    color: rgba(255,255,255,0.74);
     font-size: 10px;
+    font-weight: 700;
     letter-spacing: 0.2px;
   }
   .dash-fiidii-rollup-col-label {
     font-size: 9px;
-    color: rgba(255,255,255,0.48);
+    color: rgba(255,255,255,0.68);
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.45px;
+    letter-spacing: 0.48px;
     text-align: right;
   }
   .dash-fiidii-rollup-value {
@@ -1500,6 +1504,77 @@
   }
   .dash-fiidii-faint {
     color: rgba(255,255,255,0.56);
+  }
+  .portfolio-monthly-trades-panel {
+    margin-top: 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(0,0,0,0.14);
+    overflow: hidden;
+  }
+  .portfolio-monthly-trades-head {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .portfolio-monthly-trades-head:hover {
+    background: rgba(255,255,255,0.02);
+  }
+  .portfolio-monthly-trades-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .portfolio-monthly-trades-sub {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .portfolio-monthly-trades-chevron {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    color: var(--muted);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .portfolio-monthly-trades-panel.open .portfolio-monthly-trades-chevron {
+    color: var(--accent);
+    border-color: rgba(0,200,150,0.35);
+    background: rgba(0,200,150,0.08);
+  }
+  .portfolio-monthly-trades-body {
+    display: none;
+    border-top: 1px solid var(--border);
+    padding: 0 6px 6px;
+  }
+  .portfolio-monthly-trades-panel.open .portfolio-monthly-trades-body {
+    display: block;
+  }
+  .portfolio-monthly-trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .portfolio-monthly-trades-table thead tr {
+    border-bottom: 2px solid var(--border);
+    color: var(--muted);
+  }
+  .portfolio-monthly-trades-table tbody tr {
+    border-bottom: 1px solid var(--border);
   }
   #dash-today-card {
     padding: 16px 18px;
@@ -1891,6 +1966,35 @@
   }
   [data-theme="light"] .dash-fiidii-meta {
     color: #475569;
+  }
+  [data-theme="light"] .portfolio-monthly-trades-panel {
+    background: rgba(255,255,255,0.82);
+    border-color: rgba(15,23,42,0.08);
+    box-shadow: var(--shadow-soft);
+  }
+  [data-theme="light"] .portfolio-monthly-trades-head:hover {
+    background: rgba(15,23,42,0.03);
+  }
+  [data-theme="light"] .portfolio-monthly-trades-title {
+    color: #0f172a;
+  }
+  [data-theme="light"] .portfolio-monthly-trades-sub {
+    color: #64748b;
+  }
+  [data-theme="light"] .portfolio-monthly-trades-chevron {
+    border-color: rgba(15,23,42,0.08);
+    background: rgba(255,255,255,0.92);
+    color: #64748b;
+  }
+  [data-theme="light"] .portfolio-monthly-trades-body {
+    border-top-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .portfolio-monthly-trades-table thead tr {
+    color: #64748b;
+    border-bottom-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .portfolio-monthly-trades-table tbody tr {
+    border-bottom-color: rgba(15,23,42,0.08);
   }
   [data-theme="light"] .dash-split-box {
     background: rgba(255,255,255,0.92);
@@ -4092,9 +4196,9 @@
   .portfolio-run-group {
     border: 1px solid var(--border);
     border-radius: 12px;
-    border-top: 1px solid var(--border-hi);
-    background: linear-gradient(160deg, rgba(16,23,38,0.92), rgba(10,15,27,0.90));
-    box-shadow: 0 0 0 0.5px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.05);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(160deg, rgba(11,16,28,0.86), rgba(8,12,22,0.88));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
     overflow: hidden;
   }
   .portfolio-run-group-head {
@@ -4111,7 +4215,7 @@
     text-align: left;
   }
   .portfolio-run-group-head:hover {
-    background: rgba(255,255,255,0.015);
+    background: rgba(255,255,255,0.01);
   }
   .portfolio-run-group-main,
   .portfolio-run-group-side {
@@ -4164,7 +4268,7 @@
     color: var(--muted);
     font-size: 11px;
     flex-shrink: 0;
-    background: rgba(255,255,255,0.015);
+    background: rgba(255,255,255,0.01);
   }
   .portfolio-run-group.open .portfolio-run-chevron {
     color: var(--accent);
@@ -4204,7 +4308,7 @@
     display: none;
     border-top: 1px solid var(--border);
     padding: 0 14px 12px;
-    background: linear-gradient(180deg, rgba(9,14,25,0.18), rgba(9,14,25,0.08));
+    background: linear-gradient(180deg, rgba(8,12,22,0.12), rgba(8,12,22,0.04));
   }
   .portfolio-run-group.open .portfolio-run-group-body {
     display: block;
@@ -14057,10 +14161,10 @@ function renderMonthlyDailyGrid() {
   // ── Trades for month: day-by-day breakdown table (like Dhan) ──
   const tradesTableEl = document.getElementById('portfolio-monthly-trades');
   if (realDayEntries.length > 0) {
-    let thtml = `<h4 style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: var(--text);">Trades for month</h4>
-    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+    const totalMonthTrades = realDayEntries.reduce((sum, entry) => sum + Number(entry.displayTradeCount || 0), 0);
+    let tableHtml = `<table class="portfolio-monthly-trades-table">
       <thead>
-        <tr style="border-bottom: 2px solid var(--border); color: var(--muted);">
+        <tr>
           <th style="padding: 10px 8px; text-align: left;">Date</th>
           <th style="padding: 10px 8px; text-align: center;">Trades</th>
           <th style="padding: 10px 8px; text-align: right;">Gross Real</th>
@@ -14074,7 +14178,7 @@ function renderMonthlyDailyGrid() {
       const isRealWin = e.grossReal >= 0;
       const isNetWin = e.netReal >= 0;
       const dateLabel = formatPortfolioDateLabel(e.dateStr);
-      thtml += `<tr style="border-bottom: 1px solid var(--border);">
+      tableHtml += `<tr>
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
         <td style="padding: 10px 8px; text-align: center;" title="${e.realOrderCount > 0 && e.realOrderCount !== e.realTrades ? `${e.realOrderCount} orders, ${e.realTrades} fills` : `${e.displayTradeCount} trades`}">${e.displayTradeCount}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
@@ -14083,8 +14187,22 @@ function renderMonthlyDailyGrid() {
         <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.brokerage.toFixed(2)}</td>
       </tr>`;
     });
-    thtml += `</tbody></table>`;
-    tradesTableEl.innerHTML = thtml;
+    tableHtml += `</tbody></table>`;
+    tradesTableEl.innerHTML = `
+      <div class="portfolio-monthly-trades-panel${_portfolioMonthlyTradesOpen ? ' open' : ''}">
+        <button type="button" class="portfolio-monthly-trades-head" onclick="togglePortfolioMonthlyTrades()">
+          <div>
+            <div class="portfolio-monthly-trades-title">Trades for month</div>
+            <div class="portfolio-monthly-trades-sub">${realDayEntries.length} trading day${realDayEntries.length !== 1 ? 's' : ''} · ${totalMonthTrades} trade${totalMonthTrades !== 1 ? 's' : ''}</div>
+          </div>
+          <span class="portfolio-monthly-trades-chevron">${_portfolioMonthlyTradesOpen ? '▲' : '▼'}</span>
+        </button>
+        <div class="portfolio-monthly-trades-body">
+          <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+            ${tableHtml}
+          </div>
+        </div>
+      </div>`;
   } else {
     tradesTableEl.innerHTML = '';
   }
@@ -14271,6 +14389,7 @@ function _isPageActive(id) {
 const _fiidiiRollupState = { open: false, page: 0 };
 const _FIIDII_ROLLUP_PAGE_SIZE = 7;
 let _lastFiiDiiRows = [];
+let _portfolioMonthlyTradesOpen = false;
 
 function toggleFiiDiiRollup() {
   _fiidiiRollupState.open = !_fiidiiRollupState.open;
@@ -14332,6 +14451,11 @@ function _renderFiiDiiRollup() {
   pageEl.textContent = `Page ${_fiidiiRollupState.page + 1} / ${totalPages}`;
   prevBtn.disabled = _fiidiiRollupState.page <= 0;
   nextBtn.disabled = _fiidiiRollupState.page >= totalPages - 1;
+}
+
+function togglePortfolioMonthlyTrades() {
+  _portfolioMonthlyTradesOpen = !_portfolioMonthlyTradesOpen;
+  renderMonthlyDailyGrid();
 }
 
 function _renderDashboardFiiDiiPanel(block) {
