@@ -7432,6 +7432,10 @@ let _portfolioPaperPage = 1;
 let _portfolioRunExpandedKey = '';
 let _portfolioRunSessionPages = Object.create(null);
 let _portfolioEngineSnapshotCache = [];
+let _portfolioRunTradeCache = Object.create(null);
+let _portfolioRunTradeLoading = Object.create(null);
+let _portfolioRunTradeErrors = Object.create(null);
+let _portfolioRunTradePages = Object.create(null);
 let _dashboardTxnPage = 1;
 let _dashboardTxnSearchQuery = '';
 let _dashboardTxnSortCol = 'exitTime';
@@ -8311,6 +8315,90 @@ function _portfolioRunHistoryBucket(run) {
   ].join('|');
 }
 
+function _portfolioTradeTs(trade) {
+  const exitTs = Date.parse(trade?.exit_time || '');
+  if (Number.isFinite(exitTs)) return exitTs;
+  const entryTs = Date.parse(trade?.entry_time || '');
+  return Number.isFinite(entryTs) ? entryTs : 0;
+}
+
+function _portfolioTradeSignature(trade) {
+  return [
+    String(trade?.symbol || trade?.trading_symbol || '').trim(),
+    String(trade?.transaction_type || trade?.side || '').trim(),
+    String(trade?.option_type || '').trim(),
+    String(trade?.strike ?? '').trim(),
+    String(trade?.entry_time || '').trim(),
+    String(trade?.exit_time || '').trim(),
+    Number(trade?.entry_premium || trade?.entry_price || 0).toFixed(4),
+    Number(trade?.exit_premium || trade?.exit_price || 0).toFixed(4),
+    String(trade?.quantity || trade?.lots || '').trim(),
+    Number(trade?.pnl || 0).toFixed(4),
+    String(trade?.exit_reason || trade?.reason || '').trim(),
+  ].join('|');
+}
+
+function _portfolioTradeDateLabel(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (isNaN(d)) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+function _portfolioTradeTimeLabel(value) {
+  if (!value) return '—';
+  const s = String(value);
+  const match = s.match(/(\d{2}:\d{2}:\d{2})/);
+  return match ? match[1] : s.slice(-8);
+}
+
+function _portfolioCompletedTradeRowHtml(trade) {
+  const pnl = round2(trade?.pnl || 0);
+  return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${_portfolioTradeDateLabel(trade?.entry_time)}</td><td style="padding:8px 12px;">${escapeHtml(trade?.symbol || trade?.trading_symbol || '—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${trade?.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'}">${escapeHtml(trade?.transaction_type || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.entry_premium || trade?.entry_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.exit_premium || trade?.exit_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(trade?.lots || trade?.quantity || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(trade?.exit_reason || trade?.reason || '—')}</td></tr>`;
+}
+
+function _renderCompletedTradesBlock(trades, options = {}) {
+  const total = Array.isArray(trades) ? trades.length : 0;
+  const perPage = Math.max(1, Number(options.perPage || _LIVE_TRADES_PER_PAGE || 10));
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const page = Math.max(1, Math.min(Number(options.page || 1), totalPages));
+  const start = (page - 1) * perPage;
+  const slice = (trades || []).slice(start, start + perPage);
+  const emptyMessage = options.emptyMessage || 'No completed trades yet';
+  const tbodyHtml = total
+    ? slice.map(_portfolioCompletedTradeRowHtml).join('')
+    : `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">${escapeHtml(emptyMessage)}</td></tr>`;
+  const prevPage = Math.max(1, page - 1);
+  const nextPage = Math.min(totalPages, page + 1);
+  const pageTemplate = String(options.pageHandlerTemplate || '');
+  const pageBarHtml = total > perPage && pageTemplate
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--border);">
+        <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Showing ${start + 1}–${Math.min(start + perPage, total)} of ${total}</span>
+        <div style="display:flex;gap:3px;">
+          <button class="btn" onclick="${pageTemplate.replace('__PAGE__', String(prevPage))}" style="font-size:11px;padding:5px 10px;" ${page <= 1 ? 'disabled' : ''}>‹</button>
+          <span style="font-size:11px;padding:5px 8px;color:var(--muted);">Page ${page} / ${totalPages}</span>
+          <button class="btn" onclick="${pageTemplate.replace('__PAGE__', String(nextPage))}" style="font-size:11px;padding:5px 10px;" ${page >= totalPages ? 'disabled' : ''}>›</button>
+        </div>
+      </div>`
+    : '';
+  return `<div class="live-panel-closed" style="margin:12px 0 0;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;font-size:13px;">Completed Trades</span>
+      <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">${total} trade${total !== 1 ? 's' : ''}</span>
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
+        <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Date</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
+        <tbody>${tbodyHtml}</tbody>
+      </table>
+    </div>
+    ${pageBarHtml}
+  </div>`;
+}
+
 function _portfolioRunHasStrategyConfig(run) {
   return ['entry_conditions', 'exit_conditions', 'legs', 'indicators', 'folder', 'max_trades_per_day']
     .some(key => Array.isArray(run?.[key]) ? run[key].length : !!run?.[key]);
@@ -8343,6 +8431,7 @@ function _portfolioBuildActiveRuns() {
         started_at: engine.started_at || '',
         created_at: engine.current_time || engine.started_at || '',
         status: 'running',
+        closed_trades: closed,
       };
     });
 }
@@ -8380,26 +8469,21 @@ function _portfolioGroupedRuns(runs) {
   const groups = new Map();
   _portfolioSessionRunCandidates(runs).forEach(run => {
     const name = String(run.run_name || run.strategy_name || 'Unnamed Strategy').trim() || 'Unnamed Strategy';
-    const key = name.toLowerCase();
+    const mode = _normalizeMode(run.mode);
+    const key = `${name.toLowerCase()}::${mode}`;
     if (!groups.has(key)) {
       groups.set(key, {
         key,
         name,
-        modes: new Set(),
+        mode,
         sessions: [],
-        totalPnl: 0,
-        totalTrades: 0,
         instruments: new Set(),
         latestTs: 0,
         runningCount: 0,
       });
     }
     const group = groups.get(key);
-    const mode = _normalizeMode(run.mode);
-    group.modes.add(mode);
     group.sessions.push(run);
-    group.totalPnl += Number(run.total_pnl || 0);
-    group.totalTrades += Number(run.trade_count || 0);
     const instName = getInstrumentName(run.instrument) || '';
     if (instName) group.instruments.add(instName);
     const ts = _portfolioRunTs(run);
@@ -8416,9 +8500,13 @@ function _portfolioGroupedRuns(runs) {
         if (tsDelta) return tsDelta;
         return Number(b.id || 0) - Number(a.id || 0);
       });
-      group.latest = group.sessions[0] || null;
+      group.display = group.sessions.find(run => run._active) || group.sessions[0] || null;
+      group.latest = group.display;
       group.instrumentSummary = _portfolioCompactNames(Array.from(group.instruments), 'Mixed');
-      group.totalPnl = round2(group.totalPnl);
+      group.displayPnl = round2(Number(group.display?.total_pnl || 0));
+      const displayClosedTrades = Array.isArray(group.display?.closed_trades) ? group.display.closed_trades : [];
+      group.displayTrades = displayClosedTrades.length || Number(group.display?.trade_count || 0);
+      group.latestTs = _portfolioRunTs(group.display) || group.latestTs;
       return group;
     })
     .sort((a, b) => {
@@ -8428,16 +8516,85 @@ function _portfolioGroupedRuns(runs) {
     });
 }
 
-function _togglePortfolioRunGroup(encodedKey) {
-  const key = decodeURIComponent(String(encodedKey || ''));
-  _portfolioRunExpandedKey = _portfolioRunExpandedKey === key ? '' : key;
-  if (_portfolioRunExpandedKey && !_portfolioRunSessionPages[key]) _portfolioRunSessionPages[key] = 1;
+async function _ensurePortfolioRunTradesLoaded(groupKey, force = false) {
+  const key = String(groupKey || '');
+  if (!key) return;
+  if (!force && (_portfolioRunTradeCache[key] || _portfolioRunTradeLoading[key])) return;
+  const group = _portfolioGroupedRuns(_allRunsCache).find(item => item.key === key);
+  if (!group) return;
+  _portfolioRunTradeLoading[key] = true;
+  delete _portfolioRunTradeErrors[key];
+  if (force) delete _portfolioRunTradeCache[key];
   _renderPortfolioPaperRuns(_allRunsCache);
+  try {
+    const historyRunIds = [...new Set(group.sessions
+      .filter(run => !run._active && Number.isFinite(Number(run.id)) && Number(run.id) > 0)
+      .map(run => Number(run.id)))];
+    const detailRuns = await Promise.all(historyRunIds.map(async (id) => {
+      const res = await fetch('/api/runs/' + id);
+      if (await handleUnauthorizedResponse(res)) return null;
+      if (!res.ok) throw new Error(`Failed to load run ${id}`);
+      return res.json();
+    }));
+    const historyTrades = detailRuns
+      .filter(Boolean)
+      .flatMap(run => Array.isArray(run.trades) ? run.trades : []);
+    const seen = new Set();
+    const deduped = historyTrades.filter(trade => {
+      const signature = _portfolioTradeSignature(trade);
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    }).sort((a, b) => _portfolioTradeTs(b) - _portfolioTradeTs(a));
+    _portfolioRunTradeCache[key] = deduped;
+  } catch (error) {
+    _portfolioRunTradeErrors[key] = error?.message || 'Failed to load completed trades.';
+  } finally {
+    delete _portfolioRunTradeLoading[key];
+    _renderPortfolioPaperRuns(_allRunsCache);
+  }
+}
+
+function _portfolioRunTradesForGroup(group) {
+  const activeTrades = group.sessions
+    .filter(run => run._active)
+    .flatMap(run => Array.isArray(run.closed_trades) ? run.closed_trades : []);
+  const historyTrades = Array.isArray(_portfolioRunTradeCache[group.key]) ? _portfolioRunTradeCache[group.key] : [];
+  const seen = new Set();
+  return [...activeTrades, ...historyTrades]
+    .filter(trade => {
+      const signature = _portfolioTradeSignature(trade);
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    })
+    .sort((a, b) => _portfolioTradeTs(b) - _portfolioTradeTs(a));
+}
+
+async function _togglePortfolioRunGroup(encodedKey) {
+  const key = decodeURIComponent(String(encodedKey || ''));
+  if (_portfolioRunExpandedKey === key) {
+    _portfolioRunExpandedKey = '';
+    _renderPortfolioPaperRuns(_allRunsCache);
+    return;
+  }
+  _portfolioRunExpandedKey = key;
+  if (!_portfolioRunTradePages[key]) _portfolioRunTradePages[key] = 1;
+  _renderPortfolioPaperRuns(_allRunsCache);
+  await _ensurePortfolioRunTradesLoaded(key, true);
 }
 
 function _goPortfolioRunSessionPage(encodedKey, page) {
   const key = decodeURIComponent(String(encodedKey || ''));
   _portfolioRunSessionPages[key] = Math.max(1, Number(page || 1));
+  _renderPortfolioPaperRuns(_allRunsCache);
+}
+
+function _goPortfolioRunTradePage(encodedKey, page) {
+  const key = decodeURIComponent(String(encodedKey || ''));
+  const trades = _portfolioRunTradeCache[key] || [];
+  const totalPages = Math.max(1, Math.ceil(trades.length / _LIVE_TRADES_PER_PAGE));
+  _portfolioRunTradePages[key] = Math.max(1, Math.min(Number(page || 1), totalPages));
   _renderPortfolioPaperRuns(_allRunsCache);
 }
 
@@ -8466,14 +8623,24 @@ function _renderPortfolioPaperRuns(runs) {
   pageData.forEach(group => {
     const expanded = _portfolioRunExpandedKey === group.key;
     const encodedKey = encodeURIComponent(group.key);
-    const sessionPage = Math.max(1, Number(_portfolioRunSessionPages[group.key] || 1));
-    const sessionPageSize = 6;
-    const totalSessionPages = Math.max(1, Math.ceil(group.sessions.length / sessionPageSize));
-    const safeSessionPage = Math.min(sessionPage, totalSessionPages);
-    _portfolioRunSessionPages[group.key] = safeSessionPage;
-    const sessionStart = (safeSessionPage - 1) * sessionPageSize;
-    const sessionData = group.sessions.slice(sessionStart, sessionStart + sessionPageSize);
-    const pnlClass = group.totalPnl >= 0 ? 'pos' : 'neg';
+    const pnlClass = group.displayPnl >= 0 ? 'pos' : 'neg';
+    const expandedTrades = _portfolioRunTradesForGroup(group);
+    const tradePage = Math.max(1, Number(_portfolioRunTradePages[group.key] || 1));
+    const loadingTrades = !!_portfolioRunTradeLoading[group.key];
+    const tradeError = _portfolioRunTradeErrors[group.key] || '';
+    const completedTradesHtml = tradeError
+        ? `<div class="live-panel-closed" style="margin:12px 0 0;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+            <div style="padding:16px;text-align:center;color:var(--danger);">${escapeHtml(tradeError)}</div>
+          </div>`
+        : (expandedTrades.length || !loadingTrades)
+          ? _renderCompletedTradesBlock(expandedTrades, {
+            page: tradePage,
+            perPage: _LIVE_TRADES_PER_PAGE,
+            pageHandlerTemplate: `_goPortfolioRunTradePage('${escapeAttr(encodedKey)}', __PAGE__)`,
+          })
+          : `<div class="live-panel-closed" style="margin:12px 0 0;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+              <div style="padding:16px;text-align:center;color:var(--muted);">Loading completed trades...</div>
+            </div>`;
     html += `<article class="portfolio-run-group${expanded ? ' open' : ''}">
       <button class="portfolio-run-group-head" type="button" onclick="_togglePortfolioRunGroup('${escapeAttr(encodedKey)}')">
         <div class="portfolio-run-group-main">
@@ -8483,73 +8650,18 @@ function _renderPortfolioPaperRuns(runs) {
           </div>
           <div class="portfolio-run-group-sub">
             <span>${escapeHtml(group.instrumentSummary)}</span>
-            <span>${group.sessions.length} session${group.sessions.length !== 1 ? 's' : ''}</span>
-            <span>${group.totalTrades} trade${group.totalTrades !== 1 ? 's' : ''}</span>
+            <span>${group.displayTrades} trade${group.displayTrades !== 1 ? 's' : ''}</span>
             <span>Latest ${_portfolioRunDateLabel(group.latestTs)}</span>
           </div>
         </div>
         <div class="portfolio-run-group-side">
-          ${Array.from(group.modes).sort().map(mode => `<span class="portfolio-run-mode-pill ${_portfolioModeClass(mode)}">${_portfolioModeLabel(mode)}</span>`).join('')}
-          <span class="portfolio-run-group-pnl ${pnlClass}">${fmt(group.totalPnl)}</span>
+          <span class="portfolio-run-mode-pill ${_portfolioModeClass(group.mode)}">${_portfolioModeLabel(group.mode)}</span>
+          <span class="portfolio-run-group-pnl ${pnlClass}">${fmt(group.displayPnl)}</span>
           <span class="portfolio-run-chevron">${expanded ? '▲' : '▼'}</span>
         </div>
       </button>
       <div class="portfolio-run-group-body">
-        <div class="portfolio-run-session-list">
-          ${sessionData.map(run => {
-            const instName = escapeHtml(getInstrumentName(run.instrument) || '—');
-            const pnlVal = Number(run.total_pnl || 0);
-            const pnlTone = pnlVal >= 0 ? 'pos' : 'neg';
-            const entryTs = run.first_entry_time || run.created_at || '';
-            const exitTs = run.last_exit_time || '';
-            const statusHtml = run._active
-              ? `<span class="portfolio-run-status-pill running">Running</span>`
-              : '';
-            const actionHtml = run._active
-              ? `<button class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live'))" style="font-size:10px;padding:4px 10px;">Monitor</button>`
-              : `<button class="btn btn-sm" onclick="viewRunModal(${run.id})" style="font-size:10px;padding:4px 10px;">View</button>
-                 <button class="btn btn-danger btn-sm" onclick="deleteRun(${run.id})" style="font-size:10px;padding:4px 10px;">Del</button>`;
-            return `<div class="portfolio-run-session-row">
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Date</span>
-                <span class="portfolio-run-session-value mono">${_portfolioRunDateLabel(entryTs || exitTs)}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Mode</span>
-                <span class="portfolio-run-session-value">${_getModeBadge(run.mode, true)} ${statusHtml}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Instrument</span>
-                <span class="portfolio-run-session-value">${instName}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Trades</span>
-                <span class="portfolio-run-session-value mono">${Number(run.trade_count || 0)}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">P&amp;L</span>
-                <span class="portfolio-run-session-value mono pnl ${pnlTone}">${fmt(pnlVal)}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Entry</span>
-                <span class="portfolio-run-session-value mono">${_portfolioRunTimeLabel(entryTs)}</span>
-              </div>
-              <div class="portfolio-run-session-cell">
-                <span class="portfolio-run-session-label">Exit</span>
-                <span class="portfolio-run-session-value mono">${run._active ? 'Running' : _portfolioRunTimeLabel(exitTs)}</span>
-              </div>
-              <div class="portfolio-run-session-actions">${actionHtml}</div>
-            </div>`;
-          }).join('')}
-        </div>
-        ${totalSessionPages > 1 ? `<div class="portfolio-run-session-pagebar">
-          <span class="portfolio-run-session-pageinfo">Showing ${sessionStart + 1}–${Math.min(sessionStart + sessionPageSize, group.sessions.length)} of ${group.sessions.length} sessions</span>
-          <div class="pagination-controls">
-            <button class="page-btn" onclick="_goPortfolioRunSessionPage('${escapeAttr(encodedKey)}', ${Math.max(1, safeSessionPage - 1)})"${safeSessionPage <= 1 ? ' disabled' : ''}>‹</button>
-            <button class="page-btn active">${safeSessionPage}</button>
-            <button class="page-btn" onclick="_goPortfolioRunSessionPage('${escapeAttr(encodedKey)}', ${Math.min(totalSessionPages, safeSessionPage + 1)})"${safeSessionPage >= totalSessionPages ? ' disabled' : ''}>›</button>
-          </div>
-        </div>` : ''}
+        ${completedTradesHtml}
       </div>
     </article>`;
   });
@@ -8568,6 +8680,7 @@ async function fetchRuns() {
     if (!res.ok) throw new Error('Failed to load runs');
     const runs = await res.json();
     _allRunsCache = runs.slice().reverse();
+    _portfolioRunTradeErrors = Object.create(null);
 
     // Dashboard: paginated
     _renderDashRuns();
@@ -8577,6 +8690,7 @@ async function fetchRuns() {
 
     // Portfolio page: show grouped paper/live sessions
     _renderPortfolioPaperRuns(_allRunsCache);
+    if (_portfolioRunExpandedKey) _ensurePortfolioRunTradesLoaded(_portfolioRunExpandedKey, true);
   } catch(e) { console.error('fetchRuns error:', e); }
 }
 
@@ -13018,26 +13132,11 @@ function renderLivePanel(d, idx) {
   if (!_liveClosedPages[liveIdentityKey]) _liveClosedPages[liveIdentityKey] = 1;
   if (_liveClosedPages[liveIdentityKey] > closedTotalPages) _liveClosedPages[liveIdentityKey] = closedTotalPages;
   const closedPage = _liveClosedPages[liveIdentityKey];
-  const closedStart = (closedPage - 1) * _LIVE_TRADES_PER_PAGE;
-  const closedSlice = closed.slice(closedStart, closedStart + _LIVE_TRADES_PER_PAGE);
-  let closedHtml;
-  if (!closedTotal) {
-    closedHtml = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No completed trades yet</td></tr>';
-  } else {
-    closedHtml = closedSlice.map(t => {
-      const pnl = round2(t.pnl || 0);
-      const fmtTime = (ts) => { if (!ts) return '—'; const ss = String(ts); const m = ss.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : ss.slice(-8); };
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td><td style="padding:8px 12px;">${escapeHtml(t.symbol||t.trading_symbol||'—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTime(t.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(fmtTime(t.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${t.transaction_type==='BUY'?'var(--success)':'var(--danger)'}">${escapeHtml(t.transaction_type||'—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.entry_premium||t.entry_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(t.exit_premium||t.exit_price||0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(t.lots||t.quantity||'—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(t.exit_reason||t.reason||'—')}</td></tr>`;
-    }).join('');
-  }
-  const closedPagHtml = closedTotal > _LIVE_TRADES_PER_PAGE ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--border);">
-    <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Showing ${closedStart+1}–${Math.min(closedStart+_LIVE_TRADES_PER_PAGE, closedTotal)} of ${closedTotal}</span>
-    <div style="display:flex;gap:3px;">
-      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}',${closedPage-1})" style="font-size:11px;padding:5px 10px;" ${closedPage<=1?'disabled':''}>‹</button>
-      <span style="font-size:11px;padding:5px 8px;color:var(--muted);">Page ${closedPage} / ${closedTotalPages}</span>
-      <button class="btn" onclick="_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}',${closedPage+1})" style="font-size:11px;padding:5px 10px;" ${closedPage>=closedTotalPages?'disabled':''}>›</button>
-    </div>
-  </div>` : '';
+  const closedTradesBlockHtml = _renderCompletedTradesBlock(closed, {
+    page: closedPage,
+    perPage: _LIVE_TRADES_PER_PAGE,
+    pageHandlerTemplate: `_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}', __PAGE__)`,
+  });
 
   // Build full panel
   // Entry/Exit conditions from strategy config
@@ -13164,18 +13263,8 @@ function renderLivePanel(d, idx) {
   </div>
 
   <!-- Closed Trades -->
-  <div class="live-panel-closed" style="margin:0 28px 28px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-      <span style="font-weight:700;font-size:13px;">Completed Trades</span>
-      <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">${closedTotal} trade${closedTotal!==1?'s':''}</span>
-    </div>
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
-      <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Date</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
-      <tbody>${closedHtml}</tbody>
-    </table>
-    </div>
-    ${closedPagHtml}
+  <div style="margin:0 28px 28px;">
+    ${closedTradesBlockHtml}
   </div>`;
 }
 
@@ -13651,6 +13740,7 @@ async function loadPortfolioData() {
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
     _renderPortfolioPaperRuns(_allRunsCache);
+    if (_portfolioRunExpandedKey) _renderPortfolioPaperRuns(_allRunsCache);
 
     // Render today's trades (from Dhan or paper trading)
     const tradesBody = document.getElementById('portfolio-trades-body');
