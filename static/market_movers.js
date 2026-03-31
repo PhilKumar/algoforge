@@ -154,9 +154,8 @@ function computeIndustryMoves(items) {
 
 function tileSize(weight) {
   const value = Number(weight || 1);
-  if (value >= 2.2) return 'tile-xl';
-  if (value >= 1.45) return 'tile-lg';
-  return 'tile-md';
+  if (value >= 2.3) return 'tile-xl';
+  return 'tile-lg';
 }
 
 function tileTone(item) {
