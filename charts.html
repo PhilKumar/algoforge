@@ -415,32 +415,39 @@ body::before {
   padding: 0 10px;
 }
 .lightbox-img-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   max-width: 92vw;
   max-height: 82vh;
   position: relative;
-  overflow: hidden;
+  overflow: auto;
   touch-action: none;
   user-select: none;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  cursor: default;
 }
-.lightbox-img-wrap img {
-  max-width: 92vw;
-  max-height: 82vh;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 12px 60px rgba(0,0,0,0.6);
-  cursor: zoom-in;
-  transition: transform 0.18s ease;
-  transform-origin: center center;
-  will-change: transform;
+.lightbox-img-wrap::-webkit-scrollbar {
+  display: none;
 }
-.lightbox-img-wrap.is-zoomed img {
+.lightbox-img-wrap.is-zoomed {
   cursor: grab;
 }
-.lightbox-img-wrap.is-dragging img {
+.lightbox-img-wrap.is-dragging {
   cursor: grabbing;
+}
+.lightbox-img-stage {
+  min-width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox-img-wrap img {
+  display: block;
+  border-radius: 8px;
+  box-shadow: 0 12px 60px rgba(0,0,0,0.6);
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .lightbox-caption {
@@ -646,7 +653,9 @@ body::before {
     <div class="lightbox-zoom" id="lb-zoom">100%</div>
   </div>
   <div class="lightbox-img-wrap" id="lb-wrap">
-    <img id="lb-img" src="" alt="Chart">
+    <div class="lightbox-img-stage" id="lb-stage">
+      <img id="lb-img" src="" alt="Chart" draggable="false">
+    </div>
   </div>
   <div class="lightbox-caption">
     <div class="lb-name" id="lb-name"></div>
@@ -665,13 +674,15 @@ const lbState = {
   scale: 1,
   minScale: 1,
   maxScale: 5,
-  x: 0,
-  y: 0,
+  baseWidth: 0,
+  baseHeight: 0,
+  stageWidth: 0,
+  stageHeight: 0,
   pointerId: null,
   dragStartX: 0,
   dragStartY: 0,
-  panStartX: 0,
-  panStartY: 0,
+  scrollStartLeft: 0,
+  scrollStartTop: 0,
 };
 
 // ── Init ──
@@ -831,68 +842,81 @@ function getLightboxRefs() {
   return {
     overlay: document.getElementById('lightbox'),
     wrap: document.getElementById('lb-wrap'),
+    stage: document.getElementById('lb-stage'),
     img: document.getElementById('lb-img'),
     zoomLabel: document.getElementById('lb-zoom'),
   };
 }
 
-function getLightboxBaseSize() {
+function measureLightboxBase() {
   const { wrap, img } = getLightboxRefs();
   if (!wrap || !img) return null;
-  const wrapRect = wrap.getBoundingClientRect();
-  const naturalWidth = img.naturalWidth || wrapRect.width || 1;
-  const naturalHeight = img.naturalHeight || wrapRect.height || 1;
-  const fit = Math.min(wrapRect.width / naturalWidth, wrapRect.height / naturalHeight, 1);
+  const wrapWidth = wrap.clientWidth || wrap.getBoundingClientRect().width || 1;
+  const wrapHeight = wrap.clientHeight || wrap.getBoundingClientRect().height || 1;
+  const naturalWidth = img.naturalWidth || wrapWidth || 1;
+  const naturalHeight = img.naturalHeight || wrapHeight || 1;
+  const fit = Math.min(wrapWidth / naturalWidth, wrapHeight / naturalHeight, 1);
+  lbState.baseWidth = Math.max(1, naturalWidth * fit);
+  lbState.baseHeight = Math.max(1, naturalHeight * fit);
+}
+
+function getLightboxViewport(anchorX, anchorY) {
+  const { wrap } = getLightboxRefs();
+  if (!wrap) return { focusX: 0.5, focusY: 0.5, offsetX: 0, offsetY: 0 };
+  const rect = wrap.getBoundingClientRect();
+  const offsetX = anchorX == null ? wrap.clientWidth / 2 : anchorX - rect.left;
+  const offsetY = anchorY == null ? wrap.clientHeight / 2 : anchorY - rect.top;
+  const stageWidth = lbState.stageWidth || wrap.clientWidth || 1;
+  const stageHeight = lbState.stageHeight || wrap.clientHeight || 1;
   return {
-    wrapWidth: wrapRect.width,
-    wrapHeight: wrapRect.height,
-    baseWidth: naturalWidth * fit,
-    baseHeight: naturalHeight * fit,
+    focusX: clamp((wrap.scrollLeft + offsetX) / stageWidth, 0, 1),
+    focusY: clamp((wrap.scrollTop + offsetY) / stageHeight, 0, 1),
+    offsetX,
+    offsetY,
   };
 }
 
-function clampLightboxPan() {
-  const metrics = getLightboxBaseSize();
-  if (!metrics) return;
-  const maxX = Math.max(0, ((metrics.baseWidth * lbState.scale) - metrics.wrapWidth) / 2);
-  const maxY = Math.max(0, ((metrics.baseHeight * lbState.scale) - metrics.wrapHeight) / 2);
-  lbState.x = clamp(lbState.x, -maxX, maxX);
-  lbState.y = clamp(lbState.y, -maxY, maxY);
-}
-
-function applyLightboxTransform() {
-  const { wrap, img, zoomLabel } = getLightboxRefs();
-  if (!wrap || !img) return;
-  clampLightboxPan();
-  img.style.transition = lbState.pointerId === null ? 'transform 0.18s ease' : 'none';
-  img.style.transform = 'translate(' + lbState.x + 'px,' + lbState.y + 'px) scale(' + lbState.scale + ')';
+function applyLightboxLayout(viewport) {
+  const { wrap, stage, img, zoomLabel } = getLightboxRefs();
+  if (!wrap || !stage || !img) return;
+  const wrapWidth = wrap.clientWidth || wrap.getBoundingClientRect().width || 1;
+  const wrapHeight = wrap.clientHeight || wrap.getBoundingClientRect().height || 1;
+  const scaledWidth = Math.max(1, lbState.baseWidth * lbState.scale);
+  const scaledHeight = Math.max(1, lbState.baseHeight * lbState.scale);
+  lbState.stageWidth = Math.max(wrapWidth, Math.ceil(scaledWidth));
+  lbState.stageHeight = Math.max(wrapHeight, Math.ceil(scaledHeight));
+  stage.style.width = lbState.stageWidth + 'px';
+  stage.style.height = lbState.stageHeight + 'px';
+  img.style.width = Math.ceil(scaledWidth) + 'px';
+  img.style.height = Math.ceil(scaledHeight) + 'px';
   wrap.classList.toggle('is-zoomed', lbState.scale > 1.01);
   wrap.classList.toggle('is-dragging', lbState.pointerId !== null);
   if (zoomLabel) zoomLabel.textContent = Math.round(lbState.scale * 100) + '%';
+  requestAnimationFrame(function() {
+    const maxScrollLeft = Math.max(0, lbState.stageWidth - wrap.clientWidth);
+    const maxScrollTop = Math.max(0, lbState.stageHeight - wrap.clientHeight);
+    if (!viewport) {
+      wrap.scrollLeft = maxScrollLeft / 2;
+      wrap.scrollTop = maxScrollTop / 2;
+      return;
+    }
+    const targetLeft = (viewport.focusX * lbState.stageWidth) - viewport.offsetX;
+    const targetTop = (viewport.focusY * lbState.stageHeight) - viewport.offsetY;
+    wrap.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
+    wrap.scrollTop = clamp(targetTop, 0, maxScrollTop);
+  });
 }
 
 function setLightboxZoom(nextScale, clientX, clientY) {
-  const { wrap } = getLightboxRefs();
-  if (!wrap) return;
+  if (!lbState.baseWidth || !lbState.baseHeight) measureLightboxBase();
+  const viewport = getLightboxViewport(clientX, clientY);
   const targetScale = clamp(nextScale, lbState.minScale, lbState.maxScale);
-  const prevScale = lbState.scale;
-  if (Math.abs(targetScale - prevScale) < 0.001) return;
-  const rect = wrap.getBoundingClientRect();
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const anchorX = clientX == null ? centerX : clientX;
-  const anchorY = clientY == null ? centerY : clientY;
-  const localX = (anchorX - centerX - lbState.x) / prevScale;
-  const localY = (anchorY - centerY - lbState.y) / prevScale;
+  if (Math.abs(targetScale - lbState.scale) < 0.001) return;
   lbState.scale = targetScale;
-  lbState.x = anchorX - centerX - (localX * targetScale);
-  lbState.y = anchorY - centerY - (localY * targetScale);
   if (lbState.scale <= 1.01) {
     lbState.scale = 1;
-    lbState.x = 0;
-    lbState.y = 0;
   }
-  applyLightboxTransform();
+  applyLightboxLayout(viewport);
 }
 
 function adjustLightboxZoom(step) {
@@ -903,11 +927,10 @@ function adjustLightboxZoom(step) {
 }
 
 function resetLightboxView() {
+  if (!lbState.baseWidth || !lbState.baseHeight) measureLightboxBase();
   lbState.scale = 1;
-  lbState.x = 0;
-  lbState.y = 0;
   lbState.pointerId = null;
-  applyLightboxTransform();
+  applyLightboxLayout({ focusX: 0.5, focusY: 0.5, offsetX: 0, offsetY: 0 });
 }
 
 function openLightbox(index) {
@@ -930,9 +953,15 @@ function updateLightbox() {
   lbImg.src = img.url;
   lbImg.alt = img.name;
   lbImg.onload = function() {
-    requestAnimationFrame(resetLightboxView);
+    requestAnimationFrame(function() {
+      measureLightboxBase();
+      resetLightboxView();
+    });
   };
-  if (lbImg.complete) requestAnimationFrame(resetLightboxView);
+  if (lbImg.complete) requestAnimationFrame(function() {
+    measureLightboxBase();
+    resetLightboxView();
+  });
   document.getElementById('lb-name').textContent = img.name;
   document.getElementById('lb-count').textContent = (lbIndex + 1) + ' / ' + currentImages.length;
   document.querySelector('.lightbox-nav.prev').disabled = lbIndex === 0;
@@ -978,23 +1007,23 @@ document.addEventListener('keydown', function(e) {
     lbState.pointerId = e.pointerId;
     lbState.dragStartX = e.clientX;
     lbState.dragStartY = e.clientY;
-    lbState.panStartX = lbState.x;
-    lbState.panStartY = lbState.y;
+    lbState.scrollStartLeft = wrap.scrollLeft;
+    lbState.scrollStartTop = wrap.scrollTop;
     wrap.setPointerCapture?.(e.pointerId);
-    applyLightboxTransform();
+    wrap.classList.add('is-dragging');
     e.preventDefault();
   });
   wrap.addEventListener('pointermove', function(e) {
     if (lbState.pointerId !== e.pointerId) return;
-    lbState.x = lbState.panStartX + (e.clientX - lbState.dragStartX);
-    lbState.y = lbState.panStartY + (e.clientY - lbState.dragStartY);
-    applyLightboxTransform();
+    wrap.scrollLeft = lbState.scrollStartLeft - (e.clientX - lbState.dragStartX);
+    wrap.scrollTop = lbState.scrollStartTop - (e.clientY - lbState.dragStartY);
+    e.preventDefault();
   });
   function stopDrag(e) {
     if (lbState.pointerId === null) return;
     if (e.pointerId !== undefined && lbState.pointerId !== e.pointerId) return;
     lbState.pointerId = null;
-    applyLightboxTransform();
+    wrap.classList.remove('is-dragging');
   }
   wrap.addEventListener('pointerup', stopDrag);
   wrap.addEventListener('pointercancel', stopDrag);
@@ -1002,7 +1031,9 @@ document.addEventListener('keydown', function(e) {
   window.addEventListener('resize', function() {
     const lb = document.getElementById('lightbox');
     if (!lb || !lb.classList.contains('open')) return;
-    applyLightboxTransform();
+    const viewport = getLightboxViewport();
+    measureLightboxBase();
+    applyLightboxLayout(viewport);
   });
 })();
 </script>

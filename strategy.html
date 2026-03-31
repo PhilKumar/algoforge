@@ -3738,10 +3738,12 @@
   .ch-lb-tool-btn:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.2); }
   .ch-lb-tool-btn:disabled { opacity: 0.45; cursor: default; }
   .ch-lb-zoom { min-width: 72px; padding: 0 10px; }
-  .ch-lb-wrap { display: flex; align-items: center; justify-content: center; max-width: 92vw; max-height: 82vh; overflow: hidden; position: relative; touch-action: none; user-select: none; }
-  .ch-lb-wrap img { max-width: 92vw; max-height: 82vh; object-fit: contain; border-radius: 8px; box-shadow: 0 12px 60px rgba(0,0,0,0.6); cursor: zoom-in; transition: transform 0.18s ease; transform-origin: center center; will-change: transform; }
-  .ch-lb-wrap.is-zoomed img { cursor: grab; }
-  .ch-lb-wrap.is-dragging img { cursor: grabbing; }
+  .ch-lb-wrap { max-width: 92vw; max-height: 82vh; overflow: auto; position: relative; touch-action: none; user-select: none; overscroll-behavior: contain; scrollbar-width: none; cursor: default; }
+  .ch-lb-wrap::-webkit-scrollbar { display: none; }
+  .ch-lb-wrap.is-zoomed { cursor: grab; }
+  .ch-lb-wrap.is-dragging { cursor: grabbing; }
+  .ch-lb-stage { min-width: 100%; min-height: 100%; display: flex; align-items: center; justify-content: center; }
+  .ch-lb-wrap img { display: block; border-radius: 8px; box-shadow: 0 12px 60px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; pointer-events: none; }
   .ch-lb-caption { margin-top: 14px; text-align: center; }
   .ch-lb-caption .lb-name { font-size: 14px; font-weight: 500; color: var(--text); }
   .ch-lb-caption .lb-count { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
@@ -5907,7 +5909,7 @@
       <button type="button" class="ch-lb-tool-btn" onclick="chAdjustLBZoom(0.35)" title="Zoom in">+</button>
       <div class="ch-lb-zoom" id="ch-lb-zoom">100%</div>
     </div>
-    <div class="ch-lb-wrap" id="ch-lb-wrap"><img id="ch-lb-img" src="" alt="Chart"></div>
+    <div class="ch-lb-wrap" id="ch-lb-wrap"><div class="ch-lb-stage" id="ch-lb-stage"><img id="ch-lb-img" src="" alt="Chart" draggable="false"></div></div>
     <div class="ch-lb-caption"><div class="lb-name" id="ch-lb-name"></div><div class="lb-count" id="ch-lb-count"></div><div class="lb-hint">Use mouse wheel or +/- to zoom. Drag the image when zoomed.</div></div>
   </div>
 </div>
@@ -15001,13 +15003,15 @@ fetchRuns = async function() {
     scale: 1,
     minScale: 1,
     maxScale: 5,
-    x: 0,
-    y: 0,
+    baseWidth: 0,
+    baseHeight: 0,
+    stageWidth: 0,
+    stageHeight: 0,
     pointerId: null,
     dragStartX: 0,
     dragStartY: 0,
-    panStartX: 0,
-    panStartY: 0,
+    scrollStartLeft: 0,
+    scrollStartTop: 0,
   };
 
   function _chClamp(value, min, max) {
@@ -15018,68 +15022,81 @@ fetchRuns = async function() {
     return {
       overlay: document.getElementById('ch-lightbox'),
       wrap: document.getElementById('ch-lb-wrap'),
+      stage: document.getElementById('ch-lb-stage'),
       img: document.getElementById('ch-lb-img'),
       zoomLabel: document.getElementById('ch-lb-zoom'),
     };
   }
 
-  function _chGetBaseSize() {
+  function _chMeasureLBBase() {
     const { wrap, img } = _chGetLBRefs();
     if (!wrap || !img) return null;
-    const wrapRect = wrap.getBoundingClientRect();
-    const naturalWidth = img.naturalWidth || wrapRect.width || 1;
-    const naturalHeight = img.naturalHeight || wrapRect.height || 1;
-    const fit = Math.min(wrapRect.width / naturalWidth, wrapRect.height / naturalHeight, 1);
+    const wrapWidth = wrap.clientWidth || wrap.getBoundingClientRect().width || 1;
+    const wrapHeight = wrap.clientHeight || wrap.getBoundingClientRect().height || 1;
+    const naturalWidth = img.naturalWidth || wrapWidth || 1;
+    const naturalHeight = img.naturalHeight || wrapHeight || 1;
+    const fit = Math.min(wrapWidth / naturalWidth, wrapHeight / naturalHeight, 1);
+    _chLBState.baseWidth = Math.max(1, naturalWidth * fit);
+    _chLBState.baseHeight = Math.max(1, naturalHeight * fit);
+  }
+
+  function _chGetLBViewport(anchorX, anchorY) {
+    const { wrap } = _chGetLBRefs();
+    if (!wrap) return { focusX: 0.5, focusY: 0.5, offsetX: 0, offsetY: 0 };
+    const rect = wrap.getBoundingClientRect();
+    const offsetX = anchorX == null ? wrap.clientWidth / 2 : anchorX - rect.left;
+    const offsetY = anchorY == null ? wrap.clientHeight / 2 : anchorY - rect.top;
+    const stageWidth = _chLBState.stageWidth || wrap.clientWidth || 1;
+    const stageHeight = _chLBState.stageHeight || wrap.clientHeight || 1;
     return {
-      wrapWidth: wrapRect.width,
-      wrapHeight: wrapRect.height,
-      baseWidth: naturalWidth * fit,
-      baseHeight: naturalHeight * fit,
+      focusX: _chClamp((wrap.scrollLeft + offsetX) / stageWidth, 0, 1),
+      focusY: _chClamp((wrap.scrollTop + offsetY) / stageHeight, 0, 1),
+      offsetX,
+      offsetY,
     };
   }
 
-  function _chClampLBPan() {
-    const metrics = _chGetBaseSize();
-    if (!metrics) return;
-    const maxX = Math.max(0, ((metrics.baseWidth * _chLBState.scale) - metrics.wrapWidth) / 2);
-    const maxY = Math.max(0, ((metrics.baseHeight * _chLBState.scale) - metrics.wrapHeight) / 2);
-    _chLBState.x = _chClamp(_chLBState.x, -maxX, maxX);
-    _chLBState.y = _chClamp(_chLBState.y, -maxY, maxY);
-  }
-
-  function _chApplyLBTransform() {
-    const { wrap, img, zoomLabel } = _chGetLBRefs();
-    if (!wrap || !img) return;
-    _chClampLBPan();
-    img.style.transition = _chLBState.pointerId === null ? 'transform 0.18s ease' : 'none';
-    img.style.transform = 'translate(' + _chLBState.x + 'px,' + _chLBState.y + 'px) scale(' + _chLBState.scale + ')';
+  function _chApplyLBLayout(viewport) {
+    const { wrap, stage, img, zoomLabel } = _chGetLBRefs();
+    if (!wrap || !stage || !img) return;
+    const wrapWidth = wrap.clientWidth || wrap.getBoundingClientRect().width || 1;
+    const wrapHeight = wrap.clientHeight || wrap.getBoundingClientRect().height || 1;
+    const scaledWidth = Math.max(1, _chLBState.baseWidth * _chLBState.scale);
+    const scaledHeight = Math.max(1, _chLBState.baseHeight * _chLBState.scale);
+    _chLBState.stageWidth = Math.max(wrapWidth, Math.ceil(scaledWidth));
+    _chLBState.stageHeight = Math.max(wrapHeight, Math.ceil(scaledHeight));
+    stage.style.width = _chLBState.stageWidth + 'px';
+    stage.style.height = _chLBState.stageHeight + 'px';
+    img.style.width = Math.ceil(scaledWidth) + 'px';
+    img.style.height = Math.ceil(scaledHeight) + 'px';
     wrap.classList.toggle('is-zoomed', _chLBState.scale > 1.01);
     wrap.classList.toggle('is-dragging', _chLBState.pointerId !== null);
     if (zoomLabel) zoomLabel.textContent = Math.round(_chLBState.scale * 100) + '%';
+    requestAnimationFrame(function() {
+      const maxScrollLeft = Math.max(0, _chLBState.stageWidth - wrap.clientWidth);
+      const maxScrollTop = Math.max(0, _chLBState.stageHeight - wrap.clientHeight);
+      if (!viewport) {
+        wrap.scrollLeft = maxScrollLeft / 2;
+        wrap.scrollTop = maxScrollTop / 2;
+        return;
+      }
+      const targetLeft = (viewport.focusX * _chLBState.stageWidth) - viewport.offsetX;
+      const targetTop = (viewport.focusY * _chLBState.stageHeight) - viewport.offsetY;
+      wrap.scrollLeft = _chClamp(targetLeft, 0, maxScrollLeft);
+      wrap.scrollTop = _chClamp(targetTop, 0, maxScrollTop);
+    });
   }
 
   function _chSetLBZoom(nextScale, clientX, clientY) {
-    const { wrap } = _chGetLBRefs();
-    if (!wrap) return;
+    if (!_chLBState.baseWidth || !_chLBState.baseHeight) _chMeasureLBBase();
+    const viewport = _chGetLBViewport(clientX, clientY);
     const targetScale = _chClamp(nextScale, _chLBState.minScale, _chLBState.maxScale);
-    const prevScale = _chLBState.scale;
-    if (Math.abs(targetScale - prevScale) < 0.001) return;
-    const rect = wrap.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const anchorX = clientX == null ? centerX : clientX;
-    const anchorY = clientY == null ? centerY : clientY;
-    const localX = (anchorX - centerX - _chLBState.x) / prevScale;
-    const localY = (anchorY - centerY - _chLBState.y) / prevScale;
+    if (Math.abs(targetScale - _chLBState.scale) < 0.001) return;
     _chLBState.scale = targetScale;
-    _chLBState.x = anchorX - centerX - (localX * targetScale);
-    _chLBState.y = anchorY - centerY - (localY * targetScale);
     if (_chLBState.scale <= 1.01) {
       _chLBState.scale = 1;
-      _chLBState.x = 0;
-      _chLBState.y = 0;
     }
-    _chApplyLBTransform();
+    _chApplyLBLayout(viewport);
   }
 
   window.chAdjustLBZoom = function(step) {
@@ -15090,11 +15107,10 @@ fetchRuns = async function() {
   };
 
   window.chResetLBView = function() {
+    if (!_chLBState.baseWidth || !_chLBState.baseHeight) _chMeasureLBBase();
     _chLBState.scale = 1;
-    _chLBState.x = 0;
-    _chLBState.y = 0;
     _chLBState.pointerId = null;
-    _chApplyLBTransform();
+    _chApplyLBLayout({ focusX: 0.5, focusY: 0.5, offsetX: 0, offsetY: 0 });
   };
 
   window._chOpenLB = function(idx) {
@@ -15121,9 +15137,15 @@ fetchRuns = async function() {
     el.src = img.url;
     el.alt = img.name;
     el.onload = function() {
-      requestAnimationFrame(chResetLBView);
+      requestAnimationFrame(function() {
+        _chMeasureLBBase();
+        chResetLBView();
+      });
     };
-    if (el.complete) requestAnimationFrame(chResetLBView);
+    if (el.complete) requestAnimationFrame(function() {
+      _chMeasureLBBase();
+      chResetLBView();
+    });
     document.getElementById('ch-lb-name').textContent = img.name;
     document.getElementById('ch-lb-count').textContent = (_chLBIdx + 1) + ' / ' + _chImages.length;
     document.querySelector('.ch-lb-nav.prev').disabled = _chLBIdx === 0;
@@ -15149,23 +15171,23 @@ fetchRuns = async function() {
       _chLBState.pointerId = e.pointerId;
       _chLBState.dragStartX = e.clientX;
       _chLBState.dragStartY = e.clientY;
-      _chLBState.panStartX = _chLBState.x;
-      _chLBState.panStartY = _chLBState.y;
+      _chLBState.scrollStartLeft = wrap.scrollLeft;
+      _chLBState.scrollStartTop = wrap.scrollTop;
       wrap.setPointerCapture?.(e.pointerId);
-      _chApplyLBTransform();
+      wrap.classList.add('is-dragging');
       e.preventDefault();
     });
     wrap.addEventListener('pointermove', function(e) {
       if (_chLBState.pointerId !== e.pointerId) return;
-      _chLBState.x = _chLBState.panStartX + (e.clientX - _chLBState.dragStartX);
-      _chLBState.y = _chLBState.panStartY + (e.clientY - _chLBState.dragStartY);
-      _chApplyLBTransform();
+      wrap.scrollLeft = _chLBState.scrollStartLeft - (e.clientX - _chLBState.dragStartX);
+      wrap.scrollTop = _chLBState.scrollStartTop - (e.clientY - _chLBState.dragStartY);
+      e.preventDefault();
     });
     function stopDrag(e) {
       if (_chLBState.pointerId === null) return;
       if (e.pointerId !== undefined && _chLBState.pointerId !== e.pointerId) return;
       _chLBState.pointerId = null;
-      _chApplyLBTransform();
+      wrap.classList.remove('is-dragging');
     }
     wrap.addEventListener('pointerup', stopDrag);
     wrap.addEventListener('pointercancel', stopDrag);
@@ -15173,7 +15195,9 @@ fetchRuns = async function() {
     window.addEventListener('resize', function() {
       const lb = document.getElementById('ch-lightbox');
       if (!lb || !lb.classList.contains('open')) return;
-      _chApplyLBTransform();
+      const viewport = _chGetLBViewport();
+      _chMeasureLBBase();
+      _chApplyLBLayout(viewport);
     });
   })();
   // Keyboard nav + close on outside click
