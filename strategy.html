@@ -4084,6 +4084,216 @@
   [data-theme="light"] #portfolio-paper-runs tbody tr:hover td {
     background: rgba(13,148,136,0.05) !important;
   }
+  #portfolio-paper-runs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .portfolio-run-group {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    overflow: hidden;
+  }
+  .portfolio-run-group-head {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 16px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .portfolio-run-group-head:hover {
+    background: rgba(255,255,255,0.03);
+  }
+  .portfolio-run-group-main,
+  .portfolio-run-group-side {
+    min-width: 0;
+  }
+  .portfolio-run-group-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .portfolio-run-group-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    min-width: 0;
+  }
+  .portfolio-run-group-sub {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .portfolio-run-group-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .portfolio-run-group-pnl {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .portfolio-run-group-pnl.pos { color: var(--success); }
+  .portfolio-run-group-pnl.neg { color: var(--danger); }
+  .portfolio-run-chevron {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .portfolio-run-group.open .portfolio-run-chevron {
+    color: var(--accent);
+    border-color: rgba(0,200,150,0.35);
+    background: rgba(0,200,150,0.08);
+  }
+  .portfolio-run-mode-pill,
+  .portfolio-run-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .portfolio-run-mode-pill.paper {
+    color: #fbbf24;
+    background: rgba(245,158,11,0.12);
+    border-color: rgba(245,158,11,0.24);
+  }
+  .portfolio-run-mode-pill.live {
+    color: #a78bfa;
+    background: rgba(139,92,246,0.12);
+    border-color: rgba(139,92,246,0.24);
+  }
+  .portfolio-run-status-pill.running {
+    color: #34d399;
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.24);
+  }
+  .portfolio-run-group-body {
+    display: none;
+    border-top: 1px solid var(--border);
+    padding: 0 16px 14px;
+  }
+  .portfolio-run-group.open .portfolio-run-group-body {
+    display: block;
+  }
+  .portfolio-run-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .portfolio-run-session-row {
+    display: grid;
+    grid-template-columns: minmax(84px, 0.8fr) minmax(78px, 0.7fr) minmax(120px, 1fr) minmax(64px, 0.5fr) minmax(96px, 0.7fr) minmax(72px, 0.5fr) minmax(72px, 0.5fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+  }
+  .portfolio-run-session-cell {
+    min-width: 0;
+  }
+  .portfolio-run-session-label {
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+  .portfolio-run-session-value {
+    display: block;
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 600;
+    min-width: 0;
+    word-break: break-word;
+  }
+  .portfolio-run-session-value.mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+  }
+  .portfolio-run-session-value.pnl.pos { color: var(--success); }
+  .portfolio-run-session-value.pnl.neg { color: var(--danger); }
+  .portfolio-run-session-actions {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .portfolio-run-session-pagebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .portfolio-run-session-pageinfo {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  [data-theme="light"] .portfolio-run-group {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94));
+    border-color: rgba(15,23,42,0.08);
+    box-shadow: var(--shadow-soft);
+  }
+  [data-theme="light"] .portfolio-run-group-head:hover {
+    background: rgba(15,23,42,0.03);
+  }
+  [data-theme="light"] .portfolio-run-group-title {
+    color: #0f172a;
+  }
+  [data-theme="light"] .portfolio-run-group-sub,
+  [data-theme="light"] .portfolio-run-session-label,
+  [data-theme="light"] .portfolio-run-session-pageinfo {
+    color: #64748b;
+  }
+  [data-theme="light"] .portfolio-run-chevron {
+    border-color: rgba(15,23,42,0.08);
+    color: #64748b;
+    background: rgba(255,255,255,0.9);
+  }
+  [data-theme="light"] .portfolio-run-group-body {
+    border-top-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .portfolio-run-session-row {
+    background: rgba(255,255,255,0.9);
+    border-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .portfolio-run-session-value {
+    color: #0f172a;
+  }
   [data-theme="light"] .dash-table tbody td [style*="color:var(--text-dim)"],
   [data-theme="light"] .dash-table tbody td [style*="color: var(--text-dim)"],
   [data-theme="light"] .dash-table tbody td [style*="color:var(--muted)"],
@@ -4191,6 +4401,18 @@
     #runs-list-results,
     #portfolio-paper-runs {
       border-radius: 10px;
+    }
+    .portfolio-run-group-head,
+    .portfolio-run-session-row {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+    .portfolio-run-group-side,
+    .portfolio-run-session-actions {
+      justify-content: flex-start;
+    }
+    .portfolio-run-session-pagebar {
+      align-items: stretch;
     }
     .dash-table {
       min-width: 920px;
@@ -5566,12 +5788,12 @@
     <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
   </div>
 
-  <!-- Paper Trading Runs -->
+  <!-- Strategy Run Sessions -->
   <div class="card" style="padding: 20px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Paper Trading Runs</h3>
+    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Strategy Run Sessions</h3>
     <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="portfolio-paper-pagination" class="pagination-bar" style="display:none;"></div>
-    <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper trading runs yet. Start paper trading from the Live page.</div>
+    <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper/live strategy sessions yet.</div>
   </div>
 </div>
 
@@ -7207,6 +7429,9 @@ let _selectedScalpRunIds = new Set();
 let _scalpTradesCache = [];
 let _scalpPage = 1;
 let _portfolioPaperPage = 1;
+let _portfolioRunExpandedKey = '';
+let _portfolioRunSessionPages = Object.create(null);
+let _portfolioEngineSnapshotCache = [];
 let _dashboardTxnPage = 1;
 let _dashboardTxnSearchQuery = '';
 let _dashboardTxnSortCol = 'exitTime';
@@ -8022,28 +8247,208 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
 }
 function _goScalpPage(p) { _scalpPage = p; _renderFilteredRuns(); }
 
-var _paperSortCol = 'date';
-var _paperSortAsc = false;
+function _portfolioCompactNames(names, fallback = '—') {
+  const unique = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))];
+  if (!unique.length) return fallback;
+  if (unique.length <= 2) return unique.join(', ');
+  return `${unique[0]} +${unique.length - 1}`;
+}
 
-function _sortPaperRuns(col) {
-  if (_paperSortCol === col) { _paperSortAsc = !_paperSortAsc; } else { _paperSortCol = col; _paperSortAsc = true; }
-  _portfolioPaperPage = 1;
+function _portfolioRunTs(run) {
+  const candidates = [
+    run?.last_exit_time,
+    run?.stopped_at,
+    run?.first_entry_time,
+    run?.started_at,
+    run?.created_at,
+  ];
+  return candidates.reduce((best, value) => {
+    const parsed = Date.parse(value || '');
+    return Number.isFinite(parsed) && parsed > best ? parsed : best;
+  }, 0);
+}
+
+function _portfolioRunDateLabel(value) {
+  const ts = typeof value === 'number' ? value : Date.parse(value || '');
+  if (!Number.isFinite(ts) || ts <= 0) return '—';
+  const d = new Date(ts);
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
+function _portfolioRunTimeLabel(value) {
+  if (!value) return '—';
+  const s = String(value);
+  const m = s.match(/(\d{2}:\d{2})(?::\d{2})?/);
+  if (m) return m[1];
+  const parsed = Date.parse(s);
+  if (Number.isFinite(parsed)) {
+    const d = new Date(parsed);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  return '—';
+}
+
+function _portfolioModeClass(mode) {
+  return _normalizeMode(mode) === 'live' ? 'live' : 'paper';
+}
+
+function _portfolioModeLabel(mode) {
+  return _normalizeMode(mode) === 'live' ? 'Live' : 'Paper';
+}
+
+function _portfolioRunDateKey(run) {
+  const ts = _portfolioRunTs(run);
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function _portfolioRunHistoryBucket(run) {
+  return [
+    _normalizeMode(run?.mode),
+    String(run?.run_name || run?.strategy_name || '').trim().toLowerCase(),
+    _portfolioRunDateKey(run),
+  ].join('|');
+}
+
+function _portfolioRunHasStrategyConfig(run) {
+  return ['entry_conditions', 'exit_conditions', 'legs', 'indicators', 'folder', 'max_trades_per_day']
+    .some(key => Array.isArray(run?.[key]) ? run[key].length : !!run?.[key]);
+}
+
+function _portfolioBuildActiveRuns() {
+  return (_portfolioEngineSnapshotCache || [])
+    .filter(engine => engine && engine.running && ['paper', 'live'].includes(_normalizeMode(engine.mode)))
+    .map((engine, idx) => {
+      const mode = _normalizeMode(engine.mode);
+      const closed = Array.isArray(engine.closed_trades) ? engine.closed_trades : [];
+      const positions = Array.isArray(engine.positions) ? engine.positions : [];
+      const firstTrade = closed[0] || positions[0] || {};
+      const lastTrade = closed[closed.length - 1] || {};
+      return {
+        id: `active:${mode}:${engine.run_id || engine.strategy_name || idx}`,
+        _active: true,
+        mode,
+        run_name: engine.strategy_name || engine.run_id || 'Unnamed Strategy',
+        instrument: engine.instrument || engine.current_candle?.symbol || '',
+        trade_count: Number(engine.trades_today || closed.length || 0),
+        total_pnl: Number(engine.total_pnl || 0),
+        first_entry_time:
+          firstTrade.entry_time ||
+          firstTrade.createTime ||
+          engine.started_at ||
+          engine.current_time ||
+          '',
+        last_exit_time: lastTrade.exit_time || '',
+        started_at: engine.started_at || '',
+        created_at: engine.current_time || engine.started_at || '',
+        status: 'running',
+      };
+    });
+}
+
+function _portfolioSessionRunCandidates(runs) {
+  const historyRuns = (runs || []).filter(r => ['paper', 'live'].includes(_normalizeMode(r.mode)));
+  const groupedHistoryRuns = historyRuns.filter(r => _portfolioRunHasStrategyConfig(r) || Number(r.trade_count || 0) > 1);
+  const groupedHistoryBuckets = new Set(groupedHistoryRuns.map(_portfolioRunHistoryBucket).filter(Boolean));
+  const singleHistoryRuns = historyRuns.filter(r => !(_portfolioRunHasStrategyConfig(r) || Number(r.trade_count || 0) > 1));
+  const source = [
+    ...groupedHistoryRuns,
+    ...singleHistoryRuns.filter(run => !groupedHistoryBuckets.has(_portfolioRunHistoryBucket(run))),
+  ];
+  const merged = [..._portfolioBuildActiveRuns(), ...source];
+  const seen = new Set();
+  return merged.filter(run => {
+    const mode = _normalizeMode(run.mode);
+    const key = [
+      mode,
+      String(run.run_name || '').trim().toLowerCase(),
+      String(run.instrument || '').trim().toLowerCase(),
+      Number(run.trade_count || 0),
+      Number(run.total_pnl || 0).toFixed(2),
+      String(run.first_entry_time || '').slice(0, 19),
+      String(run.last_exit_time || '').slice(0, 19),
+      run._active ? 'active' : 'history',
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function _portfolioGroupedRuns(runs) {
+  const groups = new Map();
+  _portfolioSessionRunCandidates(runs).forEach(run => {
+    const name = String(run.run_name || run.strategy_name || 'Unnamed Strategy').trim() || 'Unnamed Strategy';
+    const key = name.toLowerCase();
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name,
+        modes: new Set(),
+        sessions: [],
+        totalPnl: 0,
+        totalTrades: 0,
+        instruments: new Set(),
+        latestTs: 0,
+        runningCount: 0,
+      });
+    }
+    const group = groups.get(key);
+    const mode = _normalizeMode(run.mode);
+    group.modes.add(mode);
+    group.sessions.push(run);
+    group.totalPnl += Number(run.total_pnl || 0);
+    group.totalTrades += Number(run.trade_count || 0);
+    const instName = getInstrumentName(run.instrument) || '';
+    if (instName) group.instruments.add(instName);
+    const ts = _portfolioRunTs(run);
+    if (ts > group.latestTs) group.latestTs = ts;
+    if (run._active) group.runningCount += 1;
+  });
+
+  return Array.from(groups.values())
+    .map(group => {
+      group.sessions.sort((a, b) => {
+        const activeDelta = Number(!!b._active) - Number(!!a._active);
+        if (activeDelta) return activeDelta;
+        const tsDelta = _portfolioRunTs(b) - _portfolioRunTs(a);
+        if (tsDelta) return tsDelta;
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+      group.latest = group.sessions[0] || null;
+      group.instrumentSummary = _portfolioCompactNames(Array.from(group.instruments), 'Mixed');
+      group.totalPnl = round2(group.totalPnl);
+      return group;
+    })
+    .sort((a, b) => {
+      const runningDelta = b.runningCount - a.runningCount;
+      if (runningDelta) return runningDelta;
+      return b.latestTs - a.latestTs;
+    });
+}
+
+function _togglePortfolioRunGroup(encodedKey) {
+  const key = decodeURIComponent(String(encodedKey || ''));
+  _portfolioRunExpandedKey = _portfolioRunExpandedKey === key ? '' : key;
+  if (_portfolioRunExpandedKey && !_portfolioRunSessionPages[key]) _portfolioRunSessionPages[key] = 1;
   _renderPortfolioPaperRuns(_allRunsCache);
 }
 
-function _paperSortArrow(col) {
-  if (_paperSortCol !== col) return '<span style="opacity:0.3;font-size:9px;margin-left:3px;">▲▼</span>';
-  return _paperSortAsc ? '<span style="font-size:9px;margin-left:3px;">▲</span>' : '<span style="font-size:9px;margin-left:3px;">▼</span>';
+function _goPortfolioRunSessionPage(encodedKey, page) {
+  const key = decodeURIComponent(String(encodedKey || ''));
+  _portfolioRunSessionPages[key] = Math.max(1, Number(page || 1));
+  _renderPortfolioPaperRuns(_allRunsCache);
 }
 
 function _renderPortfolioPaperRuns(runs) {
   const container = document.getElementById('portfolio-paper-runs');
   const empty = document.getElementById('portfolio-paper-runs-empty');
   const pagEl = document.getElementById('portfolio-paper-pagination');
-  const paperRuns = runs.filter(r => _normalizeMode(r.mode) === 'paper');
+  const groupedRuns = _portfolioGroupedRuns(runs);
 
   if (!container) return;
-  if (!paperRuns.length) {
+  if (!groupedRuns.length) {
     if (empty) empty.style.display = 'block';
     container.innerHTML = '';
     if (pagEl) { pagEl.style.display = 'none'; }
@@ -8051,64 +8456,103 @@ function _renderPortfolioPaperRuns(runs) {
   }
   if (empty) empty.style.display = 'none';
 
-  // Sort paper runs
-  const _getPaperVal = (r) => {
-    switch(_paperSortCol) {
-      case 'date': return new Date(r.first_entry_time || r.created_at || 0).getTime() || 0;
-      case 'name': return (r.run_name||'').toLowerCase();
-      case 'instrument': return (getInstrumentName(r.instrument)||'').toLowerCase();
-      case 'trades': return r.trade_count || 0;
-      case 'pnl': return r.total_pnl || 0;
-      case 'entry_time': return new Date(r.first_entry_time || r.created_at || 0).getTime() || 0;
-      case 'exit_time': return new Date(r.last_exit_time || 0).getTime() || 0;
-      default: return 0;
-    }
-  };
-  paperRuns.sort((a, b) => {
-    const va = _getPaperVal(a), vb = _getPaperVal(b);
-    if (va < vb) return _paperSortAsc ? -1 : 1;
-    if (va > vb) return _paperSortAsc ? 1 : -1;
-    return 0;
-  });
-
-  const total = paperRuns.length;
+  const total = groupedRuns.length;
   const totalPages = Math.ceil(total / _RUNS_PER_PAGE);
   if (_portfolioPaperPage > totalPages) _portfolioPaperPage = totalPages;
   const start = (_portfolioPaperPage - 1) * _RUNS_PER_PAGE;
-  const pageData = paperRuns.slice(start, start + _RUNS_PER_PAGE);
+  const pageData = groupedRuns.slice(start, start + _RUNS_PER_PAGE);
 
-  let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
-    <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
-      <th style="padding: 8px 6px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>
-      <th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('date')">Date${_paperSortArrow('date')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('name')">Name${_paperSortArrow('name')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('instrument')">Instrument${_paperSortArrow('instrument')}</th>
-      <th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('trades')">Trades${_paperSortArrow('trades')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('pnl')">P&L${_paperSortArrow('pnl')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('entry_time')">Entry Time${_paperSortArrow('entry_time')}</th><th style="padding: 8px 6px; cursor:pointer;" onclick="_sortPaperRuns('exit_time')">Exit Time${_paperSortArrow('exit_time')}</th><th style="padding: 8px 6px; text-align: center;">Actions</th>
-    </tr></thead><tbody>`;
-
-  pageData.forEach(r => {
-    const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
-    const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
-    const _fmtPT = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2})/); return m ? m[1] : s.substring(11, 16); };
-    const pEntryTime = _fmtPT(r.first_entry_time || r.created_at);
-    const pExitTime = _fmtPT(r.last_exit_time);
-    const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
-    html += `<tr style="border-bottom: 1px solid var(--border);">
-      <td style="padding: 8px 6px;"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}></td>
-      <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted); white-space: nowrap;">${(() => { const ts = r.first_entry_time || r.created_at; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
-      <td style="padding: 8px 6px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 160px;" onclick="viewRun(${r.id})" title="${escapeAttr(r.run_name || 'Unnamed')}">${escapeHtml(_truncName(r.run_name, 18))}</td>
-      <td style="padding: 8px 6px;">${instName}</td>
-      <td style="padding: 8px 6px; font-weight: 600;">${r.trade_count || 0}</td>
-      <td style="padding: 8px 6px; font-weight: 700; color: ${pnlColor}; font-family: 'JetBrains Mono', monospace;">${fmt(r.total_pnl || 0)}</td>
-      <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${pEntryTime}</td>
-      <td style="padding: 8px 6px; font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);">${pExitTime}</td>
-      <td style="padding: 8px 6px; text-align: center;">
-        <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
-          <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 10px; padding: 4px 8px;">View</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 10px; padding: 4px 8px;">Del</button>
+  let html = '';
+  pageData.forEach(group => {
+    const expanded = _portfolioRunExpandedKey === group.key;
+    const encodedKey = encodeURIComponent(group.key);
+    const sessionPage = Math.max(1, Number(_portfolioRunSessionPages[group.key] || 1));
+    const sessionPageSize = 6;
+    const totalSessionPages = Math.max(1, Math.ceil(group.sessions.length / sessionPageSize));
+    const safeSessionPage = Math.min(sessionPage, totalSessionPages);
+    _portfolioRunSessionPages[group.key] = safeSessionPage;
+    const sessionStart = (safeSessionPage - 1) * sessionPageSize;
+    const sessionData = group.sessions.slice(sessionStart, sessionStart + sessionPageSize);
+    const pnlClass = group.totalPnl >= 0 ? 'pos' : 'neg';
+    html += `<article class="portfolio-run-group${expanded ? ' open' : ''}">
+      <button class="portfolio-run-group-head" type="button" onclick="_togglePortfolioRunGroup('${escapeAttr(encodedKey)}')">
+        <div class="portfolio-run-group-main">
+          <div class="portfolio-run-group-title-row">
+            <span class="portfolio-run-group-title">${escapeHtml(group.name)}</span>
+            ${group.runningCount ? `<span class="portfolio-run-status-pill running">${group.runningCount} Running</span>` : ''}
+          </div>
+          <div class="portfolio-run-group-sub">
+            <span>${escapeHtml(group.instrumentSummary)}</span>
+            <span>${group.sessions.length} session${group.sessions.length !== 1 ? 's' : ''}</span>
+            <span>${group.totalTrades} trade${group.totalTrades !== 1 ? 's' : ''}</span>
+            <span>Latest ${_portfolioRunDateLabel(group.latestTs)}</span>
+          </div>
         </div>
-      </td>
-    </tr>`;
+        <div class="portfolio-run-group-side">
+          ${Array.from(group.modes).sort().map(mode => `<span class="portfolio-run-mode-pill ${_portfolioModeClass(mode)}">${_portfolioModeLabel(mode)}</span>`).join('')}
+          <span class="portfolio-run-group-pnl ${pnlClass}">${fmt(group.totalPnl)}</span>
+          <span class="portfolio-run-chevron">${expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      <div class="portfolio-run-group-body">
+        <div class="portfolio-run-session-list">
+          ${sessionData.map(run => {
+            const instName = escapeHtml(getInstrumentName(run.instrument) || '—');
+            const pnlVal = Number(run.total_pnl || 0);
+            const pnlTone = pnlVal >= 0 ? 'pos' : 'neg';
+            const entryTs = run.first_entry_time || run.created_at || '';
+            const exitTs = run.last_exit_time || '';
+            const statusHtml = run._active
+              ? `<span class="portfolio-run-status-pill running">Running</span>`
+              : '';
+            const actionHtml = run._active
+              ? `<button class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live'))" style="font-size:10px;padding:4px 10px;">Monitor</button>`
+              : `<button class="btn btn-sm" onclick="viewRunModal(${run.id})" style="font-size:10px;padding:4px 10px;">View</button>
+                 <button class="btn btn-danger btn-sm" onclick="deleteRun(${run.id})" style="font-size:10px;padding:4px 10px;">Del</button>`;
+            return `<div class="portfolio-run-session-row">
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Date</span>
+                <span class="portfolio-run-session-value mono">${_portfolioRunDateLabel(entryTs || exitTs)}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Mode</span>
+                <span class="portfolio-run-session-value">${_getModeBadge(run.mode, true)} ${statusHtml}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Instrument</span>
+                <span class="portfolio-run-session-value">${instName}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Trades</span>
+                <span class="portfolio-run-session-value mono">${Number(run.trade_count || 0)}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">P&amp;L</span>
+                <span class="portfolio-run-session-value mono pnl ${pnlTone}">${fmt(pnlVal)}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Entry</span>
+                <span class="portfolio-run-session-value mono">${_portfolioRunTimeLabel(entryTs)}</span>
+              </div>
+              <div class="portfolio-run-session-cell">
+                <span class="portfolio-run-session-label">Exit</span>
+                <span class="portfolio-run-session-value mono">${run._active ? 'Running' : _portfolioRunTimeLabel(exitTs)}</span>
+              </div>
+              <div class="portfolio-run-session-actions">${actionHtml}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        ${totalSessionPages > 1 ? `<div class="portfolio-run-session-pagebar">
+          <span class="portfolio-run-session-pageinfo">Showing ${sessionStart + 1}–${Math.min(sessionStart + sessionPageSize, group.sessions.length)} of ${group.sessions.length} sessions</span>
+          <div class="pagination-controls">
+            <button class="page-btn" onclick="_goPortfolioRunSessionPage('${escapeAttr(encodedKey)}', ${Math.max(1, safeSessionPage - 1)})"${safeSessionPage <= 1 ? ' disabled' : ''}>‹</button>
+            <button class="page-btn active">${safeSessionPage}</button>
+            <button class="page-btn" onclick="_goPortfolioRunSessionPage('${escapeAttr(encodedKey)}', ${Math.min(totalSessionPages, safeSessionPage + 1)})"${safeSessionPage >= totalSessionPages ? ' disabled' : ''}>›</button>
+          </div>
+        </div>` : ''}
+      </div>
+    </article>`;
   });
-  html += '</tbody></table>';
   container.innerHTML = html;
   if (pagEl) {
     const pHtml = _buildPagination(_portfolioPaperPage, total, _RUNS_PER_PAGE, '_goPortfolioPaperPage');
@@ -8131,7 +8575,7 @@ async function fetchRuns() {
     // Results page: apply current filter (paginated)
     _renderFilteredRuns();
 
-    // Portfolio page: show paper runs
+    // Portfolio page: show grouped paper/live sessions
     _renderPortfolioPaperRuns(_allRunsCache);
   } catch(e) { console.error('fetchRuns error:', e); }
 }
@@ -12803,6 +13247,7 @@ async function loadPortfolioData() {
     if (results[3].status === 'fulfilled') ordersData = results[3].value;
     if (results[4].status === 'fulfilled') positionsData = results[4].value;
     if (results[6].status === 'fulfilled') enginesData = results[6].value;
+    _portfolioEngineSnapshotCache = Array.isArray(enginesData.engines) ? enginesData.engines : [];
 
     let portfolioHistory = { monthly: {}, yearly: {} };
     if (results[5].status === 'fulfilled' && results[5].value.status === 'success') {
@@ -13205,6 +13650,7 @@ async function loadPortfolioData() {
     window._currentMonthlyView = getMarketYearMonth();
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
+    _renderPortfolioPaperRuns(_allRunsCache);
 
     // Render today's trades (from Dhan or paper trading)
     const tradesBody = document.getElementById('portfolio-trades-body');
