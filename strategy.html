@@ -2794,8 +2794,26 @@
 
   /* ── Responsive: new header ── */
   @media (max-width: 1100px) {
-    .topbar-ticker { display: none; }
-    .app-topbar { justify-content: space-between; }
+    .app-topbar {
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .topbar-ticker {
+      display: flex;
+      order: 3;
+      flex: 1 1 100%;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .topbar-ticker::-webkit-scrollbar { display: none; }
+    .ticker-cell {
+      flex: 0 0 108px;
+      min-width: 108px;
+      padding: 5px 11px;
+    }
   }
   @media (max-width: 900px) {
     .nav-tab { padding: 12px 14px; font-size: 13px; gap: 6px; }
@@ -2875,7 +2893,7 @@
       border-radius: 12px;
     }
 
-    /* -- Topbar: stack brand + clock, hide ticker -- */
+    /* -- Topbar: stack brand + clock, keep ticker visible -- */
     .app-topbar {
       flex-wrap: wrap;
       padding: 8px 12px !important;
@@ -2883,7 +2901,30 @@
       border-left: 1px solid var(--border);
       border-radius: 0;
     }
-    .topbar-ticker { display: none !important; }
+    .topbar-ticker {
+      display: flex !important;
+      order: 3;
+      flex: 1 1 100%;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      border-radius: 10px;
+    }
+    .topbar-ticker::-webkit-scrollbar { display: none; }
+    .ticker-cell {
+      flex: 0 0 94px;
+      min-width: 94px;
+      padding: 6px 8px;
+    }
+    .ticker-cell .tc-label {
+      font-size: 8px;
+      letter-spacing: 0.8px;
+      margin-bottom: 3px;
+    }
+    .ticker-cell .tc-price { font-size: 11px; }
+    .ticker-cell .tc-change { font-size: 8px; }
     .topbar-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
     .topbar-clock { font-size: 11px; }
     .topbar-actions { width: 100%; justify-content: space-between; }
