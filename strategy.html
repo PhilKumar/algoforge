@@ -1348,34 +1348,27 @@
     font-family: 'JetBrains Mono', monospace;
     margin-top: 5px;
   }
-  .dash-fiidii-rollup-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .dash-fiidii-rollup-arrow {
-    font-size: 11px;
-    color: var(--muted);
-    transition: transform 0.2s ease;
-    flex-shrink: 0;
-  }
-  .dash-fiidii-metric.rollup.open .dash-fiidii-rollup-arrow {
-    transform: rotate(180deg);
-  }
   .dash-fiidii-rollup-sub {
     margin-top: 4px;
     font-size: 10px;
     color: rgba(255,255,255,0.56);
   }
   .dash-fiidii-rollup-body {
-    display: none;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(255,255,255,0.06);
+    display: block;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0 solid rgba(255,255,255,0.06);
+    transition: max-height 0.24s ease, opacity 0.18s ease, margin-top 0.18s ease, padding-top 0.18s ease, border-color 0.18s ease;
   }
   .dash-fiidii-metric.rollup.open .dash-fiidii-rollup-body {
-    display: block;
+    max-height: 320px;
+    opacity: 1;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top-width: 1px;
   }
   .dash-fiidii-rollup-list {
     display: flex;
@@ -1430,6 +1423,13 @@
   .dash-fiidii-rollup-btn:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+  .dash-fiidii-metric.rollup {
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .dash-fiidii-metric.rollup:active {
+    transform: translateY(1px);
   }
   .dash-fiidii-meta {
     min-width: 92px;
@@ -2097,11 +2097,23 @@
     }
     .dash-today-value { font-size: 18px; }
     .dash-fiidii-metric-value { font-size: 15px; }
+    #dash-fiidii-strip-grid { grid-template-columns: 1fr !important; }
+    .dash-fiidii-metric { padding: 10px 12px; }
+    .dash-fiidii-rollup-sub,
+    .dash-fiidii-rollup-page,
+    .dash-fiidii-rollup-date { font-size: 11px; }
+    .dash-fiidii-rollup-btn {
+      width: 34px;
+      height: 34px;
+      font-size: 14px;
+    }
   }
   @media (max-width: 700px) {
     #dashboard-page .stat-box { min-width: 0; }
     #dash-summary-grid { grid-template-columns: 1fr 1fr !important; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
+    #dash-fiidii-rollup-fii-card,
+    #dash-fiidii-rollup-dii-card { grid-column: 1 / -1; }
     #dash-today-card { grid-column: 1 / -1; }
     #dash-active-grid { grid-template-columns: 1fr !important; }
     #mood-widgets { grid-template-columns: 1fr !important; }
@@ -3084,6 +3096,8 @@
     }
     #dash-today-card { grid-column: 1 / -1; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
+    #dash-fiidii-rollup-fii-card,
+    #dash-fiidii-rollup-dii-card { grid-column: 1 / -1; }
     .dash-today-split {
       flex-direction: column;
       align-items: stretch;
@@ -3100,6 +3114,17 @@
       gap: 10px;
       flex-wrap: wrap;
       align-items: center;
+    }
+    .dash-fiidii-rollup-row {
+      padding: 7px 0;
+      gap: 12px;
+    }
+    .dash-fiidii-rollup-date { font-size: 11px; }
+    .dash-fiidii-rollup-value { font-size: 12px; }
+    .dash-fiidii-rollup-btn {
+      width: 32px;
+      height: 32px;
+      font-size: 13px;
     }
     /* Active engines: stack */
     #dash-active-grid,
@@ -4292,12 +4317,9 @@
             <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
           <div class="dash-fiidii-metric soft-neg rollup" id="dash-fiidii-rollup-fii-card" onclick="toggleFiiDiiRollup('fii')">
-            <div class="dash-fiidii-rollup-head">
-              <div class="dash-fiidii-metric-label">30D FII</div>
-              <span class="dash-fiidii-rollup-arrow">▼</span>
-            </div>
+            <div class="dash-fiidii-metric-label">30D FII</div>
             <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0 CR</div>
-            <div id="dash-fiidii-rollup-fii-sub" class="dash-fiidii-rollup-sub">Tap to view daily flow</div>
+            <div id="dash-fiidii-rollup-fii-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
             <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
               <div id="dash-fiidii-rollup-fii-list" class="dash-fiidii-rollup-list"></div>
               <div class="dash-fiidii-rollup-pagination">
@@ -4308,12 +4330,9 @@
             </div>
           </div>
           <div class="dash-fiidii-metric soft-pos rollup" id="dash-fiidii-rollup-dii-card" onclick="toggleFiiDiiRollup('dii')">
-            <div class="dash-fiidii-rollup-head">
-              <div class="dash-fiidii-metric-label">30D DII</div>
-              <span class="dash-fiidii-rollup-arrow">▼</span>
-            </div>
+            <div class="dash-fiidii-metric-label">30D DII</div>
             <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0 CR</div>
-            <div id="dash-fiidii-rollup-dii-sub" class="dash-fiidii-rollup-sub">Tap to view daily flow</div>
+            <div id="dash-fiidii-rollup-dii-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
             <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
               <div id="dash-fiidii-rollup-dii-list" class="dash-fiidii-rollup-list"></div>
               <div class="dash-fiidii-rollup-pagination">
@@ -13603,8 +13622,11 @@ let _lastFiiDiiRows = [];
 
 function toggleFiiDiiRollup(kind) {
   if (!_fiidiiRollupState[kind]) return;
-  _fiidiiRollupState[kind].open = !_fiidiiRollupState[kind].open;
-  _renderFiiDiiRollup(kind);
+  const nextOpen = !_fiidiiRollupState[kind].open;
+  Object.keys(_fiidiiRollupState).forEach((key) => {
+    _fiidiiRollupState[key].open = key === kind ? nextOpen : false;
+  });
+  Object.keys(_fiidiiRollupState).forEach(_renderFiiDiiRollup);
 }
 
 function changeFiiDiiRollupPage(kind, delta) {
