@@ -3731,12 +3731,21 @@
   .ch-lb-nav.prev { left: 16px; }
   .ch-lb-nav.next { right: 16px; }
   .ch-lb-nav:disabled { opacity: 0.2; cursor: default; }
-  .ch-lb-wrap { display: flex; align-items: center; justify-content: center; max-width: 92vw; max-height: 82vh; }
-  .ch-lb-wrap img { max-width: 92vw; max-height: 82vh; object-fit: contain; border-radius: 8px; box-shadow: 0 12px 60px rgba(0,0,0,0.6); cursor: zoom-in; transition: transform 0.3s ease; }
-  .ch-lb-wrap img.zoomed { cursor: zoom-out; transform: scale(1.8); }
+  .ch-lb-tools { position: absolute; top: 16px; left: 20px; display: flex; align-items: center; gap: 8px; z-index: 10; }
+  .ch-lb-tool-btn,
+  .ch-lb-zoom { min-width: 40px; height: 40px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.08); color: var(--text); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+  .ch-lb-tool-btn { cursor: pointer; transition: all 0.2s; padding: 0 12px; }
+  .ch-lb-tool-btn:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.2); }
+  .ch-lb-tool-btn:disabled { opacity: 0.45; cursor: default; }
+  .ch-lb-zoom { min-width: 72px; padding: 0 10px; }
+  .ch-lb-wrap { display: flex; align-items: center; justify-content: center; max-width: 92vw; max-height: 82vh; overflow: hidden; position: relative; touch-action: none; user-select: none; }
+  .ch-lb-wrap img { max-width: 92vw; max-height: 82vh; object-fit: contain; border-radius: 8px; box-shadow: 0 12px 60px rgba(0,0,0,0.6); cursor: zoom-in; transition: transform 0.18s ease; transform-origin: center center; will-change: transform; }
+  .ch-lb-wrap.is-zoomed img { cursor: grab; }
+  .ch-lb-wrap.is-dragging img { cursor: grabbing; }
   .ch-lb-caption { margin-top: 14px; text-align: center; }
   .ch-lb-caption .lb-name { font-size: 14px; font-weight: 500; color: var(--text); }
   .ch-lb-caption .lb-count { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
+  .ch-lb-caption .lb-hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
   @media (max-width: 768px) {
     .cj-split { flex-direction: column; }
     .cj-right { max-width: none; min-width: 0; }
@@ -3744,6 +3753,10 @@
     .charts-sidebar { width: 100%; max-height: none; }
     .ch-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
     .ch-lb-nav { width: 36px; height: 36px; font-size: 16px; }
+    .ch-lb-tools { top: 12px; left: 12px; gap: 6px; }
+    .ch-lb-tool-btn,
+    .ch-lb-zoom { height: 36px; min-width: 36px; border-radius: 9px; }
+    .ch-lb-zoom { min-width: 64px; }
     .cj-radio-row { grid-template-columns: 1fr; }
     .cj-plan-summary { grid-template-columns: 1fr; }
     .cj-plan-grid { grid-template-columns: 1fr; }
@@ -3782,6 +3795,9 @@
   [data-theme="light"] .ch-lb-close:hover { background: rgba(190,18,60,0.08); color: #be123c; border-color: rgba(190,18,60,0.2); }
   [data-theme="light"] .ch-lb-nav { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); color: #475569; }
   [data-theme="light"] .ch-lb-nav:hover { background: rgba(0,0,0,0.08); color: #0f172a; }
+  [data-theme="light"] .ch-lb-tool-btn,
+  [data-theme="light"] .ch-lb-zoom { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.08); color: #475569; }
+  [data-theme="light"] .ch-lb-tool-btn:hover { background: rgba(0,0,0,0.08); color: #0f172a; }
   [data-theme="light"] .ch-delete-btn { background: linear-gradient(180deg, rgba(239,68,68,0.08), rgba(190,18,60,0.15)); border-color: rgba(190,18,60,0.25); color: #be123c; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
   /* Tree sidebar */
   [data-theme="light"] .chtree-toggle { color: #0f172a; }
@@ -5885,8 +5901,14 @@
     <button class="ch-lb-close" onclick="chCloseLB()" title="Close (Esc)">✕</button>
     <button class="ch-lb-nav prev" onclick="chNavLB(-1)">‹</button>
     <button class="ch-lb-nav next" onclick="chNavLB(1)">›</button>
-    <div class="ch-lb-wrap"><img id="ch-lb-img" src="" alt="Chart" onclick="this.classList.toggle('zoomed')"></div>
-    <div class="ch-lb-caption"><div class="lb-name" id="ch-lb-name"></div><div class="lb-count" id="ch-lb-count"></div></div>
+    <div class="ch-lb-tools" aria-label="Zoom controls">
+      <button type="button" class="ch-lb-tool-btn" onclick="chAdjustLBZoom(-0.35)" title="Zoom out">−</button>
+      <button type="button" class="ch-lb-tool-btn" onclick="chResetLBView()" title="Fit to screen">Fit</button>
+      <button type="button" class="ch-lb-tool-btn" onclick="chAdjustLBZoom(0.35)" title="Zoom in">+</button>
+      <div class="ch-lb-zoom" id="ch-lb-zoom">100%</div>
+    </div>
+    <div class="ch-lb-wrap" id="ch-lb-wrap"><img id="ch-lb-img" src="" alt="Chart"></div>
+    <div class="ch-lb-caption"><div class="lb-name" id="ch-lb-name"></div><div class="lb-count" id="ch-lb-count"></div><div class="lb-hint">Use mouse wheel or +/- to zoom. Drag the image when zoomed.</div></div>
   </div>
 </div>
 
@@ -14975,16 +14997,116 @@ fetchRuns = async function() {
   }
 
   // ── Lightbox ──
+  const _chLBState = {
+    scale: 1,
+    minScale: 1,
+    maxScale: 5,
+    x: 0,
+    y: 0,
+    pointerId: null,
+    dragStartX: 0,
+    dragStartY: 0,
+    panStartX: 0,
+    panStartY: 0,
+  };
+
+  function _chClamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function _chGetLBRefs() {
+    return {
+      overlay: document.getElementById('ch-lightbox'),
+      wrap: document.getElementById('ch-lb-wrap'),
+      img: document.getElementById('ch-lb-img'),
+      zoomLabel: document.getElementById('ch-lb-zoom'),
+    };
+  }
+
+  function _chGetBaseSize() {
+    const { wrap, img } = _chGetLBRefs();
+    if (!wrap || !img) return null;
+    const wrapRect = wrap.getBoundingClientRect();
+    const naturalWidth = img.naturalWidth || wrapRect.width || 1;
+    const naturalHeight = img.naturalHeight || wrapRect.height || 1;
+    const fit = Math.min(wrapRect.width / naturalWidth, wrapRect.height / naturalHeight, 1);
+    return {
+      wrapWidth: wrapRect.width,
+      wrapHeight: wrapRect.height,
+      baseWidth: naturalWidth * fit,
+      baseHeight: naturalHeight * fit,
+    };
+  }
+
+  function _chClampLBPan() {
+    const metrics = _chGetBaseSize();
+    if (!metrics) return;
+    const maxX = Math.max(0, ((metrics.baseWidth * _chLBState.scale) - metrics.wrapWidth) / 2);
+    const maxY = Math.max(0, ((metrics.baseHeight * _chLBState.scale) - metrics.wrapHeight) / 2);
+    _chLBState.x = _chClamp(_chLBState.x, -maxX, maxX);
+    _chLBState.y = _chClamp(_chLBState.y, -maxY, maxY);
+  }
+
+  function _chApplyLBTransform() {
+    const { wrap, img, zoomLabel } = _chGetLBRefs();
+    if (!wrap || !img) return;
+    _chClampLBPan();
+    img.style.transition = _chLBState.pointerId === null ? 'transform 0.18s ease' : 'none';
+    img.style.transform = 'translate(' + _chLBState.x + 'px,' + _chLBState.y + 'px) scale(' + _chLBState.scale + ')';
+    wrap.classList.toggle('is-zoomed', _chLBState.scale > 1.01);
+    wrap.classList.toggle('is-dragging', _chLBState.pointerId !== null);
+    if (zoomLabel) zoomLabel.textContent = Math.round(_chLBState.scale * 100) + '%';
+  }
+
+  function _chSetLBZoom(nextScale, clientX, clientY) {
+    const { wrap } = _chGetLBRefs();
+    if (!wrap) return;
+    const targetScale = _chClamp(nextScale, _chLBState.minScale, _chLBState.maxScale);
+    const prevScale = _chLBState.scale;
+    if (Math.abs(targetScale - prevScale) < 0.001) return;
+    const rect = wrap.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const anchorX = clientX == null ? centerX : clientX;
+    const anchorY = clientY == null ? centerY : clientY;
+    const localX = (anchorX - centerX - _chLBState.x) / prevScale;
+    const localY = (anchorY - centerY - _chLBState.y) / prevScale;
+    _chLBState.scale = targetScale;
+    _chLBState.x = anchorX - centerX - (localX * targetScale);
+    _chLBState.y = anchorY - centerY - (localY * targetScale);
+    if (_chLBState.scale <= 1.01) {
+      _chLBState.scale = 1;
+      _chLBState.x = 0;
+      _chLBState.y = 0;
+    }
+    _chApplyLBTransform();
+  }
+
+  window.chAdjustLBZoom = function(step) {
+    const { wrap } = _chGetLBRefs();
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    _chSetLBZoom(_chLBState.scale + step, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  };
+
+  window.chResetLBView = function() {
+    _chLBState.scale = 1;
+    _chLBState.x = 0;
+    _chLBState.y = 0;
+    _chLBState.pointerId = null;
+    _chApplyLBTransform();
+  };
+
   window._chOpenLB = function(idx) {
     _chLBIdx = idx;
-    _chUpdateLB();
     document.getElementById('ch-lightbox').classList.add('open');
     document.body.style.overflow = 'hidden';
+    _chUpdateLB();
   };
   window.chCloseLB = function() {
     document.getElementById('ch-lightbox').classList.remove('open');
     document.body.style.overflow = '';
-    document.getElementById('ch-lb-img').classList.remove('zoomed');
+    chResetLBView();
   };
   window.chNavLB = function(dir) {
     const n = _chLBIdx + dir;
@@ -14996,12 +15118,64 @@ fetchRuns = async function() {
     const img = _chImages[_chLBIdx];
     if (!img) return;
     const el = document.getElementById('ch-lb-img');
-    el.src = img.url; el.alt = img.name; el.classList.remove('zoomed');
+    el.src = img.url;
+    el.alt = img.name;
+    el.onload = function() {
+      requestAnimationFrame(chResetLBView);
+    };
+    if (el.complete) requestAnimationFrame(chResetLBView);
     document.getElementById('ch-lb-name').textContent = img.name;
     document.getElementById('ch-lb-count').textContent = (_chLBIdx + 1) + ' / ' + _chImages.length;
     document.querySelector('.ch-lb-nav.prev').disabled = _chLBIdx === 0;
     document.querySelector('.ch-lb-nav.next').disabled = _chLBIdx === _chImages.length - 1;
   }
+  (function bindChartLightboxPanZoom() {
+    const wrap = document.getElementById('ch-lb-wrap');
+    if (!wrap) return;
+    wrap.addEventListener('wheel', function(e) {
+      const lb = document.getElementById('ch-lightbox');
+      if (!lb || !lb.classList.contains('open')) return;
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 0.28 : -0.28;
+      _chSetLBZoom(_chLBState.scale + step, e.clientX, e.clientY);
+    }, { passive: false });
+    wrap.addEventListener('dblclick', function(e) {
+      e.preventDefault();
+      _chSetLBZoom(_chLBState.scale > 1.2 ? 1 : 2.2, e.clientX, e.clientY);
+    });
+    wrap.addEventListener('pointerdown', function(e) {
+      if (_chLBState.scale <= 1.01) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      _chLBState.pointerId = e.pointerId;
+      _chLBState.dragStartX = e.clientX;
+      _chLBState.dragStartY = e.clientY;
+      _chLBState.panStartX = _chLBState.x;
+      _chLBState.panStartY = _chLBState.y;
+      wrap.setPointerCapture?.(e.pointerId);
+      _chApplyLBTransform();
+      e.preventDefault();
+    });
+    wrap.addEventListener('pointermove', function(e) {
+      if (_chLBState.pointerId !== e.pointerId) return;
+      _chLBState.x = _chLBState.panStartX + (e.clientX - _chLBState.dragStartX);
+      _chLBState.y = _chLBState.panStartY + (e.clientY - _chLBState.dragStartY);
+      _chApplyLBTransform();
+    });
+    function stopDrag(e) {
+      if (_chLBState.pointerId === null) return;
+      if (e.pointerId !== undefined && _chLBState.pointerId !== e.pointerId) return;
+      _chLBState.pointerId = null;
+      _chApplyLBTransform();
+    }
+    wrap.addEventListener('pointerup', stopDrag);
+    wrap.addEventListener('pointercancel', stopDrag);
+    wrap.addEventListener('lostpointercapture', stopDrag);
+    window.addEventListener('resize', function() {
+      const lb = document.getElementById('ch-lightbox');
+      if (!lb || !lb.classList.contains('open')) return;
+      _chApplyLBTransform();
+    });
+  })();
   // Keyboard nav + close on outside click
   document.addEventListener('keydown', function(e) {
     const lb = document.getElementById('ch-lightbox');
@@ -15009,14 +15183,15 @@ fetchRuns = async function() {
     if (e.key === 'Escape') chCloseLB();
     if (e.key === 'ArrowLeft') chNavLB(-1);
     if (e.key === 'ArrowRight') chNavLB(1);
+    if (e.key === '+' || e.key === '=') chAdjustLBZoom(0.35);
+    if (e.key === '-' || e.key === '_') chAdjustLBZoom(-0.35);
+    if (e.key === '0') chResetLBView();
   });
   // Close lightbox when clicking outside the image
   document.addEventListener('click', function(e) {
     const lb = document.getElementById('ch-lightbox');
     if (!lb || !lb.classList.contains('open')) return;
-    const img = document.getElementById('ch-lb-img');
-    // If click is on the lightbox background (not on image, buttons, or caption)
-    if (e.target === lb || e.target.classList.contains('ch-lb-wrap')) {
+    if (e.target === lb) {
       chCloseLB();
     }
   });
