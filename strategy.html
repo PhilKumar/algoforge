@@ -1308,6 +1308,9 @@
     flex: 1 1 520px;
     min-width: 0;
   }
+  #dash-fiidii-rollup-card {
+    grid-column: span 2;
+  }
   .dash-fiidii-metric {
     padding: 8px 10px;
     border-radius: 10px;
@@ -1353,6 +1356,29 @@
     font-size: 10px;
     color: rgba(255,255,255,0.56);
   }
+  .dash-fiidii-rollup-totals {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .dash-fiidii-rollup-total {
+    min-width: 0;
+  }
+  .dash-fiidii-rollup-total-label {
+    display: block;
+    font-size: 9px;
+    color: rgba(255,255,255,0.52);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .dash-fiidii-rollup-total-value {
+    display: block;
+    margin-top: 4px;
+    font-size: clamp(14px, 1.5vw, 16px);
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+  }
   .dash-fiidii-rollup-body {
     display: block;
     max-height: 0;
@@ -1375,13 +1401,18 @@
     flex-direction: column;
     gap: 6px;
   }
+  .dash-fiidii-rollup-grid-head,
   .dash-fiidii-rollup-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(72px, auto) minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     padding: 5px 0;
     font-size: 11px;
+  }
+  .dash-fiidii-rollup-grid-head {
+    padding-top: 0;
+    padding-bottom: 6px;
   }
   .dash-fiidii-rollup-row + .dash-fiidii-rollup-row {
     border-top: 1px dashed rgba(255,255,255,0.06);
@@ -1390,6 +1421,13 @@
     color: var(--muted);
     font-size: 10px;
     letter-spacing: 0.2px;
+  }
+  .dash-fiidii-rollup-col-label {
+    font-size: 9px;
+    color: rgba(255,255,255,0.48);
+    text-transform: uppercase;
+    letter-spacing: 0.45px;
+    text-align: right;
   }
   .dash-fiidii-rollup-value {
     font-family: 'JetBrains Mono', monospace;
@@ -1817,7 +1855,9 @@
   }
   [data-theme="light"] .dash-fiidii-rollup-sub,
   [data-theme="light"] .dash-fiidii-rollup-page,
-  [data-theme="light"] .dash-fiidii-rollup-date {
+  [data-theme="light"] .dash-fiidii-rollup-date,
+  [data-theme="light"] .dash-fiidii-rollup-total-label,
+  [data-theme="light"] .dash-fiidii-rollup-col-label {
     color: #64748b;
   }
   [data-theme="light"] .dash-fiidii-rollup-body {
@@ -2098,10 +2138,17 @@
     .dash-today-value { font-size: 18px; }
     .dash-fiidii-metric-value { font-size: 15px; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr !important; }
+    #dash-fiidii-rollup-card { grid-column: auto; }
     .dash-fiidii-metric { padding: 10px 12px; }
     .dash-fiidii-rollup-sub,
     .dash-fiidii-rollup-page,
     .dash-fiidii-rollup-date { font-size: 11px; }
+    .dash-fiidii-rollup-totals { grid-template-columns: 1fr; }
+    .dash-fiidii-rollup-grid-head,
+    .dash-fiidii-rollup-row {
+      grid-template-columns: minmax(62px, auto) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+    }
     .dash-fiidii-rollup-btn {
       width: 34px;
       height: 34px;
@@ -2112,8 +2159,7 @@
     #dashboard-page .stat-box { min-width: 0; }
     #dash-summary-grid { grid-template-columns: 1fr 1fr !important; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
-    #dash-fiidii-rollup-fii-card,
-    #dash-fiidii-rollup-dii-card { grid-column: 1 / -1; }
+    #dash-fiidii-rollup-card { grid-column: 1 / -1; }
     #dash-today-card { grid-column: 1 / -1; }
     #dash-active-grid { grid-template-columns: 1fr !important; }
     #mood-widgets { grid-template-columns: 1fr !important; }
@@ -3096,8 +3142,7 @@
     }
     #dash-today-card { grid-column: 1 / -1; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr 1fr !important; }
-    #dash-fiidii-rollup-fii-card,
-    #dash-fiidii-rollup-dii-card { grid-column: 1 / -1; }
+    #dash-fiidii-rollup-card { grid-column: 1 / -1; }
     .dash-today-split {
       flex-direction: column;
       align-items: stretch;
@@ -4316,29 +4361,25 @@
             <div class="dash-fiidii-metric-label">Latest DII</div>
             <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
-          <div class="dash-fiidii-metric soft-neg rollup" id="dash-fiidii-rollup-fii-card" onclick="toggleFiiDiiRollup('fii')">
-            <div class="dash-fiidii-metric-label">30D FII</div>
-            <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0 CR</div>
-            <div id="dash-fiidii-rollup-fii-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
-            <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
-              <div id="dash-fiidii-rollup-fii-list" class="dash-fiidii-rollup-list"></div>
-              <div class="dash-fiidii-rollup-pagination">
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-fii-prev" onclick="changeFiiDiiRollupPage('fii', -1)">‹</button>
-                <div id="dash-fiidii-rollup-fii-page" class="dash-fiidii-rollup-page">Page 1</div>
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-fii-next" onclick="changeFiiDiiRollupPage('fii', 1)">›</button>
+          <div class="dash-fiidii-metric rollup" id="dash-fiidii-rollup-card" onclick="toggleFiiDiiRollup()">
+            <div class="dash-fiidii-metric-label">30D Flow</div>
+            <div class="dash-fiidii-rollup-totals">
+              <div class="dash-fiidii-rollup-total">
+                <span class="dash-fiidii-rollup-total-label">FII Total</span>
+                <span id="dash-fiidii-rolling-fii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
+              </div>
+              <div class="dash-fiidii-rollup-total">
+                <span class="dash-fiidii-rollup-total-label">DII Total</span>
+                <span id="dash-fiidii-rolling-dii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
               </div>
             </div>
-          </div>
-          <div class="dash-fiidii-metric soft-pos rollup" id="dash-fiidii-rollup-dii-card" onclick="toggleFiiDiiRollup('dii')">
-            <div class="dash-fiidii-metric-label">30D DII</div>
-            <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0 CR</div>
-            <div id="dash-fiidii-rollup-dii-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
+            <div id="dash-fiidii-rollup-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
             <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
-              <div id="dash-fiidii-rollup-dii-list" class="dash-fiidii-rollup-list"></div>
+              <div id="dash-fiidii-rollup-list" class="dash-fiidii-rollup-list"></div>
               <div class="dash-fiidii-rollup-pagination">
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-dii-prev" onclick="changeFiiDiiRollupPage('dii', -1)">‹</button>
-                <div id="dash-fiidii-rollup-dii-page" class="dash-fiidii-rollup-page">Page 1</div>
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-dii-next" onclick="changeFiiDiiRollupPage('dii', 1)">›</button>
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-prev" onclick="changeFiiDiiRollupPage(-1)">‹</button>
+                <div id="dash-fiidii-rollup-page" class="dash-fiidii-rollup-page">Page 1</div>
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-next" onclick="changeFiiDiiRollupPage(1)">›</button>
               </div>
             </div>
           </div>
@@ -13613,48 +13654,38 @@ function _dashValueColor(value) {
   return num > 0 ? 'var(--success)' : num < 0 ? 'var(--danger)' : 'var(--muted)';
 }
 
-const _fiidiiRollupState = {
-  fii: { open: false, page: 0 },
-  dii: { open: false, page: 0 },
-};
+const _fiidiiRollupState = { open: false, page: 0 };
 const _FIIDII_ROLLUP_PAGE_SIZE = 7;
 let _lastFiiDiiRows = [];
 
-function toggleFiiDiiRollup(kind) {
-  if (!_fiidiiRollupState[kind]) return;
-  const nextOpen = !_fiidiiRollupState[kind].open;
-  Object.keys(_fiidiiRollupState).forEach((key) => {
-    _fiidiiRollupState[key].open = key === kind ? nextOpen : false;
-  });
-  Object.keys(_fiidiiRollupState).forEach(_renderFiiDiiRollup);
+function toggleFiiDiiRollup() {
+  _fiidiiRollupState.open = !_fiidiiRollupState.open;
+  _renderFiiDiiRollup();
 }
 
-function changeFiiDiiRollupPage(kind, delta) {
-  const state = _fiidiiRollupState[kind];
-  if (!state) return;
+function changeFiiDiiRollupPage(delta) {
   const rows = Array.isArray(_lastFiiDiiRows) ? _lastFiiDiiRows : [];
   const totalPages = Math.max(1, Math.ceil(rows.length / _FIIDII_ROLLUP_PAGE_SIZE));
-  state.page = Math.max(0, Math.min(totalPages - 1, state.page + delta));
-  _renderFiiDiiRollup(kind);
+  _fiidiiRollupState.page = Math.max(0, Math.min(totalPages - 1, _fiidiiRollupState.page + delta));
+  _renderFiiDiiRollup();
 }
 
-function _renderFiiDiiRollup(kind) {
-  const state = _fiidiiRollupState[kind];
-  const card = document.getElementById(`dash-fiidii-rollup-${kind}-card`);
-  const listEl = document.getElementById(`dash-fiidii-rollup-${kind}-list`);
-  const pageEl = document.getElementById(`dash-fiidii-rollup-${kind}-page`);
-  const prevBtn = document.getElementById(`dash-fiidii-rollup-${kind}-prev`);
-  const nextBtn = document.getElementById(`dash-fiidii-rollup-${kind}-next`);
-  const subEl = document.getElementById(`dash-fiidii-rollup-${kind}-sub`);
-  if (!state || !card || !listEl || !pageEl || !prevBtn || !nextBtn || !subEl) return;
+function _renderFiiDiiRollup() {
+  const card = document.getElementById('dash-fiidii-rollup-card');
+  const listEl = document.getElementById('dash-fiidii-rollup-list');
+  const pageEl = document.getElementById('dash-fiidii-rollup-page');
+  const prevBtn = document.getElementById('dash-fiidii-rollup-prev');
+  const nextBtn = document.getElementById('dash-fiidii-rollup-next');
+  const subEl = document.getElementById('dash-fiidii-rollup-sub');
+  if (!card || !listEl || !pageEl || !prevBtn || !nextBtn || !subEl) return;
 
   const rows = Array.isArray(_lastFiiDiiRows) ? _lastFiiDiiRows : [];
   const totalPages = Math.max(1, Math.ceil(rows.length / _FIIDII_ROLLUP_PAGE_SIZE));
-  state.page = Math.max(0, Math.min(totalPages - 1, state.page));
-  card.classList.toggle('open', !!state.open);
+  _fiidiiRollupState.page = Math.max(0, Math.min(totalPages - 1, _fiidiiRollupState.page));
+  card.classList.toggle('open', !!_fiidiiRollupState.open);
 
   if (!rows.length) {
-    listEl.innerHTML = '<div class="dash-fiidii-rollup-row"><span class="dash-fiidii-rollup-date">No history yet</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span></div>';
+    listEl.innerHTML = '<div class="dash-fiidii-rollup-row"><span class="dash-fiidii-rollup-date">No history yet</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span></div>';
     subEl.textContent = 'Waiting for NSE history';
     pageEl.textContent = 'Page 1 / 1';
     prevBtn.disabled = true;
@@ -13662,23 +13693,31 @@ function _renderFiiDiiRollup(kind) {
     return;
   }
 
-  const start = state.page * _FIIDII_ROLLUP_PAGE_SIZE;
+  const start = _fiidiiRollupState.page * _FIIDII_ROLLUP_PAGE_SIZE;
   const pageRows = rows.slice(start, start + _FIIDII_ROLLUP_PAGE_SIZE);
-  const key = kind === 'fii' ? 'fii_net' : 'dii_net';
-  listEl.innerHTML = pageRows.map((row) => {
-    const value = Number(row[key] || 0);
-    const label = row.display_date || row.date || '—';
-    return `
-      <div class="dash-fiidii-rollup-row">
-        <span class="dash-fiidii-rollup-date">${escapeHtml(label)}</span>
-        <span class="dash-fiidii-rollup-value" style="color:${_dashValueColor(value)};">${escapeHtml(_dashMoneyCr(value))}</span>
-      </div>
-    `;
-  }).join('');
+  listEl.innerHTML = `
+    <div class="dash-fiidii-rollup-grid-head">
+      <span class="dash-fiidii-rollup-date">Day</span>
+      <span class="dash-fiidii-rollup-col-label">FII</span>
+      <span class="dash-fiidii-rollup-col-label">DII</span>
+    </div>
+    ${pageRows.map((row) => {
+      const fiiValue = Number(row.fii_net || 0);
+      const diiValue = Number(row.dii_net || 0);
+      const label = row.display_date || row.date || '—';
+      return `
+        <div class="dash-fiidii-rollup-row">
+          <span class="dash-fiidii-rollup-date">${escapeHtml(label)}</span>
+          <span class="dash-fiidii-rollup-value" style="color:${_dashValueColor(fiiValue)};">${escapeHtml(_dashMoneyCr(fiiValue))}</span>
+          <span class="dash-fiidii-rollup-value" style="color:${_dashValueColor(diiValue)};">${escapeHtml(_dashMoneyCr(diiValue))}</span>
+        </div>
+      `;
+    }).join('')}
+  `;
   subEl.textContent = `${rows.length} sessions total`;
-  pageEl.textContent = `Page ${state.page + 1} / ${totalPages}`;
-  prevBtn.disabled = state.page <= 0;
-  nextBtn.disabled = state.page >= totalPages - 1;
+  pageEl.textContent = `Page ${_fiidiiRollupState.page + 1} / ${totalPages}`;
+  prevBtn.disabled = _fiidiiRollupState.page <= 0;
+  nextBtn.disabled = _fiidiiRollupState.page >= totalPages - 1;
 }
 
 function _renderDashboardFiiDiiPanel(block) {
@@ -13720,8 +13759,7 @@ function _renderDashboardFiiDiiPanel(block) {
 
   document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
   document.getElementById('dash-fiidii-latest-days').textContent = `${rolling.days || 0} sessions`;
-  _renderFiiDiiRollup('fii');
-  _renderFiiDiiRollup('dii');
+  _renderFiiDiiRollup();
 }
 
 async function loadDashboardSummary() {
