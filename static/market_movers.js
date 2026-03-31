@@ -407,7 +407,15 @@ function startMarketMovers() {
   applyMarketTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
   document.getElementById('theme-toggle')?.addEventListener('click', toggleMarketTheme);
   loadMarketMovers();
-  moversRefreshTimer = window.setInterval(loadMarketMovers, MARKET_MOVERS_REFRESH_MS);
+  moversRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    loadMarketMovers();
+  }, MARKET_MOVERS_REFRESH_MS);
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  loadMarketMovers();
+});
 
 document.addEventListener('DOMContentLoaded', startMarketMovers);

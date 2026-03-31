@@ -45,7 +45,8 @@
     font-size: 15px;
     line-height: 1.5;
     min-height: 100vh;
-    padding: 0 16px 16px;
+    min-height: 100dvh;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom));
     max-width: 1440px;
     margin: 0 auto;
   }
@@ -1277,34 +1278,37 @@
     margin-bottom: 16px;
   }
   #dash-fiidii-card {
-    padding: 12px 16px;
-    margin-bottom: 14px;
+    padding: 9px 14px;
+    margin-bottom: 10px;
   }
   .dash-fiidii-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
+    gap: 10px;
     flex-wrap: wrap;
   }
   .dash-fiidii-title {
-    min-width: 150px;
+    min-width: 132px;
   }
   .dash-fiidii-kicker {
-    font-size: 10px;
+    font-size: 9px;
     color: rgba(255,255,255,0.62);
     text-transform: uppercase;
-    letter-spacing: 0.7px;
+    letter-spacing: 0.55px;
   }
   .dash-fiidii-caption {
-    font-size: 11px;
+    font-size: 10px;
     color: rgba(255,255,255,0.78);
-    margin-top: 3px;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   #dash-fiidii-strip-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
+    gap: 8px;
     flex: 1 1 520px;
     min-width: 0;
   }
@@ -1312,7 +1316,7 @@
     grid-column: span 2;
   }
   .dash-fiidii-metric {
-    padding: 8px 10px;
+    padding: 7px 9px;
     border-radius: 10px;
     background: rgba(0,0,0,0.16);
   }
@@ -1340,44 +1344,58 @@
     border: 1px solid rgba(74,222,128,0.08);
   }
   .dash-fiidii-metric-label {
-    font-size: 9px;
+    font-size: 8px;
     color: rgba(255,255,255,0.58);
     text-transform: uppercase;
-    letter-spacing: 0.55px;
+    letter-spacing: 0.45px;
   }
   .dash-fiidii-metric-value {
-    font-size: clamp(15px, 1.55vw, 17px);
+    font-size: clamp(14px, 1.4vw, 16px);
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
-    margin-top: 5px;
+    margin-top: 3px;
+  }
+  .dash-fiidii-rollup-titleline {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
   }
   .dash-fiidii-rollup-sub {
-    margin-top: 4px;
-    font-size: 10px;
+    margin-top: 0;
+    font-size: 9px;
     color: rgba(255,255,255,0.56);
+    white-space: nowrap;
   }
   .dash-fiidii-rollup-totals {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 6px;
+    gap: 8px;
+    margin-top: 4px;
   }
   .dash-fiidii-rollup-total {
     min-width: 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
   }
   .dash-fiidii-rollup-total-label {
-    display: block;
-    font-size: 9px;
+    display: inline;
+    font-size: 8px;
     color: rgba(255,255,255,0.52);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.42px;
+    white-space: nowrap;
   }
   .dash-fiidii-rollup-total-value {
-    display: block;
-    margin-top: 4px;
-    font-size: clamp(14px, 1.5vw, 16px);
+    display: inline;
+    margin-top: 0;
+    font-size: clamp(13px, 1.4vw, 15px);
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
+    text-align: right;
   }
   .dash-fiidii-rollup-body {
     display: block;
@@ -1390,10 +1408,10 @@
     transition: max-height 0.24s ease, opacity 0.18s ease, margin-top 0.18s ease, padding-top 0.18s ease, border-color 0.18s ease;
   }
   .dash-fiidii-metric.rollup.open .dash-fiidii-rollup-body {
-    max-height: 320px;
+    max-height: 300px;
     opacity: 1;
-    margin-top: 8px;
-    padding-top: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
     border-top-width: 1px;
   }
   .dash-fiidii-rollup-list {
@@ -1439,7 +1457,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 8px;
   }
   .dash-fiidii-rollup-page {
     font-size: 10px;
@@ -1475,7 +1493,7 @@
   }
   .dash-fiidii-meta-line {
     font-size: 10px;
-    margin-top: 3px;
+    margin-top: 2px;
   }
   .dash-fiidii-muted {
     color: rgba(255,255,255,0.68);
@@ -2139,10 +2157,10 @@
     .dash-fiidii-metric-value { font-size: 15px; }
     #dash-fiidii-strip-grid { grid-template-columns: 1fr !important; }
     #dash-fiidii-rollup-card { grid-column: auto; }
-    .dash-fiidii-metric { padding: 10px 12px; }
+    .dash-fiidii-metric { padding: 9px 10px; }
     .dash-fiidii-rollup-sub,
     .dash-fiidii-rollup-page,
-    .dash-fiidii-rollup-date { font-size: 11px; }
+    .dash-fiidii-rollup-date { font-size: 10px; }
     .dash-fiidii-rollup-totals { grid-template-columns: 1fr; }
     .dash-fiidii-rollup-grid-head,
     .dash-fiidii-rollup-row {
@@ -2988,9 +3006,9 @@
     }
   }
   @media (max-width: 900px) {
-    .nav-tab { padding: 12px 14px; font-size: 13px; gap: 6px; }
-    .nav-tab .tab-label { display: none; }
-    .nav-tab .tab-icon { font-size: 20px; }
+    .nav-tab { padding: 10px 12px; font-size: 12px; gap: 6px; }
+    .nav-tab .tab-label { display: inline; font-size: 11px; }
+    .nav-tab .tab-icon { font-size: 16px; }
     .app-topbar { padding: 8px 12px; border-radius: 12px 12px 0 0; }
     .nav-bar { border-radius: 0 0 12px 12px; }
     .expiry-bar { flex-wrap: wrap; gap: 8px; padding: 8px 14px; }
@@ -3040,7 +3058,7 @@
   /* Touch target minimum: 44px */
   @media (max-width: 767px) {
     /* -- Global -- */
-    body { padding: 0 !important; }
+    body { padding: 0 0 calc(12px + env(safe-area-inset-bottom)) !important; }
     .page-section { padding: 12px !important; }
 
     .header-shell {
@@ -3068,7 +3086,7 @@
     /* -- Topbar: stack brand + clock, keep ticker visible -- */
     .app-topbar {
       flex-wrap: wrap;
-      padding: 8px 12px !important;
+      padding: calc(8px + env(safe-area-inset-top)) 12px 8px !important;
       gap: 6px;
       border-left: 1px solid var(--border);
       border-radius: 0;
@@ -3131,9 +3149,9 @@
     .nav-bar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; border-left: 1px solid var(--border); border-radius: 0 0 12px 12px; }
     .nav-bar::-webkit-scrollbar { display: none; }
     .nav-tabs { flex-wrap: nowrap !important; justify-content: flex-start !important; min-width: max-content; }
-    .nav-tab { padding: 10px 12px !important; font-size: 12px !important; gap: 4px !important; flex-shrink: 0; white-space: nowrap; }
-    .nav-tab .tab-label { display: none; }
-    .nav-tab .tab-icon { font-size: 18px; }
+    .nav-tab { padding: 9px 12px !important; font-size: 11px !important; gap: 6px !important; flex-shrink: 0; white-space: nowrap; }
+    .nav-tab .tab-label { display: inline !important; font-size: 11px; }
+    .nav-tab .tab-icon { font-size: 15px; }
     .nav-tab .live-dot { margin: 0; }
 
     /* -- Dashboard: 2-col stat boxes on mobile -- */
@@ -3258,17 +3276,17 @@
     }
     /* Scalp form inner 2-col: forced desktop layout on mobile with tighter spacing */
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
-      grid-template-columns: 1fr 1fr !important;
-      gap: 6px !important;
+      grid-template-columns: 1fr !important;
+      gap: 8px !important;
     }
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] label {
-      font-size: 9px !important;
+      font-size: 10px !important;
       letter-spacing: 0.4px !important;
     }
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] input,
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] select {
-      font-size: 12px !important;
-      padding: 6px 8px !important;
+      font-size: 13px !important;
+      padding: 9px 10px !important;
     }
     /* BUY/SELL: full-width touch targets */
     #scalp-page .btn[onclick*="submitScalpEntry"] {
@@ -3283,7 +3301,7 @@
     }
 
     /* -- Tables: horizontal scroll wrapper -- */
-    table { min-width: 600px; }
+    table { min-width: 520px; }
     div[style*="overflow-x: auto"] { -webkit-overflow-scrolling: touch; }
 
     /* -- Runs table: compact on mobile -- */
@@ -3291,7 +3309,7 @@
     #runs-list-results table,
     #portfolio-paper-runs table {
       font-size: 11px !important;
-      min-width: 700px;
+      min-width: 620px;
     }
     #runs-list table th,
     #runs-list-results table th,
@@ -3303,8 +3321,8 @@
     #runs-list-results table td:last-child,
     #runs-list table th:last-child,
     #runs-list-results table th:last-child {
-      min-width: 140px !important;
-      width: 140px !important;
+      min-width: 120px !important;
+      width: 120px !important;
     }
 
     /* -- Live page: mobile layout -- */
@@ -3362,7 +3380,7 @@
       padding: 12px !important;
     }
     .live-panel-card { min-width: 0; }
-    .live-panel-card table { min-width: 620px; }
+    .live-panel-card table { min-width: 560px; }
     .live-panel-card .live-event-log {
       min-width: 0;
       max-height: 240px;
@@ -3504,9 +3522,10 @@
     .stat-label { font-size: 9px !important; }
     .expiry-chip { font-size: 10px !important; }
     #scalp-page div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
-      grid-template-columns: 1fr 1fr !important;
-      gap: 4px !important;
+      grid-template-columns: 1fr !important;
+      gap: 6px !important;
     }
+    table { min-width: 460px; }
     .cj-journal-panel {
       padding: 14px;
     }
@@ -4345,7 +4364,7 @@
 <div id="dashboard-page" class="page-section active-page">
 
 
-  <div style="margin: 0 0 20px;">
+    <div style="margin: 0 0 12px;">
     <div id="dash-fiidii-card" class="card-glass" style="display: none;">
       <div class="dash-fiidii-head">
         <div class="dash-fiidii-title">
@@ -4362,18 +4381,20 @@
             <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
           <div class="dash-fiidii-metric rollup" id="dash-fiidii-rollup-card" onclick="toggleFiiDiiRollup()">
-            <div class="dash-fiidii-metric-label">30D Flow</div>
+            <div class="dash-fiidii-rollup-titleline">
+              <div class="dash-fiidii-metric-label">30D Flow</div>
+              <div id="dash-fiidii-rollup-sub" class="dash-fiidii-rollup-sub">(0 sessions total)</div>
+            </div>
             <div class="dash-fiidii-rollup-totals">
               <div class="dash-fiidii-rollup-total">
-                <span class="dash-fiidii-rollup-total-label">FII Total</span>
+                <span class="dash-fiidii-rollup-total-label">FII</span>
                 <span id="dash-fiidii-rolling-fii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
               </div>
               <div class="dash-fiidii-rollup-total">
-                <span class="dash-fiidii-rollup-total-label">DII Total</span>
+                <span class="dash-fiidii-rollup-total-label">DII</span>
                 <span id="dash-fiidii-rolling-dii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
               </div>
             </div>
-            <div id="dash-fiidii-rollup-sub" class="dash-fiidii-rollup-sub">0 sessions total</div>
             <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
               <div id="dash-fiidii-rollup-list" class="dash-fiidii-rollup-list"></div>
               <div class="dash-fiidii-rollup-pagination">
@@ -4386,8 +4407,6 @@
         </div>
         <div class="dash-fiidii-meta">
           <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
-          <div id="dash-fiidii-latest-date" class="dash-fiidii-meta-line dash-fiidii-muted">—</div>
-          <div id="dash-fiidii-latest-days" class="dash-fiidii-meta-line dash-fiidii-faint">—</div>
         </div>
       </div>
     </div>
@@ -6827,6 +6846,7 @@ async function ensureStrategiesLoaded(force = false) {
 }
 
 function showPage(id, btn, options = {}) {
+  const previousPageId = document.querySelector('.page-section.active-page')?.id || '';
   const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
   if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
@@ -6868,7 +6888,7 @@ function showPage(id, btn, options = {}) {
       history.pushState(navState, '', nextHash);
     }
   }
-  if (options.scrollToTop) {
+  if (options.scrollToTop !== false && previousPageId && previousPageId !== id) {
     requestAnimationFrame(() => {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       document.documentElement.scrollTop = 0;
@@ -6978,7 +6998,10 @@ document.addEventListener('DOMContentLoaded', () => {
   try { loadAuthContext(); } catch(e) { console.warn('loadAuthContext failed:', e); }
   loadTickerFromCache();
   try { updateTicker(); } catch(e) { console.warn('updateTicker failed:', e); }
-  setInterval(() => { try { updateTicker(); } catch(e) { console.warn('ticker interval failed:', e); } }, 30000);
+  setInterval(() => {
+    if (!_isPageVisible()) return;
+    try { updateTicker(); } catch(e) { console.warn('ticker interval failed:', e); }
+  }, 30000);
   try {
     const runNameInput = document.getElementById('run-name-input');
     if (runNameInput) runNameInput.value = 'Strategy_' + generateRandomID();
@@ -7001,7 +7024,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.documentElement.setAttribute('data-nav-ready', '1');
   // Start clock
   try { updateClock(); } catch(e) { console.warn('updateClock failed:', e); }
-  setInterval(updateClock, 1000);
+  setInterval(() => {
+    if (!_isPageVisible()) return;
+    updateClock();
+  }, 1000);
   // Load expiry dates
   try { loadExpiryDates(); } catch(e) { console.warn('loadExpiryDates failed:', e); }
 });
@@ -8252,11 +8278,17 @@ async function initScalpPage() {
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
-    _scalpPollTimer = setInterval(refreshScalpStatus, _ws && _ws.readyState === 1 ? 10000 : 3000);
+    _scalpPollTimer = setInterval(() => {
+      if (!_isPageVisible() || !_isPageActive('scalp-page')) return;
+      refreshScalpStatus();
+    }, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
   if (!_scalpLTPTimer) {
     // REST poll as fallback — 5s since broker-level throttle + WS push handle freshness
-    _scalpLTPTimer = setInterval(fetchScalpLTP, 5000);
+    _scalpLTPTimer = setInterval(() => {
+      if (!_isPageVisible() || !_isPageActive('scalp-page')) return;
+      fetchScalpLTP();
+    }, 5000);
   }
 }
 
@@ -9536,6 +9568,7 @@ async function refreshToken() {
 function startBrokerHealthCheck() {
   if (brokerCheckInterval) return;
   brokerCheckInterval = setInterval(async () => {
+    if (!_isPageVisible()) return;
     try {
       const res = await fetch('/api/broker/check', { method: 'POST' });
       const data = await res.json();
@@ -12167,7 +12200,10 @@ async function refreshBuilderPreview() {
 function startBuilderPreview() {
   refreshBuilderPreview();
   if (_builderPreviewInterval) clearInterval(_builderPreviewInterval);
-  _builderPreviewInterval = setInterval(refreshBuilderPreview, 5000);
+  _builderPreviewInterval = setInterval(() => {
+    if (!_isPageVisible() || !_isPageActive('builder-page')) return;
+    refreshBuilderPreview();
+  }, 5000);
 }
 function stopBuilderPreview() {
   if (_builderPreviewInterval) { clearInterval(_builderPreviewInterval); _builderPreviewInterval = null; }
@@ -12186,7 +12222,10 @@ let _liveClosedPages = {};    // mode:run_id → current page number
 function startLiveMonitor() {
   loadLiveMonitor();
   if (liveMonitorInterval) clearInterval(liveMonitorInterval);
-  liveMonitorInterval = setInterval(loadLiveMonitor, 5000);
+  liveMonitorInterval = setInterval(() => {
+    if (!_isPageVisible() || !_isPageActive('live-page')) return;
+    loadLiveMonitor();
+  }, 5000);
 }
 
 function stopLiveMonitor() {
@@ -13622,6 +13661,7 @@ async function emergencyStop() {
 }
 
 function updateKillSwitchVisibility() {
+  if (!_isPageVisible()) return;
   // Show kill switch button only when engines might be running
   fetch('/api/paper/status').then(r => r.json()).then(pData => {
     fetch('/api/live/status').then(r => r.json()).then(lData => {
@@ -13652,6 +13692,14 @@ function _dashMoneyCr(value) {
 function _dashValueColor(value) {
   const num = Number(value || 0);
   return num > 0 ? 'var(--success)' : num < 0 ? 'var(--danger)' : 'var(--muted)';
+}
+
+function _isPageVisible() {
+  return document.visibilityState === 'visible';
+}
+
+function _isPageActive(id) {
+  return !!document.getElementById(id)?.classList.contains('active-page');
 }
 
 const _fiidiiRollupState = { open: false, page: 0 };
@@ -13686,7 +13734,7 @@ function _renderFiiDiiRollup() {
 
   if (!rows.length) {
     listEl.innerHTML = '<div class="dash-fiidii-rollup-row"><span class="dash-fiidii-rollup-date">No history yet</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span></div>';
-    subEl.textContent = 'Waiting for NSE history';
+    subEl.textContent = '(Waiting for NSE history)';
     pageEl.textContent = 'Page 1 / 1';
     prevBtn.disabled = true;
     nextBtn.disabled = true;
@@ -13714,7 +13762,7 @@ function _renderFiiDiiRollup() {
       `;
     }).join('')}
   `;
-  subEl.textContent = `${rows.length} sessions total`;
+  subEl.textContent = `(${rows.length} sessions total)`;
   pageEl.textContent = `Page ${_fiidiiRollupState.page + 1} / ${totalPages}`;
   prevBtn.disabled = _fiidiiRollupState.page <= 0;
   nextBtn.disabled = _fiidiiRollupState.page >= totalPages - 1;
@@ -13757,8 +13805,6 @@ function _renderDashboardFiiDiiPanel(block) {
   rollingDiiEl.textContent = _dashMoneyCr(rollingDii);
   rollingDiiEl.style.color = _dashValueColor(rollingDii);
 
-  document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
-  document.getElementById('dash-fiidii-latest-days').textContent = `${rolling.days || 0} sessions`;
   _renderFiiDiiRollup();
 }
 
@@ -13891,9 +13937,15 @@ async function loadDashboardSummary() {
 
 // Load dashboard summary on page load and refresh every 30s
 setTimeout(loadDashboardSummary, 500);
-setInterval(loadDashboardSummary, 30000);
+setInterval(() => {
+  if (!_isPageVisible() || !_isPageActive('dashboard-page')) return;
+  loadDashboardSummary();
+}, 30000);
 setTimeout(refreshLiveTabStatus, 500);
-setInterval(refreshLiveTabStatus, 30000);
+setInterval(() => {
+  if (!_isPageVisible()) return;
+  refreshLiveTabStatus();
+}, 30000);
 
 // ══════════════════════════════════════════════════════════════
 //  TRADER'S EDGE — MOOD WIDGETS
@@ -14375,6 +14427,19 @@ setTimeout(connectWebSocket, 1000);
 // ── Page Visibility: instant reconnect when trader returns to tab ──
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  try { updateTicker(); } catch(e) {}
+  if (_isPageActive('dashboard-page')) {
+    try { loadDashboardSummary(); } catch(e) {}
+  }
+  if (_isPageActive('builder-page')) {
+    try { refreshBuilderPreview(); } catch(e) {}
+  }
+  if (_isPageActive('live-page')) {
+    try { loadLiveMonitor(); } catch(e) {}
+  }
+  if (_isPageActive('scalp-page')) {
+    try { refreshScalpStatus(); } catch(e) {}
+  }
   // Tab is back in focus — check WebSocket health immediately
   const alive = _ws && _ws.readyState === 1;
   if (!alive) {
