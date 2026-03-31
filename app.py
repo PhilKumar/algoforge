@@ -1101,6 +1101,7 @@ def _load_dashboard_fii_dii_snapshot_sync() -> dict:
             "dii_net": round(sum(float(row.get("dii_net") or 0) for row in rolling_rows), 2),
             "days": len(rolling_rows),
         },
+        "rolling_daily": rolling_rows[:30],
         "trend": history_rows[:10],
         "message": "" if len(rolling_rows) >= 10 else "Rolling history builds from the official NSE daily feed.",
     }

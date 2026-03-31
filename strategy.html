@@ -1313,6 +1313,17 @@
     border-radius: 10px;
     background: rgba(0,0,0,0.16);
   }
+  .dash-fiidii-metric.rollup {
+    cursor: pointer;
+    transition: border-color 0.18s, background 0.18s, transform 0.18s;
+  }
+  .dash-fiidii-metric.rollup:hover {
+    transform: translateY(-1px);
+    background: rgba(255,255,255,0.04);
+  }
+  .dash-fiidii-metric.rollup.open {
+    background: rgba(255,255,255,0.045);
+  }
   .dash-fiidii-metric.neg {
     border: 1px solid rgba(248,113,113,0.14);
   }
@@ -1336,6 +1347,89 @@
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     margin-top: 5px;
+  }
+  .dash-fiidii-rollup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dash-fiidii-rollup-arrow {
+    font-size: 11px;
+    color: var(--muted);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  .dash-fiidii-metric.rollup.open .dash-fiidii-rollup-arrow {
+    transform: rotate(180deg);
+  }
+  .dash-fiidii-rollup-sub {
+    margin-top: 4px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.56);
+  }
+  .dash-fiidii-rollup-body {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .dash-fiidii-metric.rollup.open .dash-fiidii-rollup-body {
+    display: block;
+  }
+  .dash-fiidii-rollup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .dash-fiidii-rollup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 0;
+    font-size: 11px;
+  }
+  .dash-fiidii-rollup-row + .dash-fiidii-rollup-row {
+    border-top: 1px dashed rgba(255,255,255,0.06);
+  }
+  .dash-fiidii-rollup-date {
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 0.2px;
+  }
+  .dash-fiidii-rollup-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    text-align: right;
+  }
+  .dash-fiidii-rollup-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .dash-fiidii-rollup-page {
+    font-size: 10px;
+    color: rgba(255,255,255,0.56);
+    flex: 1;
+    text-align: center;
+  }
+  .dash-fiidii-rollup-btn {
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    border-radius: 999px;
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .dash-fiidii-rollup-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .dash-fiidii-meta {
     min-width: 92px;
@@ -1716,6 +1810,26 @@
   [data-theme="light"] .dash-fiidii-metric {
     background: rgba(248,250,252,0.78);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+  }
+  [data-theme="light"] .dash-fiidii-metric.rollup:hover,
+  [data-theme="light"] .dash-fiidii-metric.rollup.open {
+    background: rgba(255,255,255,0.94);
+  }
+  [data-theme="light"] .dash-fiidii-rollup-sub,
+  [data-theme="light"] .dash-fiidii-rollup-page,
+  [data-theme="light"] .dash-fiidii-rollup-date {
+    color: #64748b;
+  }
+  [data-theme="light"] .dash-fiidii-rollup-body {
+    border-top-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .dash-fiidii-rollup-row + .dash-fiidii-rollup-row {
+    border-top-color: rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .dash-fiidii-rollup-btn {
+    background: rgba(15,23,42,0.04);
+    color: #0f172a;
+    border-color: rgba(15,23,42,0.1);
   }
   [data-theme="light"] .dash-fiidii-meta {
     color: #475569;
@@ -4177,13 +4291,37 @@
             <div class="dash-fiidii-metric-label">Latest DII</div>
             <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
           </div>
-          <div class="dash-fiidii-metric soft-neg">
-            <div class="dash-fiidii-metric-label">30D FII</div>
+          <div class="dash-fiidii-metric soft-neg rollup" id="dash-fiidii-rollup-fii-card" onclick="toggleFiiDiiRollup('fii')">
+            <div class="dash-fiidii-rollup-head">
+              <div class="dash-fiidii-metric-label">30D FII</div>
+              <span class="dash-fiidii-rollup-arrow">▼</span>
+            </div>
             <div id="dash-fiidii-rolling-fii" class="dash-fiidii-metric-value">₹0 CR</div>
+            <div id="dash-fiidii-rollup-fii-sub" class="dash-fiidii-rollup-sub">Tap to view daily flow</div>
+            <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
+              <div id="dash-fiidii-rollup-fii-list" class="dash-fiidii-rollup-list"></div>
+              <div class="dash-fiidii-rollup-pagination">
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-fii-prev" onclick="changeFiiDiiRollupPage('fii', -1)">‹</button>
+                <div id="dash-fiidii-rollup-fii-page" class="dash-fiidii-rollup-page">Page 1</div>
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-fii-next" onclick="changeFiiDiiRollupPage('fii', 1)">›</button>
+              </div>
+            </div>
           </div>
-          <div class="dash-fiidii-metric soft-pos">
-            <div class="dash-fiidii-metric-label">30D DII</div>
+          <div class="dash-fiidii-metric soft-pos rollup" id="dash-fiidii-rollup-dii-card" onclick="toggleFiiDiiRollup('dii')">
+            <div class="dash-fiidii-rollup-head">
+              <div class="dash-fiidii-metric-label">30D DII</div>
+              <span class="dash-fiidii-rollup-arrow">▼</span>
+            </div>
             <div id="dash-fiidii-rolling-dii" class="dash-fiidii-metric-value">₹0 CR</div>
+            <div id="dash-fiidii-rollup-dii-sub" class="dash-fiidii-rollup-sub">Tap to view daily flow</div>
+            <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
+              <div id="dash-fiidii-rollup-dii-list" class="dash-fiidii-rollup-list"></div>
+              <div class="dash-fiidii-rollup-pagination">
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-dii-prev" onclick="changeFiiDiiRollupPage('dii', -1)">‹</button>
+                <div id="dash-fiidii-rollup-dii-page" class="dash-fiidii-rollup-page">Page 1</div>
+                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-dii-next" onclick="changeFiiDiiRollupPage('dii', 1)">›</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="dash-fiidii-meta">
@@ -13456,6 +13594,71 @@ function _dashValueColor(value) {
   return num > 0 ? 'var(--success)' : num < 0 ? 'var(--danger)' : 'var(--muted)';
 }
 
+const _fiidiiRollupState = {
+  fii: { open: false, page: 0 },
+  dii: { open: false, page: 0 },
+};
+const _FIIDII_ROLLUP_PAGE_SIZE = 7;
+let _lastFiiDiiRows = [];
+
+function toggleFiiDiiRollup(kind) {
+  if (!_fiidiiRollupState[kind]) return;
+  _fiidiiRollupState[kind].open = !_fiidiiRollupState[kind].open;
+  _renderFiiDiiRollup(kind);
+}
+
+function changeFiiDiiRollupPage(kind, delta) {
+  const state = _fiidiiRollupState[kind];
+  if (!state) return;
+  const rows = Array.isArray(_lastFiiDiiRows) ? _lastFiiDiiRows : [];
+  const totalPages = Math.max(1, Math.ceil(rows.length / _FIIDII_ROLLUP_PAGE_SIZE));
+  state.page = Math.max(0, Math.min(totalPages - 1, state.page + delta));
+  _renderFiiDiiRollup(kind);
+}
+
+function _renderFiiDiiRollup(kind) {
+  const state = _fiidiiRollupState[kind];
+  const card = document.getElementById(`dash-fiidii-rollup-${kind}-card`);
+  const listEl = document.getElementById(`dash-fiidii-rollup-${kind}-list`);
+  const pageEl = document.getElementById(`dash-fiidii-rollup-${kind}-page`);
+  const prevBtn = document.getElementById(`dash-fiidii-rollup-${kind}-prev`);
+  const nextBtn = document.getElementById(`dash-fiidii-rollup-${kind}-next`);
+  const subEl = document.getElementById(`dash-fiidii-rollup-${kind}-sub`);
+  if (!state || !card || !listEl || !pageEl || !prevBtn || !nextBtn || !subEl) return;
+
+  const rows = Array.isArray(_lastFiiDiiRows) ? _lastFiiDiiRows : [];
+  const totalPages = Math.max(1, Math.ceil(rows.length / _FIIDII_ROLLUP_PAGE_SIZE));
+  state.page = Math.max(0, Math.min(totalPages - 1, state.page));
+  card.classList.toggle('open', !!state.open);
+
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="dash-fiidii-rollup-row"><span class="dash-fiidii-rollup-date">No history yet</span><span class="dash-fiidii-rollup-value" style="color:var(--muted);">—</span></div>';
+    subEl.textContent = 'Waiting for NSE history';
+    pageEl.textContent = 'Page 1 / 1';
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    return;
+  }
+
+  const start = state.page * _FIIDII_ROLLUP_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + _FIIDII_ROLLUP_PAGE_SIZE);
+  const key = kind === 'fii' ? 'fii_net' : 'dii_net';
+  listEl.innerHTML = pageRows.map((row) => {
+    const value = Number(row[key] || 0);
+    const label = row.display_date || row.date || '—';
+    return `
+      <div class="dash-fiidii-rollup-row">
+        <span class="dash-fiidii-rollup-date">${escapeHtml(label)}</span>
+        <span class="dash-fiidii-rollup-value" style="color:${_dashValueColor(value)};">${escapeHtml(_dashMoneyCr(value))}</span>
+      </div>
+    `;
+  }).join('');
+  subEl.textContent = `${rows.length} sessions total`;
+  pageEl.textContent = `Page ${state.page + 1} / ${totalPages}`;
+  prevBtn.disabled = state.page <= 0;
+  nextBtn.disabled = state.page >= totalPages - 1;
+}
+
 function _renderDashboardFiiDiiPanel(block) {
   const panel = document.getElementById('dash-fiidii-card');
   if (!panel) return;
@@ -13473,6 +13676,7 @@ function _renderDashboardFiiDiiPanel(block) {
   const latestFii = Number(latest.fii_net || 0);
   const latestDii = Number(latest.dii_net || 0);
   const rolling = block.rolling_30d || {};
+  _lastFiiDiiRows = Array.isArray(block.rolling_daily) ? block.rolling_daily.slice() : [];
   const rollingFii = Number(rolling.fii_net || 0);
   const rollingDii = Number(rolling.dii_net || 0);
 
@@ -13494,6 +13698,8 @@ function _renderDashboardFiiDiiPanel(block) {
 
   document.getElementById('dash-fiidii-latest-date').textContent = latest.display_date || '—';
   document.getElementById('dash-fiidii-latest-days').textContent = `${rolling.days || 0} sessions`;
+  _renderFiiDiiRollup('fii');
+  _renderFiiDiiRollup('dii');
 }
 
 async function loadDashboardSummary() {
