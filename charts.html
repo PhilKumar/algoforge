@@ -11,7 +11,9 @@
 <meta name="format-detection" content="telephone=no">
 <title>PhilForge — Chart Viewer</title>
 <link rel="icon" href="logo.png" type="image/png">
+<link rel="manifest" href="/manifest.webmanifest?v=20260401-1">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="/static/pwa.js?v=20260401-1" defer></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -119,6 +121,7 @@ body::before {
   align-items: center;
   gap: 6px;
 }
+.topbar-btn[hidden] { display: none !important; }
 .topbar-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--border-hi); }
 .topbar-btn.active { background: rgba(0,191,165,0.12); border-color: var(--accent); color: var(--accent); }
 
@@ -619,6 +622,7 @@ body::before {
   </a>
   <div class="topbar-right">
     <a href="/" class="topbar-btn">← Back to Dashboard</a>
+    <button class="topbar-btn" data-install-app hidden>Install App</button>
     <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())">Logout</button>
   </div>
 </div>

@@ -2048,6 +2048,16 @@ async def serve_logo_png():
     return FileResponse("logo.png")
 
 
+@app.get("/manifest.webmanifest")
+async def serve_manifest():
+    return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def serve_service_worker():
+    return FileResponse(os.path.join(_HERE, "static", "sw.js"), media_type="application/javascript")
+
+
 # ── Chart Viewer ──────────────────────────────────────────────────
 import calendar as _cal
 import re as _re

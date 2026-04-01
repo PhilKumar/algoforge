@@ -11,7 +11,9 @@
 <meta name="format-detection" content="telephone=no">
 <title>PhilForge — Market Movers</title>
 <link rel="icon" href="/static/logo.png?v=20260327-2" type="image/png">
+<link rel="manifest" href="/manifest.webmanifest?v=20260401-1">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="/static/pwa.js?v=20260401-1" defer></script>
 <script>
   try {
     if (localStorage.getItem('algoforge_theme') === 'light') {
@@ -38,6 +40,7 @@
 
       <div class="topbar-actions">
         <div class="status-chip" id="market-status">Loading live breadth...</div>
+        <button class="shell-btn" data-install-app hidden>Install App</button>
         <button class="shell-btn icon-only" id="theme-toggle" type="button" aria-label="Toggle theme"></button>
         <a class="shell-btn shell-btn-primary" href="/">Back To Dashboard</a>
       </div>

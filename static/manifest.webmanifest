@@ -1,0 +1,25 @@
+{
+  "name": "PhilForge",
+  "short_name": "PhilForge",
+  "description": "PhilForge trading workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#08111b",
+  "theme_color": "#08111b",
+  "icons": [
+    {
+      "src": "/static/logo.png?v=20260327-2",
+      "sizes": "1024x1035",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/logolight.png?v=20260328-1",
+      "sizes": "1013x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
