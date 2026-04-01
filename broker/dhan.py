@@ -1216,7 +1216,13 @@ class DhanClient:
             refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 201):
-            raise Exception(f"Super order placement failed {resp.status_code}: {resp.text}")
+            body = resp.text or ""
+            if resp.status_code == 400 and ("DH-905" in body or "Invalid IP" in body):
+                raise Exception(
+                    "Super order placement failed: broker rejected this server IP "
+                    "(DH-905 Invalid IP). Whitelist the current production static IP with Dhan."
+                )
+            raise Exception(f"Super order placement failed {resp.status_code}: {body}")
         return resp.json()
 
     def modify_super_order(

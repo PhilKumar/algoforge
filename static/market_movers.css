@@ -45,6 +45,10 @@ body {
     linear-gradient(180deg, #071019 0%, #09121d 42%, #060b12 100%);
   overflow-x: hidden;
   padding-bottom: env(safe-area-inset-bottom);
+  overscroll-behavior: contain;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body::before,
