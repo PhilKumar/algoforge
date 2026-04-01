@@ -10538,9 +10538,9 @@ function updateClock() {
   const isCompactMobile = window.innerWidth <= 420;
   const isMobile = window.innerWidth <= 767;
   const dateStr = now.toLocaleDateString('en-IN', isCompactMobile
-    ? { day: '2-digit', month: 'short' }
+    ? { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' }
     : isMobile
-      ? { day: '2-digit', month: 'short', year: 'numeric' }
+      ? { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }
       : { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const dateEl = document.getElementById('clock-date');
