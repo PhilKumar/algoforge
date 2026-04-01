@@ -2240,36 +2240,132 @@ def _parse_month_folder(name: str):
     return num, _cal.month_abbr[num]
 
 
-def _parse_day_folder(name: str):
+def _parse_day_folder(name: str, *, year_hint: int | None = None, month_hint: int | None = None):
     """Parse day folder → (sort_key, display_label) or fallback to name itself."""
     # DD_MM_YYYY or DD-MM-YYYY (all numeric)
-    m = _re.match(r"^(\d{1,2})[_-](\d{1,2})[_-](\d{4})$", name)
+    m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", name)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
         return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
     # DD-Mon-YYYY (e.g. 01-Feb-2026)
-    m = _re.match(r"^(\d{1,2})-([A-Za-z]+)-(\d{4})$", name)
+    m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
         if num:
             return f"{int(m.group(3)):04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # DD-Mon (no year, e.g. 13-Feb)
-    m = _re.match(r"^(\d{1,2})-([A-Za-z]+)$", name)
+    m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
         if num:
-            return f"9999-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
+            yyyy = int(year_hint) if year_hint else 9999
+            return f"{yyyy:04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # Mon-DD-DD or Mon-DD-DD-DD (ranges like Feb-12-15, Feb-4-5-6)
-    m = _re.match(r"^([A-Za-z]+)-(\d{1,2})", name)
+    m = _re.match(r"^([A-Za-z]+)[\s_-](\d{1,2})", name)
     if m:
         num = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3])
         dd = int(m.group(2))
         if num:
-            return f"9999-{num:02d}-{dd:02d}", name
+            yyyy = int(year_hint) if year_hint else 9999
+            return f"{yyyy:04d}-{num:02d}-{dd:02d}", name
+    # DD only — infer month/year from the enclosing folder when possible
+    m = _re.match(r"^(\d{1,2})$", name)
+    if m and year_hint and month_hint:
+        dd = int(m.group(1))
+        return f"{int(year_hint):04d}-{int(month_hint):02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[int(month_hint)]}"
     # Fallback — sort after all dated entries
     return f"9999-99-{name}", name
+
+
+def _canonicalize_chart_day_folder_name(year: str, month_folder: str, day_name: str) -> str:
+    safe_name = _re.sub(r"[^\w\s._-]", "", str(day_name or "").strip())[:80]
+    if not safe_name:
+        return ""
+    parsed_month = _parse_month_folder(str(month_folder or ""))
+    if parsed_month is None:
+        return safe_name
+    month_num, month_label = parsed_month
+    year_int = int(year)
+
+    m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", safe_name)
+    if m:
+        dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        month_abbr = _cal.month_abbr[mm] if 1 <= mm <= 12 else month_label
+        return f"{dd:02d}-{month_abbr}-{yyyy:04d}"
+    m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", safe_name)
+    if m:
+        dd = int(m.group(1))
+        mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
+        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{int(m.group(3)):04d}"
+    m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", safe_name)
+    if m:
+        dd = int(m.group(1))
+        mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
+        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+    m = _re.match(r"^([A-Za-z]+)[\s_-](\d{1,2})$", safe_name)
+    if m:
+        mon = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3]) or month_num
+        dd = int(m.group(2))
+        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+    m = _re.match(r"^(\d{1,2})$", safe_name)
+    if m:
+        dd = int(m.group(1))
+        return f"{dd:02d}-{month_label}-{year_int:04d}"
+    return safe_name
+
+
+def _resolve_legacy_chart_date(user_id: int, date_str: str) -> str:
+    text = str(date_str or "")
+    match = _re.match(r"^9999-(\d{2})-(\d{2})$", text)
+    if not match:
+        return text
+
+    target_month = int(match.group(1))
+    target_day = int(match.group(2))
+    charts_root = _user_charts_root(user_id)
+    if not os.path.isdir(charts_root):
+        return text
+
+    best_match = ""
+    for year in sorted(os.listdir(charts_root), reverse=True):
+        year_path = os.path.join(charts_root, year)
+        if not os.path.isdir(year_path) or not str(year).isdigit():
+            continue
+        for month_folder in os.listdir(year_path):
+            month_path = os.path.join(year_path, month_folder)
+            if not os.path.isdir(month_path):
+                continue
+            parsed_month = _parse_month_folder(month_folder)
+            if parsed_month is None:
+                continue
+            month_num, _month_label = parsed_month
+            if int(month_num) != target_month:
+                continue
+            for day_folder in os.listdir(month_path):
+                day_path = os.path.join(month_path, day_folder)
+                if not os.path.isdir(day_path):
+                    continue
+                sort_key, _day_label = _parse_day_folder(day_folder, year_hint=int(year), month_hint=int(month_num))
+                if sort_key == f"{int(year):04d}-{target_month:02d}-{target_day:02d}":
+                    if sort_key > best_match:
+                        best_match = sort_key
+    return best_match or text
+
+
+async def _normalize_journal_date_for_user(user_id: int, date_str: str) -> str:
+    text = str(date_str or "")
+    normalized = _resolve_legacy_chart_date(user_id, text)
+    if normalized == text:
+        return text
+    payload = await _db_mod.get_journal_entry(user_id, text)
+    if payload:
+        existing = await _db_mod.get_journal_entry(user_id, normalized)
+        if not existing:
+            await _db_mod.upsert_journal_entry(user_id, normalized, payload)
+        await _db_mod.delete_journal_entry(user_id, text)
+    return normalized
 
 
 def _user_storage_root(user_id: int) -> str:
@@ -2380,7 +2476,7 @@ async def charts_tree(request: Request):
                 has_keep = ".keep" in files
                 if not has_img and not has_keep:
                     continue
-                sort_key, day_label = _parse_day_folder(dfolder)
+                sort_key, day_label = _parse_day_folder(dfolder, year_hint=int(year), month_hint=int(month_num))
                 days_list.append(
                     {
                         "folder": dfolder,
@@ -2603,7 +2699,7 @@ async def rename_chart_folder(request: Request):
     old_path = _safe_charts_subpath(user_id, year, month, old_day)
     if old_path is None or not os.path.isdir(old_path):
         raise HTTPException(status_code=404, detail="Folder not found")
-    safe_new = _re.sub(r"[^\w\s._-]", "", new_day)[:80]
+    safe_new = _canonicalize_chart_day_folder_name(year, month, new_day)
     if not safe_new:
         raise HTTPException(status_code=400, detail="Invalid new name")
     new_path = _safe_charts_subpath(user_id, year, month, safe_new)
@@ -2626,7 +2722,7 @@ async def create_chart_folder(request: Request):
     if not all([year, month, day_name]):
         raise HTTPException(status_code=400, detail="year, month, day_name required")
     user_id = _request_user_id(request)
-    safe_name = _re.sub(r"[^\w\s._-]", "", day_name)[:80]
+    safe_name = _canonicalize_chart_day_folder_name(year, month, day_name)
     if not safe_name:
         raise HTTPException(status_code=400, detail="Invalid folder name")
     # Ensure year and month directories exist
@@ -2672,7 +2768,20 @@ async def reorder_chart_folders(request: Request):
 @app.get("/api/journal/list")
 async def list_journals(request: Request):
     """Return list of all journal dates that have entries."""
-    return {"entries": await _db_mod.list_journal_entries(_request_user_id(request))}
+    user_id = _request_user_id(request)
+    raw_entries = await _db_mod.list_journal_entries(user_id)
+    normalized_entries: list[dict] = []
+    seen_dates: set[str] = set()
+    for entry in raw_entries:
+        normalized_date = await _normalize_journal_date_for_user(user_id, str(entry.get("date") or ""))
+        if not normalized_date or normalized_date in seen_dates:
+            continue
+        seen_dates.add(normalized_date)
+        normalized_entry = dict(entry)
+        normalized_entry["date"] = normalized_date
+        normalized_entries.append(normalized_entry)
+    normalized_entries.sort(key=lambda item: str(item.get("date") or ""), reverse=True)
+    return {"entries": normalized_entries}
 
 
 @app.get("/api/journal/{date_str}")
@@ -2680,8 +2789,10 @@ async def get_journal(date_str: str, request: Request):
     """Load journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    data = await _db_mod.get_journal_entry(_request_user_id(request), date_str)
-    return {"date": date_str, "data": data}
+    user_id = _request_user_id(request)
+    normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
+    data = await _db_mod.get_journal_entry(user_id, normalized_date)
+    return {"date": normalized_date, "data": data}
 
 
 @app.put("/api/journal/{date_str}")
@@ -2689,12 +2800,14 @@ async def save_journal(date_str: str, request: Request):
     """Save journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    user_id = _request_user_id(request)
+    normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     body = await request.json()
     # Sanitize: only allow known fields
     allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
     clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
-    await _db_mod.upsert_journal_entry(_request_user_id(request), date_str, clean)
-    return {"status": "ok", "date": date_str}
+    await _db_mod.upsert_journal_entry(user_id, normalized_date, clean)
+    return {"status": "ok", "date": normalized_date}
 
 
 @app.delete("/api/journal/{date_str}")
@@ -2702,11 +2815,13 @@ async def delete_journal(date_str: str, request: Request):
     """Delete a journal entry for a date (YYYY-MM-DD)."""
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         raise HTTPException(status_code=400, detail="Invalid date format")
-    deleted = await _db_mod.delete_journal_entry(_request_user_id(request), date_str)
+    user_id = _request_user_id(request)
+    normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
+    deleted = await _db_mod.delete_journal_entry(user_id, normalized_date)
     if not deleted:
         raise HTTPException(status_code=404, detail="Journal entry not found")
-    print(f"[JOURNAL] Deleted entry for {_request_user_id(request)}: {date_str}")
-    return {"status": "ok", "deleted": date_str}
+    print(f"[JOURNAL] Deleted entry for {user_id}: {normalized_date}")
+    return {"status": "ok", "deleted": normalized_date}
 
 
 def _default_financial_plan() -> dict:
@@ -3082,7 +3197,7 @@ def _latest_chart_day_snapshot(user_id: int) -> dict | None:
                 )
                 if not images:
                     continue
-                day_sort, day_label = _parse_day_folder(day_folder)
+                day_sort, day_label = _parse_day_folder(day_folder, year_hint=int(year), month_hint=int(month_num))
                 day_num = 0
                 match = _re.match(r"^\d{4}-\d{2}-(\d{2})$", str(day_sort))
                 if match:
