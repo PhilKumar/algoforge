@@ -2466,7 +2466,7 @@ async def serve_market_movers(request: Request):
 
 @app.get("/study-lounge", response_class=HTMLResponse)
 async def serve_study_lounge(request: Request):
-    """Serve the standalone NotebookLM study page (auth-protected)."""
+    """Serve the standalone study page (auth-protected)."""
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
@@ -2495,7 +2495,7 @@ async def api_market_movers_nifty50(request: Request):
 
 @app.get("/api/study-library")
 async def api_study_library():
-    """Return standalone NotebookLM assets for the study lounge."""
+    """Return standalone study assets for the study lounge."""
     return await asyncio.to_thread(get_study_library, os.path.join(_HERE, "static"))
 
 

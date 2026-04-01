@@ -41,8 +41,8 @@ function toggleTheme() {
 
 function applyFeatured(item) {
   $('featured-title').textContent = item?.title || 'No study assets yet';
-  $('featured-kind').textContent = item?.kind_label || 'NotebookLM';
-  $('featured-description').textContent = item?.description || 'Drop NotebookLM videos, decks, and audio briefs into the study folders to populate this page.';
+  $('featured-kind').textContent = item?.kind_label || 'Study Asset';
+  $('featured-description').textContent = item?.description || 'Drop videos, decks, and audio briefs into the study folders to populate this page.';
   $('featured-category').textContent = item?.category || 'General';
   $('featured-date').textContent = item?.modified_label || '--';
   $('featured-size').textContent = item?.size_label || '--';
@@ -59,7 +59,7 @@ function renderPreview(item) {
   $('preview-kind').textContent = item?.kind_label || 'Preview';
   const shell = $('preview-shell');
   if (!item) {
-    shell.innerHTML = '<div class="preview-empty">Your selected NotebookLM deck, video, or audio brief will open here.</div>';
+    shell.innerHTML = '<div class="preview-empty">Your selected deck, video, or audio brief will open here.</div>';
     return;
   }
   if (item.kind === 'video') {

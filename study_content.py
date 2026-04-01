@@ -88,7 +88,7 @@ def _format_size(num_bytes: int) -> str:
 
 def _description_for_item(title: str, kind: str, category: str) -> str:
     if kind == "video":
-        return f"A NotebookLM video overview for {category.lower()} sessions around {title.lower()}."
+        return f"A video overview for {category.lower()} sessions around {title.lower()}."
     if kind == "deck":
         return f"A slide deck for a short market reset, focused on {title.lower()} and {category.lower()}."
     if kind == "audio":
