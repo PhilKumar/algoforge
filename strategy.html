@@ -3605,14 +3605,15 @@
     /* -- Nav tabs: stay under header on mobile -- */
     .nav-bar {
       overflow-x: auto;
+      overflow-y: hidden;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
-      position: sticky;
-      top: calc(env(safe-area-inset-top) + 6px);
+      position: relative;
+      top: auto;
       left: auto;
       right: auto;
       bottom: auto;
-      z-index: 140;
+      z-index: 40;
       padding: 8px 8px 10px;
       margin-top: 8px;
       border: 1px solid var(--border);
@@ -4087,9 +4088,6 @@
 
   /* Small phones (< 400px) */
   @media (max-width: 400px) {
-    .nav-bar {
-      top: calc(env(safe-area-inset-top) + 4px);
-    }
     .nav-tab { padding: 8px 10px !important; }
     .stat-value, .stat-value-lg { font-size: 15px !important; }
     .stat-label { font-size: 9px !important; }
