@@ -7857,6 +7857,19 @@ function _scrollViewportToTop() {
   });
 }
 
+function _restoreInitialMobileNavPosition(page = 'dashboard-page') {
+  if (window.innerWidth > 767) return;
+  const navBar = document.querySelector('.nav-bar');
+  if (!navBar) return;
+  requestAnimationFrame(() => {
+    if (page === 'dashboard-page') {
+      navBar.scrollTo({ left: 0, behavior: 'auto' });
+      return;
+    }
+    _syncMobileActiveNavTab(document.getElementById(NAV_BUTTON_MAP[page] || ''), 'auto');
+  });
+}
+
 function buildNavState(page, extra = {}) {
   const state = { page };
   if (extra && typeof extra === 'object') Object.assign(state, extra);
@@ -8123,6 +8136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState(initialState, '', navHashForState(initialState));
     applyNavState(initialState);
     _scrollViewportToTop();
+    _restoreInitialMobileNavPosition(initialState.page || 'dashboard-page');
   } catch(e) {}
   document.documentElement.setAttribute('data-nav-ready', '1');
   // Start clock
