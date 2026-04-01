@@ -70,7 +70,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
-from engine.indicators import normalize_strategy_indicators
+from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.paper_trading import PaperTradingEngine
@@ -5879,8 +5879,13 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "validation": contract,
             }
 
+        execution_timeframe = infer_execution_timeframe(normalized_indicators, entry_conditions, default=5)
         try:
-            tf_spec = resolve_strategy_timeframe(normalized_indicators)
+            tf_spec = resolve_strategy_timeframe(
+                normalized_indicators,
+                default=execution_timeframe,
+                execution_hint=execution_timeframe,
+            )
         except ValueError as tf_err:
             return {"status": "error", "message": str(tf_err)}
         candle_interval = str(tf_spec.fetch)
@@ -6144,8 +6149,13 @@ async def live_start(req: LiveStartRequest, request: Request):
             "validation": contract,
         }
     strategy_dict["indicators"] = contract["normalized_indicators"]
+    execution_timeframe = infer_execution_timeframe(strategy_dict["indicators"], entry_conditions, default=5)
     try:
-        tf_spec = resolve_strategy_timeframe(strategy_dict["indicators"])
+        tf_spec = resolve_strategy_timeframe(
+            strategy_dict["indicators"],
+            default=execution_timeframe,
+            execution_hint=execution_timeframe,
+        )
     except ValueError as tf_err:
         return {"status": "error", "message": str(tf_err)}
     strategy_dict["strategy_id"] = int(strategy_dict.get("strategy_id") or req.strategy_id or 0)
@@ -6443,8 +6453,13 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
             "message": "Strategy validation failed:\n- " + "\n- ".join(contract["errors"]),
             "validation": contract,
         }
+    execution_timeframe = infer_execution_timeframe(normalized_indicators, entry_conditions, default=5)
     try:
-        tf_spec = resolve_strategy_timeframe(normalized_indicators)
+        tf_spec = resolve_strategy_timeframe(
+            normalized_indicators,
+            default=execution_timeframe,
+            execution_hint=execution_timeframe,
+        )
     except ValueError as tf_err:
         return {"status": "error", "message": str(tf_err)}
     # Configure strategy — pass ALL fields needed for SL/TP/strike logic

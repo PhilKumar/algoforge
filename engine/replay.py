@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from engine.backtest import inspect_condition_group
-from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
+from engine.indicators import compute_dynamic_indicators, infer_execution_timeframe, normalize_strategy_indicators
 from engine.timeframes import resolve_strategy_timeframe
 
 
@@ -43,12 +43,22 @@ def build_replay_frame(
         entry_conditions=entry_conditions or [],
         exit_conditions=exit_conditions or [],
     )
-    tf_spec = resolve_strategy_timeframe(normalized_indicators, default=default_timeframe_minutes)
+    execution_timeframe = infer_execution_timeframe(
+        normalized_indicators,
+        entry_conditions,
+        default=default_timeframe_minutes,
+    )
+    tf_spec = resolve_strategy_timeframe(
+        normalized_indicators,
+        default=execution_timeframe,
+        execution_hint=execution_timeframe,
+    )
     frame = compute_dynamic_indicators(
         raw_df.copy().sort_index(),
         normalized_indicators,
-        default_timeframe_minutes=tf_spec.requested,
+        default_timeframe_minutes=execution_timeframe,
         source_timeframe_minutes=source_timeframe_minutes or tf_spec.fetch,
+        execution_timeframe_minutes=execution_timeframe,
     )
     return frame, normalized_indicators, tf_spec
 

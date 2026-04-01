@@ -267,16 +267,20 @@
   function syncButtons() {
     const mode = installMode();
     buttons().forEach((btn) => {
+      const labelEl = btn.querySelector('.topbar-install-label, [data-install-label]');
       btn.hidden = mode === 'installed';
       btn.disabled = false;
       btn.dataset.installMode = mode;
       if (!btn.dataset.defaultLabel && !btn.classList.contains('icon-only') && btn.childElementCount === 0) {
         btn.dataset.defaultLabel = (btn.textContent || '').trim() || 'Install App';
       }
-      if (!btn.classList.contains('icon-only') && btn.childElementCount === 0) {
-        btn.textContent = mode === 'ios'
+      const nextLabel = mode === 'ios'
           ? 'Add to Home'
           : (mode === 'prompt' ? 'Install App' : 'Install Guide');
+      if (labelEl) {
+        labelEl.textContent = nextLabel;
+      } else if (!btn.classList.contains('icon-only') && btn.childElementCount === 0) {
+        btn.textContent = nextLabel;
       }
       if (mode === 'prompt') {
         btn.title = 'Install App';

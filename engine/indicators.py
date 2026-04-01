@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from engine.timeframes import resample_ohlcv, resolve_strategy_timeframe
+from engine.timeframes import collect_strategy_timeframes, resample_ohlcv, resolve_strategy_timeframe
 
 
 def _clean(s):
@@ -710,6 +710,49 @@ def normalize_strategy_indicators(
     return normalized
 
 
+def collect_condition_indicator_dependencies(
+    conditions: list[dict] | tuple[dict, ...] | None,
+    indicators: list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    dependencies: list[str] = []
+    seen: set[str] = set()
+    known_indicators = [indicator_id for indicator_id in indicators or [] if isinstance(indicator_id, str)]
+
+    for condition in conditions or []:
+        if not isinstance(condition, dict):
+            continue
+        for side in ("left", "right"):
+            dependency = _infer_indicator_dependency(condition.get(side), known_indicators)
+            if dependency and dependency not in seen:
+                dependencies.append(dependency)
+                seen.add(dependency)
+
+    return dependencies
+
+
+def infer_execution_timeframe(
+    indicators: list[str] | tuple[str, ...] | None,
+    entry_conditions: list[dict] | tuple[dict, ...] | None = None,
+    default: int = 5,
+) -> int:
+    explicit_indicators = [
+        indicator_id for indicator_id in indicators or [] if isinstance(indicator_id, str) and indicator_id
+    ]
+    entry_dependencies = collect_condition_indicator_dependencies(entry_conditions, explicit_indicators)
+    entry_frames = collect_strategy_timeframes(entry_dependencies)
+    if entry_frames:
+        return min(entry_frames)
+
+    explicit_frames = collect_strategy_timeframes(explicit_indicators)
+    if len(explicit_frames) == 1:
+        return explicit_frames[0]
+    if default and int(default) > 0:
+        return int(default)
+    if explicit_frames:
+        return min(explicit_frames)
+    return 5
+
+
 def merge_indicator_context(
     raw_df: pd.DataFrame,
     context_df: pd.DataFrame | None,
@@ -978,6 +1021,7 @@ def compute_dynamic_indicators(
     ui_indicators: list,
     default_timeframe_minutes: int = 5,
     source_timeframe_minutes: int | None = None,
+    execution_timeframe_minutes: int | None = None,
 ) -> pd.DataFrame:
     """
     Compute indicators across one or more strategy timeframes and align them to the
@@ -988,7 +1032,10 @@ def compute_dynamic_indicators(
 
     raw_df = df.copy().sort_index()
     source_tf = source_timeframe_minutes or _infer_timeframe_minutes(raw_df) or default_timeframe_minutes
-    tf_spec = resolve_strategy_timeframe(ui_indicators, default=default_timeframe_minutes)
+    execution_hint = int(execution_timeframe_minutes or 0) or None
+    tf_spec = resolve_strategy_timeframe(
+        ui_indicators, default=default_timeframe_minutes, execution_hint=execution_hint
+    )
     execution_tf = tf_spec.requested
 
     if _is_intraday(raw_df) and execution_tf != source_tf:

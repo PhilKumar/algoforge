@@ -76,21 +76,26 @@ def get_common_fetch_timeframe(requested_frames: Sequence[int]) -> int:
 
 
 def resolve_strategy_timeframe(
-    indicators: Sequence[str] | None, default: int = DEFAULT_TIMEFRAME_MINUTES
+    indicators: Sequence[str] | None,
+    default: int = DEFAULT_TIMEFRAME_MINUTES,
+    *,
+    execution_hint: int | None = None,
 ) -> TimeframeSpec:
     frames = collect_strategy_timeframes(indicators)
+    requested_hint = int(execution_hint or 0) or None
     if not frames:
-        fetch = get_fetch_timeframe(default)
+        requested = requested_hint or default
+        fetch = get_fetch_timeframe(requested)
         return TimeframeSpec(
-            requested=default,
+            requested=requested,
             fetch=fetch,
-            derived=default not in NATIVE_DHAN_INTERVALS,
-            all_frames=(default,),
-            derived_frames=((default,) if fetch != default else ()),
+            derived=requested not in NATIVE_DHAN_INTERVALS,
+            all_frames=(requested,),
+            derived_frames=((requested,) if fetch != requested else ()),
         )
-    requested = min(frames)
+    requested = requested_hint or min(frames)
     fetch = get_common_fetch_timeframe(frames)
-    derived_frames = tuple(tf for tf in frames if tf != fetch)
+    derived_frames = tuple(tf for tf in frames if tf != requested)
     return TimeframeSpec(
         requested=requested,
         fetch=fetch,
@@ -103,11 +108,11 @@ def resolve_strategy_timeframe(
 
 def describe_timeframe(spec: TimeframeSpec) -> str:
     if spec.mixed:
-        higher = [tf for tf in spec.all_frames if tf != spec.requested]
-        higher_label = ", ".join(f"{tf}m" for tf in higher)
+        other_frames = [tf for tf in spec.all_frames if tf != spec.requested]
+        other_label = ", ".join(f"{tf}m" for tf in other_frames)
         if spec.fetch != spec.requested:
-            return f"{spec.requested}m execution + {higher_label} context (from {spec.fetch}m raw candles)"
-        return f"{spec.requested}m execution + {higher_label} context"
+            return f"{spec.requested}m execution + {other_label} context (from {spec.fetch}m raw candles)"
+        return f"{spec.requested}m execution + {other_label} context"
     if spec.derived:
         return f"{spec.requested}m (derived from {spec.fetch}m)"
     return f"{spec.requested}m"
@@ -115,11 +120,11 @@ def describe_timeframe(spec: TimeframeSpec) -> str:
 
 def derived_timeframe_warning(spec: TimeframeSpec) -> str | None:
     if spec.mixed:
-        higher = [tf for tf in spec.all_frames if tf != spec.requested]
-        higher_label = ", ".join(f"{tf}m" for tf in higher)
+        other_frames = [tf for tf in spec.all_frames if tf != spec.requested]
+        other_label = ", ".join(f"{tf}m" for tf in other_frames)
         return (
             f"Strategy uses mixed timeframes. Execution runs on {spec.requested}m candles; "
-            f"higher-timeframe indicators ({higher_label}) are aligned using the last closed candle "
+            f"other indicator frames ({other_label}) are aligned using the last closed candle "
             f"and built from {spec.fetch}m Dhan data."
         )
     if not spec.derived:

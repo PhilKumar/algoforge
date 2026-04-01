@@ -9,6 +9,7 @@ from engine.indicators import (
     compute_dynamic_indicators,
     cpr,
     cpr_timeframe,
+    infer_execution_timeframe,
     normalize_strategy_indicators,
     yesterday_candle,
 )
@@ -41,6 +42,26 @@ class TimeframeRegressionTests(unittest.TestCase):
         self.assertTrue(spec.mixed)
         self.assertEqual(spec.all_frames, (3, 5))
 
+    def test_infer_execution_timeframe_ignores_exit_only_lower_indicator(self):
+        execution = infer_execution_timeframe(
+            ["EMA_17_5m", "RSI_14_5m", "Supertrend_10_2.7_3m"],
+            entry_conditions=[
+                {"left": "current_close", "operator": "is_above", "right": "EMA_17_5m"},
+                {"left": "RSI_14_5m", "operator": "is_above", "right": "number", "right_number_value": 60},
+            ],
+            default=5,
+        )
+        self.assertEqual(execution, 5)
+
+        spec = resolve_strategy_timeframe(
+            ["EMA_17_5m", "RSI_14_5m", "Supertrend_10_2.7_3m"],
+            default=execution,
+            execution_hint=execution,
+        )
+        self.assertEqual(spec.requested, 5)
+        self.assertEqual(spec.fetch, 1)
+        self.assertEqual(spec.all_frames, (3, 5))
+
     def test_mixed_timeframe_alignment_uses_last_closed_higher_frame(self):
         raw = _make_ohlcv("2026-03-18 09:15", list(range(100, 110)))
         result = compute_dynamic_indicators(
@@ -54,6 +75,19 @@ class TimeframeRegressionTests(unittest.TestCase):
         self.assertTrue(pd.isna(result.loc[pd.Timestamp("2026-03-18 09:15"), "SMA_1_5m"]))
         self.assertEqual(result.loc[pd.Timestamp("2026-03-18 09:18"), "SMA_1_5m"], 104)
         self.assertEqual(result.loc[pd.Timestamp("2026-03-18 09:21"), "SMA_1_5m"], 104)
+
+    def test_compute_dynamic_indicators_respects_explicit_execution_timeframe(self):
+        raw = _make_ohlcv("2026-03-18 09:15", list(range(100, 111)))
+        result = compute_dynamic_indicators(
+            raw,
+            ["SMA_1_3m", "SMA_1_5m"],
+            default_timeframe_minutes=5,
+            source_timeframe_minutes=1,
+            execution_timeframe_minutes=5,
+        )
+
+        self.assertEqual(list(result.index.strftime("%H:%M")), ["09:15", "09:20"])
+        self.assertEqual(result.loc[pd.Timestamp("2026-03-18 09:20"), "SMA_1_3m"], 108)
 
     def test_drop_incomplete_candle_removes_forming_bar(self):
         raw = _make_ohlcv("2026-03-19 09:10", [100, 101], freq="5min")

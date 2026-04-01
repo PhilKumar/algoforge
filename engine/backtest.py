@@ -17,7 +17,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
-from engine.indicators import compute_dynamic_indicators, normalize_strategy_indicators
+from engine.indicators import compute_dynamic_indicators, infer_execution_timeframe, normalize_strategy_indicators
 from engine.strike_utils import round_to_nearest_step
 
 
@@ -694,6 +694,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         exit_conditions=exit_conditions,
     )
     sc["indicators"] = indicators
+    execution_timeframe = infer_execution_timeframe(
+        indicators,
+        entry_conditions,
+        default=int(sc.get("timeframe_minutes", 5) or 5),
+    )
+    sc["timeframe_minutes"] = execution_timeframe
     legs = sc.get("legs", []) or []
     option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
     instrument = sc.get("instrument", "26000")
@@ -711,8 +717,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     df = compute_dynamic_indicators(
         df_raw.copy(),
         indicators,
-        default_timeframe_minutes=int(sc.get("timeframe_minutes", 5) or 5),
+        default_timeframe_minutes=execution_timeframe,
         source_timeframe_minutes=int(sc.get("fetch_timeframe_minutes", 0) or 0) or None,
+        execution_timeframe_minutes=execution_timeframe,
     )
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
     entry_earliest = time(9, 20)

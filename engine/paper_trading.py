@@ -39,7 +39,12 @@ from engine.backtest import (
     get_strike_step,
     inspect_condition_group,
 )
-from engine.indicators import compute_dynamic_indicators, merge_indicator_context, normalize_strategy_indicators
+from engine.indicators import (
+    compute_dynamic_indicators,
+    infer_execution_timeframe,
+    merge_indicator_context,
+    normalize_strategy_indicators,
+)
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
     candle_close_time,
@@ -816,6 +821,7 @@ class PaperTradingEngine:
             indicators,
             default_timeframe_minutes=execution_timeframe,
             source_timeframe_minutes=fetch_timeframe,
+            execution_timeframe_minutes=execution_timeframe,
         )
         if df_with_indicators.empty:
             return df_with_indicators
@@ -1008,6 +1014,7 @@ class PaperTradingEngine:
                     indicators,
                     default_timeframe_minutes=execution_timeframe,
                     source_timeframe_minutes=fetch_timeframe,
+                    execution_timeframe_minutes=execution_timeframe,
                 )
                 if not df_init.empty:
                     self.candle_buffer = df_init
@@ -1653,6 +1660,7 @@ class PaperTradingEngine:
             indicators,
             default_timeframe_minutes=execution_timeframe,
             source_timeframe_minutes=tf_spec.fetch,
+            execution_timeframe_minutes=execution_timeframe,
         )
         self._latest_raw_candles = df_raw.tail(500).copy()
 
@@ -2243,7 +2251,16 @@ class PaperTradingEngine:
 
     def _get_timeframe_spec(self):
         default = int(self.strategy.get("timeframe_minutes", 5) or 5)
-        return resolve_strategy_timeframe(self.strategy.get("indicators", []), default=default)
+        execution_timeframe = infer_execution_timeframe(
+            self.strategy.get("indicators", []),
+            self.entry_conditions,
+            default=default,
+        )
+        return resolve_strategy_timeframe(
+            self.strategy.get("indicators", []),
+            default=execution_timeframe,
+            execution_hint=execution_timeframe,
+        )
 
     def _get_timeframe(self) -> int:
         """Extract the execution timeframe from strategy indicators."""
