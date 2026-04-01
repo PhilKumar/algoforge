@@ -6767,12 +6767,20 @@
             <div class="settings-meta-label">Dhan Saved IP</div>
             <div class="settings-meta-value" id="account-ip-dhan" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
           </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Dhan Detected IP</div>
+            <div class="settings-meta-value" id="account-ip-detected" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Order Status</div>
+            <div class="settings-meta-value" id="account-ip-orders">—</div>
+          </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <span class="status-chip warn" id="account-ip-status-chip">Checking</span>
-          <span class="settings-status-line" id="account-ip-status-line" style="margin-top:0;">Comparing the server public IP with Dhan&apos;s saved static IP…</span>
+          <span class="settings-status-line" id="account-ip-status-line" style="margin-top:0;">Comparing the server public IP with Dhan&apos;s actual detected order IP…</span>
         </div>
-        <div class="settings-hint" id="account-ip-hint">If these two IPs do not match, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.</div>
+        <div class="settings-hint" id="account-ip-hint">If Dhan&apos;s detected IP does not match the saved static IP, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.</div>
         <div class="modal-grid" style="margin-top:14px;">
           <div>
             <label for="account-broker-client-id">Dhan Client ID</label>
@@ -7143,16 +7151,20 @@ async function loadExecutionIpStatus(silent = true) {
   const clientEl = document.getElementById('account-ip-client');
   const serverEl = document.getElementById('account-ip-server');
   const dhanEl = document.getElementById('account-ip-dhan');
+  const detectedEl = document.getElementById('account-ip-detected');
+  const ordersEl = document.getElementById('account-ip-orders');
   const chipEl = document.getElementById('account-ip-status-chip');
   const statusEl = document.getElementById('account-ip-status-line');
   const hintEl = document.getElementById('account-ip-hint');
-  if (!sourceEl || !clientEl || !serverEl || !dhanEl || !chipEl || !statusEl || !hintEl) return;
+  if (!sourceEl || !clientEl || !serverEl || !dhanEl || !detectedEl || !ordersEl || !chipEl || !statusEl || !hintEl) return;
 
   if (refreshBtn) refreshBtn.disabled = true;
   applyStatusChip(chipEl, 'Checking', 'warn');
-  statusEl.textContent = 'Comparing the server public IP with Dhan’s saved static IP…';
+  statusEl.textContent = 'Comparing the server public IP with Dhan’s actual detected order IP…';
   if (!serverEl.textContent || serverEl.textContent === '—') serverEl.textContent = 'Checking…';
   if (!dhanEl.textContent || dhanEl.textContent === '—') dhanEl.textContent = 'Checking…';
+  if (!detectedEl.textContent || detectedEl.textContent === '—') detectedEl.textContent = 'Checking…';
+  if (!ordersEl.textContent || ordersEl.textContent === '—') ordersEl.textContent = 'Checking…';
 
   try {
     const res = await fetch('/api/user/execution-ip-status');
@@ -7164,14 +7176,20 @@ async function loadExecutionIpStatus(silent = true) {
     clientEl.textContent = data.client_id_masked || '—';
     serverEl.textContent = data.server_public_ip || '—';
     dhanEl.textContent = data.dhan_saved_ip || '—';
+    detectedEl.textContent = data.dhan_detected_ip || '—';
+    ordersEl.textContent = data.orders_allowed === true ? 'Allowed' : data.orders_allowed === false ? 'Blocked' : 'Unknown';
 
     let chipTone = 'warn';
     let chipText = 'Needs Review';
     let statusText = data.error || data.warning || 'Execution IP status loaded.';
     if (data.match) {
       chipTone = 'success';
-      chipText = 'IP Match';
-      statusText = `Server IP ${data.server_public_ip} matches Dhan saved IP ${data.dhan_saved_ip}.`;
+      chipText = 'Orders Allowed';
+      statusText = `Dhan currently detects ${data.dhan_detected_ip || data.server_public_ip} and orders are allowed for this broker account.`;
+    } else if (data.orders_allowed === false && data.dhan_detected_ip && data.dhan_saved_ip) {
+      chipTone = 'danger';
+      chipText = 'Detected IP Mismatch';
+      statusText = `Dhan detects ${data.dhan_detected_ip}, but the saved static IP is ${data.dhan_saved_ip}.`;
     } else if (data.server_public_ip && data.dhan_saved_ip) {
       chipTone = 'danger';
       chipText = 'IP Mismatch';
@@ -7186,6 +7204,8 @@ async function loadExecutionIpStatus(silent = true) {
     const checkedAt = formatDateTimeLabel(data.checked_at);
     if (data.match) {
       hintEl.innerHTML = `Dhan static-IP check passed for this account. Checked ${escapeHtml(checkedAt)}.`;
+    } else if (data.orders_allowed === false && data.dhan_detected_ip && data.dhan_saved_ip) {
+      hintEl.innerHTML = `Dhan is currently seeing <strong>${escapeHtml(data.dhan_detected_ip)}</strong> for outbound orders, but this account has <strong>${escapeHtml(data.dhan_saved_ip)}</strong> saved. This usually means the server is reaching Dhan over IPv6 while the whitelisted static IP is IPv4. Checked ${escapeHtml(checkedAt)}.`;
     } else if (data.server_public_ip && data.dhan_saved_ip) {
       hintEl.innerHTML = `Update Dhan so the saved IP exactly matches the server public IP above, otherwise order APIs can fail with <strong>DH-905 Invalid IP</strong>. Checked ${escapeHtml(checkedAt)}.`;
     } else if (data.error) {
@@ -7226,9 +7246,11 @@ async function loadUserProfile(silent = true) {
     document.getElementById('account-ip-client').textContent = broker.client_id_masked || '—';
     document.getElementById('account-ip-server').textContent = 'Checking…';
     document.getElementById('account-ip-dhan').textContent = 'Checking…';
+    document.getElementById('account-ip-detected').textContent = 'Checking…';
+    document.getElementById('account-ip-orders').textContent = 'Checking…';
     applyStatusChip(document.getElementById('account-ip-status-chip'), 'Checking', 'warn');
-    document.getElementById('account-ip-status-line').textContent = 'Comparing the server public IP with Dhan’s saved static IP…';
-    document.getElementById('account-ip-hint').innerHTML = 'If these two IPs do not match, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.';
+    document.getElementById('account-ip-status-line').textContent = 'Comparing the server public IP with Dhan’s actual detected order IP…';
+    document.getElementById('account-ip-hint').innerHTML = 'If Dhan’s detected IP does not match the saved static IP, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.';
 
     let chipTone = 'warn';
     let chipText = 'Broker Missing';

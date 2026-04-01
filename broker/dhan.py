@@ -10,6 +10,7 @@ import csv
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time as _time
@@ -21,6 +22,7 @@ import httpx
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3.util import connection as urllib3_connection
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
@@ -158,14 +160,36 @@ def round_to_tick(price: float, tick_size: float = 0.05) -> float:
 # ══════════════════════════════════════════════════════════════
 #  Persistent HTTP Session (keeps TCP+TLS warm to Dhan servers)
 # ══════════════════════════════════════════════════════════════
+class _IPv4HTTPAdapter(HTTPAdapter):
+    """Force IPv4 resolution for API hosts that reject the server's IPv6 egress."""
+
+    _send_lock = threading.Lock()
+
+    def send(self, request, *args, **kwargs):
+        with self._send_lock:
+            original_allowed_gai_family = urllib3_connection.allowed_gai_family
+            urllib3_connection.allowed_gai_family = lambda: socket.AF_INET
+            try:
+                return super().send(request, *args, **kwargs)
+            finally:
+                urllib3_connection.allowed_gai_family = original_allowed_gai_family
+
+
 _http_session = requests.Session()
 _adapter = HTTPAdapter(
     pool_connections=4,  # 4 parallel connection pools
     pool_maxsize=10,  # 10 connections per pool
     max_retries=0,  # we handle retries ourselves
 )
+_ipv4_adapter = _IPv4HTTPAdapter(
+    pool_connections=4,
+    pool_maxsize=10,
+    max_retries=0,
+)
 _http_session.mount("https://", _adapter)
 _http_session.mount("http://", _adapter)
+_http_session.mount("https://api.dhan.co/", _ipv4_adapter)
+_http_session.mount("http://api.dhan.co/", _ipv4_adapter)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -175,6 +199,7 @@ _http_session.mount("http://", _adapter)
 _async_transport = httpx.AsyncHTTPTransport(
     retries=0,  # we handle retries ourselves
     http2=True,  # HTTP/2 multiplexing — one TLS conn, many streams
+    local_address="0.0.0.0",  # nosec B104 - outbound-only IPv4 preference for Dhan requests
     limits=httpx.Limits(
         max_connections=20,
         max_keepalive_connections=10,

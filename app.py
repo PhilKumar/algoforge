@@ -1533,11 +1533,20 @@ def _extract_ip_from_text(value: str) -> str:
     return match.group(0) if match else ""
 
 
+def _clean_ip_literal(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or text.upper() == "NA":
+        return ""
+    return text
+
+
 def _extract_ip_from_payload(payload) -> str:
     if isinstance(payload, str):
         return _extract_ip_from_text(payload)
     if isinstance(payload, dict):
         preferred_keys = (
+            "primaryIP",
+            "primaryIp",
             "ip",
             "savedIp",
             "saved_ip",
@@ -1642,6 +1651,9 @@ def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | No
         "check_ready": bool(broker_client and client_id and access_token),
         "server_public_ip": "",
         "dhan_saved_ip": "",
+        "dhan_detected_ip": "",
+        "dhan_ip_match_status": "",
+        "orders_allowed": None,
         "match": False,
         "warning": "",
         "error": "",
@@ -1663,17 +1675,41 @@ def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | No
         status["warning"] = server_error
 
     dhan_payload, dhan_error = _get_cached_dhan_saved_ip_payload(broker_client)
-    status["dhan_saved_ip"] = _extract_ip_from_payload(dhan_payload)
+    status["dhan_saved_ip"] = _clean_ip_literal(
+        dhan_payload.get("primaryIP") or dhan_payload.get("savedIp") or _extract_ip_from_payload(dhan_payload)
+    )
+    status["dhan_detected_ip"] = _clean_ip_literal(dhan_payload.get("detectedIP"))
+    status["dhan_ip_match_status"] = str(dhan_payload.get("ipMatchStatus") or "").strip().upper()
+    if "ordersAllowed" in dhan_payload:
+        try:
+            status["orders_allowed"] = bool(dhan_payload.get("ordersAllowed"))
+        except Exception:
+            status["orders_allowed"] = None
     if dhan_error:
         status["error"] = dhan_error
     elif not status["dhan_saved_ip"]:
         status["error"] = "Dhan did not return a whitelisted IP for this account."
 
-    status["match"] = bool(
-        status["server_public_ip"] and status["dhan_saved_ip"] and status["server_public_ip"] == status["dhan_saved_ip"]
-    )
-    if not status["match"] and status["server_public_ip"] and status["dhan_saved_ip"] and not status["error"]:
-        status["warning"] = "Server public IP and Dhan static IP do not match yet."
+    if status["dhan_ip_match_status"]:
+        status["match"] = status["dhan_ip_match_status"] == "MATCH" and status["orders_allowed"] is not False
+    else:
+        status["match"] = bool(
+            status["server_public_ip"]
+            and status["dhan_saved_ip"]
+            and status["server_public_ip"] == status["dhan_saved_ip"]
+        )
+    if not status["match"] and not status["error"]:
+        if (
+            status["dhan_detected_ip"]
+            and status["dhan_saved_ip"]
+            and status["dhan_detected_ip"] != status["dhan_saved_ip"]
+        ):
+            status["warning"] = (
+                f"Dhan currently detects outbound IP {status['dhan_detected_ip']}, "
+                f"not the saved static IP {status['dhan_saved_ip']}."
+            )
+        elif status["server_public_ip"] and status["dhan_saved_ip"]:
+            status["warning"] = "Server public IP and Dhan static IP do not match yet."
     return status
 
 
