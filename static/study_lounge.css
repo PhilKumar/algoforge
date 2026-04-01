@@ -418,6 +418,11 @@ body::after {
   border-color: rgba(251,191,36,0.24);
 }
 
+.type-pill.audio {
+  color: var(--accent-purple);
+  border-color: rgba(167,139,250,0.24);
+}
+
 .type-pill.file {
   color: var(--accent-blue);
   border-color: rgba(79,142,247,0.24);
@@ -477,6 +482,49 @@ body::after {
   min-height: 540px;
   border: none;
   background: #0b1220;
+}
+
+.audio-stage {
+  min-height: 540px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 20px;
+  padding: 32px;
+  text-align: center;
+}
+
+.audio-orb {
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 32%, rgba(255,255,255,0.32), transparent 34%),
+    radial-gradient(circle at center, rgba(167, 139, 250, 0.44), rgba(79, 142, 247, 0.16) 55%, transparent 74%);
+  box-shadow: 0 0 0 14px rgba(167, 139, 250, 0.05), 0 24px 48px rgba(0,0,0,0.26);
+}
+
+.audio-copy {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.audio-copy h3 {
+  margin: 0;
+  font-family: 'Syne', sans-serif;
+  font-size: 32px;
+  letter-spacing: -0.04em;
+}
+
+.audio-copy p {
+  margin: 0;
+  color: var(--muted-strong);
+  line-height: 1.7;
+}
+
+.audio-stage audio {
+  width: min(100%, 480px);
 }
 
 .filter-chip {
@@ -559,7 +607,8 @@ body::after {
   .preview-shell,
   .preview-empty,
   .preview-shell iframe,
-  .preview-shell video {
+  .preview-shell video,
+  .audio-stage {
     min-height: 380px;
   }
 }

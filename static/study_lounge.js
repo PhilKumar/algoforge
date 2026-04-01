@@ -42,7 +42,7 @@ function toggleTheme() {
 function applyFeatured(item) {
   $('featured-title').textContent = item?.title || 'No study assets yet';
   $('featured-kind').textContent = item?.kind_label || 'NotebookLM';
-  $('featured-description').textContent = item?.description || 'Drop NotebookLM videos and decks into the study folders to populate this page.';
+  $('featured-description').textContent = item?.description || 'Drop NotebookLM videos, decks, and audio briefs into the study folders to populate this page.';
   $('featured-category').textContent = item?.category || 'General';
   $('featured-date').textContent = item?.modified_label || '--';
   $('featured-size').textContent = item?.size_label || '--';
@@ -55,11 +55,11 @@ function applyFeatured(item) {
 }
 
 function renderPreview(item) {
-  $('preview-title').textContent = item?.title || 'Select a deck or video';
+  $('preview-title').textContent = item?.title || 'Select a deck, video, or audio brief';
   $('preview-kind').textContent = item?.kind_label || 'Preview';
   const shell = $('preview-shell');
   if (!item) {
-    shell.innerHTML = '<div class="preview-empty">Your selected NotebookLM deck or video will open here.</div>';
+    shell.innerHTML = '<div class="preview-empty">Your selected NotebookLM deck, video, or audio brief will open here.</div>';
     return;
   }
   if (item.kind === 'video') {
@@ -69,6 +69,20 @@ function renderPreview(item) {
   if (item.kind === 'deck') {
     const pdfUrl = `${item.preview_url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
     shell.innerHTML = `<iframe src="${escapeHtml(pdfUrl)}" title="${escapeHtml(item.title)}"></iframe>`;
+    return;
+  }
+  if (item.kind === 'audio') {
+    shell.innerHTML = `
+      <div class="audio-stage">
+        <div class="audio-orb"></div>
+        <div class="audio-copy">
+          <span class="eyebrow">Audio Brief</span>
+          <h3>${escapeHtml(item.title)}</h3>
+          <p>${escapeHtml(item.description)}</p>
+        </div>
+        <audio controls preload="metadata" src="${escapeHtml(item.preview_url)}"></audio>
+      </div>
+    `;
     return;
   }
   shell.innerHTML = `<div class="preview-empty">This asset can be downloaded from the library card.</div>`;
@@ -88,11 +102,13 @@ function renderTypeFilters() {
     all: state.items.length,
     video: state.items.filter((item) => item.kind === 'video').length,
     deck: state.items.filter((item) => item.kind === 'deck').length,
+    audio: state.items.filter((item) => item.kind === 'audio').length,
   };
   const labels = {
     all: 'All Assets',
     video: 'Videos',
     deck: 'Decks',
+    audio: 'Audio',
   };
   container.innerHTML = Object.entries(labels).map(([kind, label]) => `
     <button class="filter-chip ${state.kindFilter === kind ? 'active' : ''}" type="button" data-kind="${kind}">
