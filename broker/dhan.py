@@ -1510,6 +1510,27 @@ class DhanClient:
         except requests.exceptions.ConnectionError:
             raise Exception("Connection error - unable to reach Dhan servers")
 
+    def get_whitelisted_ip(self) -> dict:
+        """Return the static IP currently saved in Dhan for this client."""
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not configured")
+
+        resp = _request_with_retry(
+            "GET",
+            f"{self.base_url}/v2/ip/getIP",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code != 200:
+            raise Exception(f"IP lookup failed {resp.status_code}: {resp.text[:200]}")
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": resp.text}
+        return payload if isinstance(payload, dict) else {"data": payload}
+
     def get_ltp(self, security_ids: list, exchange_segment: str = "NSE_EQ") -> dict:
         """Get Last Traded Price for given securities"""
         # Dhan API requires security IDs as integers

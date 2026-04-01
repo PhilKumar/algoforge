@@ -47,6 +47,7 @@ except ImportError:
     _PROMETHEUS_ENABLED = False
 
 import pandas as pd
+import requests
 
 # ── Guaranteed path fix ───────────────────────────────────────────
 # inspect.getfile() works even when uvicorn reload corrupts __file__
@@ -1517,6 +1518,162 @@ def _mask_value(value: str, *, prefix: int = 3, suffix: int = 2) -> str:
     if len(text) <= prefix + suffix:
         return "•" * len(text)
     return f"{text[:prefix]}{'•' * max(4, len(text) - (prefix + suffix))}{text[-suffix:]}"
+
+
+_PUBLIC_IP_CACHE: dict[str, object] = {"value": "", "error": "", "expires": 0.0}
+_DHAN_IP_CACHE: dict[str, dict[str, object]] = {}
+_PUBLIC_IP_CACHE_TTL_SEC = 120.0
+_DHAN_IP_CACHE_TTL_SEC = 90.0
+_IP_TEXT_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+def _extract_ip_from_text(value: str) -> str:
+    match = _IP_TEXT_RE.search(str(value or ""))
+    return match.group(0) if match else ""
+
+
+def _extract_ip_from_payload(payload) -> str:
+    if isinstance(payload, str):
+        return _extract_ip_from_text(payload)
+    if isinstance(payload, dict):
+        preferred_keys = (
+            "ip",
+            "savedIp",
+            "saved_ip",
+            "whitelistedIp",
+            "whitelistedIP",
+            "staticIp",
+            "staticIP",
+            "publicIp",
+            "publicIP",
+            "userIp",
+            "userIP",
+            "egressIp",
+            "egressIP",
+        )
+        for key in preferred_keys:
+            value = payload.get(key)
+            ip = _extract_ip_from_payload(value)
+            if ip:
+                return ip
+        for value in payload.values():
+            ip = _extract_ip_from_payload(value)
+            if ip:
+                return ip
+        return ""
+    if isinstance(payload, list):
+        for item in payload:
+            ip = _extract_ip_from_payload(item)
+            if ip:
+                return ip
+    return ""
+
+
+def _execution_ip_source_label(source: str) -> str:
+    if source == "user":
+        return "Stored per-user broker account"
+    if source == "global":
+        return "Admin server fallback (.env)"
+    if source == "partial":
+        return "Partial broker credentials"
+    return "No active broker source"
+
+
+def _get_server_public_ip() -> tuple[str, str]:
+    now = time.time()
+    expires = float(_PUBLIC_IP_CACHE.get("expires") or 0.0)
+    if expires > now:
+        return str(_PUBLIC_IP_CACHE.get("value") or ""), str(_PUBLIC_IP_CACHE.get("error") or "")
+
+    providers = (
+        ("https://api.ipify.org?format=json", "json"),
+        ("https://checkip.amazonaws.com", "text"),
+        ("https://ifconfig.me/ip", "text"),
+    )
+    errors: list[str] = []
+    for url, mode in providers:
+        try:
+            resp = requests.get(url, timeout=4)
+            resp.raise_for_status()
+            if mode == "json":
+                ip = _extract_ip_from_payload(resp.json())
+            else:
+                ip = _extract_ip_from_text(resp.text)
+            if ip:
+                _PUBLIC_IP_CACHE.update({"value": ip, "error": "", "expires": now + _PUBLIC_IP_CACHE_TTL_SEC})
+                return ip, ""
+        except Exception as exc:
+            errors.append(str(exc))
+    error = errors[-1] if errors else "Unable to determine server public IP"
+    _PUBLIC_IP_CACHE.update({"value": "", "error": error, "expires": now + 20.0})
+    return "", error
+
+
+def _get_cached_dhan_saved_ip_payload(broker_client: DhanClient) -> tuple[dict, str]:
+    client_key = str(getattr(broker_client, "client_id", "") or "").strip() or "unknown"
+    cache_entry = _DHAN_IP_CACHE.get(client_key) or {}
+    now = time.time()
+    if float(cache_entry.get("expires") or 0.0) > now:
+        return dict(cache_entry.get("payload") or {}), str(cache_entry.get("error") or "")
+
+    payload: dict = {}
+    error = ""
+    try:
+        raw_payload = broker_client.get_whitelisted_ip()
+        payload = raw_payload if isinstance(raw_payload, dict) else {"data": raw_payload}
+    except Exception as exc:
+        error = str(exc)
+    _DHAN_IP_CACHE[client_key] = {
+        "payload": payload,
+        "error": error,
+        "expires": now + (_DHAN_IP_CACHE_TTL_SEC if not error else 20.0),
+    }
+    return payload, error
+
+
+def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | None, source: str) -> dict:
+    client_id = str(getattr(broker_client, "client_id", "") or "").strip()
+    access_token = str(getattr(broker_client, "access_token", "") or "").strip()
+    status = {
+        "source": source,
+        "source_label": _execution_ip_source_label(source),
+        "client_id_masked": _mask_value(client_id),
+        "check_ready": bool(broker_client and client_id and access_token),
+        "server_public_ip": "",
+        "dhan_saved_ip": "",
+        "match": False,
+        "warning": "",
+        "error": "",
+        "checked_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+    }
+
+    if not status["check_ready"]:
+        if source == "partial":
+            status["error"] = "Save both Dhan Client ID and Access Token before checking the static IP."
+        elif source == "missing":
+            status["error"] = "No broker account is active for this user right now."
+        else:
+            status["error"] = "Broker credentials are not ready for IP verification."
+        return status
+
+    server_public_ip, server_error = _get_server_public_ip()
+    status["server_public_ip"] = server_public_ip
+    if server_error:
+        status["warning"] = server_error
+
+    dhan_payload, dhan_error = _get_cached_dhan_saved_ip_payload(broker_client)
+    status["dhan_saved_ip"] = _extract_ip_from_payload(dhan_payload)
+    if dhan_error:
+        status["error"] = dhan_error
+    elif not status["dhan_saved_ip"]:
+        status["error"] = "Dhan did not return a whitelisted IP for this account."
+
+    status["match"] = bool(
+        status["server_public_ip"] and status["dhan_saved_ip"] and status["server_public_ip"] == status["dhan_saved_ip"]
+    )
+    if not status["match"] and status["server_public_ip"] and status["dhan_saved_ip"] and not status["error"]:
+        status["warning"] = "Server public IP and Dhan static IP do not match yet."
+    return status
 
 
 def _trade_mode_value(trade) -> str:
@@ -3417,6 +3574,15 @@ async def get_user_profile(request: Request):
         },
         "broker": _broker_profile_payload(user),
     }
+
+
+@app.get("/api/user/execution-ip-status")
+async def get_user_execution_ip_status(request: Request):
+    """Return the active broker source plus server-vs-Dhan static IP status."""
+    user = await _auth_mod.get_current_user(request)
+    broker_client, source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    status = await asyncio.to_thread(_build_execution_ip_status, user, broker_client, source)
+    return {"status": "ok", **status}
 
 
 @app.put("/api/user/broker")

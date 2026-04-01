@@ -2684,6 +2684,12 @@
     font-size: 12px;
     padding: 18px 14px;
   }
+  .mobile-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
   .settings-shell {
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
@@ -3568,6 +3574,7 @@
     /* -- Tables: horizontal scroll wrapper -- */
     table { min-width: 520px; }
     div[style*="overflow-x: auto"] { -webkit-overflow-scrolling: touch; }
+    .dash-table-wrap { display: none; }
     .trade-table-scroll { display: none; }
     .mobile-data-cards {
       display: grid;
@@ -5251,6 +5258,7 @@
         <tbody id="transactions-body"><tr><td colspan="11" class="dash-txn-empty">No recent transactions</td></tr></tbody>
       </table>
     </div>
+    <div id="transactions-mobile-cards" class="mobile-data-cards"></div>
     <div id="transactions-pagination" class="pagination-bar" style="display:none;"></div>
   </div>
 </div>
@@ -5640,7 +5648,7 @@
           <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
         </div>
       </div>
-      <div style="overflow-x: auto;">
+      <div class="trade-table-scroll">
         <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
           <thead>
             <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
@@ -6094,10 +6102,11 @@
         </thead>
         <tbody id="portfolio-trades-body">
           <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No trades executed today</td></tr>
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+      <div id="trade-log-mobile-cards" class="mobile-data-cards"></div>
     </div>
-  </div>
 
   <!-- Year-to-Date Performance (Monthly grid per year) -->
   <div class="card" style="padding: 20px; margin-bottom: 24px;">
@@ -6500,6 +6509,29 @@
           <span class="status-chip warn" id="account-broker-status-chip">Loading</span>
           <span class="settings-status-line" id="account-broker-status-line" style="margin-top:0;">Checking stored broker settings...</span>
         </div>
+        <div class="settings-meta-grid" style="margin-top:14px;margin-bottom:10px;">
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Execution Source</div>
+            <div class="settings-meta-value" id="account-ip-source">—</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Client ID</div>
+            <div class="settings-meta-value" id="account-ip-client" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Server Public IP</div>
+            <div class="settings-meta-value" id="account-ip-server" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
+          </div>
+          <div class="settings-meta-card">
+            <div class="settings-meta-label">Dhan Saved IP</div>
+            <div class="settings-meta-value" id="account-ip-dhan" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="status-chip warn" id="account-ip-status-chip">Checking</span>
+          <span class="settings-status-line" id="account-ip-status-line" style="margin-top:0;">Comparing the server public IP with Dhan&apos;s saved static IP…</span>
+        </div>
+        <div class="settings-hint" id="account-ip-hint">If these two IPs do not match, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.</div>
         <div class="modal-grid" style="margin-top:14px;">
           <div>
             <label for="account-broker-client-id">Dhan Client ID</label>
@@ -6521,12 +6553,13 @@
           </div>
         </div>
         <div class="settings-hint" id="account-broker-hint">
-          Save your own Dhan Client ID and Access Token here. This only affects your account on the multi-tenant branch.
+          Save your own Dhan Client ID and Access Token here. This only affects the current user account.
         </div>
         <div class="settings-actions-row">
           <button class="btn" id="account-broker-save-btn" onclick="saveBrokerSettings()">Save Broker Credentials</button>
           <button class="btn" id="account-broker-check-btn" onclick="checkBrokerFromSettings()" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
           <button class="btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
+          <button class="btn" id="account-ip-refresh-btn" onclick="loadExecutionIpStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Refresh IP Check</button>
         </div>
       </div>
 
@@ -6859,6 +6892,74 @@ function closeAccountModal() {
   document.getElementById('account-modal').classList.remove('open');
 }
 
+async function loadExecutionIpStatus(silent = true) {
+  const refreshBtn = document.getElementById('account-ip-refresh-btn');
+  const sourceEl = document.getElementById('account-ip-source');
+  const clientEl = document.getElementById('account-ip-client');
+  const serverEl = document.getElementById('account-ip-server');
+  const dhanEl = document.getElementById('account-ip-dhan');
+  const chipEl = document.getElementById('account-ip-status-chip');
+  const statusEl = document.getElementById('account-ip-status-line');
+  const hintEl = document.getElementById('account-ip-hint');
+  if (!sourceEl || !clientEl || !serverEl || !dhanEl || !chipEl || !statusEl || !hintEl) return;
+
+  if (refreshBtn) refreshBtn.disabled = true;
+  applyStatusChip(chipEl, 'Checking', 'warn');
+  statusEl.textContent = 'Comparing the server public IP with Dhan’s saved static IP…';
+  if (!serverEl.textContent || serverEl.textContent === '—') serverEl.textContent = 'Checking…';
+  if (!dhanEl.textContent || dhanEl.textContent === '—') dhanEl.textContent = 'Checking…';
+
+  try {
+    const res = await fetch('/api/user/execution-ip-status');
+    if (await handleUnauthorizedResponse(res)) return false;
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'IP check failed');
+
+    sourceEl.textContent = data.source_label || '—';
+    clientEl.textContent = data.client_id_masked || '—';
+    serverEl.textContent = data.server_public_ip || '—';
+    dhanEl.textContent = data.dhan_saved_ip || '—';
+
+    let chipTone = 'warn';
+    let chipText = 'Needs Review';
+    let statusText = data.error || data.warning || 'Execution IP status loaded.';
+    if (data.match) {
+      chipTone = 'success';
+      chipText = 'IP Match';
+      statusText = `Server IP ${data.server_public_ip} matches Dhan saved IP ${data.dhan_saved_ip}.`;
+    } else if (data.server_public_ip && data.dhan_saved_ip) {
+      chipTone = 'danger';
+      chipText = 'IP Mismatch';
+      statusText = `Server IP ${data.server_public_ip} does not match Dhan saved IP ${data.dhan_saved_ip}.`;
+    } else if (data.error) {
+      chipTone = data.check_ready ? 'danger' : 'warn';
+      chipText = data.check_ready ? 'Check Failed' : 'Not Ready';
+    }
+    applyStatusChip(chipEl, chipText, chipTone);
+    statusEl.textContent = statusText;
+
+    const checkedAt = formatDateTimeLabel(data.checked_at);
+    if (data.match) {
+      hintEl.innerHTML = `Dhan static-IP check passed for this account. Checked ${escapeHtml(checkedAt)}.`;
+    } else if (data.server_public_ip && data.dhan_saved_ip) {
+      hintEl.innerHTML = `Update Dhan so the saved IP exactly matches the server public IP above, otherwise order APIs can fail with <strong>DH-905 Invalid IP</strong>. Checked ${escapeHtml(checkedAt)}.`;
+    } else if (data.error) {
+      hintEl.innerHTML = `${escapeHtml(data.error)}${data.warning ? ' • ' + escapeHtml(data.warning) : ''}${checkedAt !== '—' ? ' • Checked ' + escapeHtml(checkedAt) : ''}`;
+    } else {
+      hintEl.innerHTML = `${escapeHtml(data.warning || 'Execution IP status loaded.')}${checkedAt !== '—' ? ' • Checked ' + escapeHtml(checkedAt) : ''}`;
+    }
+    return !!data.match;
+  } catch (e) {
+    applyStatusChip(chipEl, 'Check Failed', 'danger');
+    statusEl.textContent = e.message || 'Failed to load execution IP status';
+    hintEl.textContent = 'Open Account Settings on the production server and refresh the IP check after updating Dhan.';
+    if (!silent) toast(e.message || 'Failed to load execution IP status', 'danger');
+    return false;
+  } finally {
+    if (refreshBtn) refreshBtn.disabled = false;
+  }
+}
+
 async function loadUserProfile(silent = true) {
   try {
     const res = await fetch('/api/user/profile');
@@ -6876,6 +6977,13 @@ async function loadUserProfile(silent = true) {
     document.getElementById('account-broker-token').value = '';
     document.getElementById('account-broker-pin').value = '';
     document.getElementById('account-broker-totp').value = '';
+    document.getElementById('account-ip-source').textContent = broker.source === 'user' ? 'Stored per-user broker account' : broker.source === 'global' ? 'Admin server fallback (.env)' : broker.source === 'partial' ? 'Partial broker credentials' : 'No active broker source';
+    document.getElementById('account-ip-client').textContent = broker.client_id_masked || '—';
+    document.getElementById('account-ip-server').textContent = 'Checking…';
+    document.getElementById('account-ip-dhan').textContent = 'Checking…';
+    applyStatusChip(document.getElementById('account-ip-status-chip'), 'Checking', 'warn');
+    document.getElementById('account-ip-status-line').textContent = 'Comparing the server public IP with Dhan’s saved static IP…';
+    document.getElementById('account-ip-hint').innerHTML = 'If these two IPs do not match, Dhan order APIs can fail with <strong>DH-905 Invalid IP</strong>.';
 
     let chipTone = 'warn';
     let chipText = 'Broker Missing';
@@ -6919,6 +7027,8 @@ async function loadUserProfile(silent = true) {
     const locked = !!broker.manage_locked || !broker.encryption_ready;
     document.getElementById('account-broker-save-btn').disabled = locked;
     document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved && !broker.pin_saved && !broker.totp_saved);
+    document.getElementById('account-ip-refresh-btn').disabled = false;
+    loadExecutionIpStatus(true);
     if (!silent) toast('Account settings loaded', 'success', 2200);
   } catch (e) {
     if (!silent) toast(e.message || 'Failed to load account settings', 'danger');
@@ -7903,6 +8013,45 @@ function _truncName(name, max) {
   return name.length > max ? name.substring(0, max) + '...' : name;
 }
 
+function _buildRunCards(runs, opts = {}) {
+  if (!runs.length) return '<div class="mobile-data-card mobile-data-card-empty">No runs yet.</div>';
+  const showCheck = opts.checkboxes !== false;
+  return runs.map(r => {
+    const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
+    const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
+    const folderText = r.folder ? escapeHtml(r.folder) : '—';
+    const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
+    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="font-size:11px;color:var(--muted);">No folder</span>';
+    const selectHtml = showCheck ? `<label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}> Select</label>` : '';
+    return `<article class="mobile-data-card">
+      <div class="mobile-data-card-head">
+        <div>
+          <div class="mobile-data-card-title">${escapeHtml(r.run_name || 'Unnamed')}</div>
+          <div class="mobile-data-card-sub">${_getModeBadge(r.mode)} <span style="margin-left:6px;">${instName}</span></div>
+        </div>
+        <div class="mobile-data-card-value" style="color:${pnlColor};">${fmt(r.total_pnl || 0)}</div>
+      </div>
+      <div class="mobile-data-card-grid">
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Period</span><span class="mobile-data-card-text">${escapeHtml(r.from_date || '—')} → ${escapeHtml(r.to_date || '—')}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Trades</span><span class="mobile-data-card-text">${escapeHtml(String(r.trade_count || 0))}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Folder</span><span class="mobile-data-card-text">${folderText}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Mode</span><span class="mobile-data-card-text">${escapeHtml(String(r.mode || '—').toUpperCase())}</span></div>
+      </div>
+      <div class="mobile-card-actions">
+        ${selectHtml}
+        ${folderBadge}
+      </div>
+      <div class="mobile-card-actions">
+        <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size:11px;padding:6px 12px;">View</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size:11px;padding:6px 12px;">Copy&amp;Edit</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">Rename</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(245,158,11,0.15); --btn-color: #fbbf24; --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">Folder</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size:11px;padding:6px 12px;">Del</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
 function _buildRunsTable(runs, opts = {}) {
   if (!runs.length) return '';
   const showCheck = opts.checkboxes !== false;
@@ -7948,7 +8097,7 @@ function _buildRunsTable(runs, opts = {}) {
     </tr>`;
   });
   html += '</tbody></table>';
-  return html;
+  return `<div class="trade-table-scroll">${html}</div><div class="mobile-data-cards">${_buildRunCards(runs, opts)}</div>`;
 }
 
 function _showRenameInline(id) {
@@ -8414,8 +8563,54 @@ function _goDashboardTxnPage(page) {
   _renderDashboardTransactions();
 }
 
+function _formatDashboardTxnTime(value) {
+  if (!value) return '—';
+  const dt = new Date(value);
+  if (!Number.isNaN(dt.getTime())) {
+    return dt.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  }
+  return String(value);
+}
+
+function _dashboardTransactionCardHtml(txn) {
+  const dir = String(txn.transactionType || '—').replace(/_/g, ' ');
+  const dirColor = dir === 'BUY' ? 'var(--success)' : dir === 'SELL' ? 'var(--danger)' : 'var(--muted)';
+  const pnl = Number(txn.pnl || 0);
+  const chk = _selectedDashboardTxnKeys.has(txn.rowKey) ? ' checked' : '';
+  const actionHtml = txn.deletable
+    ? `<button class="btn btn-danger btn-sm" onclick="deleteDashboardTransaction('${escapeAttr(txn.rowKey)}')" style="font-size:11px;padding:6px 12px;">Del</button>`
+    : '<span style="font-size:11px;color:var(--muted);">Active</span>';
+  return `<article class="mobile-data-card">
+    <div class="mobile-data-card-head">
+      <div>
+        <div class="mobile-data-card-title">${escapeHtml(txn.symbol || '—')}</div>
+        <div class="mobile-data-card-sub">${_getModeBadge(txn.mode)} <span style="margin-left:6px;">${escapeHtml(dir)}</span></div>
+      </div>
+      <div class="mobile-data-card-value" style="color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${round2(pnl).toFixed(2)}</div>
+    </div>
+    <div class="mobile-data-card-grid">
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Entry</span><span class="mobile-data-card-text">${escapeHtml(_formatDashboardTxnTime(txn.entryTime))} · ₹${round2(txn.entryPrice || 0).toFixed(2)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Exit</span><span class="mobile-data-card-text">${escapeHtml(_formatDashboardTxnTime(txn.exitTime))} · ₹${round2(txn.exitPrice || 0).toFixed(2)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Qty</span><span class="mobile-data-card-text">${escapeHtml(txn.quantity)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Reason</span><span class="mobile-data-card-text">${escapeHtml(txn.reason || '—')}</span></div>
+    </div>
+    <div class="mobile-card-actions">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}> Select</label>
+      ${actionHtml}
+    </div>
+  </article>`;
+}
+
 function _renderDashboardTransactions(transactions = null) {
   const body = document.getElementById('transactions-body');
+  const cards = document.getElementById('transactions-mobile-cards');
   const pagEl = document.getElementById('transactions-pagination');
   if (!body) return;
 
@@ -8430,6 +8625,7 @@ function _renderDashboardTransactions(transactions = null) {
 
   if (!pageRows.length) {
     body.innerHTML = '<tr><td colspan="11" class="dash-txn-empty">' + (_dashboardTxnSearchQuery ? 'No matching transactions' : 'No recent transactions') + '</td></tr>';
+    if (cards) cards.innerHTML = '<div class="mobile-data-card mobile-data-card-empty">' + (_dashboardTxnSearchQuery ? 'No matching transactions' : 'No recent transactions') + '</div>';
     if (pagEl) {
       pagEl.style.display = 'none';
       pagEl.innerHTML = '';
@@ -8437,22 +8633,6 @@ function _renderDashboardTransactions(transactions = null) {
     _updateDashboardTransactionsBulkBar([]);
     return;
   }
-
-  const fmtTxnTime = (value) => {
-    if (!value) return '—';
-    const dt = new Date(value);
-    if (!Number.isNaN(dt.getTime())) {
-      return dt.toLocaleString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      });
-    }
-    return String(value);
-  };
 
   body.innerHTML = pageRows.map((txn) => {
     const dir = String(txn.transactionType || '—').replace(/_/g, ' ');
@@ -8470,8 +8650,8 @@ function _renderDashboardTransactions(transactions = null) {
             ${_getModeBadge(txn.mode)}
           </div>
         </td>
-        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(fmtTxnTime(txn.entryTime))}</td>
-        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(fmtTxnTime(txn.exitTime))}</td>
+        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(_formatDashboardTxnTime(txn.entryTime))}</td>
+        <td style="font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--text-dim);">${escapeHtml(_formatDashboardTxnTime(txn.exitTime))}</td>
         <td style="text-align:right;color:${dirColor};font-weight:700;">${escapeHtml(dir)}</td>
         <td style="text-align:right;font-family:'JetBrains Mono', monospace;">₹${round2(txn.entryPrice || 0).toFixed(2)}</td>
         <td style="text-align:right;font-family:'JetBrains Mono', monospace;">₹${round2(txn.exitPrice || 0).toFixed(2)}</td>
@@ -8482,6 +8662,7 @@ function _renderDashboardTransactions(transactions = null) {
       </tr>
     `;
   }).join('');
+  if (cards) cards.innerHTML = pageRows.map(_dashboardTransactionCardHtml).join('');
 
   if (pagEl) {
     const pHtml = _buildPagination(_dashboardTxnPage, filtered.length, _DASHBOARD_TXN_PER_PAGE, '_goDashboardTxnPage');
@@ -8529,6 +8710,39 @@ function _renderDashRuns() {
 }
 function _goDashPage(p) { _runsPageDash = p; _renderDashRuns(); }
 
+function _buildScalpRunCards(trades) {
+  if (!trades.length) return '<div class="mobile-data-card mobile-data-card-empty">No scalp trades found.</div>';
+  return trades.map(t => {
+    const pnl = Number(t.pnl || 0);
+    const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+    const fmtTime = (ts) => { if (!ts) return '—'; const s = String(ts); const m = s.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : s.slice(-8); };
+    const name = t.symbol || (t.underlying + ' ' + t.strike + t.option_type) || 'Unnamed';
+    const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
+    const runName = name + (entryDate ? ' ' + entryDate : '');
+    const chk = _selectedScalpRunIds.has(t.trade_id) ? ' checked' : '';
+    return `<article class="mobile-data-card">
+      <div class="mobile-data-card-head">
+        <div>
+          <div class="mobile-data-card-title">${escapeHtml(runName)}</div>
+          <div class="mobile-data-card-sub">${_getModeBadge('scalp')} <span style="margin-left:6px;">${escapeHtml(t.underlying || '—')}</span></div>
+        </div>
+        <div class="mobile-data-card-value" style="color:${pnlColor};">${fmt(pnl)}</div>
+      </div>
+      <div class="mobile-data-card-grid">
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Entry</span><span class="mobile-data-card-text">${escapeHtml(fmtTime(t.entry_time))}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Exit</span><span class="mobile-data-card-text">${escapeHtml(fmtTime(t.exit_time))}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Period</span><span class="mobile-data-card-text">${escapeHtml(t.exit_reason || '—')}</span></div>
+        <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Trade ID</span><span class="mobile-data-card-text">S${escapeHtml(t.trade_id)}</span></div>
+      </div>
+      <div class="mobile-card-actions">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}> Select</label>
+        <button class="btn btn-sm" onclick="viewScalpTrade(${t.trade_id})" style="font-size:11px;padding:6px 12px;">View</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteScalpTrade(${t.trade_id})" style="font-size:11px;padding:6px 12px;">Del</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
 async function _renderScalpRuns(container, emptyEl, pagEl) {
   try {
     const res = await fetch('/api/scalp/trades');
@@ -8548,8 +8762,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
     const start = (_scalpPage - 1) * _RUNS_PER_PAGE;
     const pageData = _scalpTradesCache.slice(start, start + _RUNS_PER_PAGE);
 
-    let html = '<div id="scalp-runs-bulk-bar" class="bulk-bar" style="display:none;"></div>';
-    html += `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
+    let tableHtml = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
         <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpRuns(this)"></th>
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
@@ -8563,7 +8776,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
       const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
       const runName = name + (entryDate ? ' ' + entryDate : '');
       const chk = _selectedScalpRunIds.has(t.trade_id) ? ' checked' : '';
-      html += `<tr style="border-bottom: 1px solid var(--border);">
+      tableHtml += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}></td>
         <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
         <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
@@ -8582,8 +8795,12 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
         </td>
       </tr>`;
     });
-    html += '</tbody></table>';
-    if (container) container.innerHTML = html;
+    tableHtml += '</tbody></table>';
+    if (container) {
+      container.innerHTML = '<div id="scalp-runs-bulk-bar" class="bulk-bar" style="display:none;"></div>'
+        + `<div class="trade-table-scroll">${tableHtml}</div>`
+        + `<div class="mobile-data-cards">${_buildScalpRunCards(pageData)}</div>`;
+    }
     if (pagEl) {
       const pHtml = _buildPagination(_scalpPage, total, _RUNS_PER_PAGE, '_goScalpPage');
       if (pHtml) { pagEl.innerHTML = pHtml; pagEl.style.display = 'flex'; } else { pagEl.style.display = 'none'; }
@@ -12408,6 +12625,36 @@ function _getFilteredTrades() {
   return trades;
 }
 
+function _tradeLogCardHtml(t) {
+  const isWin = Number(t.pnl || 0) >= 0;
+  const sk = t.strike || 'NIFTY';
+  const qty = t.qty || '-';
+  const txn = t.txn_type || 'BUY';
+  const entryTime = t.entry_time ? String(t.entry_time).substring(11, 16) || t.entry_time : '';
+  const exitTime = t.exit_time ? String(t.exit_time).substring(11, 16) || t.exit_time : '';
+  const entryDate = t.entry_time ? String(t.entry_time).substring(0, 10) : '';
+  const exitDate = t.exit_time ? String(t.exit_time).substring(0, 10) : '';
+  const dirColor = txn === 'BUY' ? 'var(--success)' : 'var(--danger)';
+  const reasonText = String(t.exit_reason || '').replace(/_/g, ' ') || '—';
+  return `<article class="mobile-data-card">
+    <div class="mobile-data-card-head">
+      <div>
+        <div class="mobile-data-card-title">${escapeHtml(sk)}</div>
+        <div class="mobile-data-card-sub"><span style="color:${dirColor};font-weight:700;">${escapeHtml(txn)}</span> · #${escapeHtml(t.id)}</div>
+      </div>
+      <div class="mobile-data-card-value" style="color:${isWin ? 'var(--success)' : 'var(--danger)'}">${isWin ? '+' : ''}${fmt(t.pnl)}</div>
+    </div>
+    <div class="mobile-data-card-grid">
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Entry</span><span class="mobile-data-card-text">${escapeHtml(entryDate)} ${escapeHtml(entryTime)} · ₹${Number(t.entry_price || 0).toFixed(2)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Exit</span><span class="mobile-data-card-text">${escapeHtml(exitDate)} ${escapeHtml(exitTime)} · ₹${Number(t.exit_price || 0).toFixed(2)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Qty</span><span class="mobile-data-card-text">${escapeHtml(qty)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Reason</span><span class="mobile-data-card-text">${escapeHtml(reasonText)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Cumulative</span><span class="mobile-data-card-text" style="color:${(t.cumulative || 0) >= 0 ? 'var(--success)' : 'var(--danger)'}">${fmt(t.cumulative)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Time</span><span class="mobile-data-card-text">${escapeHtml(entryTime)} → ${escapeHtml(exitTime)}</span></div>
+    </div>
+  </article>`;
+}
+
 function renderTradePage() {
   const PS=10, pg=window._tradePage;
   const trades = _getFilteredTrades();
@@ -12421,9 +12668,11 @@ function renderTradePage() {
     if (el) el.innerHTML = _tradeSortArrow(col);
   });
   const tbody=document.getElementById('trade-log-body');
+  const cards=document.getElementById('trade-log-mobile-cards');
   tbody.innerHTML='';
   if (!sl.length) {
     tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">No trades found</td></tr>';
+    if (cards) cards.innerHTML = '<div class="mobile-data-card mobile-data-card-empty">No trades found</div>';
   } else {
     tbody.innerHTML = sl.map(t => {
       const w=t.pnl>=0, sk=t.strike||'NIFTY', qty=t.qty||'-', txn=t.txn_type||'BUY';
@@ -12448,6 +12697,7 @@ function renderTradePage() {
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:${(t.cumulative||0)>=0?'var(--success)':'var(--danger)'};">${fmt(t.cumulative)}</td>
       </tr>`;
     }).join('');
+    if (cards) cards.innerHTML = sl.map(_tradeLogCardHtml).join('');
   }
   let pd=document.getElementById('trade-pagination');
   if(!pd){pd=document.createElement('div');pd.id='trade-pagination';pd.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);';const cardEl=tbody.closest('.card-glass')||tbody.closest('.card')||tbody.parentElement.parentElement;cardEl.appendChild(pd);}
