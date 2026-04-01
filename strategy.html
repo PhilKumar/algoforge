@@ -2404,19 +2404,25 @@
   .header-brand-panel::before,
   .header-brand-panel::after { display: none; }
   .header-brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 118px;
+    height: 118px;
     padding: 0;
-    border-radius: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.10), transparent 68%),
+      linear-gradient(160deg, rgba(16, 24, 39, 0.94), rgba(8, 15, 28, 0.94));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 34px rgba(0, 0, 0, 0.24);
   }
   .header-brand-mark::before { display: none; }
   .header-brand-logo {
-    width: 92px;
-    height: 92px;
-    border-radius: 18px;
-    background: center / cover no-repeat url('/static/logo.png?v=20260327-2');
-    filter: drop-shadow(0 2px 0 rgba(255,255,255,0.08)) drop-shadow(0 12px 18px rgba(0,0,0,0.22));
+    width: 82px;
+    height: 82px;
+    border-radius: 20px;
+    background: center / contain no-repeat url('/static/logo.png?v=20260327-2');
     display: block;
   }
   [data-theme="light"] .header-brand-logo {
@@ -3008,9 +3014,11 @@
     box-shadow: none !important;
   }
   [data-theme="light"] .header-brand-mark {
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
+    background:
+      radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.82), transparent 70%),
+      linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 251, 0.98));
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 12px 26px rgba(15, 23, 42, 0.10);
   }
   [data-theme="light"] .app-topbar {
     background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%);
@@ -3021,7 +3029,7 @@
   [data-theme="light"] .app-topbar::before { background: linear-gradient(90deg, transparent 5%, rgba(5,150,105,0.35) 30%, rgba(37,99,235,0.25) 70%, transparent 95%); }
   [data-theme="light"] .app-topbar::after { background: none; }
   [data-theme="light"] .header-brand-logo {
-    filter: drop-shadow(0 1px 0 rgba(255,255,255,0.7)) drop-shadow(0 10px 12px rgba(15,23,42,0.12));
+    filter: none;
   }
   [data-theme="light"] .topbar-brand-text { background: linear-gradient(130deg, #047857 0%, #1d4ed8 100%); -webkit-background-clip: text; background-clip: text; }
   [data-theme="light"] .topbar-ticker { background: rgba(248,250,252,0.84); border-color: rgba(148,163,184,0.16); }
@@ -3307,13 +3315,14 @@
       border-radius: 0;
     }
     .header-brand-mark {
-      padding: 0;
-      border-radius: 0;
+      width: 92px;
+      height: 92px;
+      border-radius: 22px;
     }
     .header-brand-logo {
-      width: 72px;
-      height: 72px;
-      border-radius: 12px;
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
     }
 
     /* -- Topbar: stack brand + clock, keep ticker visible -- */
@@ -7607,7 +7616,6 @@ function showPage(id, btn, options = {}) {
   document.getElementById(id).classList.add('active-page');
   const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
   if (activeBtn) activeBtn.classList.add('active');
-  if (activeBtn) requestAnimationFrame(() => _syncMobileActiveNavTab(activeBtn, previousPageId === id ? 'auto' : 'smooth'));
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
   // Stop scalp polling when leaving scalp page
