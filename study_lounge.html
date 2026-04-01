@@ -21,22 +21,24 @@
     }
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="/static/study_lounge.css?v=20260401-3">
+<link rel="stylesheet" href="/static/study_lounge.css?v=20260401-4">
 </head>
 <body>
   <div class="study-page">
     <header class="study-topbar">
-      <a class="brand-link" href="/" aria-label="Back to PhilForge dashboard">
-        <span class="brand-logo-shell">
-          <img src="/static/logo.png?v=20260327-2" alt="PhilForge" class="brand-logo theme-logo dark-variant">
-          <img src="/static/logolight.png?v=20260328-1" alt="PhilForge" class="brand-logo theme-logo light-variant">
-        </span>
+      <div class="brand-block">
+        <a class="brand-link" href="/" aria-label="Back to PhilForge dashboard">
+          <span class="brand-logo-shell">
+            <img src="/static/logo.png?v=20260327-2" alt="PhilForge" class="brand-logo theme-logo dark-variant">
+            <img src="/static/logolight.png?v=20260328-1" alt="PhilForge" class="brand-logo theme-logo light-variant">
+          </span>
+        </a>
         <span class="brand-copy">
           <span class="brand-kicker">Study Lounge</span>
           <strong class="brand-title">NotebookLM Library</strong>
           <span class="brand-sub">A calmer page for market study while trades develop.</span>
         </span>
-      </a>
+      </div>
       <div class="topbar-actions">
         <span class="status-chip" id="library-status">Scanning library…</span>
         <button class="shell-btn" data-install-app hidden>Install App</button>
@@ -61,23 +63,26 @@
           <p class="hero-copy">
             Use this page as a study break during live sessions: replay concepts, reset market psychology, and return with a cleaner head.
           </p>
-          <div class="ritual-grid">
-            <div class="ritual-card">
+            <div class="ritual-grid">
+              <div class="ritual-card">
+              <span class="ritual-icon ritual-reset">R1</span>
               <span class="ritual-label">Reset</span>
               <strong>Slow the loop</strong>
-              <p>Switch from trade management to market thinking for a few minutes.</p>
-            </div>
-            <div class="ritual-card">
+              <p>Step out of tick-by-tick urgency and reset your trading state.</p>
+              </div>
+              <div class="ritual-card">
+              <span class="ritual-icon ritual-replay">R2</span>
               <span class="ritual-label">Replay</span>
               <strong>Review one idea</strong>
-              <p>Rewatch one clip or skim one deck instead of doom-refreshing the chart.</p>
-            </div>
-            <div class="ritual-card">
+              <p>Open one focused lesson instead of doom-refreshing the terminal.</p>
+              </div>
+              <div class="ritual-card">
+              <span class="ritual-icon ritual-return">R3</span>
               <span class="ritual-label">Return</span>
               <strong>Come back sharper</strong>
-              <p>Re-enter the trading page with less noise and more context.</p>
+              <p>Re-enter the live screen with cleaner context and less emotional drag.</p>
+              </div>
             </div>
-          </div>
         </article>
 
         <article class="surface-card spotlight-card">
@@ -159,6 +164,6 @@
     </main>
   </div>
 
-  <script src="/static/study_lounge.js?v=20260401-1"></script>
+  <script src="/static/study_lounge.js?v=20260401-2"></script>
 </body>
 </html>

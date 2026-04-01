@@ -2993,6 +2993,9 @@
     flex-shrink: 0;
     z-index: 80;
   }
+  .nav-item-menu.menu-open {
+    z-index: 260;
+  }
   .nav-tab-menu {
     padding-right: 16px;
   }
@@ -3040,6 +3043,7 @@
     position: fixed;
     min-width: 0;
     max-width: calc(100vw - 24px);
+    z-index: 2200;
   }
   .nav-item-menu:hover .nav-submenu,
   .nav-item-menu.menu-open .nav-submenu,
@@ -3570,20 +3574,22 @@
       overflow-x: auto;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
-      position: static;
+      position: sticky;
+      top: calc(env(safe-area-inset-top) + 6px);
       left: auto;
       right: auto;
       bottom: auto;
-      z-index: auto;
-      padding: 0 8px;
+      z-index: 140;
+      padding: 8px 8px 10px;
       margin-top: 8px;
-      border: none;
-      border-radius: 0;
-      background: transparent;
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(11,16,30,0.96);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.24);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       scroll-snap-type: x proximity;
+      isolation: isolate;
     }
     .nav-bar::-webkit-scrollbar { display: none; }
     .nav-tabs {
@@ -3618,6 +3624,7 @@
     .nav-submenu.mobile-floating {
       border-radius: 18px;
       padding: 8px;
+      box-shadow: 0 22px 40px rgba(0,0,0,0.34);
     }
     .nav-subtab {
       padding: 9px 11px;
@@ -7717,6 +7724,7 @@ let _mobileNavSyncTimer = null;
 
 function closeInsightsMenu() {
   document.getElementById('nav-insights-wrap')?.classList.remove('menu-open');
+  document.body.classList.remove('insights-menu-open');
   const menu = document.getElementById('nav-insights-menu');
   if (!menu) return;
   menu.classList.remove('mobile-floating');
@@ -7753,7 +7761,8 @@ function toggleInsightsMenu(event) {
   closeInsightsMenu();
   if (shouldOpen) {
     wrap.classList.add('menu-open');
-    positionInsightsMenu();
+    document.body.classList.add('insights-menu-open');
+    requestAnimationFrame(positionInsightsMenu);
   }
 }
 
@@ -9293,6 +9302,7 @@ function _portfolioMonthlyTradeCardHtml(entry) {
 function _renderCompletedTradesBlock(trades, options = {}) {
   const total = Array.isArray(trades) ? trades.length : 0;
   const perPage = Math.max(1, Number(options.perPage || _LIVE_TRADES_PER_PAGE || 10));
+  const renderMobileCards = !!options.renderMobileCards;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const page = Math.max(1, Math.min(Number(options.page || 1), totalPages));
   const start = (page - 1) * perPage;
@@ -9301,9 +9311,6 @@ function _renderCompletedTradesBlock(trades, options = {}) {
   const tbodyHtml = total
     ? slice.map(_portfolioCompletedTradeRowHtml).join('')
     : `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">${escapeHtml(emptyMessage)}</td></tr>`;
-  const cardsHtml = total
-    ? slice.map(_portfolioCompletedTradeCardHtml).join('')
-    : `<div class="mobile-data-card mobile-data-card-empty">${escapeHtml(emptyMessage)}</div>`;
   const prevPage = Math.max(1, page - 1);
   const nextPage = Math.min(totalPages, page + 1);
   const pageTemplate = String(options.pageHandlerTemplate || '');
@@ -9328,7 +9335,7 @@ function _renderCompletedTradesBlock(trades, options = {}) {
         <tbody>${tbodyHtml}</tbody>
       </table>
     </div>
-    <div class="mobile-data-cards">${cardsHtml}</div>
+    ${renderMobileCards ? `<div class="mobile-data-cards">${total ? slice.map(_portfolioCompletedTradeCardHtml).join('') : `<div class="mobile-data-card mobile-data-card-empty">${escapeHtml(emptyMessage)}</div>`}</div>` : ''}
     ${pageBarHtml}
   </div>`;
 }

@@ -1,5 +1,6 @@
 const MARKET_MOVERS_REFRESH_MS = 30000;
 const MARKET_MOVERS_FETCH_TIMEOUT_MS = 12000;
+const MARKET_MOVERS_CACHE_KEY = 'philforge_market_movers_snapshot_v1';
 let moversNextRefreshAt = 0;
 let moversRefreshTimer = null;
 let latestPayload = null;
@@ -277,6 +278,38 @@ function renderIndustryList(items) {
     .join('');
 }
 
+function renderHeatmapSkeleton() {
+  const host = document.getElementById('heatmap-grid');
+  if (!host) return;
+  host.innerHTML = Array.from({ length: 12 }, (_, idx) => {
+    const cls = idx < 2 ? 'tile-xl' : idx < 8 ? 'tile-lg' : 'tile-sm';
+    return `<article class="heatmap-tile ${cls} heatmap-skeleton" aria-hidden="true"></article>`;
+  }).join('');
+}
+
+function renderRailSkeleton(containerId, count = 6) {
+  const host = document.getElementById(containerId);
+  if (!host) return;
+  host.innerHTML = Array.from({ length: count }, () => `
+    <div class="rail-row skeleton-row" aria-hidden="true"></div>
+  `).join('');
+}
+
+function renderIndustrySkeleton(count = 4) {
+  const host = document.getElementById('industry-list');
+  if (!host) return;
+  host.innerHTML = Array.from({ length: count }, () => `
+    <div class="industry-row skeleton-row" aria-hidden="true"></div>
+  `).join('');
+}
+
+function renderLoadingSkeleton() {
+  renderHeatmapSkeleton();
+  renderRailSkeleton('leaders-list');
+  renderRailSkeleton('laggards-list');
+  renderIndustrySkeleton();
+}
+
 function renderHeatmap(items) {
   const host = document.getElementById('heatmap-grid');
   if (!host) return;
@@ -316,6 +349,24 @@ function renderHeatmap(items) {
     .join('');
 }
 
+function saveSnapshot(payload) {
+  if (!payload || !Array.isArray(payload.items) || !payload.items.length) return;
+  try {
+    localStorage.setItem(MARKET_MOVERS_CACHE_KEY, JSON.stringify(payload));
+  } catch (e) {}
+}
+
+function loadCachedSnapshot() {
+  try {
+    const raw = localStorage.getItem(MARKET_MOVERS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && Array.isArray(parsed.items) && parsed.items.length ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function updateBreadth(payload, industryMoves) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   const breadth = payload.breadth || {};
@@ -342,6 +393,7 @@ function updateBreadth(payload, industryMoves) {
 
 function renderSnapshot(payload) {
   latestPayload = payload;
+  saveSnapshot(payload);
   const items = Array.isArray(payload.items) ? payload.items : [];
   const leaders = Array.isArray(payload.leaders) ? payload.leaders : [];
   const laggards = Array.isArray(payload.laggards) ? payload.laggards : [];
@@ -392,6 +444,7 @@ async function loadMarketMovers() {
     document.getElementById('page-message').textContent = latestPayload
       ? 'Unable to refresh right now. Showing the latest available snapshot.'
       : 'Unable to fetch market movers right now.';
+    if (!latestPayload) renderLoadingSkeleton();
   } finally {
     window.clearTimeout(timeoutId);
     marketMoversLoading = false;
@@ -403,6 +456,15 @@ async function loadMarketMovers() {
 function startMarketMovers() {
   applyMarketTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
   document.getElementById('theme-toggle')?.addEventListener('click', toggleMarketTheme);
+  const cached = loadCachedSnapshot();
+  if (cached) {
+    cached.stale = true;
+    renderSnapshot(cached);
+    document.getElementById('market-status').textContent = 'Refreshing snapshot...';
+    document.getElementById('market-source').textContent = 'Cached snapshot';
+  } else {
+    renderLoadingSkeleton();
+  }
   loadMarketMovers();
   moversRefreshTimer = window.setInterval(() => {
     if (document.visibilityState !== 'visible') return;
