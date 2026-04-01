@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -17,8 +18,43 @@ TYPE_META = {
 
 
 def _title_from_slug(slug: str) -> str:
+    slug = re.sub(r"[\s_-]*\(\d+\)$", "", slug).strip()
+    slug = re.sub(r"[\s_-]+alt$", "", slug, flags=re.IGNORECASE).strip()
     bits = [part for part in slug.replace("_", " ").replace("-", " ").split() if part]
     return " ".join(word.capitalize() for word in bits) or "Untitled Asset"
+
+
+def _dedupe_key(title: str, kind: str, category: str) -> tuple[str, str, str]:
+    normalized_title = re.sub(r"\s+", " ", title.strip()).lower()
+    return kind, category.strip().lower(), normalized_title
+
+
+def _dedupe_penalty(filename: str) -> int:
+    lower = filename.lower()
+    penalty = 0
+    if re.search(r"\(\d+\)", lower):
+        penalty += 3
+    if re.search(r"(^|[-_ ])alt($|[-_ .])", lower):
+        penalty += 2
+    if "copy" in lower:
+        penalty += 2
+    return penalty
+
+
+def _should_replace(existing: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    existing_rank = (
+        _dedupe_penalty(existing["filename"]),
+        -existing["size_bytes"],
+        -existing["modified_ts"],
+        len(existing["filename"]),
+    )
+    candidate_rank = (
+        _dedupe_penalty(candidate["filename"]),
+        -candidate["size_bytes"],
+        -candidate["modified_ts"],
+        len(candidate["filename"]),
+    )
+    return candidate_rank < existing_rank
 
 
 def _category_from_parts(parts: list[str]) -> str:
@@ -62,8 +98,7 @@ def _description_for_item(title: str, kind: str, category: str) -> str:
 
 def get_study_library(static_root: str) -> dict[str, Any]:
     base_dir = os.path.join(static_root, "notebooklm")
-    items: list[dict[str, Any]] = []
-    categories: dict[str, int] = {}
+    items_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     if os.path.isdir(base_dir):
         for root, _, files in os.walk(base_dir):
@@ -81,31 +116,36 @@ def get_study_library(static_root: str) -> dict[str, Any]:
                 category = _category_from_parts(
                     rel_parts[1:] if rel_parts[:1] in (["videos"], ["decks"], ["audio"]) else rel_parts
                 )
-                categories[category] = categories.get(category, 0) + 1
                 modified = datetime.fromtimestamp(stat.st_mtime)
-                items.append(
-                    {
-                        "id": rel_path.replace(os.sep, "__").replace(".", "_"),
-                        "title": title,
-                        "slug": slug,
-                        "kind": kind,
-                        "kind_label": TYPE_META[kind]["label"],
-                        "accent": TYPE_META[kind]["accent"],
-                        "category": category,
-                        "url": rel_url,
-                        "preview_url": rel_url,
-                        "download_url": rel_url,
-                        "filename": name,
-                        "size_bytes": stat.st_size,
-                        "size_label": _format_size(stat.st_size),
-                        "modified_ts": stat.st_mtime,
-                        "modified_label": modified.strftime("%d %b %Y"),
-                        "description": _description_for_item(title, kind, category),
-                        "is_previewable": kind in {"video", "deck", "audio"},
-                    }
-                )
+                item = {
+                    "id": rel_path.replace(os.sep, "__").replace(".", "_"),
+                    "title": title,
+                    "slug": slug,
+                    "kind": kind,
+                    "kind_label": TYPE_META[kind]["label"],
+                    "accent": TYPE_META[kind]["accent"],
+                    "category": category,
+                    "url": rel_url,
+                    "preview_url": rel_url,
+                    "download_url": rel_url,
+                    "filename": name,
+                    "size_bytes": stat.st_size,
+                    "size_label": _format_size(stat.st_size),
+                    "modified_ts": stat.st_mtime,
+                    "modified_label": modified.strftime("%d %b %Y"),
+                    "description": _description_for_item(title, kind, category),
+                    "is_previewable": kind in {"video", "deck", "audio"},
+                }
+                dedupe_key = _dedupe_key(title, kind, category)
+                existing = items_by_key.get(dedupe_key)
+                if existing is None or _should_replace(existing, item):
+                    items_by_key[dedupe_key] = item
 
+    items = list(items_by_key.values())
     items.sort(key=lambda item: item["modified_ts"], reverse=True)
+    categories: dict[str, int] = {}
+    for item in items:
+        categories[item["category"]] = categories.get(item["category"], 0) + 1
 
     featured = items[0] if items else None
     stats = {

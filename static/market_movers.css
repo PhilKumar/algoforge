@@ -37,6 +37,7 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   font-family: 'Outfit', sans-serif;
+  font-size: 15px;
   color: var(--text);
   background:
     radial-gradient(circle at 12% 18%, rgba(49, 212, 191, 0.10), transparent 24%),
@@ -220,13 +221,13 @@ body::after {
 }
 
 .brand-title {
-  font-size: clamp(1.38rem, 1.8vw, 1.78rem);
+  font-size: clamp(1.22rem, 1.55vw, 1.56rem);
   font-weight: 700;
 }
 
 .brand-sub {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .topbar-actions {
@@ -241,15 +242,26 @@ body::after {
 .meta-pill,
 .shell-btn {
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
   color: var(--muted-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 24px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+[data-theme="light"] .status-chip,
+[data-theme="light"] .meta-pill,
+[data-theme="light"] .shell-btn {
+  border-color: rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 247, 250, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 24px rgba(15, 23, 42, 0.08);
 }
 
 .status-chip,
 .meta-pill {
   padding: 10px 14px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -264,7 +276,7 @@ body::after {
   cursor: pointer;
   text-decoration: none;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
@@ -284,15 +296,17 @@ body::after {
 }
 
 .shell-btn-primary {
-  background: linear-gradient(135deg, rgba(49, 212, 191, 0.18), rgba(71, 153, 255, 0.15));
-  border-color: rgba(49, 212, 191, 0.25);
+  background: linear-gradient(180deg, rgba(49, 212, 191, 0.20), rgba(79, 142, 247, 0.14));
+  border-color: rgba(49, 212, 191, 0.28);
   color: #eafaf6;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 28px rgba(0, 0, 0, 0.18);
 }
 
 [data-theme="light"] .shell-btn-primary {
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.10), rgba(59, 130, 246, 0.10));
+  background: linear-gradient(180deg, rgba(232, 247, 243, 0.96), rgba(234, 243, 253, 0.94));
   border-color: rgba(15, 118, 110, 0.18);
   color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 12px 24px rgba(15, 23, 42, 0.08);
 }
 
 .movers-shell {
@@ -365,16 +379,16 @@ body::after {
 .card-heading h2,
 .rail-heading h3 {
   margin: 6px 0 0;
-  font-size: clamp(1.14rem, 1.5vw, 1.55rem);
+  font-size: clamp(1.04rem, 1.28vw, 1.34rem);
   line-height: 1;
 }
 
 .card-heading h2 {
-  font-size: clamp(1.02rem, 1.25vw, 1.28rem);
+  font-size: clamp(0.96rem, 1.08vw, 1.12rem);
 }
 
 .rail-heading h3 {
-  font-size: clamp(0.98rem, 1.1vw, 1.18rem);
+  font-size: clamp(0.94rem, 1vw, 1.06rem);
 }
 
 .sync-meta,
@@ -412,13 +426,13 @@ body::after {
 .pulse-label {
   display: block;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
 }
 
 .pulse-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(1.05rem, 1.4vw, 1.32rem);
+  font-size: clamp(0.98rem, 1.18vw, 1.16rem);
   font-weight: 700;
 }
 
@@ -490,14 +504,14 @@ body::after {
 .pulse-note strong {
   display: block;
   margin-top: 8px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--muted-strong);
 }
 
 .page-message {
   margin-top: 14px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .hero-card {
@@ -551,18 +565,18 @@ body::after {
 
 .hero-symbol {
   margin: 0 0 8px;
-  font-size: clamp(1.38rem, 2.15vw, 2rem);
+  font-size: clamp(1.2rem, 1.72vw, 1.62rem);
 }
 
 .hero-company {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .hero-change {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(1.02rem, 1.45vw, 1.28rem);
+  font-size: clamp(0.94rem, 1.12vw, 1.08rem);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -571,7 +585,7 @@ body::after {
   display: grid;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .hero-stats strong {
@@ -696,7 +710,7 @@ body::after {
 
 .tile-symbol {
   font-family: 'Syne', sans-serif;
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -727,13 +741,13 @@ body::after {
 
 .tile-price {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .tile-change {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
   align-self: flex-start;
@@ -744,7 +758,7 @@ body::after {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 10px;
-  font-size: 10.5px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.74);
 }
 
@@ -766,11 +780,11 @@ body::after {
 }
 
 .heatmap-tile.tile-xl .tile-symbol {
-  font-size: 1.06rem;
+  font-size: 0.98rem;
 }
 
 .heatmap-tile.tile-lg .tile-symbol {
-  font-size: 1rem;
+  font-size: 0.94rem;
 }
 
 .heatmap-tile.tile-sm .tile-company,
@@ -874,7 +888,7 @@ body::after {
 .rail-symbol,
 .industry-name {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -883,7 +897,7 @@ body::after {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -894,7 +908,7 @@ body::after {
 .rail-move,
 .industry-move {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -988,11 +1002,11 @@ body::after {
   }
 
   .brand-title {
-    font-size: 1.28rem;
+    font-size: 1.16rem;
   }
 
   .brand-sub {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .topbar-actions {

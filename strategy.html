@@ -2379,6 +2379,8 @@
     position: relative;
     padding-left: var(--brand-rail-space);
     margin-bottom: 12px;
+    z-index: 40;
+    overflow: visible;
   }
   .header-brand-panel {
     position: absolute;
@@ -2440,6 +2442,9 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: 45;
+    overflow: visible;
   }
   .app-topbar {
     display: flex;
@@ -2454,6 +2459,8 @@
     -webkit-backdrop-filter: blur(48px) saturate(1.5);
     box-shadow: 0 1px 0 var(--border-hi), 0 2px 16px rgba(0,0,0,0.35);
     position: relative;
+    z-index: 2;
+    overflow: visible;
     gap: 16px;
   }
   .app-topbar::before {
@@ -2905,6 +2912,9 @@
     border: 1px solid var(--border);
     border-top: none;
     backdrop-filter: blur(20px);
+    position: relative;
+    z-index: 2;
+    overflow: visible;
   }
   .expiry-chip {
     padding: 4px 12px;
@@ -2938,11 +2948,18 @@
     backdrop-filter: blur(40px);
     box-shadow: 0 8px 28px rgba(0,0,0,0.30);
     margin-bottom: 0;
+    position: relative;
+    z-index: 70;
+    overflow: visible;
+    isolation: isolate;
   }
   .nav-bar::before { display: none; }
   .nav-tabs {
     display: flex;
     gap: 0;
+    position: relative;
+    z-index: 1;
+    overflow: visible;
   }
   .nav-tab {
     background: none;
@@ -2974,6 +2991,7 @@
     position: relative;
     display: flex;
     flex-shrink: 0;
+    z-index: 80;
   }
   .nav-tab-menu {
     padding-right: 16px;
@@ -3016,7 +3034,12 @@
     transform: translateY(8px);
     pointer-events: none;
     transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
-    z-index: 25;
+    z-index: 140;
+  }
+  .nav-submenu.mobile-floating {
+    position: fixed;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
   }
   .nav-item-menu:hover .nav-submenu,
   .nav-item-menu.menu-open .nav-submenu,
@@ -3591,6 +3614,10 @@
       top: calc(100% + 6px);
       padding: 7px;
       border-radius: 16px;
+    }
+    .nav-submenu.mobile-floating {
+      border-radius: 18px;
+      padding: 8px;
     }
     .nav-subtab {
       padding: 9px 11px;
@@ -7670,6 +7697,31 @@ let _mobileNavSyncTimer = null;
 
 function closeInsightsMenu() {
   document.getElementById('nav-insights-wrap')?.classList.remove('menu-open');
+  const menu = document.getElementById('nav-insights-menu');
+  if (!menu) return;
+  menu.classList.remove('mobile-floating');
+  menu.style.removeProperty('left');
+  menu.style.removeProperty('top');
+  menu.style.removeProperty('right');
+  menu.style.removeProperty('width');
+}
+
+function positionInsightsMenu() {
+  const wrap = document.getElementById('nav-insights-wrap');
+  const trigger = document.getElementById('nav-insights');
+  const menu = document.getElementById('nav-insights-menu');
+  if (!wrap || !trigger || !menu || window.innerWidth > 767 || !wrap.classList.contains('menu-open')) {
+    return;
+  }
+  const rect = trigger.getBoundingClientRect();
+  const margin = 12;
+  const width = Math.min(250, window.innerWidth - (margin * 2));
+  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+  menu.classList.add('mobile-floating');
+  menu.style.left = `${left}px`;
+  menu.style.top = `${rect.bottom + 8}px`;
+  menu.style.right = 'auto';
+  menu.style.width = `${width}px`;
 }
 
 function toggleInsightsMenu(event) {
@@ -7679,7 +7731,10 @@ function toggleInsightsMenu(event) {
   if (!wrap) return;
   const shouldOpen = !wrap.classList.contains('menu-open');
   closeInsightsMenu();
-  if (shouldOpen) wrap.classList.add('menu-open');
+  if (shouldOpen) {
+    wrap.classList.add('menu-open');
+    positionInsightsMenu();
+  }
 }
 
 function _syncMobileActiveNavTab(targetBtn = null, behavior = 'smooth') {
@@ -7842,6 +7897,9 @@ window.addEventListener('orientationchange', () => {
   clearTimeout(_mobileNavSyncTimer);
   _mobileNavSyncTimer = setTimeout(() => _syncMobileActiveNavTab(), 140);
 });
+window.addEventListener('scroll', () => {
+  positionInsightsMenu();
+}, { passive: true });
 document.addEventListener('click', (event) => {
   if (!event.target.closest('#nav-insights-wrap')) closeInsightsMenu();
 });
