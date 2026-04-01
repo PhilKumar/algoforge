@@ -7847,6 +7847,16 @@ function _syncMobileActiveNavTab(targetBtn = null, behavior = 'smooth') {
   });
 }
 
+function _scrollViewportToTop() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  });
+}
+
 function buildNavState(page, extra = {}) {
   const state = { page };
   if (extra && typeof extra === 'object') Object.assign(state, extra);
@@ -7964,11 +7974,7 @@ function showPage(id, btn, options = {}) {
     }
   }
   if (options.scrollToTop !== false && previousPageId && previousPageId !== id) {
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-    });
+    _scrollViewportToTop();
   }
 }
 
@@ -8088,6 +8094,9 @@ function restoreExecutionSettings(source) {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+  try {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  } catch(e) { console.warn('scroll restoration setup failed:', e); }
   try { loadAuthContext(); } catch(e) { console.warn('loadAuthContext failed:', e); }
   loadTickerFromCache();
   try { updateTicker(); } catch(e) { console.warn('updateTicker failed:', e); }
@@ -8113,6 +8122,7 @@ document.addEventListener('DOMContentLoaded', () => {
       (savedTab && document.getElementById(savedTab) ? buildNavState(savedTab) : buildNavState('dashboard-page'));
     history.replaceState(initialState, '', navHashForState(initialState));
     applyNavState(initialState);
+    _scrollViewportToTop();
   } catch(e) {}
   document.documentElement.setAttribute('data-nav-ready', '1');
   // Start clock
@@ -15549,7 +15559,11 @@ async function loadDashboardSummary() {
     }
     _dashboardTransactionsCache = Array.isArray(d.recent_transactions) ? d.recent_transactions : [];
     _renderDashboardTransactions(_dashboardTransactionsCache);
-    refreshStrategyArsenalRunning();
+    if (Array.isArray(d.running_engines) && d.running_engines.length) {
+      renderRunningArsenal(d.running_engines);
+    } else {
+      refreshStrategyArsenalRunning();
+    }
   } catch(e) {
     console.warn('Dashboard summary failed:', e);
   }

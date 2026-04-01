@@ -4154,6 +4154,48 @@ async def dashboard_summary(request: Request):
     real_strats = [
         s for s in strats if not s.get("_placeholder") and str(s.get("run_name") or s.get("name") or "").strip()
     ]
+    strategy_by_id = {int(s.get("id") or 0): s for s in real_strats if int(s.get("id") or 0)}
+    strategy_name_matches: dict[str, list[dict]] = defaultdict(list)
+    for strategy in real_strats:
+        strategy_name = str(strategy.get("run_name") or strategy.get("name") or "").strip().casefold()
+        if strategy_name:
+            strategy_name_matches[strategy_name].append(strategy)
+
+    def _attach_strategy_folder(status: dict) -> dict:
+        if not isinstance(status, dict):
+            return status
+        strategy_payload = status.get("strategy") if isinstance(status.get("strategy"), dict) else None
+        strategy_id = int(status.get("strategy_id") or (strategy_payload or {}).get("strategy_id") or 0)
+        explicit_folder = str(status.get("folder") or (strategy_payload or {}).get("folder") or "").strip()
+        strategy_name = str(
+            status.get("strategy_name")
+            or (strategy_payload or {}).get("run_name")
+            or (strategy_payload or {}).get("name")
+            or ""
+        ).strip()
+        matched_strategy = strategy_by_id.get(strategy_id) if strategy_id else None
+        if not matched_strategy and strategy_name:
+            matches = list(strategy_name_matches.get(strategy_name.casefold(), []))
+            if explicit_folder:
+                folder_key = (explicit_folder or "Intraday").strip().casefold()
+                folder_matches = [
+                    s for s in matches if (str(s.get("folder") or "").strip() or "Intraday").casefold() == folder_key
+                ]
+                if len(folder_matches) == 1:
+                    matched_strategy = folder_matches[0]
+            if not matched_strategy and len(matches) == 1:
+                matched_strategy = matches[0]
+        resolved_folder = explicit_folder
+        if matched_strategy:
+            resolved_folder = str(matched_strategy.get("folder") or "").strip() or "Intraday"
+            status["strategy_id"] = int(matched_strategy.get("id") or strategy_id or 0)
+            if strategy_payload is not None:
+                strategy_payload.setdefault("strategy_id", status["strategy_id"])
+        if resolved_folder:
+            status["folder"] = resolved_folder
+            if strategy_payload is not None and not strategy_payload.get("folder"):
+                strategy_payload["folder"] = resolved_folder
+        return status
 
     # Active engines
     paper_statuses = _running_statuses_for_user(paper_engines, user_id)
@@ -4549,6 +4591,8 @@ async def dashboard_summary(request: Request):
             "engine_trades": live_strategy_trades_val,
             "source_label": str(real_snapshot.get("source_label") or "Engine view"),
         },
+        "running_engines": [_attach_strategy_folder({**status, "mode": "paper"}) for status in paper_statuses]
+        + [_attach_strategy_folder({**status, "mode": "auto"}) for status in live_statuses],
         "scalp_flow": {
             "active": bool(scalp_running or paper_scalp_trades or live_scalp_trades),
             "name": scalp_card_name,
