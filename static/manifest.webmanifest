@@ -1,13 +1,16 @@
 {
+  "id": "/",
   "name": "PhilForge",
   "short_name": "PhilForge",
   "description": "PhilForge trading workspace",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "portrait-primary",
   "background_color": "#08111b",
   "theme_color": "#08111b",
+  "prefer_related_applications": false,
   "shortcuts": [
     {
       "name": "Heatmap",
@@ -22,16 +25,28 @@
   ],
   "icons": [
     {
-      "src": "/static/logo.png?v=20260327-2",
-      "sizes": "1024x1035",
+      "src": "/static/pwa-icons/icon-192.png?v=20260401-1",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/static/logolight.png?v=20260328-1",
-      "sizes": "1013x1024",
+      "src": "/static/pwa-icons/icon-512.png?v=20260401-1",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/static/pwa-icons/icon-maskable-192.png?v=20260401-1",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/pwa-icons/icon-maskable-512.png?v=20260401-1",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
