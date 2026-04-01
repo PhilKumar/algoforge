@@ -2554,6 +2554,10 @@
     gap: 5px;
     white-space: nowrap;
   }
+  .clock-separator {
+    color: var(--muted);
+    opacity: 0.75;
+  }
   .topbar-actions {
     display: flex;
     align-items: center;
@@ -3239,7 +3243,13 @@
     .topbar-brand-text { font-size: 15px; letter-spacing: 0.2px; }
     .topbar-brand-sub { display: none; }
     .topbar-brand img { height: 32px; }
-    .topbar-clock .clock-date-text { display: none; }
+    .topbar-clock {
+      font-size: 10px;
+      padding: 6px 10px;
+      gap: 4px;
+    }
+    .clock-date-text { font-size: 10px; }
+    .clock-separator { display: none; }
     .topbar-user-role { display: none; }
   }
 
@@ -3340,20 +3350,48 @@
     }
     .ticker-cell .tc-price { font-size: 11px; }
     .ticker-cell .tc-change { font-size: 8px; }
-    .topbar-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
-    .topbar-clock { font-size: 11px; }
-    .topbar-actions { width: 100%; justify-content: space-between; }
+    .topbar-right {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+      align-items: stretch;
+    }
+    .topbar-clock {
+      width: 100%;
+      min-height: 38px;
+      justify-content: center;
+      padding: 7px 12px;
+      font-size: 11px;
+      line-height: 1.1;
+      letter-spacing: 0.12px;
+    }
+    .topbar-actions {
+      width: 100%;
+      justify-content: flex-start;
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
     .topbar-icon-btn {
       width: 40px;
       height: 40px;
       border-radius: 12px;
     }
     .topbar-user-chip { min-height: 40px; }
-    .topbar-user-meta { min-width: 0; flex: 1; }
-    .topbar-user-chip { min-width: 0; max-width: 100%; }
+    .topbar-user-meta {
+      min-width: 0;
+      flex: 1 1 auto;
+      width: 100%;
+    }
+    .topbar-user-chip {
+      min-width: 0;
+      max-width: 100%;
+      width: 100%;
+      justify-content: space-between;
+    }
     .topbar-user-name {
       display: inline-block;
-      max-width: 120px;
+      max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -3387,7 +3425,7 @@
       right: auto;
       bottom: auto;
       z-index: auto;
-      padding: 0;
+      padding: 0 8px;
       margin-top: 8px;
       border: none;
       border-radius: 0;
@@ -3399,10 +3437,11 @@
     }
     .nav-bar::-webkit-scrollbar { display: none; }
     .nav-tabs {
+      display: inline-flex;
       flex-wrap: nowrap !important;
       justify-content: flex-start !important;
       min-width: max-content;
-      width: 100%;
+      width: max-content;
       gap: 4px;
     }
     .nav-tab {
@@ -4868,7 +4907,7 @@
       <div class="topbar-right">
         <div class="topbar-clock" id="header-clock">
           <span id="clock-date" class="clock-date-text">--</span>
-          <span style="color: var(--muted)">|</span>
+          <span class="clock-separator">|</span>
           <span id="clock-time" style="font-weight: 700; color: var(--accent);">--:--:--</span>
         </div>
         <div class="topbar-actions">
@@ -7469,9 +7508,19 @@ function _syncMobileActiveNavTab(targetBtn = null, behavior = 'smooth') {
   if (!navBar || !btn) return;
   const navRect = navBar.getBoundingClientRect();
   const btnRect = btn.getBoundingClientRect();
-  const delta = (btnRect.left + (btnRect.width / 2)) - (navRect.left + (navRect.width / 2));
+  const padding = 12;
+  const leftEdge = navRect.left + padding;
+  const rightEdge = navRect.right - padding;
+  let nextLeft = navBar.scrollLeft;
+  if (btnRect.left < leftEdge) {
+    nextLeft -= (leftEdge - btnRect.left);
+  } else if (btnRect.right > rightEdge) {
+    nextLeft += (btnRect.right - rightEdge);
+  } else {
+    return;
+  }
   navBar.scrollTo({
-    left: Math.max(0, navBar.scrollLeft + delta),
+    left: Math.max(0, nextLeft),
     behavior,
   });
 }
@@ -10478,7 +10527,13 @@ function setTickerValue(priceId, chgId, data) {
 // ══════════════════════════════════════════════════════════════
 function updateClock() {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  const isCompactMobile = window.innerWidth <= 420;
+  const isMobile = window.innerWidth <= 767;
+  const dateStr = now.toLocaleDateString('en-IN', isCompactMobile
+    ? { day: '2-digit', month: 'short' }
+    : isMobile
+      ? { day: '2-digit', month: 'short', year: 'numeric' }
+      : { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const dateEl = document.getElementById('clock-date');
   const timeEl = document.getElementById('clock-time');
