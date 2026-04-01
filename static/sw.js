@@ -1,4 +1,4 @@
-const CACHE_NAME = 'philforge-shell-v4';
+const CACHE_NAME = 'philforge-shell-v5';
 const APP_SHELL = [
   '/',
   '/charts-viewer',
@@ -11,7 +11,7 @@ const APP_SHELL = [
   '/static/pwa-icons/icon-512.png?v=20260401-1',
   '/static/pwa-icons/icon-maskable-192.png?v=20260401-1',
   '/static/pwa-icons/icon-maskable-512.png?v=20260401-1',
-  '/static/pwa.js?v=20260401-3',
+  '/static/pwa.js?v=20260401-4',
   '/static/study_lounge.css?v=20260401-3',
   '/static/study_lounge.js?v=20260401-1',
 ];

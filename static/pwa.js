@@ -61,6 +61,10 @@
     `;
   }
 
+  function handleInstallDialogKeydown(event) {
+    if (event.key === 'Escape') closeInstallDialog();
+  }
+
   function ensureInstallDialog() {
     if (installDialog) return installDialog;
     const style = document.createElement('style');
@@ -120,6 +124,7 @@
       }
       .pf-pwa-close,
       .pf-pwa-btn {
+        appearance: none;
         border-radius: 999px;
         border: 1px solid rgba(255,255,255,0.08);
         background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
@@ -203,54 +208,60 @@
         }
       }
     `;
-    document.head.appendChild(style);
+    if (!document.getElementById('pf-pwa-style')) {
+      style.id = 'pf-pwa-style';
+      document.head.appendChild(style);
+    }
     const mount = document.createElement('div');
     mount.innerHTML = installDialogMarkup();
-    document.body.appendChild(mount.firstElementChild);
-    installDialog = document.querySelector('.pf-pwa-overlay');
-    const closeBtn = installDialog.querySelector('.pf-pwa-close');
-    closeBtn.addEventListener('click', closeInstallDialog);
-    installDialog.addEventListener('click', (event) => {
-      if (event.target === installDialog) closeInstallDialog();
-    });
+    installDialog = mount.firstElementChild;
+    document.body.appendChild(installDialog);
     return installDialog;
   }
 
   function closeInstallDialog() {
     if (!installDialog) return;
-    installDialog.hidden = true;
-    const primary = installDialog.querySelector('[data-pwa-action="primary"]');
-    const secondary = installDialog.querySelector('[data-pwa-action="secondary"]');
-    primary.onclick = null;
-    secondary.onclick = null;
-    secondary.hidden = true;
+    document.removeEventListener('keydown', handleInstallDialogKeydown);
+    installDialog.remove();
+    installDialog = null;
   }
 
   function showInstallDialog({ title, message, points = [], primaryLabel = 'OK', secondaryLabel = '', onPrimary = null, onSecondary = null }) {
+    closeInstallDialog();
     const dialog = ensureInstallDialog();
-    dialog.hidden = false;
     dialog.querySelector('#pf-pwa-title').textContent = title;
     dialog.querySelector('.pf-pwa-message').textContent = message;
     const pointsEl = dialog.querySelector('.pf-pwa-points');
     pointsEl.innerHTML = points.map((point) => `<div class="pf-pwa-point">${point}</div>`).join('');
+    const closeBtn = dialog.querySelector('.pf-pwa-close');
     const primary = dialog.querySelector('[data-pwa-action="primary"]');
     const secondary = dialog.querySelector('[data-pwa-action="secondary"]');
+    const close = () => closeInstallDialog();
+    closeBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      close();
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) close();
+    });
     primary.textContent = primaryLabel;
-    primary.onclick = () => {
-      closeInstallDialog();
+    primary.addEventListener('click', (event) => {
+      event.preventDefault();
+      close();
       if (typeof onPrimary === 'function') onPrimary();
-    };
+    });
     if (secondaryLabel) {
       secondary.hidden = false;
       secondary.textContent = secondaryLabel;
-      secondary.onclick = () => {
-        closeInstallDialog();
+      secondary.addEventListener('click', (event) => {
+        event.preventDefault();
+        close();
         if (typeof onSecondary === 'function') onSecondary();
-      };
+      });
     } else {
       secondary.hidden = true;
-      secondary.onclick = null;
     }
+    document.addEventListener('keydown', handleInstallDialogKeydown);
   }
 
   function syncButtons() {
@@ -335,9 +346,9 @@
             'Refresh once after the app shell is installed.',
             'Then use the browser menu and choose "Install App" or "Add to Home Screen".',
           ],
-      primaryLabel: 'Got It',
-      secondaryLabel: chromeSpecific ? 'Reload' : '',
-      onSecondary: chromeSpecific ? () => window.location.reload() : null,
+      primaryLabel: chromeSpecific ? 'Reload Now' : 'Got It',
+      secondaryLabel: chromeSpecific ? 'Close' : '',
+      onPrimary: chromeSpecific ? () => window.location.reload() : null,
     });
   }
 
