@@ -7757,9 +7757,11 @@ const NAV_BUTTON_MAP = {
 };
 
 let _mobileNavSyncTimer = null;
+let _insightsMenuHome = null;
 
 function closeInsightsMenu() {
-  document.getElementById('nav-insights-wrap')?.classList.remove('menu-open');
+  const wrap = document.getElementById('nav-insights-wrap');
+  wrap?.classList.remove('menu-open');
   document.body.classList.remove('insights-menu-open');
   const menu = document.getElementById('nav-insights-menu');
   if (!menu) return;
@@ -7768,6 +7770,9 @@ function closeInsightsMenu() {
   menu.style.removeProperty('top');
   menu.style.removeProperty('right');
   menu.style.removeProperty('width');
+  if (wrap && menu.parentElement !== wrap) {
+    wrap.appendChild(menu);
+  }
 }
 
 function positionInsightsMenu() {
@@ -7781,6 +7786,12 @@ function positionInsightsMenu() {
   const margin = 12;
   const width = Math.min(250, window.innerWidth - (margin * 2));
   const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+  if (!_insightsMenuHome && wrap) {
+    _insightsMenuHome = wrap;
+  }
+  if (menu.parentElement !== document.body) {
+    document.body.appendChild(menu);
+  }
   menu.classList.add('mobile-floating');
   menu.style.left = `${left}px`;
   menu.style.top = `${rect.bottom + 8}px`;
@@ -7966,7 +7977,7 @@ window.addEventListener('scroll', () => {
   positionInsightsMenu();
 }, { passive: true });
 document.addEventListener('click', (event) => {
-  if (!event.target.closest('#nav-insights-wrap')) closeInsightsMenu();
+  if (!event.target.closest('#nav-insights-wrap') && !event.target.closest('#nav-insights-menu')) closeInsightsMenu();
 });
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 
