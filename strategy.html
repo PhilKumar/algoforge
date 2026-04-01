@@ -1833,8 +1833,13 @@
   #arsenal-running-grid,
   #template-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 12px;
+  }
+  #arsenal-running-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+  #template-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
   .arsenal-template-card {
     cursor: pointer;
@@ -11394,6 +11399,7 @@ async function refreshStrategyArsenalRunning() {
   const wrap = document.getElementById('arsenal-running-wrap');
   const grid = document.getElementById('arsenal-running-grid');
   if (!wrap || !grid) return;
+  const hadExistingCards = grid.children.length > 0;
   try {
     const res = await fetch('/api/engines/all');
     if (await handleUnauthorizedResponse(res)) return;
@@ -11402,8 +11408,10 @@ async function refreshStrategyArsenalRunning() {
     renderRunningArsenal(data.engines || []);
   } catch (err) {
     console.warn('Running arsenal load failed:', err);
-    wrap.style.display = 'none';
-    grid.innerHTML = '';
+    if (!hadExistingCards) {
+      wrap.style.display = 'none';
+      grid.innerHTML = '';
+    }
   }
 }
 
