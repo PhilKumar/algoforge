@@ -84,6 +84,7 @@ from engine.timeframes import (
     resolve_strategy_timeframe,
 )
 from market_movers import get_nifty50_market_movers_snapshot
+from study_content import get_study_library
 
 try:
     from scalp import ScalpEngine as _ScalpEngineClass
@@ -1991,6 +1992,7 @@ async def auth_middleware(request: Request, call_next):
         "/",
         "/charts-viewer",
         "/market-movers",
+        "/study-lounge",
         "/logo.jpg",
         "/logo.png",
         "/favicon.ico",
@@ -2426,6 +2428,19 @@ async def serve_market_movers(request: Request):
     return HTMLResponse("<h2>market_movers.html not found. Place it beside app.py</h2>")
 
 
+@app.get("/study-lounge", response_class=HTMLResponse)
+async def serve_study_lounge(request: Request):
+    """Serve the standalone NotebookLM study page (auth-protected)."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    html_path = os.path.join(_HERE, "study_lounge.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("<h2>study_lounge.html not found. Place it beside app.py</h2>")
+
+
 @app.get("/api/market-movers/nifty50")
 async def api_market_movers_nifty50(request: Request):
     """Standalone Nifty 50 cash-stock snapshot used by the market movers page."""
@@ -2440,6 +2455,12 @@ async def api_market_movers_nifty50(request: Request):
         broker_client,
         fallback_client,
     )
+
+
+@app.get("/api/study-library")
+async def api_study_library():
+    """Return standalone NotebookLM assets for the study lounge."""
+    return await asyncio.to_thread(get_study_library, os.path.join(_HERE, "static"))
 
 
 @app.get("/api/charts/tree")

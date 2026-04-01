@@ -1,12 +1,15 @@
-const CACHE_NAME = 'philforge-shell-v1';
+const CACHE_NAME = 'philforge-shell-v2';
 const APP_SHELL = [
   '/',
   '/charts-viewer',
   '/market-movers',
+  '/study-lounge',
   '/manifest.webmanifest',
   '/static/logo.png?v=20260327-2',
   '/static/logolight.png?v=20260328-1',
   '/static/pwa.js?v=20260401-1',
+  '/static/study_lounge.css?v=20260401-1',
+  '/static/study_lounge.js?v=20260401-1',
 ];
 
 self.addEventListener('install', (event) => {

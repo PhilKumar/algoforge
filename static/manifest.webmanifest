@@ -8,6 +8,18 @@
   "orientation": "portrait-primary",
   "background_color": "#08111b",
   "theme_color": "#08111b",
+  "shortcuts": [
+    {
+      "name": "Heatmap",
+      "url": "/market-movers",
+      "description": "Open the Nifty 50 heatmap"
+    },
+    {
+      "name": "Study",
+      "url": "/study-lounge",
+      "description": "Open the NotebookLM study lounge"
+    }
+  ],
   "icons": [
     {
       "src": "/static/logo.png?v=20260327-2",

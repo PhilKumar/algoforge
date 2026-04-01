@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<meta name="theme-color" content="#08111b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PhilForge">
+<meta name="format-detection" content="telephone=no">
+<title>PhilForge — Study Lounge</title>
+<link rel="icon" href="/static/logo.png?v=20260327-2" type="image/png">
+<link rel="manifest" href="/manifest.webmanifest?v=20260401-1">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="/static/pwa.js?v=20260401-1" defer></script>
+<script>
+  try {
+    if (localStorage.getItem('algoforge_theme') === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  } catch (e) {}
+</script>
+<link rel="stylesheet" href="/static/study_lounge.css?v=20260401-1">
+</head>
+<body>
+  <div class="study-page">
+    <header class="study-topbar">
+      <a class="brand-link" href="/" aria-label="Back to PhilForge dashboard">
+        <span class="brand-logo-shell">
+          <img src="/static/logo.png?v=20260327-2" alt="PhilForge" class="brand-logo theme-logo dark-variant">
+          <img src="/static/logolight.png?v=20260328-1" alt="PhilForge" class="brand-logo theme-logo light-variant">
+        </span>
+        <span class="brand-copy">
+          <span class="brand-kicker">Study Lounge</span>
+          <strong class="brand-title">NotebookLM Library</strong>
+          <span class="brand-sub">A calmer page for market study while trades develop.</span>
+        </span>
+      </a>
+      <div class="topbar-actions">
+        <span class="status-chip" id="library-status">Scanning library…</span>
+        <button class="shell-btn" data-install-app hidden>Install App</button>
+        <button class="shell-btn icon-only" id="theme-toggle" type="button" aria-label="Toggle theme"></button>
+        <a class="shell-btn shell-btn-primary" href="/">Back To Dashboard</a>
+      </div>
+    </header>
+
+    <main class="study-shell">
+      <section class="hero-grid">
+        <article class="surface-card hero-card">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">Between Trades</span>
+              <h1>Shift from reaction to reflection</h1>
+            </div>
+            <div class="hero-badges">
+              <span class="meta-pill" id="hero-total">0 assets</span>
+              <span class="meta-pill" id="hero-categories">0 categories</span>
+            </div>
+          </div>
+          <p class="hero-copy">
+            Use this page as a study break during live sessions: replay concepts, reset market psychology, and return with a cleaner head.
+          </p>
+          <div class="ritual-grid">
+            <div class="ritual-card">
+              <span class="ritual-label">Reset</span>
+              <strong>Slow the loop</strong>
+              <p>Switch from trade management to market thinking for a few minutes.</p>
+            </div>
+            <div class="ritual-card">
+              <span class="ritual-label">Replay</span>
+              <strong>Review one idea</strong>
+              <p>Rewatch one clip or skim one deck instead of doom-refreshing the chart.</p>
+            </div>
+            <div class="ritual-card">
+              <span class="ritual-label">Return</span>
+              <strong>Come back sharper</strong>
+              <p>Re-enter the trading page with less noise and more context.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="surface-card spotlight-card">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">Now Open</span>
+              <h2 id="featured-title">Loading study asset…</h2>
+            </div>
+            <span class="meta-pill" id="featured-kind">NotebookLM</span>
+          </div>
+          <p class="spotlight-copy" id="featured-description">Waiting for the study library.</p>
+          <div class="spotlight-meta">
+            <span id="featured-category">General</span>
+            <span id="featured-date">--</span>
+            <span id="featured-size">--</span>
+          </div>
+          <div class="spotlight-actions">
+            <a class="shell-btn shell-btn-primary" id="open-item-btn" href="#" target="_blank" rel="noopener">Open Asset</a>
+            <a class="shell-btn" id="download-item-btn" href="#" download>Download</a>
+          </div>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="surface-card library-card">
+          <div class="card-heading library-heading">
+            <div>
+              <span class="eyebrow">Library</span>
+              <h2>Study Tracks</h2>
+            </div>
+            <div class="filter-row">
+              <div class="chip-group" id="type-filters"></div>
+              <div class="chip-group category-group" id="category-filters"></div>
+            </div>
+          </div>
+          <div class="library-grid" id="library-grid">
+            <div class="library-empty">Loading your NotebookLM library…</div>
+          </div>
+        </article>
+
+        <aside class="preview-rail">
+          <article class="surface-card preview-card">
+            <div class="card-heading">
+              <div>
+                <span class="eyebrow">Preview Stage</span>
+                <h2 id="preview-title">Select a deck or video</h2>
+              </div>
+              <span class="meta-pill" id="preview-kind">Preview</span>
+            </div>
+            <div class="preview-shell" id="preview-shell">
+              <div class="preview-empty">Your selected NotebookLM deck or video will open here.</div>
+            </div>
+          </article>
+
+          <article class="surface-card quick-panel">
+            <div class="card-heading">
+              <div>
+                <span class="eyebrow">Quick Reads</span>
+                <h2>Use this page well</h2>
+              </div>
+            </div>
+            <div class="quick-list">
+              <div class="quick-item">
+                <strong>During open positions</strong>
+                <p>Pick one short study asset instead of hopping across tabs.</p>
+              </div>
+              <div class="quick-item">
+                <strong>After a bad scalp</strong>
+                <p>Open a deck first, not the P&amp;L. Reset psychology before reviewing entries.</p>
+              </div>
+              <div class="quick-item">
+                <strong>When volatility dies</strong>
+                <p>Use the wait time for context-building rather than forcing another setup.</p>
+              </div>
+            </div>
+          </article>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/study_lounge.js?v=20260401-1"></script>
+</body>
+</html>
