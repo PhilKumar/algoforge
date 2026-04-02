@@ -1,4 +1,4 @@
-const CACHE_NAME = 'philforge-shell-v6';
+const CACHE_NAME = 'philforge-shell-v7';
 const APP_SHELL = [
   '/',
   '/charts-viewer',

@@ -2032,6 +2032,10 @@ async def auth_middleware(request: Request, call_next):
         "/logo.jpg",
         "/logo.png",
         "/favicon.ico",
+        "/manifest.webmanifest",
+        "/site.webmanifest",
+        "/sw.js",
+        "/apple-touch-icon.png",
     ):
         return await call_next(request)
     if path.startswith("/static") or path.startswith("/ws"):
@@ -2249,8 +2253,19 @@ async def serve_favicon():
     return FileResponse(os.path.join(_HERE, "static", "pwa-icons", "favicon-32.png"), media_type="image/png")
 
 
+@app.get("/apple-touch-icon.png")
+async def serve_apple_touch_icon():
+    """Serves the application touch icon for iOS/macOS install surfaces."""
+    return FileResponse(os.path.join(_HERE, "static", "pwa-icons", "apple-touch-icon.png"), media_type="image/png")
+
+
 @app.get("/manifest.webmanifest")
 async def serve_manifest():
+    return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
+
+
+@app.get("/site.webmanifest")
+async def serve_site_manifest():
     return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
 
 
