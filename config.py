@@ -99,10 +99,26 @@ def _env_first(*keys: str, default: str = "") -> str:
     return default
 
 
+def _resolve_default_db_path() -> str:
+    if os.path.exists(_DEFAULT_DB_PATH):
+        return _DEFAULT_DB_PATH
+    if not os.path.exists(_LEGACY_DB_PATH):
+        return _DEFAULT_DB_PATH
+    try:
+        for suffix in ("", "-shm", "-wal"):
+            legacy_path = f"{_LEGACY_DB_PATH}{suffix}"
+            default_path = f"{_DEFAULT_DB_PATH}{suffix}"
+            if os.path.exists(legacy_path) and not os.path.exists(default_path):
+                os.replace(legacy_path, default_path)
+        return _DEFAULT_DB_PATH
+    except OSError:
+        return _LEGACY_DB_PATH
+
+
 DB_PATH = _env_first(
     "PHILFORGE_DB",
     "ALGOFORGE_DB",
-    default=_LEGACY_DB_PATH if os.path.exists(_LEGACY_DB_PATH) else _DEFAULT_DB_PATH,
+    default=_resolve_default_db_path(),
 )
 USER_DATA_ROOT = _env_first(
     "PHILFORGE_USER_DATA_ROOT",
