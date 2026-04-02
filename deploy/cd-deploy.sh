@@ -8,8 +8,23 @@
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
-APP="philforge"
-APP_DIR="/home/ec2-user/philforge"
+if [[ -d "/home/ec2-user/philforge" ]]; then
+    APP_DIR="/home/ec2-user/philforge"
+elif [[ -d "/home/ec2-user/algoforge" ]]; then
+    APP_DIR="/home/ec2-user/algoforge"
+else
+    echo "[DEPLOY] ERROR: Neither /home/ec2-user/philforge nor /home/ec2-user/algoforge exists"
+    exit 1
+fi
+
+if systemctl list-unit-files 2>/dev/null | grep -q '^philforge@'; then
+    APP="philforge"
+elif systemctl list-unit-files 2>/dev/null | grep -q '^algoforge@'; then
+    APP="algoforge"
+else
+    APP="philforge"
+fi
+
 VENV="$APP_DIR/venv"
 
 BLUE_PORT=8000
@@ -21,7 +36,7 @@ HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=180         # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
-LOCK_FILE="$HOME/.philforge-deploy.lock"
+LOCK_FILE="$HOME/.${APP}-deploy.lock"
 
 LOG_TAG="[DEPLOY]"
 
