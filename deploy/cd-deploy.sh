@@ -17,9 +17,11 @@ else
     exit 1
 fi
 
-if systemctl list-unit-files 2>/dev/null | grep -q '^philforge@'; then
+if [[ -f "$HOME/.algoforge-active-port" || -f "/etc/systemd/system/algoforge@.service" ]]; then
+    APP="algoforge"
+elif [[ -f "$HOME/.philforge-active-port" || -f "/etc/systemd/system/philforge@.service" ]]; then
     APP="philforge"
-elif systemctl list-unit-files 2>/dev/null | grep -q '^algoforge@'; then
+elif [[ "$APP_DIR" == *"/algoforge" ]]; then
     APP="algoforge"
 else
     APP="philforge"
