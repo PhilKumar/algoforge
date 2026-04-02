@@ -8,8 +8,8 @@
 SG_ID="sg-0ef135d5637888767"
 REGION="ap-south-1"
 PORTS=(22 80 9090)
-DESCRIPTION="AlgoForge-AutoIP"
-IP_FILE="$HOME/.algoforge_last_ip"
+DESCRIPTION="PhilForge-AutoIP"
+IP_FILE="$HOME/.philforge_last_ip"
 
 # Get current public IPv4
 CURRENT_IP=$(curl -4 -s --max-time 5 ifconfig.me 2>/dev/null)

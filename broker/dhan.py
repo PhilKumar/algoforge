@@ -66,7 +66,7 @@ def _notify_token_event(success: bool, detail: str = "") -> None:
         if not bot_token or not chat_id:
             return
         icon = "✅" if success else "🔴"
-        text = f"{icon} <b>[AlgoForge] Token Auto-Refresh</b>\n{'Refreshed successfully' if success else 'FAILED — manual intervention may be needed'}"
+        text = f"{icon} <b>[PhilForge] Token Auto-Refresh</b>\n{'Refreshed successfully' if success else 'FAILED — manual intervention may be needed'}"
         if detail:
             text += f"\n<code>{detail}</code>"
         requests.post(
@@ -276,7 +276,7 @@ async def _async_request_with_retry(
 # ══════════════════════════════════════════════════════════════
 import logging as _log
 
-_dhan_log = _log.getLogger("algoforge.dhan")
+_dhan_log = _log.getLogger("philforge.dhan")
 
 # Retryable HTTP status codes (rate-limit / transient server errors)
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
@@ -855,7 +855,7 @@ class DhanClient:
 
         import logging as _log
 
-        _dlog = _log.getLogger("algoforge.dhan")
+        _dlog = _log.getLogger("philforge.dhan")
         _safe = {
             k: v for k, v in payload.items() if k not in ("access-token", "accessToken", "token", "password", "secret")
         }
@@ -1053,7 +1053,7 @@ class DhanClient:
         price: float = 0,
         trigger_price: float = 0,
         validity: str = "DAY",
-        tag: str = "AlgoForge",
+        tag: str = "PhilForge",
     ) -> dict:
         """Place an order via Dhan API"""
         if not self._is_configured():
@@ -1109,7 +1109,7 @@ class DhanClient:
         product_type: str = "INTRADAY",
         price: float = 0,
         trigger_price: float = 0,
-        tag: str = "AlgoForge",
+        tag: str = "PhilForge",
     ) -> dict:
         """
         Place an options order using real security_id from scrip master.
@@ -1156,7 +1156,7 @@ class DhanClient:
         price: float = 0,
         product_type: str = "INTRADAY",
         order_type: str = "SL",  # SL or SL-M
-        tag: str = "AlgoForge_SL",
+        tag: str = "PhilForge_SL",
     ) -> dict:
         """
         Place a stop-loss order for an option position.
@@ -1204,7 +1204,7 @@ class DhanClient:
         product_type: str = "INTRADAY",
         price: float = 0,
         trailing_jump: float = 0,
-        tag: str = "AlgoForgeSO",
+        tag: str = "PhilForgeSO",
     ) -> dict:
         """Place a Dhan Super Order for an option contract."""
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
@@ -1216,7 +1216,7 @@ class DhanClient:
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
         payload = {
             "dhanClientId": self.client_id,
-            "correlationId": (tag or "AlgoForgeSO")[:30],
+            "correlationId": (tag or "PhilForgeSO")[:30],
             "transactionType": transaction_type,
             "exchangeSegment": exchange_seg,
             "productType": product_type,
@@ -1853,7 +1853,7 @@ class DhanClient:
         price: float = 0,
         trigger_price: float = 0,
         validity: str = "DAY",
-        tag: str = "AlgoForge",
+        tag: str = "PhilForge",
     ) -> dict:
         """Place an order via httpx (true async — no thread pool)."""
         if not self._is_configured():
@@ -1905,7 +1905,7 @@ class DhanClient:
         product_type: str = "INTRADAY",
         price: float = 0,
         trigger_price: float = 0,
-        tag: str = "AlgoForge",
+        tag: str = "PhilForge",
     ) -> dict:
         """Place an options order via httpx (true async)."""
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
@@ -1936,7 +1936,7 @@ class DhanClient:
         price: float = 0,
         product_type: str = "INTRADAY",
         order_type: str = "SL",
-        tag: str = "AlgoForge_SL",
+        tag: str = "PhilForge_SL",
     ) -> dict:
         """Place a stop-loss order via httpx (true async)."""
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)

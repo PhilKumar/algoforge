@@ -66,9 +66,9 @@ server.log
 live_state_*.json
 paper_state_*.json
 trade_history.json
-algoforge.db
-algoforge.db-wal
-algoforge.db-shm
+philforge.db
+philforge.db-wal
+philforge.db-shm
 .current_token
 .token_lock
 *.tmp
@@ -76,7 +76,7 @@ algoforge.db-shm
 Daily Charts/
 
 # SQLite database (per-server, contains user data)
-algoforge.db
-algoforge.db-shm
-algoforge.db-wal
-test_algoforge.db
+philforge.db
+philforge.db-shm
+philforge.db-wal
+test_philforge.db

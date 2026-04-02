@@ -1,4 +1,4 @@
-# AlgoForge - Critical Bug Fixes Guide
+# PhilForge - Critical Bug Fixes Guide
 
 ## URGENT FIXES (Do These First)
 
@@ -76,7 +76,7 @@ function clearAllConditions(type) {
 function removeConditionRow(type, id) {
   const r = document.getElementById(`${type}-row-${id}`);
   if(r) r.remove();
-  
+
   // ← Count remaining and reset if none left
   const container = document.getElementById(`${type}-conditions-container`);
   if (container.children.length === 0) {
@@ -87,12 +87,12 @@ function removeConditionRow(type, id) {
 // Update the button that adds first condition
 function addConditionRow(type) {
   const container = document.getElementById(`${type}-conditions-container`);
-  
+
   // If no conditions exist, reset counter
   if (container.children.length === 0) {
     conditionCounters[type] = 0;
   }
-  
+
   const rowId = conditionCounters[type]++;
   // ... rest of function
 }
@@ -117,14 +117,14 @@ def check_time_condition(df, left, operator, right_value):
     """Check Time_Of_Day condition"""
     if not hasattr(df.index, 'time'):
         return pd.Series([False] * len(df))
-    
+
     from datetime import datetime, time as dt_time
-    
+
     # Parse right_value (e.g., "11:00")
     target_time = datetime.strptime(right_value, "%H:%M").time()
-    
+
     times = df.index.time
-    
+
     if operator == "is_above":
         return pd.Series(times >= target_time)
     elif operator == "is_below":
@@ -140,15 +140,15 @@ def check_day_condition(df, operator, right_days):
     """Check Day_Of_Week condition"""
     if not hasattr(df.index, 'dayofweek'):
         return pd.Series([False] * len(df))
-    
+
     day_map = {
         'Monday': 0, 'Tuesday': 1, 'Wednesday': 2,
         'Thursday': 3, 'Friday': 4, 'Saturday': 5, 'Sunday': 6
     }
-    
+
     target_days = [day_map.get(d, -1) for d in right_days]
     current_days = df.index.dayofweek
-    
+
     if operator == "contains":
         return pd.Series([d in target_days for d in current_days])
     elif operator == "not_contains":
@@ -183,7 +183,7 @@ let lastBacktestData = null;
 const StrategyManager = (() => {
   let movingStrategyId = null;
   let cache = [];
-  
+
   return {
     setMovingId: (id) => {
       movingStrategyId = id;
@@ -207,7 +207,7 @@ const PaperTrader = (() => {
     pnl: 0,
     activeLegs: []
   };
-  
+
   return {
     start: (payload) => {
       if (state.running) return; // Prevent double-start
@@ -254,36 +254,36 @@ async function runBacktest() {
 class PayloadValidator {
   static validate(payload) {
     const errors = [];
-    
+
     // Required fields
     if (!payload.instrument) errors.push('Instrument is required');
     if (!payload.entry_conditions?.length) errors.push('Add at least one entry condition');
     if (!payload.from_date) errors.push('From date is required');
     if (!payload.to_date) errors.push('To date is required');
-    
+
     // Date validation
     const from = new Date(payload.from_date);
     const to = new Date(payload.to_date);
     if (from >= to) errors.push('From date must be before To date');
     if (to > new Date()) errors.push('To date cannot be in future');
-    
+
     // Number validation
     if (payload.stoploss_pct <= 0) errors.push('SL % must be > 0');
     if (payload.stoploss_pct > 100) errors.push('SL % cannot exceed 100');
-    
+
     // Leg validation
     if (payload.legs?.length === 0) errors.push('Add at least one leg');
-    
+
     payload.legs?.forEach((leg, i) => {
       if (!leg.transaction_type) errors.push(`Leg ${i+1}: Missing transaction type`);
       if (!leg.option_type) errors.push(`Leg ${i+1}: Missing option type`);
       if (leg.lots <= 0) errors.push(`Leg ${i+1}: Lots must be > 0`);
     });
-    
+
     if (errors.length > 0) {
       throw new Error('Validation failed:\n' + errors.join('\n'));
     }
-    
+
     return true;
   }
 }
@@ -291,29 +291,29 @@ class PayloadValidator {
 // Usage:
 async function runBacktest() {
   const payload = buildPayload();
-  
+
   try {
     PayloadValidator.validate(payload);
   } catch (err) {
     toast(err.message, 'danger');
     return;
   }
-  
+
   try {
     const res = await fetch('/api/backtest', {
       method: 'POST',
       body: JSON.stringify(payload)
     });
-    
+
     if (!res.ok) {
       throw new Error(`API returned ${res.status}: ${res.statusText}`);
     }
-    
+
     const data = await res.json();
     if (data.status !== 'success') {
       throw new Error(data.message || 'Backtest failed');
     }
-    
+
     renderResults(data, payload);
     toast('✅ Backtest complete!', 'success');
   } catch (err) {
@@ -332,7 +332,7 @@ async function runBacktest() {
 // ❌ 100% DUMMY - no backend validation
 function toggleBroker() {
   isBrokerConnected = !isBrokerConnected;
-  document.getElementById('broker-dot').style.backgroundColor = 
+  document.getElementById('broker-dot').style.backgroundColor =
     isBrokerConnected ? '#22c55e' : 'grey';
 }
 ```
@@ -346,7 +346,7 @@ async def check_broker():
     try:
         if not dhan._is_configured():
             return {"status": "not_configured"}
-        
+
         # Try to get positions - this will fail if credentials are bad
         positions = dhan.get_positions()
         return {
@@ -367,7 +367,7 @@ async def connect_broker():
     try:
         # Re-initialize Dhan client with config
         dhan_test = DhanClient()
-        
+
         # Verify by fetching health info
         result = dhan_test.get_funds()
         if result and "status" in result:
@@ -387,17 +387,17 @@ async function toggleBroker() {
   const btn = event.target;
   btn.disabled = true;
   btn.textContent = '⏳ Checking...';
-  
+
   try {
     const res = await fetch('/api/broker/connect',{ method: 'POST' });
     const data = await res.json();
-    
+
     if (data.status === 'connected') {
       isBrokerConnected = true;
       document.getElementById('broker-dot').style.backgroundColor = '#22c55e';
       document.getElementById('broker-text').textContent = 'Live Broker: Connected';
       toast('✅ Broker Connected!', 'success');
-      
+
       // Optional: Start periodic health check
       startBrokerHealthCheck();
     } else {
@@ -418,12 +418,12 @@ async function toggleBroker() {
 
 function startBrokerHealthCheck() {
   if (brokerCheckInterval) return; // Already running
-  
+
   brokerCheckInterval = setInterval(async () => {
     try {
       const res = await fetch('/api/broker/check', { method: 'POST' });
       const data = await res.json();
-      
+
       if (data.status !== 'connected') {
         // Connection lost
         isBrokerConnected = false;
@@ -473,22 +473,22 @@ class APIClient {
         body: JSON.stringify(data),
         timeout: 30000  // 30 second timeout
       });
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(
-          errorData.detail || 
+          errorData.detail ||
           `Server error ${res.status}: ${res.statusText}`
         );
       }
-      
+
       const body = await res.json();
       if (body.error) {
         throw new Error(body.error);
       }
-      
+
       return body;
-      
+
     } catch (err) {
       if (err instanceof TypeError) {
         throw new Error('Network error: ' + err.message);
@@ -496,7 +496,7 @@ class APIClient {
       throw err;
     }
   }
-  
+
   static async get(endpoint) {
     return this.post(endpoint + '?_method=GET', {});
   }
@@ -505,14 +505,14 @@ class APIClient {
 // Usage:
 async function saveStrategy() {
   const payload = buildPayload();
-  
+
   try {
     PayloadValidator.validate(payload);
   } catch (err) {
     toast('Validation error: ' + err.message, 'danger');
     return;
   }
-  
+
   try {
     const result = await APIClient.post('/api/strategies', payload);
     toast('✅ Strategy saved!', 'success');
@@ -548,23 +548,23 @@ function buildPayload() {
 @app.post("/api/backtest")
 async def api_run_backtest(payload: StrategyPayload):
     # ... existing code ...
-    
+
     results = run_backtest(
         df_raw=df_raw,
         entry_conditions=...,
         exit_conditions=...,
         strategy_config=strategy_config,
     )
-    
+
     # ← Add actual lot size to response
     if results.get("status") == "success":
         # Detect lot size used
         from_dt = datetime.strptime(payload.from_date, "%Y-%m-%d")
         lot_size = 75 if from_dt.year <= 2026 and from_dt.month < 1 else 65
-        
+
         results["actual_lot_size"] = lot_size
         results["actual_quantity_per_lot"] = lot_size * (payload.lots or 1)
-    
+
     return results
 ```
 
@@ -572,7 +572,7 @@ async def api_run_backtest(payload: StrategyPayload):
 // In frontend, display actual lot size
 function renderResults(data, payload) {
   // ... existing code ...
-  
+
   // Show actual lot size if available
   const lotSizeDisplay = document.querySelector('[data-actual-lot-size]');
   if (lotSizeDisplay && data.actual_lot_size) {
@@ -594,7 +594,7 @@ function renderResults(data, payload) {
 ```javascript
 class DraftManager {
   static STORAGE_KEY = 'strategy_draft';
-  
+
   static save(payload) {
     try {
       localStorage.setItem(
@@ -609,28 +609,28 @@ class DraftManager {
       console.warn('Failed to save draft:', err);
     }
   }
-  
+
   static load() {
     try {
       const data = localStorage.getItem(this.STORAGE_KEY);
       if (!data) return null;
-      
+
       const draft = JSON.parse(data);
       const ageMs = new Date() - new Date(draft.timestamp);
-      
+
       // Don't restore draft older than 7 days
       if (ageMs > 7 * 24 * 60 * 60 * 1000) {
         this.clear();
         return null;
       }
-      
+
       return draft.payload;
     } catch (err) {
       console.warn('Failed to load draft:', err);
       return null;
     }
   }
-  
+
   static clear() {
     localStorage.removeItem(this.STORAGE_KEY);
   }
@@ -641,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const draft = DraftManager.load();
   if (draft) {
     const restore = confirm(
-      'Draft found from ' + new Date(draft.timestamp).toLocaleString() + 
+      'Draft found from ' + new Date(draft.timestamp).toLocaleString() +
       '. Restore it?'
     );
     if (restore) {
@@ -683,15 +683,15 @@ const DeployModal = (() => {
     exitOrder: 'MARKET',
     // ...all form fields
   };
-  
+
   return {
     setState: (updates) => {
       state = { ...state, ...updates };
       renderModal();
     },
-    
+
     getState: () => ({ ...state }),
-    
+
     reset: () => {
       state = {
         deployType: 'paper',
@@ -699,12 +699,12 @@ const DeployModal = (() => {
         // ... reset to defaults
       };
     },
-    
+
     renderModal: () => {
       // Re-render UI based on state
       // This ensures state and UI always match
     },
-    
+
     open: (runName) => {
       this.reset();
       // ... open implementation

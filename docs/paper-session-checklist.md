@@ -31,7 +31,7 @@ Run these checks between `09:05` and `09:12` IST:
 Run the reconciliation after market close for the exact session date. On the deployed host:
 
 ```bash
-ALGOFORGE_TOKEN=YOUR_TOKEN ./venv/bin/python scripts/reconcile_paper_session.py \
+PHILFORGE_TOKEN=YOUR_TOKEN ./venv/bin/python scripts/reconcile_paper_session.py \
   --date 2026-03-30 \
   --run-id Strategy_PE \
   --base-url http://127.0.0.1:8000 \

@@ -1,13 +1,13 @@
-# AlgoForge Backtesting Platform - Comprehensive Analysis Report
+# PhilForge Backtesting Platform - Comprehensive Analysis Report
 
-**Date:** February 27, 2026  
+**Date:** February 27, 2026
 **Status:** Critical Review for Production Readiness
 
 ---
 
 ## EXECUTIVE SUMMARY
 
-The AlgoForge platform has **significant UI/UX issues**, **logic breaks**, and **configuration mismatches** that compromise user experience and platform reliability. This analysis covers all 50+ interactive elements and identifies 30+ critical issues requiring immediate attention.
+The PhilForge platform has **significant UI/UX issues**, **logic breaks**, and **configuration mismatches** that compromise user experience and platform reliability. This analysis covers all 50+ interactive elements and identifies 30+ critical issues requiring immediate attention.
 
 ---
 
@@ -17,11 +17,11 @@ The AlgoForge platform has **significant UI/UX issues**, **logic breaks**, and *
 
 #### 1. **Logo Click** ❌ WORKS but has issues
 ```html
-<img src="logo.jpg" alt="AlgoForge" onclick="showPage('dashboard-page', ...)"
+<img src="logo.jpg" alt="PhilForge" onclick="showPage('dashboard-page', ...)"
 ```
 - **Function:** `showPage('dashboard-page', document.querySelectorAll('.ut')[0])`
 - **Status:** ✅ WORKS
-- **Issues:** 
+- **Issues:**
   - Hardcoded selector `.ut[0]` is fragile
   - No visual feedback during click
   - Should disable during navigation
@@ -35,7 +35,7 @@ function toggleBroker() {
 ```
 - **Logic:** UI-only simulation
 - **Status:** ❌ NO REAL BROKER CONNECTION
-- **Missing:** 
+- **Missing:**
   - `/api/broker/connect` endpoint
   - Dhan API authentication check
   - Connection validation
@@ -91,12 +91,12 @@ function onSegmentChange() {
 ```javascript
 function addIndicator() {
   const name = document.getElementById('new-indicator-name').value;
-  
+
   if (name === "CPR") {
     document.getElementById('cpr-modal').classList.add('open');
     return;  // ← Exits without validation
   }
-  
+
   // CPR modal has Save button (confirmAddCPR) that triggers separately
 }
 ```
@@ -109,7 +109,7 @@ function addIndicator() {
 function confirmAddCPR() {
   const narrowPct = parseFloat(document.getElementById('cpr-narrow-pct').value) || 0.2;
   // ... creates string like "CPR_0.2_0.5"
-  
+
   syncConditionDropdowns();  // ← Updates ALL dropdowns
 }
 ```
@@ -122,7 +122,7 @@ function confirmAddCPR() {
 function addConditionRow(type) {
   const rowId = conditionCounters[type]++;
   const isFirst = container.children.length === 0;
-  
+
   // First row shows "If", rest show "AND"/"OR"
   // But user can't save/load AND properly
 }
@@ -193,7 +193,7 @@ function toggleStrikeFields(id) {
 async function runBacktest() {
   const payload = buildPayload();
   if(!payload.instrument) { toast('Select an instrument first'); return; }
-  
+
   // Switches to results page BEFORE backtest completes
   // Shows countdown that's not accurate
 }
@@ -247,7 +247,7 @@ function deployStrategy() {
 function copyEditStrategy() {
   const p = lastBacktestPayload;
   if (!p) { toast('No backtest data to copy', 'warn'); return; }
-  
+
   // Attempts to restore ALL form state from payload
   // Fragile: assumes DOM structure hasn't changed
 }
@@ -325,7 +325,7 @@ function viewStrategy(id) { /* ... */ }
 ```javascript
 function loadStrategy(id) {
   const s = savedStrategiesCache.find(x => x.id === id);
-  
+
   // Restores ALL form state
   // Issues:
   // 1. Doesn't validate folder exists before setting
@@ -341,7 +341,7 @@ function loadStrategy(id) {
 ```javascript
 function moveStrategyFolder(id) {
   const s = savedStrategiesCache.find(x => x.id === id);
-  
+
   // Populates folder list dynamically
   // Opens modal
   // User selects folder
@@ -382,7 +382,7 @@ function startPaperTrading() {
     toast('Add at least one entry condition', 'warn');
     return;
   }
-  
+
   paperState = { running: true, ... };
   paperInterval = setInterval(paperTick, 1000);
 }
@@ -510,7 +510,7 @@ from broker.dhan     import DhanClient
 from engine.backtest import run_backtest
 from engine.live     import LiveEngine
 ```
-**Problem:** 
+**Problem:**
 - `engine/live.py` might have asyncio issues
 - `broker/dhan.py` might fail silently
 - No try-catch on imports
@@ -800,5 +800,5 @@ Legend:  ✅ = Fully Working   ⚠️ = Partial/Issues   ❌ = Broken/Missing
 
 ---
 
-**Report Generated:** February 27, 2026  
+**Report Generated:** February 27, 2026
 **Status:** Ready for development team review

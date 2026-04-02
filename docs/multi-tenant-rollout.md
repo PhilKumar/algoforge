@@ -1,4 +1,4 @@
-# AlgoForge Multi-Tenant Rollout Guide
+# PhilForge Multi-Tenant Rollout Guide
 
 This guide is for the `feature/multi-tenant` branch only. It does not apply to the current single-user `main` branch.
 
@@ -26,12 +26,12 @@ DHAN_PIN=...
 DHAN_TOTP_SECRET=...
 
 ADMIN_USERNAME=admin
-ALGOFORGE_PIN=your_first_admin_password
-ALGOFORGE_DB=/home/ec2-user/algoforge/algoforge.db
-ALGOFORGE_USER_DATA_ROOT=/home/ec2-user/algoforge/data/users
-ALGOFORGE_BACKUP_ROOT=/home/ec2-user/algoforge/backups
-ALGOFORGE_BACKUP_RETENTION_DAYS=14
-ALGOFORGE_BACKUP_MIN_FREE_MB=1024
+PHILFORGE_PIN=your_first_admin_password
+PHILFORGE_DB=/home/ec2-user/philforge/philforge.db
+PHILFORGE_USER_DATA_ROOT=/home/ec2-user/philforge/data/users
+PHILFORGE_BACKUP_ROOT=/home/ec2-user/philforge/backups
+PHILFORGE_BACKUP_RETENTION_DAYS=14
+PHILFORGE_BACKUP_MIN_FREE_MB=1024
 SESSION_TTL_HOURS=24
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=5
@@ -47,8 +47,8 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 Notes:
 
-- `ALGOFORGE_PIN` or `ALGOFORGE_PASSWORD` is only used for first-run admin bootstrap when no admin user exists yet.
-- Once the admin user exists in SQLite, changing `ALGOFORGE_PIN` does not reset that account.
+- `PHILFORGE_PIN` or `PHILFORGE_PASSWORD` is only used for first-run admin bootstrap when no admin user exists yet.
+- Once the admin user exists in SQLite, changing `PHILFORGE_PIN` does not reset that account.
 - Per-user broker credential storage is blocked unless `ENCRYPTION_KEY` is set.
 - `DHAN_REFERRAL_URL` is optional. When set, the login page shows an external CTA to open a new Dhan account.
 
@@ -77,12 +77,12 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 If you want a safe local test DB instead of your real data:
 
 ```bash
-export ALGOFORGE_DB=/tmp/algoforge-multi-tenant-test.db
-export ALGOFORGE_USER_DATA_ROOT=/tmp/algoforge-user-data
-export ALGOFORGE_BACKUP_ROOT=/tmp/algoforge-backups
-export ALGOFORGE_PIN=123456
+export PHILFORGE_DB=/tmp/philforge-multi-tenant-test.db
+export PHILFORGE_USER_DATA_ROOT=/tmp/philforge-user-data
+export PHILFORGE_BACKUP_ROOT=/tmp/philforge-backups
+export PHILFORGE_PIN=123456
 export ENCRYPTION_KEY="$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
-export ALGOFORGE_SKIP_STARTUP_JOBS=1
+export PHILFORGE_SKIP_STARTUP_JOBS=1
 uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -139,13 +139,13 @@ Expected result: every probe line should report `PASS` with `isolated=True`.
 
 ## 5. Production Cutover On Lightsail
 
-These steps assume the current production server is the AWS Lightsail host and the app directory is `/home/ec2-user/algoforge`.
+These steps assume the current production server is the AWS Lightsail host and the app directory is `/home/ec2-user/philforge`.
 
 ### Pre-Cutover Backup
 
 ```bash
-cd /home/ec2-user/algoforge
-python3 scripts/backup_algoforge.py --output-dir backups/manual --include-legacy
+cd /home/ec2-user/philforge
+python3 scripts/backup_philforge.py --output-dir backups/manual --include-legacy
 ```
 
 This backup path streams large folders directly into the archive instead of staging a full duplicate copy.
@@ -156,17 +156,17 @@ If the instance does not have enough free disk to create a safe local archive, i
 Set these explicitly on the server:
 
 - `ADMIN_USERNAME`
-- `ALGOFORGE_DB`
-- `ALGOFORGE_USER_DATA_ROOT`
-- `ALGOFORGE_BACKUP_ROOT`
-- `ALGOFORGE_BACKUP_MIN_FREE_MB`
+- `PHILFORGE_DB`
+- `PHILFORGE_USER_DATA_ROOT`
+- `PHILFORGE_BACKUP_ROOT`
+- `PHILFORGE_BACKUP_MIN_FREE_MB`
 - `ENCRYPTION_KEY`
 - existing Dhan/global broker values if admin fallback is still needed
 
 ### Migrate Existing Data
 
 ```bash
-cd /home/ec2-user/algoforge
+cd /home/ec2-user/philforge
 source venv/bin/activate
 python3 scripts/migrate_to_sqlite.py
 ```
@@ -180,14 +180,14 @@ If blue-green systemd is already installed, do not rerun setup blindly. Use depl
 If this is the first blue-green setup on a box:
 
 ```bash
-cd /home/ec2-user/algoforge
+cd /home/ec2-user/philforge
 SYNC_SITE_CONFIG=0 bash deploy/setup-cicd.sh
 ```
 
 If blue-green is already present:
 
 ```bash
-cd /home/ec2-user/algoforge
+cd /home/ec2-user/philforge
 bash deploy/cd-deploy.sh
 ```
 
@@ -198,7 +198,7 @@ bash deploy/cd-deploy.sh
 On a production box that already has the repo and venv in place, prefer:
 
 ```bash
-cd /home/ec2-user/algoforge
+cd /home/ec2-user/philforge
 bash deploy/rollout-main.sh
 ```
 
@@ -215,8 +215,8 @@ That script:
 
 ```bash
 curl -s http://127.0.0.1:8000/api/health
-systemctl list-timers algoforge-backup.timer
-sudo journalctl -u algoforge@8000 -n 50 --no-pager
+systemctl list-timers philforge-backup.timer
+sudo journalctl -u philforge@8000 -n 50 --no-pager
 ```
 
 Then verify in the browser:
@@ -234,14 +234,14 @@ Then verify in the browser:
 Check backups:
 
 ```bash
-systemctl list-timers algoforge-backup.timer
-ls -lh /home/ec2-user/algoforge/backups
+systemctl list-timers philforge-backup.timer
+ls -lh /home/ec2-user/philforge/backups
 ```
 
 Manual backup:
 
 ```bash
-python3 scripts/backup_algoforge.py
+python3 scripts/backup_philforge.py
 ```
 
 WebSocket/user-isolation probe on the production-shaped environment:
@@ -262,9 +262,9 @@ If cutover fails:
 Minimum rollback commands:
 
 ```bash
-cd /home/ec2-user/algoforge
+cd /home/ec2-user/philforge
 git checkout main
-sudo systemctl restart algoforge@8000
+sudo systemctl restart philforge@8000
 sudo nginx -t && sudo nginx -s reload
 ```
 

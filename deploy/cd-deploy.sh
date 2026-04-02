@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  AlgoForge — Zero-Downtime Blue-Green Deployment
+#  PhilForge — Zero-Downtime Blue-Green Deployment
 # ═══════════════════════════════════════════════════════════════
 #  Called by GitHub Actions after `git pull`.
 #  Starts new code on a standby port, health-checks it,
@@ -8,8 +8,8 @@
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
-APP="algoforge"
-APP_DIR="/home/ec2-user/algoforge"
+APP="philforge"
+APP_DIR="/home/ec2-user/philforge"
 VENV="$APP_DIR/venv"
 
 BLUE_PORT=8000
@@ -21,7 +21,7 @@ HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=180         # seconds to wait for standby health
 DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
-LOCK_FILE="$HOME/.algoforge-deploy.lock"
+LOCK_FILE="$HOME/.philforge-deploy.lock"
 
 LOG_TAG="[DEPLOY]"
 
@@ -82,7 +82,7 @@ else
 fi
 
 # ── 2b. Kill legacy non-template service if it exists ─────────
-#  Prevents port conflict: old algoforge.service may hold port 8000
+#  Prevents port conflict: old philforge.service may hold port 8000
 if sudo systemctl is-active "${APP}.service" >/dev/null 2>&1; then
     log "⚠ Found legacy ${APP}.service — stopping & disabling..."
     sudo systemctl stop "${APP}.service"

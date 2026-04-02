@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["ALGOFORGE_SKIP_STARTUP_JOBS"] = "1"
+os.environ["PHILFORGE_SKIP_STARTUP_JOBS"] = "1"
 
 import app as app_module
 

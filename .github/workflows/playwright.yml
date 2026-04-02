@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e-algoforge:
-    name: E2E — AlgoForge
+  e2e-philforge:
+    name: E2E — PhilForge
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -44,10 +44,10 @@ jobs:
           npm install
           npx playwright install --with-deps chromium
 
-      # ── Start AlgoForge server ──
-      - name: Start AlgoForge dev server
+      # ── Start PhilForge server ──
+      - name: Start PhilForge dev server
         env:
-          ALGOFORGE_PIN: "123456"
+          PHILFORGE_PIN: "123456"
           DHAN_CLIENT_ID: "e2e-dummy"
           DHAN_ACCESS_TOKEN: "e2e-dummy-token"
         run: |
@@ -58,7 +58,7 @@ jobs:
             sleep 1
           done
           curl -sf http://localhost:8000/api/health > /dev/null || (echo "Server failed to start" && exit 1)
-          echo "AlgoForge is up on :8000"
+          echo "PhilForge is up on :8000"
 
       # ── Run Playwright tests ──
       - name: Run Playwright tests
@@ -66,14 +66,14 @@ jobs:
           E2E_USERNAME: "admin"
           E2E_PIN: "123456"
         working-directory: e2e-tests
-        run: npx playwright test --project=algoforge
+        run: npx playwright test --project=philforge
 
       # ── Upload artifacts on failure ──
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-algoforge
+          name: playwright-report-philforge
           path: |
             e2e-tests/playwright-report/
             e2e-tests/test-results/

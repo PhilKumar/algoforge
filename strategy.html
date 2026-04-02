@@ -7980,7 +7980,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
   }
   // Persist active tab across page refresh
-  try { localStorage.setItem('algoforge_active_tab', id); } catch(e) {}
+  try { _setLocalState('philforge_active_tab', id, 'algoforge_active_tab'); } catch(e) {}
   if (options.pushHistory !== false) {
     const navState = buildNavState(id, options.historyState || {});
     const nextHash = navHashForState(navState);
@@ -8012,6 +8012,29 @@ document.addEventListener('click', (event) => {
   if (!event.target.closest('#nav-insights-wrap') && !event.target.closest('#nav-insights-menu')) closeInsightsMenu();
 });
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
+
+function _getLocalState(primaryKey, legacyKey = '') {
+  try {
+    const current = localStorage.getItem(primaryKey);
+    if (current !== null) return current;
+    if (!legacyKey) return null;
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      localStorage.setItem(primaryKey, legacy);
+      localStorage.removeItem(legacyKey);
+    }
+    return legacy;
+  } catch(e) {
+    return null;
+  }
+}
+
+function _setLocalState(primaryKey, value, legacyKey = '') {
+  try {
+    localStorage.setItem(primaryKey, value);
+    if (legacyKey) localStorage.removeItem(legacyKey);
+  } catch(e) {}
+}
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {
@@ -8131,7 +8154,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Restore active tab from URL or previous session and seed browser history.
   try {
-    const savedTab = localStorage.getItem('algoforge_active_tab');
+    const savedTab = _getLocalState('philforge_active_tab', 'algoforge_active_tab');
     const initialState =
       history.state ||
       navStateFromLocation() ||
@@ -9800,7 +9823,8 @@ let _scalpPollTimer = null;
 let _scalpLTPTimer = null;
 let _scalpFormInitialized = false;
 let _scalpRestoringState = false;
-const _SCALP_FORM_STORAGE_KEY = 'algoforge_scalp_form_state_v1';
+const _SCALP_FORM_STORAGE_KEY = 'philforge_scalp_form_state_v1';
+const _LEGACY_SCALP_FORM_STORAGE_KEY = 'algoforge_scalp_form_state_v1';
 // Correct lot sizes as of Jan 2026
 const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
 // Strike step intervals per underlying
@@ -9828,13 +9852,13 @@ function _readScalpFormState() {
 function _persistScalpFormState() {
   if (_scalpRestoringState) return;
   try {
-    localStorage.setItem(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()));
+    _setLocalState(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()), _LEGACY_SCALP_FORM_STORAGE_KEY);
   } catch (e) {}
 }
 
 function _loadSavedScalpFormState() {
   try {
-    const raw = localStorage.getItem(_SCALP_FORM_STORAGE_KEY);
+    const raw = _getLocalState(_SCALP_FORM_STORAGE_KEY, _LEGACY_SCALP_FORM_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -10798,7 +10822,7 @@ function renderTickerPayload(data) {
 
 function loadTickerFromCache() {
   try {
-    const raw = localStorage.getItem('algoforge_ticker_cache');
+    const raw = _getLocalState('philforge_ticker_cache', 'algoforge_ticker_cache');
     if (!raw) return false;
     const cached = JSON.parse(raw);
     return renderTickerPayload(cached);
@@ -10814,7 +10838,7 @@ function updateTicker() {
     if (data.status === 'ok') {
       renderTickerPayload(data);
       try {
-        localStorage.setItem('algoforge_ticker_cache', JSON.stringify(data));
+        _setLocalState('philforge_ticker_cache', JSON.stringify(data), 'algoforge_ticker_cache');
       } catch (err) {
         console.warn('Ticker cache save failed:', err);
       }
@@ -15262,14 +15286,14 @@ function toggleTheme() {
   const next = current === 'light' ? 'dark' : 'light';
   html.setAttribute('data-theme', next);
   document.getElementById('theme-toggle').innerHTML = next === 'light' ? ICO.moon(18) : ICO.sun(18);
-  try { localStorage.setItem('algoforge_theme', next); } catch(e) {}
+  try { _setLocalState('philforge_theme', next, 'algoforge_theme'); } catch(e) {}
   requestAnimationFrame(() => {
     if (lastBacktestData?.equity?.length > 1) renderEquityChart(lastBacktestData.equity);
   });
 }
 (function initTheme() {
   try {
-    const saved = localStorage.getItem('algoforge_theme');
+    const saved = _getLocalState('philforge_theme', 'algoforge_theme');
     const btn = document.getElementById('theme-toggle');
     if (saved === 'light') {
       document.documentElement.setAttribute('data-theme', 'light');

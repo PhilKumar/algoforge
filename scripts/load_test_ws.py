@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-user WebSocket load and isolation probe for AlgoForge.
+"""Multi-user WebSocket load and isolation probe for PhilForge.
 
 Typical usage on the main production-shaped environment:
   python3 scripts/load_test_ws.py \
@@ -160,8 +160,8 @@ async def _probe_user(
 
 
 async def main() -> int:
-    parser = argparse.ArgumentParser(description="Probe concurrent WebSocket sessions for AlgoForge user isolation.")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="AlgoForge base URL")
+    parser = argparse.ArgumentParser(description="Probe concurrent WebSocket sessions for PhilForge user isolation.")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="PhilForge base URL")
     parser.add_argument(
         "--credential",
         action="append",

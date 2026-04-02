@@ -207,7 +207,7 @@ def _alert_renewal_failure():
         if not bot_token or not chat_id:
             return
         text = (
-            "🔴 <b>[AlgoForge] Token Renewal FAILED</b>\n"
+            "🔴 <b>[PhilForge] Token Renewal FAILED</b>\n"
             "All 5 renewal attempts failed.\n"
             "The access token may be expired.\n\n"
             "<b>Action needed:</b> Use the ⟳ Token button on the dashboard or restart the server."

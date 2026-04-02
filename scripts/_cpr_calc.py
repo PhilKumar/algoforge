@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-sys.path.insert(0, "/home/ec2-user/algoforge")
+sys.path.insert(0, "/home/ec2-user/philforge")
 import config
 
 IST = timezone(timedelta(hours=5, minutes=30))

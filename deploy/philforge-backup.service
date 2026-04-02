@@ -1,0 +1,11 @@
+[Unit]
+Description=PhilForge backup snapshot
+After=network.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/philforge
+Environment="PATH=/home/ec2-user/philforge/venv/bin"
+EnvironmentFile=/home/ec2-user/philforge/.env
+ExecStart=/home/ec2-user/philforge/venv/bin/python /home/ec2-user/philforge/scripts/backup_philforge.py

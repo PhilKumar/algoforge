@@ -7,7 +7,7 @@ print("=" * 70)
 print("ANALYSIS: New Backtest (theta reverted) vs Benchmark")
 print("=" * 70)
 
-print(f"\nNew AlgoForge: {len(new)} trades,  Total P&L: {new['pnl'].sum():>12,.2f}")
+print(f"\nNew PhilForge: {len(new)} trades,  Total P&L: {new['pnl'].sum():>12,.2f}")
 print(f"Benchmark:     {len(bm)} trades,  Total P&L: {bm['Profit'].sum():>12,.2f}")
 
 # Entry prices

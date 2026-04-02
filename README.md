@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ AlgoForge &amp; CryptoForge
+# ⚡ PhilForge &amp; CryptoForge
 ### High-Frequency Algorithmic Trading Suite
 
 *Multi-asset, multi-mode trading platform — Equities &amp; Options via Dhan · Crypto Perpetuals via Delta Exchange*
@@ -39,12 +39,12 @@ This suite contains **two production-grade trading platforms** that share a comm
 
 | Platform | Market | Broker | Port |
 |----------|--------|--------|------|
-| **AlgoForge** | NSE Equities &amp; Options (F&amp;O) | [Dhan](https://dhanhq.co) REST + WebSocket | `8000` |
+| **PhilForge** | NSE Equities &amp; Options (F&amp;O) | [Dhan](https://dhanhq.co) REST + WebSocket | `8000` |
 | **CryptoForge** | Crypto Perpetual Futures | [Delta Exchange India](https://www.delta.exchange) REST + WebSocket | `9000` |
 
 Both platforms provide a unified workflow: **Strategy Builder → Backtest → Paper Trade → Go Live → Scalp**.
 
-> AlgoForge on `main` now includes SQLite-backed multi-user auth, per-user broker isolation, admin controls, and backup tooling. Use [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md) for main-production backup and rollout guidance.
+> PhilForge on `main` now includes SQLite-backed multi-user auth, per-user broker isolation, admin controls, and backup tooling. Use [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md) for main-production backup and rollout guidance.
 
 ---
 
@@ -57,10 +57,10 @@ graph TD
     end
 
     subgraph PROXY["⚡ Reverse Proxy"]
-        NGINX["Nginx<br/>Port 80 → AlgoForge :8000<br/>Port 9090 → CryptoForge :9000<br/>TCP tuning · HTTP/1.1 keepalive"]
+        NGINX["Nginx<br/>Port 80 → PhilForge :8000<br/>Port 9090 → CryptoForge :9000<br/>TCP tuning · HTTP/1.1 keepalive"]
     end
 
-    subgraph ALGOFORGE["📈 AlgoForge — Equities & Options"]
+    subgraph PHILFORGE["📈 PhilForge — Equities & Options"]
         AF_APP["FastAPI + Uvicorn<br/>app.py :8000"]
         AF_BT["Backtest Engine<br/>Walk-forward · No look-ahead bias"]
         AF_LIVE["Live Engine<br/>Dhan REST orders"]
@@ -86,7 +86,7 @@ graph TD
 
     subgraph DATA["💾 Data Layer"]
         PG["PostgreSQL / TimescaleDB<br/>candles hypertable<br/>1m · 3m · 5m OHLCV<br/>(optional — CryptoForge)"]
-        JSON_FILES["SQLite + Per-user Files<br/>algoforge.db<br/>data/users/*"]
+        JSON_FILES["SQLite + Per-user Files<br/>philforge.db<br/>data/users/*"]
         PROM["Prometheus Metrics<br/>/metrics endpoint<br/>(optional)"]
     end
 
@@ -153,7 +153,7 @@ Browser → Nginx (TCP-tuned) → Uvicorn (ASGI) → FastAPI Router
 | **Session Auth** | Username + password auth on `feature/multi-tenant`; legacy PIN only for first-run admin bootstrap |
 | **Graceful Shutdown** | `atexit` hook auto-saves all running engine states to `runs.json` |
 
-### AlgoForge-Specific
+### PhilForge-Specific
 
 | Feature | Details |
 |---------|---------|
@@ -181,10 +181,10 @@ Browser → Nginx (TCP-tuned) → Uvicorn (ASGI) → FastAPI Router
 
 ## 📁 Project Structure
 
-### AlgoForge (`/New_Algo`)
+### PhilForge (`/PhilForge`)
 
 ```
-algoforge/
+philforge/
 ├── app.py                    # FastAPI backend — all routes, WebSocket hub, auth
 ├── config.py                 # Env vars, Dhan credentials, indicator defaults
 ├── scalp.py                  # Scalp engine — options scalping (hybrid manual/auto)
@@ -204,7 +204,7 @@ algoforge/
 │   ├── market_feed.py        # Dhan WebSocket feed + CandleAggregator
 │   └── data_cache.py         # In-memory OHLCV cache
 └── deploy/
-    ├── algoforge.service     # systemd unit
+    ├── philforge.service     # systemd unit
     ├── nginx.conf            # Reverse proxy config
     └── deploy.sh             # One-command EC2 setup
 ```
@@ -243,14 +243,14 @@ cryptoforge/
 
 - Python 3.11+
 - `git`
-- A Dhan account (AlgoForge) and/or Delta Exchange account (CryptoForge)
+- A Dhan account (PhilForge) and/or Delta Exchange account (CryptoForge)
 
 ### 1. Clone
 
 ```bash
-# AlgoForge
-git clone https://github.com/YOUR_USERNAME/algoforge.git
-cd algoforge
+# PhilForge
+git clone https://github.com/YOUR_USERNAME/philforge.git
+cd philforge
 
 # CryptoForge
 git clone https://github.com/PhilKumar/cryptoforge.git
@@ -283,15 +283,15 @@ uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2
 ```
 
-Open **http://localhost:8000** and log in with your configured username + password. On first boot of `feature/multi-tenant`, the admin account is bootstrapped from `ADMIN_USERNAME` plus `ALGOFORGE_PIN` or `ALGOFORGE_PASSWORD`.
+Open **http://localhost:8000** and log in with your configured username + password. On first boot of `feature/multi-tenant`, the admin account is bootstrapped from `ADMIN_USERNAME` plus `PHILFORGE_PIN` or `PHILFORGE_PASSWORD`.
 
-> **Backtesting without credentials:** AlgoForge backtests automatically fall back to Yahoo Finance data. CryptoForge backtests fall back to Binance public OHLCV.
+> **Backtesting without credentials:** PhilForge backtests automatically fall back to Yahoo Finance data. CryptoForge backtests fall back to Binance public OHLCV.
 
 ---
 
 ## 🔑 Environment Variables
 
-### AlgoForge `.env`
+### PhilForge `.env`
 
 ```bash
 # ── Dhan API ─────────────────────────────────────────
@@ -308,11 +308,11 @@ APP_HOST=127.0.0.1
 APP_PORT=8000
 DEBUG=false
 ADMIN_USERNAME=admin
-ALGOFORGE_PIN=bootstrap_admin_password
-ALGOFORGE_DB=/home/ec2-user/algoforge/algoforge.db
-ALGOFORGE_USER_DATA_ROOT=/home/ec2-user/algoforge/data/users
-ALGOFORGE_BACKUP_ROOT=/home/ec2-user/algoforge/backups
-ALGOFORGE_BACKUP_MIN_FREE_MB=1024
+PHILFORGE_PIN=bootstrap_admin_password
+PHILFORGE_DB=/home/ec2-user/philforge/philforge.db
+PHILFORGE_USER_DATA_ROOT=/home/ec2-user/philforge/data/users
+PHILFORGE_BACKUP_ROOT=/home/ec2-user/philforge/backups
+PHILFORGE_BACKUP_MIN_FREE_MB=1024
 ENCRYPTION_KEY=generated_fernet_key
 
 # ── Alerts (optional) ────────────────────────────────
@@ -417,7 +417,7 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/health` | Health check |
-| `GET` | `/api/token/status` | JWT expiry info (AlgoForge) |
+| `GET` | `/api/token/status` | JWT expiry info (PhilForge) |
 | `GET` | `/metrics` | Prometheus metrics (if enabled) |
 | `WS` | `/ws` | Real-time trade log + P&amp;L WebSocket stream |
 
@@ -455,13 +455,13 @@ prev_candle · yesterday_high · yesterday_low · pivot · bc · tc
 
 ## 🖥 Production Deployment
 
-For the multi-tenant AlgoForge branch, use the staged rollout guide in [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md). It covers bootstrap env vars, migration, UAT, load testing, backup timer setup, and rollback.
+For the multi-tenant PhilForge branch, use the staged rollout guide in [docs/multi-tenant-rollout.md](docs/multi-tenant-rollout.md). It covers bootstrap env vars, migration, UAT, load testing, backup timer setup, and rollback.
 
 ### Infrastructure Overview
 
 ```
 EC2 Instance (Amazon Linux 2 / Ubuntu 22.04)
-├── Port 80   → Nginx → AlgoForge   :8000 (uvicorn)
+├── Port 80   → Nginx → PhilForge   :8000 (uvicorn)
 ├── Port 9090 → Nginx → CryptoForge :9000 (uvicorn)
 ├── systemd manages both services (Restart=always)
 └── PostgreSQL / TimescaleDB (optional, CryptoForge candle storage)
@@ -480,16 +480,16 @@ bash deploy/deploy.sh YOUR_ELASTIC_IP
 ### Systemd Service
 
 ```ini
-# /etc/systemd/system/algoforge.service
+# /etc/systemd/system/philforge.service
 [Unit]
-Description=AlgoForge Trading Platform
+Description=PhilForge Trading Platform
 After=network.target
 
 [Service]
 User=ec2-user
-WorkingDirectory=/home/ec2-user/algoforge
-EnvironmentFile=/home/ec2-user/algoforge/.env
-ExecStart=/home/ec2-user/algoforge/venv/bin/uvicorn app:app \
+WorkingDirectory=/home/ec2-user/philforge
+EnvironmentFile=/home/ec2-user/philforge/.env
+ExecStart=/home/ec2-user/philforge/venv/bin/uvicorn app:app \
     --host 0.0.0.0 --port 8000 --workers 2
 Restart=always
 RestartSec=5
@@ -500,9 +500,9 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable algoforge
-sudo systemctl start algoforge
-sudo journalctl -u algoforge -f    # tail logs
+sudo systemctl enable philforge
+sudo systemctl start philforge
+sudo journalctl -u philforge -f    # tail logs
 ```
 
 ### Nginx Configuration
@@ -541,9 +541,9 @@ Local edit
     │
     ├─ git commit -m "feat: ..."
     ├─ git push origin main
-    └─ scp -i ~/.ssh/algocrypto app.py ec2-user@IP:/home/ec2-user/algoforge/
+    └─ scp -i ~/.ssh/algocrypto app.py ec2-user@IP:/home/ec2-user/philforge/
            │
-           └─ sudo systemctl restart algoforge   (only for app.py changes)
+           └─ sudo systemctl restart philforge   (only for app.py changes)
               # HTML/static changes — no restart needed (read fresh on every request)
 ```
 
@@ -586,7 +586,7 @@ Point your Grafana datasource to the Prometheus scrape target for latency histog
 
 ```bash
 # systemd journal
-sudo journalctl -u algoforge  -f
+sudo journalctl -u philforge  -f
 sudo journalctl -u cryptoforge -f
 
 # Local dev
@@ -612,7 +612,7 @@ tail -f server.log
 
 ## 📜 License
 
-Private — All rights reserved. © 2025 AlgoForge / CryptoForge.
+Private — All rights reserved. © 2025 PhilForge / CryptoForge.
 
 ---
 

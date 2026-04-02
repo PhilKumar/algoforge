@@ -9,17 +9,17 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TEST_DB = Path("/tmp/algoforge-test-portfolio.db")
+TEST_DB = Path("/tmp/philforge-test-portfolio.db")
 if TEST_DB.exists():
     TEST_DB.unlink()
-TEST_USER_DATA = Path("/tmp/algoforge-test-portfolio-data")
+TEST_USER_DATA = Path("/tmp/philforge-test-portfolio-data")
 if TEST_USER_DATA.exists():
     shutil.rmtree(TEST_USER_DATA)
 
-os.environ["ALGOFORGE_PIN"] = "123456"
-os.environ["ALGOFORGE_DB"] = str(TEST_DB)
-os.environ["ALGOFORGE_USER_DATA_ROOT"] = str(TEST_USER_DATA)
-os.environ["ALGOFORGE_SKIP_STARTUP_JOBS"] = "1"
+os.environ["PHILFORGE_PIN"] = "123456"
+os.environ["PHILFORGE_DB"] = str(TEST_DB)
+os.environ["PHILFORGE_USER_DATA_ROOT"] = str(TEST_USER_DATA)
+os.environ["PHILFORGE_SKIP_STARTUP_JOBS"] = "1"
 os.environ["ENCRYPTION_KEY"] = "QmG8YWqLPtWFDn7gCAiHJXoX7zHn5zi89kUnkkMvibU="
 os.environ["DHAN_PIN"] = ""
 os.environ["DHAN_TOTP_SECRET"] = ""

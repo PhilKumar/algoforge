@@ -9,14 +9,14 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "scripts" / "backup_algoforge.py"
+SCRIPT = REPO_ROOT / "scripts" / "backup_philforge.py"
 
 
-class BackupAlgoForgeTests(unittest.TestCase):
+class BackupPhilForgeTests(unittest.TestCase):
     def test_backup_archive_includes_db_user_data_and_legacy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            db_path = root / "algoforge.db"
+            db_path = root / "philforge.db"
             user_data_root = root / "user-data"
             backup_root = root / "backups"
 
@@ -36,10 +36,10 @@ class BackupAlgoForgeTests(unittest.TestCase):
             env = os.environ.copy()
             env.update(
                 {
-                    "ALGOFORGE_DB": str(db_path),
-                    "ALGOFORGE_USER_DATA_ROOT": str(user_data_root),
-                    "ALGOFORGE_BACKUP_ROOT": str(backup_root),
-                    "ALGOFORGE_BACKUP_MIN_FREE_MB": "0",
+                    "PHILFORGE_DB": str(db_path),
+                    "PHILFORGE_USER_DATA_ROOT": str(user_data_root),
+                    "PHILFORGE_BACKUP_ROOT": str(backup_root),
+                    "PHILFORGE_BACKUP_MIN_FREE_MB": "0",
                 }
             )
 
@@ -69,11 +69,11 @@ class BackupAlgoForgeTests(unittest.TestCase):
             with tarfile.open(archive_path, "r:gz") as tf:
                 names = set(tf.getnames())
 
-            self.assertIn("algoforge-backup/algoforge.db", names)
-            self.assertIn("algoforge-backup/manifest.json", names)
-            self.assertIn("algoforge-backup/user-data/1/charts/shot.txt", names)
-            self.assertIn("algoforge-backup/legacy/strategies.json", names)
-            self.assertIn("algoforge-backup/legacy/journals/2026-03-19.json", names)
+            self.assertIn("philforge-backup/philforge.db", names)
+            self.assertIn("philforge-backup/manifest.json", names)
+            self.assertIn("philforge-backup/user-data/1/charts/shot.txt", names)
+            self.assertIn("philforge-backup/legacy/strategies.json", names)
+            self.assertIn("philforge-backup/legacy/journals/2026-03-19.json", names)
 
     def test_backup_archive_allows_legacy_only_when_db_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,10 +88,10 @@ class BackupAlgoForgeTests(unittest.TestCase):
             env = os.environ.copy()
             env.update(
                 {
-                    "ALGOFORGE_DB": str(db_path),
-                    "ALGOFORGE_USER_DATA_ROOT": str(user_data_root),
-                    "ALGOFORGE_BACKUP_ROOT": str(backup_root),
-                    "ALGOFORGE_BACKUP_MIN_FREE_MB": "0",
+                    "PHILFORGE_DB": str(db_path),
+                    "PHILFORGE_USER_DATA_ROOT": str(user_data_root),
+                    "PHILFORGE_BACKUP_ROOT": str(backup_root),
+                    "PHILFORGE_BACKUP_MIN_FREE_MB": "0",
                 }
             )
 
@@ -118,10 +118,10 @@ class BackupAlgoForgeTests(unittest.TestCase):
 
             with tarfile.open(archive_path, "r:gz") as tf:
                 names = set(tf.getnames())
-                manifest = json.loads(tf.extractfile("algoforge-backup/manifest.json").read().decode("utf-8"))
+                manifest = json.loads(tf.extractfile("philforge-backup/manifest.json").read().decode("utf-8"))
 
-            self.assertNotIn("algoforge-backup/algoforge.db", names)
-            self.assertIn("algoforge-backup/legacy/strategies.json", names)
+            self.assertNotIn("philforge-backup/philforge.db", names)
+            self.assertIn("philforge-backup/legacy/strategies.json", names)
             self.assertFalse(manifest["db_present"])
 
 

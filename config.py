@@ -1,5 +1,5 @@
 # ============================================================
-#  AlgoForge — Configuration
+#  PhilForge — Configuration
 #  Load credentials from .env file (NEVER hardcode them!)
 # ============================================================
 
@@ -86,14 +86,41 @@ CPR_MODERATE_RANGE = 0.5
 CPR_WIDE_RANGE = 0.5
 
 # ── Multi-Tenant Database & Auth ──────────────────────────
-DB_PATH = os.getenv("ALGOFORGE_DB", os.path.join(os.path.dirname(__file__), "algoforge.db"))
-USER_DATA_ROOT = os.getenv("ALGOFORGE_USER_DATA_ROOT", os.path.join(os.path.dirname(__file__), "data", "users"))
+_CONFIG_ROOT = os.path.dirname(__file__)
+_LEGACY_DB_PATH = os.path.join(_CONFIG_ROOT, "algoforge.db")
+_DEFAULT_DB_PATH = os.path.join(_CONFIG_ROOT, "philforge.db")
+
+
+def _env_first(*keys: str, default: str = "") -> str:
+    for key in keys:
+        value = os.getenv(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+DB_PATH = _env_first(
+    "PHILFORGE_DB",
+    "ALGOFORGE_DB",
+    default=_LEGACY_DB_PATH if os.path.exists(_LEGACY_DB_PATH) else _DEFAULT_DB_PATH,
+)
+USER_DATA_ROOT = _env_first(
+    "PHILFORGE_USER_DATA_ROOT",
+    "ALGOFORGE_USER_DATA_ROOT",
+    default=os.path.join(_CONFIG_ROOT, "data", "users"),
+)
 ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds at rest
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
-BACKUP_ROOT = os.getenv("ALGOFORGE_BACKUP_ROOT", os.path.join(os.path.dirname(__file__), "backups"))
-BACKUP_RETENTION_DAYS = int(os.getenv("ALGOFORGE_BACKUP_RETENTION_DAYS", "14"))
-BACKUP_MIN_FREE_MB = int(os.getenv("ALGOFORGE_BACKUP_MIN_FREE_MB", "1024"))
+BACKUP_ROOT = _env_first(
+    "PHILFORGE_BACKUP_ROOT",
+    "ALGOFORGE_BACKUP_ROOT",
+    default=os.path.join(_CONFIG_ROOT, "backups"),
+)
+BACKUP_RETENTION_DAYS = int(
+    _env_first("PHILFORGE_BACKUP_RETENTION_DAYS", "ALGOFORGE_BACKUP_RETENTION_DAYS", default="14")
+)
+BACKUP_MIN_FREE_MB = int(_env_first("PHILFORGE_BACKUP_MIN_FREE_MB", "ALGOFORGE_BACKUP_MIN_FREE_MB", default="1024"))
 DHAN_REFERRAL_URL = (os.getenv("DHAN_REFERRAL_URL", "") or "").strip()

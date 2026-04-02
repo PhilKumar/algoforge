@@ -1,5 +1,5 @@
 """
-alerter.py — Async Telegram & Discord alerting for AlgoForge.
+alerter.py — Async Telegram & Discord alerting for PhilForge.
 
 Sends fire-and-forget notifications on broker failures, order errors,
 and critical events. Non-blocking — never delays the API response.
@@ -101,9 +101,9 @@ def alert(title: str, body: str, level: str = "error") -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # HTML for Telegram
-    html = f"{icon} <b>[AlgoForge] {title}</b>\n<code>{ts}</code>\n\n{body}"
+    html = f"{icon} <b>[PhilForge] {title}</b>\n<code>{ts}</code>\n\n{body}"
     # Plain for Discord
-    plain = f"{icon} **[AlgoForge] {title}**\n`{ts}`\n\n{body}"
+    plain = f"{icon} **[PhilForge] {title}**\n`{ts}`\n\n{body}"
 
     try:
         loop = asyncio.get_running_loop()

@@ -1,10 +1,10 @@
 [Unit]
-Description=Daily AlgoForge backup timer
+Description=Daily PhilForge backup timer
 
 [Timer]
 OnCalendar=*-*-* 04:10:00
 Persistent=true
-Unit=algoforge-backup.service
+Unit=philforge-backup.service
 
 [Install]
 WantedBy=timers.target

@@ -34,7 +34,7 @@ function toggleTheme() {
   if (next === 'dark') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', 'light');
   try {
-    localStorage.setItem('algoforge_theme', next);
+    localStorage.setItem('philforge_theme', next);
   } catch (e) {}
   setThemeToggleIcon();
 }

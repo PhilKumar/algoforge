@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AlgoForge & CryptoForge — Architecture</title>
+<title>PhilForge & CryptoForge — Architecture</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -788,7 +788,7 @@ body::after {
 <!-- ── HEADER ────────────────────────────────────────────────── -->
 <header class="header">
   <p class="eyebrow">Production Infrastructure · System Architecture</p>
-  <h1 class="title">AlgoForge &amp; CryptoForge</h1>
+  <h1 class="title">PhilForge &amp; CryptoForge</h1>
   <p class="subtitle">Algorithmic trading suite · NSE Equities &amp; Options · Crypto Perpetual Futures · AWS EC2</p>
   <div class="badges">
     <span class="badge b-teal">FastAPI · Python 3.11</span>
@@ -818,7 +818,7 @@ body::after {
     <span class="pipe-num s-dev">Local · Mac</span>
     <div class="pipe-title">💻 Developer</div>
     <div class="pipe-item"><span class="pipe-dot s-dev"></span>VSCode + Claude Code</div>
-    <div class="pipe-item"><span class="pipe-dot s-dev"></span>/New_Algo + /CryptoForge</div>
+    <div class="pipe-item"><span class="pipe-dot s-dev"></span>/PhilForge + /CryptoForge</div>
     <div class="pipe-item"><span class="pipe-dot s-dev"></span>pre-commit hooks</div>
     <div class="pipe-item"><span class="pipe-dot s-dev"></span>Ruff format on save</div>
     <div class="pipe-item"><span class="pipe-dot s-dev"></span>git push → main</div>
@@ -907,9 +907,9 @@ body::after {
     <div class="grid-2 gap-sm">
       <div class="mnode teal">
         <span class="mnode-icon">🔀</span>
-        <div class="mnode-name">Port :80 → AlgoForge</div>
+        <div class="mnode-name">Port :80 → PhilForge</div>
         <div class="mnode-detail">
-          algoforge-upstream.conf<br>
+          philforge-upstream.conf<br>
           tcp_nodelay on<br>
           http/1.1 keepalive<br>
           WebSocket upgrade headers<br>
@@ -930,12 +930,12 @@ body::after {
     </div>
   </div>
 
-  <!-- AlgoForge + CryptoForge side by side -->
+  <!-- PhilForge + CryptoForge side by side -->
   <div class="grid-2 gap-sm" style="margin-bottom: 1rem;">
 
-    <!-- ALGOFORGE -->
+    <!-- PHILFORGE -->
     <div class="inner-zone iz-blue">
-      <div class="inner-zone-title iz-blue">📈 AlgoForge — Equities &amp; Options</div>
+      <div class="inner-zone-title iz-blue">📈 PhilForge — Equities &amp; Options</div>
 
       <!-- Blue-Green -->
       <div class="bg-pair" style="margin-bottom: 0.8rem;">
@@ -944,7 +944,7 @@ body::after {
           <div class="bg-detail">
             uvicorn :8000<br>
             Python 3.11<br>
-            systemd algoforge@8000<br>
+            systemd philforge@8000<br>
             <em>↑ active traffic</em>
           </div>
         </div>
@@ -953,7 +953,7 @@ body::after {
           <div class="bg-detail">
             uvicorn :8001<br>
             Python 3.11<br>
-            systemd algoforge@8001<br>
+            systemd philforge@8001<br>
             <em>↑ standby / new deploy</em>
           </div>
         </div>
@@ -1159,7 +1159,7 @@ body::after {
         JWT auth
       </div>
       <div class="node-tags">
-        <span class="ntag">AlgoForge</span>
+        <span class="ntag">PhilForge</span>
         <span class="ntag">REST</span>
       </div>
     </div>
@@ -1175,7 +1175,7 @@ body::after {
         Background thread
       </div>
       <div class="node-tags">
-        <span class="ntag">AlgoForge</span>
+        <span class="ntag">PhilForge</span>
         <span class="ntag">WS</span>
       </div>
     </div>
@@ -1239,7 +1239,7 @@ body::after {
         NIFTY history
       </div>
       <div class="node-tags">
-        <span class="ntag">AlgoForge</span>
+        <span class="ntag">PhilForge</span>
         <span class="ntag">fallback</span>
       </div>
     </div>
@@ -1328,7 +1328,7 @@ body::after {
 
     <div class="node blue">
       <span class="node-icon">📈</span>
-      <div class="node-name">AlgoForge UI</div>
+      <div class="node-name">PhilForge UI</div>
       <div class="node-sub">
         strategy.html + login.html<br>
         Vanilla HTML · CSS · JS (no build step)<br>
@@ -1377,7 +1377,7 @@ body::after {
 <div class="flow-table-wrap fade-in">
 
   <div class="flow-box">
-    <div class="flow-box-header">💸 Live Order Execution — AlgoForge</div>
+    <div class="flow-box-header">💸 Live Order Execution — PhilForge</div>
     <div class="flow-step-row"><div class="fs-num fs-teal">1</div><div><div class="fs-lbl">Market Feed tick received</div><div class="fs-det">Dhan WebSocket → CandleAggregator → OHLCV candle close</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-teal">2</div><div><div class="fs-lbl">Indicator engine evaluates</div><div class="fs-det">SuperTrend · EMA · RSI · CPR · VWAP run on latest candle</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-teal">3</div><div><div class="fs-lbl">Strategy conditions checked</div><div class="fs-det">User-defined entry/exit conditions evaluated against indicator values</div></div></div>
@@ -1391,11 +1391,11 @@ body::after {
     <div class="flow-box-header">🚀 Zero-Downtime Blue-Green Deploy</div>
     <div class="flow-step-row"><div class="fs-num fs-blue">1</div><div><div class="fs-lbl">Push to main triggers pipeline</div><div class="fs-det">ci.yml → playwright.yml → deploy.yml (sequential, each gates next)</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-blue">2</div><div><div class="fs-lbl">SSH into EC2, pull latest code</div><div class="fs-det">git fetch origin main · git reset --hard · pip install -q -r requirements.txt</div></div></div>
-    <div class="flow-step-row"><div class="fs-num fs-blue">3</div><div><div class="fs-lbl">Read active port, start standby</div><div class="fs-det">~/.algoforge-active-port → systemctl start algoforge@{standby-port}</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">3</div><div><div class="fs-lbl">Read active port, start standby</div><div class="fs-det">~/.philforge-active-port → systemctl start philforge@{standby-port}</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-blue">4</div><div><div class="fs-lbl">Health-check standby (30s timeout)</div><div class="fs-det">curl /api/health every 1s · rollback if timeout: stop standby, abort deploy</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-blue">5</div><div><div class="fs-lbl">Rewrite Nginx upstream &amp; reload</div><div class="fs-det">echo upstream → tee conf · nginx -t · nginx -s reload (graceful, 0 dropped reqs)</div></div></div>
     <div class="flow-step-row"><div class="fs-num fs-blue">6</div><div><div class="fs-lbl">Drain old WebSocket connections</div><div class="fs-det">sleep 30s — active sessions finish naturally on old uvicorn worker</div></div></div>
-    <div class="flow-step-row"><div class="fs-num fs-blue">7</div><div><div class="fs-lbl">Stop old instance · save port state</div><div class="fs-det">systemctl stop algoforge@{old} · echo new-port > ~/.algoforge-active-port</div></div></div>
+    <div class="flow-step-row"><div class="fs-num fs-blue">7</div><div><div class="fs-lbl">Stop old instance · save port state</div><div class="fs-det">systemctl stop philforge@{old} · echo new-port > ~/.philforge-active-port</div></div></div>
   </div>
 
 </div>
@@ -1478,7 +1478,7 @@ body::after {
 
 <!-- ── FOOTER ─────────────────────────────────────────────── -->
 <footer class="footer">
-  <span class="hl">AlgoForge</span> &amp; <span class="hl">CryptoForge</span>
+  <span class="hl">PhilForge</span> &amp; <span class="hl">CryptoForge</span>
   &nbsp;·&nbsp; Production Infrastructure
   &nbsp;·&nbsp; AWS EC2 · 65.1.213.207
   &nbsp;·&nbsp; Amazon Linux

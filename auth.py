@@ -1,5 +1,5 @@
 """
-auth.py — AlgoForge Authentication Module (Multi-Tenant)
+auth.py — PhilForge Authentication Module (Multi-Tenant)
 
 Handles password hashing (bcrypt), Fernet encryption for broker creds,
 session creation/validation, and the get_current_user FastAPI dependency.
@@ -121,7 +121,7 @@ async def destroy_session(token: str) -> None:
 
 def get_session_token(request: Request) -> str:
     """Extract session token from cookie or Authorization header."""
-    token = request.cookies.get("algoforge_session", "")
+    token = request.cookies.get("philforge_session", "") or request.cookies.get("algoforge_session", "")
     if not token:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):

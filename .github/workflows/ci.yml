@@ -56,7 +56,7 @@ jobs:
         env:
           DHAN_CLIENT_ID: "dummy"
           DHAN_ACCESS_TOKEN: "dummy"
-          ALGOFORGE_PIN: "test-pin-not-real"
+          PHILFORGE_PIN: "test-pin-not-real"
         run: |
           python -c "
           import sys, os
@@ -72,6 +72,6 @@ jobs:
         env:
           DHAN_CLIENT_ID: "dummy"
           DHAN_ACCESS_TOKEN: "dummy"
-          ALGOFORGE_PIN: "test-pin-not-real"
+          PHILFORGE_PIN: "test-pin-not-real"
         run: |
           pytest tests/ -v --tb=short 2>/dev/null || echo "No tests yet — add tests/ to unlock this stage"

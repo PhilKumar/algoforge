@@ -1,7 +1,7 @@
 """
-Forensic Trade-by-Trade Analysis: AlgoForge vs Benchmark
+Forensic Trade-by-Trade Analysis: PhilForge vs Benchmark
 =========================================================
-Compares Strategy_PE_New_trades.csv (AlgoForge) against
+Compares Strategy_PE_New_trades.csv (PhilForge) against
 11352217-PE_BUY_LIVE_BEST_5yrs.csv (Benchmark / Golden dataset).
 """
 
@@ -17,19 +17,19 @@ print("=" * 80)
 print("PHASE 1: DATA NORMALIZATION & MERGING")
 print("=" * 80)
 
-# Load AlgoForge
-af = pd.read_csv("/Users/philipkumar/Documents/New_Algo/Strategy_PE_New_trades.csv")
+# Load PhilForge
+af = pd.read_csv("/Users/philipkumar/Documents/PhilForge/Strategy_PE_New_trades.csv")
 af["entry_time"] = pd.to_datetime(af["entry_time"], format="%Y-%m-%d %H:%M")
 af["exit_time"] = pd.to_datetime(af["exit_time"], format="%Y-%m-%d %H:%M")
 af["trade_date"] = af["entry_time"].dt.date
 
 # Load Benchmark
-bm = pd.read_csv("/Users/philipkumar/Documents/New_Algo/11352217-PE_BUY_LIVE_BEST_5yrs.csv")
+bm = pd.read_csv("/Users/philipkumar/Documents/PhilForge/11352217-PE_BUY_LIVE_BEST_5yrs.csv")
 bm["Entry Time"] = pd.to_datetime(bm["Entry Time"], format="%d %b %Y %H:%M:%S")
 bm["Exit Time"] = pd.to_datetime(bm["Exit Time"], format="%d %b %Y %H:%M:%S")
 bm["trade_date"] = bm["Entry Time"].dt.date
 
-print(f"\nAlgoForge: {len(af)} trades, {af['entry_time'].min().date()} → {af['entry_time'].max().date()}")
+print(f"\nPhilForge: {len(af)} trades, {af['entry_time'].min().date()} → {af['entry_time'].max().date()}")
 print(f"Benchmark: {len(bm)} trades, {bm['Entry Time'].min().date()} → {bm['Entry Time'].max().date()}")
 
 # Find overlapping date range
@@ -39,7 +39,7 @@ print(f"\nOverlapping period: {overlap_start} → {overlap_end}")
 
 af_overlap = af[af["trade_date"] >= overlap_start].copy()
 bm_overlap = bm[(bm["trade_date"] >= overlap_start) & (bm["trade_date"] <= overlap_end)].copy()
-print(f"AlgoForge trades in overlap: {len(af_overlap)}")
+print(f"PhilForge trades in overlap: {len(af_overlap)}")
 print(f"Benchmark trades in overlap: {len(bm_overlap)}")
 
 # ── Phase 2: Discrepancy Detection ────────────────────────────────
@@ -57,11 +57,11 @@ bm_only_dates = bm_dates - af_dates
 
 print("\n── Trade Matching Summary ──")
 print(f"Dates with trades in BOTH:         {len(matched_dates)}")
-print(f"Dates with AlgoForge-only trades:  {len(af_only_dates)} (ghost trades)")
+print(f"Dates with PhilForge-only trades:  {len(af_only_dates)} (ghost trades)")
 print(f"Dates with Benchmark-only trades:  {len(bm_only_dates)} (missed trades)")
 
 if af_only_dates:
-    print("\n  Ghost trade dates (AlgoForge took trades, Benchmark didn't):")
+    print("\n  Ghost trade dates (PhilForge took trades, Benchmark didn't):")
     for d in sorted(af_only_dates)[:15]:
         t = af_overlap[af_overlap["trade_date"] == d].iloc[0]
         print(
@@ -71,7 +71,7 @@ if af_only_dates:
         print(f"    ... and {len(af_only_dates) - 15} more")
 
 if bm_only_dates:
-    print("\n  Missed trade dates (Benchmark had trades, AlgoForge didn't):")
+    print("\n  Missed trade dates (Benchmark had trades, PhilForge didn't):")
     for d in sorted(bm_only_dates)[:15]:
         t = bm_overlap[bm_overlap["trade_date"] == d].iloc[0]
         print(f"    {d}  entry={t['Entry Time'].strftime('%H:%M')}  pnl={t['Profit']:.0f}")
@@ -150,9 +150,9 @@ print("\n" + "=" * 80)
 print("PHASE 3: ROOT CAUSE DIAGNOSIS")
 print("=" * 80)
 
-# 3a) Entry Price Pattern — AlgoForge uses fixed 250 premium?
+# 3a) Entry Price Pattern — PhilForge uses fixed 250 premium?
 print("\n── Entry Price Analysis ──")
-print(f"  AlgoForge entry prices (unique): {sorted(af_overlap['entry_price'].unique())}")
+print(f"  PhilForge entry prices (unique): {sorted(af_overlap['entry_price'].unique())}")
 print(
     f"  Benchmark entry prices (range):  {bm_overlap['Entry Price'].min():.2f} → {bm_overlap['Entry Price'].max():.2f}"
 )
@@ -161,15 +161,15 @@ print(f"  Benchmark entry price std:       {bm_overlap['Entry Price'].std():.2f}
 
 af_fixed_entry = af_overlap["entry_price"].nunique() <= 3
 if af_fixed_entry:
-    print(f"\n  ⚠ FINDING: AlgoForge uses FIXED entry price(s): {af_overlap['entry_price'].unique()}")
+    print(f"\n  ⚠ FINDING: PhilForge uses FIXED entry price(s): {af_overlap['entry_price'].unique()}")
     print("  This indicates 'Premium Near' strike selection targeting a fixed premium level.")
     print("  The benchmark uses actual market entry prices that vary significantly.")
 
 # 3b) Exit Price Pattern
 print("\n── Exit Price Analysis ──")
-print(f"  AlgoForge exit prices (unique): {sorted(af_overlap['exit_price'].unique())[:20]}")
+print(f"  PhilForge exit prices (unique): {sorted(af_overlap['exit_price'].unique())[:20]}")
 af_exit_counts = af_overlap["exit_price"].value_counts().head(5)
-print("  AlgoForge most common exit prices:")
+print("  PhilForge most common exit prices:")
 for price, count in af_exit_counts.items():
     print(f"    {price:.2f}: {count} times ({count / len(af_overlap) * 100:.1f}%)")
 
@@ -181,13 +181,13 @@ for price, count in bm_exit_counts.items():
 # 3c) Exit Reason Analysis
 print("\n── Exit Reason Analysis ──")
 af_exit_reasons = af_overlap["exit_reason"].value_counts()
-print("  AlgoForge exit reasons:")
+print("  PhilForge exit reasons:")
 for reason, count in af_exit_reasons.items():
     print(f"    {reason}: {count} ({count / len(af_overlap) * 100:.1f}%)")
 
 # 3d) Qty / lot size comparison
 print("\n── Quantity & Lot Size ──")
-print(f"  AlgoForge qty:  {af_overlap['qty'].unique()}")
+print(f"  PhilForge qty:  {af_overlap['qty'].unique()}")
 print(f"  Benchmark qty:  {bm_overlap['Qty'].unique()}")
 
 # 3e) Strike comparison on matched dates
@@ -198,7 +198,7 @@ for _, row in merged.head(30).iterrows():
     af_strike = row.get("strike", "")
     bm_instrument = row.get("Instrument", "")
     # Extract strike from benchmark instrument string (e.g., NIFTY07MAR2422500PE)
-    # and from AlgoForge (e.g., NIFTY 22500 PE)
+    # and from PhilForge (e.g., NIFTY 22500 PE)
     af_strike_num = ""
     if isinstance(af_strike, str):
         parts = af_strike.split()
@@ -234,7 +234,7 @@ if strike_samples:
 
 # 3f) SL/TP analysis
 print("\n── StopLoss/Target Price Mechanics ──")
-# AlgoForge: Check if SL exits use a fixed exit price
+# PhilForge: Check if SL exits use a fixed exit price
 sl_trades = af_overlap[af_overlap["exit_reason"] == "StopLoss"]
 tp_trades = af_overlap[af_overlap["exit_reason"] == "StrategyTP"]
 sig_trades = af_overlap[af_overlap["exit_reason"] == "Signal"]
@@ -281,14 +281,14 @@ print(
 af_exit_minutes = af_overlap["exit_time"].dt.minute % 5
 af_on_5min = (af_exit_minutes == 0).sum()
 print(
-    f"  AlgoForge exits at 5-min boundaries: {af_on_5min}/{len(af_overlap)} ({af_on_5min / len(af_overlap) * 100:.1f}%)"
+    f"  PhilForge exits at 5-min boundaries: {af_on_5min}/{len(af_overlap)} ({af_on_5min / len(af_overlap) * 100:.1f}%)"
 )
 
 # Check AF entry times
 af_entry_minutes = af_overlap["entry_time"].dt.minute % 5
 af_entry_on_5min = (af_entry_minutes == 0).sum()
 print(
-    f"  AlgoForge entries at 5-min boundaries: {af_entry_on_5min}/{len(af_overlap)} ({af_entry_on_5min / len(af_overlap) * 100:.1f}%)"
+    f"  PhilForge entries at 5-min boundaries: {af_entry_on_5min}/{len(af_overlap)} ({af_entry_on_5min / len(af_overlap) * 100:.1f}%)"
 )
 
 # Benchmark entry times
@@ -298,7 +298,7 @@ print(
     f"  Benchmark entries at exact minute (:00): {bm_entry_exact}/{len(bm_overlap)} ({bm_entry_exact / len(bm_overlap) * 100:.1f}%)"
 )
 
-# 3h) AlgoForge fee structure — does it subtract broker fees?
+# 3h) PhilForge fee structure — does it subtract broker fees?
 print("\n── Fee Structure ──")
 if len(tp_trades) > 0:
     sample_tp = tp_trades.iloc[0]
@@ -319,16 +319,16 @@ af_overlap_copy["duration_min"] = (af_overlap["exit_time"] - af_overlap["entry_t
 bm_overlap_copy = bm_overlap.copy()
 bm_overlap_copy["duration_min"] = (bm_overlap["Exit Time"] - bm_overlap["Entry Time"]).dt.total_seconds() / 60
 
-print(f"  AlgoForge avg duration: {af_overlap_copy['duration_min'].mean():.1f} min")
+print(f"  PhilForge avg duration: {af_overlap_copy['duration_min'].mean():.1f} min")
 print(f"  Benchmark avg duration: {bm_overlap_copy['duration_min'].mean():.1f} min")
-print(f"  AlgoForge median duration: {af_overlap_copy['duration_min'].median():.1f} min")
+print(f"  PhilForge median duration: {af_overlap_copy['duration_min'].median():.1f} min")
 print(f"  Benchmark median duration: {bm_overlap_copy['duration_min'].median():.1f} min")
 
 # Duration for SL exits specifically
 if len(sl_trades) > 0:
     sl_dur = (sl_trades["exit_time"] - sl_trades["entry_time"]).dt.total_seconds() / 60
-    print(f"  AlgoForge SL exit avg duration: {sl_dur.mean():.1f} min")
-    print(f"  AlgoForge SL exits in 5 min or less: {(sl_dur <= 5).sum()}/{len(sl_trades)}")
+    print(f"  PhilForge SL exit avg duration: {sl_dur.mean():.1f} min")
+    print(f"  PhilForge SL exits in 5 min or less: {(sl_dur <= 5).sum()}/{len(sl_trades)}")
 
 # ── Summary Table ─────────────────────────────────────────────────
 print("\n" + "=" * 80)
@@ -338,10 +338,10 @@ print("=" * 80)
 summary = {
     "Metric": [
         "Overlapping Period",
-        "AlgoForge trades (overlap)",
+        "PhilForge trades (overlap)",
         "Benchmark trades (overlap)",
         "Matched-date trades",
-        "AlgoForge-only (ghost) dates",
+        "PhilForge-only (ghost) dates",
         "Benchmark-only (missed) dates",
         "Entry price fixed?",
         "Exit price (SL) fixed?",
@@ -349,9 +349,9 @@ summary = {
         "Mean entry time delta (min)",
         "Mean exit time delta (min)",
         "Strike mismatches (first 30)",
-        "AlgoForge qty per trade",
+        "PhilForge qty per trade",
         "Benchmark qty per trade",
-        "AlgoForge total P&L (overlap)",
+        "PhilForge total P&L (overlap)",
         "Benchmark total P&L (overlap)",
         "P&L gap",
     ],

@@ -1,5 +1,5 @@
 """
-db.py — AlgoForge SQLite Data Layer (Multi-Tenant)
+db.py — PhilForge SQLite Data Layer (Multi-Tenant)
 
 Async SQLite via aiosqlite with WAL mode for concurrent reads.
 All queries filter by user_id for data isolation.

@@ -12,7 +12,7 @@
       <stop offset="40%" stop-color="#fbbf24"/>
       <stop offset="100%" stop-color="#f59e0b"/>
     </linearGradient>
-    <!-- Amber-gold gradient for ALGOFORGE title -->
+    <!-- Amber-gold gradient for PHILFORGE title -->
     <linearGradient id="titleGold" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#fbbf24"/>
       <stop offset="50%" stop-color="#f59e0b"/>
@@ -205,18 +205,18 @@
   <circle cx="300" cy="296" r="1" fill="#fde68a" opacity="0.35"/>
   <circle cx="280" cy="282" r="1.8" fill="#fbbf24" opacity="0.5"/>
 
-  <!-- ═══ BOTTOM TEXT: ALGOFORGE ═══ -->
+  <!-- ═══ BOTTOM TEXT: PHILFORGE ═══ -->
   <!-- Text shadow -->
   <text x="256" y="428" text-anchor="middle"
         font-family="'Syne','Inter','SF Pro Display',system-ui,sans-serif"
         font-weight="800" font-size="38" letter-spacing="8"
-        fill="#000" opacity="0.4" transform="translate(0,2)">ALGOFORGE</text>
+        fill="#000" opacity="0.4" transform="translate(0,2)">PHILFORGE</text>
 
   <!-- Main text -->
   <text x="256" y="428" text-anchor="middle"
         font-family="'Syne','Inter','SF Pro Display',system-ui,sans-serif"
         font-weight="800" font-size="38" letter-spacing="8"
-        fill="url(#g1)">ALGOFORGE</text>
+        fill="url(#g1)">PHILFORGE</text>
 
   <!-- Decorative lines flanking bottom -->
   <line x1="100" y1="442" x2="195" y2="442" stroke="url(#g1)" stroke-width="1" opacity="0.2"/>

@@ -1,5 +1,5 @@
 """
-engine/backtest.py — AlgoForge Backtest Engine v3
+engine/backtest.py — PhilForge Backtest Engine v3
 - Accurate NIFTY lot sizes (75 before Jan 2026, 65 from Jan 2026)
 - Entry earliest at 09:20 (skip only first candle for warmup)
 - P&L starts from 0 (not initial capital)

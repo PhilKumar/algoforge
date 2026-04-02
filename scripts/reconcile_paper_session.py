@@ -2,7 +2,7 @@
 """Reconcile one paper-trading session against replayed entry conditions.
 
 Typical use on the deployed host:
-  ALGOFORGE_TOKEN=... ./venv/bin/python scripts/reconcile_paper_session.py \
+  PHILFORGE_TOKEN=... ./venv/bin/python scripts/reconcile_paper_session.py \
     --date 2026-03-30 \
     --run-id Strategy_PE \
     --base-url http://127.0.0.1:8000
@@ -323,7 +323,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Reconcile one deployed paper session against replayed entry logic.")
     parser.add_argument("--date", required=True, help="Trading date in YYYY-MM-DD format")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--token", default=os.getenv("ALGOFORGE_TOKEN", ""))
+    parser.add_argument("--token", default=os.getenv("PHILFORGE_TOKEN", ""))
     parser.add_argument("--run-id", default="")
     parser.add_argument("--status-json", default="", help="Use a saved /api/paper/status snapshot instead of API")
     parser.add_argument("--ohlcv-path", default="", help="Use an existing OHLCV CSV instead of API export")
@@ -335,7 +335,7 @@ def main() -> int:
         status = _load_status(args.status_json)
     else:
         if not args.token:
-            raise SystemExit("ALGOFORGE_TOKEN or --token is required when using the API")
+            raise SystemExit("PHILFORGE_TOKEN or --token is required when using the API")
         status = _fetch_status(args.base_url, args.token, args.run_id)
 
     strategy = status.get("strategy") or {}
@@ -354,7 +354,7 @@ def main() -> int:
         export_meta = {"status": "skipped", "ohlcv_path": ohlcv_path}
     else:
         if not args.token:
-            raise SystemExit("ALGOFORGE_TOKEN or --token is required when exporting OHLCV via the API")
+            raise SystemExit("PHILFORGE_TOKEN or --token is required when exporting OHLCV via the API")
         export_name = args.export_name or f"{run_name}_{args.date}_reconcile"
         export_meta = _export_ohlcv(args.base_url, args.token, strategy, args.date, export_name)
         files = export_meta.get("files") or []

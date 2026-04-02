@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/home/ec2-user/algoforge"
+APP_DIR="/home/ec2-user/philforge"
 VENV="$APP_DIR/venv"
 LOG_TAG="[ROLLOUT]"
-LOCK_FILE="$HOME/.algoforge-deploy.lock"
+LOCK_FILE="$HOME/.philforge-deploy.lock"
 
 log() { echo "$LOG_TAG $(date '+%H:%M:%S') $*"; }
 die() { log "ERROR: $*"; exit 1; }
@@ -36,16 +36,16 @@ python3 - <<'PY'
 from pathlib import Path
 from cryptography.fernet import Fernet
 
-env_path = Path('/home/ec2-user/algoforge/.env')
+env_path = Path('/home/ec2-user/philforge/.env')
 text = env_path.read_text(encoding='utf-8') if env_path.exists() else ''
 lines = text.splitlines()
 updates = {
     'ADMIN_USERNAME': 'admin',
-    'ALGOFORGE_DB': '/home/ec2-user/algoforge/algoforge.db',
-    'ALGOFORGE_USER_DATA_ROOT': '/home/ec2-user/algoforge/data/users',
-    'ALGOFORGE_BACKUP_ROOT': '/home/ec2-user/algoforge/backups',
-    'ALGOFORGE_BACKUP_RETENTION_DAYS': '14',
-    'ALGOFORGE_BACKUP_MIN_FREE_MB': '1024',
+    'PHILFORGE_DB': '/home/ec2-user/philforge/philforge.db',
+    'PHILFORGE_USER_DATA_ROOT': '/home/ec2-user/philforge/data/users',
+    'PHILFORGE_BACKUP_ROOT': '/home/ec2-user/philforge/backups',
+    'PHILFORGE_BACKUP_RETENTION_DAYS': '14',
+    'PHILFORGE_BACKUP_MIN_FREE_MB': '1024',
 }
 existing = {}
 for line in lines:
@@ -75,16 +75,16 @@ print('[ROLLOUT] .env updated with multi-tenant settings')
 PY
 
 log "Creating pre-cutover backup..."
-python3 "$APP_DIR/scripts/backup_algoforge.py" --output-dir "$APP_DIR/backups/manual" --include-legacy
+python3 "$APP_DIR/scripts/backup_philforge.py" --output-dir "$APP_DIR/backups/manual" --include-legacy
 
 log "Running pre-deploy migration..."
 python3 "$APP_DIR/scripts/migrate_to_sqlite.py"
 
 log "Installing backup service + timer..."
-sudo cp "$APP_DIR/deploy/algoforge-backup.service" /etc/systemd/system/algoforge-backup.service
-sudo cp "$APP_DIR/deploy/algoforge-backup.timer" /etc/systemd/system/algoforge-backup.timer
+sudo cp "$APP_DIR/deploy/philforge-backup.service" /etc/systemd/system/philforge-backup.service
+sudo cp "$APP_DIR/deploy/philforge-backup.timer" /etc/systemd/system/philforge-backup.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now algoforge-backup.timer
+sudo systemctl enable --now philforge-backup.timer
 
 log "Running blue-green deploy..."
 bash "$APP_DIR/deploy/cd-deploy.sh"
@@ -93,9 +93,9 @@ log "Running post-deploy migration..."
 python3 "$APP_DIR/scripts/migrate_to_sqlite.py"
 
 log "Triggering one backup job now..."
-sudo systemctl start algoforge-backup.service || true
+sudo systemctl start philforge-backup.service || true
 
-ACTIVE_PORT=$(cat "$HOME/.algoforge-active-port")
+ACTIVE_PORT=$(cat "$HOME/.philforge-active-port")
 log "Active port is $ACTIVE_PORT"
 
 log "Health check..."
@@ -103,11 +103,11 @@ curl -sf "http://127.0.0.1:${ACTIVE_PORT}/api/health"
 echo
 
 log "Service states..."
-systemctl is-active "algoforge@${ACTIVE_PORT}"
+systemctl is-active "philforge@${ACTIVE_PORT}"
 systemctl is-active nginx
-systemctl is-active algoforge-backup.timer
-systemctl is-enabled algoforge-backup.timer
-systemctl show algoforge-backup.service -p Result -p ExecMainStatus -p ActiveState --no-pager
+systemctl is-active philforge-backup.timer
+systemctl is-enabled philforge-backup.timer
+systemctl show philforge-backup.service -p Result -p ExecMainStatus -p ActiveState --no-pager
 
 log "Recent backups..."
 ls -lt "$APP_DIR/backups" | head

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-migrate_to_sqlite.py — AlgoForge JSON → SQLite Migration
+migrate_to_sqlite.py — PhilForge JSON → SQLite Migration
 
 Migrates existing JSON flat-file data into the SQLite database.
 Idempotent — safe to run multiple times (skips existing records/files).
 
 Usage:
-    cd /path/to/algoforge
+    cd /path/to/philforge
     python scripts/migrate_to_sqlite.py
 """
 
@@ -41,10 +41,10 @@ def _now_iso():
 
 
 def _bootstrap_password() -> str:
-    password = (os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or "").strip()
+    password = (os.getenv("PHILFORGE_PIN") or os.getenv("PHILFORGE_PASSWORD") or "").strip()
     if not password:
         raise RuntimeError(
-            "No admin account exists yet. Set ALGOFORGE_PIN or ALGOFORGE_PASSWORD before running the migration."
+            "No admin account exists yet. Set PHILFORGE_PIN or PHILFORGE_PASSWORD before running the migration."
         )
     return password
 
@@ -98,7 +98,7 @@ def _copy_file_if_missing(src_path: str, dst_path: str) -> bool:
 
 async def migrate():
     print("=" * 60)
-    print("  AlgoForge — JSON → SQLite Migration")
+    print("  PhilForge — JSON → SQLite Migration")
     print("=" * 60)
     print(f"  DB path: {config.DB_PATH}")
     print()

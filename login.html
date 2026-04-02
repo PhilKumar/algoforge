@@ -638,7 +638,7 @@
 
 <script>
 try {
-  const saved = localStorage.getItem('algoforge_theme');
+  const saved = localStorage.getItem('philforge_theme') || localStorage.getItem('algoforge_theme');
   if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
 } catch (e) {}
 

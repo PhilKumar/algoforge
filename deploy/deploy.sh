@@ -1,11 +1,11 @@
 #!/bin/bash
-# AlgoForge EC2 Deployment Script
+# PhilForge EC2 Deployment Script
 # Run this once on a fresh Ubuntu 22.04 t3.micro
 # Usage: bash deploy.sh YOUR_ELASTIC_IP
 
 set -e
 ELASTIC_IP=${1:-"YOUR_ELASTIC_IP"}
-APP_DIR="/home/ubuntu/algoforge"
+APP_DIR="/home/ubuntu/philforge"
 
 echo "==> Updating system packages..."
 sudo apt-get update -y && sudo apt-get upgrade -y
@@ -36,20 +36,20 @@ if [ ! -f "$APP_DIR/.env" ]; then
 fi
 
 echo "==> Installing systemd service..."
-sudo cp "$APP_DIR/deploy/algoforge.service" /etc/systemd/system/algoforge.service
+sudo cp "$APP_DIR/deploy/philforge.service" /etc/systemd/system/philforge.service
 sudo systemctl daemon-reload
-sudo systemctl enable algoforge
-sudo systemctl restart algoforge
+sudo systemctl enable philforge
+sudo systemctl restart philforge
 
 echo "==> Configuring nginx..."
 sudo sed "s/YOUR_ELASTIC_IP/$ELASTIC_IP/g" "$APP_DIR/deploy/nginx.conf" \
-  > /tmp/algoforge_nginx.conf
-sudo cp /tmp/algoforge_nginx.conf /etc/nginx/sites-available/algoforge
-sudo ln -sf /etc/nginx/sites-available/algoforge /etc/nginx/sites-enabled/algoforge
+  > /tmp/philforge_nginx.conf
+sudo cp /tmp/philforge_nginx.conf /etc/nginx/sites-available/philforge
+sudo ln -sf /etc/nginx/sites-available/philforge /etc/nginx/sites-enabled/philforge
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl restart nginx
 
 echo ""
-echo "==> DONE. AlgoForge is running at http://$ELASTIC_IP"
-echo "    Check service status: sudo systemctl status algoforge"
-echo "    Check logs:           sudo journalctl -u algoforge -f"
+echo "==> DONE. PhilForge is running at http://$ELASTIC_IP"
+echo "    Check service status: sudo systemctl status philforge"
+echo "    Check logs:           sudo journalctl -u philforge -f"

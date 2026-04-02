@@ -10,7 +10,7 @@ export default defineConfig({
 
   projects: [
     {
-      name: 'algoforge',
+      name: 'philforge',
       use: {
         ...devices['Desktop Chrome'],
         baseURL: process.env.BASE_URL || 'http://localhost:8000',

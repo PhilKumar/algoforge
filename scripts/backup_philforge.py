@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a timestamped AlgoForge backup archive.
+"""Create a timestamped PhilForge backup archive.
 
 Backs up:
 - SQLite database via sqlite3 backup API (safe with WAL)
@@ -54,7 +54,7 @@ def _now_utc() -> datetime:
 
 
 def _archive_name(ts: datetime) -> str:
-    return f"algoforge-backup-{ts.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    return f"philforge-backup-{ts.strftime('%Y%m%d-%H%M%S')}.tar.gz"
 
 
 def _human_bytes(num_bytes: int) -> str:
@@ -104,10 +104,10 @@ def _discover_legacy_sources(root: Path) -> list[tuple[Path, str]]:
     for rel in LEGACY_PATHS:
         path = root / rel
         if path.exists():
-            sources.append((path, f"algoforge-backup/legacy/{rel}"))
+            sources.append((path, f"philforge-backup/legacy/{rel}"))
     for pattern in ENGINE_STATE_PATTERNS:
         for path in sorted(root.glob(pattern)):
-            sources.append((path, f"algoforge-backup/legacy/engine-state/{path.name}"))
+            sources.append((path, f"philforge-backup/legacy/engine-state/{path.name}"))
     return sources
 
 
@@ -166,16 +166,16 @@ def _build_archive(
 ) -> None:
     with tarfile.open(archive_path, "w:gz") as tf:
         if db_present:
-            tf.add(db_snapshot_path, arcname="algoforge-backup/algoforge.db")
-        tf.add(manifest_path, arcname="algoforge-backup/manifest.json")
+            tf.add(db_snapshot_path, arcname="philforge-backup/philforge.db")
+        tf.add(manifest_path, arcname="philforge-backup/manifest.json")
 
         if user_data_src.exists():
-            tf.add(user_data_src, arcname="algoforge-backup/user-data")
+            tf.add(user_data_src, arcname="philforge-backup/user-data")
         else:
-            with tempfile.TemporaryDirectory(prefix="algoforge-empty-user-data-") as tmp_root:
+            with tempfile.TemporaryDirectory(prefix="philforge-empty-user-data-") as tmp_root:
                 empty_dir = Path(tmp_root) / "user-data"
                 empty_dir.mkdir()
-                tf.add(empty_dir, arcname="algoforge-backup/user-data")
+                tf.add(empty_dir, arcname="philforge-backup/user-data")
 
         for src_path, arcname in legacy_sources:
             tf.add(src_path, arcname=arcname)
@@ -196,7 +196,7 @@ def _prune_old_archives(output_dir: Path, retention_days: int) -> int:
         return 0
     cutoff = _now_utc().timestamp() - retention_days * 86400
     removed = 0
-    for path in output_dir.glob("algoforge-backup-*.tar.gz"):
+    for path in output_dir.glob("philforge-backup-*.tar.gz"):
         try:
             if path.stat().st_mtime < cutoff:
                 path.unlink()
@@ -207,7 +207,7 @@ def _prune_old_archives(output_dir: Path, retention_days: int) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create a timestamped AlgoForge backup archive.")
+    parser = argparse.ArgumentParser(description="Create a timestamped PhilForge backup archive.")
     parser.add_argument("--output-dir", default=config.BACKUP_ROOT, help="Directory to store backup archives")
     parser.add_argument(
         "--retention-days",
@@ -239,9 +239,9 @@ def main() -> int:
     estimated_required = _estimate_required_bytes(db_src, user_data_src, legacy_sources)
     disk_budget = _ensure_free_space(output_dir, estimated_required, config.BACKUP_MIN_FREE_MB)
 
-    with tempfile.TemporaryDirectory(prefix="algoforge-backup-meta-", dir=str(output_dir)) as tmp_root:
+    with tempfile.TemporaryDirectory(prefix="philforge-backup-meta-", dir=str(output_dir)) as tmp_root:
         tmp_dir = Path(tmp_root)
-        db_dest = tmp_dir / "algoforge.db"
+        db_dest = tmp_dir / "philforge.db"
         manifest_path = tmp_dir / "manifest.json"
         db_present = _snapshot_db(db_src, db_dest)
         _write_manifest(

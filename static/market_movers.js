@@ -59,7 +59,7 @@ function toggleMarketTheme() {
   const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
   applyMarketTheme(next);
   try {
-    localStorage.setItem('algoforge_theme', next);
+    localStorage.setItem('philforge_theme', next);
   } catch (e) {}
 }
 

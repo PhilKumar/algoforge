@@ -1,6 +1,6 @@
 /**
  * 01-smoke.spec.ts
- * Smoke tests for AlgoForge:
+ * Smoke tests for PhilForge:
  *   1. Login via password-first auth shell
  *   2. Health endpoint returns OK
  *   3. Auth status reflects authenticated session

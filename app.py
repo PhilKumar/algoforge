@@ -1,5 +1,5 @@
 """
-app.py — AlgoForge FastAPI Backend
+app.py — PhilForge FastAPI Backend
 Fixed:
   - Bug 4: yfinance MultiIndex columns flattened correctly
   - Bug 5: live engine uses asyncio.create_task (not background_tasks)
@@ -142,7 +142,7 @@ def _generate_startup_token_once():
 app = FastAPI(title="PhilForge", version="1.0.0")
 _CORS_ALLOWED_ORIGINS = [
     "https://philipalgo.github.io",
-    "http://philipalgoforge.local",
+    "http://philforge.local",
     "http://65.1.213.207",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
@@ -1331,7 +1331,9 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engines: Dict[int, "_ScalpEngineClass"] = {}
-_SKIP_STARTUP_JOBS = os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS", "").lower() in {"1", "true", "yes"}
+_SKIP_STARTUP_JOBS = (
+    os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS") or ""
+).lower() in {"1", "true", "yes"}
 
 ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
 
@@ -1351,8 +1353,16 @@ async def _broadcast_user_ws_json(user_id: int, payload: dict):
 
 # ── Authentication ────────────────────────────────────────────────
 # Legacy PIN kept as fallback for first-run admin bootstrap only
-AUTH_PASSWORD = (os.getenv("ALGOFORGE_PIN") or os.getenv("ALGOFORGE_PASSWORD") or "").strip()
+AUTH_PASSWORD = (
+    os.getenv("PHILFORGE_PIN")
+    or os.getenv("PHILFORGE_PASSWORD")
+    or os.getenv("ALGOFORGE_PIN")
+    or os.getenv("ALGOFORGE_PASSWORD")
+    or ""
+).strip()
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+_SESSION_COOKIE_NAME = "philforge_session"
+_LEGACY_SESSION_COOKIE_NAME = "algoforge_session"
 
 _redis_client = None
 _redis_checked = False
@@ -1919,6 +1929,11 @@ def _get_session_token(request: Request) -> str:
     return _auth_mod.get_session_token(request)
 
 
+def _clear_session_cookie(response) -> None:
+    response.delete_cookie(_SESSION_COOKIE_NAME)
+    response.delete_cookie(_LEGACY_SESSION_COOKIE_NAME)
+
+
 async def _get_page_user(request: Request) -> dict | None:
     """Resolve the logged-in user for HTML page routes, treating disabled users as logged out."""
     token = _get_session_token(request)
@@ -2052,7 +2067,7 @@ async def auth_middleware(request: Request, call_next):
         elif token:
             await _db_mod.delete_session(token)
         response = JSONResponse(status_code=401, content={"detail": "Account disabled or not found"})
-        response.delete_cookie("algoforge_session")
+        _clear_session_cookie(response)
         return response
     # Stash current user on request state to avoid repeated lookups downstream
     request.state.user_id = user["id"]
@@ -2062,7 +2077,7 @@ async def auth_middleware(request: Request, call_next):
 
 # ── Rate Limiting ─────────────────────────────────────────────────
 _rate_limits: dict = defaultdict(list)  # "endpoint:ip" -> [timestamps] (fallback)
-_RL_PREFIX = "algoforge:rl:"
+_RL_PREFIX = "philforge:rl:"
 
 
 def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 5, window_sec: int = 10):
@@ -2965,7 +2980,7 @@ async def save_financial_plan(request: Request):
 _login_attempts: dict = defaultdict(list)  # login-key -> [timestamps] (fallback)
 _LOGIN_MAX_ATTEMPTS = config.MAX_LOGIN_ATTEMPTS
 _LOGIN_LOCKOUT_SEC = config.LOGIN_LOCKOUT_MINUTES * 60
-_LOGIN_RL_PREFIX = "algoforge:login:"
+_LOGIN_RL_PREFIX = "philforge:login:"
 _LEGACY_PIN_LENGTH = 6
 
 
@@ -3081,13 +3096,14 @@ async def auth_login(request: Request):
         }
     )
     resp.set_cookie(
-        "algoforge_session",
+        _SESSION_COOKIE_NAME,
         token,
         max_age=config.SESSION_TTL_HOURS * 3600,
         httponly=True,
         samesite="lax",
         secure=_request_is_https(request),
     )
+    resp.delete_cookie(_LEGACY_SESSION_COOKIE_NAME)
     return resp
 
 
@@ -3104,7 +3120,7 @@ async def auth_status(request: Request):
         elif token:
             await _db_mod.delete_session(token)
         resp = JSONResponse({"authenticated": False})
-        resp.delete_cookie("algoforge_session")
+        _clear_session_cookie(resp)
         return resp
     return {
         "authenticated": True,
@@ -3119,7 +3135,7 @@ async def auth_logout(request: Request):
     token = _get_session_token(request)
     await _auth_mod.destroy_session(token)
     resp = JSONResponse({"status": "ok"})
-    resp.delete_cookie("algoforge_session")
+    _clear_session_cookie(resp)
     return resp
 
 
@@ -3746,7 +3762,7 @@ async def change_own_password(request: Request):
     await _db_mod.update_user(user["id"], password_hash=hashed)
     await _db_mod.delete_sessions_for_user(user["id"])
     resp = JSONResponse({"status": "ok", "message": "Password changed. Please log in again."})
-    resp.delete_cookie("algoforge_session")
+    _clear_session_cookie(resp)
     return resp
 
 
@@ -5674,7 +5690,8 @@ def _format_rolling_strike(offset_steps: int) -> str:
 
 
 _OPTION_HISTORY_CACHE_DIR = os.getenv(
-    "ALGOFORGE_OPTION_HISTORY_CACHE_DIR", os.path.join(_HERE, "data", "option_history_cache")
+    "PHILFORGE_OPTION_HISTORY_CACHE_DIR",
+    os.getenv("ALGOFORGE_OPTION_HISTORY_CACHE_DIR", os.path.join(_HERE, "data", "option_history_cache")),
 )
 _OPTION_REAL_DATA_MAX_DAYS = 730
 
@@ -7303,7 +7320,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4003, reason="Forbidden origin")
         return
     # Authenticate WebSocket via session cookie (DB-backed)
-    token = ws.cookies.get("algoforge_session", "")
+    token = ws.cookies.get(_SESSION_COOKIE_NAME, "") or ws.cookies.get(_LEGACY_SESSION_COOKIE_NAME, "")
     session = await _validate_session_async(token)
     if not session:
         await ws.close(code=4001, reason="Unauthorized")
@@ -8759,7 +8776,7 @@ async def _init_database():
         pin = _get_bootstrap_admin_password()
         if not pin:
             raise RuntimeError(
-                "No admin account exists. Set ALGOFORGE_PIN or ALGOFORGE_PASSWORD for first-run bootstrap."
+                "No admin account exists. Set PHILFORGE_PIN or PHILFORGE_PASSWORD for first-run bootstrap."
             )
         hashed = _auth_mod.hash_password(pin)
         uid = await _db_mod.create_user(config.ADMIN_USERNAME, hashed, role="admin")
@@ -8780,7 +8797,7 @@ async def _init_database():
 @app.on_event("startup")
 async def _start_token_renewal():
     if _SKIP_STARTUP_JOBS:
-        print("🧪 [Startup] Skipping network-heavy startup jobs (ALGOFORGE_SKIP_STARTUP_JOBS=1)")
+        print("🧪 [Startup] Skipping network-heavy startup jobs (PHILFORGE_SKIP_STARTUP_JOBS=1)")
         return
     if config.AUTO_TOKEN_ENABLED:
         asyncio.create_task(_bootstrap_token_renewal())
