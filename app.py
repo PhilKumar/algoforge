@@ -3061,7 +3061,7 @@ async def auth_login(request: Request):
     ip = request.client.host if request.client else "unknown"
     body = await request.json()
     username = body.get("username", "").strip()
-    password = body.get("password", "")
+    password = body.get("password", body.get("pin", ""))
     login_key = _login_key(username or config.ADMIN_USERNAME, ip)
     _check_login_rate(login_key)
 

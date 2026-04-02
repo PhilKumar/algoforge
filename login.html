@@ -746,12 +746,8 @@ async function tryUnlock() {
   const username = usernameInput.value.trim();
   const secret = loginMode === PIN_MODE ? pin : passwordInput.value;
 
-  if (!username) {
-    showValidationError('Enter username first', usernameInput);
-    return;
-  }
   if (!secret) {
-    showValidationError('Enter your password', passwordInput);
+    showValidationError(loginMode === PIN_MODE ? 'Enter your PIN' : 'Enter your password', passwordInput);
     return;
   }
 
@@ -764,7 +760,7 @@ async function tryUnlock() {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password: secret })
+      body: JSON.stringify(username ? { username, password: secret } : { password: secret, pin: secret })
     });
     if (res.ok) {
       setSuccess();
