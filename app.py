@@ -2243,6 +2243,12 @@ async def serve_logo_png():
     return FileResponse("logo.png")
 
 
+@app.get("/favicon.ico")
+async def serve_favicon():
+    """Serves the application favicon for browsers and installed app shells."""
+    return FileResponse(os.path.join(_HERE, "static", "pwa-icons", "favicon-32.png"), media_type="image/png")
+
+
 @app.get("/manifest.webmanifest")
 async def serve_manifest():
     return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
