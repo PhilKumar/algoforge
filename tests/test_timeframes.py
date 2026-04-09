@@ -1,3 +1,4 @@
+import time
 import unittest
 from datetime import timedelta
 from tempfile import TemporaryDirectory
@@ -1326,6 +1327,110 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         self.assertCountEqual(broker.cancelled, ["SL1", "TP1"])
         self.assertEqual(trade.broker_sl_order_id, "")
         self.assertEqual(trade.broker_tp_order_id, "")
+
+    async def test_fetch_all_ltps_reuses_recent_batch_snapshot(self):
+        class DummyScalpBroker:
+            def __init__(self):
+                self.calls = 0
+
+            def get_ltp_multi(self, segments):
+                self.calls += 1
+                return {"NSE_FNO": {"555": {"last_price": 101.25}}}
+
+        broker = DummyScalpBroker()
+        engine = ScalpEngine(broker)
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            mode="paper",
+        )
+
+        with patch("scalp.ScripMaster.lookup", return_value="555"):
+            first = await engine._fetch_all_ltps([(trade.trade_id, trade)])
+            second = await engine._fetch_all_ltps([(trade.trade_id, trade)])
+
+        self.assertEqual(first[trade.trade_id], 101.25)
+        self.assertEqual(second[trade.trade_id], 101.25)
+        self.assertEqual(broker.calls, 1)
+
+    async def test_fetch_all_ltps_backs_off_after_rate_limit(self):
+        class DummyScalpBroker:
+            def __init__(self):
+                self.calls = 0
+
+            def get_ltp_multi(self, segments):
+                self.calls += 1
+                raise Exception(
+                    'Dhan API 429: {"data":{"805":"Too many requests. Further requests may result in the user being blocked."},"status":"failed"}'
+                )
+
+        broker = DummyScalpBroker()
+        engine = ScalpEngine(broker)
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            mode="paper",
+        )
+
+        with patch("scalp.ScripMaster.lookup", return_value="555"):
+            first = await engine._fetch_all_ltps([(trade.trade_id, trade)])
+            second = await engine._fetch_all_ltps([(trade.trade_id, trade)])
+
+        self.assertEqual(first, {})
+        self.assertEqual(second, {})
+        self.assertEqual(broker.calls, 1)
+        self.assertEqual(engine.event_log[-1]["type"], "warn")
+        self.assertIn("rate-limited", engine.event_log[-1]["message"])
+
+    async def test_get_ltp_uses_cached_snapshot_during_backoff(self):
+        class DummyScalpBroker:
+            def __init__(self):
+                self.single_calls = 0
+
+            def get_ltp_multi(self, segments):
+                return {"NSE_FNO": {"555": {"last_price": 102.5}}}
+
+            def get_option_ltp(self, *args, **kwargs):
+                self.single_calls += 1
+                return 0.0
+
+        broker = DummyScalpBroker()
+        engine = ScalpEngine(broker)
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            mode="paper",
+        )
+
+        with patch("scalp.ScripMaster.lookup", return_value="555"):
+            prices = await engine._fetch_all_ltps([(trade.trade_id, trade)])
+            engine._ltp_backoff_until_mono = time.monotonic() + 5
+            cached = engine._get_ltp(trade, trade.trade_id)
+
+        self.assertEqual(prices[trade.trade_id], 102.5)
+        self.assertEqual(cached, 102.5)
+        self.assertEqual(broker.single_calls, 0)
 
 
 class PaperExecutionRealismTests(unittest.TestCase):

@@ -11,6 +11,7 @@ Does NOT touch any existing code.
 """
 
 import asyncio
+import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -24,6 +25,11 @@ SCALP_IDLE_SLEEP_SEC = 0.5
 SCALP_SUPER_SYNC_INTERVAL_SEC = 0.75
 SCALP_POSITION_SYNC_INTERVAL_SEC = 1.5
 SCALP_POSITION_CACHE_TTL_SEC = 1.0
+SCALP_REST_LTP_REUSE_SEC = 1.0
+SCALP_REST_LTP_BACKOFF_BASE_SEC = 2.0
+SCALP_REST_LTP_BACKOFF_MAX_SEC = 16.0
+SCALP_REST_LTP_SNAPSHOT_SEC = 5.0
+SCALP_REST_LTP_LOG_COOLDOWN_SEC = 5.0
 
 
 def _now_ist():
@@ -234,6 +240,10 @@ class ScalpEngine:
         self._task: Optional[asyncio.Task] = None
         self._ws_subs: Dict[int, str] = {}  # trade_id → ws_sec_id
         self._broker_sync_tasks: Dict[int, asyncio.Task] = {}
+        self._ltp_cache: Dict[tuple[str, int], tuple[float, float]] = {}
+        self._ltp_backoff_until_mono: float = 0.0
+        self._ltp_backoff_delay_sec: float = 0.0
+        self._ltp_last_rate_limit_log_mono: float = 0.0
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -250,6 +260,10 @@ class ScalpEngine:
         for task in self._broker_sync_tasks.values():
             task.cancel()
         self._broker_sync_tasks.clear()
+        enable_marketfeed_throttle(False)
+
+    def _sync_marketfeed_throttle(self):
+        enable_marketfeed_throttle(bool(self.open_trades))
 
     async def enter_trade(
         self,
@@ -311,6 +325,7 @@ class ScalpEngine:
                 entry_limit_max=hi,
             )
             self.open_trades[self._trade_counter] = trade
+            self._sync_marketfeed_throttle()
 
             # Subscribe to WS feed for LTP monitoring
             if self.feed:
@@ -409,6 +424,7 @@ class ScalpEngine:
             trade.super_order_id = str(order_id)
             trade.super_order_status = order_status
         self.open_trades[self._trade_counter] = trade
+        self._sync_marketfeed_throttle()
 
         # Subscribe to WS feed if available
         if self.feed:
@@ -418,10 +434,6 @@ class ScalpEngine:
                     self._ws_subs[self._trade_counter] = ws_sec_id
             except Exception:
                 pass
-
-        # Enable broker-level marketfeed throttle while scalp trades are open
-        if mode == "live":
-            enable_marketfeed_throttle(True)
 
         mode_label = "[PAPER] " if mode == "paper" else ""
         self._log(
@@ -626,14 +638,17 @@ class ScalpEngine:
                     self._log("error", f"❌ Stop-limit order rejected: {reason}")
                     # Remove the pending trade
                     self.open_trades.pop(tid, None)
+                    self._sync_marketfeed_throttle()
                     return
                 if not order_id:
                     self._log("error", f"❌ No orderId returned for stop-limit: {result}")
                     self.open_trades.pop(tid, None)
+                    self._sync_marketfeed_throttle()
                     return
             except Exception as e:
                 self._log("error", f"❌ Stop-limit order placement failed: {e}")
                 self.open_trades.pop(tid, None)
+                self._sync_marketfeed_throttle()
                 return
 
             try:
@@ -643,9 +658,6 @@ class ScalpEngine:
                 )
             except Exception:
                 entry_premium = trade.current_premium
-
-            # Enable throttle for live trades
-            enable_marketfeed_throttle(True)
 
         # Activate the trade
         trade.status = "open"
@@ -828,6 +840,7 @@ class ScalpEngine:
                 )
                 self.open_trades.pop(trade.trade_id, None)
                 self._ws_subs.pop(trade.trade_id, None)
+                self._sync_marketfeed_throttle()
                 continue
 
             exit_reason = ""
@@ -917,8 +930,7 @@ class ScalpEngine:
                 message = fill.get("message", f"Order {status}")
                 self.open_trades.pop(trade_id, None)
                 self._ws_subs.pop(trade_id, None)
-                if not any(t.mode == "live" for t in self.open_trades.values()):
-                    enable_marketfeed_throttle(False)
+                self._sync_marketfeed_throttle()
                 self._log("error", f"❌ Entry order {trade.order_id} {status}: {message}")
                 return
             else:
@@ -1154,6 +1166,68 @@ class ScalpEngine:
             await self._place_broker_sl_tp(trade, place_sl=False, place_tp=True)
         return errors
 
+    @staticmethod
+    def _segment_for_underlying(underlying: str) -> str:
+        return "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+
+    @staticmethod
+    def _is_marketfeed_rate_limited(error: Exception) -> bool:
+        text = str(error).lower()
+        return (
+            "429" in text
+            or "too many requests" in text
+            or "rate limit" in text
+            or "dh-904" in text
+            or "being blocked" in text
+        )
+
+    def _ltp_cache_key(self, segment: str, security_id: int) -> tuple[str, int]:
+        return (segment, int(security_id))
+
+    def _remember_ltp(self, segment: str, security_id: int, ltp: float, *, now_mono: float | None = None) -> None:
+        if ltp <= 0:
+            return
+        if now_mono is None:
+            now_mono = _time.monotonic()
+        self._ltp_cache[self._ltp_cache_key(segment, security_id)] = (float(ltp), now_mono)
+
+    def _cached_ltp(
+        self, segment: str, security_id: int, max_age_sec: float, *, now_mono: float | None = None
+    ) -> float:
+        if now_mono is None:
+            now_mono = _time.monotonic()
+        entry = self._ltp_cache.get(self._ltp_cache_key(segment, security_id))
+        if not entry:
+            return 0.0
+        ltp, seen_mono = entry
+        if now_mono - seen_mono <= max_age_sec:
+            return float(ltp)
+        return 0.0
+
+    def _ltp_backoff_active(self, *, now_mono: float | None = None) -> bool:
+        if now_mono is None:
+            now_mono = _time.monotonic()
+        return now_mono < self._ltp_backoff_until_mono
+
+    def _clear_ltp_backoff(self) -> None:
+        self._ltp_backoff_until_mono = 0.0
+        self._ltp_backoff_delay_sec = 0.0
+
+    def _enter_ltp_backoff(self, error: Exception, *, now_mono: float | None = None) -> None:
+        if now_mono is None:
+            now_mono = _time.monotonic()
+        delay = self._ltp_backoff_delay_sec * 2 if self._ltp_backoff_delay_sec else SCALP_REST_LTP_BACKOFF_BASE_SEC
+        delay = min(SCALP_REST_LTP_BACKOFF_MAX_SEC, max(SCALP_REST_LTP_REUSE_SEC, delay))
+        self._ltp_backoff_delay_sec = delay
+        self._ltp_backoff_until_mono = max(self._ltp_backoff_until_mono, now_mono + delay)
+        if now_mono - self._ltp_last_rate_limit_log_mono >= SCALP_REST_LTP_LOG_COOLDOWN_SEC:
+            self._ltp_last_rate_limit_log_mono = now_mono
+            remaining = max(0.0, self._ltp_backoff_until_mono - now_mono)
+            self._log(
+                "warn",
+                f"Batch LTP rate-limited by Dhan; pausing REST fallback for {remaining:.1f}s and waiting for WS/cache. Last error: {error}",
+            )
+
     async def _fetch_all_ltps(self, trades: list) -> dict:
         """Fetch LTPs for all open trades in a single batched API call.
         Returns {trade_id: ltp_float}.
@@ -1162,8 +1236,10 @@ class ScalpEngine:
         result = {}
         nse_ids: Dict[int, int] = {}  # trade_id -> security_id
         bse_ids: Dict[int, int] = {}  # trade_id -> security_id
+        now_mono = _time.monotonic()
 
         for tid, trade in trades:
+            segment = self._segment_for_underlying(trade.underlying)
             # Try WS cache first
             ws_sec_id = self._ws_subs.get(tid)
             if ws_sec_id and self.feed:
@@ -1171,6 +1247,10 @@ class ScalpEngine:
                     ltp = self.feed.get_ltp(ws_sec_id)
                     if ltp and ltp > 0:
                         result[tid] = float(ltp)
+                        try:
+                            self._remember_ltp(segment, int(ws_sec_id), float(ltp), now_mono=now_mono)
+                        except Exception:
+                            pass
                         continue
                 except Exception:
                     pass
@@ -1194,10 +1274,17 @@ class ScalpEngine:
             # Queue for batch REST fetch (fallback)
             sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
             if sec_id:
+                cached_ltp = self._cached_ltp(segment, int(sec_id), SCALP_REST_LTP_REUSE_SEC, now_mono=now_mono)
+                if cached_ltp > 0:
+                    result[tid] = cached_ltp
+                    continue
                 if trade.underlying == "SENSEX":
                     bse_ids[tid] = int(sec_id)
                 else:
                     nse_ids[tid] = int(sec_id)
+
+        if self._ltp_backoff_active(now_mono=now_mono):
+            return result
 
         if nse_ids or bse_ids:
             segments: Dict[str, list] = {}
@@ -1213,36 +1300,59 @@ class ScalpEngine:
                         v = seg_data.get(key, {})
                         if isinstance(v, dict):
                             return float(v.get("last_price", v.get("ltp", 0)))
-                        elif isinstance(v, (int, float)):
+                        if isinstance(v, (int, float)):
                             return float(v)
                     return 0.0
 
                 for tid, sec_id in nse_ids.items():
                     ltp = _extract(data.get("NSE_FNO", {}), sec_id)
                     if ltp > 0:
+                        self._remember_ltp("NSE_FNO", sec_id, ltp, now_mono=now_mono)
                         result[tid] = ltp
                 for tid, sec_id in bse_ids.items():
                     ltp = _extract(data.get("BSE_FNO", {}), sec_id)
                     if ltp > 0:
+                        self._remember_ltp("BSE_FNO", sec_id, ltp, now_mono=now_mono)
                         result[tid] = ltp
+                self._clear_ltp_backoff()
             except Exception as e:
-                self._log("error", f"Batch LTP fetch failed: {e}")
+                if self._is_marketfeed_rate_limited(e):
+                    self._enter_ltp_backoff(e, now_mono=now_mono)
+                else:
+                    self._log("error", f"Batch LTP fetch failed: {e}")
 
         return result
 
     def _get_ltp(self, trade: ScalpTrade, trade_id: int) -> float:
         """Synchronous LTP helper — used only for exit price snapshots."""
+        segment = self._segment_for_underlying(trade.underlying)
         ws_sec_id = self._ws_subs.get(trade_id)
         if ws_sec_id and self.feed:
             try:
                 ltp = self.feed.get_ltp(ws_sec_id)
                 if ltp and ltp > 0:
+                    try:
+                        self._remember_ltp(segment, int(ws_sec_id), float(ltp))
+                    except Exception:
+                        pass
                     return float(ltp)
             except Exception:
                 pass
+        sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+        if sec_id:
+            cached_ltp = self._cached_ltp(segment, int(sec_id), SCALP_REST_LTP_SNAPSHOT_SEC)
+            if cached_ltp > 0:
+                return cached_ltp
+        if self._ltp_backoff_active():
+            return 0.0
         try:
-            return self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
-        except Exception:
+            ltp = self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+            if sec_id and ltp and ltp > 0:
+                self._remember_ltp(segment, int(sec_id), float(ltp))
+            return ltp
+        except Exception as e:
+            if self._is_marketfeed_rate_limited(e):
+                self._enter_ltp_backoff(e)
             return 0.0
 
     async def _close_trade(
@@ -1271,6 +1381,7 @@ class ScalpEngine:
             trade.exit_reason = "cancelled"
             self.open_trades.pop(trade.trade_id, None)
             self._ws_subs.pop(trade.trade_id, None)
+            self._sync_marketfeed_throttle()
             self._log("info", f"🚫 STOP-LIMIT CANCELLED: {trade.underlying} {trade.strike}{trade.option_type}")
             return
 
@@ -1366,6 +1477,7 @@ class ScalpEngine:
         self.closed_trades.append(trade_dict)
         self.open_trades.pop(trade.trade_id, None)
         self._ws_subs.pop(trade.trade_id, None)
+        self._sync_marketfeed_throttle()
 
         # Persist via callback (auto-exits + manual exits all go through here)
         if self.on_trade_close:
@@ -1373,10 +1485,6 @@ class ScalpEngine:
                 self.on_trade_close(trade_dict)
             except Exception as e:
                 self._log("error", f"on_trade_close callback failed: {e}")
-
-        # Disable throttle when no live trades remain
-        if not any(t.mode == "live" for t in self.open_trades.values()):
-            enable_marketfeed_throttle(False)
 
         pnl_sign = "+" if pnl >= 0 else ""
         self._log(
