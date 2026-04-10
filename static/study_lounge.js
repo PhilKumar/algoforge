@@ -6,6 +6,13 @@ const state = {
   categoryFilter: 'all',
 };
 
+let destroyPreviewAudioMotion = () => {};
+
+function cleanupPreviewAudioMotion() {
+  destroyPreviewAudioMotion();
+  destroyPreviewAudioMotion = () => {};
+}
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -54,10 +61,122 @@ function applyFeatured(item) {
   downloadBtn.toggleAttribute('aria-disabled', !item);
 }
 
+function bindAudioOrbMotion(shell) {
+  const audio = shell.querySelector('audio');
+  const orb = shell.querySelector('.audio-orb');
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!audio || !orb || !AudioContextCtor) return;
+
+  let audioContext = null;
+  let analyser = null;
+  let source = null;
+  let samples = null;
+  let rafId = 0;
+  let destroyed = false;
+  let smoothedLevel = 0;
+
+  const stopLoop = () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+  };
+
+  const resetOrb = () => {
+    smoothedLevel = 0;
+    orb.style.setProperty('--orb-scale', '1');
+    orb.style.setProperty('--orb-glow-scale', '1');
+    orb.classList.remove('is-reactive');
+  };
+
+  const applyLevel = (level) => {
+    smoothedLevel += (level - smoothedLevel) * 0.24;
+    orb.style.setProperty('--orb-scale', (1 + smoothedLevel * 0.28).toFixed(3));
+    orb.style.setProperty('--orb-glow-scale', (1 + smoothedLevel * 0.58).toFixed(3));
+    orb.classList.toggle('is-reactive', smoothedLevel > 0.05 && !audio.paused && !audio.ended);
+  };
+
+  const ensureContext = async () => {
+    if (audioContext) return audioContext;
+    audioContext = new AudioContextCtor();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.82;
+    samples = new Uint8Array(analyser.fftSize);
+    source = audioContext.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioContext.destination);
+    return audioContext;
+  };
+
+  const tick = () => {
+    if (destroyed) return;
+    if (audio.paused || audio.ended) {
+      stopLoop();
+      resetOrb();
+      return;
+    }
+
+    analyser.getByteTimeDomainData(samples);
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i += 1) {
+      const centered = (samples[i] - 128) / 128;
+      sumSquares += centered * centered;
+    }
+    const rms = Math.sqrt(sumSquares / samples.length);
+    const level = Math.min(1, Math.max(0, (rms - 0.015) * 8));
+    applyLevel(level);
+    rafId = requestAnimationFrame(tick);
+  };
+
+  const start = async () => {
+    try {
+      const context = await ensureContext();
+      if (context.state === 'suspended') await context.resume();
+      if (!rafId) tick();
+    } catch (err) {
+      console.warn('Audio orb visualizer unavailable', err);
+    }
+  };
+
+  const stop = () => {
+    stopLoop();
+    resetOrb();
+  };
+
+  audio.addEventListener('play', start);
+  audio.addEventListener('playing', start);
+  audio.addEventListener('pause', stop);
+  audio.addEventListener('ended', stop);
+  audio.addEventListener('emptied', stop);
+
+  if (!audio.paused) start();
+  else resetOrb();
+
+  destroyPreviewAudioMotion = () => {
+    destroyed = true;
+    stopLoop();
+    audio.removeEventListener('play', start);
+    audio.removeEventListener('playing', start);
+    audio.removeEventListener('pause', stop);
+    audio.removeEventListener('ended', stop);
+    audio.removeEventListener('emptied', stop);
+    resetOrb();
+    try {
+      source?.disconnect();
+    } catch (err) {}
+    try {
+      analyser?.disconnect();
+    } catch (err) {}
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close().catch(() => {});
+    }
+  };
+}
+
 function renderPreview(item) {
   $('preview-title').textContent = item?.title || 'Select a deck, video, or audio brief';
   $('preview-kind').textContent = item?.kind_label || 'Preview';
   const shell = $('preview-shell');
+  cleanupPreviewAudioMotion();
   if (!item) {
     shell.innerHTML = '<div class="preview-empty">Your selected deck, video, or audio brief will open here.</div>';
     return;
@@ -87,6 +206,7 @@ function renderPreview(item) {
         <audio controls preload="metadata" src="${escapeHtml(item.preview_url)}"></audio>
       </div>
     `;
+    bindAudioOrbMotion(shell);
     return;
   }
   shell.innerHTML = `<div class="preview-empty">This asset can be downloaded from the library card.</div>`;

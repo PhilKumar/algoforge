@@ -671,13 +671,44 @@ body::after {
 }
 
 .audio-orb {
+  --orb-scale: 1;
+  --orb-glow-scale: 1;
+  position: relative;
   width: 124px;
   height: 124px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 32% 32%, rgba(255,255,255,0.32), transparent 34%),
+    radial-gradient(circle at 32% 32%, rgba(255,255,255,0.34), transparent 34%),
     radial-gradient(circle at center, rgba(167, 139, 250, 0.44), rgba(79, 142, 247, 0.16) 55%, transparent 74%);
   box-shadow: 0 0 0 14px rgba(167, 139, 250, 0.05), 0 24px 48px rgba(0,0,0,0.26);
+  transform: scale(var(--orb-scale));
+  transform-origin: center;
+  transition: transform 70ms linear, filter 140ms linear, box-shadow 140ms linear;
+  will-change: transform, filter;
+  isolation: isolate;
+}
+
+.audio-orb::after {
+  content: '';
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+  z-index: -1;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.28), rgba(79, 142, 247, 0.09) 52%, transparent 72%);
+  filter: blur(16px);
+  opacity: 0.42;
+  transform: scale(var(--orb-glow-scale));
+  transform-origin: center;
+  transition: transform 70ms linear, opacity 140ms linear;
+}
+
+.audio-orb.is-reactive {
+  filter: saturate(1.22) brightness(1.06);
+  box-shadow: 0 0 0 18px rgba(167, 139, 250, 0.08), 0 28px 60px rgba(23, 32, 58, 0.34);
+}
+
+.audio-orb.is-reactive::after {
+  opacity: 0.68;
 }
 
 .audio-copy {
