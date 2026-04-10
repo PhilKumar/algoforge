@@ -472,7 +472,7 @@ class ScalpEngine:
         return {"status": "ok", "closed": closed}
 
     async def update_trade_targets(self, trade_id: int, **kwargs) -> Dict[str, Any]:
-        """Update target/SL for an open trade (e.g. after looking at the chart)."""
+        """Update target/SL for an open trade, or edit pending stop-limit settings before fill."""
         trade = self.open_trades.get(trade_id)
         if not trade:
             return {"status": "error", "message": f"Trade {trade_id} not found"}
@@ -482,16 +482,56 @@ class ScalpEngine:
             "target_rupees": trade.target_rupees,
             "sl_rupees": trade.sl_rupees,
             "sqoff_time": trade.sqoff_time,
+            "entry_limit_price": trade.entry_limit_price,
+            "entry_limit_max": trade.entry_limit_max,
             "target_from_pct": trade.target_from_pct,
             "sl_from_pct": trade.sl_from_pct,
         }
-        for attr in ("target_premium", "sl_premium", "target_rupees", "sl_rupees", "sqoff_time"):
+        new_entry_min = kwargs.get("entry_limit_price")
+        new_entry_max = kwargs.get("entry_limit_max")
+        if trade.status != "pending" and (new_entry_min is not None or new_entry_max is not None):
+            return {
+                "status": "error",
+                "message": "Entry trigger range can only be changed while the trade is pending",
+                "trade": trade.to_dict(),
+            }
+        if (new_entry_min is None) ^ (new_entry_max is None):
+            return {
+                "status": "error",
+                "message": "Provide both trigger start and trigger end to update the pending entry range",
+                "trade": trade.to_dict(),
+            }
+        if new_entry_min is not None and new_entry_max is not None:
+            if float(new_entry_min) <= 0 or float(new_entry_max) <= 0:
+                return {
+                    "status": "error",
+                    "message": "Pending trigger range must be greater than 0",
+                    "trade": trade.to_dict(),
+                }
+            if float(new_entry_max) < float(new_entry_min):
+                return {
+                    "status": "error",
+                    "message": "Trigger end must be greater than or equal to trigger start",
+                    "trade": trade.to_dict(),
+                }
+        for attr in (
+            "target_premium",
+            "sl_premium",
+            "target_rupees",
+            "sl_rupees",
+            "sqoff_time",
+            "entry_limit_price",
+            "entry_limit_max",
+        ):
             if attr in kwargs and kwargs[attr] is not None:
                 setattr(trade, attr, kwargs[attr])
         if "target_premium" in kwargs and kwargs["target_premium"] is not None:
             trade.target_from_pct = False
         if "sl_premium" in kwargs and kwargs["sl_premium"] is not None:
             trade.sl_from_pct = False
+        if trade.status == "pending":
+            self._log("info", f"⏳ Pending trade {trade_id} updated: {kwargs}")
+            return {"status": "ok", "trade": trade.to_dict()}
         if trade.mode == "live" and self._is_super_order_trade(trade):
             if trade.target_premium <= 0 or trade.sl_premium <= 0:
                 for key, value in prev_values.items():
@@ -501,7 +541,6 @@ class ScalpEngine:
                     "message": "Live Super Order requires both Target Premium and SL Premium",
                     "trade": trade.to_dict(),
                 }
-        # Sync broker-side SL/TP orders (live mode only)
         if trade.mode == "live" and ("sl_premium" in kwargs or "target_premium" in kwargs):
             errors = await self._modify_broker_sl_tp(trade, **kwargs)
             if errors:

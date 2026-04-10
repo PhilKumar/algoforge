@@ -9969,7 +9969,12 @@ const _scalpDirtyInputs = {};
 const _SCALP_DIRTY_TTL = 5000; // ms
 function _markScalpInputDirty(inputId) { _scalpDirtyInputs[inputId] = Date.now(); }
 function _isScalpInputDirty(inputId) { return _scalpDirtyInputs[inputId] && (Date.now() - _scalpDirtyInputs[inputId] < _SCALP_DIRTY_TTL); }
-function _clearScalpInputDirty(tradeId) { delete _scalpDirtyInputs['scalp-tgt-' + tradeId]; delete _scalpDirtyInputs['scalp-sl-' + tradeId]; }
+function _clearScalpInputDirty(tradeId) {
+  delete _scalpDirtyInputs['scalp-tgt-' + tradeId];
+  delete _scalpDirtyInputs['scalp-sl-' + tradeId];
+  delete _scalpDirtyInputs['scalp-entry-min-' + tradeId];
+  delete _scalpDirtyInputs['scalp-entry-max-' + tradeId];
+}
 
 function stepScalpField(inputId, delta) {
   const inp = document.getElementById(inputId);
@@ -9981,7 +9986,12 @@ function stepScalpField(inputId, delta) {
 
 // Also mark dirty on manual typing (delegated to scalp-active-body)
 document.addEventListener('input', function(e) {
-  if (e.target && e.target.id && (e.target.id.startsWith('scalp-tgt-') || e.target.id.startsWith('scalp-sl-'))) {
+  if (e.target && e.target.id && (
+    e.target.id.startsWith('scalp-tgt-') ||
+    e.target.id.startsWith('scalp-sl-') ||
+    e.target.id.startsWith('scalp-entry-min-') ||
+    e.target.id.startsWith('scalp-entry-max-')
+  )) {
     _markScalpInputDirty(e.target.id);
   }
 });
@@ -10383,24 +10393,40 @@ async function modifyScalpTrade(tradeId) {
   const btn = document.getElementById('scalp-set-btn-' + tradeId);
   const tgtInput = document.getElementById('scalp-tgt-' + tradeId);
   const slInput = document.getElementById('scalp-sl-' + tradeId);
+  const entryMinInput = document.getElementById('scalp-entry-min-' + tradeId);
+  const entryMaxInput = document.getElementById('scalp-entry-max-' + tradeId);
   if (!tgtInput || !slInput) return;
 
   const newTarget = parseFloat(tgtInput.value) || 0;
   const newSL = parseFloat(slInput.value) || 0;
+  const newEntryMin = entryMinInput ? (parseFloat(entryMinInput.value) || 0) : 0;
+  const newEntryMax = entryMaxInput ? (parseFloat(entryMaxInput.value) || 0) : 0;
 
-  if (newTarget <= 0 && newSL <= 0) {
-    toast('Set at least one of Target or SL', 'warn');
+  const payload = {};
+  if (newTarget > 0) payload.target_premium = newTarget;
+  if (newSL > 0) payload.sl_premium = newSL;
+
+  if (entryMinInput || entryMaxInput) {
+    if (newEntryMin <= 0 || newEntryMax <= 0) {
+      toast('Set a valid trigger range before saving the pending trade', 'warn');
+      return;
+    }
+    if (newEntryMax < newEntryMin) {
+      toast('Trigger end must be greater than or equal to trigger start', 'warn');
+      return;
+    }
+    payload.entry_limit_price = newEntryMin;
+    payload.entry_limit_max = newEntryMax;
+  }
+
+  if (!Object.keys(payload).length) {
+    toast('Set at least one editable field', 'warn');
     return;
   }
 
-  // Disable button while processing
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
   try {
-    const payload = {};
-    if (newTarget > 0) payload.target_premium = newTarget;
-    if (newSL > 0) payload.sl_premium = newSL;
-
     const res = await fetch('/api/scalp/trades/' + tradeId + '/targets', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -10409,7 +10435,11 @@ async function modifyScalpTrade(tradeId) {
     const data = await res.json();
     if (data.status === 'ok') {
       _clearScalpInputDirty(tradeId);
-      toast(`Trade #${tradeId} updated — TP: ₹${newTarget || '—'} SL: ₹${newSL || '—'}`, 'success');
+      const summary = [];
+      if (payload.entry_limit_price) summary.push(`Trigger: ₹${payload.entry_limit_price.toFixed(2)}–₹${payload.entry_limit_max.toFixed(2)}`);
+      if (payload.target_premium) summary.push(`TP: ₹${payload.target_premium.toFixed(2)}`);
+      if (payload.sl_premium) summary.push(`SL: ₹${payload.sl_premium.toFixed(2)}`);
+      toast(`Trade #${tradeId} updated — ${summary.join(' | ')}`, 'success');
       refreshScalpStatus();
     } else {
       toast(data.message || 'Update failed', 'error');
@@ -10631,6 +10661,14 @@ async function refreshScalpStatus() {
   } catch(e) { /* offline */ }
 }
 
+function _buildScalpPremiumEditor(inputId, value, tone) {
+  return `<div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',-10)">−</button><input type="number" id="${inputId}" value="${value || 0}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:${tone};text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',10)">+</button></div>`;
+}
+
+function _buildScalpPendingRangeEditor(tradeId, entryMin, entryMax) {
+  return `<div style="display:inline-flex;align-items:center;gap:4px;justify-content:flex-end;"><input type="number" id="scalp-entry-min-${tradeId}" value="${(entryMin || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger start"><span style="font-size:10px;color:var(--muted);">→</span><input type="number" id="scalp-entry-max-${tradeId}" value="${(entryMax || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger end"></div>`;
+}
+
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
 function _buildScalpActiveRow(t) {
   const isPending = t.status === 'pending';
@@ -10639,15 +10677,15 @@ function _buildScalpActiveRow(t) {
   const tgtVal = t.target_premium || 0;
   const slVal = t.sl_premium || 0;
   if (isPending) {
-    // Pending stop-limit trade — show trigger range instead of entry/P&L
     return `<tr data-tid="${t.trade_id}" data-status="pending" style="border-bottom:1px solid rgba(255,255,255,0.03);background:rgba(99,102,241,0.06);">
-      <td style="padding:8px 10px;font-size:12px;">${t.underlying} ${t.strike}${t.option_type} <span style="font-size:10px;color:var(--muted);">${t.expiry}</span><br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
-      <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(139,143,255,0.9);"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_limit_price||0).toFixed(2)}–₹${(t.entry_limit_max||0).toFixed(2)}</span></td>
+      <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span><br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
+      <td style="padding:6px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(139,143,255,0.9);">${_buildScalpPendingRangeEditor(t.trade_id, t.entry_limit_price, t.entry_limit_max)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
       <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);">—</td>
-      <td style="padding:6px 4px;text-align:center;font-size:10px;color:var(--muted);">—</td>
-      <td style="padding:6px 4px;text-align:center;font-size:10px;color:var(--muted);">—</td>
+      <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
+      <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
+        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </td>
     </tr>`;
@@ -10661,8 +10699,8 @@ function _buildScalpActiveRow(t) {
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
-    <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',-10)">−</button><input type="number" id="scalp-tgt-${t.trade_id}" value="${tgtVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--green);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-tgt-${t.trade_id}',10)">+</button></div></td>
-    <td style="padding:6px 4px;text-align:center;"><div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',-10)">−</button><input type="number" id="scalp-sl-${t.trade_id}" value="${slVal}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--red);text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('scalp-sl-${t.trade_id}',10)">+</button></div></td>
+    <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
+    <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
@@ -10756,11 +10794,14 @@ function _renderScalpStatus(data) {
           pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
         }
         if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
-        // Update input values ONLY if user is not focused or hasn't recently edited
         const tgtInput = document.getElementById('scalp-tgt-' + t.trade_id);
         const slInput = document.getElementById('scalp-sl-' + t.trade_id);
+        const entryMinInput = document.getElementById('scalp-entry-min-' + t.trade_id);
+        const entryMaxInput = document.getElementById('scalp-entry-max-' + t.trade_id);
         if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
         if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
+        if (entryMinInput && document.activeElement !== entryMinInput && !_isScalpInputDirty('scalp-entry-min-' + t.trade_id)) entryMinInput.value = (t.entry_limit_price || 0).toFixed(2);
+        if (entryMaxInput && document.activeElement !== entryMaxInput && !_isScalpInputDirty('scalp-entry-max-' + t.trade_id)) entryMaxInput.value = (t.entry_limit_max || 0).toFixed(2);
       });
     }
   }
@@ -16024,13 +16065,23 @@ function _renderScalpStatusWS(data) {
   const tbody = _getScalpEl('scalp-active-body');
   if (!tbody) return;
   const open = data.open_trades || [];
+  const pendingCount = open.filter(t => t.status === 'pending').length;
+  const activeCount = open.length - pendingCount;
   const countEl = _getScalpEl('scalp-open-count');
-  if (countEl) countEl.textContent = open.length + ' open';
+  if (countEl) countEl.textContent = activeCount + ' open' + (pendingCount ? ` · ${pendingCount} pending` : '');
+  const killBtn = _getScalpEl('scalp-kill-all-btn');
+  if (killBtn) killBtn.style.display = open.length > 0 ? '' : 'none';
 
   const serverTids = new Set(open.map(t => t.trade_id));
   const domTids = new Set();
   tbody.querySelectorAll('tr[data-tid]').forEach(tr => domTids.add(parseInt(tr.dataset.tid)));
-  const sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+  let sameSet = serverTids.size === domTids.size && [...serverTids].every(id => domTids.has(id));
+  if (sameSet) {
+    for (const t of open) {
+      const row = tbody.querySelector(`tr[data-tid="${t.trade_id}"]`);
+      if (row && row.dataset.status !== t.status) { sameSet = false; break; }
+    }
+  }
 
   if (!open.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
@@ -16053,11 +16104,14 @@ function _renderScalpStatusWS(data) {
         pnlEl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
       }
       if (entryEl) entryEl.textContent = '₹' + (t.entry_premium||0).toFixed(2);
-      // Update inputs only when not focused and not recently edited by user
       const tgtInput = _getScalpEl('scalp-tgt-' + t.trade_id);
       const slInput = _getScalpEl('scalp-sl-' + t.trade_id);
+      const entryMinInput = _getScalpEl('scalp-entry-min-' + t.trade_id);
+      const entryMaxInput = _getScalpEl('scalp-entry-max-' + t.trade_id);
       if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
       if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
+      if (entryMinInput && document.activeElement !== entryMinInput && !_isScalpInputDirty('scalp-entry-min-' + t.trade_id)) entryMinInput.value = (t.entry_limit_price || 0).toFixed(2);
+      if (entryMaxInput && document.activeElement !== entryMaxInput && !_isScalpInputDirty('scalp-entry-max-' + t.trade_id)) entryMaxInput.value = (t.entry_limit_max || 0).toFixed(2);
     });
   }
 

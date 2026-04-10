@@ -8004,6 +8004,8 @@ class ScalpTargetsReq(BaseModel):
     target_rupees: Optional[float] = None
     sl_rupees: Optional[float] = None
     sqoff_time: Optional[str] = None
+    entry_limit_price: Optional[float] = None
+    entry_limit_max: Optional[float] = None
 
 
 @app.put("/api/scalp/trades/{trade_id}/targets")
