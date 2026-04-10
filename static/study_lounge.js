@@ -71,6 +71,10 @@ function renderPreview(item) {
     shell.innerHTML = `<iframe src="${escapeHtml(pdfUrl)}" title="${escapeHtml(item.title)}"></iframe>`;
     return;
   }
+  if (item.kind === 'image') {
+    shell.innerHTML = `<img src="${escapeHtml(item.preview_url)}" alt="${escapeHtml(item.title)}">`;
+    return;
+  }
   if (item.kind === 'audio') {
     shell.innerHTML = `
       <div class="audio-stage">
@@ -103,12 +107,14 @@ function renderTypeFilters() {
     video: state.items.filter((item) => item.kind === 'video').length,
     deck: state.items.filter((item) => item.kind === 'deck').length,
     audio: state.items.filter((item) => item.kind === 'audio').length,
+    image: state.items.filter((item) => item.kind === 'image').length,
   };
   const labels = {
     all: 'All Assets',
     video: 'Videos',
     deck: 'Decks',
     audio: 'Audio',
+    image: 'Boards',
   };
   container.innerHTML = Object.entries(labels).map(([kind, label]) => `
     <button class="filter-chip ${state.kindFilter === kind ? 'active' : ''}" type="button" data-kind="${kind}">

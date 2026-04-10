@@ -8,11 +8,13 @@ from typing import Any
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 DECK_EXTS = {".pdf", ".ppt", ".pptx", ".key"}
 AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 TYPE_META = {
     "video": {"label": "Video Overview", "accent": "video"},
     "deck": {"label": "Slide Deck", "accent": "deck"},
     "audio": {"label": "Audio Brief", "accent": "audio"},
+    "image": {"label": "Reference Board", "accent": "image"},
     "file": {"label": "Study Asset", "accent": "file"},
 }
 
@@ -71,6 +73,8 @@ def _guess_type(ext: str) -> str:
         return "deck"
     if ext in AUDIO_EXTS:
         return "audio"
+    if ext in IMAGE_EXTS:
+        return "image"
     return "file"
 
 
@@ -93,6 +97,8 @@ def _description_for_item(title: str, kind: str, category: str) -> str:
         return f"A slide deck for a short market reset, focused on {title.lower()} and {category.lower()}."
     if kind == "audio":
         return f"An audio brief for slower review, built around {title.lower()} in {category.lower()}."
+    if kind == "image":
+        return f"A reference board for {category.lower()} focused on {title.lower()}."
     return f"A study asset for {category.lower()} built around {title.lower()}."
 
 
@@ -114,7 +120,7 @@ def get_study_library(static_root: str) -> dict[str, Any]:
                 slug = os.path.splitext(name)[0]
                 title = _title_from_slug(slug)
                 category = _category_from_parts(
-                    rel_parts[1:] if rel_parts[:1] in (["videos"], ["decks"], ["audio"]) else rel_parts
+                    rel_parts[1:] if rel_parts[:1] in (["videos"], ["decks"], ["audio"], ["images"]) else rel_parts
                 )
                 modified = datetime.fromtimestamp(stat.st_mtime)
                 item = {
@@ -134,7 +140,7 @@ def get_study_library(static_root: str) -> dict[str, Any]:
                     "modified_ts": stat.st_mtime,
                     "modified_label": modified.strftime("%d %b %Y"),
                     "description": _description_for_item(title, kind, category),
-                    "is_previewable": kind in {"video", "deck", "audio"},
+                    "is_previewable": kind in {"video", "deck", "audio", "image"},
                 }
                 dedupe_key = _dedupe_key(title, kind, category)
                 existing = items_by_key.get(dedupe_key)
