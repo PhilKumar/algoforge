@@ -80,3 +80,6 @@ philforge.db
 philforge.db-shm
 philforge.db-wal
 test_philforge.db
+
+# Study asset privacy manifest
+static/notebooklm/.study-sanitize-index.json

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from datetime import datetime
@@ -17,6 +18,10 @@ TYPE_META = {
     "image": {"label": "Reference Board", "accent": "image"},
     "file": {"label": "Study Asset", "accent": "file"},
 }
+
+_STUDY_SANITIZER_VERSION = 1
+_STUDY_SANITIZER_INDEX = ".study-sanitize-index.json"
+_PNG_METADATA_CHUNKS = {b"iCCP", b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"time"}
 
 
 def _title_from_slug(slug: str) -> str:
@@ -102,8 +107,232 @@ def _description_for_item(title: str, kind: str, category: str) -> str:
     return f"A study asset for {category.lower()} built around {title.lower()}."
 
 
+def _study_base_dir(static_root: str) -> str:
+    return os.path.join(static_root, "notebooklm")
+
+
+def _study_index_path(base_dir: str) -> str:
+    return os.path.join(base_dir, _STUDY_SANITIZER_INDEX)
+
+
+def _load_study_index(base_dir: str) -> dict[str, dict[str, int]]:
+    index_path = _study_index_path(base_dir)
+    if not os.path.isfile(index_path):
+        return {}
+    try:
+        with open(index_path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key): value for key, value in data.items() if isinstance(value, dict)}
+
+
+def _save_study_index(base_dir: str, index: dict[str, dict[str, int]]) -> None:
+    index_path = _study_index_path(base_dir)
+    tmp_path = index_path + ".tmp"
+    payload = {key: index[key] for key in sorted(index)}
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+    os.replace(tmp_path, index_path)
+
+
+def _study_fingerprint(path: str) -> dict[str, int]:
+    stat = os.stat(path)
+    return {
+        "version": _STUDY_SANITIZER_VERSION,
+        "size_bytes": int(stat.st_size),
+        "mtime_ns": int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+    }
+
+
+def _clear_extended_attributes(path: str) -> bool:
+    listxattr = getattr(os, "listxattr", None)
+    removexattr = getattr(os, "removexattr", None)
+    if not callable(listxattr) or not callable(removexattr):
+        return False
+    changed = False
+    try:
+        attrs = listxattr(path)
+    except OSError:
+        return False
+    for attr in attrs:
+        try:
+            removexattr(path, attr)
+            changed = True
+        except OSError:
+            continue
+    return changed
+
+
+def _rewrite_png_without_metadata(path: str) -> bool:
+    with open(path, "rb") as handle:
+        data = handle.read()
+    signature = b"\x89PNG\r\n\x1a\n"
+    if not data.startswith(signature):
+        return False
+    cursor = len(signature)
+    out = bytearray(signature)
+    changed = False
+    while cursor + 12 <= len(data):
+        length = int.from_bytes(data[cursor : cursor + 4], "big")
+        chunk_end = cursor + 12 + length
+        if chunk_end > len(data):
+            return False
+        chunk_type = data[cursor + 4 : cursor + 8]
+        chunk = data[cursor:chunk_end]
+        if chunk_type in _PNG_METADATA_CHUNKS:
+            changed = True
+        else:
+            out.extend(chunk)
+        cursor = chunk_end
+        if chunk_type == b"IEND":
+            break
+    if not changed:
+        return False
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "wb") as handle:
+        handle.write(out)
+    os.replace(tmp_path, path)
+    return True
+
+
+def _rewrite_jpeg_without_metadata(path: str) -> bool:
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        return False
+    out = bytearray(b"\xff\xd8")
+    cursor = 2
+    changed = False
+    while cursor < len(data):
+        if data[cursor] != 0xFF:
+            return False
+        while cursor < len(data) and data[cursor] == 0xFF:
+            cursor += 1
+        if cursor >= len(data):
+            break
+        marker = data[cursor]
+        cursor += 1
+        if marker == 0xD9:
+            out.extend(b"\xff\xd9")
+            break
+        if marker == 0xDA:
+            if cursor + 2 > len(data):
+                return False
+            seg_len = int.from_bytes(data[cursor : cursor + 2], "big")
+            seg_start = cursor - 2
+            seg_end = cursor + seg_len
+            if seg_end > len(data):
+                return False
+            out.extend(data[seg_start:seg_end])
+            out.extend(data[seg_end:])
+            break
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            out.extend(b"\xff" + bytes([marker]))
+            continue
+        if cursor + 2 > len(data):
+            return False
+        seg_len = int.from_bytes(data[cursor : cursor + 2], "big")
+        seg_start = cursor - 2
+        seg_end = cursor + seg_len
+        if seg_end > len(data):
+            return False
+        segment = data[seg_start:seg_end]
+        if 0xE0 <= marker <= 0xEF or marker == 0xFE:
+            changed = True
+        else:
+            out.extend(segment)
+        cursor = seg_end
+    if not changed:
+        return False
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "wb") as handle:
+        handle.write(out)
+    os.replace(tmp_path, path)
+    return True
+
+
+def _sanitize_study_file(base_dir: str, full_path: str, index: dict[str, dict[str, int]]) -> bool:
+    rel_path = os.path.relpath(full_path, base_dir)
+    if rel_path.startswith("..") or os.path.basename(rel_path).startswith("."):
+        return False
+    fingerprint = _study_fingerprint(full_path)
+    if index.get(rel_path) == fingerprint:
+        return False
+
+    original_stat = os.stat(full_path)
+    changed = _clear_extended_attributes(full_path)
+    ext = os.path.splitext(full_path)[1].lower()
+    try:
+        if ext == ".png":
+            changed = _rewrite_png_without_metadata(full_path) or changed
+        elif ext in {".jpg", ".jpeg"}:
+            changed = _rewrite_jpeg_without_metadata(full_path) or changed
+    finally:
+        if changed:
+            _clear_extended_attributes(full_path)
+            os.utime(
+                full_path,
+                ns=(
+                    int(getattr(original_stat, "st_atime_ns", int(original_stat.st_atime * 1_000_000_000))),
+                    int(getattr(original_stat, "st_mtime_ns", int(original_stat.st_mtime * 1_000_000_000))),
+                ),
+            )
+    index[rel_path] = _study_fingerprint(full_path)
+    return True
+
+
+def sanitize_study_library(static_root: str) -> None:
+    base_dir = _study_base_dir(static_root)
+    if not os.path.isdir(base_dir):
+        return
+    index = _load_study_index(base_dir)
+    changed = False
+    seen: set[str] = set()
+    for root, _, files in os.walk(base_dir):
+        for name in sorted(files):
+            if name.startswith("."):
+                continue
+            full_path = os.path.join(root, name)
+            rel_path = os.path.relpath(full_path, base_dir)
+            seen.add(rel_path)
+            try:
+                changed = _sanitize_study_file(base_dir, full_path, index) or changed
+            except OSError:
+                continue
+    stale = [rel_path for rel_path in index if rel_path not in seen]
+    for rel_path in stale:
+        index.pop(rel_path, None)
+        changed = True
+    if changed:
+        try:
+            _save_study_index(base_dir, index)
+        except OSError:
+            pass
+
+
+def sanitize_study_asset(static_root: str, full_path: str) -> None:
+    base_dir = _study_base_dir(static_root)
+    if not os.path.isdir(base_dir) or not os.path.isfile(full_path):
+        return
+    base_dir_abs = os.path.abspath(base_dir)
+    full_path_abs = os.path.abspath(full_path)
+    if not full_path_abs.startswith(base_dir_abs + os.sep):
+        return
+    index = _load_study_index(base_dir)
+    changed = _sanitize_study_file(base_dir, full_path_abs, index)
+    if changed:
+        try:
+            _save_study_index(base_dir, index)
+        except OSError:
+            pass
+
+
 def get_study_library(static_root: str) -> dict[str, Any]:
-    base_dir = os.path.join(static_root, "notebooklm")
+    sanitize_study_library(static_root)
+    base_dir = _study_base_dir(static_root)
     items_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     if os.path.isdir(base_dir):
@@ -111,6 +340,8 @@ def get_study_library(static_root: str) -> dict[str, Any]:
             rel_root = os.path.relpath(root, base_dir)
             rel_parts = [] if rel_root == "." else rel_root.split(os.sep)
             for name in sorted(files):
+                if name.startswith("."):
+                    continue
                 ext = os.path.splitext(name)[1].lower()
                 kind = _guess_type(ext)
                 rel_path = os.path.join(rel_root, name) if rel_root != "." else name

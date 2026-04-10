@@ -84,7 +84,7 @@ from engine.timeframes import (
     resolve_strategy_timeframe,
 )
 from market_movers import get_nifty50_market_movers_snapshot
-from study_content import get_study_library
+from study_content import get_study_library, sanitize_study_asset
 
 try:
     from scalp import ScalpEngine as _ScalpEngineClass
@@ -2542,12 +2542,17 @@ async def serve_study_asset(asset_path: str, request: Request):
     user = await _get_page_user(request)
     if not user:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    base_dir = os.path.abspath(os.path.join(_HERE, "static", "notebooklm"))
+    static_root = os.path.join(_HERE, "static")
+    rel_parts = [part for part in asset_path.replace("\\", "/").split("/") if part]
+    if not rel_parts or any(part.startswith(".") for part in rel_parts):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    base_dir = os.path.abspath(os.path.join(static_root, "notebooklm"))
     full_path = os.path.abspath(os.path.normpath(os.path.join(base_dir, asset_path)))
     if not full_path.startswith(base_dir + os.sep):
         raise HTTPException(status_code=404, detail="Asset not found")
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="Asset not found")
+    await asyncio.to_thread(sanitize_study_asset, static_root, full_path)
     return FileResponse(full_path)
 
 
