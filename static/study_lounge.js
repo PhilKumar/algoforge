@@ -222,12 +222,16 @@ function filteredItems() {
 
 function renderTypeFilters() {
   const container = $('type-filters');
+  const sourceItems = state.items.filter((item) => {
+    if (state.categoryFilter !== 'all' && item.category !== state.categoryFilter) return false;
+    return true;
+  });
   const counts = {
-    all: state.items.length,
-    video: state.items.filter((item) => item.kind === 'video').length,
-    deck: state.items.filter((item) => item.kind === 'deck').length,
-    audio: state.items.filter((item) => item.kind === 'audio').length,
-    image: state.items.filter((item) => item.kind === 'image').length,
+    all: sourceItems.length,
+    video: sourceItems.filter((item) => item.kind === 'video').length,
+    deck: sourceItems.filter((item) => item.kind === 'deck').length,
+    audio: sourceItems.filter((item) => item.kind === 'audio').length,
+    image: sourceItems.filter((item) => item.kind === 'image').length,
   };
   const labels = {
     all: 'All Assets',
@@ -251,28 +255,53 @@ function renderTypeFilters() {
 
 function renderCategoryFilters() {
   const container = $('category-filters');
-  const chips = [{ name: 'all', label: 'All Tracks', count: state.items.length }]
-    .concat(state.categories.map((category) => ({
-      name: category.name,
-      label: category.name,
-      count: category.count,
-    })));
-  container.innerHTML = chips.map((chip) => `
-    <button class="filter-chip ${state.categoryFilter === chip.name ? 'active' : ''}" type="button" data-category="${escapeHtml(chip.name)}">
-      ${escapeHtml(chip.label)} <span class="chip-count">${chip.count}</span>
-    </button>
-  `).join('');
-  container.querySelectorAll('[data-category]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.categoryFilter = btn.dataset.category || 'all';
-      renderLibrary();
-    });
+  const sourceItems = state.items.filter((item) => {
+    if (state.kindFilter !== 'all' && item.kind !== state.kindFilter) return false;
+    return true;
+  });
+  const counts = sourceItems.reduce((map, item) => {
+    map.set(item.category, (map.get(item.category) || 0) + 1);
+    return map;
+  }, new Map());
+  const options = [{ name: 'all', label: 'All Tracks', count: sourceItems.length }]
+    .concat(state.categories
+      .filter((category) => counts.has(category.name))
+      .map((category) => ({
+        name: category.name,
+        label: category.name,
+        count: counts.get(category.name) || 0,
+      })));
+
+  if (!options.some((option) => option.name === state.categoryFilter)) {
+    state.categoryFilter = 'all';
+  }
+
+  container.innerHTML = `
+    <label class="track-filter-control" for="category-filter-select">
+      <span class="track-filter-label">Track</span>
+      <span class="track-filter-select-wrap">
+        <select class="track-filter-select" id="category-filter-select" aria-label="Filter study assets by track">
+          ${options.map((option) => `
+            <option value="${escapeHtml(option.name)}" ${option.name === state.categoryFilter ? 'selected' : ''}>
+              ${escapeHtml(option.label)} (${option.count})
+            </option>
+          `).join('')}
+        </select>
+        <span class="track-filter-caret" aria-hidden="true"></span>
+      </span>
+    </label>
+  `;
+
+  const select = $('category-filter-select');
+  select?.addEventListener('change', () => {
+    state.categoryFilter = select.value || 'all';
+    renderLibrary();
   });
 }
 
 function renderLibrary() {
-  renderTypeFilters();
   renderCategoryFilters();
+  renderTypeFilters();
   const items = filteredItems();
   const selected = items.find((item) => item.id === state.selectedId) || items[0] || null;
   state.selectedId = selected?.id || null;
