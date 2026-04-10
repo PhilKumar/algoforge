@@ -355,6 +355,24 @@
   .scalp-stepper { -moz-appearance: textfield; appearance: textfield; }
   .scalp-step-btn { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text); border-radius:4px; width:22px; height:22px; font-size:13px; cursor:pointer; font-weight:700; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
   .scalp-step-btn:hover { background:rgba(255,255,255,0.12); }
+  .scalp-active-table { width:100%; min-width:1080px; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+  .scalp-active-table th, .scalp-active-table td { vertical-align:middle; }
+  .scalp-active-col-symbol { width:30%; }
+  .scalp-active-col-entry { width:16%; }
+  .scalp-active-col-ltp { width:8%; }
+  .scalp-active-col-pnl { width:8%; }
+  .scalp-active-col-target { width:13%; }
+  .scalp-active-col-sl { width:13%; }
+  .scalp-active-col-action { width:12%; }
+  .scalp-cell-editor { display:inline-flex; align-items:center; justify-content:center; gap:3px; width:100%; }
+  .scalp-range-editor { display:inline-flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; }
+  .scalp-action-wrap { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; flex-wrap:wrap; }
+  @media (max-width: 900px) {
+    .scalp-active-table { min-width:980px; }
+    .scalp-active-col-symbol { width:28%; }
+    .scalp-active-col-entry { width:18%; }
+    .scalp-active-col-action { width:14%; }
+  }
   .scalp-toggle {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6446,20 +6464,29 @@
       </div>
     </div>
     <div style="overflow-x: auto;">
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <table class="scalp-active-table">
+        <colgroup>
+          <col class="scalp-active-col-symbol">
+          <col class="scalp-active-col-entry">
+          <col class="scalp-active-col-ltp">
+          <col class="scalp-active-col-pnl">
+          <col class="scalp-active-col-target">
+          <col class="scalp-active-col-sl">
+          <col class="scalp-active-col-action">
+        </colgroup>
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
             <th style="padding: 8px 10px; text-align: left;">Symbol</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
             <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&L</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&amp;L</th>
             <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Target ₹</th>
             <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">SL ₹</th>
             <th style="padding: 8px 10px; text-align: center;">Action</th>
           </tr>
         </thead>
         <tbody id="scalp-active-body">
-          <tr><td colspan="8" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
+          <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
         </tbody>
       </table>
     </div>
@@ -10662,11 +10689,11 @@ async function refreshScalpStatus() {
 }
 
 function _buildScalpPremiumEditor(inputId, value, tone) {
-  return `<div style="display:inline-flex;align-items:center;gap:3px;"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',-10)">−</button><input type="number" id="${inputId}" value="${value || 0}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:${tone};text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',10)">+</button></div>`;
+  return `<div class="scalp-cell-editor"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',-10)">−</button><input type="number" id="${inputId}" value="${value || 0}" step="10" min="0" class="scalp-stepper" style="width:58px;font-size:11px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:${tone};text-align:center;"><button class="scalp-step-btn" onclick="stepScalpField('${inputId}',10)">+</button></div>`;
 }
 
 function _buildScalpPendingRangeEditor(tradeId, entryMin, entryMax) {
-  return `<div style="display:inline-flex;align-items:center;gap:4px;justify-content:flex-end;"><input type="number" id="scalp-entry-min-${tradeId}" value="${(entryMin || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger start"><span style="font-size:10px;color:var(--muted);">→</span><input type="number" id="scalp-entry-max-${tradeId}" value="${(entryMax || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger end"></div>`;
+  return `<div class="scalp-range-editor"><input type="number" id="scalp-entry-min-${tradeId}" value="${(entryMin || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger start"><span style="font-size:10px;color:var(--muted);">→</span><input type="number" id="scalp-entry-max-${tradeId}" value="${(entryMax || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger end"></div>`;
 }
 
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
@@ -10684,10 +10711,10 @@ function _buildScalpActiveRow(t) {
       <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);">—</td>
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
-      <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
-        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
+      <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
+        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);">Set</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
-      </td>
+      </div></td>
     </tr>`;
   }
   const hasBrokerOrders = t.super_order_id || t.broker_sl_order_id || t.broker_tp_order_id;
@@ -10701,10 +10728,10 @@ function _buildScalpActiveRow(t) {
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
-    <td style="padding:6px 6px;text-align:center;white-space:nowrap;">
-      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);margin-right:4px;">Set</button>
+    <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
+      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);">Set</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
-    </td>
+    </div></td>
   </tr>`;
 }
 
