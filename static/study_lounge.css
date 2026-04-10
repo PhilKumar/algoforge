@@ -821,16 +821,21 @@ body::after {
     justify-content: center;
     width: 100%;
   }
-  .topbar-actions .shell-btn-violet {
+  .topbar-actions .app-btn {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 14px;
+  }
+  .topbar-actions .app-btn-violet {
     grid-column: 1 / 2;
     justify-content: center;
     min-width: 0;
   }
-  .topbar-actions .shell-btn-indigo {
+  .topbar-actions .app-btn-indigo {
     grid-column: 2 / 3;
     justify-content: center;
   }
-  .topbar-actions .shell-btn-emerald {
+  .topbar-actions .app-btn-emerald {
     grid-column: 3 / 4;
     justify-content: center;
   }
@@ -855,7 +860,7 @@ body::after {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
-  .spotlight-actions .shell-btn {
+  .spotlight-actions .app-btn {
     justify-content: center;
   }
   .preview-rail {
@@ -1199,4 +1204,123 @@ body::after {
     inset 0 -9px 14px rgba(16, 185, 129, 0.16),
     0 12px 24px rgba(15, 23, 42, 0.12),
     0 0 0 1px rgba(16, 185, 129, 0.14) !important;
+}
+
+/* Shared builder-style action buttons */
+.app-btn {
+  --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(71,85,105,0.32) 100%);
+  --btn-color: #e2e8f0;
+  --btn-border: rgba(148,163,184,0.22);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 9px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  line-height: 1.15;
+  text-decoration: none;
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-color);
+  box-shadow: 0 5px 12px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.22);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.22);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app-btn::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 8%;
+  width: 84%;
+  height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02));
+  pointer-events: none;
+}
+
+.app-btn:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.08) brightness(1.04);
+  box-shadow: 0 7px 14px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(0,0,0,0.25);
+}
+
+.app-btn:active {
+  transform: translateY(1px);
+  filter: none;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.28), inset 0 2px 2px rgba(0,0,0,0.20);
+}
+
+.app-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(129,140,248,0.32), 0 7px 14px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.22);
+}
+
+.app-btn.icon-only {
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
+}
+
+.app-btn-emerald {
+  --btn-bg: linear-gradient(180deg, rgba(0,191,165,0.25) 0%, rgba(0,150,130,0.45) 100%);
+  --btn-color: #34d399;
+  --btn-border: rgba(0,191,165,0.48);
+}
+
+.app-btn-violet {
+  --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.20) 0%, rgba(100,60,200,0.38) 100%);
+  --btn-color: #c4b5fd;
+  --btn-border: rgba(139,92,246,0.40);
+}
+
+.app-btn-indigo {
+  --btn-bg: linear-gradient(180deg, rgba(99,102,241,0.22) 0%, rgba(67,56,202,0.40) 100%);
+  --btn-color: #c7d2fe;
+  --btn-border: rgba(99,102,241,0.42);
+}
+
+[data-theme="light"] .app-btn {
+  background: var(--btn-bg, linear-gradient(180deg, rgba(15,23,42,0.035) 0%, rgba(15,23,42,0.075) 100%));
+  color: var(--btn-color, #0f172a);
+  border: 1.5px solid var(--btn-border, rgba(37,99,235,0.20));
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  text-shadow: none;
+}
+
+[data-theme="light"] .app-btn::before {
+  background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.15));
+}
+
+[data-theme="light"] .app-btn:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+[data-theme="light"] .app-btn-emerald {
+  --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.18) 100%);
+  --btn-color: #065f46;
+  --btn-border: rgba(5,150,105,0.26);
+}
+
+[data-theme="light"] .app-btn-violet {
+  --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.17) 100%);
+  --btn-color: #6d28d9;
+  --btn-border: rgba(124,58,237,0.22);
+}
+
+[data-theme="light"] .app-btn-indigo {
+  --btn-bg: linear-gradient(180deg, rgba(79,70,229,0.10) 0%, rgba(79,70,229,0.16) 100%);
+  --btn-color: #4338ca;
+  --btn-border: rgba(79,70,229,0.22);
 }
