@@ -61,7 +61,7 @@ import fcntl
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -2033,8 +2033,13 @@ async def browser_origin_guard_middleware(request: Request, call_next):
 async def auth_middleware(request: Request, call_next):
     """Global auth — all routes require login unless whitelisted."""
     path = request.url.path
+    if path.startswith("/static/notebooklm"):
+        return PlainTextResponse("Not found", status_code=404)
+
+    protected_public_paths = path == "/api/study-library" or path.startswith("/study-assets/")
+
     # Allow login, health, static, and WebSocket without auth
-    if path in (
+    if not protected_public_paths and path in (
         "/api/auth/login",
         "/api/auth/status",
         "/api/health",
@@ -2051,9 +2056,10 @@ async def auth_middleware(request: Request, call_next):
         "/site.webmanifest",
         "/sw.js",
         "/apple-touch-icon.png",
+        "/robots.txt",
     ):
         return await call_next(request)
-    if path.startswith("/static") or path.startswith("/ws"):
+    if not protected_public_paths and (path.startswith("/static") or path.startswith("/ws")):
         return await call_next(request)
     # Admin routes have their own Depends() guard, but still need basic session check
     token = _get_session_token(request)
@@ -2073,6 +2079,19 @@ async def auth_middleware(request: Request, call_next):
     request.state.user_id = user["id"]
     request.state.current_user = user
     return await call_next(request)
+
+
+@app.middleware("http")
+async def privacy_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet, noimageindex"
+    if request.url.path == "/robots.txt":
+        response.headers["Cache-Control"] = "public, max-age=3600"
+    elif request.url.path == "/api/health":
+        response.headers.setdefault("Cache-Control", "no-store")
+    else:
+        response.headers.setdefault("Cache-Control", "private, no-store, max-age=0")
+    return response
 
 
 # ── Rate Limiting ─────────────────────────────────────────────────
@@ -2513,6 +2532,25 @@ async def serve_study_lounge(request: Request):
     return HTMLResponse("<h2>study_lounge.html not found. Place it beside app.py</h2>")
 
 
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@app.get("/study-assets/{asset_path:path}")
+async def serve_study_asset(asset_path: str, request: Request):
+    user = await _get_page_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    base_dir = os.path.abspath(os.path.join(_HERE, "static", "notebooklm"))
+    full_path = os.path.abspath(os.path.normpath(os.path.join(base_dir, asset_path)))
+    if not full_path.startswith(base_dir + os.sep):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return FileResponse(full_path)
+
+
 @app.get("/api/market-movers/nifty50")
 async def api_market_movers_nifty50(request: Request):
     """Standalone Nifty 50 cash-stock snapshot used by the market movers page."""
@@ -2530,8 +2568,11 @@ async def api_market_movers_nifty50(request: Request):
 
 
 @app.get("/api/study-library")
-async def api_study_library():
+async def api_study_library(request: Request):
     """Return standalone study assets for the study lounge."""
+    user = await _get_page_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await asyncio.to_thread(get_study_library, os.path.join(_HERE, "static"))
 
 

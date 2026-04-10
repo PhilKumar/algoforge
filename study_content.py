@@ -114,7 +114,7 @@ def get_study_library(static_root: str) -> dict[str, Any]:
                 ext = os.path.splitext(name)[1].lower()
                 kind = _guess_type(ext)
                 rel_path = os.path.join(rel_root, name) if rel_root != "." else name
-                rel_url = "/static/notebooklm/" + rel_path.replace(os.sep, "/")
+                rel_url = "/study-assets/" + rel_path.replace(os.sep, "/")
                 full_path = os.path.join(root, name)
                 stat = os.stat(full_path)
                 slug = os.path.splitext(name)[0]
