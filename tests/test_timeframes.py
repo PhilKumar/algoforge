@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
+import engine.live as live_module
+import engine.paper_trading as paper_module
+from broker.dhan import ScripMaster as TestScripMaster
 from engine.indicators import (
     compute_dynamic_indicators,
     cpr,
@@ -19,6 +22,37 @@ from engine.market_feed import _looks_like_disconnect_error
 from engine.paper_trading import PaperTradingEngine
 from engine.timeframes import drop_incomplete_candle, next_entry_ready_at, resolve_strategy_timeframe
 from scalp import ScalpEngine, ScalpTrade
+
+_TEST_STATE_DIR = None
+_TEST_PATCHES = []
+
+
+def setUpModule():
+    global _TEST_STATE_DIR, _TEST_PATCHES
+    _TEST_STATE_DIR = TemporaryDirectory()
+    _TEST_PATCHES = [
+        patch.object(live_module, "_STATE_DIR", _TEST_STATE_DIR.name),
+        patch.object(paper_module, "_STATE_DIR", _TEST_STATE_DIR.name),
+        patch.object(paper_module, "_DEFAULT_STATE_FILE", f"{_TEST_STATE_DIR.name}/paper_state.json"),
+        patch.object(TestScripMaster, "ensure_loaded", return_value=True),
+        patch.object(TestScripMaster, "lookup", return_value="555"),
+        patch.object(TestScripMaster, "get_nearest_expiry", return_value="2026-03-26"),
+        patch.object(TestScripMaster, "resolve_expiry", return_value="2026-03-26"),
+        patch.object(TestScripMaster, "get_expiries", return_value=["2026-03-26", "2026-04-02"]),
+        patch.object(TestScripMaster, "get_lot_size", return_value=50),
+    ]
+    for patcher in _TEST_PATCHES:
+        patcher.start()
+
+
+def tearDownModule():
+    global _TEST_STATE_DIR, _TEST_PATCHES
+    for patcher in reversed(_TEST_PATCHES):
+        patcher.stop()
+    _TEST_PATCHES = []
+    if _TEST_STATE_DIR is not None:
+        _TEST_STATE_DIR.cleanup()
+        _TEST_STATE_DIR = None
 
 
 def _make_ohlcv(start: str, closes: list[float], freq: str = "1min") -> pd.DataFrame:

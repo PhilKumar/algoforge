@@ -7,10 +7,10 @@
   var TINTS = { jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
   var FONTS = {
     forge: '',
-    atelier: 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Geist+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap',
-    exchange: 'https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600;700;800&family=Red+Hat+Mono:wght@400;500;600;700&display=swap',
-    blueprint: 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Fira+Code:wght@400;500;600;700&family=Rubik:wght@400;500;600;700;800&display=swap',
-    scribe: 'https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600;6..72,700;6..72,800&family=Source+Sans+3:wght@400;500;600;700;800&display=swap'
+    atelier: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap',
+    exchange: 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap',
+    blueprint: 'https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600;700&family=Oxanium:wght@500;600;700;800&display=swap',
+    scribe: 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Nunito+Sans:wght@400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600;700&display=swap'
   };
 
   function normalizeTheme(value) {

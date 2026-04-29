@@ -50,6 +50,10 @@ jobs:
           PHILFORGE_PIN: "123456"
           DHAN_CLIENT_ID: "e2e-dummy"
           DHAN_ACCESS_TOKEN: "e2e-dummy-token"
+          PHILFORGE_SKIP_STARTUP_JOBS: "1"
+          PHILFORGE_STARTUP_SCRIP_MASTER: "0"
+          PHILFORGE_STARTUP_TRADE_BACKFILL: "0"
+          PHILFORGE_STARTUP_ENGINE_RESTORE: "0"
         run: |
           uvicorn app:app --host 0.0.0.0 --port 8000 &
           echo "Waiting for server..."
@@ -65,6 +69,7 @@ jobs:
         env:
           E2E_USERNAME: "admin"
           E2E_PIN: "123456"
+          E2E_BASE_URL: "http://localhost:8000"
         working-directory: e2e-tests
         run: npx playwright test --project=philforge
 

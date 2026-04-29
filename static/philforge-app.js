@@ -960,6 +960,60 @@ function navStateFromLocation() {
   return state;
 }
 
+const PF_DELEGATED_ACTIONS = new Set([
+  'closeAppearanceModal',
+  'emergencyStop',
+  'logoutUser',
+  'openAccountModal',
+  'openAdminModal',
+  'openAppearanceModal',
+  'resetAppearance',
+  'toggleTheme',
+]);
+
+document.addEventListener('click', (event) => {
+  const tintBtn = event.target.closest('[data-appearance-tint]');
+  if (tintBtn) {
+    event.preventDefault();
+    setAppearanceTint(tintBtn.getAttribute('data-appearance-tint'));
+    return;
+  }
+
+  const fontBtn = event.target.closest('[data-appearance-font]');
+  if (fontBtn) {
+    event.preventDefault();
+    setAppearanceFont(fontBtn.getAttribute('data-appearance-font'));
+    return;
+  }
+
+  const dismissTarget = event.target.closest('[data-pf-dismiss-action]');
+  if (dismissTarget && event.target === dismissTarget) {
+    const fn = window[dismissTarget.getAttribute('data-pf-dismiss-action')];
+    if (typeof fn === 'function') fn();
+    return;
+  }
+
+  const actionEl = event.target.closest('[data-pf-action]');
+  if (actionEl) {
+    const action = actionEl.getAttribute('data-pf-action');
+    if (PF_DELEGATED_ACTIONS.has(action) && typeof window[action] === 'function') {
+      event.preventDefault();
+      window[action](event, actionEl);
+      return;
+    }
+  }
+
+  const navEl = event.target.closest('[data-pf-nav-page]');
+  if (navEl) {
+    event.preventDefault();
+    const page = navEl.getAttribute('data-pf-nav-page');
+    const btnId = navEl.getAttribute('data-pf-nav-tab');
+    showPage(page, btnId ? document.getElementById(btnId) : navEl);
+    const after = navEl.getAttribute('data-pf-after-nav');
+    if (after && typeof window[after] === 'function') window[after]();
+  }
+});
+
 async function applyNavState(state) {
   const page = (state && state.page && document.getElementById(state.page)) ? state.page : 'dashboard-page';
   const btn = document.getElementById(NAV_BUTTON_MAP[page] || '');
@@ -8381,18 +8435,18 @@ function renderYearlyMonthlyTable() {
 //  APPEARANCE CONTROLS
 // ══════════════════════════════════════════════════════════════
 const PF_APPEARANCE_TINT_LABELS = {
-  jade: 'Jade Atlas',
-  cobalt: 'Cobalt Grove',
-  copper: 'Copper Sky',
-  fuchsia: 'Fuchsia Rail',
-  lime: 'Lime Signal',
+  jade: 'Jade Terminal',
+  cobalt: 'Cobalt Command',
+  copper: 'Copper Ember',
+  fuchsia: 'Fuchsia Neon',
+  lime: 'Lime Grid',
 };
 const PF_APPEARANCE_FONT_LABELS = {
   forge: 'Forge Native',
-  atelier: 'Atelier Desk',
-  exchange: 'Exchange Pro',
-  blueprint: 'Blueprint Grid',
-  scribe: 'Scribe Serif',
+  atelier: 'Grotesk Desk',
+  exchange: 'Terminal Tape',
+  blueprint: 'Circuit Draft',
+  scribe: 'Editorial Serif',
 };
 
 function currentAppearance() {
@@ -9343,7 +9397,7 @@ function sendTradeNotification(trade) {
     const icon = pnl >= 0 ? '▲' : '▼';
     const title = `${icon} PhilForge Trade`;
     const body = `${trade.instrument || trade.symbol || 'Trade'}: ${trade.action || trade.type || ''} ₹${Math.abs(pnl).toFixed(2)}`;
-    new Notification(title, { body, icon: '/static/logo.png?v=20260327-2', tag: 'philforge-trade-' + Date.now() });
+    new Notification(title, { body, icon: '/static/logo.png', tag: 'philforge-trade-' + Date.now() });
   } catch(e) {}
 }
 

@@ -13,7 +13,7 @@ export default defineConfig({
       name: 'philforge',
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: process.env.BASE_URL || 'http://localhost:8000',
+        baseURL: process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:8000',
       },
     },
   ],

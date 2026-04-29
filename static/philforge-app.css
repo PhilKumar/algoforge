@@ -2435,11 +2435,11 @@
     width: 82px;
     height: 82px;
     border-radius: 20px;
-    background: center / contain no-repeat url('/static/logo.png?v=20260327-2');
+    background: center / contain no-repeat url('/static/logo.png');
     display: block;
   }
   [data-theme="light"] .header-brand-logo {
-    background-image: url('/static/logolight.png?v=20260328-1');
+    background-image: url('/static/logolight.png');
   }
   .header-brand-copy {
     display: flex;

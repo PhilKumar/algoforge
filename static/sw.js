@@ -1,23 +1,23 @@
-const CACHE_NAME = 'philforge-shell-v10';
+const CACHE_NAME = 'philforge-shell-__ASSET_VERSION__';
 const APP_SHELL = [
   '/',
   '/charts-viewer',
   '/market-movers',
   '/study-lounge',
   '/manifest.webmanifest',
-  '/favicon.ico?v=20260402-1',
-  '/static/pwa-icons/favicon-16.png?v=20260402-1',
-  '/static/pwa-icons/favicon-32.png?v=20260402-1',
-  '/static/pwa-icons/apple-touch-icon.png?v=20260402-1',
-  '/static/logo.png?v=20260327-2',
-  '/static/logolight.png?v=20260328-1',
-  '/static/pwa-icons/icon-192.png?v=20260402-1',
-  '/static/pwa-icons/icon-512.png?v=20260402-1',
-  '/static/pwa-icons/icon-maskable-192.png?v=20260402-1',
-  '/static/pwa-icons/icon-maskable-512.png?v=20260402-1',
-  '/static/pwa.js?v=20260401-4',
-  '/static/study_lounge.css?v=20260410-5',
-  '/static/study_lounge.js?v=20260410-3',
+  '/favicon.ico?v=__ASSET_VERSION__',
+  '/static/pwa-icons/favicon-16.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/favicon-32.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/apple-touch-icon.png?v=__ASSET_VERSION__',
+  '/static/logo.png?v=__ASSET_VERSION__',
+  '/static/logolight.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/icon-192.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/icon-512.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/icon-maskable-192.png?v=__ASSET_VERSION__',
+  '/static/pwa-icons/icon-maskable-512.png?v=__ASSET_VERSION__',
+  '/static/pwa.js?v=__ASSET_VERSION__',
+  '/static/study_lounge.css?v=__ASSET_VERSION__',
+  '/static/study_lounge.js?v=__ASSET_VERSION__',
 ];
 
 self.addEventListener('install', (event) => {

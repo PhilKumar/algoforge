@@ -10,17 +10,17 @@
 <meta name="apple-mobile-web-app-title" content="PhilForge">
 <meta name="format-detection" content="telephone=no">
 <title>PhilForge — Strategy Platform</title>
-<link rel="icon" href="/static/pwa-icons/favicon-32.png?v=20260402-1" sizes="32x32" type="image/png">
-<link rel="icon" href="/static/pwa-icons/favicon-16.png?v=20260402-1" sizes="16x16" type="image/png">
-<link rel="apple-touch-icon" href="/static/pwa-icons/apple-touch-icon.png?v=20260402-1">
-<link rel="shortcut icon" href="/favicon.ico?v=20260402-1">
-<link rel="manifest" href="/manifest.webmanifest?v=20260402-3">
+<link rel="icon" href="/static/pwa-icons/favicon-32.png?v=__ASSET_VERSION__" sizes="32x32" type="image/png">
+<link rel="icon" href="/static/pwa-icons/favicon-16.png?v=__ASSET_VERSION__" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="/static/pwa-icons/apple-touch-icon.png?v=__ASSET_VERSION__">
+<link rel="shortcut icon" href="/favicon.ico?v=__ASSET_VERSION__">
+<link rel="manifest" href="/manifest.webmanifest?v=__ASSET_VERSION__">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="/static/philforge-theme.js?v=20260429-2"></script>
-<link rel="stylesheet" href="/static/philforge-app.css?v=20260429-1">
-<link rel="stylesheet" href="/static/philforge-theme.css?v=20260429-2">
+<script src="/static/philforge-theme.js?v=__ASSET_VERSION__"></script>
+<link rel="stylesheet" href="/static/philforge-app.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="/static/philforge-theme.css?v=__ASSET_VERSION__">
 <script src="/static/error-handler.js" defer></script>
-<script src="/static/pwa.js?v=20260401-4" defer></script>
+<script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
 </head>
 <body>
 
@@ -32,13 +32,13 @@
 </div>
 
 <!-- EMERGENCY KILL SWITCH (hidden by default, shown when engines active) -->
-<button class="kill-switch hidden" id="kill-switch-btn" onclick="emergencyStop()">
+<button class="kill-switch hidden" id="kill-switch-btn" data-pf-action="emergencyStop">
   <span style="color:#ef4444;">⊘</span> <span>KILL ALL</span>
 </button>
 
 <!-- ═══ HEADER: Top Bar ═══ -->
 <div class="header-shell">
-  <a class="header-brand-panel" href="#dashboard-page" onclick="showPage('dashboard-page', document.getElementById('nav-dashboard')); return false;" title="Go to Dashboard" aria-label="Go to Dashboard">
+  <a class="header-brand-panel" href="#dashboard-page" data-pf-nav-page="dashboard-page" data-pf-nav-tab="nav-dashboard" title="Go to Dashboard" aria-label="Go to Dashboard">
     <div class="header-brand-mark">
       <span class="header-brand-logo" aria-hidden="true"></span>
     </div>
@@ -87,21 +87,21 @@
         </div>
         <div class="topbar-actions">
           <div class="topbar-user-meta">
-            <button class="topbar-user-chip" id="account-btn" onclick="openAccountModal()" title="Account Settings">
+            <button class="topbar-user-chip" id="account-btn" data-pf-action="openAccountModal" title="Account Settings">
               <span class="topbar-user-name" id="topbar-username">Account</span>
               <span class="topbar-user-role" id="topbar-user-role">USER</span>
             </button>
-            <button class="topbar-icon-btn" id="admin-btn" onclick="openAdminModal()" title="Admin Console" style="display:none;"></button>
+            <button class="topbar-icon-btn" id="admin-btn" data-pf-action="openAdminModal" title="Admin Console" style="display:none;"></button>
           </div>
           <button class="topbar-icon-btn topbar-install-btn" id="install-app-btn" data-install-app hidden title="Install App" aria-label="Install App">
             <span class="ico" aria-hidden="true"></span>
             <span class="topbar-install-label">Install App</span>
           </button>
-          <button class="topbar-icon-btn topbar-appearance-btn" id="appearance-btn" onclick="openAppearanceModal()" title="Appearance" aria-label="Appearance">
+          <button class="topbar-icon-btn topbar-appearance-btn" id="appearance-btn" data-pf-action="openAppearanceModal" title="Appearance" aria-label="Appearance">
             <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="M6.7 6.7l10.6 10.6"></path></svg></span>
           </button>
-          <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span></button>
-          <button class="topbar-icon-btn" id="logout-btn" onclick="logoutUser()" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
+          <button class="topbar-icon-btn" id="theme-toggle" data-pf-action="toggleTheme" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span></button>
+          <button class="topbar-icon-btn" id="logout-btn" data-pf-action="logoutUser" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
         </div>
       </div>
     </div>
@@ -121,19 +121,19 @@
     <!-- ═══ NAVIGATION TABS ═══ -->
     <div class="nav-bar">
     <div class="nav-tabs">
-    <button id="nav-dashboard" class="nav-tab active" onclick="showPage('dashboard-page', this)">
+    <button id="nav-dashboard" class="nav-tab active" data-pf-nav-page="dashboard-page">
       <span class="tab-icon" style="color: #14b8a6;" id="ico-dashboard"></span>
       <span class="tab-label">Dashboard</span>
     </button>
-    <button id="nav-portfolio" class="nav-tab" onclick="showPage('portfolio-page', this)">
+    <button id="nav-portfolio" class="nav-tab" data-pf-nav-page="portfolio-page">
       <span class="tab-icon" style="color: #60a5fa;" id="ico-portfolio"></span>
       <span class="tab-label">Portfolio</span>
     </button>
-    <button id="nav-builder" class="nav-tab" onclick="showPage('builder-page', this)">
+    <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page">
       <span class="tab-icon" style="color: #f59e0b;" id="ico-builder"></span>
       <span class="tab-label">Strategy Builder</span>
     </button>
-    <button id="nav-results" class="nav-tab" onclick="showPage('results-page', this)">
+    <button id="nav-results" class="nav-tab" data-pf-nav-page="results-page">
       <span class="tab-icon" style="color: #fb7185;" id="ico-results"></span>
       <span class="tab-label">Results</span>
     </button>
@@ -158,15 +158,15 @@
         </a>
       </div>
     </div>
-    <button id="nav-live" class="nav-tab" onclick="showPage('live-page', this); startLiveMonitor();">
+    <button id="nav-live" class="nav-tab" data-pf-nav-page="live-page" data-pf-after-nav="startLiveMonitor">
       <span class="live-dot" id="live-tab-dot"></span>
       <span class="tab-label">Live</span>
     </button>
-    <button id="nav-scalp" class="nav-tab" onclick="showPage('scalp-page', this); initScalpPage();" style="--accent-tab: #06b6d4;">
+    <button id="nav-scalp" class="nav-tab" data-pf-nav-page="scalp-page" data-pf-after-nav="initScalpPage" style="--accent-tab: #06b6d4;">
       <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
       <span class="tab-label">Scalp</span>
     </button>
-    <button id="nav-charts" class="nav-tab" onclick="showPage('charts-page', this); initChartsPage();" style="--accent-tab: #a78bfa;">
+    <button id="nav-charts" class="nav-tab" data-pf-nav-page="charts-page" data-pf-after-nav="initChartsPage" style="--accent-tab: #a78bfa;">
       <span class="tab-icon" style="color: #a78bfa;" id="ico-charts"></span>
       <span class="tab-label">Journal</span>
     </button>
@@ -1719,38 +1719,38 @@
 </div>
 
 <!-- ═══ APPEARANCE MODAL ═══ -->
-<div class="modal-overlay" id="appearance-modal" onclick="if(event.target===this)closeAppearanceModal()">
+<div class="modal-overlay" id="appearance-modal" data-pf-dismiss-action="closeAppearanceModal">
   <div class="modal appearance-modal" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
     <div class="appearance-head">
       <div>
         <div class="appearance-kicker">Workspace Skin</div>
         <h3 class="appearance-heading" id="appearance-title">Appearance</h3>
       </div>
-      <button class="topbar-icon-btn" onclick="closeAppearanceModal()" title="Close appearance" aria-label="Close appearance" style="width:34px;height:34px;">×</button>
+      <button class="topbar-icon-btn" data-pf-action="closeAppearanceModal" title="Close appearance" aria-label="Close appearance" style="width:34px;height:34px;">×</button>
     </div>
     <section class="appearance-section">
       <h4>Color Tint</h4>
       <div class="appearance-options">
-        <button class="appearance-option" data-appearance-tint="jade" onclick="setAppearanceTint('jade')"><span class="appearance-swatch swatch-jade"></span><span>Jade Atlas</span></button>
-        <button class="appearance-option" data-appearance-tint="cobalt" onclick="setAppearanceTint('cobalt')"><span class="appearance-swatch swatch-cobalt"></span><span>Cobalt Grove</span></button>
-        <button class="appearance-option" data-appearance-tint="copper" onclick="setAppearanceTint('copper')"><span class="appearance-swatch swatch-copper"></span><span>Copper Sky</span></button>
-        <button class="appearance-option" data-appearance-tint="fuchsia" onclick="setAppearanceTint('fuchsia')"><span class="appearance-swatch swatch-fuchsia"></span><span>Fuchsia Rail</span></button>
-        <button class="appearance-option" data-appearance-tint="lime" onclick="setAppearanceTint('lime')"><span class="appearance-swatch swatch-lime"></span><span>Lime Signal</span></button>
+        <button class="appearance-option" data-appearance-tint="jade"><span class="appearance-swatch swatch-jade"></span><span>Jade Terminal</span></button>
+        <button class="appearance-option" data-appearance-tint="cobalt"><span class="appearance-swatch swatch-cobalt"></span><span>Cobalt Command</span></button>
+        <button class="appearance-option" data-appearance-tint="copper"><span class="appearance-swatch swatch-copper"></span><span>Copper Ember</span></button>
+        <button class="appearance-option" data-appearance-tint="fuchsia"><span class="appearance-swatch swatch-fuchsia"></span><span>Fuchsia Neon</span></button>
+        <button class="appearance-option" data-appearance-tint="lime"><span class="appearance-swatch swatch-lime"></span><span>Lime Grid</span></button>
       </div>
     </section>
     <section class="appearance-section">
       <h4>Font Style</h4>
       <div class="appearance-options">
-        <button class="appearance-option font-forge" data-appearance-font="forge" onclick="setAppearanceFont('forge')"><span class="appearance-font-sample">Aa</span><span>Forge Native</span></button>
-        <button class="appearance-option font-atelier" data-appearance-font="atelier" onclick="setAppearanceFont('atelier')"><span class="appearance-font-sample">Aa</span><span>Atelier Desk</span></button>
-        <button class="appearance-option font-exchange" data-appearance-font="exchange" onclick="setAppearanceFont('exchange')"><span class="appearance-font-sample">Aa</span><span>Exchange Pro</span></button>
-        <button class="appearance-option font-blueprint" data-appearance-font="blueprint" onclick="setAppearanceFont('blueprint')"><span class="appearance-font-sample">Aa</span><span>Blueprint Grid</span></button>
-        <button class="appearance-option font-scribe" data-appearance-font="scribe" onclick="setAppearanceFont('scribe')"><span class="appearance-font-sample">Aa</span><span>Scribe Serif</span></button>
+        <button class="appearance-option font-forge" data-appearance-font="forge"><span class="appearance-font-sample">Aa</span><span>Forge Native</span></button>
+        <button class="appearance-option font-atelier" data-appearance-font="atelier"><span class="appearance-font-sample">Aa</span><span>Grotesk Desk</span></button>
+        <button class="appearance-option font-exchange" data-appearance-font="exchange"><span class="appearance-font-sample">Aa</span><span>Terminal Tape</span></button>
+        <button class="appearance-option font-blueprint" data-appearance-font="blueprint"><span class="appearance-font-sample">Aa</span><span>Circuit Draft</span></button>
+        <button class="appearance-option font-scribe" data-appearance-font="scribe"><span class="appearance-font-sample">Aa</span><span>Editorial Serif</span></button>
       </div>
     </section>
     <div class="appearance-actions">
-      <button class="btn btn-outline btn-sm" onclick="resetAppearance()">Reset</button>
-      <button class="btn btn-submit btn-sm" onclick="closeAppearanceModal()">Apply</button>
+      <button class="btn btn-outline btn-sm" data-pf-action="resetAppearance">Reset</button>
+      <button class="btn btn-submit btn-sm" data-pf-action="closeAppearanceModal">Apply</button>
     </div>
   </div>
 </div>
@@ -1939,6 +1939,6 @@
   </div>
 </div>
 
-<script src="/static/philforge-app.js?v=20260429-1"></script>
+<script src="/static/philforge-app.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

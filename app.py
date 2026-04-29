@@ -61,7 +61,7 @@ import fcntl
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -161,6 +161,36 @@ register_error_handlers(app)
 
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+_ASSET_MANIFEST_PATH = os.path.join(_HERE, "static", "asset-manifest.json")
+_ASSET_VERSION_CACHE: str | None = None
+
+
+def _asset_version() -> str:
+    """Return the single frontend cache-bust version for HTML/PWA templates."""
+    global _ASSET_VERSION_CACHE
+    if _ASSET_VERSION_CACHE:
+        return _ASSET_VERSION_CACHE
+    fallback = os.getenv("PHILFORGE_ASSET_VERSION") or os.getenv("ALGOFORGE_ASSET_VERSION") or "dev"
+    try:
+        with open(_ASSET_MANIFEST_PATH, encoding="utf-8") as handle:
+            data = json.load(handle)
+        version = str(data.get("version") or "").strip()
+    except Exception:
+        version = ""
+    _ASSET_VERSION_CACHE = version or fallback
+    return _ASSET_VERSION_CACHE
+
+
+def _inject_asset_version(content: str) -> str:
+    return content.replace("__ASSET_VERSION__", _asset_version())
+
+
+def _read_frontend_template(path: str) -> str:
+    with open(path, encoding="utf-8") as handle:
+        return _inject_asset_version(handle.read())
+
 
 # Initialize custom client ONCE and pass to engine
 dhan = DhanClient()
@@ -2260,8 +2290,7 @@ def _render_login_page() -> HTMLResponse:
     login_path = os.path.join(_HERE, "login.html")
     if not os.path.exists(login_path):
         return HTMLResponse("<h2>login.html not found</h2>")
-    with open(login_path, encoding="utf-8") as f:
-        login_html = f.read()
+    login_html = _read_frontend_template(login_path)
     referral_url = config.DHAN_REFERRAL_URL
     referral_qr_url = (
         f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={_url_quote(referral_url, safe='')}"
@@ -2282,8 +2311,7 @@ async def serve_frontend(request: Request):
         return _render_login_page()
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategy.html")
     if os.path.exists(html_path):
-        with open(html_path, encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+        return HTMLResponse(_read_frontend_template(html_path))
     return HTMLResponse("<h2>strategy.html not found. Place it beside app.py</h2>")
 
 
@@ -2313,17 +2341,20 @@ async def serve_apple_touch_icon():
 
 @app.get("/manifest.webmanifest")
 async def serve_manifest():
-    return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
+    path = os.path.join(_HERE, "static", "manifest.webmanifest")
+    return Response(_read_frontend_template(path), media_type="application/manifest+json")
 
 
 @app.get("/site.webmanifest")
 async def serve_site_manifest():
-    return FileResponse(os.path.join(_HERE, "static", "manifest.webmanifest"), media_type="application/manifest+json")
+    path = os.path.join(_HERE, "static", "manifest.webmanifest")
+    return Response(_read_frontend_template(path), media_type="application/manifest+json")
 
 
 @app.get("/sw.js")
 async def serve_service_worker():
-    return FileResponse(os.path.join(_HERE, "static", "sw.js"), media_type="application/javascript")
+    path = os.path.join(_HERE, "static", "sw.js")
+    return Response(_read_frontend_template(path), media_type="application/javascript")
 
 
 # ── Chart Viewer ──────────────────────────────────────────────────
@@ -2519,8 +2550,7 @@ async def serve_charts_viewer(request: Request):
         return _render_login_page()
     html_path = os.path.join(_HERE, "charts.html")
     if os.path.exists(html_path):
-        with open(html_path, encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+        return HTMLResponse(_read_frontend_template(html_path))
     return HTMLResponse("<h2>charts.html not found. Place it beside app.py</h2>")
 
 
@@ -2532,8 +2562,7 @@ async def serve_market_movers(request: Request):
         return _render_login_page()
     html_path = os.path.join(_HERE, "market_movers.html")
     if os.path.exists(html_path):
-        with open(html_path, encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+        return HTMLResponse(_read_frontend_template(html_path))
     return HTMLResponse("<h2>market_movers.html not found. Place it beside app.py</h2>")
 
 
@@ -2545,8 +2574,7 @@ async def serve_study_lounge(request: Request):
         return _render_login_page()
     html_path = os.path.join(_HERE, "study_lounge.html")
     if os.path.exists(html_path):
-        with open(html_path, encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+        return HTMLResponse(_read_frontend_template(html_path))
     return HTMLResponse("<h2>study_lounge.html not found. Place it beside app.py</h2>")
 
 
