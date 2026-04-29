@@ -17,6 +17,7 @@
 <link rel="manifest" href="/manifest.webmanifest?v=20260402-3">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/static/pwa.js?v=20260401-4" defer></script>
+<script src="/static/philforge-theme.js?v=20260429-2"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -566,6 +567,7 @@
     }
   }
 </style>
+<link rel="stylesheet" href="/static/philforge-theme.css?v=20260429-2">
 </head>
 <body>
 
@@ -637,11 +639,6 @@
 </div>
 
 <script>
-try {
-  const saved = localStorage.getItem('philforge_theme') || localStorage.getItem('algoforge_theme');
-  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
-} catch (e) {}
-
 const PIN_LENGTH = 6;
 const PASSWORD_MODE = 'password';
 const PIN_MODE = 'pin';

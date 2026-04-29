@@ -50,7 +50,8 @@ function moversMoonIcon() {
 }
 
 function applyMarketTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+  if (typeof window.pfApplyTheme === 'function') window.pfApplyTheme(theme);
+  else document.documentElement.setAttribute('data-theme', theme);
   const toggle = document.getElementById('theme-toggle');
   if (toggle) toggle.innerHTML = theme === 'light' ? moversMoonIcon() : moversSunIcon();
 }
@@ -58,9 +59,6 @@ function applyMarketTheme(theme) {
 function toggleMarketTheme() {
   const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
   applyMarketTheme(next);
-  try {
-    localStorage.setItem('philforge_theme', next);
-  } catch (e) {}
 }
 
 function formatCurrency(value) {

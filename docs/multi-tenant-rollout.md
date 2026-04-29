@@ -86,6 +86,17 @@ export PHILFORGE_SKIP_STARTUP_JOBS=1
 uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
+For narrower startup control, leave `PHILFORGE_SKIP_STARTUP_JOBS` unset and disable only the side effect you do not want:
+
+```bash
+export PHILFORGE_STARTUP_TOKEN=0
+export PHILFORGE_STARTUP_SCRIP_MASTER=0
+export PHILFORGE_STARTUP_TRADE_BACKFILL=0
+export PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP=0
+export PHILFORGE_STARTUP_ENGINE_RESTORE=0
+export PHILFORGE_STARTUP_EXAMPLE_SEED=0
+```
+
 ## 4. Staging UAT Checklist
 
 Run this with at least:

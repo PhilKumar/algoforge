@@ -1335,6 +1335,24 @@ _SKIP_STARTUP_JOBS = (
     os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS") or ""
 ).lower() in {"1", "true", "yes"}
 
+
+def _startup_flag(name: str, default: bool = True) -> bool:
+    legacy_name = name.replace("PHILFORGE_", "ALGOFORGE_", 1)
+    raw = os.getenv(name)
+    if raw is None:
+        raw = os.getenv(legacy_name)
+    if raw is None or raw == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+_STARTUP_TOKEN_ENABLED = _startup_flag("PHILFORGE_STARTUP_TOKEN", True)
+_STARTUP_SCRIP_MASTER_ENABLED = _startup_flag("PHILFORGE_STARTUP_SCRIP_MASTER", True)
+_STARTUP_TRADE_BACKFILL_ENABLED = _startup_flag("PHILFORGE_STARTUP_TRADE_BACKFILL", True)
+_STARTUP_EMPTY_RUN_CLEANUP_ENABLED = _startup_flag("PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP", True)
+_STARTUP_ENGINE_RESTORE_ENABLED = _startup_flag("PHILFORGE_STARTUP_ENGINE_RESTORE", True)
+_STARTUP_EXAMPLE_SEED_ENABLED = _startup_flag("PHILFORGE_STARTUP_EXAMPLE_SEED", True)
+
 ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
 
 
@@ -8831,15 +8849,18 @@ async def _init_database():
         print(f"🔐 [Auth] Created admin user '{config.ADMIN_USERNAME}' (id={uid})")
     else:
         print(f"🔐 [Auth] Admin user '{admin['username']}' exists (id={admin['id']})")
-    try:
-        backfill = await _backfill_default_examples_for_existing_users_once()
-        if backfill["status"] == "done":
-            print(
-                "🧩 [Startup] Default example backfill complete "
-                f"({backfill['seeded_users']}/{backfill['processed_users']} non-admin users seeded)"
-            )
-    except Exception as exc:
-        print(f"🧩 [Startup] Default example backfill failed: {exc}")
+    if _STARTUP_EXAMPLE_SEED_ENABLED:
+        try:
+            backfill = await _backfill_default_examples_for_existing_users_once()
+            if backfill["status"] == "done":
+                print(
+                    "🧩 [Startup] Default example backfill complete "
+                    f"({backfill['seeded_users']}/{backfill['processed_users']} non-admin users seeded)"
+                )
+        except Exception as exc:
+            print(f"🧩 [Startup] Default example backfill failed: {exc}")
+    else:
+        print("🧩 [Startup] Default example seeding disabled (PHILFORGE_STARTUP_EXAMPLE_SEED=0)")
 
 
 @app.on_event("startup")
@@ -8847,27 +8868,36 @@ async def _start_token_renewal():
     if _SKIP_STARTUP_JOBS:
         print("🧪 [Startup] Skipping network-heavy startup jobs (PHILFORGE_SKIP_STARTUP_JOBS=1)")
         return
-    if config.AUTO_TOKEN_ENABLED:
+    if config.AUTO_TOKEN_ENABLED and _STARTUP_TOKEN_ENABLED:
         asyncio.create_task(_bootstrap_token_renewal())
         print("🔄 [TokenManager] Startup token bootstrap running in background")
+    elif config.AUTO_TOKEN_ENABLED:
+        print("🔄 [TokenManager] Startup token bootstrap disabled (PHILFORGE_STARTUP_TOKEN=0)")
     if _market_feed:
         print(f"⚡ [MarketFeed] WebSocket feed ready (dhanhq {'available' if HAS_DHAN_FEED else 'NOT available'})")
-    # ── Pre-cache Scrip Master in background (non-blocking) ────
-    asyncio.create_task(_prefetch_scrip_master())
+    if _STARTUP_SCRIP_MASTER_ENABLED:
+        asyncio.create_task(_prefetch_scrip_master())
+    else:
+        print("📚 [SCRIP] Startup prefetch disabled (PHILFORGE_STARTUP_SCRIP_MASTER=0)")
 
-    # Auto-backfill trade history — runs in a thread so startup returns instantly
-    asyncio.create_task(_backfill_in_background())
+    if _STARTUP_TRADE_BACKFILL_ENABLED:
+        asyncio.create_task(_backfill_in_background())
+    else:
+        _backfill_state.update({"status": "skipped", "message": "Startup trade-history backfill disabled."})
+        print("📊 [BACKFILL] Startup trade-history backfill disabled (PHILFORGE_STARTUP_TRADE_BACKFILL=0)")
 
-    # Cleanup 0-trade paper/live entries left by prior deploys/restarts
-    removed = await _db_mod.cleanup_empty_runs()
-    if removed:
-        print(f"🧹 [STARTUP] Removed {removed} empty 0-trade runs from history")
+    if _STARTUP_EMPTY_RUN_CLEANUP_ENABLED:
+        removed = await _db_mod.cleanup_empty_runs()
+        if removed:
+            print(f"🧹 [STARTUP] Removed {removed} empty 0-trade runs from history")
+    else:
+        print("🧹 [STARTUP] Empty-run cleanup disabled (PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP=0)")
 
-    # ── Auto-restore live engines from persisted state ────────
-    asyncio.create_task(_restore_live_engines())
-
-    # ── Auto-restore paper engines from persisted state ────────
-    asyncio.create_task(_restore_paper_engines())
+    if _STARTUP_ENGINE_RESTORE_ENABLED:
+        asyncio.create_task(_restore_live_engines())
+        asyncio.create_task(_restore_paper_engines())
+    else:
+        print("♻️ [Startup] Engine restore disabled (PHILFORGE_STARTUP_ENGINE_RESTORE=0)")
 
 
 async def _restore_live_engines():

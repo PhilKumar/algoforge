@@ -1204,6 +1204,34 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         with patch("scalp._now_ist", return_value=pd.Timestamp("2026-03-24 09:15:01.100").to_pydatetime()):
             self.assertEqual(trade.check_exit(101.5), "target_hit")
 
+    def test_scalp_trade_ignores_legacy_square_off_time_after_market_close(self):
+        trade = ScalpTrade(
+            trade_id=1,
+            underlying="NIFTY",
+            strike=23000,
+            option_type="CE",
+            expiry="2026-03-24",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=75,
+            entry_premium=100.0,
+            target_premium=0.0,
+            sl_premium=0.0,
+            sqoff_time="15:20",
+            mode="paper",
+        )
+        trade.entry_time = pd.Timestamp("2026-03-24 09:15:00").to_pydatetime()
+
+        with patch("scalp._now_ist", return_value=pd.Timestamp("2026-03-24 23:30:00").to_pydatetime()):
+            self.assertIsNone(trade.check_exit(100.0))
+
+    def test_engine_scalp_import_uses_canonical_scalp_classes(self):
+        from engine.scalp import ScalpEngine as EngineScalpEngine
+        from engine.scalp import ScalpTrade as EngineScalpTrade
+
+        self.assertIs(EngineScalpEngine, ScalpEngine)
+        self.assertIs(EngineScalpTrade, ScalpTrade)
+
     async def test_manual_broker_exit_closes_local_trade(self):
         class DummyScalpBroker:
             def get_positions_cached(self, ttl=3.0):

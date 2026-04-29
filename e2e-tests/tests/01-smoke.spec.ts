@@ -56,3 +56,25 @@ test('Auth status returns authenticated after login', async ({ page }) => {
   const body = await resp.json();
   expect(body.authenticated).toBe(true);
 });
+
+test('Appearance presets switch and persist after reload', async ({ page }) => {
+  await login(page);
+
+  await page.click('#appearance-btn');
+  await expect(page.locator('#appearance-modal')).toHaveClass(/open/);
+
+  for (const tint of ['jade', 'cobalt', 'copper', 'fuchsia', 'lime']) {
+    await page.click(`[data-appearance-tint="${tint}"]`);
+    await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
+  }
+
+  for (const font of ['forge', 'atelier', 'exchange', 'blueprint', 'scribe']) {
+    await page.click(`[data-appearance-font="${font}"]`);
+    await expect(page.locator('html')).toHaveAttribute('data-pf-font', font);
+  }
+
+  await page.reload();
+  await expect(page.locator('.nav-tab').first()).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-pf-tint', 'lime');
+  await expect(page.locator('html')).toHaveAttribute('data-pf-font', 'scribe');
+});

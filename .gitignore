@@ -69,11 +69,18 @@ trade_history.json
 philforge.db
 philforge.db-wal
 philforge.db-shm
+philforge.db*.bak*
 .current_token
 .token_lock
 *.tmp
 *.log
 Daily Charts/
+
+# Root-level study/media imports belong under static/notebooklm/
+/*.m4a
+/*.mp4
+/*.pdf
+/*.png
 
 # SQLite database (per-server, contains user data)
 philforge.db

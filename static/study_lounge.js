@@ -36,13 +36,12 @@ function setThemeToggleIcon() {
 }
 
 function toggleTheme() {
-  const root = document.documentElement;
-  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-  if (next === 'dark') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', 'light');
-  try {
-    localStorage.setItem('philforge_theme', next);
-  } catch (e) {}
+  if (typeof window.pfToggleTheme === 'function') window.pfToggleTheme();
+  else {
+    const root = document.documentElement;
+    const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+  }
   setThemeToggleIcon();
 }
 
