@@ -3,7 +3,7 @@ engine/scalp.py — Scalp Mode Engine
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hybrid manual/auto trading:
   • Manual entry  → click BUY/SELL → broker order placed immediately
-  • Auto exit     → exits when premium target, SL, or sqoff time is hit
+  • Auto exit     → exits when premium target or SL is hit
   • OR auto entry → runs entry conditions, but user can also exit manually
 
 Completely isolated from LiveEngine and PaperTradingEngine.
@@ -51,7 +51,7 @@ class ScalpTrade:
         sl_pct: float = 0.0,  # % loss SL on entry premium
         target_rupees: float = 0.0,  # fixed ₹ profit target (across all lots)
         sl_rupees: float = 0.0,  # fixed ₹ loss SL
-        sqoff_time: str = "15:20",  # HH:MM auto square-off
+        sqoff_time: str = "",  # retained for legacy payloads; no time-based scalp exit
         order_id: str = "",
         entry_time: Optional[datetime] = None,
         mode: str = "live",  # "live" or "paper"
@@ -92,7 +92,7 @@ class ScalpTrade:
 
         self.target_rupees = target_rupees
         self.sl_rupees = sl_rupees
-        self.sqoff_time = sqoff_time
+        self.sqoff_time = (sqoff_time or "").strip()
         self.order_id = order_id
         self.entry_time = entry_time or _now_ist()
         self.exit_time: Optional[datetime] = None
@@ -121,15 +121,6 @@ class ScalpTrade:
             return None
 
         pnl = self._compute_pnl(current_prem)
-
-        # Square-off time
-        try:
-            parts = self.sqoff_time.split(":")
-            sq_h, sq_m = int(parts[0]), int(parts[1])
-            if now.hour > sq_h or (now.hour == sq_h and now.minute >= sq_m):
-                return "sqoff_time"
-        except Exception:
-            pass
 
         if self.transaction_type == "BUY":
             # Target: price reached or exceeded
@@ -280,7 +271,7 @@ class ScalpEngine:
         sl_pct: float = 0.0,
         target_rupees: float = 0.0,
         sl_rupees: float = 0.0,
-        sqoff_time: str = "15:20",
+        sqoff_time: str = "",
         product_type: str = "INTRADAY",
         order_type: str = "MARKET",
         mode: str = "live",  # "live" or "paper"

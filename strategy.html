@@ -16,11 +16,89 @@
 <link rel="shortcut icon" href="/favicon.ico?v=20260402-1">
 <link rel="manifest" href="/manifest.webmanifest?v=20260402-3">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var KEY = 'philforge_appearance';
+    var LEGACY_KEY = 'algoforge_appearance';
+    var DEFAULT_APPEARANCE = { tint: 'jade', font: 'forge' };
+    var TINTS = { jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
+    var FONTS = {
+      forge: '',
+      atelier: 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Geist+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap',
+      exchange: 'https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600;700;800&family=Red+Hat+Mono:wght@400;500;600;700&display=swap',
+      blueprint: 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Fira+Code:wght@400;500;600;700&family=Rubik:wght@400;500;600;700;800&display=swap',
+      scribe: 'https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600;6..72,700;6..72,800&family=Source+Sans+3:wght@400;500;600;700;800&display=swap'
+    };
+
+    function normalizeAppearance(value) {
+      var state = value || {};
+      if (typeof state === 'string') state = { tint: state };
+      return {
+        tint: TINTS[state.tint] ? state.tint : DEFAULT_APPEARANCE.tint,
+        font: Object.prototype.hasOwnProperty.call(FONTS, state.font) ? state.font : DEFAULT_APPEARANCE.font
+      };
+    }
+
+    function getStoredAppearance() {
+      try {
+        var raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
+        if (!raw) return normalizeAppearance();
+        return normalizeAppearance(JSON.parse(raw));
+      } catch (e) {
+        return normalizeAppearance();
+      }
+    }
+
+    function loadAppearanceFont(font) {
+      var href = FONTS[font] || '';
+      var existing = document.getElementById('philforge-appearance-font');
+      if (!href) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (!existing) {
+        existing = document.createElement('link');
+        existing.id = 'philforge-appearance-font';
+        existing.rel = 'stylesheet';
+        document.head.appendChild(existing);
+      }
+      if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+    }
+
+    function applyAppearance(next, options) {
+      var current = getStoredAppearance();
+      var incoming = next || {};
+      if (typeof incoming === 'string') incoming = { tint: incoming };
+      var state = normalizeAppearance({
+        tint: incoming.tint || current.tint,
+        font: incoming.font || current.font
+      });
+      var root = document.documentElement;
+      root.setAttribute('data-pf-tint', state.tint);
+      root.setAttribute('data-pf-font', state.font);
+      loadAppearanceFont(state.font);
+      if (options && options.persist) {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(state));
+          localStorage.removeItem(LEGACY_KEY);
+        } catch (e) {}
+      }
+      return state;
+    }
+
+    window.pfGetAppearance = getStoredAppearance;
+    window.pfApplyAppearance = applyAppearance;
+    applyAppearance(getStoredAppearance(), { persist: false });
+  })();
+</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --brand-rail-space: 206px;
     --shell-gutter: 14px;
+    --font-body: 'Outfit', sans-serif;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
     --bg:         #080d14;
     --surface:    rgba(15, 22, 36, 0.88);
     --card:       rgba(18, 26, 42, 0.85);
@@ -46,7 +124,7 @@
     --glass-lo:   rgba(255, 255, 255, 0.04);
   }
   body {
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: var(--bg);
     background-image:
       radial-gradient(ellipse 900px 700px at 15% 25%, rgba(0,191,165,0.045) 0%, transparent 68%),
@@ -5083,6 +5161,265 @@
   }
   [data-theme="light"] #backfill-bar-track { background: #e2e8f0; }
   [data-theme="light"] #backfill-msg { color: #475569; }
+
+  /* ── User Appearance: PhilForge tint + font presets ── */
+  html[data-pf-tint="jade"] {
+    --accent: #2dd4bf;
+    --accent2: #60a5fa;
+    --border-acc: rgba(45, 212, 191, 0.22);
+    --pf-tint-primary: #2dd4bf;
+    --pf-tint-secondary: #60a5fa;
+    --pf-tint-primary-rgb: 45, 212, 191;
+    --pf-tint-secondary-rgb: 96, 165, 250;
+  }
+  html[data-pf-tint="cobalt"] {
+    --accent: #818cf8;
+    --accent2: #22c55e;
+    --border-acc: rgba(129, 140, 248, 0.24);
+    --pf-tint-primary: #818cf8;
+    --pf-tint-secondary: #22c55e;
+    --pf-tint-primary-rgb: 129, 140, 248;
+    --pf-tint-secondary-rgb: 34, 197, 94;
+  }
+  html[data-pf-tint="copper"] {
+    --accent: #fb923c;
+    --accent2: #38bdf8;
+    --border-acc: rgba(251, 146, 60, 0.24);
+    --pf-tint-primary: #fb923c;
+    --pf-tint-secondary: #38bdf8;
+    --pf-tint-primary-rgb: 251, 146, 60;
+    --pf-tint-secondary-rgb: 56, 189, 248;
+  }
+  html[data-pf-tint="fuchsia"] {
+    --accent: #e879f9;
+    --accent2: #fb7185;
+    --border-acc: rgba(232, 121, 249, 0.24);
+    --pf-tint-primary: #e879f9;
+    --pf-tint-secondary: #fb7185;
+    --pf-tint-primary-rgb: 232, 121, 249;
+    --pf-tint-secondary-rgb: 251, 113, 133;
+  }
+  html[data-pf-tint="lime"] {
+    --accent: #a3e635;
+    --accent2: #06b6d4;
+    --border-acc: rgba(163, 230, 53, 0.22);
+    --pf-tint-primary: #a3e635;
+    --pf-tint-secondary: #06b6d4;
+    --pf-tint-primary-rgb: 163, 230, 53;
+    --pf-tint-secondary-rgb: 6, 182, 212;
+  }
+  html[data-theme="light"][data-pf-tint="jade"] { --accent: #0f766e; --accent2: #2563eb; --border-acc: rgba(15, 118, 110, 0.18); }
+  html[data-theme="light"][data-pf-tint="cobalt"] { --accent: #4f46e5; --accent2: #15803d; --border-acc: rgba(79, 70, 229, 0.18); }
+  html[data-theme="light"][data-pf-tint="copper"] { --accent: #c2410c; --accent2: #0284c7; --border-acc: rgba(194, 65, 12, 0.18); }
+  html[data-theme="light"][data-pf-tint="fuchsia"] { --accent: #a21caf; --accent2: #e11d48; --border-acc: rgba(162, 28, 175, 0.18); }
+  html[data-theme="light"][data-pf-tint="lime"] { --accent: #4d7c0f; --accent2: #0891b2; --border-acc: rgba(77, 124, 15, 0.18); }
+
+  html[data-pf-font="forge"] { --font-body: 'Outfit', sans-serif; --font-display: 'Syne', sans-serif; --font-mono: 'JetBrains Mono', monospace; }
+  html[data-pf-font="atelier"] { --font-body: 'Manrope', sans-serif; --font-display: 'Bricolage Grotesque', sans-serif; --font-mono: 'Geist Mono', monospace; }
+  html[data-pf-font="exchange"] { --font-body: 'Inter Tight', sans-serif; --font-display: 'Archivo', sans-serif; --font-mono: 'Red Hat Mono', monospace; }
+  html[data-pf-font="blueprint"] { --font-body: 'Rubik', sans-serif; --font-display: 'Chakra Petch', sans-serif; --font-mono: 'Fira Code', monospace; }
+  html[data-pf-font="scribe"] { --font-body: 'Source Sans 3', sans-serif; --font-display: 'Newsreader', serif; --font-mono: 'Martian Mono', monospace; }
+
+  html[data-pf-font] body,
+  html[data-pf-font] button,
+  html[data-pf-font] input,
+  html[data-pf-font] select,
+  html[data-pf-font] textarea,
+  html[data-pf-font] .btn,
+  html[data-pf-font] .ut,
+  html[data-pf-font] .modal-close,
+  html[data-pf-font] .add-leg-btn,
+  html[data-pf-font] .cj-label,
+  html[data-pf-font] .cj-input,
+  html[data-pf-font] .chtree-toggle,
+  html[data-pf-font] .chday-btn,
+  html[data-pf-font] .cj-submit-btn,
+  html[data-pf-font] .cj-month-toggle,
+  html[data-pf-font] [style*="font-family: 'Outfit'"],
+  html[data-pf-font] [style*="font-family:'Outfit'"],
+  html[data-pf-font] [style*="font-family: Outfit"] {
+    font-family: var(--font-body) !important;
+  }
+  html[data-pf-font] h1,
+  html[data-pf-font] h2,
+  html[data-pf-font] h3,
+  html[data-pf-font] .topbar-brand-text,
+  html[data-pf-font] .charts-sidebar-title,
+  html[data-pf-font] .cj-journal-title,
+  html[data-pf-font] .cj-plan-heading,
+  html[data-pf-font] .cj-plan-section-title,
+  html[data-pf-font] .cj-plan-block-title,
+  html[data-pf-font] [style*="font-family: 'Syne'"],
+  html[data-pf-font] [style*="font-family:'Syne'"] {
+    font-family: var(--font-display) !important;
+  }
+  html[data-pf-font] .stat-value,
+  html[data-pf-font] .stat-value-lg,
+  html[data-pf-font] .mono,
+  html[data-pf-font] .mono-field,
+  html[data-pf-font] .pagination-info,
+  html[data-pf-font] .page-btn,
+  html[data-pf-font] .page-size-select,
+  html[data-pf-font] [style*="JetBrains Mono"] {
+    font-family: var(--font-mono) !important;
+  }
+  html[data-pf-tint] body {
+    background-image:
+      radial-gradient(ellipse 900px 700px at 15% 25%, rgba(var(--pf-tint-primary-rgb), 0.052) 0%, transparent 68%),
+      radial-gradient(ellipse 700px 600px at 82% 72%, rgba(var(--pf-tint-secondary-rgb), 0.04) 0%, transparent 68%);
+  }
+  html[data-theme="light"][data-pf-tint] body {
+    background-image:
+      radial-gradient(ellipse 960px 720px at 12% 20%, rgba(var(--pf-tint-primary-rgb), 0.06) 0%, transparent 68%),
+      radial-gradient(ellipse 760px 620px at 84% 16%, rgba(var(--pf-tint-secondary-rgb), 0.052) 0%, transparent 66%),
+      radial-gradient(ellipse 880px 720px at 82% 82%, rgba(148, 163, 184, 0.11) 0%, transparent 70%);
+  }
+  html[data-pf-tint] .app-topbar::before {
+    background: linear-gradient(90deg, transparent 5%, rgba(var(--pf-tint-primary-rgb), 0.35) 30%, rgba(var(--pf-tint-secondary-rgb), 0.25) 70%, transparent 95%);
+  }
+  html[data-pf-tint] .topbar-brand-text,
+  html[data-pf-tint] .appearance-heading {
+    background: linear-gradient(130deg, var(--pf-tint-primary) 0%, var(--pf-tint-secondary) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  html[data-pf-tint] .header-brand-mark,
+  html[data-pf-tint] .topbar-icon-btn.topbar-appearance-btn {
+    border-color: rgba(var(--pf-tint-primary-rgb), 0.22);
+  }
+  html[data-pf-tint] .btn-submit,
+  html[data-pf-tint] #confirm-modal .btn-confirm-ok {
+    --btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb), 0.26) 0%, rgba(var(--pf-tint-primary-rgb), 0.42) 100%);
+    --btn-color: var(--accent);
+    --btn-border: rgba(var(--pf-tint-primary-rgb), 0.46);
+  }
+  .appearance-open { overflow: hidden; }
+  .appearance-modal {
+    width: 560px;
+  }
+  .appearance-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 20px;
+  }
+  .appearance-kicker {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .appearance-heading {
+    margin: 0;
+    font-size: 26px;
+    line-height: 1.05;
+    color: var(--text);
+    -webkit-text-fill-color: transparent;
+  }
+  .appearance-section + .appearance-section { margin-top: 18px; }
+  .appearance-section h4 {
+    margin: 0 0 10px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+  }
+  .appearance-options {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .appearance-option {
+    min-height: 74px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.12;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+  }
+  .appearance-option:hover {
+    transform: translateY(-1px);
+    border-color: rgba(var(--pf-tint-primary-rgb), 0.42);
+  }
+  .appearance-option.active {
+    background: rgba(var(--pf-tint-primary-rgb), 0.11);
+    border-color: rgba(var(--pf-tint-primary-rgb), 0.52);
+    box-shadow: 0 16px 28px -26px rgba(var(--pf-tint-primary-rgb), 0.9), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .appearance-swatch,
+  .appearance-font-sample {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px -14px rgba(0,0,0,0.8);
+    flex: 0 0 auto;
+  }
+  .swatch-jade { background: linear-gradient(135deg, #2dd4bf, #60a5fa); }
+  .swatch-cobalt { background: linear-gradient(135deg, #818cf8, #22c55e); }
+  .swatch-copper { background: linear-gradient(135deg, #fb923c, #38bdf8); }
+  .swatch-fuchsia { background: linear-gradient(135deg, #e879f9, #fb7185); }
+  .swatch-lime { background: linear-gradient(135deg, #a3e635, #06b6d4); }
+  .appearance-font-sample {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.05);
+    color: var(--accent);
+    font-size: 15px;
+    font-weight: 900;
+  }
+  .font-forge .appearance-font-sample { font-family: 'Syne', sans-serif; }
+  .font-atelier .appearance-font-sample { font-family: 'Bricolage Grotesque', sans-serif; }
+  .font-exchange .appearance-font-sample { font-family: 'Archivo', sans-serif; }
+  .font-blueprint .appearance-font-sample { font-family: 'Chakra Petch', sans-serif; }
+  .font-scribe .appearance-font-sample { font-family: 'Newsreader', serif; }
+  .appearance-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  [data-theme="light"] .appearance-option {
+    background: rgba(248,250,252,0.86);
+    border-color: rgba(15,23,42,0.09);
+    color: #132238;
+  }
+  [data-theme="light"] .appearance-option.active {
+    background: rgba(var(--pf-tint-primary-rgb), 0.10);
+    border-color: rgba(var(--pf-tint-primary-rgb), 0.34);
+  }
+  [data-theme="light"] .appearance-font-sample {
+    background: rgba(255,255,255,0.74);
+  }
+  @media (max-width: 720px) {
+    .appearance-modal {
+      width: 100%;
+      max-height: 88vh;
+      border-radius: 18px 18px 0 0;
+    }
+    .appearance-options {
+      grid-template-columns: 1fr;
+    }
+    #appearance-modal.modal-overlay {
+      align-items: flex-end;
+      padding: 12px;
+    }
+  }
 </style>
 <div id="backfill-banner">
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -5155,6 +5492,9 @@
           <button class="topbar-icon-btn topbar-install-btn" id="install-app-btn" data-install-app hidden title="Install App" aria-label="Install App">
             <span class="ico" aria-hidden="true"></span>
             <span class="topbar-install-label">Install App</span>
+          </button>
+          <button class="topbar-icon-btn topbar-appearance-btn" id="appearance-btn" onclick="openAppearanceModal()" title="Appearance" aria-label="Appearance">
+            <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="M6.7 6.7l10.6 10.6"></path></svg></span>
           </button>
           <button class="topbar-icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span></button>
           <button class="topbar-icon-btn" id="logout-btn" onclick="logoutUser()" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
@@ -6544,15 +6884,11 @@
             <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
           </div>
         </div>
-        <!-- Row 4: LOTS | SQ-OFF TIME -->
+        <!-- Row 4: LOTS -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(×<span id="scalp-lot-size-label">65</span>)</span></label>
           <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
           <input type="hidden" id="scalp-lot-size" value="65">
-        </div>
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Sq-Off Time</label>
-          <input type="text" id="scalp-sqoff" value="15:20" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;">
         </div>
       </div>
 
@@ -6775,6 +7111,43 @@
     </div>
     <div class="ch-lb-wrap" id="ch-lb-wrap"><div class="ch-lb-stage" id="ch-lb-stage"><img id="ch-lb-img" src="" alt="Chart" draggable="false"></div></div>
     <div class="ch-lb-caption"><div class="lb-name" id="ch-lb-name"></div><div class="lb-count" id="ch-lb-count"></div><div class="lb-hint">Use mouse wheel or +/- to zoom. Drag the image when zoomed.</div></div>
+  </div>
+</div>
+
+<!-- ═══ APPEARANCE MODAL ═══ -->
+<div class="modal-overlay" id="appearance-modal" onclick="if(event.target===this)closeAppearanceModal()">
+  <div class="modal appearance-modal" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+    <div class="appearance-head">
+      <div>
+        <div class="appearance-kicker">Workspace Skin</div>
+        <h3 class="appearance-heading" id="appearance-title">Appearance</h3>
+      </div>
+      <button class="topbar-icon-btn" onclick="closeAppearanceModal()" title="Close appearance" aria-label="Close appearance" style="width:34px;height:34px;">×</button>
+    </div>
+    <section class="appearance-section">
+      <h4>Color Tint</h4>
+      <div class="appearance-options">
+        <button class="appearance-option" data-appearance-tint="jade" onclick="setAppearanceTint('jade')"><span class="appearance-swatch swatch-jade"></span><span>Jade Atlas</span></button>
+        <button class="appearance-option" data-appearance-tint="cobalt" onclick="setAppearanceTint('cobalt')"><span class="appearance-swatch swatch-cobalt"></span><span>Cobalt Grove</span></button>
+        <button class="appearance-option" data-appearance-tint="copper" onclick="setAppearanceTint('copper')"><span class="appearance-swatch swatch-copper"></span><span>Copper Sky</span></button>
+        <button class="appearance-option" data-appearance-tint="fuchsia" onclick="setAppearanceTint('fuchsia')"><span class="appearance-swatch swatch-fuchsia"></span><span>Fuchsia Rail</span></button>
+        <button class="appearance-option" data-appearance-tint="lime" onclick="setAppearanceTint('lime')"><span class="appearance-swatch swatch-lime"></span><span>Lime Signal</span></button>
+      </div>
+    </section>
+    <section class="appearance-section">
+      <h4>Font Style</h4>
+      <div class="appearance-options">
+        <button class="appearance-option font-forge" data-appearance-font="forge" onclick="setAppearanceFont('forge')"><span class="appearance-font-sample">Aa</span><span>Forge Native</span></button>
+        <button class="appearance-option font-atelier" data-appearance-font="atelier" onclick="setAppearanceFont('atelier')"><span class="appearance-font-sample">Aa</span><span>Atelier Desk</span></button>
+        <button class="appearance-option font-exchange" data-appearance-font="exchange" onclick="setAppearanceFont('exchange')"><span class="appearance-font-sample">Aa</span><span>Exchange Pro</span></button>
+        <button class="appearance-option font-blueprint" data-appearance-font="blueprint" onclick="setAppearanceFont('blueprint')"><span class="appearance-font-sample">Aa</span><span>Blueprint Grid</span></button>
+        <button class="appearance-option font-scribe" data-appearance-font="scribe" onclick="setAppearanceFont('scribe')"><span class="appearance-font-sample">Aa</span><span>Scribe Serif</span></button>
+      </div>
+    </section>
+    <div class="appearance-actions">
+      <button class="btn btn-outline btn-sm" onclick="resetAppearance()">Reset</button>
+      <button class="btn btn-submit btn-sm" onclick="closeAppearanceModal()">Apply</button>
+    </div>
   </div>
 </div>
 
@@ -9865,7 +10238,6 @@ function _readScalpFormState() {
     option_type: read('scalp-option-type') || 'CE',
     strike: read('scalp-strike'),
     lots: read('scalp-lots'),
-    sqoff: read('scalp-sqoff'),
     sl_rs: read('scalp-sl-rs'),
     target_rs: read('scalp-target-rs'),
     sl_prem: read('scalp-sl-prem'),
@@ -9914,7 +10286,6 @@ async function _restoreScalpFormState() {
     _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
     _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
     _applyScalpFieldValue('scalp-lots', saved.lots);
-    _applyScalpFieldValue('scalp-sqoff', saved.sqoff);
     _applyScalpFieldValue('scalp-sl-rs', saved.sl_rs);
     _applyScalpFieldValue('scalp-target-rs', saved.target_rs);
     _applyScalpFieldValue('scalp-sl-prem', saved.sl_prem);
@@ -10232,7 +10603,6 @@ const _SCALP_FORM_IDS = new Set([
   'scalp-option-type',
   'scalp-strike',
   'scalp-lots',
-  'scalp-sqoff',
   'scalp-sl-rs',
   'scalp-target-rs',
   'scalp-sl-prem',
@@ -10312,7 +10682,7 @@ async function submitScalpEntry(direction) {
       sl_rupees: parseFloat(document.getElementById('scalp-sl-rs').value) || 0,
       target_premium: parseFloat(document.getElementById('scalp-target-prem').value) || 0,
       sl_premium: parseFloat(document.getElementById('scalp-sl-prem').value) || 0,
-      sqoff_time: document.getElementById('scalp-sqoff').value || '15:20',
+      sqoff_time: '',
       mode: document.getElementById('scalp-mode').value,
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
@@ -15344,6 +15714,80 @@ function renderYearlyMonthlyTable() {
   html += `</tbody></table>`;
   container.innerHTML = html;
 }
+
+// ══════════════════════════════════════════════════════════════
+//  APPEARANCE CONTROLS
+// ══════════════════════════════════════════════════════════════
+const PF_APPEARANCE_TINT_LABELS = {
+  jade: 'Jade Atlas',
+  cobalt: 'Cobalt Grove',
+  copper: 'Copper Sky',
+  fuchsia: 'Fuchsia Rail',
+  lime: 'Lime Signal',
+};
+const PF_APPEARANCE_FONT_LABELS = {
+  forge: 'Forge Native',
+  atelier: 'Atelier Desk',
+  exchange: 'Exchange Pro',
+  blueprint: 'Blueprint Grid',
+  scribe: 'Scribe Serif',
+};
+
+function currentAppearance() {
+  if (typeof window.pfGetAppearance === 'function') return window.pfGetAppearance();
+  return { tint: 'jade', font: 'forge' };
+}
+
+function syncAppearancePanel() {
+  const state = currentAppearance();
+  document.querySelectorAll('[data-appearance-tint]').forEach((btn) => {
+    const active = btn.getAttribute('data-appearance-tint') === state.tint;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-appearance-font]').forEach((btn) => {
+    const active = btn.getAttribute('data-appearance-font') === state.font;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function openAppearanceModal() {
+  const modal = document.getElementById('appearance-modal');
+  if (!modal) return;
+  syncAppearancePanel();
+  modal.classList.add('open');
+  document.body.classList.add('appearance-open');
+}
+
+function closeAppearanceModal() {
+  const modal = document.getElementById('appearance-modal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  document.body.classList.remove('appearance-open');
+}
+
+function setAppearanceTint(tint) {
+  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint }, { persist: true });
+  syncAppearancePanel();
+  if (typeof toast === 'function') toast('Tint changed to ' + (PF_APPEARANCE_TINT_LABELS[tint] || tint), 'success');
+}
+
+function setAppearanceFont(font) {
+  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ font }, { persist: true });
+  syncAppearancePanel();
+  if (typeof toast === 'function') toast('Font changed to ' + (PF_APPEARANCE_FONT_LABELS[font] || font), 'success');
+}
+
+function resetAppearance() {
+  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint: 'jade', font: 'forge' }, { persist: true });
+  syncAppearancePanel();
+  if (typeof toast === 'function') toast('Appearance reset', 'info');
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeAppearanceModal();
+});
 
 // ══════════════════════════════════════════════════════════════
 //  THEME TOGGLE

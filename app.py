@@ -7929,7 +7929,7 @@ class ScalpEntryReq(BaseModel):
     sl_pct: float = 0.0
     target_rupees: float = 0.0
     sl_rupees: float = 0.0
-    sqoff_time: str = "15:20"
+    sqoff_time: str = ""
     mode: str = "live"
     entry_limit_price: float = 0.0
     entry_limit_max: float = 0.0
