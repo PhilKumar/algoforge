@@ -11,10 +11,48 @@ import { test, expect, Page } from '@playwright/test';
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 
+async function mockShellApis(page: Page) {
+  await page.route('**/api/ticker**', async route => {
+    await route.fulfill({
+      json: {
+        status: 'ok',
+        nifty: { price: 22000 },
+        banknifty: { price: 47000 },
+        midcpnifty: { price: 12000 },
+        sensex: { price: 73000 },
+      },
+    });
+  });
+  await page.route('**/api/dashboard/summary', async route => {
+    await route.fulfill({
+      json: {
+        paper_flow: { pnl: 0, trades: 0 },
+        real_flow: { pnl: 0, trades: 0, source_label: 'E2E mock' },
+        paper_strategy_flow: {},
+        live_strategy_flow: {},
+        scalp_flow: {},
+        active_count: 0,
+        active_detail: 'No strategies running',
+        strategy_count: 0,
+        backtest_count: 0,
+        best_run: null,
+        worst_run: null,
+        recent_transactions: [],
+        running_engines: [],
+        fii_dii: { status: 'unavailable' },
+      },
+    });
+  });
+  await page.route('**/api/broker/check', async route => {
+    await route.fulfill({ json: { status: 'error', message: 'E2E mock broker check', available_balance: 0, funds: {} } });
+  });
+}
+
 // ── Auth helper ─────────────────────────────────────────────
 // Current login defaults to username + password, but we keep a fallback
 // for explicit PIN mode in case a branch toggles that UI back on.
 async function login(page: Page) {
+  await mockShellApis(page);
   await page.goto('/');
 
   await page.fill('#username-input', USERNAME);
@@ -62,6 +100,9 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
 
   await page.click('#appearance-btn');
   await expect(page.locator('#appearance-modal')).toHaveClass(/open/);
+
+  await page.click('[data-appearance-tint="native"]');
+  await expect(page.locator('html')).not.toHaveAttribute('data-pf-tint');
 
   const tintPalettes: Record<string, string> = {};
   for (const tint of ['jade', 'cobalt', 'copper', 'fuchsia', 'lime']) {

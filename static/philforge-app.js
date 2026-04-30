@@ -8435,11 +8435,12 @@ function renderYearlyMonthlyTable() {
 //  APPEARANCE CONTROLS
 // ══════════════════════════════════════════════════════════════
 const PF_APPEARANCE_TINT_LABELS = {
-  jade: 'Jade Terminal',
-  cobalt: 'Cobalt Command',
-  copper: 'Copper Ember',
-  fuchsia: 'Fuchsia Neon',
-  lime: 'Lime Grid',
+  native: 'PhilForge Default',
+  jade: 'Jade Mist',
+  cobalt: 'Cobalt Haze',
+  copper: 'Copper Sand',
+  fuchsia: 'Rose Dusk',
+  lime: 'Olive Calm',
 };
 const PF_APPEARANCE_FONT_LABELS = {
   forge: 'Forge Native',
@@ -8451,7 +8452,7 @@ const PF_APPEARANCE_FONT_LABELS = {
 
 function currentAppearance() {
   if (typeof window.pfGetAppearance === 'function') return window.pfGetAppearance();
-  return { tint: 'jade', font: 'forge' };
+  return { tint: 'native', font: 'forge' };
 }
 
 function syncAppearancePanel() {
@@ -8496,7 +8497,7 @@ function setAppearanceFont(font) {
 }
 
 function resetAppearance() {
-  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint: 'jade', font: 'forge' }, { persist: true });
+  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint: 'native', font: 'forge' }, { persist: true });
   syncAppearancePanel();
   if (typeof toast === 'function') toast('Appearance reset', 'info');
 }

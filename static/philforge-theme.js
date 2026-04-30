@@ -3,8 +3,8 @@
   var LEGACY_THEME_KEY = 'algoforge_theme';
   var APPEARANCE_KEY = 'philforge_appearance';
   var LEGACY_APPEARANCE_KEY = 'algoforge_appearance';
-  var DEFAULT_APPEARANCE = { tint: 'jade', font: 'forge' };
-  var TINTS = { jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
+  var DEFAULT_APPEARANCE = { tint: 'native', font: 'forge' };
+  var TINTS = { native: true, jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
   var FONTS = {
     forge: '',
     atelier: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap',
@@ -89,7 +89,8 @@
       font: incoming.font || current.font
     });
     var root = document.documentElement;
-    root.setAttribute('data-pf-tint', state.tint);
+    if (state.tint === 'native') root.removeAttribute('data-pf-tint');
+    else root.setAttribute('data-pf-tint', state.tint);
     root.setAttribute('data-pf-font', state.font);
     loadAppearanceFont(state.font);
     if (options && options.persist) {
