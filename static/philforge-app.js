@@ -63,12 +63,14 @@ const ICO = {
 
 // Inject nav tab icons
 (function initNavIcons() {
-  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), insights: ICO.compass(16), charts: ICO.memo(16)};
+  const map = {dashboard: ICO.grid(16), portfolio: ICO.briefcase(16), builder: ICO.wrench(16), results: ICO.chart(16), insights: ICO.compass(16), terminal: ICO.money(16), charts: ICO.memo(16)};
   Object.keys(map).forEach(k => { const el = document.getElementById('ico-' + k); if (el) el.innerHTML = map[k]; });
   const subHeatmap = document.getElementById('ico-sub-heatmap');
   if (subHeatmap) subHeatmap.innerHTML = ICO.heatmap(14);
   const subStudy = document.getElementById('ico-sub-study');
   if (subStudy) subStudy.innerHTML = ICO.brain(14);
+  const terminalHead = document.getElementById('stock-terminal-head-ico');
+  if (terminalHead) terminalHead.innerHTML = ICO.money(14);
 })();
 
 (function initShellIcons() {
@@ -823,6 +825,7 @@ const NAV_BUTTON_MAP = {
   'builder-page': 'nav-builder',
   'results-page': 'nav-results',
   'live-page': 'nav-live',
+  'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
   'charts-page': 'nav-charts',
 };
@@ -2930,6 +2933,343 @@ async function deleteScalpTrade(tid) {
   await fetch('/api/scalp/trades/' + tid, { method: 'DELETE' });
   toast('Scalp trade deleted', 'success');
   _renderFilteredRuns();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STOCK TERMINAL PAGE
+// ══════════════════════════════════════════════════════════════
+let _stockTerminalInitialized = false;
+let _stockTerminalStocks = [];
+let _stockTerminalSelected = null;
+let _stockTerminalQuoteTimer = null;
+let _stockTerminalOrdersTimer = null;
+let _stockTerminalOrderInFlight = false;
+const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
+
+async function initStockTerminalPage() {
+  toggleStockOrderMode();
+  toggleStockOrderFields();
+  if (!_stockTerminalInitialized) {
+    await loadStockTerminalStocks();
+    _stockTerminalInitialized = true;
+  } else {
+    renderStockTerminalList();
+  }
+  refreshStockTerminalQuote(true);
+  refreshStockTerminalOrders();
+  if (!_stockTerminalQuoteTimer) {
+    _stockTerminalQuoteTimer = setInterval(() => {
+      if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      refreshStockTerminalQuote(false);
+    }, 5000);
+  }
+  if (!_stockTerminalOrdersTimer) {
+    _stockTerminalOrdersTimer = setInterval(() => {
+      if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      refreshStockTerminalOrders();
+    }, 20000);
+  }
+}
+
+function _setStockTerminalStatus(text, tone) {
+  const el = document.getElementById('stock-terminal-status');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = tone === 'ok' ? 'var(--success)' : tone === 'error' ? 'var(--danger)' : 'var(--muted)';
+}
+
+async function loadStockTerminalStocks() {
+  _setStockTerminalStatus('Loading', '');
+  try {
+    const res = await fetch('/api/terminal/nifty50', { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to load stocks');
+    _stockTerminalStocks = Array.isArray(data.data) ? data.data : [];
+    const countEl = document.getElementById('stock-terminal-count');
+    if (countEl) countEl.textContent = String(_stockTerminalStocks.length);
+    const saved = _getLocalState(_STOCK_TERMINAL_KEY);
+    const savedStock = _stockTerminalStocks.find(s => s.symbol === saved);
+    selectStockTerminal(savedStock?.symbol || _stockTerminalStocks.find(s => s.tradable)?.symbol || _stockTerminalStocks[0]?.symbol || '', { skipQuote: true });
+    _setStockTerminalStatus('Ready', 'ok');
+  } catch (e) {
+    _setStockTerminalStatus('Load failed', 'error');
+    const body = document.getElementById('stock-terminal-body');
+    if (body) body.innerHTML = `<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--danger);">${escapeHtml(e.message || 'Load failed')}</td></tr>`;
+  }
+}
+
+function renderStockTerminalList() {
+  const body = document.getElementById('stock-terminal-body');
+  if (!body) return;
+  const q = String(document.getElementById('stock-terminal-search')?.value || '').trim().toUpperCase();
+  const rows = _stockTerminalStocks.filter(s => {
+    if (!q) return true;
+    return String(s.symbol || '').includes(q) || String(s.name || '').toUpperCase().includes(q);
+  });
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--muted);">No matches</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(s => {
+    const active = _stockTerminalSelected && _stockTerminalSelected.symbol === s.symbol;
+    const tradable = !!s.tradable;
+    const bg = active ? 'background:rgba(34,197,94,0.10);' : '';
+    const status = tradable
+      ? '<span style="color:var(--success);font-weight:700;">OK</span>'
+      : '<span style="color:var(--warn);font-weight:700;">ID</span>';
+    return `<tr onclick="selectStockTerminal('${escapeJsSingleQuoted(s.symbol)}')" style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;${bg}">
+      <td style="padding:8px 10px;font-family:'JetBrains Mono',monospace;font-weight:700;color:${active ? 'var(--success)' : 'var(--text)'};">${escapeHtml(s.symbol || '')}</td>
+      <td style="padding:8px 10px;color:var(--muted);">${escapeHtml(s.name || '')}</td>
+      <td style="padding:8px 10px;text-align:center;">${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+function selectStockTerminal(symbol, options = {}) {
+  const stock = _stockTerminalStocks.find(s => s.symbol === symbol);
+  if (!stock) return;
+  _stockTerminalSelected = stock;
+  const symInput = document.getElementById('stock-terminal-symbol');
+  if (symInput) symInput.value = stock.symbol;
+  const chip = document.getElementById('stock-terminal-selected-chip');
+  if (chip) chip.textContent = stock.symbol;
+  const sec = document.getElementById('stock-terminal-security');
+  if (sec) sec.textContent = stock.security_id ? `sec ${stock.security_id}` : 'sec missing';
+  const ltp = document.getElementById('stock-terminal-ltp');
+  if (ltp) {
+    ltp.textContent = '—';
+    ltp.style.color = 'var(--muted)';
+  }
+  _setLocalState(_STOCK_TERMINAL_KEY, stock.symbol);
+  renderStockTerminalList();
+  if (!options.skipQuote) refreshStockTerminalQuote(true);
+}
+
+async function refreshStockTerminalQuote(force) {
+  if (!_stockTerminalSelected) return;
+  const ltpEl = document.getElementById('stock-terminal-ltp');
+  if (force && ltpEl) {
+    ltpEl.textContent = '…';
+    ltpEl.style.color = 'var(--muted)';
+  }
+  try {
+    const res = await fetch('/api/terminal/quote?symbol=' + encodeURIComponent(_stockTerminalSelected.symbol), { cache: 'no-store' });
+    const data = await res.json();
+    if (data.stock) {
+      _stockTerminalSelected = data.stock;
+      const sec = document.getElementById('stock-terminal-security');
+      if (sec) sec.textContent = data.stock.security_id ? `sec ${data.stock.security_id}` : 'sec missing';
+    }
+    if (data.status === 'ok' && Number(data.ltp) > 0) {
+      if (ltpEl) {
+        ltpEl.textContent = '₹' + Number(data.ltp).toFixed(2);
+        ltpEl.style.color = '#4ade80';
+      }
+    } else if (ltpEl && force) {
+      ltpEl.textContent = data.message ? 'N/A' : '—';
+      ltpEl.style.color = 'var(--muted)';
+    }
+  } catch (e) {
+    if (ltpEl && force) {
+      ltpEl.textContent = 'N/A';
+      ltpEl.style.color = 'var(--muted)';
+    }
+  }
+}
+
+function toggleStockOrderMode() {
+  const mode = document.getElementById('stock-order-mode')?.value || 'regular';
+  const regular = document.getElementById('stock-regular-extra');
+  const gtt = document.getElementById('stock-gtt-extra');
+  if (regular) regular.style.display = mode === 'regular' ? '' : 'none';
+  if (gtt) gtt.style.display = mode === 'gtt' ? '' : 'none';
+  const product = document.getElementById('stock-product-type');
+  const orderType = document.getElementById('stock-order-type');
+  if (mode === 'gtt') {
+    if (product && !['CNC', 'MTF'].includes(product.value)) product.value = 'CNC';
+    if (orderType && !['MARKET', 'LIMIT'].includes(orderType.value)) orderType.value = 'LIMIT';
+  }
+  toggleStockOrderFields();
+}
+
+function toggleStockOrderFields() {
+  const mode = document.getElementById('stock-order-mode')?.value || 'regular';
+  const orderType = document.getElementById('stock-order-type')?.value || 'MARKET';
+  const price = document.getElementById('stock-price');
+  const trigger = document.getElementById('stock-trigger-price');
+  if (price) {
+    price.disabled = mode === 'regular' && (orderType === 'MARKET' || orderType === 'STOP_LOSS_MARKET');
+    price.style.opacity = price.disabled ? '0.55' : '';
+  }
+  if (trigger) {
+    trigger.disabled = mode === 'regular' && (orderType === 'MARKET' || orderType === 'LIMIT');
+    trigger.style.opacity = trigger.disabled ? '0.55' : '';
+  }
+  const gttFlag = document.getElementById('stock-gtt-flag')?.value || 'SINGLE';
+  ['stock-gtt-price1', 'stock-gtt-trigger1'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = mode !== 'gtt' || gttFlag !== 'OCO';
+    el.style.opacity = el.disabled ? '0.55' : '';
+  });
+}
+
+function _readStockTerminalPayload(direction) {
+  return {
+    symbol: document.getElementById('stock-terminal-symbol')?.value || '',
+    transaction_type: direction || 'BUY',
+    quantity: parseInt(document.getElementById('stock-quantity')?.value, 10) || 0,
+    product_type: document.getElementById('stock-product-type')?.value || 'INTRADAY',
+    order_type: document.getElementById('stock-order-type')?.value || 'MARKET',
+    validity: document.getElementById('stock-validity')?.value || 'DAY',
+    price: parseFloat(document.getElementById('stock-price')?.value) || 0,
+    trigger_price: parseFloat(document.getElementById('stock-trigger-price')?.value) || 0,
+    disclosed_quantity: parseInt(document.getElementById('stock-disclosed-qty')?.value, 10) || 0,
+  };
+}
+
+async function submitStockTerminalOrder(direction) {
+  if (_stockTerminalOrderInFlight) return;
+  const statusEl = document.getElementById('stock-terminal-entry-status');
+  const mode = document.getElementById('stock-order-mode')?.value || 'regular';
+  const payload = _readStockTerminalPayload(direction);
+  if (!payload.symbol) {
+    if (statusEl) { statusEl.textContent = 'Select a stock first'; statusEl.style.color = 'var(--danger)'; }
+    return;
+  }
+  if (payload.quantity <= 0) {
+    if (statusEl) { statusEl.textContent = 'Quantity required'; statusEl.style.color = 'var(--danger)'; }
+    return;
+  }
+  if (mode === 'regular') {
+    payload.after_market_order = !!document.getElementById('stock-after-market')?.checked;
+    payload.amo_time = document.getElementById('stock-amo-time')?.value || '';
+    payload.bo_profit_value = parseFloat(document.getElementById('stock-bo-profit')?.value) || 0;
+    payload.bo_stop_loss_value = parseFloat(document.getElementById('stock-bo-sl')?.value) || 0;
+    payload.slice_order = !!document.getElementById('stock-slice-order')?.checked;
+  } else {
+    payload.order_flag = document.getElementById('stock-gtt-flag')?.value || 'SINGLE';
+    payload.price1 = parseFloat(document.getElementById('stock-gtt-price1')?.value) || 0;
+    payload.trigger_price1 = parseFloat(document.getElementById('stock-gtt-trigger1')?.value) || 0;
+    payload.quantity1 = payload.quantity;
+    if (!['CNC', 'MTF'].includes(payload.product_type)) payload.product_type = 'CNC';
+  }
+
+  const orderLabel = mode === 'gtt' ? 'GTT' : 'regular order';
+  const ok = await customConfirm(
+    `Place <strong>${escapeHtml(payload.transaction_type)}</strong> ${escapeHtml(payload.symbol)} x ${payload.quantity} as ${escapeHtml(orderLabel)}?`,
+    { title: 'Confirm Order', icon: ICO.money(28), okText: 'Place Order', danger: payload.transaction_type === 'SELL' }
+  );
+  if (!ok) return;
+
+  _stockTerminalOrderInFlight = true;
+  const btns = document.querySelectorAll('#stock-terminal-page .btn[onclick*="submitStockTerminalOrder"]');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
+  if (statusEl) { statusEl.textContent = 'Placing order...'; statusEl.style.color = 'var(--warn)'; }
+  try {
+    const res = await fetch(mode === 'gtt' ? '/api/terminal/gtt' : '/api/terminal/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.detail || data.message || 'Order failed');
+    }
+    const broker = data.response || {};
+    const oid = broker.orderId || broker.order_id || 'submitted';
+    if (statusEl) {
+      statusEl.textContent = `${mode === 'gtt' ? 'GTT' : 'Order'} ${oid} ${broker.orderStatus || ''}`;
+      statusEl.style.color = 'var(--success)';
+    }
+    toast(`${mode === 'gtt' ? 'GTT' : 'Order'} placed for ${payload.symbol}`, 'success');
+    refreshStockTerminalOrders();
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = e.message || 'Order failed';
+      statusEl.style.color = 'var(--danger)';
+    }
+    toast(e.message || 'Order failed', 'error');
+  } finally {
+    _stockTerminalOrderInFlight = false;
+    btns.forEach(b => { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; });
+  }
+}
+
+function _stockOrderStatusTone(status) {
+  const s = String(status || '').toUpperCase();
+  if (['TRADED', 'CONFIRM'].includes(s)) return 'var(--success)';
+  if (['REJECTED', 'CANCELLED', 'EXPIRED'].includes(s)) return 'var(--danger)';
+  return 'var(--warn)';
+}
+
+function _canCancelBrokerOrder(status) {
+  return ['TRANSIT', 'PENDING', 'CONFIRM'].includes(String(status || '').toUpperCase());
+}
+
+async function refreshStockTerminalOrders() {
+  const ordersBody = document.getElementById('stock-terminal-orders-body');
+  const gttBody = document.getElementById('stock-terminal-gtt-body');
+  try {
+    const [ordersRes, gttRes] = await Promise.all([
+      fetch('/api/orders', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+      fetch('/api/terminal/forever', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+    ]);
+    const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
+    const gtt = Array.isArray(gttRes.data) ? gttRes.data : [];
+    if (ordersBody) {
+      const latest = orders.slice().reverse().slice(0, 12);
+      ordersBody.innerHTML = latest.length ? latest.map(o => {
+        const status = o.orderStatus || o.status || '';
+        const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+          : '<span style="color:var(--muted);">—</span>';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+          <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>
+          <td style="padding:7px 8px;text-align:center;color:${o.transactionType === 'SELL' ? 'var(--danger)' : 'var(--success)'};">${escapeHtml(o.transactionType || '')}</td>
+          <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderType || '')}</td>
+          <td style="padding:7px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.quantity || o.orderQuantity || 0)}</td>
+          <td style="padding:7px 8px;text-align:center;color:${_stockOrderStatusTone(status)};">${escapeHtml(status)}</td>
+          <td style="padding:7px 8px;text-align:center;">${cancelBtn}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No orders today</td></tr>';
+    }
+    if (gttBody) {
+      const latestGtt = gtt.slice().reverse().slice(0, 12);
+      gttBody.innerHTML = latestGtt.length ? latestGtt.map(o => {
+        const status = o.orderStatus || o.status || '';
+        const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+          : '<span style="color:var(--muted);">—</span>';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+          <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>
+          <td style="padding:7px 8px;text-align:center;color:${o.transactionType === 'SELL' ? 'var(--danger)' : 'var(--success)'};">${escapeHtml(o.transactionType || '')}</td>
+          <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderType || o.orderFlag || '')}</td>
+          <td style="padding:7px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${Number(o.triggerPrice || 0).toFixed(2)}</td>
+          <td style="padding:7px 8px;text-align:center;color:${_stockOrderStatusTone(status)};">${escapeHtml(status)}</td>
+          <td style="padding:7px 8px;text-align:center;">${cancelBtn}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No GTT orders</td></tr>';
+    }
+  } catch (e) {
+    if (ordersBody) ordersBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--danger);">Orders unavailable</td></tr>';
+    if (gttBody) gttBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--danger);">GTT unavailable</td></tr>';
+  }
+}
+
+async function cancelStockTerminalOrder(orderId, mode) {
+  const ok = await customConfirm('Cancel order <strong>' + escapeHtml(orderId) + '</strong>?', { title: 'Cancel Order', icon: ICO.trash(28), okText: 'Cancel Order', danger: true });
+  if (!ok) return;
+  try {
+    const url = mode === 'gtt' ? '/api/terminal/forever/' + encodeURIComponent(orderId) : '/api/orders/' + encodeURIComponent(orderId);
+    const res = await fetch(url, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.message || 'Cancel failed');
+    toast('Order cancelled', 'success');
+    refreshStockTerminalOrders();
+  } catch (e) {
+    toast(e.message || 'Cancel failed', 'error');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

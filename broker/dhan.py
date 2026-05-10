@@ -419,8 +419,11 @@ class ScripMaster:
     _options_cache: Dict[str, str] = {}  # key -> security_id
     _expiry_cache: Dict[str, list] = {}  # symbol -> [expiry_dates]
     _lot_cache: Dict[str, int] = {}  # key -> lot_size
+    _equity_cache: Dict[str, dict] = {}  # symbol -> {security_id, trading_symbol, name}
     _loaded_date: Optional[str] = None
+    _equity_loaded_date: Optional[str] = None
     _loading = False
+    _equity_loading = False
 
     @classmethod
     def ensure_loaded(cls) -> bool:
@@ -683,6 +686,155 @@ class ScripMaster:
         # Fallback defaults (current as of Jan 2026)
         defaults = {"NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 65, "MIDCPNIFTY": 50, "SENSEX": 20}
         return defaults.get(symbol, 65)
+
+    @classmethod
+    def normalize_equity_symbol(cls, symbol: str) -> str:
+        """Normalize frontend aliases to Dhan/NSE equity trading symbols."""
+        key = str(symbol or "").strip().upper()
+        aliases = {
+            "M_M": "M&M",
+            "MM": "M&M",
+            "BAJAJAUTO": "BAJAJ-AUTO",
+        }
+        return aliases.get(key, key)
+
+    @classmethod
+    def ensure_equities_loaded(cls) -> bool:
+        """Ensure NSE equity security IDs are loaded from Dhan scrip master."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if cls._equity_loaded_date == today:
+            return bool(cls._equity_cache)
+
+        cache_file = os.path.join(SCRIP_CACHE_DIR, f"equities_{today}.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file) as f:
+                    data = json.load(f)
+                equities = data.get("equities", {})
+                if isinstance(equities, dict) and equities:
+                    cls._equity_cache = equities
+                    cls._equity_loaded_date = today
+                    print(f"[SCRIP] ✅ Loaded {len(cls._equity_cache)} NSE equities from disk cache")
+                    return True
+            except Exception as e:
+                print(f"[SCRIP] Equity cache read error: {e}")
+
+        return cls._download_and_filter_equities(cache_file, today)
+
+    @classmethod
+    def _download_and_filter_equities(cls, cache_file: str, today: str) -> bool:
+        """Download scrip master CSV and extract NSE EQ equity instruments."""
+        if cls._equity_loading:
+            print("[SCRIP] Equity download already in progress...")
+            return False
+        cls._equity_loading = True
+
+        print("[SCRIP] 📥 Downloading Dhan scrip master for NSE equities...")
+        os.makedirs(SCRIP_CACHE_DIR, exist_ok=True)
+
+        try:
+            resp = _http_session.get(SCRIP_MASTER_URL, stream=True, timeout=180)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[SCRIP] ❌ Equity download failed: {e}")
+            cls._equity_loading = False
+            return False
+
+        equities: Dict[str, dict] = {}
+        try:
+
+            def _lines():
+                for raw in resp.iter_lines():
+                    if isinstance(raw, bytes):
+                        yield raw.decode("utf-8", errors="replace")
+                    else:
+                        yield raw
+
+            lines_iter = _lines()
+            header_line = next(lines_iter)
+            header = next(csv.reader([header_line]))
+            col_map = {name.strip(): i for i, name in enumerate(header)}
+
+            idx_sec = col_map.get("SEM_SMST_SECURITY_ID", -1)
+            idx_inst = col_map.get("SEM_INSTRUMENT_NAME", -1)
+            idx_exch = col_map.get("SEM_EXM_EXCH_ID", -1)
+            idx_tsym = col_map.get("SEM_TRADING_SYMBOL", -1)
+            idx_custom = col_map.get("SEM_CUSTOM_SYMBOL", -1)
+            idx_series = col_map.get("SEM_SERIES", -1)
+            max_idx = max(idx_sec, idx_inst, idx_exch, idx_tsym)
+
+            for line_text in lines_iter:
+                if not line_text or not line_text.strip():
+                    continue
+                try:
+                    row = next(csv.reader([line_text]))
+                except Exception:  # nosec B112 - skip malformed CSV rows
+                    continue
+                if len(row) <= max_idx:
+                    continue
+
+                exch = row[idx_exch].strip().upper() if idx_exch >= 0 else ""
+                if exch != "NSE":
+                    continue
+
+                inst_name = row[idx_inst].strip().upper() if idx_inst >= 0 else ""
+                series = row[idx_series].strip().upper() if idx_series >= 0 and len(row) > idx_series else ""
+                if series and series != "EQ":
+                    continue
+                if inst_name not in ("EQUITY", "EQ") and series != "EQ":
+                    continue
+
+                sec_id = row[idx_sec].strip() if idx_sec >= 0 else ""
+                trading_sym = row[idx_tsym].strip().upper() if idx_tsym >= 0 else ""
+                if not sec_id or not trading_sym:
+                    continue
+
+                custom_name = row[idx_custom].strip() if idx_custom >= 0 and len(row) > idx_custom else trading_sym
+                equities[trading_sym] = {
+                    "security_id": sec_id,
+                    "trading_symbol": trading_sym,
+                    "name": custom_name or trading_sym,
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQUITY",
+                }
+        except StopIteration:
+            pass
+        except Exception as e:
+            print(f"[SCRIP] Equity parse error: {e}")
+        finally:
+            cls._equity_loading = False
+
+        cls._equity_cache = equities
+        cls._equity_loaded_date = today
+
+        try:
+            with open(cache_file, "w") as f:
+                json.dump({"equities": equities}, f)
+            print(f"[SCRIP] ✅ Cached {len(equities)} NSE equity instruments")
+        except Exception as e:
+            print(f"[SCRIP] Equity cache write error: {e}")
+
+        try:
+            for old_file in Path(SCRIP_CACHE_DIR).glob("equities_*.json"):
+                if old_file.name != f"equities_{today}.json":
+                    old_file.unlink()
+        except Exception:
+            pass
+
+        return bool(equities)
+
+    @classmethod
+    def lookup_equity(cls, symbol: str) -> dict:
+        """Look up NSE equity metadata by trading symbol."""
+        cls.ensure_equities_loaded()
+        key = cls.normalize_equity_symbol(symbol)
+        return cls._equity_cache.get(key, {})
+
+    @classmethod
+    def get_equities(cls, symbols: list[str]) -> Dict[str, dict]:
+        """Return equity metadata for a list of trading symbols."""
+        cls.ensure_equities_loaded()
+        return {cls.normalize_equity_symbol(sym): cls.lookup_equity(sym) for sym in symbols}
 
     @classmethod
     def instrument_to_symbol(cls, instrument_id: str) -> str:
@@ -1054,6 +1206,12 @@ class DhanClient:
         trigger_price: float = 0,
         validity: str = "DAY",
         tag: str = "PhilForge",
+        disclosed_quantity: int = 0,
+        after_market_order: bool = False,
+        amo_time: str = "",
+        bo_profit_value: float = 0,
+        bo_stop_loss_value: float = 0,
+        slice_order: bool = False,
     ) -> dict:
         """Place an order via Dhan API"""
         if not self._is_configured():
@@ -1072,16 +1230,27 @@ class DhanClient:
             "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
+        if disclosed_quantity:
+            payload["disclosedQuantity"] = int(disclosed_quantity)
+        if after_market_order:
+            payload["afterMarketOrder"] = True
+            if amo_time:
+                payload["amoTime"] = amo_time
+        if bo_profit_value:
+            payload["boProfitValue"] = round_to_tick(float(bo_profit_value))
+        if bo_stop_loss_value:
+            payload["boStopLossValue"] = round_to_tick(float(bo_stop_loss_value))
         print(f"[DHAN] Order payload: {payload}")
 
         if not _circuit_breaker.call_allowed():
             raise Exception(
                 f"Dhan API circuit breaker is OPEN — broker unavailable, retrying in {_circuit_breaker._timeout:.0f}s"
             )
+        endpoint = "/v2/orders/slicing" if slice_order else "/v2/orders"
         try:
             resp = _request_with_retry(
                 "POST",
-                f"{self.base_url}/v2/orders",
+                f"{self.base_url}{endpoint}",
                 headers=self.headers,
                 json=payload,
                 timeout=10,
@@ -1095,6 +1264,63 @@ class DhanClient:
             _circuit_breaker.record_failure()
             raise Exception(f"Order placement failed {resp.status_code}: {resp.text}")
         _circuit_breaker.record_success()
+        return resp.json()
+
+    def place_forever_order(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        transaction_type: str,
+        quantity: int,
+        order_flag: str = "SINGLE",
+        product_type: str = "CNC",
+        order_type: str = "LIMIT",
+        validity: str = "DAY",
+        price: float = 0,
+        trigger_price: float = 0,
+        price1: float = 0,
+        trigger_price1: float = 0,
+        quantity1: int = 0,
+        disclosed_quantity: int = 0,
+        tag: str = "PhilForgeGTT",
+    ) -> dict:
+        """Place a Dhan Forever Order (GTT/GTC/VTT), including OCO orders."""
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not set. Edit config.py first.")
+
+        payload = {
+            "dhanClientId": self.client_id,
+            "correlationId": (tag or "PhilForgeGTT")[:30],
+            "orderFlag": str(order_flag or "SINGLE").upper(),
+            "transactionType": transaction_type,
+            "exchangeSegment": exchange_segment,
+            "productType": product_type,
+            "orderType": order_type,
+            "validity": validity,
+            "securityId": str(security_id),
+            "quantity": int(quantity),
+            "price": round_to_tick(float(price)) if price else 0.0,
+            "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
+        }
+        if disclosed_quantity:
+            payload["disclosedQuantity"] = int(disclosed_quantity)
+        if payload["orderFlag"] == "OCO":
+            payload["price1"] = round_to_tick(float(price1)) if price1 else 0.0
+            payload["triggerPrice1"] = round_to_tick(float(trigger_price1)) if trigger_price1 else 0.0
+            payload["quantity1"] = int(quantity1 or quantity)
+
+        print(f"[DHAN] Forever order payload: {payload}")
+        resp = _request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/forever/orders",
+            headers=self.headers,
+            json=payload,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(f"Forever order placement failed {resp.status_code}: {resp.text}")
         return resp.json()
 
     def place_option_order(
@@ -1342,6 +1568,49 @@ class DhanClient:
             raise Exception(f"Super order fetch failed {resp.status_code}: {resp.text}")
         data = resp.json()
         return data if isinstance(data, list) else []
+
+    def get_forever_orders(self) -> list:
+        """Fetch Dhan Forever/GTT orders."""
+        resp = _request_with_retry(
+            "GET",
+            f"{self.base_url}/v2/forever/all",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code != 200:
+            # Some Dhan docs mention /forever/orders for retrieval; keep a
+            # fallback so UI remains compatible if the broker route differs.
+            resp = _request_with_retry(
+                "GET",
+                f"{self.base_url}/v2/forever/orders",
+                headers=self.headers,
+                timeout=10,
+                allow_token_refresh=self._allow_token_refresh,
+                refresh_token_func=self.refresh_access_token,
+            )
+        if resp.status_code != 200:
+            raise Exception(f"Forever order fetch failed {resp.status_code}: {resp.text}")
+        data = resp.json()
+        return data if isinstance(data, list) else data.get("data", []) if isinstance(data, dict) else []
+
+    def cancel_forever_order(self, order_id: str) -> dict:
+        """Cancel a pending Dhan Forever/GTT order."""
+        resp = _request_with_retry(
+            "DELETE",
+            f"{self.base_url}/v2/forever/orders/{order_id}",
+            headers=self.headers,
+            timeout=10,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code not in (200, 202):
+            raise Exception(f"Forever order cancel failed {resp.status_code}: {resp.text}")
+        try:
+            return resp.json()
+        except Exception:
+            return {"orderId": order_id, "orderStatus": "CANCELLED"}
 
     def get_order_book(self) -> list:
         """Get all orders for the day"""

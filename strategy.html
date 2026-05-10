@@ -162,6 +162,10 @@
       <span class="live-dot" id="live-tab-dot"></span>
       <span class="tab-label">Live</span>
     </button>
+    <button id="nav-terminal" class="nav-tab" data-pf-nav-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage" style="--accent-tab: #22c55e;">
+      <span class="tab-icon" style="color: #22c55e;" id="ico-terminal"></span>
+      <span class="tab-label">Terminal</span>
+    </button>
     <button id="nav-scalp" class="nav-tab" data-pf-nav-page="scalp-page" data-pf-after-nav="initScalpPage" style="--accent-tab: #06b6d4;">
       <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
       <span class="tab-label">Scalp</span>
@@ -1371,6 +1375,215 @@
     <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="portfolio-paper-pagination" class="pagination-bar" style="display:none;"></div>
     <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper/live strategy sessions yet.</div>
+  </div>
+</div>
+
+<!-- ═══ STOCK TERMINAL PAGE ═══ -->
+<div id="stock-terminal-page" class="page-section">
+  <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
+      <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.28);color:#4ade80;" id="stock-terminal-head-ico"></span>
+      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Nifty 50 Terminal</span>
+      <span id="stock-terminal-status" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Loading</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span id="stock-terminal-selected-chip" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);padding:5px 9px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);">—</span>
+      <span id="stock-terminal-ltp" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:#4ade80;">—</span>
+      <button class="btn btn-sm" onclick="refreshStockTerminalQuote(true)" style="padding:5px 12px;font-size:11px;">Refresh</button>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
+    <div class="card" style="padding: 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0;">Nifty 50</h3>
+        <span id="stock-terminal-count" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">0</span>
+      </div>
+      <input type="text" id="stock-terminal-search" placeholder="Search symbol..." oninput="renderStockTerminalList()" style="font-size:12px;padding:8px 10px;margin-bottom:10px;">
+      <div style="max-height: 470px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead style="position:sticky;top:0;background:var(--card);z-index:1;">
+            <tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">
+              <th style="padding:8px 10px;text-align:left;">Symbol</th>
+              <th style="padding:8px 10px;text-align:left;">Name</th>
+              <th style="padding:8px 10px;text-align:center;">Dhan</th>
+            </tr>
+          </thead>
+          <tbody id="stock-terminal-body">
+            <tr><td colspan="3" style="text-align:center;padding:20px;color:var(--muted);">Loading stocks</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <h3 style="font-size:15px;font-weight:700;margin:0;color:var(--accent);">Velocity Entry</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="hidden" id="stock-terminal-symbol" value="">
+          <span id="stock-terminal-security" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">sec —</span>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Order Mode</label>
+          <select id="stock-order-mode" onchange="toggleStockOrderMode()" style="font-size:13px;padding:8px 10px;">
+            <option value="regular" selected>Regular</option>
+            <option value="gtt">GTT / Forever</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Product</label>
+          <select id="stock-product-type" style="font-size:13px;padding:8px 10px;">
+            <option value="INTRADAY" selected>INTRADAY</option>
+            <option value="CNC">CNC</option>
+            <option value="MARGIN">MARGIN</option>
+            <option value="MTF">MTF</option>
+            <option value="CO">CO</option>
+            <option value="BO">BO</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Quantity</label>
+          <input type="number" id="stock-quantity" value="1" min="1" style="font-size:13px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Order Type</label>
+          <select id="stock-order-type" onchange="toggleStockOrderFields()" style="font-size:13px;padding:8px 10px;">
+            <option value="MARKET" selected>MARKET</option>
+            <option value="LIMIT">LIMIT</option>
+            <option value="STOP_LOSS">STOP_LOSS</option>
+            <option value="STOP_LOSS_MARKET">STOP_LOSS_MARKET</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Validity</label>
+          <select id="stock-validity" style="font-size:13px;padding:8px 10px;">
+            <option value="DAY" selected>DAY</option>
+            <option value="IOC">IOC</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Disclosed Qty</label>
+          <input type="number" id="stock-disclosed-qty" value="0" min="0" style="font-size:13px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Price</label>
+          <input type="number" id="stock-price" value="0" min="0" step="0.05" style="font-size:13px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Trigger Price</label>
+          <input type="number" id="stock-trigger-price" value="0" min="0" step="0.05" style="font-size:13px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+        </div>
+      </div>
+
+      <div id="stock-regular-extra" style="background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;align-items:end;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);height:36px;">
+            <input type="checkbox" id="stock-after-market" style="width:auto;accent-color:var(--accent);"> AMO
+          </label>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">AMO Time</label>
+            <select id="stock-amo-time" style="font-size:12px;padding:7px 9px;">
+              <option value="">—</option>
+              <option value="PRE_OPEN">PRE_OPEN</option>
+              <option value="OPEN">OPEN</option>
+              <option value="OPEN_30">OPEN_30</option>
+              <option value="OPEN_60">OPEN_60</option>
+            </select>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);height:36px;">
+            <input type="checkbox" id="stock-slice-order" style="width:auto;accent-color:var(--accent);"> Slice
+          </label>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">BO Target</label>
+            <input type="number" id="stock-bo-profit" value="0" min="0" step="0.05" style="font-size:12px;padding:7px 9px;font-family:'JetBrains Mono',monospace;">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">BO Stop Loss</label>
+            <input type="number" id="stock-bo-sl" value="0" min="0" step="0.05" style="font-size:12px;padding:7px 9px;font-family:'JetBrains Mono',monospace;">
+          </div>
+        </div>
+      </div>
+
+      <div id="stock-gtt-extra" style="display:none;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.22);border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">Flag</label>
+            <select id="stock-gtt-flag" onchange="toggleStockOrderFields()" style="font-size:12px;padding:7px 9px;">
+              <option value="SINGLE" selected>SINGLE</option>
+              <option value="OCO">OCO</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">Target Price</label>
+            <input type="number" id="stock-gtt-price1" value="0" min="0" step="0.05" style="font-size:12px;padding:7px 9px;font-family:'JetBrains Mono',monospace;">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;">Target Trigger</label>
+            <input type="number" id="stock-gtt-trigger1" value="0" min="0" step="0.05" style="font-size:12px;padding:7px 9px;font-family:'JetBrains Mono',monospace;">
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" onclick="submitStockTerminalOrder('BUY')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(52,211,153,0.28) 0%,rgba(16,150,90,0.48) 100%);--btn-color:#34d399;--btn-border:rgba(52,211,153,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▲ BUY</button>
+        <button class="btn" onclick="submitStockTerminalOrder('SELL')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(248,113,113,0.28) 0%,rgba(185,38,38,0.48) 100%);--btn-color:#f87171;--btn-border:rgba(248,113,113,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▼ SELL</button>
+      </div>
+      <div id="stock-terminal-entry-status" style="min-height:18px;margin-top:8px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 18px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;">Broker Orders</h3>
+      <button class="btn btn-sm" onclick="refreshStockTerminalOrders()" style="padding:5px 12px;font-size:11px;">Refresh Orders</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
+      <div style="overflow-x:auto;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Today</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">
+              <th style="padding:8px 8px;text-align:left;">Symbol</th>
+              <th style="padding:8px 8px;text-align:center;">Side</th>
+              <th style="padding:8px 8px;text-align:center;">Type</th>
+              <th style="padding:8px 8px;text-align:right;">Qty</th>
+              <th style="padding:8px 8px;text-align:center;">Status</th>
+              <th style="padding:8px 8px;text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="stock-terminal-orders-body">
+            <tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No orders loaded</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="overflow-x:auto;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">GTT / Forever</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">
+              <th style="padding:8px 8px;text-align:left;">Symbol</th>
+              <th style="padding:8px 8px;text-align:center;">Side</th>
+              <th style="padding:8px 8px;text-align:center;">Flag</th>
+              <th style="padding:8px 8px;text-align:right;">Trigger</th>
+              <th style="padding:8px 8px;text-align:center;">Status</th>
+              <th style="padding:8px 8px;text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="stock-terminal-gtt-body">
+            <tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No GTT orders loaded</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 

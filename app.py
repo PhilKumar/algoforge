@@ -2231,6 +2231,47 @@ class OrderRequest(BaseModel):
     order_type: str = "MARKET"
     product_type: str = "INTRADAY"
     price: float = Field(default=0, ge=0)
+    trigger_price: float = Field(default=0, ge=0)
+    validity: str = "DAY"
+    disclosed_quantity: int = Field(default=0, ge=0)
+    after_market_order: bool = False
+    amo_time: str = ""
+    bo_profit_value: float = Field(default=0, ge=0)
+    bo_stop_loss_value: float = Field(default=0, ge=0)
+    slice_order: bool = False
+
+
+class StockTerminalOrderRequest(BaseModel):
+    symbol: str
+    transaction_type: str
+    quantity: int = Field(ge=1, le=100_000)
+    order_type: str = "MARKET"
+    product_type: str = "INTRADAY"
+    price: float = Field(default=0, ge=0)
+    trigger_price: float = Field(default=0, ge=0)
+    validity: str = "DAY"
+    disclosed_quantity: int = Field(default=0, ge=0)
+    after_market_order: bool = False
+    amo_time: str = ""
+    bo_profit_value: float = Field(default=0, ge=0)
+    bo_stop_loss_value: float = Field(default=0, ge=0)
+    slice_order: bool = False
+
+
+class StockTerminalGttRequest(BaseModel):
+    symbol: str
+    transaction_type: str
+    quantity: int = Field(ge=1, le=100_000)
+    order_flag: str = "SINGLE"
+    order_type: str = "LIMIT"
+    product_type: str = "CNC"
+    validity: str = "DAY"
+    price: float = Field(default=0, ge=0)
+    trigger_price: float = Field(default=0, ge=0)
+    price1: float = Field(default=0, ge=0)
+    trigger_price1: float = Field(default=0, ge=0)
+    quantity1: int = Field(default=0, ge=0)
+    disclosed_quantity: int = Field(default=0, ge=0)
 
 
 class StrategyPayload(BaseModel):
@@ -5480,6 +5521,108 @@ INSTRUMENT_MAP = {
     "POWERGRID": {"name": "Power Grid", "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
 }
 
+NIFTY50_STOCKS = [
+    {"symbol": "RELIANCE", "name": "Reliance Industries"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank"},
+    {"symbol": "BHARTIARTL", "name": "Bharti Airtel"},
+    {"symbol": "SBIN", "name": "State Bank of India"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services"},
+    {"symbol": "BAJFINANCE", "name": "Bajaj Finance"},
+    {"symbol": "LT", "name": "Larsen & Toubro"},
+    {"symbol": "HINDUNILVR", "name": "Hindustan Unilever"},
+    {"symbol": "INFY", "name": "Infosys"},
+    {"symbol": "SUNPHARMA", "name": "Sun Pharmaceutical"},
+    {"symbol": "MARUTI", "name": "Maruti Suzuki"},
+    {"symbol": "M&M", "name": "Mahindra & Mahindra"},
+    {"symbol": "ADANIPORTS", "name": "Adani Ports & SEZ"},
+    {"symbol": "TITAN", "name": "Titan"},
+    {"symbol": "AXISBANK", "name": "Axis Bank"},
+    {"symbol": "NTPC", "name": "NTPC"},
+    {"symbol": "ITC", "name": "ITC"},
+    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank"},
+    {"symbol": "ULTRACEMCO", "name": "UltraTech Cement"},
+    {"symbol": "ONGC", "name": "Oil & Natural Gas Corporation"},
+    {"symbol": "HCLTECH", "name": "HCL Technologies"},
+    {"symbol": "ADANIENT", "name": "Adani Enterprises"},
+    {"symbol": "BEL", "name": "Bharat Electronics"},
+    {"symbol": "JSWSTEEL", "name": "JSW Steel"},
+    {"symbol": "BAJAJ-AUTO", "name": "Bajaj Auto"},
+    {"symbol": "POWERGRID", "name": "Power Grid Corporation of India"},
+    {"symbol": "BAJAJFINSV", "name": "Bajaj Finserv"},
+    {"symbol": "NESTLEIND", "name": "Nestle India"},
+    {"symbol": "COALINDIA", "name": "Coal India"},
+    {"symbol": "TATASTEEL", "name": "Tata Steel"},
+    {"symbol": "ASIANPAINT", "name": "Asian Paints"},
+    {"symbol": "ETERNAL", "name": "Eternal"},
+    {"symbol": "SHRIRAMFIN", "name": "Shriram Finance"},
+    {"symbol": "HINDALCO", "name": "Hindalco Industries"},
+    {"symbol": "WIPRO", "name": "Wipro"},
+    {"symbol": "GRASIM", "name": "Grasim Industries"},
+    {"symbol": "EICHERMOT", "name": "Eicher Motors"},
+    {"symbol": "SBILIFE", "name": "SBI Life Insurance"},
+    {"symbol": "INDIGO", "name": "InterGlobe Aviation"},
+    {"symbol": "JIOFIN", "name": "Jio Financial Services"},
+    {"symbol": "TRENT", "name": "Trent"},
+    {"symbol": "TECHM", "name": "Tech Mahindra"},
+    {"symbol": "HDFCLIFE", "name": "HDFC Life Insurance"},
+    {"symbol": "TMPV", "name": "Tata Motors Passenger Vehicles"},
+    {"symbol": "APOLLOHOSP", "name": "Apollo Hospitals"},
+    {"symbol": "TATACONSUM", "name": "Tata Consumer Products"},
+    {"symbol": "CIPLA", "name": "Cipla"},
+    {"symbol": "DRREDDY", "name": "Dr Reddy's Laboratories"},
+    {"symbol": "MAXHEALTH", "name": "Max Healthcare Institute"},
+]
+
+_NIFTY50_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY50_STOCKS}
+_NIFTY50_FALLBACK_ALIASES = {"M&M": "M_M"}
+
+
+def _resolve_nifty50_stock(symbol: str) -> dict:
+    """Resolve a Nifty 50 stock to Dhan NSE_EQ metadata."""
+    normalized = ScripMaster.normalize_equity_symbol(symbol)
+    stock = _NIFTY50_BY_SYMBOL.get(normalized)
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"Unknown Nifty 50 symbol: {symbol}")
+
+    equity = {}
+    try:
+        equity = ScripMaster.lookup_equity(normalized) or {}
+    except Exception as exc:
+        print(f"[TERMINAL] Equity lookup failed for {normalized}: {exc}")
+
+    fallback_key = _NIFTY50_FALLBACK_ALIASES.get(normalized, normalized)
+    fallback = INSTRUMENT_MAP.get(fallback_key, {})
+    security_id = str(equity.get("security_id") or fallback.get("dhan_id") or "")
+    return {
+        "symbol": normalized,
+        "name": stock["name"],
+        "security_id": security_id,
+        "exchange_segment": equity.get("exchange_segment") or fallback.get("dhan_seg") or "NSE_EQ",
+        "instrument_type": equity.get("instrument_type") or fallback.get("dhan_type") or "EQUITY",
+        "tradable": bool(security_id),
+    }
+
+
+def _extract_marketfeed_ltp(data: dict, exchange_segment: str, security_id: str) -> float:
+    if not isinstance(data, dict):
+        return 0.0
+    seg_data = data.get(exchange_segment, {})
+    if isinstance(seg_data, dict):
+        sid_data = seg_data.get(str(security_id), seg_data.get(int(security_id), {}))
+        if isinstance(sid_data, dict):
+            return float(sid_data.get("last_price", sid_data.get("ltp", 0)) or 0)
+        if isinstance(sid_data, (int, float)):
+            return float(sid_data)
+    for val in data.values():
+        if isinstance(val, dict):
+            for nested in val.values():
+                if isinstance(nested, dict):
+                    return float(nested.get("last_price", nested.get("ltp", 0)) or 0)
+                if isinstance(nested, (int, float)):
+                    return float(nested)
+    return 0.0
+
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
 INTRADAY_MAX_DAYS = MAX_INTRADAY_HISTORY_DAYS
@@ -7485,6 +7628,14 @@ async def place_order(req: OrderRequest, request: Request):
             order_type=req.order_type,
             product_type=req.product_type,
             price=req.price,
+            trigger_price=req.trigger_price,
+            validity=req.validity,
+            disclosed_quantity=req.disclosed_quantity,
+            after_market_order=req.after_market_order,
+            amo_time=req.amo_time,
+            bo_profit_value=req.bo_profit_value,
+            bo_stop_loss_value=req.bo_stop_loss_value,
+            slice_order=req.slice_order,
         )
     except Exception as e:
         alerter.alert(
@@ -7536,6 +7687,167 @@ async def cancel_order(order_id: str, request: Request):
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
         return broker_client.cancel_order(order_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/terminal/nifty50")
+async def terminal_nifty50():
+    stocks = [_resolve_nifty50_stock(stock["symbol"]) for stock in NIFTY50_STOCKS]
+    return {"status": "ok", "count": len(stocks), "data": stocks}
+
+
+@app.get("/api/terminal/quote")
+async def terminal_quote(symbol: str, request: Request):
+    stock = _resolve_nifty50_stock(symbol)
+    if not stock["security_id"]:
+        return {"status": "error", "message": f"No Dhan security ID found for {stock['symbol']}", "stock": stock}
+    _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        return {"status": "error", "message": "Broker not configured", "stock": stock}
+    try:
+        data = broker_client.get_ltp([stock["security_id"]], exchange_segment=stock["exchange_segment"])
+        ltp = _extract_marketfeed_ltp(data, stock["exchange_segment"], stock["security_id"])
+        return {"status": "ok", "stock": stock, "ltp": ltp}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "stock": stock}
+
+
+@app.post("/api/terminal/order")
+async def terminal_place_order(req: StockTerminalOrderRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit("terminal_place_order", ip, max_calls=3, window_sec=5)
+    stock = _resolve_nifty50_stock(req.symbol)
+    if not stock["security_id"]:
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
+
+    transaction_type = str(req.transaction_type or "").upper()
+    order_type = str(req.order_type or "MARKET").upper()
+    product_type = str(req.product_type or "INTRADAY").upper()
+    validity = str(req.validity or "DAY").upper()
+    if transaction_type not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if order_type not in {"MARKET", "LIMIT", "STOP_LOSS", "STOP_LOSS_MARKET"}:
+        raise HTTPException(status_code=400, detail="Unsupported Dhan order_type")
+    if product_type not in {"CNC", "INTRADAY", "MARGIN", "MTF", "CO", "BO"}:
+        raise HTTPException(status_code=400, detail="Unsupported Dhan product_type")
+    if validity not in {"DAY", "IOC"}:
+        raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if order_type in {"LIMIT", "STOP_LOSS"} and req.price <= 0:
+        raise HTTPException(status_code=400, detail=f"{order_type} requires price")
+    if order_type in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
+        raise HTTPException(status_code=400, detail=f"{order_type} requires trigger_price")
+
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+    try:
+        result = broker_client.place_order(
+            security_id=stock["security_id"],
+            exchange_segment=stock["exchange_segment"],
+            transaction_type=transaction_type,
+            quantity=req.quantity,
+            order_type=order_type,
+            product_type=product_type,
+            price=req.price,
+            trigger_price=req.trigger_price,
+            validity=validity,
+            disclosed_quantity=req.disclosed_quantity,
+            after_market_order=req.after_market_order,
+            amo_time=req.amo_time,
+            bo_profit_value=req.bo_profit_value,
+            bo_stop_loss_value=req.bo_stop_loss_value,
+            slice_order=req.slice_order,
+            tag=f"PFSTK_{stock['symbol']}",
+        )
+        return {"status": "ok", "stock": stock, "response": result}
+    except Exception as e:
+        alerter.alert(
+            "Stock Terminal Order Failed",
+            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {e}",
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/terminal/gtt")
+async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit("terminal_place_gtt", ip, max_calls=3, window_sec=5)
+    stock = _resolve_nifty50_stock(req.symbol)
+    if not stock["security_id"]:
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
+
+    transaction_type = str(req.transaction_type or "").upper()
+    order_flag = str(req.order_flag or "SINGLE").upper()
+    order_type = str(req.order_type or "LIMIT").upper()
+    product_type = str(req.product_type or "CNC").upper()
+    validity = str(req.validity or "DAY").upper()
+    if transaction_type not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if order_flag not in {"SINGLE", "OCO"}:
+        raise HTTPException(status_code=400, detail="order_flag must be SINGLE or OCO")
+    if order_type not in {"MARKET", "LIMIT"}:
+        raise HTTPException(status_code=400, detail="Forever orders support MARKET or LIMIT")
+    if product_type not in {"CNC", "MTF"}:
+        raise HTTPException(status_code=400, detail="Forever orders support CNC or MTF")
+    if validity not in {"DAY", "IOC"}:
+        raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if req.trigger_price <= 0:
+        raise HTTPException(status_code=400, detail="GTT trigger_price is required")
+    if order_type == "LIMIT" and req.price <= 0:
+        raise HTTPException(status_code=400, detail="GTT LIMIT requires price")
+    if order_flag == "OCO" and (req.trigger_price1 <= 0 or req.price1 <= 0):
+        raise HTTPException(status_code=400, detail="OCO requires target price and target trigger")
+
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+    try:
+        result = broker_client.place_forever_order(
+            security_id=stock["security_id"],
+            exchange_segment=stock["exchange_segment"],
+            transaction_type=transaction_type,
+            quantity=req.quantity,
+            order_flag=order_flag,
+            product_type=product_type,
+            order_type=order_type,
+            validity=validity,
+            price=req.price,
+            trigger_price=req.trigger_price,
+            price1=req.price1,
+            trigger_price1=req.trigger_price1,
+            quantity1=req.quantity1,
+            disclosed_quantity=req.disclosed_quantity,
+            tag=f"PFGTT_{stock['symbol']}",
+        )
+        return {"status": "ok", "stock": stock, "response": result}
+    except Exception as e:
+        alerter.alert(
+            "Stock Terminal GTT Failed",
+            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {e}",
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/terminal/forever")
+async def terminal_forever_orders(request: Request):
+    try:
+        user, broker_client, source = await _request_broker_context(request)
+        if not broker_client:
+            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
+        orders = broker_client.get_forever_orders()
+        return {"status": "success", "data": orders if isinstance(orders, list) else []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200], "data": []}
+
+
+@app.delete("/api/terminal/forever/{order_id}")
+async def terminal_cancel_forever(order_id: str, request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+    try:
+        return broker_client.cancel_forever_order(order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
