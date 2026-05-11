@@ -3174,9 +3174,13 @@ async function submitStockTerminalOrder(direction) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status !== 'ok') {
-      throw new Error(data.detail || data.message || 'Order failed');
+      throw new Error(_stockTerminalFailureReason(data, `${mode === 'gtt' ? 'GTT' : 'Order'} failed`));
     }
     const broker = data.response || {};
+    const brokerStatus = String(broker.orderStatus || broker.status || '').toUpperCase();
+    if (['REJECTED', 'FAILED', 'FAILURE', 'ERROR'].includes(brokerStatus)) {
+      throw new Error(_stockBrokerOrderReason(broker) || `${mode === 'gtt' ? 'GTT' : 'Order'} ${brokerStatus}`);
+    }
     const oid = broker.orderId || broker.order_id || 'submitted';
     if (statusEl) {
       statusEl.textContent = `${mode === 'gtt' ? 'GTT' : 'Order'} ${oid} ${broker.orderStatus || ''}`;
@@ -3207,6 +3211,60 @@ function _canCancelBrokerOrder(status) {
   return ['TRANSIT', 'PENDING', 'CONFIRM'].includes(String(status || '').toUpperCase());
 }
 
+const _STOCK_TERMINAL_REASON_KEYS = [
+  'rejectionReason', 'omsErrorDescription', 'reason', 'errorMessage', 'error_message',
+  'message', 'detail', 'remarks', 'description'
+];
+
+function _stockTerminalCleanReason(value) {
+  const text = String(value ?? '').trim();
+  if (!text || ['failure', 'failed', 'error', 'none', 'null', 'undefined'].includes(text.toLowerCase())) return '';
+  if (text[0] === '{' || text[0] === '[') {
+    try {
+      return _stockTerminalReasonFromObject(JSON.parse(text)) || text;
+    } catch (e) {
+      // Fall through to regex extraction.
+    }
+  }
+  const match = text.match(/"(?:rejectionReason|omsErrorDescription|reason|errorMessage|message|detail)"\s*:\s*"([^"]+)"/i);
+  if (match && match[1]) return _stockTerminalCleanReason(match[1]);
+  return text.replace(/\s+/g, ' ');
+}
+
+function _stockTerminalReasonFromObject(value, seen = new Set()) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return _stockTerminalCleanReason(value);
+  if (typeof value !== 'object') return '';
+  if (seen.has(value)) return '';
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const reason = _stockTerminalReasonFromObject(item, seen);
+      if (reason) return reason;
+    }
+    return '';
+  }
+  for (const key of _STOCK_TERMINAL_REASON_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      const reason = _stockTerminalReasonFromObject(value[key], seen);
+      if (reason) return reason;
+    }
+  }
+  if (value.data && typeof value.data === 'object') {
+    const reason = _stockTerminalReasonFromObject(value.data, seen);
+    if (reason) return reason;
+  }
+  return '';
+}
+
+function _stockTerminalFailureReason(data, fallback = 'Order failed') {
+  return _stockTerminalReasonFromObject(data) || fallback;
+}
+
+function _stockBrokerOrderReason(order) {
+  return _stockTerminalReasonFromObject(order);
+}
+
 async function refreshStockTerminalOrders() {
   const ordersBody = document.getElementById('stock-terminal-orders-body');
   const gttBody = document.getElementById('stock-terminal-gtt-body');
@@ -3221,6 +3279,7 @@ async function refreshStockTerminalOrders() {
       const latest = orders.slice().reverse().slice(0, 12);
       ordersBody.innerHTML = latest.length ? latest.map(o => {
         const status = o.orderStatus || o.status || '';
+        const reason = _stockBrokerOrderReason(o);
         const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
           ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
@@ -3230,14 +3289,16 @@ async function refreshStockTerminalOrders() {
           <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderType || '')}</td>
           <td style="padding:7px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.quantity || o.orderQuantity || 0)}</td>
           <td style="padding:7px 8px;text-align:center;color:${_stockOrderStatusTone(status)};">${escapeHtml(status)}</td>
+          <td title="${escapeAttr(reason || '')}" style="padding:7px 8px;max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${reason ? 'var(--text-dim)' : 'var(--muted)'};">${escapeHtml(reason || '—')}</td>
           <td style="padding:7px 8px;text-align:center;">${cancelBtn}</td>
         </tr>`;
-      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No orders today</td></tr>';
+      }).join('') : '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--muted);">No orders today</td></tr>';
     }
     if (gttBody) {
       const latestGtt = gtt.slice().reverse().slice(0, 12);
       gttBody.innerHTML = latestGtt.length ? latestGtt.map(o => {
         const status = o.orderStatus || o.status || '';
+        const reason = _stockBrokerOrderReason(o);
         const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
           ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
@@ -3247,13 +3308,14 @@ async function refreshStockTerminalOrders() {
           <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderType || o.orderFlag || '')}</td>
           <td style="padding:7px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${Number(o.triggerPrice || 0).toFixed(2)}</td>
           <td style="padding:7px 8px;text-align:center;color:${_stockOrderStatusTone(status)};">${escapeHtml(status)}</td>
+          <td title="${escapeAttr(reason || '')}" style="padding:7px 8px;max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${reason ? 'var(--text-dim)' : 'var(--muted)'};">${escapeHtml(reason || '—')}</td>
           <td style="padding:7px 8px;text-align:center;">${cancelBtn}</td>
         </tr>`;
-      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--muted);">No GTT orders</td></tr>';
+      }).join('') : '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--muted);">No GTT orders</td></tr>';
     }
   } catch (e) {
-    if (ordersBody) ordersBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--danger);">Orders unavailable</td></tr>';
-    if (gttBody) gttBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--danger);">GTT unavailable</td></tr>';
+    if (ordersBody) ordersBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--danger);">Orders unavailable</td></tr>';
+    if (gttBody) gttBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--danger);">GTT unavailable</td></tr>';
   }
 }
 

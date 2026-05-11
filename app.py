@@ -29,7 +29,7 @@ import time
 from collections import Counter, defaultdict, deque
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(
@@ -68,7 +68,7 @@ from pydantic import BaseModel, Field
 import auth as _auth_mod
 import config
 import db as _db_mod
-from broker.dhan import DhanClient, ScripMaster
+from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
@@ -1512,6 +1512,22 @@ def _broker_not_configured_message(user: dict | None, source: str) -> str:
     if user and user.get("role") == "admin":
         return "Dhan API credentials not configured. Add user broker credentials or keep the admin .env fallback configured."
     return "Broker credentials are not configured for this user."
+
+
+def _broker_order_failure_detail(exc: Exception, fallback_message: str = "Order failed") -> dict[str, Any]:
+    reason = str(getattr(exc, "reason", "") or exc or fallback_message).strip()
+    detail: dict[str, Any] = {
+        "message": fallback_message,
+        "reason": reason,
+        "error": str(exc),
+    }
+    status_code = getattr(exc, "status_code", None)
+    if status_code:
+        detail["broker_status_code"] = status_code
+    payload = getattr(exc, "payload", None)
+    if isinstance(payload, dict):
+        detail["broker_response"] = payload
+    return detail
 
 
 def _looks_like_broker_auth_error(message: str) -> bool:
@@ -7638,11 +7654,12 @@ async def place_order(req: OrderRequest, request: Request):
             slice_order=req.slice_order,
         )
     except Exception as e:
+        detail = _broker_order_failure_detail(e, "Order failed")
         alerter.alert(
             "Order Failed",
-            f"Security: {req.security_id}\nType: {req.transaction_type}\nQty: {req.quantity}\nError: {e}",
+            f"Security: {req.security_id}\nType: {req.transaction_type}\nQty: {req.quantity}\nError: {detail['reason']}",
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
 
 
 @app.get("/api/orders")
@@ -7762,11 +7779,12 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
         )
         return {"status": "ok", "stock": stock, "response": result}
     except Exception as e:
+        detail = _broker_order_failure_detail(e, "Stock terminal order failed")
         alerter.alert(
             "Stock Terminal Order Failed",
-            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {e}",
+            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {detail['reason']}",
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
 
 
 @app.post("/api/terminal/gtt")
@@ -7822,11 +7840,12 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
         )
         return {"status": "ok", "stock": stock, "response": result}
     except Exception as e:
+        detail = _broker_order_failure_detail(e, "Stock terminal GTT failed")
         alerter.alert(
             "Stock Terminal GTT Failed",
-            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {e}",
+            f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {detail['reason']}",
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
 
 
 @app.get("/api/terminal/forever")

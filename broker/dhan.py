@@ -16,7 +16,7 @@ import threading
 import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 import pandas as pd
@@ -155,6 +155,113 @@ def round_to_tick(price: float, tick_size: float = 0.05) -> float:
     # Scale to integer domain, round, scale back
     multiplier = round(1 / tick_size)  # 20 for 0.05 tick
     return round(round(price * multiplier) / multiplier, 2)
+
+
+class DhanOrderError(Exception):
+    """Broker order failure with the parsed Dhan rejection reason attached."""
+
+    def __init__(
+        self,
+        action: str,
+        status_code: int,
+        reason: str,
+        payload: Any = None,
+        raw_body: str = "",
+    ):
+        self.action = action
+        self.status_code = status_code
+        self.reason = reason or "Broker rejected the order"
+        self.payload = payload
+        self.raw_body = raw_body
+        super().__init__(f"{action} failed ({status_code}): {self.reason}")
+
+
+_DHAN_ERROR_REASON_KEYS = (
+    "rejectionReason",
+    "omsErrorDescription",
+    "errorMessage",
+    "error_message",
+    "message",
+    "detail",
+    "reason",
+    "remarks",
+    "description",
+)
+
+
+def _clean_dhan_error_text(value) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"failure", "failed", "error", "none", "null"}:
+        return ""
+    return re.sub(r"\s+", " ", text)
+
+
+def _extract_dhan_error_reason(payload: Any, fallback: str = "") -> str:
+    """Extract the most useful human-readable broker rejection reason."""
+
+    seen: set[int] = set()
+
+    def walk(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            parsed_text = _clean_dhan_error_text(value)
+            if parsed_text and parsed_text[:1] in "[{":
+                try:
+                    parsed = json.loads(parsed_text)
+                    nested = walk(parsed)
+                    if nested:
+                        return nested
+                except Exception:
+                    pass
+            return parsed_text
+        if isinstance(value, (int, float)):
+            return _clean_dhan_error_text(value)
+        if isinstance(value, (dict, list, tuple)):
+            marker = id(value)
+            if marker in seen:
+                return ""
+            seen.add(marker)
+        if isinstance(value, dict):
+            for key in _DHAN_ERROR_REASON_KEYS:
+                if key in value:
+                    reason = walk(value.get(key))
+                    if reason:
+                        return reason
+            data = value.get("data")
+            if isinstance(data, dict):
+                for nested in data.values():
+                    reason = walk(nested)
+                    if reason:
+                        return reason
+            elif data is not None:
+                reason = walk(data)
+                if reason:
+                    return reason
+            for nested in value.values():
+                reason = walk(nested)
+                if reason:
+                    return reason
+            return ""
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                reason = walk(item)
+                if reason:
+                    return reason
+        return ""
+
+    return walk(payload) or walk(fallback) or "Broker rejected the order"
+
+
+def _raise_dhan_order_error(action: str, resp) -> None:
+    raw_body = str(getattr(resp, "text", "") or "")
+    payload = None
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = None
+    reason = _extract_dhan_error_reason(payload, raw_body)
+    raise DhanOrderError(action, resp.status_code, reason, payload, raw_body)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1262,7 +1369,7 @@ class DhanClient:
             raise
         if resp.status_code not in (200, 201):
             _circuit_breaker.record_failure()
-            raise Exception(f"Order placement failed {resp.status_code}: {resp.text}")
+            _raise_dhan_order_error("Order placement", resp)
         _circuit_breaker.record_success()
         return resp.json()
 
@@ -1320,7 +1427,7 @@ class DhanClient:
             refresh_token_func=self.refresh_access_token,
         )
         if resp.status_code not in (200, 201):
-            raise Exception(f"Forever order placement failed {resp.status_code}: {resp.text}")
+            _raise_dhan_order_error("Forever order placement", resp)
         return resp.json()
 
     def place_option_order(
