@@ -1022,6 +1022,7 @@ async function applyNavState(state) {
   const btn = document.getElementById(NAV_BUTTON_MAP[page] || '');
   showPage(page, btn, { pushHistory: false, historyState: state });
   if (page === 'live-page') startLiveMonitor();
+  if (page === 'stock-terminal-page') initStockTerminalPage();
   if (page === 'scalp-page') initScalpPage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
@@ -2947,16 +2948,15 @@ let _stockTerminalOrderWatchTimer = null;
 let _stockTerminalOrderInFlight = false;
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 
-async function initStockTerminalPage() {
+async function initStockTerminalPage(force = false) {
   toggleStockOrderMode();
   toggleStockOrderFields();
-  if (!_stockTerminalInitialized) {
-    await loadStockTerminalStocks();
-    _stockTerminalInitialized = true;
+  if (force || !_stockTerminalInitialized || !_stockTerminalStocks.length) {
+    _stockTerminalInitialized = await loadStockTerminalStocks();
   } else {
     renderStockTerminalList();
   }
-  refreshStockTerminalQuote(true);
+  if (_stockTerminalSelected) refreshStockTerminalQuote(true);
   refreshStockTerminalOrders();
   if (!_stockTerminalQuoteTimer) {
     _stockTerminalQuoteTimer = setInterval(() => {
@@ -2992,10 +2992,12 @@ async function loadStockTerminalStocks() {
     const savedStock = _stockTerminalStocks.find(s => s.symbol === saved);
     selectStockTerminal(savedStock?.symbol || _stockTerminalStocks.find(s => s.tradable)?.symbol || _stockTerminalStocks[0]?.symbol || '', { skipQuote: true });
     _setStockTerminalStatus('Ready', 'ok');
+    return true;
   } catch (e) {
     _setStockTerminalStatus('Load failed', 'error');
     const body = document.getElementById('stock-terminal-body');
     if (body) body.innerHTML = `<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--danger);">${escapeHtml(e.message || 'Load failed')}</td></tr>`;
+    return false;
   }
 }
 
