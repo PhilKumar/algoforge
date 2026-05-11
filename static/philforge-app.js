@@ -2943,6 +2943,7 @@ let _stockTerminalStocks = [];
 let _stockTerminalSelected = null;
 let _stockTerminalQuoteTimer = null;
 let _stockTerminalOrdersTimer = null;
+let _stockTerminalOrderWatchTimer = null;
 let _stockTerminalOrderInFlight = false;
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 
@@ -3181,13 +3182,13 @@ async function submitStockTerminalOrder(direction) {
     if (['REJECTED', 'FAILED', 'FAILURE', 'ERROR'].includes(brokerStatus)) {
       throw new Error(_stockBrokerOrderReason(broker) || `${mode === 'gtt' ? 'GTT' : 'Order'} ${brokerStatus}`);
     }
-    const oid = broker.orderId || broker.order_id || 'submitted';
-    if (statusEl) {
-      statusEl.textContent = `${mode === 'gtt' ? 'GTT' : 'Order'} ${oid} ${broker.orderStatus || ''}`;
-      statusEl.style.color = 'var(--success)';
-    }
+    const oid = _stockTerminalOrderId(broker) || 'submitted';
+    _updateStockTerminalEntryStatus(oid, brokerStatus || 'SUBMITTED', mode, _stockBrokerOrderReason(broker));
     toast(`${mode === 'gtt' ? 'GTT' : 'Order'} placed for ${payload.symbol}`, 'success');
     refreshStockTerminalOrders();
+    if (oid !== 'submitted' && (!brokerStatus || _stockTerminalIsPendingStatus(brokerStatus))) {
+      watchStockTerminalOrder(oid, mode);
+    }
   } catch (e) {
     if (statusEl) {
       statusEl.textContent = e.message || 'Order failed';
@@ -3202,13 +3203,33 @@ async function submitStockTerminalOrder(direction) {
 
 function _stockOrderStatusTone(status) {
   const s = String(status || '').toUpperCase();
-  if (['TRADED', 'CONFIRM'].includes(s)) return 'var(--success)';
-  if (['REJECTED', 'CANCELLED', 'EXPIRED'].includes(s)) return 'var(--danger)';
+  if (_stockTerminalIsSuccessStatus(s)) return 'var(--success)';
+  if (_stockTerminalIsFailureStatus(s)) return 'var(--danger)';
   return 'var(--warn)';
 }
 
 function _canCancelBrokerOrder(status) {
   return ['TRANSIT', 'PENDING', 'CONFIRM'].includes(String(status || '').toUpperCase());
+}
+
+function _stockTerminalOrderId(order) {
+  return String(order?.orderId || order?.order_id || order?.id || order?.orderNo || '').trim();
+}
+
+function _stockTerminalOrderStatus(order) {
+  return String(order?.orderStatus || order?.status || '').trim().toUpperCase();
+}
+
+function _stockTerminalIsFailureStatus(status) {
+  return ['REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED', 'FAILURE', 'ERROR'].includes(String(status || '').toUpperCase());
+}
+
+function _stockTerminalIsSuccessStatus(status) {
+  return ['TRADED', 'FILLED', 'COMPLETE', 'COMPLETED'].includes(String(status || '').toUpperCase());
+}
+
+function _stockTerminalIsPendingStatus(status) {
+  return ['', 'TRANSIT', 'PENDING', 'OPEN', 'CONFIRM', 'PART_TRADED', 'VALIDATION_PENDING', 'VALIDATION PENDING'].includes(String(status || '').toUpperCase());
 }
 
 const _STOCK_TERMINAL_REASON_KEYS = [
@@ -3262,7 +3283,80 @@ function _stockTerminalFailureReason(data, fallback = 'Order failed') {
 }
 
 function _stockBrokerOrderReason(order) {
-  return _stockTerminalReasonFromObject(order);
+  const reason = _stockTerminalReasonFromObject(order);
+  if (!reason) return '';
+  const status = _stockTerminalOrderStatus(order);
+  if (!status || _stockTerminalIsFailureStatus(status)) return reason;
+  if (/(reject|fail|invalid|insufficient|rms|margin|not allowed|exceed|freeze|tick|price|quantity)/i.test(reason)) return reason;
+  return '';
+}
+
+function _updateStockTerminalEntryStatus(orderId, status, mode, reason = '') {
+  const statusEl = document.getElementById('stock-terminal-entry-status');
+  if (!statusEl) return;
+  const cleanStatus = String(status || 'SUBMITTED').toUpperCase();
+  const label = mode === 'gtt' ? 'GTT' : 'Order';
+  const suffix = reason ? ` - ${reason}` : (_stockTerminalIsPendingStatus(cleanStatus) ? ' - awaiting broker confirmation' : '');
+  statusEl.textContent = `${label} ${orderId || ''} ${cleanStatus}${suffix}`.trim();
+  statusEl.style.color = _stockTerminalIsFailureStatus(cleanStatus)
+    ? 'var(--danger)'
+    : (_stockTerminalIsPendingStatus(cleanStatus) ? 'var(--warn)' : 'var(--success)');
+}
+
+async function _fetchStockTerminalTrackedOrder(orderId, mode) {
+  const target = String(orderId || '').trim();
+  if (!target) return null;
+  if (mode === 'regular') {
+    try {
+      const res = await fetch('/api/orders/' + encodeURIComponent(target) + '/status', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status === 'success' && data.data && typeof data.data === 'object') {
+        if (!_stockTerminalOrderId(data.data)) data.data.orderId = target;
+        return data.data;
+      }
+    } catch (e) {
+      // Fall back to the order book below.
+    }
+  }
+  const url = mode === 'gtt' ? '/api/terminal/forever' : '/api/orders';
+  const data = await fetch(url, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ data: [] }));
+  const rows = Array.isArray(data.data) ? data.data : [];
+  return rows.find(o => _stockTerminalOrderId(o) === target) || null;
+}
+
+function watchStockTerminalOrder(orderId, mode) {
+  if (_stockTerminalOrderWatchTimer) clearTimeout(_stockTerminalOrderWatchTimer);
+  let attempts = 0;
+  const maxAttempts = mode === 'gtt' ? 8 : 16;
+  const tick = async () => {
+    attempts += 1;
+    try {
+      const order = await _fetchStockTerminalTrackedOrder(orderId, mode);
+      if (order) {
+        const status = _stockTerminalOrderStatus(order) || 'SUBMITTED';
+        const reason = _stockBrokerOrderReason(order);
+        _updateStockTerminalEntryStatus(orderId, status, mode, reason);
+        refreshStockTerminalOrders();
+        if (_stockTerminalIsFailureStatus(status)) {
+          toast(`Order ${status}: ${reason || 'No broker reason returned'}`, 'error');
+          _stockTerminalOrderWatchTimer = null;
+          return;
+        }
+        if (_stockTerminalIsSuccessStatus(status)) {
+          _stockTerminalOrderWatchTimer = null;
+          return;
+        }
+      }
+    } catch (e) {
+      // Keep the existing placement status visible if the poll fails.
+    }
+    if (attempts < maxAttempts) {
+      _stockTerminalOrderWatchTimer = setTimeout(tick, 2500);
+    } else {
+      _stockTerminalOrderWatchTimer = null;
+    }
+  };
+  tick();
 }
 
 async function refreshStockTerminalOrders() {
@@ -3280,8 +3374,9 @@ async function refreshStockTerminalOrders() {
       ordersBody.innerHTML = latest.length ? latest.map(o => {
         const status = o.orderStatus || o.status || '';
         const reason = _stockBrokerOrderReason(o);
-        const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
-          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+        const orderId = _stockTerminalOrderId(o);
+        const cancelBtn = _canCancelBrokerOrder(status) && orderId
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
         return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
           <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>
@@ -3299,8 +3394,9 @@ async function refreshStockTerminalOrders() {
       gttBody.innerHTML = latestGtt.length ? latestGtt.map(o => {
         const status = o.orderStatus || o.status || '';
         const reason = _stockBrokerOrderReason(o);
-        const cancelBtn = _canCancelBrokerOrder(status) && o.orderId
-          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(o.orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+        const orderId = _stockTerminalOrderId(o);
+        const cancelBtn = _canCancelBrokerOrder(status) && orderId
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
         return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
           <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>

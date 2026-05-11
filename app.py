@@ -7674,6 +7674,20 @@ async def get_orders(request: Request):
         return {"status": "error", "message": str(e)[:100], "data": []}
 
 
+@app.get("/api/orders/{order_id}/status")
+async def get_order_status(order_id: str, request: Request):
+    user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+    try:
+        status = broker_client.get_order_status(order_id)
+        if isinstance(status, dict) and not (status.get("orderId") or status.get("order_id")):
+            status["orderId"] = order_id
+        return {"status": "success", "data": status if isinstance(status, dict) else {}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/positions")
 async def get_positions(request: Request):
     try:
