@@ -3027,7 +3027,7 @@ function updateStockOrderValue() {
 async function loadStockTerminalStocks() {
   _setStockTerminalStatus('Loading', '');
   try {
-    const res = await fetch('/api/terminal/nifty50', { cache: 'no-store' });
+    const res = await fetch('/api/terminal/nifty100', { cache: 'no-store' });
     const data = await res.json();
     if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to load stocks');
     _stockTerminalStocks = Array.isArray(data.data) ? data.data : [];

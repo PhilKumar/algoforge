@@ -5537,69 +5537,119 @@ INSTRUMENT_MAP = {
     "POWERGRID": {"name": "Power Grid", "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
 }
 
-NIFTY50_STOCKS = [
-    {"symbol": "RELIANCE", "name": "Reliance Industries"},
-    {"symbol": "HDFCBANK", "name": "HDFC Bank"},
-    {"symbol": "BHARTIARTL", "name": "Bharti Airtel"},
-    {"symbol": "SBIN", "name": "State Bank of India"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank"},
-    {"symbol": "TCS", "name": "Tata Consultancy Services"},
-    {"symbol": "BAJFINANCE", "name": "Bajaj Finance"},
-    {"symbol": "LT", "name": "Larsen & Toubro"},
-    {"symbol": "HINDUNILVR", "name": "Hindustan Unilever"},
-    {"symbol": "INFY", "name": "Infosys"},
-    {"symbol": "SUNPHARMA", "name": "Sun Pharmaceutical"},
-    {"symbol": "MARUTI", "name": "Maruti Suzuki"},
-    {"symbol": "M&M", "name": "Mahindra & Mahindra"},
-    {"symbol": "ADANIPORTS", "name": "Adani Ports & SEZ"},
-    {"symbol": "TITAN", "name": "Titan"},
-    {"symbol": "AXISBANK", "name": "Axis Bank"},
-    {"symbol": "NTPC", "name": "NTPC"},
-    {"symbol": "ITC", "name": "ITC"},
-    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank"},
-    {"symbol": "ULTRACEMCO", "name": "UltraTech Cement"},
-    {"symbol": "ONGC", "name": "Oil & Natural Gas Corporation"},
-    {"symbol": "HCLTECH", "name": "HCL Technologies"},
+NIFTY100_STOCKS = [
+    {"symbol": "ABB", "name": "ABB India"},
+    {"symbol": "ADANIENSOL", "name": "Adani Energy Solutions"},
     {"symbol": "ADANIENT", "name": "Adani Enterprises"},
-    {"symbol": "BEL", "name": "Bharat Electronics"},
-    {"symbol": "JSWSTEEL", "name": "JSW Steel"},
-    {"symbol": "BAJAJ-AUTO", "name": "Bajaj Auto"},
-    {"symbol": "POWERGRID", "name": "Power Grid Corporation of India"},
-    {"symbol": "BAJAJFINSV", "name": "Bajaj Finserv"},
-    {"symbol": "NESTLEIND", "name": "Nestle India"},
-    {"symbol": "COALINDIA", "name": "Coal India"},
-    {"symbol": "TATASTEEL", "name": "Tata Steel"},
+    {"symbol": "ADANIGREEN", "name": "Adani Green Energy"},
+    {"symbol": "ADANIPORTS", "name": "Adani Ports & SEZ"},
+    {"symbol": "ADANIPOWER", "name": "Adani Power"},
+    {"symbol": "AMBUJACEM", "name": "Ambuja Cements"},
+    {"symbol": "APOLLOHOSP", "name": "Apollo Hospitals Enterprise"},
     {"symbol": "ASIANPAINT", "name": "Asian Paints"},
-    {"symbol": "ETERNAL", "name": "Eternal"},
-    {"symbol": "SHRIRAMFIN", "name": "Shriram Finance"},
-    {"symbol": "HINDALCO", "name": "Hindalco Industries"},
-    {"symbol": "WIPRO", "name": "Wipro"},
-    {"symbol": "GRASIM", "name": "Grasim Industries"},
-    {"symbol": "EICHERMOT", "name": "Eicher Motors"},
-    {"symbol": "SBILIFE", "name": "SBI Life Insurance"},
-    {"symbol": "INDIGO", "name": "InterGlobe Aviation"},
-    {"symbol": "JIOFIN", "name": "Jio Financial Services"},
-    {"symbol": "TRENT", "name": "Trent"},
-    {"symbol": "TECHM", "name": "Tech Mahindra"},
-    {"symbol": "HDFCLIFE", "name": "HDFC Life Insurance"},
-    {"symbol": "TMPV", "name": "Tata Motors Passenger Vehicles"},
-    {"symbol": "APOLLOHOSP", "name": "Apollo Hospitals"},
-    {"symbol": "TATACONSUM", "name": "Tata Consumer Products"},
+    {"symbol": "DMART", "name": "Avenue Supermarts"},
+    {"symbol": "AXISBANK", "name": "Axis Bank"},
+    {"symbol": "BAJAJ-AUTO", "name": "Bajaj Auto"},
+    {"symbol": "BAJFINANCE", "name": "Bajaj Finance"},
+    {"symbol": "BAJAJFINSV", "name": "Bajaj Finserv"},
+    {"symbol": "BAJAJHLDNG", "name": "Bajaj Holdings & Investment"},
+    {"symbol": "BANKBARODA", "name": "Bank of Baroda"},
+    {"symbol": "BEL", "name": "Bharat Electronics"},
+    {"symbol": "BPCL", "name": "Bharat Petroleum Corporation"},
+    {"symbol": "BHARTIARTL", "name": "Bharti Airtel"},
+    {"symbol": "BOSCHLTD", "name": "Bosch"},
+    {"symbol": "BRITANNIA", "name": "Britannia Industries"},
+    {"symbol": "CANBK", "name": "Canara Bank"},
+    {"symbol": "CGPOWER", "name": "CG Power and Industrial Solutions"},
+    {"symbol": "CHOLAFIN", "name": "Cholamandalam Investment & Finance"},
     {"symbol": "CIPLA", "name": "Cipla"},
+    {"symbol": "COALINDIA", "name": "Coal India"},
+    {"symbol": "CUMMINSIND", "name": "Cummins India"},
+    {"symbol": "DIVISLAB", "name": "Divi's Laboratories"},
+    {"symbol": "DLF", "name": "DLF"},
     {"symbol": "DRREDDY", "name": "Dr Reddy's Laboratories"},
+    {"symbol": "EICHERMOT", "name": "Eicher Motors"},
+    {"symbol": "ETERNAL", "name": "Eternal"},
+    {"symbol": "GAIL", "name": "GAIL (India)"},
+    {"symbol": "GODREJCP", "name": "Godrej Consumer Products"},
+    {"symbol": "GRASIM", "name": "Grasim Industries"},
+    {"symbol": "HCLTECH", "name": "HCL Technologies"},
+    {"symbol": "HDFCAMC", "name": "HDFC Asset Management Company"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank"},
+    {"symbol": "HDFCLIFE", "name": "HDFC Life Insurance"},
+    {"symbol": "HINDALCO", "name": "Hindalco Industries"},
+    {"symbol": "HAL", "name": "Hindustan Aeronautics"},
+    {"symbol": "HINDUNILVR", "name": "Hindustan Unilever"},
+    {"symbol": "HINDZINC", "name": "Hindustan Zinc"},
+    {"symbol": "HYUNDAI", "name": "Hyundai Motor India"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank"},
+    {"symbol": "INDHOTEL", "name": "Indian Hotels Company"},
+    {"symbol": "IOC", "name": "Indian Oil Corporation"},
+    {"symbol": "IRFC", "name": "Indian Railway Finance Corporation"},
+    {"symbol": "INFY", "name": "Infosys"},
+    {"symbol": "INDIGO", "name": "InterGlobe Aviation"},
+    {"symbol": "ITC", "name": "ITC"},
+    {"symbol": "JINDALSTEL", "name": "Jindal Steel"},
+    {"symbol": "JIOFIN", "name": "Jio Financial Services"},
+    {"symbol": "JSWSTEEL", "name": "JSW Steel"},
+    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank"},
+    {"symbol": "LT", "name": "Larsen & Toubro"},
+    {"symbol": "LODHA", "name": "Lodha Developers"},
+    {"symbol": "LTIM", "name": "LTIMindtree"},
+    {"symbol": "M&M", "name": "Mahindra & Mahindra"},
+    {"symbol": "MARUTI", "name": "Maruti Suzuki India"},
     {"symbol": "MAXHEALTH", "name": "Max Healthcare Institute"},
+    {"symbol": "MAZDOCK", "name": "Mazagon Dock Shipbuilders"},
+    {"symbol": "MUTHOOTFIN", "name": "Muthoot Finance"},
+    {"symbol": "NESTLEIND", "name": "Nestle India"},
+    {"symbol": "NTPC", "name": "NTPC"},
+    {"symbol": "ONGC", "name": "Oil & Natural Gas Corporation"},
+    {"symbol": "PIDILITIND", "name": "Pidilite Industries"},
+    {"symbol": "PFC", "name": "Power Finance Corporation"},
+    {"symbol": "POWERGRID", "name": "Power Grid Corporation of India"},
+    {"symbol": "PNB", "name": "Punjab National Bank"},
+    {"symbol": "RECLTD", "name": "REC"},
+    {"symbol": "RELIANCE", "name": "Reliance Industries"},
+    {"symbol": "MOTHERSON", "name": "Samvardhana Motherson International"},
+    {"symbol": "SBILIFE", "name": "SBI Life Insurance Company"},
+    {"symbol": "SHREECEM", "name": "Shree Cement"},
+    {"symbol": "SHRIRAMFIN", "name": "Shriram Finance"},
+    {"symbol": "ENRIN", "name": "Siemens Energy India"},
+    {"symbol": "SIEMENS", "name": "Siemens"},
+    {"symbol": "SOLARINDS", "name": "Solar Industries India"},
+    {"symbol": "SBIN", "name": "State Bank of India"},
+    {"symbol": "SUNPHARMA", "name": "Sun Pharmaceutical Industries"},
+    {"symbol": "TATACAP", "name": "Tata Capital"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services"},
+    {"symbol": "TATACONSUM", "name": "Tata Consumer Products"},
+    {"symbol": "TATAMOTORS", "name": "Tata Motors"},
+    {"symbol": "TMPV", "name": "Tata Motors Passenger Vehicles"},
+    {"symbol": "TATAPOWER", "name": "Tata Power Company"},
+    {"symbol": "TATASTEEL", "name": "Tata Steel"},
+    {"symbol": "TECHM", "name": "Tech Mahindra"},
+    {"symbol": "TITAN", "name": "Titan Company"},
+    {"symbol": "TORNTPHARM", "name": "Torrent Pharmaceuticals"},
+    {"symbol": "TRENT", "name": "Trent"},
+    {"symbol": "TVSMOTOR", "name": "TVS Motor Company"},
+    {"symbol": "ULTRACEMCO", "name": "UltraTech Cement"},
+    {"symbol": "UNIONBANK", "name": "Union Bank of India"},
+    {"symbol": "UNITDSPR", "name": "United Spirits"},
+    {"symbol": "VBL", "name": "Varun Beverages"},
+    {"symbol": "VEDL", "name": "Vedanta"},
+    {"symbol": "WIPRO", "name": "Wipro"},
+    {"symbol": "ZYDUSLIFE", "name": "Zydus Lifesciences"},
 ]
 
-_NIFTY50_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY50_STOCKS}
-_NIFTY50_FALLBACK_ALIASES = {"M&M": "M_M"}
+_NIFTY100_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY100_STOCKS}
+_NIFTY100_FALLBACK_ALIASES = {"M&M": "M_M"}
 
 
-def _resolve_nifty50_stock(symbol: str) -> dict:
-    """Resolve a Nifty 50 stock to Dhan NSE_EQ metadata."""
+def _resolve_terminal_stock(symbol: str) -> dict:
+    """Resolve a Nifty 100 stock to Dhan NSE_EQ metadata."""
     normalized = ScripMaster.normalize_equity_symbol(symbol)
-    stock = _NIFTY50_BY_SYMBOL.get(normalized)
+    stock = _NIFTY100_BY_SYMBOL.get(normalized)
     if not stock:
-        raise HTTPException(status_code=404, detail=f"Unknown Nifty 50 symbol: {symbol}")
+        raise HTTPException(status_code=404, detail=f"Unknown Nifty 100 symbol: {symbol}")
 
     equity = {}
     try:
@@ -5607,7 +5657,7 @@ def _resolve_nifty50_stock(symbol: str) -> dict:
     except Exception as exc:
         print(f"[TERMINAL] Equity lookup failed for {normalized}: {exc}")
 
-    fallback_key = _NIFTY50_FALLBACK_ALIASES.get(normalized, normalized)
+    fallback_key = _NIFTY100_FALLBACK_ALIASES.get(normalized, normalized)
     fallback = INSTRUMENT_MAP.get(fallback_key, {})
     security_id = str(equity.get("security_id") or fallback.get("dhan_id") or "")
     return {
@@ -7722,15 +7772,16 @@ async def cancel_order(order_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/terminal/nifty100")
 @app.get("/api/terminal/nifty50")
-async def terminal_nifty50():
-    stocks = [_resolve_nifty50_stock(stock["symbol"]) for stock in NIFTY50_STOCKS]
+async def terminal_nifty100():
+    stocks = [_resolve_terminal_stock(stock["symbol"]) for stock in NIFTY100_STOCKS]
     return {"status": "ok", "count": len(stocks), "data": stocks}
 
 
 @app.get("/api/terminal/quote")
 async def terminal_quote(symbol: str, request: Request):
-    stock = _resolve_nifty50_stock(symbol)
+    stock = _resolve_terminal_stock(symbol)
     if not stock["security_id"]:
         return {"status": "error", "message": f"No Dhan security ID found for {stock['symbol']}", "stock": stock}
     _, broker_client, _ = await _request_broker_context(request)
@@ -7748,7 +7799,7 @@ async def terminal_quote(symbol: str, request: Request):
 async def terminal_place_order(req: StockTerminalOrderRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     check_rate_limit("terminal_place_order", ip, max_calls=3, window_sec=5)
-    stock = _resolve_nifty50_stock(req.symbol)
+    stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
 
@@ -7805,7 +7856,7 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
 async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     check_rate_limit("terminal_place_gtt", ip, max_calls=3, window_sec=5)
-    stock = _resolve_nifty50_stock(req.symbol)
+    stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
 

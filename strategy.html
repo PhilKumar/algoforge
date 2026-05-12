@@ -1383,7 +1383,7 @@
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
       <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.28);color:#4ade80;" id="stock-terminal-head-ico"></span>
-      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Nifty 50 Terminal</span>
+      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Nifty 100 Terminal</span>
       <span id="stock-terminal-status" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Loading</span>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -1396,7 +1396,7 @@
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
     <div class="card" style="padding: 18px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
-        <h3 style="font-size:15px;font-weight:700;margin:0;">Nifty 50</h3>
+        <h3 style="font-size:15px;font-weight:700;margin:0;">Nifty 100</h3>
         <span id="stock-terminal-count" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">0</span>
       </div>
       <input type="text" id="stock-terminal-search" placeholder="Search symbol..." oninput="renderStockTerminalList()" style="font-size:12px;padding:8px 10px;margin-bottom:10px;">
@@ -1450,16 +1450,16 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.20);border-radius:8px;padding:10px 12px;">
-        <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Stock Price</label>
-          <div style="display:flex;align-items:baseline;gap:6px;">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:12px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.20);border-radius:8px;padding:9px 12px;align-items:center;">
+        <div style="display:flex;align-items:baseline;gap:8px;min-width:0;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap;">Stock Price</label>
+          <div style="display:flex;align-items:baseline;gap:5px;min-width:0;">
             <span id="stock-unit-price" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:#4ade80;">—</span>
             <span id="stock-unit-price-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;">LTP</span>
           </div>
         </div>
-        <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Estimated Value</label>
+        <div style="display:flex;align-items:baseline;justify-content:flex-end;gap:8px;min-width:0;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap;">Estimated Value</label>
           <span id="stock-order-value" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:var(--text);">—</span>
         </div>
       </div>
