@@ -5537,7 +5537,7 @@ INSTRUMENT_MAP = {
     "POWERGRID": {"name": "Power Grid", "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
 }
 
-NIFTY100_STOCKS = [
+NIFTY200_STOCKS = [
     {"symbol": "ABB", "name": "ABB India"},
     {"symbol": "ADANIENSOL", "name": "Adani Energy Solutions"},
     {"symbol": "ADANIENT", "name": "Adani Enterprises"},
@@ -5622,7 +5622,7 @@ NIFTY100_STOCKS = [
     {"symbol": "TATACAP", "name": "Tata Capital"},
     {"symbol": "TCS", "name": "Tata Consultancy Services"},
     {"symbol": "TATACONSUM", "name": "Tata Consumer Products"},
-    {"symbol": "TATAMOTORS", "name": "Tata Motors"},
+    {"symbol": "TMCV", "name": "Tata Motors Commercial Vehicles"},
     {"symbol": "TMPV", "name": "Tata Motors Passenger Vehicles"},
     {"symbol": "TATAPOWER", "name": "Tata Power Company"},
     {"symbol": "TATASTEEL", "name": "Tata Steel"},
@@ -5638,18 +5638,118 @@ NIFTY100_STOCKS = [
     {"symbol": "VEDL", "name": "Vedanta"},
     {"symbol": "WIPRO", "name": "Wipro"},
     {"symbol": "ZYDUSLIFE", "name": "Zydus Lifesciences"},
+    {"symbol": "360ONE", "name": "360 ONE WAM"},
+    {"symbol": "ABCAPITAL", "name": "Aditya Birla Capital"},
+    {"symbol": "ALKEM", "name": "Alkem Laboratories"},
+    {"symbol": "APLAPOLLO", "name": "APL Apollo Tubes"},
+    {"symbol": "ASHOKLEY", "name": "Ashok Leyland"},
+    {"symbol": "ASTRAL", "name": "Astral"},
+    {"symbol": "ATGL", "name": "Adani Total Gas"},
+    {"symbol": "AUBANK", "name": "AU Small Finance Bank"},
+    {"symbol": "AUROPHARMA", "name": "Aurobindo Pharma"},
+    {"symbol": "BANKINDIA", "name": "Bank of India"},
+    {"symbol": "BDL", "name": "Bharat Dynamics"},
+    {"symbol": "BHARATFORG", "name": "Bharat Forge"},
+    {"symbol": "BHEL", "name": "Bharat Heavy Electricals"},
+    {"symbol": "BIOCON", "name": "Biocon"},
+    {"symbol": "BLUESTARCO", "name": "Blue Star"},
+    {"symbol": "BSE", "name": "BSE"},
+    {"symbol": "COCHINSHIP", "name": "Cochin Shipyard"},
+    {"symbol": "COFORGE", "name": "Coforge"},
+    {"symbol": "COLPAL", "name": "Colgate-Palmolive (India)"},
+    {"symbol": "CONCOR", "name": "Container Corporation of India"},
+    {"symbol": "COROMANDEL", "name": "Coromandel International"},
+    {"symbol": "DABUR", "name": "Dabur India"},
+    {"symbol": "DIXON", "name": "Dixon Technologies (India)"},
+    {"symbol": "EXIDEIND", "name": "Exide Industries"},
+    {"symbol": "FEDERALBNK", "name": "Federal Bank"},
+    {"symbol": "FORTIS", "name": "Fortis Healthcare"},
+    {"symbol": "GLENMARK", "name": "Glenmark Pharmaceuticals"},
+    {"symbol": "GMRAIRPORT", "name": "GMR Airports"},
+    {"symbol": "GODFRYPHLP", "name": "Godfrey Phillips India"},
+    {"symbol": "GODREJPROP", "name": "Godrej Properties"},
+    {"symbol": "GROWW", "name": "Groww"},
+    {"symbol": "GVT&D", "name": "GE Vernova T&D India"},
+    {"symbol": "HAVELLS", "name": "Havells India"},
+    {"symbol": "HEROMOTOCO", "name": "Hero MotoCorp"},
+    {"symbol": "HINDPETRO", "name": "Hindustan Petroleum Corporation"},
+    {"symbol": "HUDCO", "name": "Housing and Urban Development Corporation"},
+    {"symbol": "ICICIAMC", "name": "ICICI Prudential Asset Management"},
+    {"symbol": "ICICIGI", "name": "ICICI Lombard General Insurance"},
+    {"symbol": "IDFCFIRSTB", "name": "IDFC First Bank"},
+    {"symbol": "IDEA", "name": "Vodafone Idea"},
+    {"symbol": "INDIANB", "name": "Indian Bank"},
+    {"symbol": "INDUSINDBK", "name": "IndusInd Bank"},
+    {"symbol": "INDUSTOWER", "name": "Indus Towers"},
+    {"symbol": "IREDA", "name": "Indian Renewable Energy Development Agency"},
+    {"symbol": "IRCTC", "name": "Indian Railway Catering & Tourism Corporation"},
+    {"symbol": "JSWENERGY", "name": "JSW Energy"},
+    {"symbol": "JUBLFOOD", "name": "Jubilant Foodworks"},
+    {"symbol": "KALYANKJIL", "name": "Kalyan Jewellers India"},
+    {"symbol": "KEI", "name": "KEI Industries"},
+    {"symbol": "KPITTECH", "name": "KPIT Technologies"},
+    {"symbol": "LAURUSLABS", "name": "Laurus Labs"},
+    {"symbol": "LENSKART", "name": "Lenskart Solutions"},
+    {"symbol": "LGEINDIA", "name": "LG Electronics India"},
+    {"symbol": "LICHSGFIN", "name": "LIC Housing Finance"},
+    {"symbol": "LTF", "name": "L&T Finance"},
+    {"symbol": "LUPIN", "name": "Lupin"},
+    {"symbol": "M&MFIN", "name": "Mahindra & Mahindra Financial Services"},
+    {"symbol": "MANKIND", "name": "Mankind Pharma"},
+    {"symbol": "MARICO", "name": "Marico"},
+    {"symbol": "MCX", "name": "Multi Commodity Exchange of India"},
+    {"symbol": "MFSL", "name": "Max Financial Services"},
+    {"symbol": "MOTILALOFS", "name": "Motilal Oswal Financial Services"},
+    {"symbol": "MPHASIS", "name": "Mphasis"},
+    {"symbol": "MRF", "name": "MRF"},
+    {"symbol": "NATIONALUM", "name": "National Aluminium Company"},
+    {"symbol": "NAUKRI", "name": "Info Edge (India)"},
+    {"symbol": "NHPC", "name": "NHPC"},
+    {"symbol": "NMDC", "name": "NMDC"},
+    {"symbol": "NYKAA", "name": "FSN E-Commerce Ventures"},
+    {"symbol": "OBEROIRLTY", "name": "Oberoi Realty"},
+    {"symbol": "OFSS", "name": "Oracle Financial Services Software"},
+    {"symbol": "OIL", "name": "Oil India"},
+    {"symbol": "PAGEIND", "name": "Page Industries"},
+    {"symbol": "PATANJALI", "name": "Patanjali Foods"},
+    {"symbol": "PAYTM", "name": "One97 Communications"},
+    {"symbol": "PERSISTENT", "name": "Persistent Systems"},
+    {"symbol": "PHOENIXLTD", "name": "Phoenix Mills"},
+    {"symbol": "PIIND", "name": "PI Industries"},
+    {"symbol": "POLICYBZR", "name": "PB Fintech"},
+    {"symbol": "POLYCAB", "name": "Polycab India"},
+    {"symbol": "POWERINDIA", "name": "Hitachi Energy India"},
+    {"symbol": "PREMIERENE", "name": "Premier Energies"},
+    {"symbol": "PRESTIGE", "name": "Prestige Estates Projects"},
+    {"symbol": "RADICO", "name": "Radico Khaitan"},
+    {"symbol": "RVNL", "name": "Rail Vikas Nigam"},
+    {"symbol": "SAIL", "name": "Steel Authority of India"},
+    {"symbol": "SBICARD", "name": "SBI Cards and Payment Services"},
+    {"symbol": "SRF", "name": "SRF"},
+    {"symbol": "SUPREMEIND", "name": "Supreme Industries"},
+    {"symbol": "SUZLON", "name": "Suzlon Energy"},
+    {"symbol": "SWIGGY", "name": "Swiggy"},
+    {"symbol": "TATACOMM", "name": "Tata Communications"},
+    {"symbol": "TATAELXSI", "name": "Tata Elxsi"},
+    {"symbol": "TATAINVEST", "name": "Tata Investment Corporation"},
+    {"symbol": "TIINDIA", "name": "Tube Investments of India"},
+    {"symbol": "UPL", "name": "UPL"},
+    {"symbol": "VMM", "name": "Vishal Mega Mart"},
+    {"symbol": "VOLTAS", "name": "Voltas"},
+    {"symbol": "WAAREEENER", "name": "Waaree Energies"},
+    {"symbol": "YESBANK", "name": "YES Bank"},
 ]
 
-_NIFTY100_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY100_STOCKS}
-_NIFTY100_FALLBACK_ALIASES = {"M&M": "M_M"}
+_NIFTY200_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY200_STOCKS}
+_NIFTY200_FALLBACK_ALIASES = {"M&M": "M_M"}
 
 
 def _resolve_terminal_stock(symbol: str) -> dict:
-    """Resolve a Nifty 100 stock to Dhan NSE_EQ metadata."""
+    """Resolve a Nifty 200 stock to Dhan NSE_EQ metadata."""
     normalized = ScripMaster.normalize_equity_symbol(symbol)
-    stock = _NIFTY100_BY_SYMBOL.get(normalized)
+    stock = _NIFTY200_BY_SYMBOL.get(normalized)
     if not stock:
-        raise HTTPException(status_code=404, detail=f"Unknown Nifty 100 symbol: {symbol}")
+        raise HTTPException(status_code=404, detail=f"Unknown Nifty 200 symbol: {symbol}")
 
     equity = {}
     try:
@@ -5657,7 +5757,7 @@ def _resolve_terminal_stock(symbol: str) -> dict:
     except Exception as exc:
         print(f"[TERMINAL] Equity lookup failed for {normalized}: {exc}")
 
-    fallback_key = _NIFTY100_FALLBACK_ALIASES.get(normalized, normalized)
+    fallback_key = _NIFTY200_FALLBACK_ALIASES.get(normalized, normalized)
     fallback = INSTRUMENT_MAP.get(fallback_key, {})
     security_id = str(equity.get("security_id") or fallback.get("dhan_id") or "")
     return {
@@ -7772,10 +7872,11 @@ async def cancel_order(order_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/terminal/nifty200")
 @app.get("/api/terminal/nifty100")
 @app.get("/api/terminal/nifty50")
-async def terminal_nifty100():
-    stocks = [_resolve_terminal_stock(stock["symbol"]) for stock in NIFTY100_STOCKS]
+async def terminal_nifty200():
+    stocks = [_resolve_terminal_stock(stock["symbol"]) for stock in NIFTY200_STOCKS]
     return {"status": "ok", "count": len(stocks), "data": stocks}
 
 
