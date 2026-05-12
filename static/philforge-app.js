@@ -2946,9 +2946,12 @@ let _stockTerminalQuoteTimer = null;
 let _stockTerminalOrdersTimer = null;
 let _stockTerminalOrderWatchTimer = null;
 let _stockTerminalOrderInFlight = false;
+let _stockTerminalLastLtp = 0;
+let _stockTerminalValueListenersAttached = false;
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 
 async function initStockTerminalPage(force = false) {
+  bindStockTerminalValueInputs();
   toggleStockOrderMode();
   toggleStockOrderFields();
   if (force || !_stockTerminalInitialized || !_stockTerminalStocks.length) {
@@ -2977,6 +2980,48 @@ function _setStockTerminalStatus(text, tone) {
   if (!el) return;
   el.textContent = text;
   el.style.color = tone === 'ok' ? 'var(--success)' : tone === 'error' ? 'var(--danger)' : 'var(--muted)';
+}
+
+function bindStockTerminalValueInputs() {
+  if (_stockTerminalValueListenersAttached) return;
+  _stockTerminalValueListenersAttached = true;
+  ['stock-quantity', 'stock-price', 'stock-trigger-price', 'stock-gtt-price1', 'stock-gtt-trigger1'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateStockOrderValue);
+  });
+  ['stock-order-mode', 'stock-order-type'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateStockOrderValue);
+  });
+}
+
+function _stockTerminalPriceContext() {
+  const mode = document.getElementById('stock-order-mode')?.value || 'regular';
+  const orderType = document.getElementById('stock-order-type')?.value || 'MARKET';
+  const price = parseFloat(document.getElementById('stock-price')?.value) || 0;
+  const trigger = parseFloat(document.getElementById('stock-trigger-price')?.value) || 0;
+  if (mode === 'gtt' && orderType === 'LIMIT' && price > 0) return { price, source: 'Limit' };
+  if (mode === 'gtt' && trigger > 0) return { price: trigger, source: 'Trigger' };
+  if (['LIMIT', 'STOP_LOSS'].includes(orderType) && price > 0) return { price, source: orderType === 'LIMIT' ? 'Limit' : 'SL Price' };
+  if (orderType === 'STOP_LOSS_MARKET' && trigger > 0) return { price: trigger, source: 'Trigger' };
+  return { price: _stockTerminalLastLtp || 0, source: 'LTP' };
+}
+
+function updateStockOrderValue() {
+  const unitEl = document.getElementById('stock-unit-price');
+  const sourceEl = document.getElementById('stock-unit-price-source');
+  const valueEl = document.getElementById('stock-order-value');
+  if (!unitEl && !valueEl) return;
+  const qty = parseInt(document.getElementById('stock-quantity')?.value, 10) || 0;
+  const ctx = _stockTerminalPriceContext();
+  const unitPrice = Number(ctx.price || 0);
+  const hasPrice = unitPrice > 0;
+  if (unitEl) unitEl.textContent = hasPrice ? '₹' + unitPrice.toFixed(2) : '—';
+  if (sourceEl) sourceEl.textContent = ctx.source || 'LTP';
+  if (valueEl) {
+    valueEl.textContent = hasPrice && qty > 0 ? '₹' + (unitPrice * qty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    valueEl.style.color = hasPrice && qty > 0 ? 'var(--text)' : 'var(--muted)';
+  }
 }
 
 async function loadStockTerminalStocks() {
@@ -3043,6 +3088,8 @@ function selectStockTerminal(symbol, options = {}) {
     ltp.textContent = '—';
     ltp.style.color = 'var(--muted)';
   }
+  _stockTerminalLastLtp = 0;
+  updateStockOrderValue();
   _setLocalState(_STOCK_TERMINAL_KEY, stock.symbol);
   renderStockTerminalList();
   if (!options.skipQuote) refreshStockTerminalQuote(true);
@@ -3064,18 +3111,26 @@ async function refreshStockTerminalQuote(force) {
       if (sec) sec.textContent = data.stock.security_id ? `sec ${data.stock.security_id}` : 'sec missing';
     }
     if (data.status === 'ok' && Number(data.ltp) > 0) {
+      _stockTerminalLastLtp = Number(data.ltp);
       if (ltpEl) {
-        ltpEl.textContent = '₹' + Number(data.ltp).toFixed(2);
+        ltpEl.textContent = '₹' + _stockTerminalLastLtp.toFixed(2);
         ltpEl.style.color = '#4ade80';
       }
+      updateStockOrderValue();
     } else if (ltpEl && force) {
       ltpEl.textContent = data.message ? 'N/A' : '—';
       ltpEl.style.color = 'var(--muted)';
+      _stockTerminalLastLtp = 0;
+      updateStockOrderValue();
     }
   } catch (e) {
     if (ltpEl && force) {
       ltpEl.textContent = 'N/A';
       ltpEl.style.color = 'var(--muted)';
+    }
+    if (force) {
+      _stockTerminalLastLtp = 0;
+      updateStockOrderValue();
     }
   }
 }
@@ -3093,6 +3148,7 @@ function toggleStockOrderMode() {
     if (orderType && !['MARKET', 'LIMIT'].includes(orderType.value)) orderType.value = 'LIMIT';
   }
   toggleStockOrderFields();
+  updateStockOrderValue();
 }
 
 function toggleStockOrderFields() {
@@ -3115,6 +3171,7 @@ function toggleStockOrderFields() {
     el.disabled = mode !== 'gtt' || gttFlag !== 'OCO';
     el.style.opacity = el.disabled ? '0.55' : '';
   });
+  updateStockOrderValue();
 }
 
 function _readStockTerminalPayload(direction) {
@@ -3159,8 +3216,13 @@ async function submitStockTerminalOrder(direction) {
   }
 
   const orderLabel = mode === 'gtt' ? 'GTT' : 'regular order';
+  const priceContext = _stockTerminalPriceContext();
+  const estimatedValue = priceContext.price > 0 ? priceContext.price * payload.quantity : 0;
+  const valueText = estimatedValue > 0
+    ? `<br><span style="font-size:12px;color:var(--muted);">Price: ₹${priceContext.price.toFixed(2)} (${escapeHtml(priceContext.source)}) · Value: ₹${estimatedValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
+    : '';
   const ok = await customConfirm(
-    `Place <strong>${escapeHtml(payload.transaction_type)}</strong> ${escapeHtml(payload.symbol)} x ${payload.quantity} as ${escapeHtml(orderLabel)}?`,
+    `Place <strong>${escapeHtml(payload.transaction_type)}</strong> ${escapeHtml(payload.symbol)} x ${payload.quantity} as ${escapeHtml(orderLabel)}?${valueText}`,
     { title: 'Confirm Order', icon: ICO.money(28), okText: 'Place Order', danger: payload.transaction_type === 'SELL' }
   );
   if (!ok) return;
