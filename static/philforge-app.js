@@ -3513,6 +3513,7 @@ function _readScalpFormState() {
   return {
     underlying: read('scalp-underlying') || 'NIFTY',
     expiry: read('scalp-expiry'),
+    product_type: read('scalp-product-type') || 'INTRADAY',
     option_type: read('scalp-option-type') || 'CE',
     strike: read('scalp-strike'),
     lots: read('scalp-lots'),
@@ -3559,6 +3560,7 @@ async function _restoreScalpFormState() {
   _scalpRestoringState = true;
   try {
     _applyScalpFieldValue('scalp-underlying', saved.underlying);
+    _applyScalpFieldValue('scalp-product-type', saved.product_type);
     _applyScalpFieldValue('scalp-option-type', saved.option_type);
     _applyScalpFieldValue('scalp-mode', saved.mode);
     _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
@@ -3879,6 +3881,7 @@ async function loadScalpExpiries(options = {}) {
 const _SCALP_FORM_IDS = new Set([
   'scalp-underlying',
   'scalp-expiry',
+  'scalp-product-type',
   'scalp-option-type',
   'scalp-strike',
   'scalp-lots',
@@ -3954,6 +3957,7 @@ async function submitScalpEntry(direction) {
       strike: parseInt(document.getElementById('scalp-strike').value),
       option_type: document.getElementById('scalp-option-type').value,
       expiry: document.getElementById('scalp-expiry').value,
+      product_type: document.getElementById('scalp-product-type').value || 'INTRADAY',
       transaction_type: direction || 'BUY',
       lots: parseInt(document.getElementById('scalp-lots').value),
       lot_size: parseInt(document.getElementById('scalp-lot-size').value),
@@ -4345,6 +4349,13 @@ function _buildScalpPendingRangeEditor(tradeId, entryMin, entryMax) {
   return `<div class="scalp-range-editor"><input type="number" id="scalp-entry-min-${tradeId}" value="${(entryMin || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger start"><span style="font-size:10px;color:var(--muted);">→</span><input type="number" id="scalp-entry-max-${tradeId}" value="${(entryMax || 0).toFixed(2)}" step="0.05" min="0" class="scalp-stepper" style="width:66px;font-size:10px;padding:3px 4px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:rgba(139,143,255,0.96);text-align:center;" title="Trigger end"></div>`;
 }
 
+function _scalpProductBadge(productType) {
+  const product = String(productType || 'INTRADAY').toUpperCase();
+  const label = product === 'MARGIN' || product === 'NORMAL' || product === 'NRML' ? 'NRML' : 'INTR';
+  const tone = label === 'NRML' ? 'rgba(96,165,250,0.8)' : 'rgba(251,191,36,0.78)';
+  return `<span title="${label === 'NRML' ? 'Normal / till expiry' : 'Intraday'}" style="font-size:9px;color:${tone};font-weight:700;margin-left:5px;">${label}</span>`;
+}
+
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
 function _buildScalpActiveRow(t) {
   const isPending = t.status === 'pending';
@@ -4354,7 +4365,7 @@ function _buildScalpActiveRow(t) {
   const slVal = t.sl_premium || 0;
   if (isPending) {
     return `<tr data-tid="${t.trade_id}" data-status="pending" style="border-bottom:1px solid rgba(255,255,255,0.03);background:rgba(99,102,241,0.06);">
-      <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span><br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
+      <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}<br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
       <td style="padding:6px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(139,143,255,0.9);">${_buildScalpPendingRangeEditor(t.trade_id, t.entry_limit_price, t.entry_limit_max)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
       <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);">—</td>
@@ -4371,7 +4382,7 @@ function _buildScalpActiveRow(t) {
     ? ` <span title="${t.super_order_id ? 'Dhan Super Order active' : 'SL/TP placed on broker'}" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">${t.super_order_id ? 'SO' : '🛡️'}</span>`
     : '';
   return `<tr data-tid="${t.trade_id}" data-status="open" style="border-bottom:1px solid rgba(255,255,255,0.03);">
-    <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${brokerBadge}</td>
+    <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}${brokerBadge}</td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>

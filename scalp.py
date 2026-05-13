@@ -36,6 +36,15 @@ def _now_ist():
     return datetime.now(IST).replace(tzinfo=None)
 
 
+def _normalize_scalp_product_type(product_type: str | None) -> str:
+    normalized = str(product_type or "").strip().upper()
+    if normalized in ("", "MIS", "INTRADAY"):
+        return "INTRADAY"
+    if normalized in ("NRML", "NORMAL", "MARGIN"):
+        return "MARGIN"
+    return "INTRADAY"
+
+
 class ScalpTrade:
     """Represents a single open scalp position."""
 
@@ -50,6 +59,7 @@ class ScalpTrade:
         lots: int,
         lot_size: int,
         entry_premium: float,
+        product_type: str = "INTRADAY",
         # Exit rules (all optional — at least one should be set)
         target_premium: float = 0.0,  # absolute option price to exit at
         sl_premium: float = 0.0,  # absolute SL option price
@@ -75,6 +85,7 @@ class ScalpTrade:
         self.lots = lots
         self.lot_size = lot_size
         self.quantity = lots * lot_size
+        self.product_type = _normalize_scalp_product_type(product_type)
         self.entry_premium = entry_premium
         self.current_premium = entry_premium
 
@@ -181,6 +192,7 @@ class ScalpTrade:
             "lots": self.lots,
             "lot_size": self.lot_size,
             "quantity": self.quantity,
+            "product_type": self.product_type,
             "entry_premium": self.entry_premium,
             "current_premium": self.current_premium,
             "target_premium": self.target_premium,
@@ -282,6 +294,7 @@ class ScalpEngine:
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
         and waits for the premium to enter [limit_price, limit_max] before placing the order."""
         quantity = lots * lot_size
+        product_type = _normalize_scalp_product_type(product_type)
         if mode == "live" and (target_premium <= 0 or sl_premium <= 0):
             return {
                 "status": "error",
@@ -304,6 +317,7 @@ class ScalpEngine:
                 lots=lots,
                 lot_size=lot_size,
                 entry_premium=0.0,  # unknown until triggered
+                product_type=product_type,
                 target_premium=target_premium,
                 sl_premium=sl_premium,
                 target_pct=target_pct,
@@ -332,7 +346,7 @@ class ScalpEngine:
                 "info",
                 f"{mode_label}⏳ STOP-LIMIT PENDING: {transaction_type} {underlying} {strike}{option_type} "
                 f"| trigger range ₹{lo:.2f}–₹{hi:.2f} "
-                f"| target=₹{target_premium or 'none'} SL=₹{sl_premium or 'none'}",
+                f"| product={product_type} | target=₹{target_premium or 'none'} SL=₹{sl_premium or 'none'}",
             )
 
             if not self._running:
@@ -370,7 +384,7 @@ class ScalpEngine:
                     target_price=target_premium,
                     stop_loss_price=sl_premium,
                     order_type=order_type,
-                    product_type="MARGIN" if product_type == "NRML" else product_type,
+                    product_type=product_type,
                     tag="AF_SCALP_SO",
                 )
                 order_id = result.get("orderId", "")
@@ -400,6 +414,7 @@ class ScalpEngine:
             lots=lots,
             lot_size=lot_size,
             entry_premium=entry_premium,
+            product_type=product_type,
             target_premium=target_premium,
             sl_premium=sl_premium,
             target_pct=target_pct,
@@ -430,7 +445,7 @@ class ScalpEngine:
         self._log(
             "entry",
             f"{mode_label}✅ SCALP ENTER: {transaction_type} {underlying} {strike}{option_type} "
-            f"@ ₹{entry_premium:.2f} | orderId={order_id} "
+            f"@ ₹{entry_premium:.2f} | product={product_type} | orderId={order_id} "
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
@@ -638,7 +653,7 @@ class ScalpEngine:
             "entry",
             f"{mode_label}🎯 STOP-LIMIT TRIGGERED: {trade.transaction_type} {trade.underlying} "
             f"{trade.strike}{trade.option_type} | LTP ₹{trade.current_premium:.2f} "
-            f"in range ₹{trade.entry_limit_price:.2f}–₹{trade.entry_limit_max:.2f}",
+            f"in range ₹{trade.entry_limit_price:.2f}–₹{trade.entry_limit_max:.2f} | product={trade.product_type}",
         )
 
         if trade.mode == "paper":
@@ -658,7 +673,7 @@ class ScalpEngine:
                     target_price=trade.target_premium,
                     stop_loss_price=trade.sl_premium,
                     order_type="MARKET",
-                    product_type="INTRADAY",
+                    product_type=trade.product_type,
                     tag="AF_SCALP_SO",
                 )
                 order_id = result.get("orderId", "")
@@ -716,7 +731,7 @@ class ScalpEngine:
             "entry",
             f"{mode_label}✅ SCALP ENTER (stop-limit): {trade.transaction_type} {trade.underlying} "
             f"{trade.strike}{trade.option_type} @ ₹{entry_premium:.2f} | orderId={order_id} "
-            f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
+            f"| product={trade.product_type} | target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
     @staticmethod
@@ -1033,7 +1048,7 @@ class ScalpEngine:
                     transaction_type=exit_txn,
                     quantity=trade.quantity,
                     order_type="SL",
-                    product_type="INTRADAY",
+                    product_type=trade.product_type,
                     price=sl_price,
                     trigger_price=trade.sl_premium,
                     tag="AF_SC_SL",
@@ -1060,7 +1075,7 @@ class ScalpEngine:
                     transaction_type=exit_txn,
                     quantity=trade.quantity,
                     order_type="LIMIT",
-                    product_type="INTRADAY",
+                    product_type=trade.product_type,
                     price=trade.target_premium,
                     tag="AF_SC_TP",
                 )
@@ -1452,7 +1467,7 @@ class ScalpEngine:
                         transaction_type=exit_txn,
                         quantity=trade.quantity,
                         order_type="LIMIT",
-                        product_type="INTRADAY",
+                        product_type=trade.product_type,
                         price=exit_price,
                         tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                     )
@@ -1485,7 +1500,7 @@ class ScalpEngine:
                     transaction_type=exit_txn,
                     quantity=trade.quantity,
                     order_type="LIMIT",
-                    product_type="INTRADAY",
+                    product_type=trade.product_type,
                     price=exit_price,
                     tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                 )

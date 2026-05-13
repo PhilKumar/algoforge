@@ -8463,6 +8463,7 @@ class ScalpEntryReq(BaseModel):
     strike: int
     option_type: str
     expiry: str
+    product_type: str = "INTRADAY"
     transaction_type: str = "BUY"
     lots: int = 1
     lot_size: int = 75
@@ -8504,11 +8505,17 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 return {"status": "error", "message": _broker_not_configured_message(user, source)}
         eng = _get_scalp_engine(user_id, broker_client=broker_client)
         try:
+            product_type = str(req.product_type or "INTRADAY").strip().upper()
+            if product_type in {"NORMAL", "NRML"}:
+                product_type = "MARGIN"
+            if product_type not in {"INTRADAY", "MARGIN"}:
+                return {"status": "error", "message": "Scalp product must be INTRADAY or MARGIN"}
             result = await eng.enter_trade(
                 underlying=req.underlying,
                 strike=req.strike,
                 option_type=req.option_type,
                 expiry=req.expiry,
+                product_type=product_type,
                 transaction_type=req.transaction_type,
                 lots=req.lots,
                 lot_size=req.lot_size,
@@ -8537,7 +8544,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                         "Scalp Stop-Limit Pending",
                         f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
                         f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                        f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Mode: {req.mode}",
+                        f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Product: {product_type} | Mode: {req.mode}",
                         level="info",
                     )
                 else:
@@ -8545,7 +8552,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                         "Scalp Entry",
                         f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
                         f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                        f"Entry: \u20b9{entry_p:.2f} | Mode: {req.mode}",
+                        f"Entry: \u20b9{entry_p:.2f} | Product: {product_type} | Mode: {req.mode}",
                         level="info",
                     )
             _notify_scalp_ws()
