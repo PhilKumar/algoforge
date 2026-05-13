@@ -2211,7 +2211,12 @@
   /* ── MOBILE RESPONSIVE ── */
   @media (max-width: 900px) {
     body { padding: 12px; font-size: 14px; }
-    .builder-grid { grid-template-columns: 1fr !important; }
+    .builder-grid {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+    .builder-grid > * {
+      min-width: 0;
+    }
     .modal { width: 95vw; padding: 20px; }
     .confirm-box { width: 95vw !important; }
     nav { flex-direction: column; gap: 10px; }
@@ -3805,7 +3810,10 @@
 
     /* -- Scalp page: stack form + event log -- */
     #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+    #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] > * {
+      min-width: 0;
     }
     /* Scalp form inner 2-col: forced desktop layout on mobile with tighter spacing */
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] {
