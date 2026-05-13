@@ -3750,9 +3750,9 @@ async function fetchScalpLTP() {
   updateScalpMargin();
 }
 
-// ── Margin caching: only recalculate when contract params change ──
-// Live Premium streams every 250ms via WS — margin should NOT recalc each tick.
-// Margin only changes when: underlying, strike, option_type, or lots change.
+// ── Margin caching ──
+// Margin follows both the selected contract inputs and the displayed premium.
+// This keeps the UI internally consistent when live premium moves via REST or WS.
 var _marginCache = { underlying: '', strike: 0, optType: '', lots: 0, lotSize: 0, ltp: 0, value: null };
 
 function updateScalpMargin(forceRecalc) {
@@ -3763,13 +3763,14 @@ function updateScalpMargin(forceRecalc) {
   const lots = parseInt(document.getElementById('scalp-lots').value) || 0;
   const lotSize = parseInt(document.getElementById('scalp-lot-size').value) || 0;
 
-  // Check if contract params changed (triggers recalculation)
+  // Check whether any input used by the displayed estimate changed.
   const paramsChanged = (
     underlying !== _marginCache.underlying ||
     strike !== _marginCache.strike ||
     optType !== _marginCache.optType ||
     lots !== _marginCache.lots ||
-    lotSize !== _marginCache.lotSize
+    lotSize !== _marginCache.lotSize ||
+    _scalpCurrentLTP !== _marginCache.ltp
   );
 
   if (!paramsChanged && !forceRecalc && _marginCache.value !== null) {
@@ -9903,6 +9904,7 @@ function _updateLivePremiumFromWS(openTrades) {
     }
     _scalpCurrentLTP = match.current_premium;
     _scalpLTPFromWS = Date.now();  // mark as fresh — suppresses REST fallback
+    updateScalpMargin();
   }
 }
 
