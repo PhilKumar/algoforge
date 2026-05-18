@@ -5535,6 +5535,80 @@ INSTRUMENT_MAP = {
     "TATAMOTORS": {"name": "Tata Motors", "dhan_id": "3456", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
     "M_M": {"name": "M&M", "dhan_id": "2031", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
     "POWERGRID": {"name": "Power Grid", "dhan_id": "14977", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    # Nippon ETF symbols for the terminal add-on list
+    "AUTOBEES": {"name": "Nippon Auto ETF", "dhan_id": "7880", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "BANKBEES": {"name": "Nippon Nifty Bank ETF", "dhan_id": "11439", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "CONSUMBEES": {
+        "name": "Nippon Nifty Consumption ETF",
+        "dhan_id": "2435",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "DIVOPPBEES": {
+        "name": "Nippon Nifty 50 Dividend Opportunities ETF",
+        "dhan_id": "2636",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "GILT5YBEES": {"name": "Nippon 5 Year G-Sec ETF", "dhan_id": "3172", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "GOLDBEES": {"name": "Nippon Gold ETF", "dhan_id": "14428", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "HNGSNGBEES": {"name": "Nippon Hang Seng ETF", "dhan_id": "18284", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "INFRABEES": {"name": "Nippon Nifty Infra ETF", "dhan_id": "20072", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "ITBEES": {"name": "Nippon Nifty IT ETF", "dhan_id": "19084", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "JUNIORBEES": {"name": "Nippon Nifty Next 50 ETF", "dhan_id": "10939", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "LIQGRWBEES": {
+        "name": "Nippon Nifty 1D Rate Liquid ETF",
+        "dhan_id": "757725",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "LIQUIDBEES": {"name": "Nippon Nifty Liquid ETF", "dhan_id": "11006", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "LTGILTBEES": {
+        "name": "Nippon 8-13 Year G-Sec ETF",
+        "dhan_id": "17700",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "MANUFGBEES": {
+        "name": "Nippon Nifty India Manufacturing ETF",
+        "dhan_id": "758667",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "MID150BEES": {
+        "name": "Nippon Nifty Midcap 150 ETF",
+        "dhan_id": "8506",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "NIF100BEES": {"name": "Nippon Nifty 100 ETF", "dhan_id": "29577", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "NIFTYBEES": {"name": "Nippon Nifty 50 ETF", "dhan_id": "10576", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "NV20BEES": {
+        "name": "Nippon Nifty 50 Value 20 ETF",
+        "dhan_id": "9847",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "PHARMABEES": {"name": "Nippon Pharma ETF", "dhan_id": "4973", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "PSUBNKBEES": {
+        "name": "Nippon Nifty PSU Bank ETF",
+        "dhan_id": "15032",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "SHARIABEES": {
+        "name": "Nippon Nifty 50 Shariah ETF",
+        "dhan_id": "17044",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
+    "SILVERBEES": {"name": "Nippon Silver ETF", "dhan_id": "8080", "dhan_seg": "NSE_EQ", "dhan_type": "EQUITY"},
+    "SNXT30BEES": {
+        "name": "Nippon BSE Sensex Next 30 ETF",
+        "dhan_id": "757455",
+        "dhan_seg": "NSE_EQ",
+        "dhan_type": "EQUITY",
+    },
 }
 
 NIFTY200_STOCKS = [
@@ -5740,16 +5814,43 @@ NIFTY200_STOCKS = [
     {"symbol": "YESBANK", "name": "YES Bank"},
 ]
 
-_NIFTY200_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in NIFTY200_STOCKS}
+BEES_ETFS = [
+    {"symbol": "AUTOBEES", "name": "Nippon Auto ETF"},
+    {"symbol": "BANKBEES", "name": "Nippon Nifty Bank ETF"},
+    {"symbol": "CONSUMBEES", "name": "Nippon Nifty Consumption ETF"},
+    {"symbol": "DIVOPPBEES", "name": "Nippon Nifty 50 Dividend Opportunities ETF"},
+    {"symbol": "GILT5YBEES", "name": "Nippon 5 Year G-Sec ETF"},
+    {"symbol": "GOLDBEES", "name": "Nippon Gold ETF"},
+    {"symbol": "HNGSNGBEES", "name": "Nippon Hang Seng ETF"},
+    {"symbol": "INFRABEES", "name": "Nippon Nifty Infra ETF"},
+    {"symbol": "ITBEES", "name": "Nippon Nifty IT ETF"},
+    {"symbol": "JUNIORBEES", "name": "Nippon Nifty Next 50 ETF"},
+    {"symbol": "LIQGRWBEES", "name": "Nippon Nifty 1D Rate Liquid ETF"},
+    {"symbol": "LIQUIDBEES", "name": "Nippon Nifty Liquid ETF"},
+    {"symbol": "LTGILTBEES", "name": "Nippon 8-13 Year G-Sec ETF"},
+    {"symbol": "MANUFGBEES", "name": "Nippon Nifty India Manufacturing ETF"},
+    {"symbol": "MID150BEES", "name": "Nippon Nifty Midcap 150 ETF"},
+    {"symbol": "NIF100BEES", "name": "Nippon Nifty 100 ETF"},
+    {"symbol": "NIFTYBEES", "name": "Nippon Nifty 50 ETF"},
+    {"symbol": "NV20BEES", "name": "Nippon Nifty 50 Value 20 ETF"},
+    {"symbol": "PHARMABEES", "name": "Nippon Pharma ETF"},
+    {"symbol": "PSUBNKBEES", "name": "Nippon Nifty PSU Bank ETF"},
+    {"symbol": "SHARIABEES", "name": "Nippon Nifty 50 Shariah ETF"},
+    {"symbol": "SILVERBEES", "name": "Nippon Silver ETF"},
+    {"symbol": "SNXT30BEES", "name": "Nippon BSE Sensex Next 30 ETF"},
+]
+
+TERMINAL_STOCKS = NIFTY200_STOCKS + BEES_ETFS
+_TERMINAL_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in TERMINAL_STOCKS}
 _NIFTY200_FALLBACK_ALIASES = {"M&M": "M_M"}
 
 
 def _resolve_terminal_stock(symbol: str) -> dict:
-    """Resolve a Nifty 200 stock to Dhan NSE_EQ metadata."""
+    """Resolve a terminal symbol to Dhan NSE_EQ metadata."""
     normalized = ScripMaster.normalize_equity_symbol(symbol)
-    stock = _NIFTY200_BY_SYMBOL.get(normalized)
+    stock = _TERMINAL_BY_SYMBOL.get(normalized)
     if not stock:
-        raise HTTPException(status_code=404, detail=f"Unknown Nifty 200 symbol: {symbol}")
+        raise HTTPException(status_code=404, detail=f"Unknown terminal symbol: {symbol}")
 
     equity = {}
     try:
@@ -7876,7 +7977,7 @@ async def cancel_order(order_id: str, request: Request):
 @app.get("/api/terminal/nifty100")
 @app.get("/api/terminal/nifty50")
 async def terminal_nifty200():
-    stocks = [_resolve_terminal_stock(stock["symbol"]) for stock in NIFTY200_STOCKS]
+    stocks = [_resolve_terminal_stock(stock["symbol"]) for stock in TERMINAL_STOCKS]
     return {"status": "ok", "count": len(stocks), "data": stocks}
 
 
