@@ -4430,7 +4430,7 @@ function _renderScalpStatus(data) {
   // Session P&L
   const sessionPnl = document.getElementById('scalp-session-pnl');
   if (sessionPnl) {
-    const pnl = data.total_pnl || 0;
+    const pnl = Number(data.session_pnl ?? data.total_pnl ?? 0);
     sessionPnl.textContent = '₹' + pnl.toFixed(2);
     sessionPnl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
   }
@@ -9824,7 +9824,7 @@ function _renderScalpStatusWS(data) {
   // Session P&L
   const sessionPnl = _getScalpEl('scalp-session-pnl');
   if (sessionPnl) {
-    const pnl = data.total_pnl || 0;
+    const pnl = Number(data.session_pnl ?? data.total_pnl ?? 0);
     sessionPnl.textContent = '₹' + pnl.toFixed(2);
     sessionPnl.style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
   }

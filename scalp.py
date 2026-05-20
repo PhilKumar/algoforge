@@ -562,12 +562,19 @@ class ScalpEngine:
         return {"status": "ok", "trade": trade.to_dict()}
 
     def get_status(self) -> dict:
+        open_trades = [t.to_dict() for t in self.open_trades.values()]
+        closed_pnl = round(sum(t.get("pnl", 0) for t in self.closed_trades), 2)
+        open_pnl = round(sum(t.get("pnl", 0) for t in open_trades), 2)
+        session_pnl = round(closed_pnl + open_pnl, 2)
         return {
             "running": self._running,
-            "open_trades": [t.to_dict() for t in self.open_trades.values()],
+            "open_trades": open_trades,
             "closed_trades": list(reversed(self.closed_trades[-50:])),
             "event_log": list(reversed(self.event_log[-100:])),
-            "total_pnl": round(sum(t.get("pnl", 0) for t in self.closed_trades), 2),
+            "total_pnl": closed_pnl,
+            "closed_pnl": closed_pnl,
+            "open_pnl": open_pnl,
+            "session_pnl": session_pnl,
         }
 
     # ── Internal monitoring ───────────────────────────────────────
