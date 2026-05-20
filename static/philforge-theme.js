@@ -1,8 +1,6 @@
 (function () {
   var THEME_KEY = 'philforge_theme';
-  var LEGACY_THEME_KEY = 'algoforge_theme';
   var APPEARANCE_KEY = 'philforge_appearance';
-  var LEGACY_APPEARANCE_KEY = 'algoforge_appearance';
   var DEFAULT_APPEARANCE = { tint: 'native', font: 'forge' };
   var TINTS = { native: true, jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
   var FONTS = {
@@ -19,7 +17,7 @@
 
   function getStoredTheme() {
     try {
-      return normalizeTheme(localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY));
+      return normalizeTheme(localStorage.getItem(THEME_KEY));
     } catch (e) {
       return '';
     }
@@ -34,7 +32,6 @@
     if (options && options.persist && resolved) {
       try {
         localStorage.setItem(THEME_KEY, resolved);
-        localStorage.removeItem(LEGACY_THEME_KEY);
       } catch (e) {}
     }
     return resolved || 'dark';
@@ -56,7 +53,7 @@
 
   function getStoredAppearance() {
     try {
-      var raw = localStorage.getItem(APPEARANCE_KEY) || localStorage.getItem(LEGACY_APPEARANCE_KEY);
+      var raw = localStorage.getItem(APPEARANCE_KEY);
       if (!raw) return normalizeAppearance();
       return normalizeAppearance(JSON.parse(raw));
     } catch (e) {
@@ -96,7 +93,6 @@
     if (options && options.persist) {
       try {
         localStorage.setItem(APPEARANCE_KEY, JSON.stringify(state));
-        localStorage.removeItem(LEGACY_APPEARANCE_KEY);
       } catch (e) {}
     }
     return state;

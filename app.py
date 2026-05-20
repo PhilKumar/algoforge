@@ -174,7 +174,7 @@ def _asset_version() -> str:
     global _ASSET_VERSION_CACHE
     if _ASSET_VERSION_CACHE:
         return _ASSET_VERSION_CACHE
-    fallback = os.getenv("PHILFORGE_ASSET_VERSION") or os.getenv("ALGOFORGE_ASSET_VERSION") or "dev"
+    fallback = os.getenv("PHILFORGE_ASSET_VERSION") or "dev"
     try:
         with open(_ASSET_MANIFEST_PATH, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -1365,9 +1365,7 @@ _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engines: Dict[int, "_ScalpEngineClass"] = {}
 _scalp_open_state_last_save: Dict[int, float] = defaultdict(float)
 _SCALP_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
-_SKIP_STARTUP_JOBS = (
-    os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS") or ""
-).lower() in {"1", "true", "yes"}
+_SKIP_STARTUP_JOBS = (os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or "").lower() in {"1", "true", "yes"}
 
 
 def _scalp_open_state_key(user_id: int) -> str:
@@ -1499,10 +1497,7 @@ async def _save_scalp_open_state(user_id: int, eng, *, force: bool = False) -> N
 
 
 def _startup_flag(name: str, default: bool = True) -> bool:
-    legacy_name = name.replace("PHILFORGE_", "ALGOFORGE_", 1)
     raw = os.getenv(name)
-    if raw is None:
-        raw = os.getenv(legacy_name)
     if raw is None or raw == "":
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
@@ -1533,16 +1528,9 @@ async def _broadcast_user_ws_json(user_id: int, payload: dict):
 
 # ── Authentication ────────────────────────────────────────────────
 # Legacy PIN kept as fallback for first-run admin bootstrap only
-AUTH_PASSWORD = (
-    os.getenv("PHILFORGE_PIN")
-    or os.getenv("PHILFORGE_PASSWORD")
-    or os.getenv("ALGOFORGE_PIN")
-    or os.getenv("ALGOFORGE_PASSWORD")
-    or ""
-).strip()
+AUTH_PASSWORD = (os.getenv("PHILFORGE_PIN") or os.getenv("PHILFORGE_PASSWORD") or "").strip()
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_COOKIE_NAME = "philforge_session"
-_LEGACY_SESSION_COOKIE_NAME = "algoforge_session"
 
 _redis_client = None
 _redis_checked = False
@@ -2127,7 +2115,6 @@ def _get_session_token(request: Request) -> str:
 
 def _clear_session_cookie(response) -> None:
     response.delete_cookie(_SESSION_COOKIE_NAME)
-    response.delete_cookie(_LEGACY_SESSION_COOKIE_NAME)
 
 
 async def _get_page_user(request: Request) -> dict | None:
@@ -3384,7 +3371,6 @@ async def auth_login(request: Request):
         samesite="lax",
         secure=_request_is_https(request),
     )
-    resp.delete_cookie(_LEGACY_SESSION_COOKIE_NAME)
     return resp
 
 
@@ -6325,7 +6311,7 @@ def _format_rolling_strike(offset_steps: int) -> str:
 
 _OPTION_HISTORY_CACHE_DIR = os.getenv(
     "PHILFORGE_OPTION_HISTORY_CACHE_DIR",
-    os.getenv("ALGOFORGE_OPTION_HISTORY_CACHE_DIR", os.path.join(_HERE, "data", "option_history_cache")),
+    os.path.join(_HERE, "data", "option_history_cache"),
 )
 _OPTION_REAL_DATA_MAX_DAYS = 730
 
@@ -7954,7 +7940,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4003, reason="Forbidden origin")
         return
     # Authenticate WebSocket via session cookie (DB-backed)
-    token = ws.cookies.get(_SESSION_COOKIE_NAME, "") or ws.cookies.get(_LEGACY_SESSION_COOKIE_NAME, "")
+    token = ws.cookies.get(_SESSION_COOKIE_NAME, "")
     session = await _validate_session_async(token)
     if not session:
         await ws.close(code=4001, reason="Unauthorized")

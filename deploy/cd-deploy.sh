@@ -8,24 +8,13 @@
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
-if [[ -d "/home/ec2-user/philforge" ]]; then
-    APP_DIR="/home/ec2-user/philforge"
-elif [[ -d "/home/ec2-user/algoforge" ]]; then
-    APP_DIR="/home/ec2-user/algoforge"
-else
-    echo "[DEPLOY] ERROR: Neither /home/ec2-user/philforge nor /home/ec2-user/algoforge exists"
+APP_DIR="${PHILFORGE_APP_DIR:-/home/ec2-user/philforge}"
+if [[ ! -d "$APP_DIR" ]]; then
+    echo "[DEPLOY] ERROR: PhilForge app directory not found: $APP_DIR"
     exit 1
 fi
 
-if [[ -f "$HOME/.algoforge-active-port" || -f "/etc/systemd/system/algoforge@.service" ]]; then
-    APP="algoforge"
-elif [[ -f "$HOME/.philforge-active-port" || -f "/etc/systemd/system/philforge@.service" ]]; then
-    APP="philforge"
-elif [[ "$APP_DIR" == *"/algoforge" ]]; then
-    APP="algoforge"
-else
-    APP="philforge"
-fi
+APP="philforge"
 
 VENV="$APP_DIR/venv"
 

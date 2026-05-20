@@ -1100,7 +1100,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
   }
   // Persist active tab across page refresh
-  try { _setLocalState('philforge_active_tab', id, 'algoforge_active_tab'); } catch(e) {}
+  try { _setLocalState('philforge_active_tab', id); } catch(e) {}
   if (options.pushHistory !== false) {
     const navState = buildNavState(id, options.historyState || {});
     const nextHash = navHashForState(navState);
@@ -1274,7 +1274,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Restore active tab from URL or previous session and seed browser history.
   try {
-    const savedTab = _getLocalState('philforge_active_tab', 'algoforge_active_tab');
+    const savedTab = _getLocalState('philforge_active_tab');
     const initialState =
       history.state ||
       navStateFromLocation() ||
@@ -3502,7 +3502,6 @@ let _scalpLTPTimer = null;
 let _scalpFormInitialized = false;
 let _scalpRestoringState = false;
 const _SCALP_FORM_STORAGE_KEY = 'philforge_scalp_form_state_v1';
-const _LEGACY_SCALP_FORM_STORAGE_KEY = 'algoforge_scalp_form_state_v1';
 // Correct lot sizes as of Jan 2026
 const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
 // Strike step intervals per underlying
@@ -3530,13 +3529,13 @@ function _readScalpFormState() {
 function _persistScalpFormState() {
   if (_scalpRestoringState) return;
   try {
-    _setLocalState(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()), _LEGACY_SCALP_FORM_STORAGE_KEY);
+    _setLocalState(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()));
   } catch (e) {}
 }
 
 function _loadSavedScalpFormState() {
   try {
-    const raw = _getLocalState(_SCALP_FORM_STORAGE_KEY, _LEGACY_SCALP_FORM_STORAGE_KEY);
+    const raw = _getLocalState(_SCALP_FORM_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -4550,7 +4549,7 @@ function renderTickerPayload(data) {
 
 function loadTickerFromCache() {
   try {
-    const raw = _getLocalState('philforge_ticker_cache', 'algoforge_ticker_cache');
+    const raw = _getLocalState('philforge_ticker_cache');
     if (!raw) return false;
     const cached = JSON.parse(raw);
     return renderTickerPayload(cached);
@@ -4566,7 +4565,7 @@ function updateTicker() {
     if (data.status === 'ok') {
       renderTickerPayload(data);
       try {
-        _setLocalState('philforge_ticker_cache', JSON.stringify(data), 'algoforge_ticker_cache');
+        _setLocalState('philforge_ticker_cache', JSON.stringify(data));
       } catch (err) {
         console.warn('Ticker cache save failed:', err);
       }
@@ -9089,7 +9088,7 @@ function toggleTheme() {
     : (document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
   if (typeof window.pfApplyTheme !== 'function') {
     document.documentElement.setAttribute('data-theme', next);
-    try { _setLocalState('philforge_theme', next, 'algoforge_theme'); } catch(e) {}
+    try { _setLocalState('philforge_theme', next); } catch(e) {}
   }
   const btn = document.getElementById('theme-toggle');
   if (btn) btn.innerHTML = next === 'light' ? ICO.moon(18) : ICO.sun(18);
@@ -9101,7 +9100,7 @@ function toggleTheme() {
   try {
     const saved = (typeof window.pfGetStoredTheme === 'function')
       ? window.pfGetStoredTheme()
-      : _getLocalState('philforge_theme', 'algoforge_theme');
+      : _getLocalState('philforge_theme');
     const btn = document.getElementById('theme-toggle');
     if (saved === 'light') {
       if (typeof window.pfApplyTheme === 'function') window.pfApplyTheme('light');

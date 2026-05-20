@@ -54,9 +54,8 @@ jobs:
           set +e
           SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -T"
           ssh $SSH_OPTS deploy-target '
-            if [ -d "$HOME/philforge" ]; then APP_DIR="$HOME/philforge";
-            elif [ -d "$HOME/algoforge" ]; then APP_DIR="$HOME/algoforge";
-            else echo "No PhilForge/AlgoForge app dir found on server" >&2; exit 1; fi;
+            APP_DIR="$HOME/philforge";
+            if [ ! -d "$APP_DIR" ]; then echo "No PhilForge app dir found on server" >&2; exit 1; fi;
             cd "$APP_DIR" &&
             git fetch origin main &&
             git checkout main &&
@@ -73,9 +72,8 @@ jobs:
           if [ "$rc" -eq 255 ] && grep -Eq 'Broken pipe|Connection .* closed|timed out|banner exchange' deploy-stderr.log; then
             echo "SSH transport dropped during deploy. Verifying remote state..."
             ssh $SSH_OPTS deploy-target '
-              if [ -d "$HOME/philforge" ]; then APP_DIR="$HOME/philforge"; APP_NAME="philforge";
-              elif [ -d "$HOME/algoforge" ]; then APP_DIR="$HOME/algoforge"; APP_NAME="algoforge";
-              else exit 1; fi;
+              APP_DIR="$HOME/philforge"; APP_NAME="philforge";
+              if [ ! -d "$APP_DIR" ]; then exit 1; fi;
               ACTIVE_PORT_FILE="$HOME/.${APP_NAME}-active-port";
               REMOTE_HEAD=$(git -C "$APP_DIR" rev-parse HEAD);
               ACTIVE_PORT=$(cat "$ACTIVE_PORT_FILE");
@@ -94,9 +92,8 @@ jobs:
           SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -T"
           for i in $(seq 1 10); do
             if ssh $SSH_OPTS deploy-target '
-              if [ -d "$HOME/philforge" ]; then APP_DIR="$HOME/philforge"; APP_NAME="philforge";
-              elif [ -d "$HOME/algoforge" ]; then APP_DIR="$HOME/algoforge"; APP_NAME="algoforge";
-              else exit 1; fi;
+              APP_DIR="$HOME/philforge"; APP_NAME="philforge";
+              if [ ! -d "$APP_DIR" ]; then exit 1; fi;
               ACTIVE_PORT_FILE="$HOME/.${APP_NAME}-active-port";
               REMOTE_HEAD=$(git -C "$APP_DIR" rev-parse HEAD);
               ACTIVE_PORT=$(cat "$ACTIVE_PORT_FILE");
@@ -116,9 +113,7 @@ jobs:
         run: |
           SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -T"
           ssh $SSH_OPTS deploy-target '
-            if [ -d "$HOME/philforge" ]; then APP_NAME="philforge";
-            elif [ -d "$HOME/algoforge" ]; then APP_NAME="algoforge";
-            else exit 1; fi;
+            APP_NAME="philforge";
             ACTIVE_PORT_FILE="$HOME/.${APP_NAME}-active-port";
             echo "── PhilForge Deploy Status ──";
             echo "Service prefix: ${APP_NAME}";

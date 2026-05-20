@@ -121,7 +121,7 @@ async def destroy_session(token: str) -> None:
 
 def get_session_token(request: Request) -> str:
     """Extract session token from cookie or Authorization header."""
-    token = request.cookies.get("philforge_session", "") or request.cookies.get("algoforge_session", "")
+    token = request.cookies.get("philforge_session", "")
     if not token:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):

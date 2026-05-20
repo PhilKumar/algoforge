@@ -87,7 +87,6 @@ CPR_WIDE_RANGE = 0.5
 
 # ── Multi-Tenant Database & Auth ──────────────────────────
 _CONFIG_ROOT = os.path.dirname(__file__)
-_LEGACY_DB_PATH = os.path.join(_CONFIG_ROOT, "algoforge.db")
 _DEFAULT_DB_PATH = os.path.join(_CONFIG_ROOT, "philforge.db")
 
 
@@ -99,30 +98,12 @@ def _env_first(*keys: str, default: str = "") -> str:
     return default
 
 
-def _resolve_default_db_path() -> str:
-    if os.path.exists(_DEFAULT_DB_PATH):
-        return _DEFAULT_DB_PATH
-    if not os.path.exists(_LEGACY_DB_PATH):
-        return _DEFAULT_DB_PATH
-    try:
-        for suffix in ("", "-shm", "-wal"):
-            legacy_path = f"{_LEGACY_DB_PATH}{suffix}"
-            default_path = f"{_DEFAULT_DB_PATH}{suffix}"
-            if os.path.exists(legacy_path) and not os.path.exists(default_path):
-                os.replace(legacy_path, default_path)
-        return _DEFAULT_DB_PATH
-    except OSError:
-        return _LEGACY_DB_PATH
-
-
 DB_PATH = _env_first(
     "PHILFORGE_DB",
-    "ALGOFORGE_DB",
-    default=_resolve_default_db_path(),
+    default=_DEFAULT_DB_PATH,
 )
 USER_DATA_ROOT = _env_first(
     "PHILFORGE_USER_DATA_ROOT",
-    "ALGOFORGE_USER_DATA_ROOT",
     default=os.path.join(_CONFIG_ROOT, "data", "users"),
 )
 ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
@@ -132,11 +113,8 @@ MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
 BACKUP_ROOT = _env_first(
     "PHILFORGE_BACKUP_ROOT",
-    "ALGOFORGE_BACKUP_ROOT",
     default=os.path.join(_CONFIG_ROOT, "backups"),
 )
-BACKUP_RETENTION_DAYS = int(
-    _env_first("PHILFORGE_BACKUP_RETENTION_DAYS", "ALGOFORGE_BACKUP_RETENTION_DAYS", default="14")
-)
-BACKUP_MIN_FREE_MB = int(_env_first("PHILFORGE_BACKUP_MIN_FREE_MB", "ALGOFORGE_BACKUP_MIN_FREE_MB", default="1024"))
+BACKUP_RETENTION_DAYS = int(_env_first("PHILFORGE_BACKUP_RETENTION_DAYS", default="14"))
+BACKUP_MIN_FREE_MB = int(_env_first("PHILFORGE_BACKUP_MIN_FREE_MB", default="1024"))
 DHAN_REFERRAL_URL = (os.getenv("DHAN_REFERRAL_URL", "") or "").strip()
