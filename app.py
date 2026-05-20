@@ -88,11 +88,13 @@ from study_content import get_study_library, sanitize_study_asset
 
 try:
     from scalp import ScalpEngine as _ScalpEngineClass
+    from scalp import ScalpTrade as _ScalpTradeClass
 
     _HAS_SCALP = True
 except ImportError:
     _HAS_SCALP = False
     _ScalpEngineClass = None
+    _ScalpTradeClass = None
 import alerter
 from token_manager import auto_generate_token, token_renewal_loop
 
@@ -1361,9 +1363,139 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
 _market_feed = get_market_feed(dhan) if HAS_DHAN_FEED else None
 _scalp_engines: Dict[int, "_ScalpEngineClass"] = {}
+_scalp_open_state_last_save: Dict[int, float] = defaultdict(float)
+_SCALP_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _SKIP_STARTUP_JOBS = (
     os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or os.getenv("ALGOFORGE_SKIP_STARTUP_JOBS") or ""
 ).lower() in {"1", "true", "yes"}
+
+
+def _scalp_open_state_key(user_id: int) -> str:
+    return f"scalp_open:{int(user_id)}"
+
+
+def _parse_scalp_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=None)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _restore_scalp_trade_from_payload(payload: dict):
+    if not _ScalpTradeClass or not isinstance(payload, dict):
+        return None
+    status = str(payload.get("status") or "open").lower()
+    if status == "closed":
+        return None
+    try:
+        lots = max(1, int(float(payload.get("lots") or 1)))
+        quantity = int(float(payload.get("quantity") or 0))
+        lot_size_raw = payload.get("lot_size") or (quantity / lots if quantity > 0 else 1)
+        trade = _ScalpTradeClass(
+            trade_id=int(payload.get("trade_id") or 0),
+            underlying=str(payload.get("underlying") or "").strip().upper(),
+            strike=int(float(payload.get("strike") or 0)),
+            option_type=str(payload.get("option_type") or "").strip().upper(),
+            expiry=str(payload.get("expiry") or "").strip(),
+            transaction_type=str(payload.get("transaction_type") or "BUY").strip().upper(),
+            lots=lots,
+            lot_size=max(1, int(float(lot_size_raw or 1))),
+            entry_premium=float(payload.get("entry_premium") or 0),
+            product_type=str(payload.get("product_type") or "INTRADAY"),
+            target_premium=float(payload.get("target_premium") or 0),
+            sl_premium=float(payload.get("sl_premium") or 0),
+            target_pct=float(payload.get("target_pct") or 0),
+            sl_pct=float(payload.get("sl_pct") or 0),
+            target_rupees=float(payload.get("target_rupees") or 0),
+            sl_rupees=float(payload.get("sl_rupees") or 0),
+            sqoff_time=str(payload.get("sqoff_time") or ""),
+            order_id=str(payload.get("order_id") or ""),
+            entry_time=_parse_scalp_datetime(payload.get("entry_time")),
+            mode=str(payload.get("mode") or "paper"),
+            entry_limit_price=float(payload.get("entry_limit_price") or 0),
+            entry_limit_max=float(payload.get("entry_limit_max") or 0),
+        )
+        trade.current_premium = float(payload.get("current_premium") or trade.entry_premium or 0)
+        trade.status = "pending" if status == "pending" else "open"
+        for attr in (
+            "broker_order_model",
+            "super_order_id",
+            "super_order_status",
+            "super_target_status",
+            "super_sl_status",
+            "broker_sl_order_id",
+            "broker_tp_order_id",
+        ):
+            if attr in payload:
+                setattr(trade, attr, str(payload.get(attr) or ""))
+        trade.super_filled_qty = int(float(payload.get("super_filled_qty") or 0))
+        return trade
+    except Exception as exc:
+        print(f"[SCALP] Skipping persisted open trade restore: {exc}")
+        return None
+
+
+async def _restore_scalp_open_state(user_id: int, eng) -> bool:
+    if not eng or getattr(eng, "open_trades", None):
+        return False
+    raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
+    if not raw:
+        return False
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return False
+    rows = payload.get("open_trades") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return False
+
+    restored = 0
+    for row in rows:
+        trade = _restore_scalp_trade_from_payload(row)
+        if not trade or trade.trade_id <= 0:
+            continue
+        eng.open_trades[trade.trade_id] = trade
+        eng._trade_counter = max(eng._trade_counter, trade.trade_id)
+        restored += 1
+
+    if not restored:
+        return False
+    if isinstance(payload.get("event_log"), list):
+        eng.event_log = payload.get("event_log", [])[-100:]
+    if bool(payload.get("running")) and all(str(t.mode).lower() != "live" for t in eng.open_trades.values()):
+        eng.start()
+    print(f"[SCALP] Restored {restored} open scalp trade(s) for user {user_id}")
+    return True
+
+
+async def _save_scalp_open_state(user_id: int, eng, *, force: bool = False) -> None:
+    if not eng:
+        return
+    now = time.time()
+    if not force and now - _scalp_open_state_last_save[int(user_id)] < _SCALP_OPEN_STATE_SAVE_INTERVAL_SEC:
+        return
+    status = eng.get_status()
+    payload = {
+        "running": bool(status.get("running")),
+        "trade_counter": int(getattr(eng, "_trade_counter", 0) or 0),
+        "open_trades": status.get("open_trades") or [],
+        "event_log": status.get("event_log") or [],
+        "saved_at": datetime.now().isoformat(),
+    }
+    await _db_mod.set_app_state(_scalp_open_state_key(user_id), json.dumps(payload, default=str))
+    _scalp_open_state_last_save[int(user_id)] = now
 
 
 def _startup_flag(name: str, default: bool = True) -> bool:
@@ -8489,6 +8621,7 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
             except Exception as e:
                 print(f"[SCALP] Failed to persist closed trade for user {owner_id}: {e}")
             finally:
+                await _save_scalp_open_state(owner_id, _scalp_engines.get(owner_id), force=True)
                 _notify_scalp_ws()
 
         def _persist_closed_trade(trade_dict):
@@ -8527,7 +8660,10 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
 async def get_scalp_status(request: Request):
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
+    restored = await _restore_scalp_open_state(user_id, eng)
     status = eng.get_status()
+    if status.get("open_trades"):
+        await _save_scalp_open_state(user_id, eng, force=restored)
     file_trades = await _db_mod.list_scalp_trades(user_id)
     status["file_trades"] = list(reversed(file_trades))
     return status
@@ -8535,8 +8671,11 @@ async def get_scalp_status(request: Request):
 
 @app.post("/api/scalp/start")
 async def start_scalp_engine(request: Request):
-    eng = _get_scalp_engine(_request_user_id(request))
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
+    await _restore_scalp_open_state(user_id, eng)
     eng.start()
+    await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()
     return {"status": "started"}
 
@@ -8545,6 +8684,7 @@ async def start_scalp_engine(request: Request):
 async def stop_scalp_engine(request: Request):
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
+    await _restore_scalp_open_state(user_id, eng)
     sqoff = await _square_off_scalp_engine_trades(eng)
     if not sqoff.get("ok"):
         return {
@@ -8555,6 +8695,7 @@ async def stop_scalp_engine(request: Request):
         }
     await _save_scalp_run_to_history(eng, explicit_user_id=user_id)
     eng.stop()
+    await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()
     return {"status": "stopped", "square_off": sqoff}
 
@@ -8656,6 +8797,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                         f"Entry: \u20b9{entry_p:.2f} | Product: {product_type} | Mode: {req.mode}",
                         level="info",
                     )
+                await _save_scalp_open_state(user_id, eng, force=True)
             _notify_scalp_ws()
             return result
         except Exception as e:
@@ -8668,11 +8810,14 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
 
 @app.post("/api/scalp/exit/{trade_id}")
 async def scalp_exit(trade_id: int, request: Request):
-    eng = _get_scalp_engine(_request_user_id(request))
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
     try:
+        await _restore_scalp_open_state(user_id, eng)
         result = await eng.exit_trade(trade_id, reason="manual")
         if result.get("status") == "error":
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
+        await _save_scalp_open_state(user_id, eng, force=True)
         _notify_scalp_ws()
         return result
     except Exception as e:
@@ -8682,12 +8827,15 @@ async def scalp_exit(trade_id: int, request: Request):
 
 @app.post("/api/scalp/kill-all")
 async def scalp_kill_all(request: Request):
-    eng = _get_scalp_engine(_request_user_id(request))
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
     try:
+        await _restore_scalp_open_state(user_id, eng)
         result = await eng.kill_all_trades()
         closed = result.get("closed", 0)
         if closed > 0:
             alerter.alert("Scalp Kill All", f"Emergency exit: {closed} trade(s) closed", level="warning")
+        await _save_scalp_open_state(user_id, eng, force=True)
         _notify_scalp_ws()
         return result
     except Exception as e:
@@ -8707,8 +8855,11 @@ class ScalpTargetsReq(BaseModel):
 
 @app.put("/api/scalp/trades/{trade_id}/targets")
 async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Request):
-    eng = _get_scalp_engine(_request_user_id(request))
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
+    await _restore_scalp_open_state(user_id, eng)
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
+    await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()
     return result
 
@@ -9699,6 +9850,7 @@ async def _shutdown_cleanup():
     # Save all running scalp engines
     for owner_id, engine in list(_scalp_engines.items()):
         try:
+            await _save_scalp_open_state(owner_id, engine, force=True)
             await _save_scalp_run_to_history(engine, explicit_user_id=owner_id)
             engine.stop()
             print(f"🛑 [Shutdown] Saved scalp engine: {owner_id}")
