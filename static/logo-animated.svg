@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">Animated PhilForge logo</title>
+  <desc id="desc">The original PhilForge logo and motto with a subtle forge spark, pulse, and light sweep animation.</desc>
+  <defs>
+    <radialGradient id="forgeBloom" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fbbf24" stop-opacity=".82"/>
+      <stop offset=".28" stop-color="#22d3ee" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" x2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".48" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity=".62"/>
+      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="round"><rect width="512" height="512" rx="80"/></clipPath>
+  </defs>
+  <g clip-path="url(#round)">
+    <!-- Original art remains intact: all motion is an overlay around it. -->
+    <g opacity="0" transform="translate(256 256) scale(.92) translate(-256 -256)">
+      <image href="logo.svg" xlink:href="logo.svg" width="512" height="512"/>
+      <animate attributeName="opacity" values="0;1;1" keyTimes="0;.17;1" dur="6s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="scale" additive="sum" values=".92;1;1" keyTimes="0;.17;1" dur="6s" repeatCount="indefinite"/>
+    </g>
+    <circle cx="275" cy="306" r="7" fill="url(#forgeBloom)" opacity="0">
+      <animate attributeName="r" values="3;50;3" keyTimes="0;.16;.34" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;.9;0" keyTimes="0;.16;.34" dur="6s" repeatCount="indefinite"/>
+    </circle>
+    <g fill="#fde68a" filter="url(#glow)" opacity="0">
+      <circle cx="275" cy="306" r="3"/><circle cx="286" cy="294" r="2"/><circle cx="260" cy="291" r="2"/>
+      <animate attributeName="opacity" values="0;1;0;0" keyTimes="0;.18;.35;1" dur="6s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="translate" values="0 0;8 -22;18 -48;18 -48" keyTimes="0;.18;.35;1" dur="6s" repeatCount="indefinite"/>
+    </g>
+    <rect x="-512" y="0" width="512" height="512" fill="url(#sweep)" opacity=".28" transform="skewX(-18)">
+      <animate attributeName="x" values="-512;512;512" keyTimes="0;.32;1" dur="6s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+</svg>
