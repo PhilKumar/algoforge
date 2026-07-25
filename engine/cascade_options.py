@@ -7,11 +7,13 @@ the strategy rules testable before Dhan historical-data access is available.
 
 from __future__ import annotations
 
+import asyncio
 import math
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import time as dt_time
-from typing import Callable, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
+from zoneinfo import ZoneInfo
 
 
 class CascadeError(ValueError):
@@ -469,3 +471,519 @@ class OneHourCascade:
             self.result.average_spot = self._average_spot()
             self.result.target_index = self._target()
         return self.result
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: NIFTY 5m index geometry port
+# ---------------------------------------------------------------------------
+#
+# The legacy OneHourCascade above is intentionally retained for the existing
+# manual replay page.  The types below are separate on purpose: this is the
+# CryptoForge Cascade geometry (mother -> trendline -> fib), calculated solely
+# from NIFTY index candles.  Phase 2 will attach paper fills and round booking;
+# this phase must not submit a broker order.
+
+IST = ZoneInfo("Asia/Kolkata")
+GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT = 0.00045
+GEOMETRY_MIN_FIB_RANGE_PCT = 0.001
+GEOMETRY_DECISIVE_BREAK_PCT = 0.0002
+GEOMETRY_MIN_LEG_SEPARATION_PCT = 0.0003
+GEOMETRY_MIN_TRENDLINE_SEPARATION_PCT = 0.0015
+GEOMETRY_MOTHER_RETEST_PCT = 0.0015
+GEOMETRY_MOTHER_DEPART_PCT = 0.005
+GEOMETRY_FIB_LEVELS = (2, 4, 8)
+
+
+class PaperOnlyViolation(RuntimeError):
+    """Raised if code tries to disable the Phase-1 no-live-order lock."""
+
+
+class OptionsAdapterError(CascadeError):
+    """Dhan data or ScripMaster data was not sufficient for a safe campaign."""
+
+
+@dataclass(frozen=True)
+class IndexCandle:
+    """A closed NIFTY index candle used for all Cascade geometry."""
+
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+
+    @property
+    def is_red(self) -> bool:
+        return self.close < self.open
+
+
+@dataclass(frozen=True)
+class IndexTrendline:
+    trendline_id: int
+    anchor1_price: float
+    anchor1_timestamp: datetime
+    anchor2_price: float
+    anchor2_timestamp: datetime
+    bears_fib: bool = True
+
+
+@dataclass(frozen=True)
+class IndexFibLadder:
+    high_anchor: float
+    low_anchor: float
+
+    def level_price(self, level: float) -> float:
+        return self.high_anchor - level * (self.high_anchor - self.low_anchor)
+
+
+@dataclass(frozen=True)
+class IndexLeg:
+    leg_id: int
+    trendline_id: int
+    low: float
+    touch_high: float
+    touch_timestamp: datetime
+    fib: IndexFibLadder
+
+
+@dataclass
+class IndexGeometryCampaign:
+    mother_timestamp: datetime
+    mother_high: float
+    mother_low: float
+    state: str = "WAITING_FIRST_DEPTH"
+    left_mother_range: bool = False
+    window_start_timestamp: Optional[datetime] = None
+    trendlines: list[IndexTrendline] = field(default_factory=list)
+    legs: list[IndexLeg] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
+
+
+def index_trendline_price(trendline: IndexTrendline, at_timestamp: datetime) -> float:
+    seconds = (trendline.anchor2_timestamp - trendline.anchor1_timestamp).total_seconds()
+    if seconds == 0:
+        return trendline.anchor1_price
+    slope = (trendline.anchor2_price - trendline.anchor1_price) / seconds
+    return trendline.anchor1_price + slope * (at_timestamp - trendline.anchor1_timestamp).total_seconds()
+
+
+def find_index_valid_anchor2(
+    anchor1_price: float,
+    anchor1_timestamp: datetime,
+    candles_between: Iterable[IndexCandle],
+    *,
+    epsilon: float = 1e-9,
+) -> tuple[Optional[float], Optional[datetime]]:
+    """Byte-for-byte rule equivalent to CryptoForge's anchor search.
+
+    It searches backward through red candle opens and accepts the tightest
+    descending line that earlier *closes* did not cross (with the same 0.045%
+    tolerance).  Wick-only crossings are intentionally allowed.
+    """
+
+    candles = list(candles_between)
+    for candidate in reversed([c for c in candles if c.is_red]):
+        if candidate.timestamp == anchor1_timestamp:
+            continue
+        elapsed = (candidate.timestamp - anchor1_timestamp).total_seconds()
+        if not elapsed:
+            continue
+        slope = (candidate.open - anchor1_price) / elapsed
+        violated = False
+        for candle in candles:
+            if candle.timestamp < candidate.timestamp:
+                line_price = anchor1_price + slope * (candle.timestamp - anchor1_timestamp).total_seconds()
+                allowance = abs(line_price) * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT
+                if candle.close > line_price + allowance + epsilon:
+                    violated = True
+                    break
+        if not violated:
+            return candidate.open, candidate.timestamp
+    return None, None
+
+
+def index_ladders_overlap(a_high: float, a_low: float, b_high: float, b_low: float) -> bool:
+    """The same overlap test used to suppress duplicate Cascade shelves."""
+
+    deepest, shallowest = max(GEOMETRY_FIB_LEVELS), min(GEOMETRY_FIB_LEVELS)
+    a_range, b_range = a_high - a_low, b_high - b_low
+    if a_range <= 0 or b_range <= 0:
+        return True
+    a_floor, a_ceiling = a_high - deepest * a_range, a_high - shallowest * a_range
+    b_floor, b_ceiling = b_high - deepest * b_range, b_high - shallowest * b_range
+    return a_ceiling >= b_floor and b_ceiling >= a_floor
+
+
+class NiftyIndexCascadeGeometry:
+    """Paper-safe port of CryptoForge's 5m trendline/fib state machine.
+
+    No premium, strike, order, or broker state is allowed into this class.  A
+    generated leg is therefore an auditable index-space fact, not an execution
+    decision.  Existing legs are never rewritten when a later leg is added.
+    """
+
+    def __init__(self, mother: IndexCandle) -> None:
+        self.campaign = IndexGeometryCampaign(
+            mother_timestamp=mother.timestamp,
+            mother_high=float(mother.high),
+            mother_low=float(mother.low),
+            window_start_timestamp=mother.timestamp,
+        )
+        self._history: list[IndexCandle] = [mother]
+
+    @property
+    def history(self) -> tuple[IndexCandle, ...]:
+        return tuple(self._history)
+
+    def feed(self, candles: Iterable[IndexCandle]) -> IndexGeometryCampaign:
+        for candle in sorted(candles, key=lambda row: row.timestamp):
+            self.on_candle(candle)
+        return self.campaign
+
+    def on_candle(self, candle: IndexCandle) -> None:
+        if candle.timestamp <= self.campaign.mother_timestamp or self.campaign.state in {
+            "MOTHER_BROKEN",
+            "MOTHER_RETESTED",
+        }:
+            return
+        self._history.append(candle)
+        if candle.high > self.campaign.mother_high:
+            self.campaign.state = "MOTHER_BROKEN"
+            self._log(candle, "mother_broken")
+            return
+        if candle.low <= self.campaign.mother_high * (1 - GEOMETRY_MOTHER_DEPART_PCT):
+            self.campaign.left_mother_range = True
+        if self.campaign.left_mother_range and candle.high >= self.campaign.mother_high * (
+            1 - GEOMETRY_MOTHER_RETEST_PCT
+        ):
+            self.campaign.state = "MOTHER_RETESTED"
+            self._log(candle, "mother_retested")
+            return
+        if candle.is_red:
+            self._evaluate_cut(candle)
+
+    def _log(self, candle: IndexCandle, event: str, **data: Any) -> None:
+        self.campaign.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **data})
+
+    def _window(self, candle: IndexCandle) -> list[IndexCandle]:
+        start = self.campaign.window_start_timestamp or self.campaign.mother_timestamp
+        return [
+            row
+            for row in self._history
+            if start <= row.timestamp and self.campaign.mother_timestamp < row.timestamp <= candle.timestamp
+        ]
+
+    def _duplicate_trendline(self, candidate: IndexTrendline, at_timestamp: datetime) -> Optional[IndexTrendline]:
+        mine = index_trendline_price(candidate, at_timestamp)
+        if mine <= 0:
+            return None
+        for trendline in self.campaign.trendlines:
+            existing = index_trendline_price(trendline, at_timestamp)
+            if existing > 0 and abs(mine - existing) / existing < GEOMETRY_MIN_TRENDLINE_SEPARATION_PCT:
+                return trendline
+        return None
+
+    def _evaluate_cut(self, candle: IndexCandle) -> None:
+        window = self._window(candle)
+        if len(window) < 2:
+            return
+        between = [row for row in self._history if self.campaign.mother_timestamp < row.timestamp < candle.timestamp]
+        anchor_price, anchor_timestamp = find_index_valid_anchor2(
+            self.campaign.mother_high, self.campaign.mother_timestamp, between
+        )
+        if anchor_price is None or anchor_timestamp is None or anchor_price >= self.campaign.mother_high:
+            return
+        candidate = IndexTrendline(
+            trendline_id=len(self.campaign.trendlines) + 1,
+            anchor1_price=self.campaign.mother_high,
+            anchor1_timestamp=self.campaign.mother_timestamp,
+            anchor2_price=anchor_price,
+            anchor2_timestamp=anchor_timestamp,
+        )
+        running_low: Optional[float] = None
+        running_low_timestamp: Optional[datetime] = None
+        frozen_low: Optional[float] = None
+        first_cross_timestamp: Optional[datetime] = None
+        touch_high: Optional[float] = None
+        touch_timestamp: Optional[datetime] = None
+        for row in window:
+            line = index_trendline_price(candidate, row.timestamp)
+            crossed = row.high >= line and row.close < line and row.high < self.campaign.mother_high
+            if crossed and running_low_timestamp is not None and row.timestamp >= running_low_timestamp:
+                if first_cross_timestamp is None:
+                    first_cross_timestamp = row.timestamp
+                    frozen_low = running_low
+                if touch_high is None or row.high > touch_high:
+                    touch_high, touch_timestamp = row.high, row.timestamp
+            if first_cross_timestamp is None and (running_low is None or row.low < running_low):
+                running_low, running_low_timestamp = row.low, row.timestamp
+        if first_cross_timestamp is None or frozen_low is None or touch_high is None:
+            return
+        if touch_high - frozen_low < touch_high * GEOMETRY_MIN_FIB_RANGE_PCT:
+            return
+        if candle.close >= frozen_low or frozen_low - candle.close < candle.close * GEOMETRY_DECISIVE_BREAK_PCT:
+            return
+        prior_leg = self.campaign.legs[-1] if self.campaign.legs else None
+        if prior_leg is not None and candle.close >= prior_leg.low:
+            return
+        duplicate_shelf: Optional[IndexLeg] = None
+        separation = 0.0
+        for leg in self.campaign.legs:
+            if not index_ladders_overlap(touch_high, frozen_low, leg.touch_high, leg.low):
+                continue
+            gap = abs(touch_high - leg.touch_high) / leg.touch_high
+            if duplicate_shelf is None or gap < separation:
+                duplicate_shelf, separation = leg, gap
+        if duplicate_shelf is not None and separation < GEOMETRY_MIN_LEG_SEPARATION_PCT:
+            display = [
+                row for row in self._history if self.campaign.mother_timestamp < row.timestamp <= candle.timestamp
+            ]
+            display_price, display_timestamp = find_index_valid_anchor2(
+                self.campaign.mother_high, self.campaign.mother_timestamp, display
+            )
+            if display_price is None or display_timestamp is None or display_price >= self.campaign.mother_high:
+                display_price, display_timestamp = anchor_price, anchor_timestamp
+            ghost = IndexTrendline(
+                trendline_id=len(self.campaign.trendlines) + 1,
+                anchor1_price=self.campaign.mother_high,
+                anchor1_timestamp=self.campaign.mother_timestamp,
+                anchor2_price=display_price,
+                anchor2_timestamp=display_timestamp,
+                bears_fib=False,
+            )
+            if self._duplicate_trendline(ghost, candle.timestamp) is None:
+                self.campaign.trendlines.append(ghost)
+            self.campaign.window_start_timestamp = candle.timestamp
+            self._log(candle, "same_shelf", existing_leg=duplicate_shelf.leg_id)
+            return
+        existing_line = self._duplicate_trendline(candidate, candle.timestamp)
+        trendline = existing_line or candidate
+        if existing_line is None:
+            self.campaign.trendlines.append(trendline)
+        self.campaign.state = "TRENDLINE_ACTIVE"
+        leg = IndexLeg(
+            leg_id=len(self.campaign.legs) + 1,
+            trendline_id=trendline.trendline_id,
+            low=frozen_low,
+            touch_high=touch_high,
+            touch_timestamp=touch_timestamp or candle.timestamp,
+            fib=IndexFibLadder(touch_high, frozen_low),
+        )
+        self.campaign.legs.append(leg)
+        self.campaign.window_start_timestamp = candle.timestamp
+        self._log(
+            candle,
+            "leg",
+            leg_id=leg.leg_id,
+            trendline_id=leg.trendline_id,
+            fib_high=leg.touch_high,
+            fib_low=leg.low,
+        )
+
+
+@dataclass(frozen=True)
+class FixedCampaignOption:
+    """The one CE contract fixed at a campaign's mother candle."""
+
+    underlying: str
+    strike: int
+    expiry: date
+    option_type: str
+    lot_size: int
+    security_id: str
+
+
+@dataclass(frozen=True)
+class PaperOptionOrder:
+    order_id: str
+    contract: FixedCampaignOption
+    side: str
+    quantity: int
+    product_type: str
+    status: str = "PAPER"
+
+
+def _as_ist(value: datetime) -> datetime:
+    return value.replace(tzinfo=IST) if value.tzinfo is None else value.astimezone(IST)
+
+
+def is_nse_cash_session(timestamp: datetime) -> bool:
+    """Normal NSE trading-session guard; exchange holidays are broker-owned."""
+
+    timestamp = _as_ist(timestamp)
+    return timestamp.weekday() < 5 and dt_time(9, 15) <= timestamp.time() < dt_time(15, 30)
+
+
+def option_expiry_squareoff_due(timestamp: datetime, expiry: date) -> bool:
+    timestamp = _as_ist(timestamp)
+    return timestamp.date() > expiry or (timestamp.date() == expiry and timestamp.time() >= dt_time(15, 0))
+
+
+class CascadeOptionsAdapter:
+    """Read-only Dhan bridge with a hard paper-order boundary for Phase 1.
+
+    The adapter intentionally owns all Dhan knowledge.  Its `place_order`
+    method creates an in-memory `PaperOptionOrder`; it never calls
+    `DhanClient.place_option_order`.  Passing `paper_only=False` is rejected
+    so Phase 1 cannot become live through configuration drift.
+    """
+
+    NIFTY_SECURITY_ID = "13"
+    POSITIONAL_PRODUCT_TYPE = "CARRYFORWARD"
+
+    def __init__(self, dhan: Any, *, scrip_master: Any = None, paper_only: bool = True) -> None:
+        if not paper_only:
+            raise PaperOnlyViolation("NIFTY options Cascade Phase 1 is hard-locked to paper-only mode")
+        self.dhan = dhan
+        if scrip_master is None:
+            from broker.dhan import ScripMaster  # lazy: pure geometry remains testable without Dhan
+
+            scrip_master = ScripMaster
+        self.scrip_master = scrip_master
+        self.paper_only = True
+        self._paper_orders: dict[str, PaperOptionOrder] = {}
+        self._paper_order_sequence = 0
+
+    @staticmethod
+    def _normalise_index_frame(frame: Any, now: Optional[datetime] = None) -> list[IndexCandle]:
+        if frame is None or getattr(frame, "empty", False):
+            return []
+        now_ist = _as_ist(now or datetime.now(IST))
+        closed: list[IndexCandle] = []
+        for timestamp, row in frame.iterrows():
+            candle_time = timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp
+            candle_time = _as_ist(candle_time)
+            # The Dhan historical endpoint can include the candle currently
+            # forming.  Geometry is only ever allowed to see closed candles.
+            if candle_time + timedelta(minutes=5) > now_ist:
+                continue
+            closed.append(
+                IndexCandle(
+                    candle_time,
+                    float(row["open"]),
+                    float(row["high"]),
+                    float(row["low"]),
+                    float(row["close"]),
+                )
+            )
+        return sorted(closed, key=lambda candle: candle.timestamp)
+
+    async def async_get_candles(
+        self,
+        symbol: str,
+        timeframe: str = "5m",
+        *,
+        from_date: Optional[date | str] = None,
+        to_date: Optional[date | str] = None,
+        now: Optional[datetime] = None,
+    ) -> list[IndexCandle]:
+        if str(symbol).upper() != "NIFTY" or str(timeframe).lower() != "5m":
+            raise OptionsAdapterError("Phase 1 only supports closed NIFTY 5m index candles")
+        current = _as_ist(now or datetime.now(IST))
+        start = from_date or current.date()
+        end = to_date or current.date()
+        start_text = start.isoformat() if isinstance(start, date) else str(start)
+        end_text = end.isoformat() if isinstance(end, date) else str(end)
+        frame = await asyncio.to_thread(self.dhan.get_nifty_intraday, start_text, end_text, interval="5")
+        return self._normalise_index_frame(frame, current)
+
+    def get_ticker(self, symbol: str = "NIFTY") -> dict[str, float | str]:
+        if str(symbol).upper() != "NIFTY":
+            raise OptionsAdapterError("Phase 1 only supports NIFTY")
+        payload = self.dhan.get_ohlc_multi({"IDX_I": [self.NIFTY_SECURITY_ID]})
+        index_data = (payload or {}).get("IDX_I", {})
+        row = index_data.get(str(self.NIFTY_SECURITY_ID), index_data.get(int(self.NIFTY_SECURITY_ID), {}))
+        if not isinstance(row, dict):
+            raise OptionsAdapterError("Dhan did not return a NIFTY IDX_I quote")
+        price = row.get("last_price", row.get("ltp"))
+        if price is None:
+            raise OptionsAdapterError("Dhan NIFTY quote has no last_price")
+        return {"symbol": "NIFTY", "last_price": float(price), "mark_price": float(price)}
+
+    def select_campaign_contract(
+        self,
+        *,
+        mother_spot: float,
+        selected_at: datetime,
+        ce_offset_steps: int = -2,
+        strike_step: int = 50,
+    ) -> FixedCampaignOption:
+        if strike_step <= 0:
+            raise OptionsAdapterError("strike_step must be positive")
+        selected_at = _as_ist(selected_at)
+        expiries = [date.fromisoformat(str(value)[:10]) for value in self.scrip_master.get_expiries("NIFTY")]
+        expiry = self._next_weekly_expiry(expiries, selected_at.date())
+        atm = int(math.floor(float(mother_spot) / strike_step + 0.5) * strike_step)
+        strike = atm + int(ce_offset_steps) * strike_step
+        lot_size = int(self.scrip_master.get_lot_size("NIFTY", expiry.isoformat()))
+        security_id = str(self.scrip_master.lookup("NIFTY", strike, expiry.isoformat(), "CE") or "")
+        if not security_id:
+            raise OptionsAdapterError(f"ScripMaster has no NIFTY {strike}CE for {expiry.isoformat()}")
+        return FixedCampaignOption("NIFTY", strike, expiry, "CE", lot_size, security_id)
+
+    @staticmethod
+    def _next_weekly_expiry(expiries: Iterable[date], trade_date: date) -> date:
+        eligible: list[date] = []
+        for expiry in sorted(set(expiries)):
+            dte = (expiry - trade_date).days
+            # Normal weekly expiry is Tuesday: Monday is 8 DTE and Tuesday is
+            # 7 DTE.  A holiday-shifted Monday expiry is permitted at 6 DTE.
+            min_dte = 7 if expiry.weekday() == 1 else 6
+            if dte >= min_dte:
+                eligible.append(expiry)
+        if not eligible:
+            raise OptionsAdapterError("No next-weekly NIFTY expiry is available in ScripMaster")
+        return eligible[0]
+
+    def dte_allows_new_rungs(self, contract: FixedCampaignOption, at: datetime) -> bool:
+        return (contract.expiry - _as_ist(at).date()).days > 1
+
+    def expiry_squareoff_due(self, contract: FixedCampaignOption, at: datetime) -> bool:
+        return option_expiry_squareoff_due(at, contract.expiry)
+
+    def place_order(
+        self,
+        contract: FixedCampaignOption,
+        *,
+        side: str,
+        quantity: int,
+        product_type: str = POSITIONAL_PRODUCT_TYPE,
+    ) -> PaperOptionOrder:
+        """Record, never transmit, a paper CE order.
+
+        The positional product is deliberately part of the paper contract so
+        Phase 4 can assert CARRYFORWARD/NRML before it wires any live submit.
+        """
+
+        if not self.paper_only:
+            raise PaperOnlyViolation("Live order submission is not implemented in Phase 1")
+        if contract.option_type != "CE" or str(side).upper() not in {"BUY", "SELL"}:
+            raise OptionsAdapterError("Phase 1 paper adapter only accepts CE BUY/SELL orders")
+        if quantity <= 0 or quantity % contract.lot_size:
+            raise OptionsAdapterError("Option quantity must be an exact whole number of ScripMaster lots")
+        self._paper_order_sequence += 1
+        order = PaperOptionOrder(
+            order_id=f"paper-nifty-cascade-{self._paper_order_sequence}",
+            contract=contract,
+            side=str(side).upper(),
+            quantity=int(quantity),
+            product_type=str(product_type).upper(),
+        )
+        self._paper_orders[order.order_id] = order
+        return order
+
+    def cancel_order(self, order_id: str) -> dict[str, str]:
+        if str(order_id) in self._paper_orders:
+            return {"orderId": str(order_id), "status": "CANCELLED"}
+        return {"orderId": str(order_id), "status": "NOT_FOUND"}
+
+    def get_orders(self) -> list[PaperOptionOrder]:
+        return list(self._paper_orders.values())
+
+    def get_order(self, order_id: str) -> Optional[PaperOptionOrder]:
+        return self._paper_orders.get(str(order_id))
+
+    def get_wallet(self) -> dict[str, Any]:
+        """Read-only funds mapping retained for the eventual engine interface."""
+
+        return self.dhan.get_funds()
