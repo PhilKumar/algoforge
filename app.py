@@ -70,6 +70,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
+from engine.cascade_options import CascadeConfig, NiftyContractResolver, OneHourCascade
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -2485,6 +2486,20 @@ class StrategyPayload(BaseModel):
     capital_buffer_pct: float = Field(default=0.0, ge=0, lt=100)
     sell_option_margin_per_lot: float = Field(default=0.0, ge=0)
     allow_synthetic_option_fallback: bool = False
+
+
+class CascadeBacktestPayload(BaseModel):
+    """Manual 1H NIFTY cascade replay request.
+
+    This intentionally does not accept a live-order flag: the first release is
+    backtest-only and is kept separate from the execution engines.
+    """
+
+    mother_timestamp: str
+    mother_high: float = Field(gt=0)
+    mother_low: float = Field(gt=0)
+    option_type: str = "CE"
+    to_date: str = ""
 
 
 class OhlcvExportPayload(BaseModel):
@@ -6613,6 +6628,170 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
     pricing_info["synthetic_legs"] = max(0, len(option_legs) - pricing_info["historical_legs"])
     strategy_config["_option_history"] = history_cache
     return pricing_info
+
+
+# ── Manual NIFTY cascade backtest ─────────────────────────────────
+def _cascade_tuesday_expiries(from_day: date, to_day: date) -> list[date]:
+    """Return a conservative NIFTY weekly-expiry calendar for feasibility runs.
+
+    NIFTY weekly contracts currently expire on Tuesday.  Exchange holidays can
+    move a historical expiry, so this is deliberately disclosed as a calendar
+    estimate until the exact Dhan contract grid is connected.
+    """
+
+    cursor = from_day - timedelta(days=from_day.weekday() - 1)
+    if cursor < from_day:
+        cursor += timedelta(days=7)
+    last = to_day + timedelta(days=14)
+    expiries: list[date] = []
+    while cursor <= last:
+        expiries.append(cursor)
+        cursor += timedelta(days=7)
+    return expiries
+
+
+def _run_cascade_feasibility(
+    broker_client: DhanClient,
+    config: CascadeConfig,
+    from_date: str,
+    to_date: str,
+) -> dict:
+    """Fetch Dhan candles and replay the signal with its rolling option feed.
+
+    Dhan's documented historical option endpoint is ATM-relative.  It is used
+    only to prove the signal flow and show indicative premiums; it cannot price
+    the fixed strike selected at entry after spot has moved.
+    """
+
+    from data.cascade_dhan import DhanOneHourSource
+
+    source = DhanOneHourSource(broker_client)
+    index_candles = source.fetch_index(from_date, to_date)
+    if not index_candles:
+        raise ValueError("Dhan returned no NIFTY 1H candles for the selected date range.")
+    strike_alias = "ATM-2" if config.option_type.upper() == "CE" else "ATM+2"
+    rolling_options = source.fetch_rolling_option(
+        from_date,
+        to_date,
+        option_type=config.option_type.upper(),
+        strike_alias=strike_alias,
+    )
+    option_by_timestamp = {bar.timestamp: bar for bar in rolling_options}
+    resolver = NiftyContractResolver(
+        _cascade_tuesday_expiries(config.mother_timestamp.date(), datetime.strptime(to_date, "%Y-%m-%d").date()),
+        lot_size=config.lot_size,
+        strike_step=config.strike_step,
+    )
+    result = OneHourCascade(
+        config,
+        resolver,
+        lambda timestamp, _contract: option_by_timestamp.get(timestamp),
+    ).run(index_candles)
+
+    return {
+        "status": "ok",
+        "pricing_mode": "rolling_alias_provisional",
+        "pricing_warning": (
+            "Signal dates, index target, lots and selected fixed strikes are replayed. "
+            "Dhan historical option candles are ATM-relative rolling series, so displayed premiums and P&L "
+            "are provisional—not an exact fixed-strike result."
+        ),
+        "expiry_calendar_warning": (
+            "Expiry selection uses the Tuesday weekly calendar as a feasibility estimate. "
+            "Historical holiday-shifted expiries will be verified by the exact-contract data adapter."
+        ),
+        "data": {
+            "provider": "Dhan",
+            "source": "NIFTY index 1H + rolling option 1H",
+            "index_candles": len(index_candles),
+            "option_candles": len(rolling_options),
+            "from_date": from_date,
+            "to_date": to_date,
+            "rolling_strike_alias": strike_alias,
+        },
+        "result": {
+            "state": result.status,
+            "target_index": result.target_index,
+            "average_spot": result.average_spot,
+            "exit_timestamp": result.exit_timestamp.isoformat() if result.exit_timestamp else None,
+            "provisional_option_pnl": result.realized_pnl if result.exit_timestamp else None,
+            "data_gap": result.data_gap,
+            "entries": [
+                {
+                    "stage": entry.stage,
+                    "timestamp": entry.timestamp.isoformat(),
+                    "spot": entry.spot,
+                    "lots": entry.lots,
+                    "quantity": entry.quantity,
+                    "provisional_option_price": entry.option_price,
+                    "strike": entry.contract.strike,
+                    "expiry": entry.contract.expiry.isoformat(),
+                    "option_type": entry.contract.option_type,
+                }
+                for entry in result.entries
+            ],
+            "events": result.events,
+        },
+    }
+
+
+@app.post("/api/cascade/backtest")
+async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Request):
+    """Run one manually supplied CE or PE 1H mother-candle replay.
+
+    This endpoint performs no order placement and does not create a live engine.
+    """
+
+    try:
+        mother_timestamp = datetime.fromisoformat(payload.mother_timestamp.strip()).replace(tzinfo=None)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="Mother timestamp must be an IST datetime (YYYY-MM-DDTHH:MM)."
+        ) from exc
+    side = payload.option_type.upper().strip()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="Option type must be CE or PE.")
+    if payload.mother_high <= payload.mother_low:
+        raise HTTPException(status_code=400, detail="Mother high must be greater than mother low.")
+    if mother_timestamp.minute != 15 or mother_timestamp.second or mother_timestamp.microsecond:
+        raise HTTPException(status_code=400, detail="Use the 1H candle-open timestamp ending in :15 IST.")
+
+    latest_day = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    try:
+        end_day = datetime.strptime(payload.to_date, "%Y-%m-%d").date() if payload.to_date else latest_day
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="End date must use YYYY-MM-DD.") from exc
+    if end_day < mother_timestamp.date():
+        raise HTTPException(status_code=400, detail="End date cannot be before the mother candle.")
+    if (end_day - mother_timestamp.date()).days > 370:
+        raise HTTPException(status_code=400, detail="The initial cascade replay is limited to 370 calendar days.")
+
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before running a cascade replay.")
+    config = CascadeConfig(
+        mother_timestamp=mother_timestamp,
+        mother_high=payload.mother_high,
+        mother_low=payload.mother_low,
+        option_type=side,
+    )
+    try:
+        return await asyncio.to_thread(
+            _run_cascade_feasibility,
+            broker_client,
+            config,
+            mother_timestamp.date().isoformat(),
+            end_day.isoformat(),
+        )
+    except Exception as exc:
+        from data.cascade_dhan import DhanDataAccessError
+
+        if isinstance(exc, DhanDataAccessError):
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _logger.exception("Cascade backtest failed")
+        raise HTTPException(status_code=500, detail="Cascade backtest failed. Check Dhan access and retry.") from exc
 
 
 # ── Backtest ──────────────────────────────────────────────────────

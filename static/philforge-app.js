@@ -827,6 +827,7 @@ const NAV_BUTTON_MAP = {
   'live-page': 'nav-live',
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
+  'cascade-page': 'nav-cascade',
   'charts-page': 'nav-charts',
 };
 
@@ -1024,6 +1025,7 @@ async function applyNavState(state) {
   if (page === 'live-page') startLiveMonitor();
   if (page === 'stock-terminal-page') initStockTerminalPage();
   if (page === 'scalp-page') initScalpPage();
+  if (page === 'cascade-page') initCascadePage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
@@ -1154,6 +1156,131 @@ function _setLocalState(primaryKey, value, legacyKey = '') {
     localStorage.setItem(primaryKey, value);
     if (legacyKey) localStorage.removeItem(legacyKey);
   } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MANUAL NIFTY 1H CASCADE BACKTEST (read-only)
+// ══════════════════════════════════════════════════════════════
+const CASCADE_PRESETS = {
+  CE: { timestamp: '2026-05-07T12:15', high: 24482.1, low: 24329.7 },
+  PE: { timestamp: '2026-04-02T10:15', high: 22250.2, low: 22188.95 },
+};
+
+function _cascadeEl(id) { return document.getElementById(id); }
+
+function _cascadeNumber(value, decimals = 2) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : '—';
+}
+
+function _cascadeTimestamp(value) {
+  if (!value) return '—';
+  // API timestamps are deliberately naive IST, so do not let Date() shift them.
+  return String(value).replace('T', ' ').replace(/:00(?:\.\d+)?$/, ' IST');
+}
+
+function _cascadeSetStatus(message, tone = 'muted') {
+  const el = _cascadeEl('cascade-form-status');
+  if (!el) return;
+  const colors = { muted: 'var(--muted)', busy: '#fbbf24', error: 'var(--danger)', success: 'var(--success)' };
+  el.textContent = message;
+  el.style.color = colors[tone] || colors.muted;
+}
+
+function cascadeUsePreset(side) {
+  const preset = CASCADE_PRESETS[String(side || '').toUpperCase()];
+  if (!preset) return;
+  _cascadeEl('cascade-side').value = side;
+  _cascadeEl('cascade-mother-timestamp').value = preset.timestamp;
+  _cascadeEl('cascade-mother-high').value = preset.high;
+  _cascadeEl('cascade-mother-low').value = preset.low;
+  _cascadeSetStatus(`${side} supplied mother candle loaded.`, 'success');
+}
+
+function initCascadePage() {
+  const toDate = _cascadeEl('cascade-to-date');
+  if (toDate && !toDate.value) {
+    // Avoid requesting a possibly incomplete current-session candle by default.
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    toDate.value = date.toISOString().slice(0, 10);
+  }
+}
+
+function _renderCascadeResult(payload) {
+  const output = _cascadeEl('cascade-result');
+  const badge = _cascadeEl('cascade-result-badge');
+  if (!output || !badge) return;
+  const result = payload.result || {};
+  const entries = Array.isArray(result.entries) ? result.entries : [];
+  const closed = result.state === 'closed';
+  const tone = closed ? '#6ee7b7' : result.state === 'data_gap' ? '#fca5a5' : '#fbbf24';
+  badge.textContent = String(result.state || 'unknown').replace('_', ' ').toUpperCase();
+  badge.style.color = tone;
+  badge.style.borderColor = tone;
+
+  const entryRows = entries.length ? entries.map(entry => `
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:8px 6px; text-align:center; color:#fbbf24; font-weight:800;">${escapeHtml(entry.stage)}</td>
+      <td style="padding:8px 6px; font-family:'JetBrains Mono',monospace; font-size:10px; white-space:nowrap;">${escapeHtml(_cascadeTimestamp(entry.timestamp))}</td>
+      <td style="padding:8px 6px; text-align:right; font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(entry.spot))}</td>
+      <td style="padding:8px 6px; text-align:center;">${escapeHtml(entry.lots)} <span style="color:var(--muted);">(${escapeHtml(entry.quantity)})</span></td>
+      <td style="padding:8px 6px; text-align:right; font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(entry.strike, 0))}${escapeHtml(entry.option_type || '')}</td>
+      <td style="padding:8px 6px; font-family:'JetBrains Mono',monospace; font-size:10px; white-space:nowrap;">${escapeHtml(entry.expiry || '—')}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="padding:15px; text-align:center; color:var(--muted);">No fill was reached in this replay window.</td></tr>';
+  const eventRows = (result.events || []).slice(-8).reverse().map(event => {
+    const detail = event.event === 'arm' ? `trigger ${_cascadeNumber(event.trigger)}`
+      : event.event === 'move_stop' ? `move trigger ${_cascadeNumber(event.trigger)}`
+      : event.event === 'fill' ? `${event.lots} lot(s), ${event.quantity} units`
+      : event.event === 'exit' ? `target ${_cascadeNumber(event.target)}` : '';
+    return `<div style="display:flex; gap:8px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:var(--muted); white-space:nowrap;">${escapeHtml(_cascadeTimestamp(event.timestamp))}</span><strong style="color:var(--text); min-width:66px;">${escapeHtml(String(event.event || '').replace('_', ' '))}</strong><span>${escapeHtml(detail)}</span></div>`;
+  }).join('') || '<div style="color:var(--muted);">No qualifying sequence was armed.</div>';
+  const pnl = result.provisional_option_pnl;
+  const pnlText = Number.isFinite(Number(pnl)) ? `₹${_cascadeNumber(pnl)}` : '—';
+  const exitText = result.exit_timestamp ? _cascadeTimestamp(result.exit_timestamp) : 'Target not reached in range';
+
+  output.innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:14px;">
+      <div style="padding:10px; border:1px solid var(--border); border-radius:7px;"><div style="font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.55px;">Index target</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800; color:#fef3c7;">${_cascadeNumber(result.target_index)}</div></div>
+      <div style="padding:10px; border:1px solid var(--border); border-radius:7px;"><div style="font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.55px;">Average index</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800;">${_cascadeNumber(result.average_spot)}</div></div>
+      <div style="padding:10px; border:1px solid rgba(251,191,36,.30); background:rgba(245,158,11,.06); border-radius:7px;"><div style="font-size:9px; color:#fde68a; text-transform:uppercase; letter-spacing:.55px;">Provisional P&amp;L</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800; color:#fde68a;">${pnlText}</div></div>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-bottom:12px;">Exit: <strong style="color:var(--text);">${escapeHtml(exitText)}</strong>${result.data_gap ? ` · <span style="color:var(--danger);">${escapeHtml(result.data_gap)}</span>` : ''}</div>
+    <div style="overflow-x:auto; border:1px solid var(--border); border-radius:7px; margin-bottom:14px;"><table style="border-collapse:collapse; width:100%; font-size:11px;"><thead><tr style="background:rgba(255,255,255,.025); color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:.5px;"><th style="padding:8px 6px;">Stage</th><th style="padding:8px 6px; text-align:left;">Fill IST</th><th style="padding:8px 6px; text-align:right;">NIFTY</th><th style="padding:8px 6px;">Lots (qty)</th><th style="padding:8px 6px; text-align:right;">Contract</th><th style="padding:8px 6px; text-align:left;">Expiry</th></tr></thead><tbody>${entryRows}</tbody></table></div>
+    <div style="font-size:10px; font-weight:800; letter-spacing:.55px; text-transform:uppercase; color:var(--muted); margin-bottom:5px;">Signal events</div>
+    <div style="font:10px/1.5 'JetBrains Mono',monospace; color:var(--muted); max-height:142px; overflow:auto;">${eventRows}</div>
+    <div style="margin-top:13px; padding:9px 10px; border-radius:6px; background:rgba(245,158,11,.07); color:#fde68a; font-size:10px; line-height:1.45;">${escapeHtml(payload.pricing_warning || 'Option pricing is provisional.')}</div>`;
+}
+
+async function runCascadeBacktest() {
+  const side = _cascadeEl('cascade-side')?.value;
+  const payload = {
+    option_type: side,
+    mother_timestamp: _cascadeEl('cascade-mother-timestamp')?.value,
+    mother_high: Number(_cascadeEl('cascade-mother-high')?.value),
+    mother_low: Number(_cascadeEl('cascade-mother-low')?.value),
+    to_date: _cascadeEl('cascade-to-date')?.value,
+  };
+  if (!payload.mother_timestamp || !Number.isFinite(payload.mother_high) || !Number.isFinite(payload.mother_low)) {
+    _cascadeSetStatus('Enter a valid timestamp, high and low.', 'error');
+    return;
+  }
+  const button = _cascadeEl('cascade-run-btn');
+  if (button) { button.disabled = true; button.textContent = 'Fetching Dhan 1H candles…'; }
+  _cascadeSetStatus('Fetching NIFTY and rolling option candles. This can take a few seconds.', 'busy');
+  try {
+    const response = await fetch('/api/cascade/backtest', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(data.detail || data.message || `Replay failed (${response.status})`);
+    _renderCascadeResult(data);
+    _cascadeSetStatus(`Replay complete · ${data.data?.index_candles || 0} NIFTY candles checked.`, 'success');
+  } catch (error) {
+    _cascadeSetStatus(error.message || 'Cascade replay failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Run 1H cascade replay'; }
+  }
 }
 
 // Lot size lookup for display (matches backend get_lot_size)
