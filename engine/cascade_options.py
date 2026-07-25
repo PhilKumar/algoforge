@@ -1031,7 +1031,7 @@ class PaperCascadeRung:
     level: int
     index_price: float
     budget_inr: float
-    status: str = "PENDING"  # PENDING | COLLECTED | FILLED | CLOSED
+    status: str = "PENDING"  # PENDING | COLLECTED | FILLED | CLOSED | CANCELLED
 
     @property
     def key(self) -> str:
@@ -1305,6 +1305,36 @@ class NiftyOptionsPaperCascade:
         if self.adapter.expiry_squareoff_due(self.contract, candle.timestamp):
             self._close_round(candle, reason="expiry_square_off", target=target or candle.close)
 
+    def kill_and_close(self, candle: IndexCandle) -> dict[str, Any]:
+        """Cancel unfunded paper rungs and close an open paper basket now.
+
+        There are no broker orders in this paper-only engine.  A kill therefore
+        cancels its pending/collected paper rungs and records a paper sell at a
+        current option quote.  If the quote is unavailable, the open basket is
+        deliberately left intact so the caller can report that no exit was
+        confirmed rather than silently discarding a position.
+        """
+
+        cancelled = []
+        for rung in self.rungs.values():
+            if rung.status in {"PENDING", "COLLECTED"}:
+                rung.status = "CANCELLED"
+                cancelled.append(rung.key)
+        self.pending_rung_keys = []
+        self.pending_inr = 0.0
+        self.pending_line = None
+        self.pending_last_red = None
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        if self.open_fills:
+            self._close_round(candle, reason="manual_kill", target=candle.close)
+            if self.open_fills:
+                self._log(candle, "kill_exit_unconfirmed", cancelled_rungs=cancelled)
+                return {"closed": False, "cancelled_rungs": cancelled, "reason": "option_quote_missing"}
+        self.status = "KILLED"
+        self._log(candle, "campaign_killed", cancelled_rungs=cancelled)
+        return {"closed": True, "cancelled_rungs": cancelled, "reason": "manual_kill"}
+
     def on_candle(self, candle: IndexCandle) -> None:
         """Advance one closed NIFTY 5m candle in the same safe order as CryptoForge."""
 
@@ -1400,7 +1430,7 @@ class NiftyOptionsPaperCascade:
         contract = self.contract
         return {
             "mode": "paper",
-            "running": self.status not in {"STOPPED", "MOTHER_BROKEN", "MOTHER_RETESTED"},
+            "running": self.status not in {"STOPPED", "KILLED", "MOTHER_BROKEN", "MOTHER_RETESTED"},
             "status": self.status,
             "contract": {
                 "underlying": contract.underlying,

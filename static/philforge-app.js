@@ -1028,6 +1028,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startCascadeOptionsPaper',
   'stopCascadeOptionsPaper',
   'loadCascadeOptionsChart',
+  'killCascadeOptionsPaper',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -1386,6 +1387,7 @@ function _renderCascadeOptionsStatus(payload) {
   const active = _cascadeOptionsEl('cascade-options-active');
   const startBtn = _cascadeOptionsEl('cascade-options-start');
   const stopBtn = _cascadeOptionsEl('cascade-options-stop');
+  const killBtn = _cascadeOptionsEl('cascade-options-kill');
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (contract) contract.textContent = 'No active campaign';
@@ -1394,6 +1396,7 @@ function _renderCascadeOptionsStatus(payload) {
     if (active) active.style.display = 'none';
     if (startBtn) startBtn.disabled = false;
     if (stopBtn) stopBtn.style.display = 'none';
+    if (killBtn) killBtn.style.display = 'none';
     _renderCascadeOptionsRounds([]);
     _renderCascadeOptionsEvents([]);
     return;
@@ -1416,6 +1419,10 @@ function _renderCascadeOptionsStatus(payload) {
   if (active) active.style.display = '';
   if (startBtn) startBtn.disabled = isRunning;
   if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
+  if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  const motherTimestamp = campaign?.mother?.timestamp;
+  const motherInput = _cascadeOptionsEl('cascade-options-mother-timestamp');
+  if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const fillsEl = _cascadeOptionsEl('cascade-options-fills');
   if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
@@ -1519,7 +1526,7 @@ function _cascadeOptionsChartSvg(payload) {
 }
 
 async function loadCascadeOptionsChart() {
-  const timestamp = _cascadeOptionsEl('cascade-options-mother-timestamp')?.value;
+  const timestamp = _cascadeOptionsEl('cascade-options-mother-timestamp')?.value || _lastCascadeOptionsStatus?.campaign?.mother?.timestamp;
   const chart = _cascadeOptionsEl('cascade-options-chart');
   const meta = _cascadeOptionsEl('cascade-options-chart-meta');
   if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a mother timestamp first.', 'error'); return; }
@@ -1605,10 +1612,37 @@ async function stopCascadeOptionsPaper() {
   }
 }
 
+async function killCascadeOptionsPaper() {
+  const campaign = _lastCascadeOptionsStatus?.campaign;
+  const openQuantity = Number(campaign?.open_quantity || 0);
+  const pending = Number(campaign?.pending_inr || 0);
+  const confirmed = await customConfirm(
+    `Kill this <strong>paper-only</strong> Cascade campaign?<br><span style="font-size:11px;color:var(--muted);">This cancels ${pending > 0 ? 'all collected and pending rungs' : 'all pending rungs'} and ${openQuantity > 0 ? `records an immediate paper exit for ${openQuantity} open units at the current option quote` : 'stops the campaign'}. No Dhan order is sent.</span>`,
+    { title: 'Kill & close paper campaign', icon: ICO.warn(28), okText: 'Kill & close', danger: true }
+  );
+  if (!confirmed) return;
+  const button = _cascadeOptionsEl('cascade-options-kill');
+  if (button) { button.disabled = true; button.textContent = 'Closing…'; }
+  _cascadeOptionsSetFormStatus('Cancelling paper rungs and requesting a current option quote for the paper exit…', 'busy');
+  try {
+    const response = await fetch('/api/cascade/paper/kill', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'killed') throw new Error(data?.detail || `Kill failed (${response.status})`);
+    _cascadeOptionsSetFormStatus(`Campaign killed. ${Number(data.cancelled_rungs || []).length} paper rung(s) cancelled; any open basket is recorded as a manual paper exit.`, 'success');
+    _renderCascadeOptionsStatus({ status: 'ok', mode: 'paper', live_gate: _lastCascadeOptionsStatus?.live_gate, campaign: data.campaign });
+  } catch (error) {
+    _cascadeOptionsSetFormStatus(error.message || 'Kill & close could not be confirmed.', 'error');
+    await refreshCascadeOptionsStatus();
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '■ Kill & close'; }
+  }
+}
+
 window.initCascadeOptionsPage = initCascadeOptionsPage;
 window.startCascadeOptionsPaper = startCascadeOptionsPaper;
 window.stopCascadeOptionsPaper = stopCascadeOptionsPaper;
 window.loadCascadeOptionsChart = loadCascadeOptionsChart;
+window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {

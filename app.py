@@ -7237,6 +7237,47 @@ async def cascade_paper_stop(request: Request):
     return {"status": "stopped", "mode": "paper"}
 
 
+@app.post("/api/cascade/paper/kill")
+async def cascade_paper_kill(request: Request):
+    """Paper-only emergency close: cancel rungs and close the paper basket."""
+
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtime = await _restore_cascade_open_state(user_id, broker_client)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No paper Cascade campaign is active.")
+    now = datetime.now(IST)
+    try:
+        ticker = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
+        index_price = float(ticker["last_price"])
+    except Exception:
+        # The option exit itself still requires a fresh quote.  This fallback
+        # only lets us cancel unfunded rungs and preserves an honest response
+        # if Dhan's index quote is momentarily unavailable.
+        index_price = float(runtime.engine.geometry.history[-1].close)
+    kill_candle = IndexCandle(now, index_price, index_price, index_price, index_price)
+    result = runtime.engine.kill_and_close(kill_candle)
+    if not result["closed"]:
+        await _save_cascade_open_state(user_id, runtime, force=True)
+        await _notify_cascade_ws(user_id)
+        raise HTTPException(
+            status_code=409,
+            detail="Pending paper rungs were cancelled, but Dhan did not provide a current option quote. "
+            "The open paper basket remains monitored; retry Kill & close when a quote is available.",
+        )
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_cascade_open_state(user_id, runtime, force=True)
+    await _notify_cascade_ws(user_id)
+    return {
+        "status": "killed",
+        "mode": "paper",
+        "cancelled_rungs": result["cancelled_rungs"],
+        "campaign": {**runtime.engine.get_status(), "running": False},
+    }
+
+
 @app.delete("/api/cascade/paper")
 async def cascade_paper_delete(request: Request):
     user_id = _request_user_id(request)

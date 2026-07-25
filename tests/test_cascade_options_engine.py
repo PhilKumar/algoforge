@@ -179,6 +179,29 @@ class PaperRoundTests(unittest.TestCase):
         self.assertTrue(any(row["event"] == "new_low_restart" for row in engine.events))
         self.assertNotEqual(engine.rungs[rung.key].status, "CLOSED")
 
+    def test_kill_cancels_unfunded_paper_rungs_without_touching_a_broker(self):
+        from engine.cascade_options import PaperCascadeRung
+
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        engine = NiftyOptionsPaperCascade(
+            mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500)
+        )
+        pending = PaperCascadeRung(1, 2, 95, 6500, status="PENDING")
+        collected = PaperCascadeRung(1, 4, 90, 6500, status="COLLECTED")
+        engine.rungs = {pending.key: pending, collected.key: collected}
+        engine.pending_rung_keys = [collected.key]
+        engine.pending_inr = 6500
+
+        result = engine.kill_and_close(IndexCandle(ts(1), 102, 102, 102, 102))
+
+        self.assertTrue(result["closed"])
+        self.assertEqual(set(result["cancelled_rungs"]), {pending.key, collected.key})
+        self.assertEqual(engine.status, "KILLED")
+        self.assertEqual(engine.pending_inr, 0)
+        self.assertEqual([row.side for row in adapter.orders], [])
+
 
 if __name__ == "__main__":
     unittest.main()
