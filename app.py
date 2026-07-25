@@ -6664,11 +6664,11 @@ def _run_cascade_feasibility(
     from_date: str,
     to_date: str,
 ) -> dict:
-    """Fetch Dhan candles and replay the signal with its rolling option feed.
+    """Replay the signal from Dhan's NIFTY index candles.
 
-    Dhan's documented historical option endpoint is ATM-relative.  It is used
-    only to prove the signal flow and show indicative premiums; it cannot price
-    the fixed strike selected at entry after spot has moved.
+    Dhan's expired-option endpoint is ATM-relative. It cannot preserve the
+    contract selected at entry, so it must not be queried or displayed as a
+    pricing source for this fixed-strike strategy.
     """
 
     from data.cascade_dhan import DhanOneHourSource
@@ -6678,15 +6678,6 @@ def _run_cascade_feasibility(
     base_candles = index_candles.get(config.timeframe, [])
     if not base_candles:
         raise ValueError(f"Dhan returned no NIFTY {config.timeframe} candles for the selected date range.")
-    strike_alias = "ATM-2" if config.option_type.upper() == "CE" else "ATM+2"
-    rolling_options = source.fetch_rolling_option(
-        from_date,
-        to_date,
-        option_type=config.option_type.upper(),
-        strike_alias=strike_alias,
-        interval={"5m": "5", "15m": "15", "1h": "60"}[config.timeframe],
-    )
-    option_by_timestamp = {bar.timestamp: bar for bar in rolling_options}
     resolver = NiftyContractResolver(
         _cascade_weekly_expiries(
             config.mother_timestamp.date(),
@@ -6699,16 +6690,17 @@ def _run_cascade_feasibility(
     result = OneHourCascade(
         config,
         resolver,
-        lambda timestamp, _contract: option_by_timestamp.get(timestamp),
+        # A fixed-strike price lookup is intentionally absent until a
+        # contract-keyed historical adapter is connected.
+        lambda _timestamp, _contract: None,
     ).run(index_candles)
 
     return {
         "status": "ok",
-        "pricing_mode": "rolling_alias_provisional",
+        "pricing_mode": "signal_only_dhan",
         "pricing_warning": (
-            "Signal dates, index target, lots and selected fixed strikes are replayed. "
-            "Dhan historical option candles are ATM-relative rolling series, so displayed premiums and P&L "
-            "are provisional—not an exact fixed-strike result."
+            "Dhan confirms the index signal path only. Fixed-strike option premium and P&L are withheld "
+            "until contract-keyed historical candles are available."
         ),
         "expiry_calendar_warning": (
             "Expiry selection follows Tuesday weekly expiry and shifts a market-holiday Tuesday to the "
@@ -6716,12 +6708,11 @@ def _run_cascade_feasibility(
         ),
         "data": {
             "provider": "Dhan",
-            "source": "NIFTY index 1H + rolling option 1H",
+            "source": "NIFTY index candles",
             "index_candles": {timeframe: len(rows) for timeframe, rows in index_candles.items()},
-            "option_candles": len(rolling_options),
+            "option_candles": 0,
             "from_date": from_date,
             "to_date": to_date,
-            "rolling_strike_alias": strike_alias,
             "stage_timeframes": list(config.stage_timeframes),
         },
         "result": {
@@ -6730,7 +6721,7 @@ def _run_cascade_feasibility(
             "average_spot": result.average_spot,
             "exit_timestamp": result.exit_timestamp.isoformat() if result.exit_timestamp else None,
             "exit_reason": result.exit_reason,
-            "provisional_option_pnl": result.realized_pnl if result.exit_timestamp else None,
+            "realized_option_pnl": None,
             "data_gap": result.data_gap,
             "entries": [
                 {
@@ -6739,7 +6730,7 @@ def _run_cascade_feasibility(
                     "spot": entry.spot,
                     "lots": entry.lots,
                     "quantity": entry.quantity,
-                    "provisional_option_price": entry.option_price,
+                    "entry_option_price": entry.option_price,
                     "strike": entry.contract.strike,
                     "expiry": entry.contract.expiry.isoformat(),
                     "option_type": entry.contract.option_type,

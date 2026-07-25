@@ -1613,10 +1613,10 @@
     <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
       <div>
         <div style="font-size:11px; color:#fbbf24; font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:6px;">Backtest only · no live orders</div>
-        <h2 style="margin:0; font-size:22px;">NIFTY 1H Cascade</h2>
-        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">Manual mother candle → two qualifying closes → re-cross entry. CE uses the downside/recovery sequence; PE mirrors it. Stages progress <strong style="color:var(--text);">1 + 2 + 3</strong> with the selected timeframe route.</p>
+        <h2 style="margin:0; font-size:22px;">NIFTY Options Cascade</h2>
+        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">A manual, contract-aware replay of your 1 + 2 + 3 cascade. Enter one mother candle in IST; the engine records every selected strike, expiry, fill and index exit condition. No live orders are sent.</p>
       </div>
-      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">1H initial release<br>7–13 DTE · skip current week</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">Contract rules<br>2 ITM · 7–13 DTE · skip current week</div>
     </div>
   </div>
 
@@ -1624,11 +1624,7 @@
     <div class="card" style="padding:20px;">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:14px;">
         <h3 style="margin:0; font-size:15px;">Manual mother candle</h3>
-        <span style="font-size:10px; color:var(--muted); font-family:'JetBrains Mono',monospace;">IST · 1H candle open</span>
-      </div>
-      <div style="display:flex; gap:7px; margin-bottom:14px;">
-        <button class="btn btn-sm" type="button" onclick="cascadeUsePreset('CE')" style="flex:1; --btn-bg:rgba(52,211,153,.14); --btn-color:#6ee7b7; --btn-border:rgba(52,211,153,.35);">Load CE · 7 May</button>
-        <button class="btn btn-sm" type="button" onclick="cascadeUsePreset('PE')" style="flex:1; --btn-bg:rgba(248,113,113,.13); --btn-color:#fca5a5; --btn-border:rgba(248,113,113,.32);">Load PE · 2 Apr</button>
+        <span style="font-size:10px; color:var(--muted); font-family:'JetBrains Mono',monospace;">IST · required fields</span>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
         <div>
@@ -1653,19 +1649,19 @@
       </div>
       <div style="margin-top:10px;">
         <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother timestamp</label>
-        <input id="cascade-mother-timestamp" type="datetime-local" value="2026-05-07T12:15" step="3600" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
+        <input id="cascade-mother-timestamp" type="datetime-local" step="300" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
         <div>
           <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother high</label>
-          <input id="cascade-mother-high" type="number" value="24482.1" min="1" step="0.05" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
+          <input id="cascade-mother-high" type="number" min="1" step="0.05" placeholder="e.g. 24,482.10" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
         </div>
         <div>
           <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother low</label>
-          <input id="cascade-mother-low" type="number" value="24329.7" min="1" step="0.05" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
+          <input id="cascade-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,329.70" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
         </div>
       </div>
-      <button id="cascade-run-btn" class="btn" type="button" onclick="runCascadeBacktest()" style="width:100%; margin-top:16px; --btn-bg:linear-gradient(180deg,rgba(245,158,11,.32),rgba(180,83,9,.45)); --btn-color:#fef3c7; --btn-border:rgba(251,191,36,.5); font-weight:800;">Run 1H cascade replay</button>
+      <button id="cascade-run-btn" class="btn" type="button" onclick="runCascadeBacktest()" style="width:100%; margin-top:16px; --btn-bg:linear-gradient(180deg,rgba(245,158,11,.32),rgba(180,83,9,.45)); --btn-color:#fef3c7; --btn-border:rgba(251,191,36,.5); font-weight:800;">Run cascade signal replay</button>
       <div id="cascade-form-status" style="min-height:17px; padding-top:9px; font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace;"></div>
     </div>
 
@@ -1675,13 +1671,13 @@
         <span id="cascade-result-badge" style="font-size:10px; font-weight:800; letter-spacing:.5px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:4px 8px;">AWAITING INPUT</span>
       </div>
       <div id="cascade-result" style="color:var(--muted); font-size:12px; line-height:1.6;">
-        <div style="border:1px dashed var(--border); border-radius:8px; padding:18px; text-align:center;">Load either supplied example, or enter a separate CE or PE mother candle. This page never combines a CE mother with a PE mother.</div>
+        <div style="border:1px dashed var(--border); border-radius:8px; padding:18px; text-align:center;">Enter a separate CE or PE mother candle to inspect the trigger trail, selected contract(s), staged quantities and index exit condition.</div>
       </div>
     </div>
   </div>
 
   <div class="card-glass" style="margin-top:16px; padding:14px 16px; border-color:rgba(251,191,36,.24); background:rgba(245,158,11,.045); color:#fde68a; font-size:11px; line-height:1.55;">
-    <strong>Pricing guardrail:</strong> Dhan provides ATM-relative rolling option history. The panel therefore treats option premiums and P&amp;L as <strong>provisional</strong>; the entry dates, fixed strike selection, quantities and NIFTY target are the valid signal-level replay. Exact fixed-strike P&amp;L will be enabled only after the contract-grid adapter is complete.
+    <strong>Data status — signal replay only:</strong> Dhan’s expired-options feed rolls ATM-relative strikes. It is valid for the NIFTY signal sequence, but cannot prove P&amp;L for a fixed contract after spot or expiry rank changes. This tab deliberately withholds profit figures until a contract-keyed historical source is connected.
   </div>
 </div>
 
@@ -2258,6 +2254,6 @@
   </div>
 </div>
 
-<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260725-1h-validation-1"></script>
+<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260725-signal-only-1"></script>
 </body>
 </html>
