@@ -3,8 +3,11 @@ from datetime import date, datetime, timedelta
 
 from engine.cascade_options import (
     CascadeOptionsAdapter,
+    FixedCampaignOption,
     IndexCandle,
     NiftyIndexCascadeGeometry,
+    NiftyOptionsPaperCascade,
+    PaperCascadeConfig,
     PaperOnlyViolation,
 )
 
@@ -33,6 +36,28 @@ class _ScripMaster:
 class _Dhan:
     def get_funds(self):
         return {"availableBalance": 100000}
+
+
+class _PaperAdapter:
+    paper_only = True
+
+    def __init__(self):
+        self.orders = []
+
+    def dte_allows_new_rungs(self, _contract, _at):
+        return True
+
+    def expiry_squareoff_due(self, _contract, _at):
+        return False
+
+    def place_order(self, contract, *, side, quantity):
+        order = type(
+            "PaperOrder",
+            (),
+            {"order_id": f"paper-{len(self.orders) + 1}", "contract": contract, "side": side, "quantity": quantity},
+        )()
+        self.orders.append(order)
+        return order
 
 
 class IndexGeometryPortTests(unittest.TestCase):
@@ -88,6 +113,66 @@ class PaperAdapterTests(unittest.TestCase):
         self.assertEqual(order.product_type, "CARRYFORWARD")
         self.assertEqual(adapter.get_order(order.order_id), order)
         self.assertFalse(adapter.dte_allows_new_rungs(contract, datetime(2026, 7, 27, 12, 0)))
+
+
+class PaperRoundTests(unittest.TestCase):
+    def test_paper_round_uses_reverse_stop_then_books_net_option_pnl(self):
+        mother = IndexCandle(ts(0), 65020.00, 65107.99, 65002.00, 65051.98)
+        # The first six candles are the verified geometry fixture.  The later
+        # four cross F1-L2, arm the two-red recovery stop, fill it, then reach
+        # the index recovery target on a later candle.
+        candles = [
+            IndexCandle(ts(1), 65051.98, 65051.98, 64804.76, 64919.31),
+            IndexCandle(ts(2), 64919.31, 64923.67, 64852.01, 64876.01),
+            IndexCandle(ts(3), 64876.01, 64878.01, 64792.00, 64800.01),
+            IndexCandle(ts(4), 64800.00, 64938.00, 64790.01, 64904.00),
+            IndexCandle(ts(5), 64904.00, 64928.00, 64822.24, 64822.24),
+            IndexCandle(ts(6), 64822.24, 64822.24, 64639.00, 64665.99),
+            IndexCandle(ts(7), 64665.99, 64680.00, 64500.00, 64550.00),
+            IndexCandle(ts(8), 64550.00, 64600.00, 64400.00, 64450.00),
+            IndexCandle(ts(9), 64450.00, 64600.00, 64420.00, 64580.00),
+            IndexCandle(ts(10), 64580.00, 64720.00, 64570.00, 64690.00),
+        ]
+        adapter = _PaperAdapter()
+        contract = FixedCampaignOption("NIFTY", 64800, date(2026, 7, 28), "CE", 65, "123456")
+
+        def premium(timestamp, _contract):
+            return 100.0 if timestamp == ts(9) else 120.0 if timestamp == ts(10) else None
+
+        engine = NiftyOptionsPaperCascade(
+            mother,
+            contract,
+            adapter,
+            premium,
+            PaperCascadeConfig(rung_inr=13000),
+        ).run(candles)
+        self.assertEqual(len(engine.rounds), 1)
+        round_row = engine.rounds[0]
+        self.assertEqual(round_row.fills[0].quantity, 130)
+        self.assertEqual(round_row.fills[0].lots, 2)
+        self.assertEqual(round_row.exit_reason, "target")
+        self.assertEqual(round_row.gross_pnl, 2600.0)
+        self.assertGreater(round_row.costs.total, 0)
+        self.assertLess(round_row.net_pnl, round_row.gross_pnl)
+        self.assertEqual([order.side for order in adapter.orders], ["BUY", "SELL"])
+
+    def test_new_low_releases_closed_rungs_for_a_fresh_paper_round(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        engine = NiftyOptionsPaperCascade(
+            mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500)
+        )
+        # Directly seed a finished rung to exercise the exact post-round
+        # new-low release rule independently of a full geometry fixture.
+        from engine.cascade_options import PaperCascadeRung
+
+        rung = PaperCascadeRung(1, 2, 90, 6500, status="CLOSED")
+        engine.rungs[rung.key] = rung
+        engine.reuse_below = 89
+        engine.on_candle(IndexCandle(ts(1), 88, 89, 88, 88.5))
+        self.assertTrue(any(row["event"] == "new_low_restart" for row in engine.events))
+        self.assertNotEqual(engine.rungs[rung.key].status, "CLOSED")
 
 
 if __name__ == "__main__":

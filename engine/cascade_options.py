@@ -15,6 +15,13 @@ from datetime import time as dt_time
 from typing import Any, Callable, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
+from cascade_costs import (
+    NiftyOptionCostSchedule,
+    OptionCostFill,
+    OptionRoundCosts,
+    calculate_nifty_option_basket_round_costs,
+)
+
 
 class CascadeError(ValueError):
     """Invalid strategy configuration or missing historical data."""
@@ -987,3 +994,331 @@ class CascadeOptionsAdapter:
         """Read-only funds mapping retained for the eventual engine interface."""
 
         return self.dhan.get_funds()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: paper fills, net rounds, and new-low reuse
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PaperCascadeConfig:
+    """Execution settings for a paper-only NIFTY options campaign.
+
+    `rung_inr` is the cash assigned to each crossed index fib marker.  The
+    engine converts the collected cash to whole lots at the observed option
+    premium.  A one-lot minimum is intentional: a funded rung is an actual
+    tradable options decision, never fractional dust.
+    """
+
+    rung_inr: float
+    target_fraction: float = 0.25
+    ce_offset_steps: int = -2
+    cost_schedule: NiftyOptionCostSchedule = field(default_factory=NiftyOptionCostSchedule)
+
+    def __post_init__(self) -> None:
+        if self.rung_inr <= 0:
+            raise CascadeError("rung_inr must be positive")
+        if not 0 < self.target_fraction <= 1:
+            raise CascadeError("target_fraction must be between 0 and 1")
+        if self.ce_offset_steps > 0:
+            raise CascadeError("CE offset must be ATM or below; positive steps are not valid in Phase 2")
+
+
+@dataclass
+class PaperCascadeRung:
+    leg_id: int
+    level: int
+    index_price: float
+    budget_inr: float
+    status: str = "PENDING"  # PENDING | COLLECTED | FILLED | CLOSED
+
+    @property
+    def key(self) -> str:
+        return f"{self.leg_id}:{self.level}"
+
+
+@dataclass(frozen=True)
+class PaperCascadeFill:
+    timestamp: datetime
+    index_price: float
+    option_premium: float
+    lots: int
+    quantity: int
+    rung_keys: tuple[str, ...]
+    order_id: str
+
+    @property
+    def turnover(self) -> float:
+        return self.option_premium * self.quantity
+
+
+@dataclass(frozen=True)
+class PaperCascadeRound:
+    round_id: int
+    opened_at: datetime
+    closed_at: datetime
+    fills: tuple[PaperCascadeFill, ...]
+    target_index: float
+    exit_index_price: float
+    exit_option_premium: float
+    exit_quantity: int
+    gross_pnl: float
+    costs: OptionRoundCosts
+    net_pnl: float
+    exit_reason: str
+
+
+OptionPremiumLookup = Callable[[datetime, FixedCampaignOption], Optional[float]]
+
+
+class NiftyOptionsPaperCascade:
+    """Paper execution of the fixed-CE Cascade against closed NIFTY candles.
+
+    Geometry is delegated unchanged to :class:`NiftyIndexCascadeGeometry`.
+    This class merely translates its fib markers into a paper CE basket, so it
+    cannot alter a trendline or calculate a signal from option premium data.
+    """
+
+    def __init__(
+        self,
+        mother: IndexCandle,
+        contract: FixedCampaignOption,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+        config: PaperCascadeConfig,
+    ) -> None:
+        if not adapter.paper_only:
+            raise PaperOnlyViolation("Phase 2 paper cascade requires a paper-only adapter")
+        if contract.option_type != "CE":
+            raise CascadeError("Phase 2 is locked to CE-only campaigns")
+        self.geometry = NiftyIndexCascadeGeometry(mother)
+        self.contract = contract
+        self.adapter = adapter
+        self.option_premium_lookup = option_premium_lookup
+        self.config = config
+        self.rungs: dict[str, PaperCascadeRung] = {}
+        self.open_fills: list[PaperCascadeFill] = []
+        self.rounds: list[PaperCascadeRound] = []
+        self.pending_rung_keys: list[str] = []
+        self.pending_inr = 0.0
+        self.pending_line: Optional[float] = None
+        self.pending_last_red: Optional[float] = None
+        self.pending_stop: Optional[float] = None
+        self.pending_stop_timestamp: Optional[datetime] = None
+        self.reuse_below: Optional[float] = None
+        self.events: list[dict[str, Any]] = []
+        self.status = "WAITING"
+
+    @property
+    def average_index_entry(self) -> Optional[float]:
+        quantity = sum(fill.quantity for fill in self.open_fills)
+        if quantity <= 0:
+            return None
+        return sum(fill.index_price * fill.quantity for fill in self.open_fills) / quantity
+
+    @property
+    def target_index(self) -> Optional[float]:
+        average = self.average_index_entry
+        if average is None:
+            return None
+        return average + self.config.target_fraction * (self.geometry.campaign.mother_high - average)
+
+    @property
+    def open_quantity(self) -> int:
+        return sum(fill.quantity for fill in self.open_fills)
+
+    def _log(self, candle: IndexCandle, event: str, **payload: Any) -> None:
+        self.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **payload})
+
+    def _premium(self, candle: IndexCandle) -> Optional[float]:
+        value = self.option_premium_lookup(candle.timestamp, self.contract)
+        if value is None:
+            return None
+        try:
+            premium = float(value)
+        except (TypeError, ValueError):
+            return None
+        return premium if premium > 0 else None
+
+    def _sync_new_rungs(self, candle: IndexCandle) -> None:
+        for leg in self.geometry.campaign.legs:
+            for level in GEOMETRY_FIB_LEVELS:
+                rung = PaperCascadeRung(
+                    leg_id=leg.leg_id,
+                    level=level,
+                    index_price=leg.fib.level_price(level),
+                    budget_inr=self.config.rung_inr,
+                )
+                self.rungs.setdefault(rung.key, rung)
+                if rung.key in self.rungs and self.rungs[rung.key] is rung:
+                    self._log(candle, "rung_created", rung=rung.key, index_price=rung.index_price)
+
+    def _release_closed_rungs(self, candle: IndexCandle) -> None:
+        if self.reuse_below is None or candle.low >= self.reuse_below:
+            return
+        released = [rung for rung in self.rungs.values() if rung.status == "CLOSED"]
+        self.reuse_below = None
+        for rung in released:
+            rung.status = "PENDING"
+        if released:
+            self._log(candle, "new_low_restart", rungs=[rung.key for rung in released], low=candle.low)
+
+    def _collect_crossed_rungs(self, candle: IndexCandle) -> None:
+        if not self.adapter.dte_allows_new_rungs(self.contract, candle.timestamp):
+            return
+        crossed = [rung for rung in self.rungs.values() if rung.status == "PENDING" and candle.low <= rung.index_price]
+        for rung in sorted(crossed, key=lambda row: -row.index_price):
+            rung.status = "COLLECTED"
+            self.pending_rung_keys.append(rung.key)
+            self.pending_inr = round(self.pending_inr + rung.budget_inr, 2)
+            if self.pending_line is None:
+                self.pending_line = rung.index_price
+            self._log(
+                candle,
+                "rung_collected",
+                rung=rung.key,
+                index_price=rung.index_price,
+                pending_inr=self.pending_inr,
+            )
+
+    def _advance_stop(self, candle: IndexCandle) -> None:
+        if self.pending_line is None or self.pending_inr <= 0 or not candle.is_red or candle.close >= self.pending_line:
+            return
+        if self.pending_last_red is None:
+            self.pending_last_red = candle.close
+            self._log(candle, "await_second_red", line=self.pending_line, close=candle.close)
+            return
+        if candle.close >= self.pending_last_red:
+            return
+        first_stop = self.pending_stop is None
+        self.pending_stop = self.pending_last_red
+        self.pending_stop_timestamp = candle.timestamp
+        self.pending_last_red = candle.close
+        self.status = "ARMED"
+        self._log(candle, "stop_armed" if first_stop else "stop_moved", trigger=self.pending_stop)
+
+    def _fill_pending_stop(self, candle: IndexCandle) -> None:
+        if (
+            self.pending_stop is None
+            or self.pending_stop_timestamp is None
+            or candle.timestamp <= self.pending_stop_timestamp
+            or candle.high < self.pending_stop
+        ):
+            return
+        premium = self._premium(candle)
+        if premium is None:
+            self.status = "AWAITING_OPTION_QUOTE"
+            self._log(candle, "option_quote_missing", action="buy")
+            return
+        lots = max(1, math.floor(self.pending_inr / (premium * self.contract.lot_size)))
+        quantity = lots * self.contract.lot_size
+        paper_order = self.adapter.place_order(self.contract, side="BUY", quantity=quantity)
+        fill = PaperCascadeFill(
+            timestamp=candle.timestamp,
+            index_price=self.pending_stop,
+            option_premium=premium,
+            lots=lots,
+            quantity=quantity,
+            rung_keys=tuple(self.pending_rung_keys),
+            order_id=paper_order.order_id,
+        )
+        self.open_fills.append(fill)
+        for key in self.pending_rung_keys:
+            self.rungs[key].status = "FILLED"
+        self._log(
+            candle,
+            "paper_fill",
+            index_price=fill.index_price,
+            option_premium=fill.option_premium,
+            lots=fill.lots,
+            quantity=fill.quantity,
+            target_index=self.target_index,
+        )
+        self.pending_rung_keys = []
+        self.pending_inr = 0.0
+        self.pending_line = None
+        self.pending_last_red = None
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        self.status = "OPEN"
+
+    def _close_round(self, candle: IndexCandle, *, reason: str, target: float) -> None:
+        if not self.open_fills:
+            return
+        premium = self._premium(candle)
+        if premium is None:
+            self.status = "AWAITING_OPTION_QUOTE"
+            self._log(candle, "option_quote_missing", action="sell", reason=reason)
+            return
+        quantity = self.open_quantity
+        lots = quantity // self.contract.lot_size
+        paper_order = self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+        costs = calculate_nifty_option_basket_round_costs(
+            buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in self.open_fills],
+            sell_price=premium,
+            sell_quantity=quantity,
+            sell_lots=lots,
+            schedule=self.config.cost_schedule,
+        )
+        gross_pnl = round(sum((premium - fill.option_premium) * fill.quantity for fill in self.open_fills), 2)
+        round_row = PaperCascadeRound(
+            round_id=len(self.rounds) + 1,
+            opened_at=self.open_fills[0].timestamp,
+            closed_at=candle.timestamp,
+            fills=tuple(self.open_fills),
+            target_index=target,
+            exit_index_price=target if reason == "target" else candle.close,
+            exit_option_premium=premium,
+            exit_quantity=quantity,
+            gross_pnl=gross_pnl,
+            costs=costs,
+            net_pnl=round(gross_pnl - costs.total, 2),
+            exit_reason=reason,
+        )
+        self.rounds.append(round_row)
+        for rung in self.rungs.values():
+            if rung.status == "FILLED":
+                rung.status = "CLOSED"
+        self.open_fills = []
+        self.reuse_below = min(row.low for row in self.geometry.history)
+        self.status = "ROUND_CLOSED"
+        self._log(
+            candle,
+            "round_closed",
+            order_id=paper_order.order_id,
+            reason=reason,
+            gross_pnl=round_row.gross_pnl,
+            costs=round_row.costs.total,
+            net_pnl=round_row.net_pnl,
+            reuse_below=self.reuse_below,
+        )
+
+    def _check_exit(self, candle: IndexCandle) -> None:
+        if not self.open_fills:
+            return
+        target = self.target_index
+        newest_fill = max(fill.timestamp for fill in self.open_fills)
+        if target is not None and candle.timestamp > newest_fill and candle.high >= target:
+            self._close_round(candle, reason="target", target=target)
+            return
+        if self.adapter.expiry_squareoff_due(self.contract, candle.timestamp):
+            self._close_round(candle, reason="expiry_square_off", target=target or candle.close)
+
+    def on_candle(self, candle: IndexCandle) -> None:
+        """Advance one closed NIFTY 5m candle in the same safe order as CryptoForge."""
+
+        if not is_nse_cash_session(candle.timestamp):
+            return
+        self.geometry.on_candle(candle)
+        self._sync_new_rungs(candle)
+        self._fill_pending_stop(candle)
+        self._check_exit(candle)
+        self._release_closed_rungs(candle)
+        self._collect_crossed_rungs(candle)
+        self._advance_stop(candle)
+
+    def run(self, candles: Iterable[IndexCandle]) -> "NiftyOptionsPaperCascade":
+        for candle in sorted(candles, key=lambda row: row.timestamp):
+            self.on_candle(candle)
+        return self
