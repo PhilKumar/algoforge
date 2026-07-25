@@ -66,12 +66,21 @@
   }
   .pf-cascade-datetime:focus { outline: none; border-color: rgba(0,191,165,.75); box-shadow: 0 0 0 3px rgba(0,191,165,.13); }
   .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: invert(79%) sepia(32%) saturate(716%) hue-rotate(119deg); cursor: pointer; }
-  .pf-cascade-chart { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: radial-gradient(ellipse at 50% 0%, rgba(79,142,247,.07), transparent 55%), #0a101b; min-height: 260px; }
+  [data-theme="light"] .pf-cascade-datetime { color-scheme: light; background: linear-gradient(135deg, #ffffff, #f8fafc); border-color: rgba(37,99,235,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 0 0 1px rgba(15,23,42,.04); }
+  [data-theme="light"] .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: none; }
+  .pf-cascade-chart { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 10px; background: radial-gradient(ellipse at 50% 0%, rgba(79,142,247,.07), transparent 55%), #0a101b; min-height: 260px; }
   .pf-cascade-chart svg { display: block; min-width: 900px; width: 100%; }
   .pf-cascade-chart-empty { min-height: 260px; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.6; }
   .pf-cascade-chart-overlay { display: none; position: fixed; inset: 0; z-index: 1200; padding: clamp(14px, 4vw, 54px); background: rgba(2,6,15,.78); backdrop-filter: blur(8px); }
   .pf-cascade-chart-overlay.is-open { display: grid; place-items: center; }
   .pf-cascade-chart-dialog { width: min(1240px, 100%); max-height: min(760px, 92vh); overflow: auto; padding: 18px; border: 1px solid rgba(79,142,247,.32); border-radius: 14px; background: linear-gradient(160deg, #111b2d, #080d16); box-shadow: 0 28px 80px rgba(0,0,0,.64); }
+  [data-theme="light"] .pf-cascade-chart-overlay { background: rgba(15, 23, 42, .42); }
+  [data-theme="light"] .pf-cascade-chart-dialog { border-color: rgba(37,99,235,.22); background: linear-gradient(160deg, #ffffff, #f1f5f9); box-shadow: 0 28px 80px rgba(15,23,42,.24); }
+  [data-theme="light"] .pf-cascade-chart { background: radial-gradient(ellipse at 50% 0%, rgba(37,99,235,.09), transparent 55%), #ffffff; }
+  [data-theme="light"] #cascade-options-page [style*="color:#93c5fd"] { color: #1d4ed8 !important; }
+  [data-theme="light"] #cascade-options-page [style*="color:#34d399"] { color: #047857 !important; }
+  [data-theme="light"] #cascade-options-page [style*="color:#fde68a"] { color: #a16207 !important; }
+  [data-theme="light"] #cascade-options-page [style*="color:#fecaca"] { color: #be123c !important; }
   body::before {
     content: '';
     position: fixed;
@@ -3735,6 +3744,8 @@
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
       scroll-snap-type: x proximity;
+      scroll-padding-inline: 8px;
+      overscroll-behavior-x: contain;
       isolation: isolate;
     }
     .nav-bar::-webkit-scrollbar { display: none; }
@@ -4228,6 +4239,25 @@
       white-space: normal;
       line-height: 1.35;
     }
+
+    /* Options Cascade: each operational panel gets the full phone width. */
+    #cascade-options-page > div[style*="grid-template-columns:minmax(300px"] ,
+    #cascade-options-page > div[style*="grid-template-columns:minmax(430px"] {
+      grid-template-columns: minmax(0, 1fr) !important;
+      gap: 12px !important;
+    }
+    #cascade-options-page .card { min-width: 0; }
+    #cascade-options-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    #cascade-options-rungs { grid-template-columns: 1fr !important; }
+    .pf-cascade-chart-overlay { padding: 8px; }
+    .pf-cascade-chart-dialog { max-height: calc(100dvh - 16px); padding: 12px; border-radius: 12px; }
+    .pf-cascade-chart svg { min-width: 720px; }
+  }
+  @media (max-width: 400px) {
+    #cascade-options-page .card { padding: 14px !important; }
+    #cascade-options-page h2 { font-size: 20px !important; }
+    .pf-cascade-chart svg { min-width: 640px; }
+    .pf-cascade-chart-empty { min-height: 220px; padding: 18px; }
   }
 
   @keyframes mobileSheetIn {
