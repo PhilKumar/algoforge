@@ -828,12 +828,13 @@ const NAV_BUTTON_MAP = {
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
   'cascade-page': 'nav-cascade',
-  'cascade-options-page': 'nav-options-cascade',
+  'cascade-options-page': 'nav-cascade',
   'charts-page': 'nav-charts',
 };
 
 let _mobileNavSyncTimer = null;
 let _insightsMenuHome = null;
+let _cascadeMenuHome = null;
 
 function closeInsightsMenu() {
   const wrap = document.getElementById('nav-insights-wrap');
@@ -890,6 +891,53 @@ function toggleInsightsMenu(event) {
     if (window.innerWidth <= 767) {
       requestAnimationFrame(positionInsightsMenu);
     }
+  }
+}
+
+function closeCascadeMenu() {
+  const wrap = document.getElementById('nav-cascade-wrap');
+  wrap?.classList.remove('menu-open');
+  document.body.classList.remove('cascade-menu-open');
+  const menu = document.getElementById('nav-cascade-menu');
+  if (!menu) return;
+  menu.classList.remove('mobile-floating', 'menu-open');
+  menu.style.removeProperty('left');
+  menu.style.removeProperty('top');
+  menu.style.removeProperty('right');
+  menu.style.removeProperty('width');
+  if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+}
+
+function positionCascadeMenu() {
+  const wrap = document.getElementById('nav-cascade-wrap');
+  const trigger = document.getElementById('nav-cascade');
+  const menu = document.getElementById('nav-cascade-menu');
+  if (!wrap || !trigger || !menu || window.innerWidth > 767 || !wrap.classList.contains('menu-open')) return;
+  const rect = trigger.getBoundingClientRect();
+  const margin = 12;
+  const width = Math.min(270, window.innerWidth - (margin * 2));
+  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+  _cascadeMenuHome = wrap;
+  if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  menu.classList.add('mobile-floating', 'menu-open');
+  menu.style.left = `${left}px`;
+  menu.style.top = `${rect.bottom + 8}px`;
+  menu.style.right = 'auto';
+  menu.style.width = `${width}px`;
+}
+
+function toggleCascadeMenu(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const wrap = document.getElementById('nav-cascade-wrap');
+  if (!wrap) return;
+  const shouldOpen = !wrap.classList.contains('menu-open');
+  closeInsightsMenu();
+  closeCascadeMenu();
+  if (shouldOpen) {
+    wrap.classList.add('menu-open');
+    document.body.classList.add('cascade-menu-open');
+    if (window.innerWidth <= 767) requestAnimationFrame(positionCascadeMenu);
   }
 }
 
@@ -1079,6 +1127,7 @@ function showPage(id, btn, options = {}) {
   document.getElementById(id).classList.add('active-page');
   const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
   if (activeBtn) activeBtn.classList.add('active');
+  closeCascadeMenu();
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
   // Stop scalp polling when leaving scalp page
@@ -1121,20 +1170,24 @@ function showPage(id, btn, options = {}) {
 
 window.addEventListener('resize', () => {
   closeInsightsMenu();
+  closeCascadeMenu();
   clearTimeout(_mobileNavSyncTimer);
   _mobileNavSyncTimer = setTimeout(() => _syncMobileActiveNavTab(), 80);
 });
 
 window.addEventListener('orientationchange', () => {
   closeInsightsMenu();
+  closeCascadeMenu();
   clearTimeout(_mobileNavSyncTimer);
   _mobileNavSyncTimer = setTimeout(() => _syncMobileActiveNavTab(), 140);
 });
 window.addEventListener('scroll', () => {
   positionInsightsMenu();
+  positionCascadeMenu();
 }, { passive: true });
 document.addEventListener('click', (event) => {
   if (!event.target.closest('#nav-insights-wrap') && !event.target.closest('#nav-insights-menu')) closeInsightsMenu();
+  if (!event.target.closest('#nav-cascade-wrap') && !event.target.closest('#nav-cascade-menu')) closeCascadeMenu();
 });
 function generateRandomID() { return Math.floor(100000 + Math.random() * 900000); }
 

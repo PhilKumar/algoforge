@@ -170,14 +170,23 @@
       <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
       <span class="tab-label">Scalp</span>
     </button>
-    <button id="nav-cascade" class="nav-tab" data-pf-nav-page="cascade-page" data-pf-after-nav="initCascadePage" style="--accent-tab: #f59e0b;">
-      <span class="tab-icon" style="color: #f59e0b;">↗</span>
-      <span class="tab-label">Cascade</span>
-    </button>
-    <button id="nav-options-cascade" class="nav-tab" data-pf-nav-page="cascade-options-page" data-pf-after-nav="initCascadeOptionsPage" style="--accent-tab: #22c55e;">
-      <span class="tab-icon" style="color: #34d399;">◈</span>
-      <span class="tab-label">Options Cascade</span>
-    </button>
+    <div class="nav-item-menu" id="nav-cascade-wrap">
+      <button id="nav-cascade" class="nav-tab nav-tab-menu" type="button" onclick="toggleCascadeMenu(event)" style="--accent-tab: #f59e0b;">
+        <span class="tab-icon" style="color: #f59e0b;">↗</span>
+        <span class="tab-label">Cascade</span>
+        <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-submenu" id="nav-cascade-menu">
+        <button class="nav-subtab" type="button" data-pf-nav-page="cascade-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initCascadePage">
+          <span class="nav-subtab-icon" style="color:#fbbf24;">↗</span>
+          <span class="nav-subtab-copy"><span class="nav-subtab-title">Signal Replay</span><span class="nav-subtab-desc">Manual CE/PE cascade backtest</span></span>
+        </button>
+        <button class="nav-subtab" type="button" data-pf-nav-page="cascade-options-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initCascadeOptionsPage">
+          <span class="nav-subtab-icon" style="color:#34d399;">◈</span>
+          <span class="nav-subtab-copy"><span class="nav-subtab-title">Options Paper</span><span class="nav-subtab-desc">Current-session paper campaign</span></span>
+        </button>
+      </div>
+    </div>
     <button id="nav-charts" class="nav-tab" data-pf-nav-page="charts-page" data-pf-after-nav="initChartsPage" style="--accent-tab: #a78bfa;">
       <span class="tab-icon" style="color: #a78bfa;" id="ico-charts"></span>
       <span class="tab-label">Journal</span>

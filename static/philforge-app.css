@@ -3103,6 +3103,10 @@
     text-decoration: none;
     background: rgba(255,255,255,0.035);
     color: var(--text);
+    border: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     transition: background 0.18s ease, transform 0.18s ease;
   }
   .nav-subtab:hover {
@@ -3161,6 +3165,13 @@
   .nav-tab .live-dot.market-closed {
     background: var(--red);
     animation: none;
+  }
+
+  /* Keep the complete navigation inside the viewport before mobile mode. */
+  @media (max-width: 1250px) and (min-width: 481px) {
+    .nav-bar { padding: 0 8px; }
+    .nav-tabs { flex-wrap: wrap; justify-content: center; row-gap: 2px; }
+    .nav-tab { padding: 10px 12px; font-size: 12px; gap: 6px; }
   }
   @keyframes livePulse {
     0%, 100% { opacity: 1; transform: scale(1); }
