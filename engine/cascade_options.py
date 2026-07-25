@@ -242,26 +242,34 @@ class OneHourCascade:
         )
         self._last_same_colour_close = current_close
 
-    def _walk_pending_stop(self, candle: Candle) -> None:
+    def _walk_pending_stop(self, candle: Candle) -> bool:
+        """Move an existing stop after a newly closed qualifying candle.
+
+        A red CE candle (or green PE candle) that makes a new qualifying close
+        has priority over a possible intrabar trigger in the same OHLC bar.
+        The revised order is only eligible from the next candle onward; this is
+        the unambiguous, conservative interpretation of a close-based rule.
+        """
         if self._pending_trigger is None or not (candle.is_red if self._side == "CE" else candle.is_green):
-            return
+            return False
         if self._side == "CE":
             if candle.close >= self._reference or candle.close >= (self._last_same_colour_close or float("inf")):
-                return
+                return False
         else:
             if candle.close <= self._reference or candle.close <= (self._last_same_colour_close or -float("inf")):
-                return
+                return False
         self._pending_trigger = self._last_same_colour_close
         self._pending_since = candle.timestamp
         self._last_same_colour_close = candle.close
         self._log(candle.timestamp, "move_stop", trigger=self._pending_trigger, stage=self._stage + 1)
+        return True
 
-    def _try_fill(self, candle: Candle) -> None:
+    def _try_fill(self, candle: Candle) -> bool:
         if self._pending_trigger is None or self._pending_contract is None or candle.timestamp <= self._pending_since:
-            return
+            return False
         crossed = candle.high >= self._pending_trigger if self._side == "CE" else candle.low <= self._pending_trigger
         if not crossed:
-            return
+            return False
         option_bar = self._lookup_option(candle.timestamp, self._pending_contract)
         if option_bar is None:
             self.result.data_gap = (
@@ -270,11 +278,12 @@ class OneHourCascade:
             )
             if self.config.strict_option_data:
                 self.result.status = "data_gap"
-            return
+            return False
         lots = self.config.lot_schedule[self._stage]
         quantity = lots * self._pending_contract.lot_size
+        trigger_price = float(self._pending_trigger)
         entry = Entry(
-            candle.timestamp, candle.close, option_bar.open, lots, quantity, self._pending_contract, self._stage + 1
+            candle.timestamp, trigger_price, option_bar.open, lots, quantity, self._pending_contract, self._stage + 1
         )
         self.result.entries.append(entry)
         self._last_entry_timestamp = candle.timestamp
@@ -287,8 +296,15 @@ class OneHourCascade:
         self._pending_contract = None
         self.result.status = "open"
         self._log(
-            candle.timestamp, "fill", stage=entry.stage, lots=lots, quantity=quantity, option_price=option_bar.open
+            candle.timestamp,
+            "fill",
+            stage=entry.stage,
+            lots=lots,
+            quantity=quantity,
+            trigger=trigger_price,
+            option_price=option_bar.open,
         )
+        return True
 
     def _try_exit(self, candle: Candle) -> bool:
         if not self.result.entries or candle.timestamp <= (self._last_entry_timestamp or self.config.mother_timestamp):
@@ -327,16 +343,21 @@ class OneHourCascade:
             return
         if self._try_exit(candle):
             return
-        self._try_fill(candle)
+        # A new qualifying close revises the stop before any fill test.  This
+        # prevents a falling red candle from filling against its *old* trigger
+        # merely because its high traded there earlier in the same 1H bar.
+        moved_stop = self._walk_pending_stop(candle) if self._pending_trigger is not None else False
+        filled = False if moved_stop else self._try_fill(candle)
         if self.result.status == "data_gap":
+            return
+        if filled:
+            # The entry candle must not also begin the next cascade stage.
             return
         if self._stage >= len(self.config.lot_schedule):
             return
         # The entry candle is excluded from the preceding marked extreme. The
         # next stage starts with it as a baseline and then waits below/above it.
-        if self._pending_trigger is not None:
-            self._walk_pending_stop(candle)
-        else:
+        if self._pending_trigger is None:
             self._arm_if_qualified(candle)
         self._stage_extreme = (
             min(self._stage_extreme, candle.low) if self._side == "CE" else max(self._stage_extreme, candle.high)

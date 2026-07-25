@@ -6774,6 +6774,10 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
         mother_high=payload.mother_high,
         mother_low=payload.mother_low,
         option_type=side,
+        # The approved initial release validates only the first 1H leg.  Your
+        # stage 2/3 rules require 4H and 1D confirmation respectively; do not
+        # silently replay them on 1H data.
+        lot_schedule=(1,),
     )
     try:
         return await asyncio.to_thread(

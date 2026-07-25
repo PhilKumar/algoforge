@@ -97,6 +97,29 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(result.status, "data_gap")
         self.assertIn("missing option candle", result.data_gap)
 
+    def test_ce_moves_stop_before_fill_and_enters_at_stop_price(self):
+        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24900)
+        resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
+        candles = [
+            Candle(t(10), 24950, 24960, 24880, 24890),  # first qualifying red
+            Candle(t(11), 24900, 24910, 24850, 24870),  # arms at 24,890
+            # This red bar traded above the old trigger but closed lower. It
+            # must move the pending stop to 24,870—not fill at its 24,840 close.
+            Candle(t(12), 24890, 24910, 24820, 24840),
+            Candle(t(13), 24850, 24880, 24830, 24870),  # later recovery fills 24,870
+        ]
+
+        def option_lookup(timestamp, _contract: Contract):
+            if timestamp != t(13):
+                return None
+            return OptionCandle(timestamp, 100, 102, 98, 101)
+
+        result = OneHourCascade(config, resolver, option_lookup).run(candles)
+        self.assertEqual(len(result.entries), 1)
+        self.assertEqual(result.entries[0].timestamp, t(13))
+        self.assertEqual(result.entries[0].spot, 24870)
+        self.assertEqual(result.events[-1]["trigger"], 24870)
+
 
 if __name__ == "__main__":
     unittest.main()
