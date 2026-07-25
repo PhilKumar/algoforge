@@ -2443,6 +2443,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    position: relative;
+    overflow: hidden;
     width: 118px;
     height: 118px;
     padding: 0;
@@ -2460,9 +2462,74 @@
     border-radius: 20px;
     background: center / contain no-repeat url('/static/logo.png');
     display: block;
+    position: relative;
+    z-index: 1;
+    transform-origin: 50% 56%;
+    will-change: transform, filter;
+    transition: transform 180ms ease, filter 180ms ease;
   }
   [data-theme="light"] .header-brand-logo {
     background-image: url('/static/logolight.png');
+  }
+  /* The logo artwork stays untouched; the forge effect only runs on intent. */
+  .header-brand-mark::before,
+  .header-brand-mark::after {
+    content: '';
+    display: block;
+    position: absolute;
+    inset: 12%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .header-brand-mark::before {
+    border: 1px solid rgba(251, 191, 36, 0.72);
+    border-radius: 24px;
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.44), 0 0 26px rgba(34, 211, 238, 0.30);
+  }
+  .header-brand-mark::after {
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(112deg, transparent 35%, rgba(255,255,255,.62) 49%, transparent 62%);
+    transform: translateX(-135%);
+  }
+  .header-brand-panel:hover .header-brand-logo,
+  .header-brand-panel:focus-visible .header-brand-logo {
+    animation: pf-logo-forge 1.25s cubic-bezier(.2,.8,.25,1) both;
+    filter: drop-shadow(0 0 10px rgba(34,211,238,.60)) drop-shadow(0 0 20px rgba(251,191,36,.34));
+  }
+  .header-brand-panel:hover .header-brand-mark::before,
+  .header-brand-panel:focus-visible .header-brand-mark::before {
+    animation: pf-logo-ring 1.25s ease-out both;
+  }
+  .header-brand-panel:hover .header-brand-mark::after,
+  .header-brand-panel:focus-visible .header-brand-mark::after {
+    animation: pf-logo-sweep 1.05s ease-out both;
+  }
+  @keyframes pf-logo-forge {
+    0% { transform: scale(1) rotate(0deg); }
+    24% { transform: scale(1.075) rotate(-3deg); }
+    48% { transform: scale(.975) rotate(2deg); }
+    72% { transform: scale(1.035) rotate(-1deg); }
+    100% { transform: scale(1) rotate(0deg); }
+  }
+  @keyframes pf-logo-ring {
+    0% { opacity: 0; transform: scale(.76); box-shadow: 0 0 0 0 rgba(251,191,36,.48), 0 0 8px rgba(34,211,238,.18); }
+    24% { opacity: .95; }
+    100% { opacity: 0; transform: scale(1.36); box-shadow: 0 0 0 14px rgba(251,191,36,0), 0 0 34px rgba(34,211,238,0); }
+  }
+  @keyframes pf-logo-sweep {
+    0% { opacity: 0; transform: translateX(-135%); }
+    12% { opacity: .7; }
+    72%, 100% { opacity: 0; transform: translateX(135%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .header-brand-panel:hover .header-brand-logo,
+    .header-brand-panel:focus-visible .header-brand-logo,
+    .header-brand-panel:hover .header-brand-mark::before,
+    .header-brand-panel:focus-visible .header-brand-mark::before,
+    .header-brand-panel:hover .header-brand-mark::after,
+    .header-brand-panel:focus-visible .header-brand-mark::after { animation: none; }
   }
   .header-brand-copy {
     display: flex;
