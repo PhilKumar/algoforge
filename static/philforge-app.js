@@ -941,6 +941,8 @@ function toggleCascadeMenu(event) {
   }
 }
 
+window.toggleCascadeMenu = toggleCascadeMenu;
+
 function _syncMobileActiveNavTab(targetBtn = null, behavior = 'smooth') {
   if (window.innerWidth > 767) return;
   const navBar = document.querySelector('.nav-bar');
@@ -1022,6 +1024,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   'openAppearanceModal',
   'resetAppearance',
   'toggleTheme',
+  'toggleCascadeMenu',
+  'startCascadeOptionsPaper',
+  'stopCascadeOptionsPaper',
 ]);
 
 document.addEventListener('click', (event) => {

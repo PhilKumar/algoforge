@@ -171,7 +171,7 @@
       <span class="tab-label">Scalp</span>
     </button>
     <div class="nav-item-menu" id="nav-cascade-wrap">
-      <button id="nav-cascade" class="nav-tab nav-tab-menu" type="button" onclick="toggleCascadeMenu(event)" style="--accent-tab: #f59e0b;">
+      <button id="nav-cascade" class="nav-tab nav-tab-menu" type="button" data-pf-action="toggleCascadeMenu" style="--accent-tab: #f59e0b;">
         <span class="tab-icon" style="color: #f59e0b;">↗</span>
         <span class="tab-label">Cascade</span>
         <span class="nav-caret">▾</span>
@@ -1652,8 +1652,8 @@
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="cascade-options-rung-inr" type="number" min="1" step="500" value="13000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">CE offset</label><select id="cascade-options-offset" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="-2" selected>ATM − 2 strikes</option><option value="-1">ATM − 1 strike</option><option value="0">ATM</option></select></div>
       </div>
-      <button id="cascade-options-start" class="btn" type="button" onclick="startCascadeOptionsPaper()" style="width:100%;margin-top:16px;--btn-bg:linear-gradient(180deg,rgba(16,185,129,.3),rgba(5,150,105,.46));--btn-color:#d1fae5;--btn-border:rgba(52,211,153,.56);font-weight:800;">▶ Start paper campaign</button>
-      <button id="cascade-options-stop" class="btn btn-sm" type="button" onclick="stopCascadeOptionsPaper()" style="width:100%;margin-top:8px;padding:7px;font-size:11px;display:none;">■ Stop monitoring</button>
+      <button id="cascade-options-start" class="btn" type="button" data-pf-action="startCascadeOptionsPaper" style="width:100%;margin-top:16px;--btn-bg:linear-gradient(180deg,rgba(16,185,129,.3),rgba(5,150,105,.46));--btn-color:#d1fae5;--btn-border:rgba(52,211,153,.56);font-weight:800;">▶ Start paper campaign</button>
+      <button id="cascade-options-stop" class="btn btn-sm" type="button" data-pf-action="stopCascadeOptionsPaper" style="width:100%;margin-top:8px;padding:7px;font-size:11px;display:none;">■ Stop monitoring</button>
       <div id="cascade-options-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
     </div>
 
