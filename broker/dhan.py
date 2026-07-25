@@ -176,6 +176,14 @@ class DhanOrderError(Exception):
         super().__init__(f"{action} failed ({status_code}): {self.reason}")
 
 
+class AmbiguousOrderSubmission(RuntimeError):
+    """Dhan may have accepted an order although no confirmation reached us.
+
+    Retrying such a request can create a second live order. Callers must
+    reconcile the broker order book before they submit another order.
+    """
+
+
 _DHAN_ERROR_REASON_KEYS = (
     "rejectionReason",
     "omsErrorDescription",
@@ -339,6 +347,7 @@ async def _async_request_with_retry(
     base_delay: float = 0.3,
     allow_token_refresh: bool = True,
     refresh_token_func: Optional[Callable[[], str | None]] = None,
+    retry_safe: bool = True,
 ) -> httpx.Response:
     """
     Async HTTP request with exponential backoff on transient failures.
@@ -347,7 +356,8 @@ async def _async_request_with_retry(
     """
     client = _get_async_client()
     last_exc = None
-    for attempt in range(max_retries):
+    attempts = max_retries if retry_safe else 1
+    for attempt in range(attempts):
         try:
             resp = await client.request(
                 method,
@@ -365,15 +375,26 @@ async def _async_request_with_retry(
                     new_token = config.DHAN_ACCESS_TOKEN
                 if new_token:
                     headers = {**headers, "access-token": new_token}
+                    # An invalid-token response is a broker rejection, so one
+                    # fresh-token resend is safe even for an order POST. Do
+                    # not turn later network/transient failures into retries.
+                    if not retry_safe:
+                        return await client.request(
+                            method,
+                            url,
+                            headers=headers,
+                            json=json_data,
+                            timeout=timeout,
+                        )
                     continue
-            if resp.status_code not in _RETRYABLE_STATUSES:
+            if resp.status_code not in _RETRYABLE_STATUSES or not retry_safe:
                 return resp
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
-            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{max_retries})")
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{attempts})")
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
             last_exc = e
-            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} network error (attempt {attempt + 1}/{max_retries}): {e}")
-        if attempt < max_retries - 1:
+            _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} network error (attempt {attempt + 1}/{attempts}): {e}")
+        if attempt < attempts - 1:
             await asyncio.sleep(base_delay * (2**attempt))  # 0.3s, 0.6s, 1.2s
     raise last_exc
 
@@ -424,6 +445,7 @@ def _request_with_retry(
     base_delay: float = 1.0,
     allow_token_refresh: bool = True,
     refresh_token_func: Optional[Callable[[], str | None]] = None,
+    retry_safe: bool = True,
 ) -> "requests.Response":
     """
     Execute an HTTP request with exponential backoff on transient failures.
@@ -431,7 +453,8 @@ def _request_with_retry(
     Raises the last exception if all retries are exhausted.
     """
     last_exc = None
-    for attempt in range(max_retries):
+    attempts = max_retries if retry_safe else 1
+    for attempt in range(attempts):
         try:
             resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
             if allow_token_refresh and _is_invalid_token_response(resp):
@@ -441,16 +464,21 @@ def _request_with_retry(
                     new_token = config.DHAN_ACCESS_TOKEN
                 if new_token:
                     headers = {**headers, "access-token": new_token}
+                    # The preceding invalid-token response was rejected by
+                    # Dhan, so a single fresh-token resend is safe. Further
+                    # failures must not retry a live order automatically.
+                    if not retry_safe:
+                        return _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
                     continue
-            if resp.status_code not in _RETRYABLE_STATUSES:
+            if resp.status_code not in _RETRYABLE_STATUSES or not retry_safe:
                 return resp
             # Retryable status — treat as transient
             last_exc = Exception(f"Dhan API {resp.status_code}: {resp.text[:200]}")
-            _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{max_retries})")
+            _dhan_log.warning(f"[DHAN] {method} {url} → {resp.status_code} (attempt {attempt + 1}/{attempts})")
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             last_exc = e
-            _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt + 1}/{max_retries}): {e}")
-        if attempt < max_retries - 1:
+            _dhan_log.warning(f"[DHAN] {method} {url} network error (attempt {attempt + 1}/{attempts}): {e}")
+        if attempt < attempts - 1:
             delay = base_delay * (2**attempt)  # 1s, 2s, 4s …
             _time.sleep(delay)
     raise last_exc
@@ -1363,12 +1391,19 @@ class DhanClient:
                 timeout=10,
                 allow_token_refresh=self._allow_token_refresh,
                 refresh_token_func=self.refresh_access_token,
+                retry_safe=False,
             )
         except Exception as e:
             _circuit_breaker.record_failure()
-            raise
+            raise AmbiguousOrderSubmission(
+                "Order submission was not confirmed by Dhan; reconcile the broker order book before retrying."
+            ) from e
         if resp.status_code not in (200, 201):
             _circuit_breaker.record_failure()
+            if resp.status_code in _RETRYABLE_STATUSES:
+                raise AmbiguousOrderSubmission(
+                    "Dhan returned a transient response after order submission; reconcile the broker order book before retrying."
+                )
             _raise_dhan_order_error("Order placement", resp)
         _circuit_breaker.record_success()
         return resp.json()
@@ -1425,6 +1460,7 @@ class DhanClient:
             timeout=10,
             allow_token_refresh=self._allow_token_refresh,
             refresh_token_func=self.refresh_access_token,
+            retry_safe=False,
         )
         if resp.status_code not in (200, 201):
             _raise_dhan_order_error("Forever order placement", resp)
@@ -1572,6 +1608,7 @@ class DhanClient:
             max_retries=2,
             allow_token_refresh=self._allow_token_refresh,
             refresh_token_func=self.refresh_access_token,
+            retry_safe=False,
         )
         if resp.status_code not in (200, 201):
             body = resp.text or ""
@@ -2259,13 +2296,20 @@ class DhanClient:
                 timeout=10.0,
                 allow_token_refresh=self._allow_token_refresh,
                 refresh_token_func=self.refresh_access_token,
+                retry_safe=False,
             )
-        except Exception:
+        except Exception as exc:
             _circuit_breaker.record_failure()
-            raise
+            raise AmbiguousOrderSubmission(
+                "Order submission was not confirmed by Dhan; reconcile the broker order book before retrying."
+            ) from exc
         if resp.status_code not in (200, 201):
             _circuit_breaker.record_failure()
-            raise Exception(f"Order placement failed {resp.status_code}: {resp.text}")
+            if resp.status_code in _RETRYABLE_STATUSES:
+                raise AmbiguousOrderSubmission(
+                    "Dhan returned a transient response after order submission; reconcile the broker order book before retrying."
+                )
+            _raise_dhan_order_error("Async order placement", resp)
         _circuit_breaker.record_success()
         return resp.json()
 

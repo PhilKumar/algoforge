@@ -1510,6 +1510,40 @@ _STARTUP_EMPTY_RUN_CLEANUP_ENABLED = _startup_flag("PHILFORGE_STARTUP_EMPTY_RUN_
 _STARTUP_ENGINE_RESTORE_ENABLED = _startup_flag("PHILFORGE_STARTUP_ENGINE_RESTORE", True)
 _STARTUP_EXAMPLE_SEED_ENABLED = _startup_flag("PHILFORGE_STARTUP_EXAMPLE_SEED", True)
 
+
+def _engine_restore_owner_is_active_instance() -> bool:
+    """Return whether this blue/green worker currently owns engine restore.
+
+    Standby and active workers share engine-state files. Restoring from both
+    would create duplicate broker orders, so a template-service standby stays
+    passive until cd-deploy has stopped the old worker and handed over.
+    Direct/local starts keep the previous restore behaviour.
+    """
+    instance_port = str(os.getenv("PHILFORGE_INSTANCE_PORT", "") or "").strip()
+    if not instance_port:
+        return True
+    port_file = os.getenv(
+        "PHILFORGE_ACTIVE_PORT_FILE",
+        os.path.join(os.path.expanduser("~"), ".philforge-active-port"),
+    )
+    try:
+        with open(port_file, encoding="utf-8") as handle:
+            return handle.read().strip() == instance_port
+    except OSError:
+        # A first non-blue/green boot has no ownership file yet.
+        return True
+
+
+def _is_loopback_request(request: Request) -> bool:
+    if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+        return False
+    # A public request proxied by Nginx reaches Uvicorn from loopback, but
+    # carries the original client address in X-Real-IP. Direct local deploy
+    # calls have no such header and remain allowed.
+    real_ip = str(request.headers.get("x-real-ip", "") or "").strip()
+    return not real_ip or real_ip in {"127.0.0.1", "::1"}
+
+
 ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
 
 
@@ -2227,6 +2261,7 @@ async def auth_middleware(request: Request, call_next):
         "/api/auth/status",
         "/api/health",
         "/api/save-state",
+        "/api/restore-engines",
         "/login",
         "/",
         "/charts-viewer",
@@ -5212,7 +5247,7 @@ async def health():
 @app.post("/api/save-state")
 async def save_state(request: Request):
     """Persist all running engine states to disk (called by deploy script before restart)."""
-    if request.client.host not in ("127.0.0.1", "::1"):
+    if not _is_loopback_request(request):
         return JSONResponse(status_code=403, content={"error": "localhost only"})
     saved = []
     for owner_id, run_id, engine in _iter_registry_items(live_engines):
@@ -5224,6 +5259,22 @@ async def save_state(request: Request):
             engine._save_state()
             saved.append(f"paper:{owner_id}:{run_id}")
     return {"status": "ok", "saved": saved}
+
+
+@app.post("/api/restore-engines")
+async def restore_engines_after_handover(request: Request):
+    """Restore engines only after blue/green ownership has moved here."""
+    if not _is_loopback_request(request):
+        return JSONResponse(status_code=403, content={"error": "localhost only"})
+    if not _engine_restore_owner_is_active_instance():
+        return JSONResponse(status_code=409, content={"error": "this worker is not the active instance"})
+    await _restore_live_engines()
+    await _restore_paper_engines()
+    return {
+        "status": "ok",
+        "live_running": _any_running(live_engines),
+        "paper_running": _any_running(paper_engines),
+    }
 
 
 @app.get("/api/token-status")
@@ -9663,9 +9714,11 @@ async def _start_token_renewal():
     else:
         print("🧹 [STARTUP] Empty-run cleanup disabled (PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP=0)")
 
-    if _STARTUP_ENGINE_RESTORE_ENABLED:
+    if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())
         asyncio.create_task(_restore_paper_engines())
+    elif _STARTUP_ENGINE_RESTORE_ENABLED:
+        print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:
         print("♻️ [Startup] Engine restore disabled (PHILFORGE_STARTUP_ENGINE_RESTORE=0)")
 
@@ -9682,6 +9735,10 @@ async def _restore_live_engines():
         try:
             with open(fpath, "r") as f:
                 state = _json.load(f)
+
+            if state.get("manual_intervention_required"):
+                print(f"🔄 [Restore] Skipping unsafe live state: {fname} requires broker reconciliation")
+                continue
 
             if state.get("session_date") != today and not _state_has_open_positions(state):
                 print(f"🔄 [Restore] Skipping stale state: {fname} (date={state.get('session_date')})")

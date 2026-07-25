@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  PhilForge — Zero-Downtime Blue-Green Deployment
+#  PhilForge — Safe Blue-Green Deployment
 # ═══════════════════════════════════════════════════════════════
 #  Called by GitHub Actions after `git pull`.
 #  Starts new code on a standby port, health-checks it,
-#  swaps nginx, drains old connections, stops old instance.
+#  restores engine ownership, then swaps nginx. A short cutover gap is
+#  intentional: live trade execution must never overlap across workers.
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -25,7 +26,6 @@ UPSTREAM_CONF="/etc/nginx/conf.d/${APP}-upstream.conf"
 
 HEALTH_PATH="/api/health"
 HEALTH_TIMEOUT=180         # seconds to wait for standby health
-DRAIN_TIMEOUT=30           # seconds to let old WS connections drain
 SYNC_SITE_CONFIG="${SYNC_SITE_CONFIG:-0}"  # set to 1 only when intentionally replacing the server vhost
 LOCK_FILE="$HOME/.${APP}-deploy.lock"
 
@@ -73,6 +73,14 @@ log "Active: port $ACTIVE_PORT → Deploying to: port $STANDBY_PORT"
 log "Installing dependencies..."
 source "$VENV/bin/activate"
 pip install -q --disable-pip-version-check -r "$APP_DIR/requirements.txt"
+
+# Keep the template unit in sync before the standby starts. In particular, the
+# current unit binds Uvicorn to loopback and provides its instance port so the
+# application can defer engine restore while it is the standby.
+log "Refreshing systemd template..."
+sudo cp "$APP_DIR/deploy/philforge.service" "/etc/systemd/system/${APP}@.service"
+sudo systemctl daemon-reload
+
 log "Clearing __pycache__ to prevent stale bytecode..."
 find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
@@ -80,7 +88,8 @@ find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
 
 # ── 2a. Tell active instance to persist state before restart ──
-#  This ensures live_state_*.json files exist for the new instance to restore
+# The standby remains passive; it must not restore these engines until this
+# active instance has fully stopped.
 if curl -sf --max-time 5 -X POST "http://127.0.0.1:${ACTIVE_PORT}/api/save-state" >/dev/null 2>&1; then
     log "Active instance saved state to disk"
 else
@@ -135,13 +144,9 @@ if ! health_check "$STANDBY_PORT"; then
 fi
 log "Standby is healthy!"
 
-# ── 5. Swap nginx upstream + sync site config ────────────────
-log "Switching nginx to port $STANDBY_PORT..."
-echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
-    | sudo tee "$UPSTREAM_CONF" >/dev/null
-
-# Sync main nginx site config only when explicitly requested.
-# This avoids clobbering a server-local domain/TLS vhost during deploy.
+# ── 5. Validate optional site config without moving public traffic ──
+# Keep Nginx on the old worker until the new one owns the engine state. This
+# intentionally creates a short cutover gap instead of a duplicate-order risk.
 if [[ -f "$APP_DIR/deploy/nginx.conf" ]]; then
     if [[ "$SYNC_SITE_CONFIG" == "1" ]]; then
         sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/conf.d/${APP}.conf
@@ -152,26 +157,34 @@ if [[ -f "$APP_DIR/deploy/nginx.conf" ]]; then
 fi
 
 if ! sudo nginx -t 2>/dev/null; then
-    die "Nginx config test failed! Restoring old upstream."
+    die "Nginx config test failed. Active instance on port $ACTIVE_PORT unchanged."
 fi
 
-# Graceful reload — existing connections stay on old workers
-sudo nginx -s reload
-log "Nginx reloaded. New traffic → port $STANDBY_PORT"
+# ── 6. Stop old worker before ownership handover ──────────────
+log "Stopping old instance on port $ACTIVE_PORT..."
+sudo systemctl stop "${APP}@${ACTIVE_PORT}"
 
-# ── 6. Persist new active port before drain/old-stop ─────────
-#  If the SSH control session drops after cutover, later verification should
-#  still read the correct active port instead of the drained old one.
+# ── 7. Hand engine-state ownership to the standby ────────────
 echo "$STANDBY_PORT" > "$PORT_FILE"
 log "Active port state updated → $STANDBY_PORT"
 
-# ── 7. Drain old connections ─────────────────────────────────
-log "Draining old connections for ${DRAIN_TIMEOUT}s..."
-sleep "$DRAIN_TIMEOUT"
+# The standby started while the old port was active, so it deliberately left
+# all engines passive. Restore only after the old worker has stopped; this
+# removes the duplicate-order window during blue/green cutover.
+log "Activating engine restore on port $STANDBY_PORT..."
+if ! curl -sf --max-time 30 -X POST "http://127.0.0.1:${STANDBY_PORT}/api/restore-engines" >/dev/null; then
+    die "Old worker stopped, but the new worker could not restore engines. Check broker positions before manual recovery."
+fi
 
-# ── 8. Stop old instance ─────────────────────────────────────
-log "Stopping old instance on port $ACTIVE_PORT..."
-sudo systemctl stop "${APP}@${ACTIVE_PORT}" 2>/dev/null || true
+# ── 8. Move public traffic only after engine ownership is live ──
+log "Switching nginx to port $STANDBY_PORT..."
+echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
+    | sudo tee "$UPSTREAM_CONF" >/dev/null
+if ! sudo nginx -t 2>/dev/null; then
+    die "New worker owns engines, but Nginx rejected the upstream. Keep traffic stopped and repair Nginx before continuing."
+fi
+sudo nginx -s reload
+log "Nginx reloaded. New traffic → port $STANDBY_PORT"
 
 log "═══════════════════════════════════════════════"
 log "  DEPLOY COMPLETE — $APP active on port $STANDBY_PORT"

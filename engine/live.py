@@ -31,7 +31,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import config
-from broker.dhan import UNDERLYING_MAP, DhanClient, ScripMaster
+from broker.dhan import UNDERLYING_MAP, AmbiguousOrderSubmission, DhanClient, ScripMaster
 from engine.backtest import (
     eval_condition_group,
     get_lot_size,
@@ -2183,6 +2183,7 @@ class LiveEngine:
         """Enter trade: place real orders for each leg.
         Uses true-async httpx calls + parallel leg placement for minimum latency.
         """
+        self._entry_submission_ambiguous = False
         self.log_event(
             "signal",
             "✅ ENTRY CONDITIONS MET",
@@ -2324,6 +2325,27 @@ class LiveEngine:
                     trading_symbol,
                     verification,
                 )
+            except AmbiguousOrderSubmission as e:
+                self.log_event(
+                    "error",
+                    f"CRITICAL: Order state UNKNOWN for Leg {i + 1}; broker reconciliation is required before retrying: {e}",
+                )
+                return (
+                    False,
+                    i,
+                    leg,
+                    strike,
+                    scanned_premium,
+                    quantity,
+                    opt_type,
+                    txn_type,
+                    lots,
+                    expiry,
+                    lot_size,
+                    None,
+                    trading_symbol,
+                    {"status": "AMBIGUOUS", "message": str(e), "filled_qty": 0, "avg_price": 0.0, "ambiguous": True},
+                )
             except Exception as e:
                 self.log_event("error", f"❌ Order FAILED for Leg {i + 1}: {e}")
                 return (
@@ -2344,6 +2366,18 @@ class LiveEngine:
                 )
 
         results = await asyncio.gather(*[_place_one_leg(p) for p in leg_plans])
+
+        if any(bool(result[-1].get("ambiguous")) for result in results):
+            self._entry_submission_ambiguous = True
+            self.manual_intervention_required = True
+            self.running = False
+            self._clear_pending_order()
+            self.log_event(
+                "error",
+                "CRITICAL: Entry submission was not confirmed. Engine stopped; reconcile Dhan orders and positions before restart.",
+            )
+            self._save_state()
+            return
 
         # ── Phase 3: Build positions from results ──
         entered_positions = []
@@ -2646,6 +2680,20 @@ class LiveEngine:
                     label=f"Leg {pos['leg_num']} {pos['trading_symbol']}",
                     timeout_sec=self._exit_fill_timeout_sec,
                 )
+            except AmbiguousOrderSubmission as e:
+                self.manual_intervention_required = True
+                self.running = False
+                pos["_exit_retry_after"] = _now_ist() + timedelta(hours=24)
+                self._save_state()
+                self.log_event(
+                    "error",
+                    f"CRITICAL: Exit order state UNKNOWN for Leg {pos['leg_num']}. Engine stopped; reconcile Dhan before retrying: {e}",
+                )
+                return {
+                    "status": "error",
+                    "closed": False,
+                    "message": "Exit submission is unconfirmed. Reconcile the broker position before retrying.",
+                }
             except Exception as e:
                 pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
                 attempt = pos["_exit_attempts"]

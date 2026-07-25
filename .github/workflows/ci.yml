@@ -97,4 +97,7 @@ jobs:
           PHILFORGE_STARTUP_TRADE_BACKFILL: "0"
           PHILFORGE_STARTUP_ENGINE_RESTORE: "0"
         run: |
-          python -m unittest tests.test_timeframes tests.test_dashboard_summary tests.test_broker_check
+          python -m unittest discover -s "$PWD/tests" -p 'test_timeframes.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_dashboard_summary.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_broker_check.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_order_submission_safety.py'
