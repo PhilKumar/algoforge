@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from datetime import time as dt_time
 from typing import Callable, Iterable, Mapping, Optional
 
 
@@ -67,6 +68,7 @@ class CascadeConfig:
     mother_low: float
     option_type: str = "CE"
     timeframe: str = "1h"
+    stage_timeframes: tuple[str, ...] = ()
     lot_schedule: tuple[int, ...] = (1, 2, 3)
     lot_size: int = 65
     itm_steps: int = 2
@@ -75,13 +77,12 @@ class CascadeConfig:
     max_dte: int = 13
     target_fraction: float = 0.25
     strict_option_data: bool = True
+    force_exit_on_expiry: bool = True
 
     def __post_init__(self) -> None:
         side = str(self.option_type).upper()
         if side not in {"CE", "PE"}:
             raise CascadeError("option_type must be CE or PE")
-        if self.timeframe.lower() != "1h":
-            raise CascadeError("the first release supports only a fixed 1H timeframe")
         if not self.lot_schedule or any(int(x) <= 0 for x in self.lot_schedule):
             raise CascadeError("lot_schedule must contain positive lot counts")
         if self.lot_size <= 0 or self.itm_steps <= 0 or self.strike_step <= 0:
@@ -90,6 +91,21 @@ class CascadeConfig:
             raise CascadeError("target_fraction must be between 0 and 1")
         if not 0 <= self.min_dte <= self.max_dte:
             raise CascadeError("invalid DTE range")
+        base_timeframe = self.timeframe.lower()
+        defaults = {
+            "5m": ("5m", "15m", "1h"),
+            "15m": ("15m", "1h", "4h"),
+            "1h": ("1h", "4h", "1d"),
+        }
+        if base_timeframe not in defaults:
+            raise CascadeError("timeframe must be 5m, 15m, or 1h")
+        stages = tuple(str(value).lower() for value in (self.stage_timeframes or defaults[base_timeframe]))
+        if len(stages) < len(self.lot_schedule):
+            raise CascadeError("stage_timeframes must cover every lot stage")
+        if stages[0] != base_timeframe or any(value not in {"5m", "15m", "1h", "4h", "1d"} for value in stages):
+            raise CascadeError("invalid cascade stage timeframe")
+        object.__setattr__(self, "timeframe", base_timeframe)
+        object.__setattr__(self, "stage_timeframes", stages[: len(self.lot_schedule)])
 
 
 class NiftyContractResolver:
@@ -124,7 +140,11 @@ class NiftyContractResolver:
         eligible = []
         for expiry in self.expiries:
             dte = (expiry - trade_date).days
-            if expiry <= trade_date or not config.min_dte <= dte <= config.max_dte:
+            # A Tuesday market holiday shifts weekly expiry to the preceding
+            # session (normally Monday). Allow that single 6-DTE exception,
+            # while retaining the regular 7-DTE floor for normal Tuesdays.
+            minimum_dte = config.min_dte - 1 if expiry.weekday() != 1 else config.min_dte
+            if expiry <= trade_date or not minimum_dte <= dte <= config.max_dte:
                 continue
             if expiry.isocalendar()[:2] == current_week:
                 continue
@@ -146,7 +166,7 @@ class NiftyContractResolver:
 class Entry:
     timestamp: datetime
     spot: float
-    option_price: float
+    option_price: Optional[float]
     lots: int
     quantity: int
     contract: Contract
@@ -161,7 +181,8 @@ class CascadeResult:
     exit_option_price: Optional[float] = None
     target_index: Optional[float] = None
     average_spot: Optional[float] = None
-    realized_pnl: float = 0.0
+    realized_pnl: Optional[float] = None
+    exit_reason: Optional[str] = None
     data_gap: Optional[str] = None
     events: list[dict] = field(default_factory=list)
 
@@ -170,7 +191,11 @@ OptionLookup = Callable[[datetime, Contract], Optional[OptionCandle]]
 
 
 class OneHourCascade:
-    """Mirror-symmetric CE/PE cascade for a fixed 1H signal timeframe."""
+    """Mirror-symmetric CE/PE cascade with stage-specific timeframes.
+
+    The historical name is retained for compatibility.  `CascadeConfig` now
+    controls the stage route: 5m→15m→1h, 15m→1h→4h, or 1h→4h→1d.
+    """
 
     def __init__(
         self,
@@ -184,12 +209,15 @@ class OneHourCascade:
         self.result = CascadeResult(status="waiting")
         self._side = config.option_type.upper()
         self._stage = 0
+        self._stage_timeframes = config.stage_timeframes
+        self._active_timeframe = self._stage_timeframes[0]
+        self._stage_started_at = config.mother_timestamp
         self._reference = config.mother_low if self._side == "CE" else config.mother_high
         self._last_same_colour_close: Optional[float] = None
         self._pending_trigger: Optional[float] = None
         self._pending_since: Optional[datetime] = None
         self._pending_contract: Optional[Contract] = None
-        self._stage_extreme = self._reference
+        self._stage_extreme: Optional[float] = self._reference
         self._last_entry_timestamp: Optional[datetime] = None
 
     def _lookup_option(self, timestamp: datetime, contract: Contract) -> Optional[OptionCandle]:
@@ -271,25 +299,34 @@ class OneHourCascade:
         if not crossed:
             return False
         option_bar = self._lookup_option(candle.timestamp, self._pending_contract)
-        if option_bar is None:
+        if option_bar is None and self.config.strict_option_data:
             self.result.data_gap = (
                 f"missing option candle at {candle.timestamp.isoformat()} for "
                 f"{self._pending_contract.symbol} {self._pending_contract.strike}{self._pending_contract.option_type}"
             )
-            if self.config.strict_option_data:
-                self.result.status = "data_gap"
+            self.result.status = "data_gap"
             return False
         lots = self.config.lot_schedule[self._stage]
         quantity = lots * self._pending_contract.lot_size
         trigger_price = float(self._pending_trigger)
         entry = Entry(
-            candle.timestamp, trigger_price, option_bar.open, lots, quantity, self._pending_contract, self._stage + 1
+            candle.timestamp,
+            trigger_price,
+            option_bar.open if option_bar is not None else None,
+            lots,
+            quantity,
+            self._pending_contract,
+            self._stage + 1,
         )
         self.result.entries.append(entry)
         self._last_entry_timestamp = candle.timestamp
         self._stage += 1
-        self._reference = self._stage_extreme
-        self._stage_extreme = candle.low if self._side == "CE" else candle.high
+        if self._stage_extreme is not None:
+            self._reference = self._stage_extreme
+        self._stage_extreme = None
+        self._stage_started_at = candle.timestamp
+        if self._stage < len(self._stage_timeframes):
+            self._active_timeframe = self._stage_timeframes[self._stage]
         self._last_same_colour_close = None
         self._pending_trigger = None
         self._pending_since = None
@@ -302,7 +339,8 @@ class OneHourCascade:
             lots=lots,
             quantity=quantity,
             trigger=trigger_price,
-            option_price=option_bar.open,
+            option_price=option_bar.open if option_bar is not None else None,
+            timeframe=self._stage_timeframes[entry.stage - 1],
         )
         return True
 
@@ -315,33 +353,79 @@ class OneHourCascade:
         hit = candle.high >= target if self._side == "CE" else candle.low <= target
         if not hit:
             return False
-        option_prices = []
+        option_prices: list[Optional[float]] = []
         for entry in self.result.entries:
             option_bar = self._lookup_option(candle.timestamp, entry.contract)
             if option_bar is None:
-                self.result.data_gap = (
-                    f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.symbol}"
-                )
                 if self.config.strict_option_data:
+                    self.result.data_gap = (
+                        f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.symbol}"
+                    )
                     self.result.status = "data_gap"
-                return False
+                    return False
+                option_prices.append(None)
+                continue
             option_prices.append(option_bar.close)
         self.result.exit_timestamp = candle.timestamp
-        self.result.exit_option_price = sum(option_prices) / len(option_prices)
+        known_prices = [price for price in option_prices if price is not None]
+        self.result.exit_option_price = sum(known_prices) / len(known_prices) if known_prices else None
         self.result.target_index = target
         self.result.average_spot = self._average_spot()
-        self.result.realized_pnl = sum(
-            (exit_price - entry.option_price) * entry.quantity
-            for exit_price, entry in zip(option_prices, self.result.entries)
-        )
+        if all(price is not None for price in option_prices) and all(
+            entry.option_price is not None for entry in self.result.entries
+        ):
+            self.result.realized_pnl = sum(
+                (float(exit_price) - float(entry.option_price)) * entry.quantity
+                for exit_price, entry in zip(option_prices, self.result.entries)
+            )
         self.result.status = "closed"
-        self._log(candle.timestamp, "exit", target=target, realized_pnl=self.result.realized_pnl)
+        self.result.exit_reason = "target"
+        self._log(candle.timestamp, "exit", target=target, realized_pnl=self.result.realized_pnl, reason="target")
         return True
 
-    def on_candle(self, candle: Candle) -> None:
-        if self.result.status in {"closed", "data_gap", "invalid"} or candle.timestamp <= self.config.mother_timestamp:
+    def _try_expiry_exit(self, candle: Candle) -> bool:
+        """Force a strategy exit at the last tradable expiry candle.
+
+        A weekly option cannot be carried beyond expiry.  The engine records the
+        forced exit as signal-level only unless exact option candles are present.
+        """
+
+        if not self.config.force_exit_on_expiry or not self.result.entries:
+            return False
+        expiry = min(entry.contract.expiry for entry in self.result.entries)
+        if candle.timestamp.date() < expiry:
+            return False
+        if candle.timestamp.date() == expiry and candle.timestamp.time() < dt_time(15, 15):
+            return False
+        self.result.exit_timestamp = candle.timestamp
+        self.result.average_spot = self._average_spot()
+        self.result.target_index = self._target()
+        self.result.status = "expired"
+        self.result.exit_reason = "expiry_square_off"
+        self._log(candle.timestamp, "expiry_exit", expiry=expiry.isoformat(), reason="expiry_square_off")
+        return True
+
+    def _update_stage_extreme(self, candle: Candle) -> None:
+        if self._stage_extreme is None:
+            self._stage_extreme = candle.low if self._side == "CE" else candle.high
             return
-        if self._try_exit(candle):
+        self._stage_extreme = (
+            min(self._stage_extreme, candle.low) if self._side == "CE" else max(self._stage_extreme, candle.high)
+        )
+
+    def on_candle(self, candle: Candle, *, timeframe: Optional[str] = None) -> None:
+        event_timeframe = (timeframe or self._active_timeframe).lower()
+        if (
+            self.result.status in {"closed", "expired", "data_gap", "invalid"}
+            or candle.timestamp <= self.config.mother_timestamp
+        ):
+            return
+        # Targets and expiry are monitored on the original (finest) timeframe,
+        # even while later entries wait for 4H/1D confirmation.
+        if self.result.entries and event_timeframe == self._stage_timeframes[0]:
+            if self._try_exit(candle) or self._try_expiry_exit(candle):
+                return
+        if event_timeframe != self._active_timeframe or candle.timestamp <= self._stage_started_at:
             return
         # A new qualifying close revises the stop before any fill test.  This
         # prevents a falling red candle from filling against its *old* trigger
@@ -359,15 +443,27 @@ class OneHourCascade:
         # next stage starts with it as a baseline and then waits below/above it.
         if self._pending_trigger is None:
             self._arm_if_qualified(candle)
-        self._stage_extreme = (
-            min(self._stage_extreme, candle.low) if self._side == "CE" else max(self._stage_extreme, candle.high)
-        )
+        self._update_stage_extreme(candle)
 
-    def run(self, candles: Iterable[Candle]) -> CascadeResult:
-        ordered = sorted(candles, key=lambda candle: candle.timestamp)
-        for candle in ordered:
-            self.on_candle(candle)
-            if self.result.status in {"closed", "data_gap", "invalid"}:
+    def run(self, candles: Iterable[Candle] | Mapping[str, Iterable[Candle]]) -> CascadeResult:
+        if isinstance(candles, Mapping):
+            priority = {timeframe: index for index, timeframe in enumerate(self._stage_timeframes)}
+            ordered = sorted(
+                (
+                    (candle.timestamp, str(timeframe).lower(), candle)
+                    for timeframe, rows in candles.items()
+                    for candle in rows
+                ),
+                key=lambda item: (item[0], priority.get(item[1], len(priority))),
+            )
+        else:
+            ordered = [
+                (candle.timestamp, self._stage_timeframes[0], candle)
+                for candle in sorted(candles, key=lambda c: c.timestamp)
+            ]
+        for _timestamp, timeframe, candle in ordered:
+            self.on_candle(candle, timeframe=timeframe)
+            if self.result.status in {"closed", "expired", "data_gap", "invalid"}:
                 break
         if self.result.entries:
             self.result.average_spot = self._average_spot()

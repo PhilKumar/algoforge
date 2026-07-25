@@ -1191,6 +1191,7 @@ function cascadeUsePreset(side) {
   const preset = CASCADE_PRESETS[String(side || '').toUpperCase()];
   if (!preset) return;
   _cascadeEl('cascade-side').value = side;
+  _cascadeEl('cascade-timeframe').value = '1h';
   _cascadeEl('cascade-mother-timestamp').value = preset.timestamp;
   _cascadeEl('cascade-mother-high').value = preset.high;
   _cascadeEl('cascade-mother-low').value = preset.low;
@@ -1214,7 +1215,8 @@ function _renderCascadeResult(payload) {
   const result = payload.result || {};
   const entries = Array.isArray(result.entries) ? result.entries : [];
   const closed = result.state === 'closed';
-  const tone = closed ? '#6ee7b7' : result.state === 'data_gap' ? '#fca5a5' : '#fbbf24';
+  const expired = result.state === 'expired';
+  const tone = closed ? '#6ee7b7' : result.state === 'data_gap' ? '#fca5a5' : expired ? '#fbbf24' : '#fbbf24';
   badge.textContent = String(result.state || 'unknown').replace('_', ' ').toUpperCase();
   badge.style.color = tone;
   badge.style.borderColor = tone;
@@ -1237,7 +1239,9 @@ function _renderCascadeResult(payload) {
   }).join('') || '<div style="color:var(--muted);">No qualifying sequence was armed.</div>';
   const pnl = result.provisional_option_pnl;
   const pnlText = Number.isFinite(Number(pnl)) ? `₹${_cascadeNumber(pnl)}` : '—';
-  const exitText = result.exit_timestamp ? _cascadeTimestamp(result.exit_timestamp) : 'Target not reached in range';
+  const exitText = result.exit_timestamp
+    ? `${_cascadeTimestamp(result.exit_timestamp)}${result.exit_reason === 'expiry_square_off' ? ' · expiry square-off' : ''}`
+    : 'Target not reached in range';
 
   output.innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:14px;">
@@ -1256,6 +1260,7 @@ async function runCascadeBacktest() {
   const side = _cascadeEl('cascade-side')?.value;
   const payload = {
     option_type: side,
+    timeframe: _cascadeEl('cascade-timeframe')?.value,
     mother_timestamp: _cascadeEl('cascade-mother-timestamp')?.value,
     mother_high: Number(_cascadeEl('cascade-mother-high')?.value),
     mother_low: Number(_cascadeEl('cascade-mother-low')?.value),

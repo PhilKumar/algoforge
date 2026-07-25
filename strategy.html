@@ -1614,7 +1614,7 @@
       <div>
         <div style="font-size:11px; color:#fbbf24; font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:6px;">Backtest only · no live orders</div>
         <h2 style="margin:0; font-size:22px;">NIFTY 1H Cascade</h2>
-        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">Manual mother candle → two qualifying closes → re-cross entry. CE uses the downside/recovery sequence; PE mirrors it. This release validates the first <strong style="color:var(--text);">1 lot</strong> (NIFTY ×65); later 2- and 3-lot stages will use 4H and 1D confirmation.</p>
+        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">Manual mother candle → two qualifying closes → re-cross entry. CE uses the downside/recovery sequence; PE mirrors it. Stages progress <strong style="color:var(--text);">1 + 2 + 3</strong> with the selected timeframe route.</p>
       </div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">1H initial release<br>7–13 DTE · skip current week</div>
     </div>
@@ -1630,12 +1630,20 @@
         <button class="btn btn-sm" type="button" onclick="cascadeUsePreset('CE')" style="flex:1; --btn-bg:rgba(52,211,153,.14); --btn-color:#6ee7b7; --btn-border:rgba(52,211,153,.35);">Load CE · 7 May</button>
         <button class="btn btn-sm" type="button" onclick="cascadeUsePreset('PE')" style="flex:1; --btn-bg:rgba(248,113,113,.13); --btn-color:#fca5a5; --btn-border:rgba(248,113,113,.32);">Load PE · 2 Apr</button>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
         <div>
           <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Side</label>
           <select id="cascade-side" style="padding:8px 10px; font-size:13px;">
             <option value="CE">CE — downside then recovery</option>
             <option value="PE">PE — upside then reversal</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother TF</label>
+          <select id="cascade-timeframe" style="padding:8px 10px; font-size:13px;">
+            <option value="5m">5m → 15m → 1H</option>
+            <option value="15m">15m → 1H → 4H</option>
+            <option value="1h" selected>1H → 4H → 1D</option>
           </select>
         </div>
         <div>
@@ -2250,6 +2258,6 @@
   </div>
 </div>
 
-<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260725-hotfix-1"></script>
+<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260725-complete-1"></script>
 </body>
 </html>

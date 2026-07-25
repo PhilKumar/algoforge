@@ -29,8 +29,19 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(pe.strike, 25000)
         self.assertEqual(ce.lot_size, 65)
 
+    def test_resolver_allows_holiday_shifted_monday_weekly_expiry(self):
+        config = CascadeConfig(mother_timestamp=datetime(2026, 4, 2, 10, 15), mother_high=23000, mother_low=22000)
+        resolver = NiftyContractResolver([date(2026, 4, 13), date(2026, 4, 21)], strike_step=50, lot_size=65)
+        contract = resolver.select(datetime(2026, 4, 7, 13, 15), 22500, "PE", config)
+        self.assertEqual(contract.expiry, date(2026, 4, 13))
+
     def test_ce_allows_green_between_reds_and_scales_one_two_three(self):
-        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24900)
+        config = CascadeConfig(
+            mother_timestamp=t(9),
+            mother_high=25000,
+            mother_low=24900,
+            stage_timeframes=("1h", "1h", "1h"),
+        )
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
         candles = [
             Candle(t(10), 24950, 24960, 24880, 24890),  # first red below mother low
@@ -59,7 +70,13 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertGreater(result.realized_pnl, 0)
 
     def test_pe_reverses_colour_and_target_direction(self):
-        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000, option_type="PE")
+        config = CascadeConfig(
+            mother_timestamp=t(9),
+            mother_high=25000,
+            mother_low=24000,
+            option_type="PE",
+            stage_timeframes=("1h", "1h", "1h"),
+        )
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
         candles = [
             Candle(t(10), 24950, 25050, 24940, 25040),  # green above mother high
@@ -119,6 +136,32 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(result.entries[0].timestamp, t(13))
         self.assertEqual(result.entries[0].spot, 24870)
         self.assertEqual(result.events[-1]["trigger"], 24870)
+
+    def test_stage_two_waits_for_four_hour_candles(self):
+        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24900)
+        resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
+        one_hour = [
+            Candle(t(10), 24950, 24960, 24880, 24890),
+            Candle(t(11), 24900, 24910, 24850, 24870),
+            Candle(t(12), 24870, 24900, 24860, 24890),  # first-stage recovery fill
+            # These lower 1H candles must not create a 2-lot entry.
+            Candle(t(13), 24880, 24890, 24750, 24760),
+            Candle(t(14), 24760, 24780, 24720, 24730),
+        ]
+        four_hour = [
+            Candle(t(15), 24800, 24820, 24710, 24720),
+            Candle(t(16), 24720, 24740, 24680, 24690),
+            Candle(t(17), 24690, 24750, 24670, 24730),  # 4H recovery fills stage 2
+        ]
+
+        def option_lookup(timestamp, _contract: Contract):
+            if timestamp not in {t(12), t(17)}:
+                return None
+            return OptionCandle(timestamp, 100, 102, 98, 101)
+
+        result = OneHourCascade(config, resolver, option_lookup).run({"1h": one_hour, "4h": four_hour})
+        self.assertEqual([entry.lots for entry in result.entries], [1, 2])
+        self.assertEqual([entry.timestamp for entry in result.entries], [t(12), t(17)])
 
 
 if __name__ == "__main__":

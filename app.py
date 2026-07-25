@@ -2499,6 +2499,7 @@ class CascadeBacktestPayload(BaseModel):
     mother_high: float = Field(gt=0)
     mother_low: float = Field(gt=0)
     option_type: str = "CE"
+    timeframe: str = "1h"
     to_date: str = ""
 
 
@@ -6631,12 +6632,12 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
 
 
 # ── Manual NIFTY cascade backtest ─────────────────────────────────
-def _cascade_tuesday_expiries(from_day: date, to_day: date) -> list[date]:
-    """Return a conservative NIFTY weekly-expiry calendar for feasibility runs.
+def _cascade_weekly_expiries(from_day: date, to_day: date, session_days: set[date]) -> list[date]:
+    """Build NIFTY's Tuesday weekly expiry calendar from actual trading sessions.
 
-    NIFTY weekly contracts currently expire on Tuesday.  Exchange holidays can
-    move a historical expiry, so this is deliberately disclosed as a calendar
-    estimate until the exact Dhan contract grid is connected.
+    When Tuesday is a market holiday, NSE weekly expiry moves to the immediately
+    preceding trading day.  Dhan's index candles give us that historical
+    session calendar without guessing Indian-market holidays.
     """
 
     cursor = from_day - timedelta(days=from_day.weekday() - 1)
@@ -6644,10 +6645,17 @@ def _cascade_tuesday_expiries(from_day: date, to_day: date) -> list[date]:
         cursor += timedelta(days=7)
     last = to_day + timedelta(days=14)
     expiries: list[date] = []
+    known_last_day = max(session_days) if session_days else from_day
     while cursor <= last:
-        expiries.append(cursor)
+        if cursor <= known_last_day:
+            candidates = [session for session in session_days if session <= cursor]
+            if candidates:
+                expiries.append(max(candidates))
+        else:
+            # Data beyond the requested range cannot be holiday-validated yet.
+            expiries.append(cursor)
         cursor += timedelta(days=7)
-    return expiries
+    return sorted(set(expiries))
 
 
 def _run_cascade_feasibility(
@@ -6666,19 +6674,25 @@ def _run_cascade_feasibility(
     from data.cascade_dhan import DhanOneHourSource
 
     source = DhanOneHourSource(broker_client)
-    index_candles = source.fetch_index(from_date, to_date)
-    if not index_candles:
-        raise ValueError("Dhan returned no NIFTY 1H candles for the selected date range.")
+    index_candles = source.fetch_index_cascade(from_date, to_date, config.stage_timeframes)
+    base_candles = index_candles.get(config.timeframe, [])
+    if not base_candles:
+        raise ValueError(f"Dhan returned no NIFTY {config.timeframe} candles for the selected date range.")
     strike_alias = "ATM-2" if config.option_type.upper() == "CE" else "ATM+2"
     rolling_options = source.fetch_rolling_option(
         from_date,
         to_date,
         option_type=config.option_type.upper(),
         strike_alias=strike_alias,
+        interval={"5m": "5", "15m": "15", "1h": "60"}[config.timeframe],
     )
     option_by_timestamp = {bar.timestamp: bar for bar in rolling_options}
     resolver = NiftyContractResolver(
-        _cascade_tuesday_expiries(config.mother_timestamp.date(), datetime.strptime(to_date, "%Y-%m-%d").date()),
+        _cascade_weekly_expiries(
+            config.mother_timestamp.date(),
+            datetime.strptime(to_date, "%Y-%m-%d").date(),
+            {candle.timestamp.date() for candle in base_candles},
+        ),
         lot_size=config.lot_size,
         strike_step=config.strike_step,
     )
@@ -6697,23 +6711,25 @@ def _run_cascade_feasibility(
             "are provisional—not an exact fixed-strike result."
         ),
         "expiry_calendar_warning": (
-            "Expiry selection uses the Tuesday weekly calendar as a feasibility estimate. "
-            "Historical holiday-shifted expiries will be verified by the exact-contract data adapter."
+            "Expiry selection follows Tuesday weekly expiry and shifts a market-holiday Tuesday to the "
+            "previous Dhan-confirmed NIFTY trading session. Exact contract premium history remains separate."
         ),
         "data": {
             "provider": "Dhan",
             "source": "NIFTY index 1H + rolling option 1H",
-            "index_candles": len(index_candles),
+            "index_candles": {timeframe: len(rows) for timeframe, rows in index_candles.items()},
             "option_candles": len(rolling_options),
             "from_date": from_date,
             "to_date": to_date,
             "rolling_strike_alias": strike_alias,
+            "stage_timeframes": list(config.stage_timeframes),
         },
         "result": {
             "state": result.status,
             "target_index": result.target_index,
             "average_spot": result.average_spot,
             "exit_timestamp": result.exit_timestamp.isoformat() if result.exit_timestamp else None,
+            "exit_reason": result.exit_reason,
             "provisional_option_pnl": result.realized_pnl if result.exit_timestamp else None,
             "data_gap": result.data_gap,
             "entries": [
@@ -6753,8 +6769,18 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
         raise HTTPException(status_code=400, detail="Option type must be CE or PE.")
     if payload.mother_high <= payload.mother_low:
         raise HTTPException(status_code=400, detail="Mother high must be greater than mother low.")
-    if mother_timestamp.minute != 15 or mother_timestamp.second or mother_timestamp.microsecond:
-        raise HTTPException(status_code=400, detail="Use the 1H candle-open timestamp ending in :15 IST.")
+    timeframe = payload.timeframe.lower().strip()
+    valid_timeframe_minutes = {"5m": 5, "15m": 15, "1h": 60}
+    if timeframe not in valid_timeframe_minutes:
+        raise HTTPException(status_code=400, detail="Mother timeframe must be 5m, 15m, or 1h.")
+    if (
+        mother_timestamp.second
+        or mother_timestamp.microsecond
+        or mother_timestamp.minute % valid_timeframe_minutes[timeframe]
+    ):
+        raise HTTPException(status_code=400, detail=f"Mother timestamp must align to a {timeframe} candle open in IST.")
+    if timeframe == "1h" and mother_timestamp.minute != 15:
+        raise HTTPException(status_code=400, detail="A NIFTY 1H mother candle must open at :15 IST.")
 
     latest_day = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     try:
@@ -6774,10 +6800,11 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
         mother_high=payload.mother_high,
         mother_low=payload.mother_low,
         option_type=side,
-        # The approved initial release validates only the first 1H leg.  Your
-        # stage 2/3 rules require 4H and 1D confirmation respectively; do not
-        # silently replay them on 1H data.
-        lot_schedule=(1,),
+        timeframe=timeframe,
+        # Dhan rolling data cannot provide an exact premium for every fixed
+        # contract/timeframe. Signal execution remains valid; premium P&L is
+        # intentionally omitted whenever a matching candle is unavailable.
+        strict_option_data=False,
     )
     try:
         return await asyncio.to_thread(
