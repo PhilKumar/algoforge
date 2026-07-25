@@ -54,6 +54,21 @@
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+  /* Cascade uses a site-coloured native date/time control.  The browser still
+     supplies its accessible calendar and keyboard behaviour. */
+  .pf-cascade-datetime {
+    color-scheme: dark;
+    color: var(--text);
+    background: linear-gradient(135deg, rgba(13,22,36,.98), rgba(21,33,51,.9));
+    border: 1px solid rgba(79,142,247,.30);
+    border-radius: 9px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(0,0,0,.16);
+  }
+  .pf-cascade-datetime:focus { outline: none; border-color: rgba(0,191,165,.75); box-shadow: 0 0 0 3px rgba(0,191,165,.13); }
+  .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: invert(79%) sepia(32%) saturate(716%) hue-rotate(119deg); cursor: pointer; }
+  .pf-cascade-chart { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: radial-gradient(ellipse at 50% 0%, rgba(79,142,247,.07), transparent 55%), #0a101b; min-height: 260px; }
+  .pf-cascade-chart svg { display: block; min-width: 900px; width: 100%; }
+  .pf-cascade-chart-empty { min-height: 260px; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.6; }
   body::before {
     content: '';
     position: fixed;

@@ -1639,15 +1639,16 @@
         <h3 style="margin:0;font-size:15px;">Start paper campaign</h3>
         <span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">CE ONLY · 5m</span>
       </div>
-      <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Use a completed NIFTY 5m candle from the <strong style="color:var(--text);">last 14 calendar days</strong>. The engine replays its geometry forward into the current session.</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Choose a completed NIFTY 5m candle from the <strong style="color:var(--text);">last 14 calendar days</strong>. Its OHLC is loaded from Dhan automatically; the four fields below are only for a complete manual correction.</div>
       <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label>
-      <input id="cascade-options-mother-timestamp" type="datetime-local" step="300" style="width:100%;padding:8px 10px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+      <input id="cascade-options-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="300" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Open</label><input id="cascade-options-mother-open" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Close</label><input id="cascade-options-mother-close" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">High</label><input id="cascade-options-mother-high" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Low</label><input id="cascade-options-mother-low" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Open <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-open" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Close <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-close" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">High <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-high" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Low <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-low" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
       </div>
+      <button id="cascade-options-load-chart" class="btn btn-sm" type="button" data-pf-action="loadCascadeOptionsChart" style="width:100%;margin-top:10px;padding:8px;font-size:11px;">Load candle &amp; chart</button>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="cascade-options-rung-inr" type="number" min="1" step="500" value="13000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">CE offset</label><select id="cascade-options-offset" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="-2" selected>ATM − 2 strikes</option><option value="-1">ATM − 1 strike</option><option value="0">ATM</option></select></div>
@@ -1671,6 +1672,14 @@
         <div id="cascade-options-rungs" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
       </div>
     </div>
+  </div>
+
+  <div class="card" style="padding:20px;margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;">
+      <div><h3 style="margin:0;font-size:15px;">NIFTY 5m geometry chart</h3><div id="cascade-options-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Choose a mother timestamp, then load the candle chart.</div></div>
+      <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#34d399;">■</span> gap-up &nbsp; <span style="color:#f87171;">■</span> gap-down &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
+    </div>
+    <div id="cascade-options-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY 5m candles. Overnight gaps are connected visually only; paper geometry continues to use the native exchange OHLC.</div></div>
   </div>
 
   <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">

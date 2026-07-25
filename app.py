@@ -2659,13 +2659,19 @@ class CascadeBacktestPayload(BaseModel):
 
 
 class CascadePaperStartPayload(BaseModel):
-    """Manual 5m NIFTY mother used to begin a current-session paper campaign."""
+    """A 5m NIFTY mother used to begin a paper campaign.
+
+    OHLC is optional: when omitted together the server loads the exact closed
+    NIFTY candle selected by timestamp.  Keeping a full manual override is
+    useful for investigating a corrected/recorded candle, but mixed values are
+    deliberately rejected so the campaign never starts from a half-manual bar.
+    """
 
     mother_timestamp: str
-    mother_open: float = Field(gt=0)
-    mother_high: float = Field(gt=0)
-    mother_low: float = Field(gt=0)
-    mother_close: float = Field(gt=0)
+    mother_open: Optional[float] = Field(default=None, gt=0)
+    mother_high: Optional[float] = Field(default=None, gt=0)
+    mother_low: Optional[float] = Field(default=None, gt=0)
+    mother_close: Optional[float] = Field(default=None, gt=0)
     rung_inr: float = Field(default=13000, gt=0, le=1_000_000)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
 
@@ -7023,6 +7029,70 @@ def _parse_cascade_mother_timestamp(raw: str) -> datetime:
     return parsed.replace(tzinfo=IST) if parsed.tzinfo is None else parsed.astimezone(IST)
 
 
+def _cascade_gap_adjusted_candles(
+    candles: list[IndexCandle], mother_timestamp: Optional[datetime] = None
+) -> list[dict]:
+    """Return display candles with overnight gaps joined to the prior close.
+
+    This is intentionally a chart-only transform.  IndexCandle values are not
+    changed and the paper engine always consumes the real exchange OHLC.
+    """
+
+    rows: list[dict] = []
+    prior: Optional[IndexCandle] = None
+    selected = (
+        mother_timestamp.replace(tzinfo=IST)
+        if mother_timestamp and mother_timestamp.tzinfo is None
+        else mother_timestamp.astimezone(IST)
+        if mother_timestamp
+        else None
+    )
+    for candle in sorted(candles, key=lambda item: item.timestamp):
+        display_open = candle.open
+        display_high = candle.high
+        display_low = candle.low
+        gap_direction: Optional[str] = None
+        if prior is not None and candle.timestamp.date() != prior.timestamp.date():
+            if candle.open > prior.close:
+                gap_direction = "up"
+            elif candle.open < prior.close:
+                gap_direction = "down"
+            if gap_direction:
+                display_open = prior.close
+                display_high = max(candle.high, display_open)
+                display_low = min(candle.low, display_open)
+        rows.append(
+            {
+                "t": candle.timestamp.isoformat(),
+                "o": display_open,
+                "h": display_high,
+                "l": display_low,
+                "c": candle.close,
+                "native_open": candle.open,
+                "native_high": candle.high,
+                "native_low": candle.low,
+                "native_close": candle.close,
+                "gap_direction": gap_direction,
+                "is_mother": bool(selected and candle.timestamp == selected),
+            }
+        )
+        prior = candle
+    return rows
+
+
+async def _load_cascade_mother_candle(adapter: CascadeOptionsAdapter, mother_timestamp: datetime) -> IndexCandle:
+    candles = await adapter.async_get_candles(
+        "NIFTY", "5m", from_date=mother_timestamp.date(), to_date=mother_timestamp.date()
+    )
+    for candle in candles:
+        if candle.timestamp == mother_timestamp:
+            return candle
+    raise HTTPException(
+        status_code=404,
+        detail="No closed NIFTY 5m candle exists at that IST timestamp. Choose a completed market-session candle.",
+    )
+
+
 @app.get("/api/cascade/paper/status")
 async def cascade_paper_status(request: Request):
     user_id = _request_user_id(request)
@@ -7035,6 +7105,36 @@ async def cascade_paper_status(request: Request):
         "mode": "paper",
         "live_gate": _cascade_live_gate_status(),
         "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.get("/api/cascade/paper/chart")
+async def cascade_paper_chart(mother_timestamp: str, request: Request):
+    """Serve the current paper window as a chart-safe, gap-adjusted display."""
+
+    mother = _parse_cascade_mother_timestamp(mother_timestamp)
+    now = datetime.now(IST)
+    if mother.date() > now.date() or (now.date() - mother.date()).days > 14:
+        raise HTTPException(status_code=400, detail="Chart is available for mothers in the last 14 calendar days.")
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY chart.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        candles = await adapter.async_get_candles("NIFTY", "5m", from_date=mother.date(), to_date=now.date())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY 5m candles: {exc}") from exc
+    rows = _cascade_gap_adjusted_candles(candles, mother)
+    mother_row = next((row for row in rows if row["is_mother"]), None)
+    if mother_row is None:
+        raise HTTPException(status_code=404, detail="The selected mother candle was not returned by Dhan.")
+    return {
+        "status": "ok",
+        "timeframe": "5m",
+        "chart_mode": "visual_gap_adjusted",
+        "candles": rows,
+        "mother": mother_row,
+        "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
     }
 
 
@@ -7063,12 +7163,6 @@ async def cascade_paper_start(payload: CascadePaperStartPayload, request: Reques
         raise HTTPException(status_code=400, detail="Mother timestamp must be a completed NIFTY 5m candle open in IST.")
     if not (dt_time(9, 15) <= mother_timestamp.time() < dt_time(15, 30)):
         raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
-    if not (payload.mother_low <= payload.mother_open <= payload.mother_high):
-        raise HTTPException(status_code=400, detail="Mother open must be within the entered high/low range.")
-    if not (payload.mother_low <= payload.mother_close <= payload.mother_high):
-        raise HTTPException(status_code=400, detail="Mother close must be within the entered high/low range.")
-    if payload.mother_high <= payload.mother_low:
-        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
@@ -7078,14 +7172,30 @@ async def cascade_paper_start(payload: CascadePaperStartPayload, request: Reques
         raise HTTPException(
             status_code=409, detail="A paper Cascade campaign is already running. Stop it before replacing its mother."
         )
-    mother = IndexCandle(
-        timestamp=mother_timestamp,
-        open=float(payload.mother_open),
-        high=float(payload.mother_high),
-        low=float(payload.mother_low),
-        close=float(payload.mother_close),
-    )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    supplied_ohlc = [payload.mother_open, payload.mother_high, payload.mother_low, payload.mother_close]
+    if any(value is not None for value in supplied_ohlc) and not all(value is not None for value in supplied_ohlc):
+        raise HTTPException(
+            status_code=400, detail="Enter all mother OHLC values, or leave all four blank to load the selected candle."
+        )
+    if all(value is None for value in supplied_ohlc):
+        mother = await _load_cascade_mother_candle(adapter, mother_timestamp)
+    else:
+        assert payload.mother_open is not None and payload.mother_high is not None
+        assert payload.mother_low is not None and payload.mother_close is not None
+        if not (payload.mother_low <= payload.mother_open <= payload.mother_high):
+            raise HTTPException(status_code=400, detail="Mother open must be within the entered high/low range.")
+        if not (payload.mother_low <= payload.mother_close <= payload.mother_high):
+            raise HTTPException(status_code=400, detail="Mother close must be within the entered high/low range.")
+        if payload.mother_high <= payload.mother_low:
+            raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+        mother = IndexCandle(
+            timestamp=mother_timestamp,
+            open=float(payload.mother_open),
+            high=float(payload.mother_high),
+            low=float(payload.mother_low),
+            close=float(payload.mother_close),
+        )
     try:
         contract = await asyncio.to_thread(
             adapter.select_campaign_contract,

@@ -22,6 +22,7 @@ os.environ["DHAN_PIN"] = ""
 os.environ["DHAN_TOTP_SECRET"] = ""
 
 import app as app_module
+from engine.cascade_options import IndexCandle
 
 
 class _DummyRequest:
@@ -100,6 +101,49 @@ class CascadePaperRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 400)
         self.assertIn("Connect a Dhan account", str(raised.exception.detail))
+
+    def test_gap_chart_joins_next_session_to_prior_close_without_mutating_native_ohlc(self):
+        first = IndexCandle(
+            timestamp=datetime(2026, 7, 20, 15, 25, tzinfo=app_module.IST),
+            open=25000,
+            high=25030,
+            low=24980,
+            close=25010,
+        )
+        gap_up = IndexCandle(
+            timestamp=datetime(2026, 7, 21, 9, 15, tzinfo=app_module.IST),
+            open=25100,
+            high=25120,
+            low=25090,
+            close=25105,
+        )
+        rows = app_module._cascade_gap_adjusted_candles([first, gap_up], gap_up.timestamp)
+        self.assertEqual(rows[1]["gap_direction"], "up")
+        self.assertEqual(rows[1]["o"], first.close)
+        self.assertEqual(rows[1]["h"], gap_up.high)
+        self.assertEqual(rows[1]["native_open"], gap_up.open)
+        self.assertTrue(rows[1]["is_mother"])
+
+    def test_gap_chart_marks_gap_down_red_and_extends_display_low(self):
+        first = IndexCandle(
+            timestamp=datetime(2026, 7, 20, 15, 25, tzinfo=app_module.IST),
+            open=25000,
+            high=25030,
+            low=24980,
+            close=25010,
+        )
+        gap_down = IndexCandle(
+            timestamp=datetime(2026, 7, 21, 9, 15, tzinfo=app_module.IST),
+            open=24900,
+            high=24930,
+            low=24880,
+            close=24920,
+        )
+        row = app_module._cascade_gap_adjusted_candles([first, gap_down])[1]
+        self.assertEqual(row["gap_direction"], "down")
+        self.assertEqual(row["o"], first.close)
+        self.assertEqual(row["l"], gap_down.low)
+        self.assertEqual(row["native_close"], gap_down.close)
 
 
 if __name__ == "__main__":

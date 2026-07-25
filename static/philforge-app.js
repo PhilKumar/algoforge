@@ -1027,6 +1027,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'toggleCascadeMenu',
   'startCascadeOptionsPaper',
   'stopCascadeOptionsPaper',
+  'loadCascadeOptionsChart',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -1467,20 +1468,96 @@ async function initCascadeOptionsPage() {
   }
 }
 
+function _cascadeOptionsChartSvg(payload) {
+  const candles = Array.isArray(payload?.candles) ? payload.candles : [];
+  if (!candles.length) return '';
+  const W = 1180, H = 470, padL = 82, padR = 66, padT = 18, padB = 35;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = candles.length, cw = plotW / n;
+  let lo = Math.min(...candles.map(c => Number(c.l)));
+  let hi = Math.max(...candles.map(c => Number(c.h)));
+  const mother = payload.mother || {};
+  if (Number.isFinite(Number(mother.h))) hi = Math.max(hi, Number(mother.h));
+  if (Number.isFinite(Number(mother.l))) lo = Math.min(lo, Number(mother.l));
+  const padding = Math.max((hi - lo) * .06, 1);
+  hi += padding; lo -= padding;
+  const Y = p => padT + ((hi - p) / (hi - lo || 1)) * plotH;
+  const X = i => padL + i * cw + cw / 2;
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+  const parts = [];
+  for (let i = 0; i <= 4; i += 1) {
+    const price = lo + (hi - lo) * i / 4, y = Y(price);
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="rgba(148,163,184,.16)"/>`);
+    parts.push(`<text x="${padL + plotW + 7}" y="${(y + 3).toFixed(1)}" fill="#94a3b8" font-size="9.5" font-family="monospace">${number(price)}</text>`);
+  }
+  const tickCount = Math.min(6, n);
+  for (let i = 0; i < tickCount; i += 1) {
+    const at = Math.round((n - 1) * i / Math.max(tickCount - 1, 1));
+    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 10}" fill="#94a3b8" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+  }
+  const bodyW = Math.max(Math.min(cw * .66, 9), 1);
+  candles.forEach((candle, i) => {
+    const isGap = candle.gap_direction === 'up' || candle.gap_direction === 'down';
+    const up = Number(candle.c) >= Number(candle.o);
+    const color = candle.gap_direction === 'up' ? '#34d399' : candle.gap_direction === 'down' ? '#f87171' : (up ? '#39c6b1' : '#ec5f91');
+    const x = X(i), top = Y(Math.max(Number(candle.o), Number(candle.c))), bottom = Y(Math.min(Number(candle.o), Number(candle.c)));
+    parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(Number(candle.h)).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(Number(candle.l)).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+    parts.push(`<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(bottom - top, 1).toFixed(1)}" fill="${color}" ${isGap ? 'opacity=".95"' : ''}/>`);
+    if (candle.is_mother) {
+      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${plotH.toFixed(1)}" fill="#a78bfa" opacity=".11"/>`);
+      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(Number(candle.h)) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(Number(candle.l)) - Y(Number(candle.h)) + 2, 4).toFixed(1)}" fill="none" stroke="#a78bfa" stroke-width="1.5"/>`);
+      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(Number(candle.h)) - 8, 12).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+    }
+  });
+  if (Number.isFinite(Number(mother.h))) {
+    const y = Y(Number(mother.h));
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="#a78bfa" stroke-width="1.1" stroke-dasharray="5 3"/>`);
+    parts.push(`<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" text-anchor="end">MOTHER ${number(mother.h)}</text>`);
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" aria-label="NIFTY 5 minute mother candle chart">${parts.join('')}</svg>`;
+}
+
+async function loadCascadeOptionsChart() {
+  const timestamp = _cascadeOptionsEl('cascade-options-mother-timestamp')?.value;
+  const chart = _cascadeOptionsEl('cascade-options-chart');
+  const meta = _cascadeOptionsEl('cascade-options-chart-meta');
+  if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a mother timestamp first.', 'error'); return; }
+  if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading actual closed NIFTY 5m candles…</div>';
+  try {
+    const response = await fetch(`/api/cascade/paper/chart?mother_timestamp=${encodeURIComponent(timestamp)}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    if (chart) chart.innerHTML = _cascadeOptionsChartSvg(data);
+    const mother = data.mother || {};
+    const fieldMap = { open: mother.native_open, high: mother.native_high, low: mother.native_low, close: mother.native_close };
+    Object.entries(fieldMap).forEach(([key, value]) => {
+      const field = _cascadeOptionsEl(`cascade-options-mother-${key}`);
+      if (field && !field.value && Number.isFinite(Number(value))) field.value = Number(value).toFixed(2);
+    });
+    if (meta) meta.textContent = `${data.candles.length} closed candles · visual gap adjustment ON · paper geometry remains native OHLC`;
+    _cascadeOptionsSetFormStatus('Candle loaded from Dhan. You may leave OHLC blank next time; it is auto-loaded at start.', 'success');
+  } catch (error) {
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+    _cascadeOptionsSetFormStatus(error.message || 'Unable to load chart.', 'error');
+  }
+}
+
 async function startCascadeOptionsPaper() {
-  const fields = ['timestamp', 'open', 'high', 'low', 'close'];
   const value = key => _cascadeOptionsEl(`cascade-options-mother-${key}`)?.value;
   const payload = {
     mother_timestamp: value('timestamp'),
-    mother_open: Number(value('open')),
-    mother_high: Number(value('high')),
-    mother_low: Number(value('low')),
-    mother_close: Number(value('close')),
+    mother_open: value('open') ? Number(value('open')) : null,
+    mother_high: value('high') ? Number(value('high')) : null,
+    mother_low: value('low') ? Number(value('low')) : null,
+    mother_close: value('close') ? Number(value('close')) : null,
     rung_inr: Number(_cascadeOptionsEl('cascade-options-rung-inr')?.value),
     ce_offset_steps: Number(_cascadeOptionsEl('cascade-options-offset')?.value),
   };
-  if (!payload.mother_timestamp || fields.slice(1).some(key => !Number.isFinite(payload[`mother_${key}`])) || !Number.isFinite(payload.rung_inr)) {
-    _cascadeOptionsSetFormStatus('Enter every mother OHLC field and an INR rung size.', 'error');
+  const ohlc = [payload.mother_open, payload.mother_high, payload.mother_low, payload.mother_close];
+  if (!payload.mother_timestamp || !Number.isFinite(payload.rung_inr) || (ohlc.some(v => v !== null) && ohlc.some(v => !Number.isFinite(v)))) {
+    _cascadeOptionsSetFormStatus('Choose a timestamp and valid INR rung size. OHLC may be all blank or all entered.', 'error');
     return;
   }
   const selectedDate = String(payload.mother_timestamp).slice(0, 10);
@@ -1531,6 +1608,7 @@ async function stopCascadeOptionsPaper() {
 window.initCascadeOptionsPage = initCascadeOptionsPage;
 window.startCascadeOptionsPaper = startCascadeOptionsPaper;
 window.stopCascadeOptionsPaper = stopCascadeOptionsPaper;
+window.loadCascadeOptionsChart = loadCascadeOptionsChart;
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {
