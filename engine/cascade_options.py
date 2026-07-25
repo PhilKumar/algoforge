@@ -852,7 +852,9 @@ class CascadeOptionsAdapter:
         self._paper_order_sequence = 0
 
     @staticmethod
-    def _normalise_index_frame(frame: Any, now: Optional[datetime] = None) -> list[IndexCandle]:
+    def _normalise_index_frame(
+        frame: Any, now: Optional[datetime] = None, *, timeframe_minutes: int = 5
+    ) -> list[IndexCandle]:
         if frame is None or getattr(frame, "empty", False):
             return []
         now_ist = _as_ist(now or datetime.now(IST))
@@ -862,7 +864,9 @@ class CascadeOptionsAdapter:
             candle_time = _as_ist(candle_time)
             # The Dhan historical endpoint can include the candle currently
             # forming.  Geometry is only ever allowed to see closed candles.
-            if candle_time + timedelta(minutes=5) > now_ist:
+            # The final NSE "1H" bar is 15:15–15:30, rather than a full hour.
+            bar_minutes = 15 if timeframe_minutes == 60 and candle_time.time() == dt_time(15, 15) else timeframe_minutes
+            if candle_time + timedelta(minutes=bar_minutes) > now_ist:
                 continue
             closed.append(
                 IndexCandle(
@@ -884,15 +888,17 @@ class CascadeOptionsAdapter:
         to_date: Optional[date | str] = None,
         now: Optional[datetime] = None,
     ) -> list[IndexCandle]:
-        if str(symbol).upper() != "NIFTY" or str(timeframe).lower() != "5m":
-            raise OptionsAdapterError("Phase 1 only supports closed NIFTY 5m index candles")
+        normalised_tf = str(timeframe).lower()
+        if str(symbol).upper() != "NIFTY" or normalised_tf not in {"5m", "1h"}:
+            raise OptionsAdapterError("Paper options campaigns support closed NIFTY 5m or 1H index candles")
         current = _as_ist(now or datetime.now(IST))
         start = from_date or current.date()
         end = to_date or current.date()
         start_text = start.isoformat() if isinstance(start, date) else str(start)
         end_text = end.isoformat() if isinstance(end, date) else str(end)
-        frame = await asyncio.to_thread(self.dhan.get_nifty_intraday, start_text, end_text, interval="5")
-        return self._normalise_index_frame(frame, current)
+        interval = "60" if normalised_tf == "1h" else "5"
+        frame = await asyncio.to_thread(self.dhan.get_nifty_intraday, start_text, end_text, interval=interval)
+        return self._normalise_index_frame(frame, current, timeframe_minutes=60 if normalised_tf == "1h" else 5)
 
     def get_ticker(self, symbol: str = "NIFTY") -> dict[str, float | str]:
         if str(symbol).upper() != "NIFTY":
@@ -1606,3 +1612,178 @@ class NiftyOptionsPaperCascade:
         engine.status = str(payload.get("status") or "WAITING")
         engine.events = list(payload.get("events") or [])[-100:]
         return engine
+
+
+class OneHourCandleEntryPaper:
+    """One-hour, no-escalation CE paper campaign.
+
+    Two qualifying red candles may be separated by green candles.  A red
+    candle qualifies only when it closes below the immediately preceding 1H
+    candle; the recovery buy-stop follows the latest qualifying red close.
+    """
+
+    def __init__(
+        self,
+        mother: IndexCandle,
+        contract: FixedCampaignOption,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+        *,
+        target_fraction: float = 0.25,
+    ) -> None:
+        if not adapter.paper_only or contract.option_type != "CE":
+            raise PaperOnlyViolation("The 1H Candle Entry campaign is CE-only and paper-only")
+        self.mother = mother
+        self.contract = contract
+        self.adapter = adapter
+        self.option_premium_lookup = option_premium_lookup
+        self.target_fraction = float(target_fraction)
+        self.history = [mother]
+        self.qualifying_reds: list[IndexCandle] = []
+        self.pending_stop: Optional[float] = None
+        self.pending_stop_timestamp: Optional[datetime] = None
+        self.fill: Optional[PaperCascadeFill] = None
+        self.rounds: list[PaperCascadeRound] = []
+        self.events: list[dict[str, Any]] = []
+        self.status = "WAITING_TWO_RED"
+
+    def _log(self, candle: IndexCandle, event: str, **payload: Any) -> None:
+        self.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **payload})
+
+    @property
+    def target_index(self) -> Optional[float]:
+        if self.fill is None:
+            return None
+        return self.fill.index_price + self.target_fraction * (self.mother.high - self.fill.index_price)
+
+    def _premium(self, candle: IndexCandle) -> Optional[float]:
+        value = self.option_premium_lookup(candle.timestamp, self.contract)
+        try:
+            return float(value) if value is not None and float(value) > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _close(self, candle: IndexCandle, reason: str) -> bool:
+        if self.fill is None:
+            return True
+        premium = self._premium(candle)
+        if premium is None:
+            self.status = "AWAITING_OPTION_QUOTE"
+            self._log(candle, "option_quote_missing", action="sell", reason=reason)
+            return False
+        quantity = self.fill.quantity
+        self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+        costs = calculate_nifty_option_basket_round_costs(
+            buys=[OptionCostFill(self.fill.option_premium, quantity, self.fill.lots)],
+            sell_price=premium,
+            sell_quantity=quantity,
+            sell_lots=self.fill.lots,
+        )
+        gross = round((premium - self.fill.option_premium) * quantity, 2)
+        target = self.target_index or candle.close
+        self.rounds.append(
+            PaperCascadeRound(
+                round_id=len(self.rounds) + 1,
+                opened_at=self.fill.timestamp,
+                closed_at=candle.timestamp,
+                fills=(self.fill,),
+                target_index=target,
+                exit_index_price=candle.close,
+                exit_option_premium=premium,
+                exit_quantity=quantity,
+                gross_pnl=gross,
+                costs=costs,
+                net_pnl=round(gross - costs.total, 2),
+                exit_reason=reason,
+            )
+        )
+        self.fill = None
+        self.status = "CLOSED" if reason != "manual_kill" else "KILLED"
+        self._log(candle, "round_closed", reason=reason, net_pnl=self.rounds[-1].net_pnl)
+        return True
+
+    def on_candle(self, candle: IndexCandle) -> None:
+        if candle.timestamp <= self.mother.timestamp or self.status in {"CLOSED", "KILLED"}:
+            return
+        prior = self.history[-1]
+        self.history.append(candle)
+        if self.fill is not None:
+            target = self.target_index
+            if target is not None and candle.high >= target:
+                self._close(candle, "target")
+            return
+        if (
+            self.pending_stop is not None
+            and self.pending_stop_timestamp
+            and candle.timestamp > self.pending_stop_timestamp
+        ):
+            if candle.high >= self.pending_stop:
+                premium = self._premium(candle)
+                if premium is None:
+                    self.status = "AWAITING_OPTION_QUOTE"
+                    self._log(candle, "option_quote_missing", action="buy")
+                    return
+                quantity = self.contract.lot_size
+                order = self.adapter.place_order(self.contract, side="BUY", quantity=quantity)
+                self.fill = PaperCascadeFill(
+                    candle.timestamp, self.pending_stop, premium, 1, quantity, (), order.order_id
+                )
+                self.pending_stop = None
+                self.pending_stop_timestamp = None
+                self.status = "OPEN"
+                self._log(
+                    candle,
+                    "paper_fill",
+                    index_price=self.fill.index_price,
+                    option_premium=premium,
+                    quantity=quantity,
+                    target_index=self.target_index,
+                )
+                return
+        if candle.is_red and candle.close < prior.close:
+            self.qualifying_reds.append(candle)
+            if len(self.qualifying_reds) >= 2:
+                self.pending_stop = candle.close
+                self.pending_stop_timestamp = candle.timestamp
+                self.status = "ARMED"
+                self._log(
+                    candle, "entry_stop_armed", trigger=self.pending_stop, qualifying_count=len(self.qualifying_reds)
+                )
+
+    def kill_and_close(self, candle: IndexCandle) -> bool:
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        if self.fill is not None:
+            return self._close(candle, "manual_kill")
+        self.status = "KILLED"
+        self._log(candle, "campaign_killed")
+        return True
+
+    def get_status(self) -> dict[str, Any]:
+        return {
+            "mode": "paper",
+            "strategy": "candle_entry_1h",
+            "running": self.status not in {"CLOSED", "KILLED"},
+            "status": self.status,
+            "mother": {
+                "timestamp": self.mother.timestamp.isoformat(),
+                "high": self.mother.high,
+                "low": self.mother.low,
+            },
+            "contract": {
+                "underlying": self.contract.underlying,
+                "strike": self.contract.strike,
+                "expiry": self.contract.expiry.isoformat(),
+                "option_type": self.contract.option_type,
+                "lot_size": self.contract.lot_size,
+            },
+            "entry_stop": self.pending_stop,
+            "target_index": self.target_index,
+            "qualifying_reds": [row.timestamp.isoformat() for row in self.qualifying_reds],
+            "open_fill": NiftyOptionsPaperCascade._fill_to_dict(self.fill) if self.fill else None,
+            "rounds": [
+                {"round_id": row.round_id, "net_pnl": row.net_pnl, "exit_reason": row.exit_reason}
+                for row in self.rounds
+            ],
+            "events": self.events[-100:],
+        }

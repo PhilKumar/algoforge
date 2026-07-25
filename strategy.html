@@ -1633,6 +1633,12 @@
     </div>
   </div>
 
+  <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · 1H ONLY · NO TF ESCALATION</div><h3 style="margin:5px 0 0;font-size:16px;">Candle Entry Strategy</h3><p style="margin:6px 0 0;font-size:11px;color:var(--muted);line-height:1.55;max-width:720px;">Choose today’s completed 1H mother candle. Dhan supplies its OHLC. After two qualifying lower-closing red candles—even with green candles between—the fixed CE buy-stop follows the latest red close. One lot only; target is 25% of the path back to the mother high.</p></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
+    <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm" type="button" data-pf-action="startCandleEntryPaper" style="padding:9px 12px;--btn-bg:linear-gradient(180deg,rgba(59,130,246,.30),rgba(37,99,235,.40));--btn-color:#dbeafe;--btn-border:rgba(96,165,250,.56);">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm" type="button" data-pf-action="killCandleEntryPaper" style="display:none;padding:9px 12px;color:#fecaca;border-color:rgba(248,113,113,.55);background:rgba(127,29,29,.20);">■ Kill &amp; close</button></div>
+    <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
+  </div>
+
   <div style="display:grid;grid-template-columns:minmax(300px,.72fr) minmax(420px,1.28fr);gap:16px;align-items:start;">
     <div class="card" style="padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
@@ -1673,20 +1679,19 @@
     </div>
   </div>
 
-  <div class="card" style="padding:20px;margin-top:16px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;">
-      <div><h3 style="margin:0;font-size:15px;">NIFTY 5m geometry chart</h3><div id="cascade-options-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Choose a mother timestamp, then load the candle chart.</div></div>
-      <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#34d399;">■</span> gap-up &nbsp; <span style="color:#f87171;">■</span> gap-down &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
-    </div>
-    <div id="cascade-options-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY 5m candles. Overnight gaps are connected visually only; paper geometry continues to use the native exchange OHLC.</div></div>
-  </div>
-
   <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">
     <div class="card" style="padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper rounds · net P&amp;L</h3><span id="cascade-options-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
       <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Exit CE</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="cascade-options-rounds"><tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
     </div>
     <div class="card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">5m CLOSED BARS</span></div><div id="cascade-options-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
+  </div>
+
+  <div id="cascade-options-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
+    <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="NIFTY 5 minute geometry chart">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 style="margin:0;font-size:15px;">NIFTY 5m geometry chart</h3><div id="cascade-options-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#34d399;">■</span> gap-up &nbsp; <span style="color:#f87171;">■</span> gap-down &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideCascadeOptionsChart">Close</button></div></div>
+      <div id="cascade-options-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY 5m candles. Overnight gaps are connected visually only; paper geometry continues to use native exchange OHLC.</div></div>
+    </div>
   </div>
 </div>
 

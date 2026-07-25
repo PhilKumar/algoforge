@@ -1028,6 +1028,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startCascadeOptionsPaper',
   'stopCascadeOptionsPaper',
   'loadCascadeOptionsChart',
+  'hideCascadeOptionsChart',
+  'startCandleEntryPaper',
+  'killCandleEntryPaper',
   'killCascadeOptionsPaper',
 ]);
 
@@ -1468,11 +1471,66 @@ async function refreshCascadeOptionsStatus() {
 
 async function initCascadeOptionsPage() {
   await refreshCascadeOptionsStatus();
+  await refreshCandleEntryStatus();
   if (!_cascadeOptionsPollTimer) {
     _cascadeOptionsPollTimer = setInterval(() => {
-      if (_isPageVisible() && _isPageActive('cascade-options-page')) refreshCascadeOptionsStatus();
+      if (_isPageVisible() && _isPageActive('cascade-options-page')) { refreshCascadeOptionsStatus(); refreshCandleEntryStatus(); }
     }, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
+}
+
+function _renderCandleEntryStatus(payload) {
+  const campaign = payload?.campaign;
+  const badge = _cascadeOptionsEl('candle-entry-badge');
+  const summary = _cascadeOptionsEl('candle-entry-summary');
+  const start = _cascadeOptionsEl('candle-entry-start');
+  const kill = _cascadeOptionsEl('candle-entry-kill');
+  if (!campaign) {
+    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; }
+    if (summary) summary.textContent = 'No active 1H Candle Entry campaign.';
+    if (start) start.disabled = false;
+    if (kill) kill.style.display = 'none';
+    return;
+  }
+  const running = !!campaign.running;
+  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
+  if (badge) { badge.textContent = state; badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
+  if (start) start.disabled = running;
+  if (kill) kill.style.display = running ? '' : 'none';
+  const c = campaign.contract || {};
+  if (summary) summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · ${escapeHtml(c.expiry || '—')} · one lot (${escapeHtml(String(c.lot_size || '—'))})<br>Entry stop: ${escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}`;
+}
+
+async function refreshCandleEntryStatus() {
+  try {
+    const response = await fetch('/api/candle-entry/paper/status', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.detail || 'Unable to load Candle Entry campaign');
+    _renderCandleEntryStatus(data);
+  } catch (error) {
+    const summary = _cascadeOptionsEl('candle-entry-summary');
+    if (summary) summary.textContent = error.message || 'Unable to load Candle Entry campaign.';
+  }
+}
+
+async function startCandleEntryPaper() {
+  const timestamp = _cascadeOptionsEl('candle-entry-mother-timestamp')?.value;
+  if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a completed 1H mother timestamp for Candle Entry.', 'error'); return; }
+  const response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: timestamp }) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.status !== 'started') { _cascadeOptionsSetFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
+  _cascadeOptionsSetFormStatus('1H Candle Entry paper campaign started. No live order will be sent.', 'success');
+  _renderCandleEntryStatus({ campaign: data.campaign });
+}
+
+async function killCandleEntryPaper() {
+  const confirmed = await customConfirm('Kill this <strong>paper-only</strong> 1H Candle Entry campaign and close any open paper basket at the current quote? No Dhan order is sent.', { title: 'Kill Candle Entry', icon: ICO.warn(28), okText: 'Kill & close', danger: true });
+  if (!confirmed) return;
+  const response = await fetch('/api/candle-entry/paper/kill', { method: 'POST', credentials: 'same-origin' });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.status !== 'killed') { _cascadeOptionsSetFormStatus(data?.detail || 'Candle Entry kill could not be confirmed.', 'error'); return; }
+  _cascadeOptionsSetFormStatus('1H Candle Entry campaign killed.', 'success');
+  _renderCandleEntryStatus({ campaign: data.campaign });
 }
 
 function _cascadeOptionsChartSvg(payload) {
@@ -1529,7 +1587,9 @@ async function loadCascadeOptionsChart() {
   const timestamp = _cascadeOptionsEl('cascade-options-mother-timestamp')?.value || _lastCascadeOptionsStatus?.campaign?.mother?.timestamp;
   const chart = _cascadeOptionsEl('cascade-options-chart');
   const meta = _cascadeOptionsEl('cascade-options-chart-meta');
+  const overlay = _cascadeOptionsEl('cascade-options-chart-overlay');
   if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a mother timestamp first.', 'error'); return; }
+  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
   if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading actual closed NIFTY 5m candles…</div>';
   try {
     const response = await fetch(`/api/cascade/paper/chart?mother_timestamp=${encodeURIComponent(timestamp)}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -1549,6 +1609,11 @@ async function loadCascadeOptionsChart() {
     if (meta) meta.textContent = 'Chart unavailable';
     _cascadeOptionsSetFormStatus(error.message || 'Unable to load chart.', 'error');
   }
+}
+
+function hideCascadeOptionsChart() {
+  const overlay = _cascadeOptionsEl('cascade-options-chart-overlay');
+  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
 }
 
 async function startCascadeOptionsPaper() {

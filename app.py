@@ -78,6 +78,7 @@ from engine.cascade_options import (
     IndexCandle,
     NiftyContractResolver,
     NiftyOptionsPaperCascade,
+    OneHourCandleEntryPaper,
     OneHourCascade,
     PaperCascadeConfig,
 )
@@ -1393,6 +1394,7 @@ class _CascadeRuntime:
 
 
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
+_candle_entry_engines: Dict[int, _CascadeRuntime] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _CASCADE_LIVE_FLAG = (os.getenv("PHILFORGE_CASCADE_OPTIONS_LIVE") or "").strip().lower() in {
@@ -2673,6 +2675,13 @@ class CascadePaperStartPayload(BaseModel):
     mother_low: Optional[float] = Field(default=None, gt=0)
     mother_close: Optional[float] = Field(default=None, gt=0)
     rung_inr: float = Field(default=13000, gt=0, le=1_000_000)
+    ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+
+
+class CandleEntryPaperStartPayload(BaseModel):
+    """1H mother timestamp for the no-escalation paper Candle Entry campaign."""
+
+    mother_timestamp: str
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
 
 
@@ -7136,6 +7145,105 @@ async def cascade_paper_chart(mother_timestamp: str, request: Request):
         "mother": mother_row,
         "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
     }
+
+
+async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
+    """Poll closed 1H NIFTY bars for the isolated Candle Entry paper campaign."""
+
+    while runtime.running and _candle_entry_engines.get(int(user_id)) is runtime:
+        try:
+            today = datetime.now(IST).date()
+            start = runtime.engine.mother.timestamp.date()
+            candles = await runtime.adapter.async_get_candles("NIFTY", "1h", from_date=start, to_date=today)
+            for candle in candles:
+                if candle.timestamp <= runtime.last_candle_timestamp:
+                    continue
+                runtime.last_candle_timestamp = candle.timestamp
+                runtime.engine.on_candle(candle)
+            if runtime.engine.status in {"CLOSED", "KILLED"}:
+                runtime.running = False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[CANDLE ENTRY] NIFTY 1H paper poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(20)
+
+
+@app.get("/api/candle-entry/paper/status")
+async def candle_entry_paper_status(request: Request):
+    runtime = _candle_entry_engines.get(_request_user_id(request))
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper"}
+    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+
+
+@app.post("/api/candle-entry/paper/start")
+async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, request: Request):
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if mother_timestamp.date() != now.date():
+        raise HTTPException(status_code=400, detail="The 1H Candle Entry mother must be from today (IST).")
+    if mother_timestamp.minute != 15 or not (9 <= mother_timestamp.hour <= 15):
+        raise HTTPException(
+            status_code=400, detail="Mother timestamp must be an NSE-aligned 1H candle open (09:15, 10:15 … 15:15 IST)."
+        )
+    bar_minutes = 15 if mother_timestamp.hour == 15 else 60
+    if mother_timestamp + timedelta(minutes=bar_minutes) > now:
+        raise HTTPException(status_code=400, detail="Mother timestamp must be a completed 1H candle.")
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(
+            status_code=400, detail="Connect a Dhan account before starting the 1H Candle Entry campaign."
+        )
+    old = _candle_entry_engines.get(user_id)
+    if old is not None and old.running:
+        raise HTTPException(
+            status_code=409,
+            detail="A 1H Candle Entry campaign is already running. Kill it before replacing its mother.",
+        )
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    candles = await adapter.async_get_candles("NIFTY", "1h", from_date=now.date(), to_date=now.date())
+    mother = next((row for row in candles if row.timestamp == mother_timestamp), None)
+    if mother is None:
+        raise HTTPException(status_code=404, detail="Dhan did not return a closed NIFTY 1H candle at that timestamp.")
+    try:
+        contract = await asyncio.to_thread(
+            adapter.select_campaign_contract,
+            mother_spot=mother.close,
+            selected_at=mother.timestamp,
+            ce_offset_steps=payload.ce_offset_steps,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to select fixed next-weekly CE: {exc}") from exc
+    engine = OneHourCandleEntryPaper(mother, contract, adapter, _cascade_premium_lookup(broker_client))
+    runtime = _CascadeRuntime(
+        engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=mother.timestamp
+    )
+    _candle_entry_engines[user_id] = runtime
+    runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(user_id, runtime))
+    return {"status": "started", "mode": "paper", "campaign": {**engine.get_status(), "running": True}}
+
+
+@app.post("/api/candle-entry/paper/kill")
+async def candle_entry_paper_kill(request: Request):
+    runtime = _candle_entry_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No 1H Candle Entry campaign is active.")
+    now = datetime.now(IST)
+    try:
+        quote = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
+        price = float(quote["last_price"])
+    except Exception:
+        price = float(runtime.engine.history[-1].close)
+    if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
+        raise HTTPException(
+            status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
+        )
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
 
 
 @app.post("/api/cascade/paper/start")

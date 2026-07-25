@@ -7,6 +7,7 @@ from engine.cascade_options import (
     IndexCandle,
     NiftyIndexCascadeGeometry,
     NiftyOptionsPaperCascade,
+    OneHourCandleEntryPaper,
     PaperCascadeConfig,
     PaperOnlyViolation,
 )
@@ -201,6 +202,25 @@ class PaperRoundTests(unittest.TestCase):
         self.assertEqual(engine.status, "KILLED")
         self.assertEqual(engine.pending_inr, 0)
         self.assertEqual([row.side for row in adapter.orders], [])
+
+    def test_one_hour_candle_entry_arms_after_two_lower_closing_reds_and_fills_on_recovery(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        engine = OneHourCandleEntryPaper(mother, contract, adapter, lambda _t, _c: 100)
+        red_one = IndexCandle(ts(1), 105, 106, 98, 100)
+        green_between = IndexCandle(ts(2), 100, 103, 99, 102)
+        red_two = IndexCandle(ts(3), 102, 103, 94, 97)
+        recovery = IndexCandle(ts(4), 97, 98, 96, 97.5)
+
+        for candle in [red_one, green_between, red_two, recovery]:
+            engine.on_candle(candle)
+
+        self.assertEqual(engine.status, "OPEN")
+        self.assertEqual(len(engine.qualifying_reds), 2)
+        self.assertIsNotNone(engine.fill)
+        self.assertEqual(engine.fill.quantity, 65)
+        self.assertEqual([row.side for row in adapter.orders], ["BUY"])
 
 
 if __name__ == "__main__":
