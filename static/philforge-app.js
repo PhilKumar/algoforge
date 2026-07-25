@@ -1483,13 +1483,23 @@ async function startCascadeOptionsPaper() {
     _cascadeOptionsSetFormStatus('Enter every mother OHLC field and an INR rung size.', 'error');
     return;
   }
+  const selectedDate = String(payload.mother_timestamp).slice(0, 10);
+  const istDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  if (selectedDate !== istDate) {
+    _cascadeOptionsSetFormStatus('Use a completed NIFTY 5m candle from today (IST). Historical dates belong in Signal Replay.', 'error');
+    return;
+  }
   const button = _cascadeOptionsEl('cascade-options-start');
   if (button) { button.disabled = true; button.textContent = 'Selecting fixed CE and starting paper monitor…'; }
   _cascadeOptionsSetFormStatus('Selecting next-weekly CE from the ScripMaster. No order will be sent.', 'busy');
   try {
     const response = await fetch('/api/cascade/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'started') throw new Error(data?.detail || data?.message || 'Campaign did not start');
+    const apiError = data?.error || {};
+    const errorMessage = apiError.detail || apiError.message || data?.detail || data?.message;
+    if (!response.ok || data.status !== 'started') throw new Error(errorMessage || `Campaign did not start (${response.status})`);
     _cascadeOptionsSetFormStatus('Paper campaign started. Only closed NIFTY 5m candles are processed.', 'success');
     _renderCascadeOptionsStatus({ status: 'ok', mode: 'paper', live_gate: _lastCascadeOptionsStatus?.live_gate, campaign: data.campaign });
   } catch (error) {
