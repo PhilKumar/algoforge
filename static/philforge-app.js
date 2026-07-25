@@ -1283,6 +1283,13 @@ async function runCascadeBacktest() {
   }
 }
 
+// The page uses delegated navigation and inline control buttons.  Make these
+// handlers explicit window properties so they remain callable if this bundle is
+// later loaded as a module by the PWA/runtime.
+window.initCascadePage = initCascadePage;
+window.cascadeUsePreset = cascadeUsePreset;
+window.runCascadeBacktest = runCascadeBacktest;
+
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {
   '26000': 65,  // NIFTY 50 (65 from Jan 2026)
