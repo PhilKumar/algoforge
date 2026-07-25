@@ -6773,10 +6773,14 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
     valid_timeframe_minutes = {"5m": 5, "15m": 15, "1h": 60}
     if timeframe not in valid_timeframe_minutes:
         raise HTTPException(status_code=400, detail="Mother timeframe must be 5m, 15m, or 1h.")
+    # NSE hourly index bars are session-aligned at :15, unlike 5m/15m bars.
+    # Check the hourly offset separately; testing ``minute % 60`` here would
+    # incorrectly reject the only valid 1H open (:15) before the specific
+    # validation below is reached.
     if (
         mother_timestamp.second
         or mother_timestamp.microsecond
-        or mother_timestamp.minute % valid_timeframe_minutes[timeframe]
+        or (timeframe != "1h" and mother_timestamp.minute % valid_timeframe_minutes[timeframe])
     ):
         raise HTTPException(status_code=400, detail=f"Mother timestamp must align to a {timeframe} candle open in IST.")
     if timeframe == "1h" and mother_timestamp.minute != 15:

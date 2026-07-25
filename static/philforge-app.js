@@ -1278,9 +1278,16 @@ async function runCascadeBacktest() {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'ok') throw new Error(data.detail || data.message || `Replay failed (${response.status})`);
+    // PhilForge's API error handler returns a standard envelope:
+    // { success: false, error: { detail, message } }.  Read it before the
+    // older top-level shapes so a broker/data validation failure is actionable
+    // instead of being reduced to a bare HTTP status.
+    const apiError = data?.error || {};
+    const errorMessage = apiError.detail || apiError.message || data?.detail || data?.message;
+    if (!response.ok || data.status !== 'ok') throw new Error(errorMessage || `Replay failed (${response.status})`);
     _renderCascadeResult(data);
-    _cascadeSetStatus(`Replay complete · ${data.data?.index_candles || 0} NIFTY candles checked.`, 'success');
+    const counts = Object.values(data.data?.index_candles || {}).reduce((total, count) => total + Number(count || 0), 0);
+    _cascadeSetStatus(`Replay complete · ${counts} NIFTY candles checked across ${data.data?.stage_timeframes?.join(' → ') || 'the cascade route'}.`, 'success');
   } catch (error) {
     _cascadeSetStatus(error.message || 'Cascade replay failed.', 'error');
   } finally {
