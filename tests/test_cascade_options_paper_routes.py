@@ -2,7 +2,7 @@ import os
 import shutil
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -78,6 +78,28 @@ class CascadePaperRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 400)
         self.assertIn("completed NIFTY 5m candle", str(raised.exception.detail))
+
+    async def test_completed_mother_within_replay_window_reaches_broker_validation(self):
+        mother_time = (datetime.now(app_module.IST) - timedelta(days=9)).replace(
+            hour=14, minute=15, second=0, microsecond=0
+        )
+        payload = app_module.CascadePaperStartPayload(
+            mother_timestamp=mother_time.isoformat(),
+            mother_open=24280.55,
+            mother_high=24367.30,
+            mother_low=24280.55,
+            mother_close=24308.95,
+        )
+        with patch.object(
+            app_module,
+            "_request_broker_context",
+            AsyncMock(return_value=({"id": 7}, None, "user")),
+        ):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.cascade_paper_start(payload, _DummyRequest())
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("Connect a Dhan account", str(raised.exception.detail))
 
 
 if __name__ == "__main__":

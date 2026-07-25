@@ -1487,8 +1487,15 @@ async function startCascadeOptionsPaper() {
   const istDate = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date());
-  if (selectedDate !== istDate) {
-    _cascadeOptionsSetFormStatus('Use a completed NIFTY 5m candle from today (IST). Historical dates belong in Signal Replay.', 'error');
+  const selectedDay = Date.parse(`${selectedDate}T00:00:00Z`);
+  const todayDay = Date.parse(`${istDate}T00:00:00Z`);
+  const ageDays = Math.round((todayDay - selectedDay) / 86400000);
+  if (!Number.isFinite(ageDays) || ageDays < 0) {
+    _cascadeOptionsSetFormStatus('Mother candle cannot be in the future (IST).', 'error');
+    return;
+  }
+  if (ageDays > 14) {
+    _cascadeOptionsSetFormStatus('Mother candle is older than the 14-day paper replay window. Use Signal Replay for older history.', 'error');
     return;
   }
   const button = _cascadeOptionsEl('cascade-options-start');

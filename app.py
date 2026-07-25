@@ -1508,7 +1508,8 @@ async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> Non
     while runtime.running and _cascade_engines.get(int(user_id)) is runtime:
         try:
             today = datetime.now(IST).date()
-            candles = await runtime.adapter.async_get_candles("NIFTY", "5m", from_date=today, to_date=today)
+            campaign_start = runtime.engine.geometry.history[0].timestamp.date()
+            candles = await runtime.adapter.async_get_candles("NIFTY", "5m", from_date=campaign_start, to_date=today)
             for candle in candles:
                 if candle.timestamp <= runtime.last_candle_timestamp:
                     continue
@@ -7043,10 +7044,15 @@ async def cascade_paper_start(payload: CascadePaperStartPayload, request: Reques
 
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
-    if mother_timestamp.date() != now.date():
+    if mother_timestamp.date() > now.date():
         raise HTTPException(
             status_code=400,
-            detail="Paper campaigns may only start from today's closed 5m candle; historical fixed-premium fills are unavailable.",
+            detail="Mother timestamp cannot be in the future.",
+        )
+    if (now.date() - mother_timestamp.date()).days > 14:
+        raise HTTPException(
+            status_code=400,
+            detail="Mother candle is outside the 14-day paper replay window. Use Signal Replay for older history.",
         )
     if (
         mother_timestamp + timedelta(minutes=5) > now
