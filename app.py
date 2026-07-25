@@ -27,6 +27,7 @@ import secrets
 import sys
 import time
 from collections import Counter, defaultdict, deque
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any, Dict, List, Optional
@@ -70,7 +71,16 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
-from engine.cascade_options import CascadeConfig, NiftyContractResolver, OneHourCascade
+from engine.cascade_options import (
+    CascadeConfig,
+    CascadeOptionsAdapter,
+    FixedCampaignOption,
+    IndexCandle,
+    NiftyContractResolver,
+    NiftyOptionsPaperCascade,
+    OneHourCascade,
+    PaperCascadeConfig,
+)
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -1369,6 +1379,150 @@ _SCALP_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _SKIP_STARTUP_JOBS = (os.getenv("PHILFORGE_SKIP_STARTUP_JOBS") or "").lower() in {"1", "true", "yes"}
 
 
+# NIFTY Options Cascade is deliberately isolated from the generic paper/live
+# engine registries.  It has one fixed CE contract and index-space geometry, so
+# treating it as a generic strategy would blur its safety rules.
+@dataclass
+class _CascadeRuntime:
+    engine: NiftyOptionsPaperCascade
+    adapter: CascadeOptionsAdapter
+    broker: DhanClient
+    last_candle_timestamp: datetime
+    task: asyncio.Task | None = None
+    running: bool = True
+
+
+_cascade_engines: Dict[int, _CascadeRuntime] = {}
+_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
+_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
+_CASCADE_LIVE_FLAG = (os.getenv("PHILFORGE_CASCADE_OPTIONS_LIVE") or "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _cascade_open_state_key(user_id: int) -> str:
+    return f"cascade_options_open:{int(user_id)}"
+
+
+def _cascade_premium_lookup(broker: DhanClient):
+    """Return only a current premium; never invent a historical option fill."""
+
+    def lookup(candle_timestamp: datetime, contract: FixedCampaignOption) -> float | None:
+        now = datetime.now(IST)
+        timestamp = (
+            candle_timestamp.replace(tzinfo=IST)
+            if candle_timestamp.tzinfo is None
+            else candle_timestamp.astimezone(IST)
+        )
+        # Dhan's one-contract LTP is a current quote.  It must not be silently
+        # used to fill a candle missed during a server outage.
+        if abs((now - timestamp).total_seconds()) > 7 * 60:
+            return None
+        try:
+            value = broker.get_option_ltp(
+                contract.underlying, contract.strike, contract.expiry.isoformat(), contract.option_type
+            )
+            return float(value) if float(value or 0) > 0 else None
+        except Exception:
+            return None
+
+    return lookup
+
+
+async def _notify_cascade_ws(user_id: int) -> None:
+    runtime = _cascade_engines.get(int(user_id))
+    if runtime is None:
+        return
+    await _broadcast_user_ws_json(
+        int(user_id),
+        {"type": "cascade_status", "cascade": {**runtime.engine.get_status(), "running": runtime.running}},
+    )
+
+
+async def _save_cascade_open_state(
+    user_id: int, runtime: _CascadeRuntime | None = None, *, force: bool = False
+) -> None:
+    runtime = runtime or _cascade_engines.get(int(user_id))
+    if runtime is None:
+        return
+    now = time.time()
+    if not force and now - _cascade_open_state_last_save[int(user_id)] < _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC:
+        return
+    payload = {
+        "running": bool(runtime.running),
+        "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
+        "saved_at": datetime.now(IST).isoformat(),
+        "engine": runtime.engine.to_dict(),
+    }
+    await _db_mod.set_app_state(_cascade_open_state_key(user_id), json.dumps(payload, default=str))
+    _cascade_open_state_last_save[int(user_id)] = now
+
+
+async def _restore_cascade_open_state(user_id: int, broker: DhanClient | None) -> _CascadeRuntime | None:
+    existing = _cascade_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    raw = await _db_mod.get_app_state(_cascade_open_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or not payload.get("engine"):
+            return None
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        engine = NiftyOptionsPaperCascade.from_dict(
+            payload["engine"], adapter=adapter, option_premium_lookup=_cascade_premium_lookup(broker)
+        )
+        last_text = str(payload.get("last_candle_timestamp") or "")
+        last = (
+            datetime.fromisoformat(last_text.replace("Z", "+00:00"))
+            if last_text
+            else engine.geometry.history[-1].timestamp
+        )
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        runtime = _CascadeRuntime(
+            engine=engine,
+            adapter=adapter,
+            broker=broker,
+            last_candle_timestamp=last,
+            running=bool(payload.get("running")),
+        )
+        _cascade_engines[int(user_id)] = runtime
+        if runtime.running:
+            runtime.task = asyncio.create_task(_run_cascade_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[CASCADE] Skipping invalid persisted paper campaign for user %s: %s", user_id, exc)
+        return None
+
+
+async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
+    """Poll closed NIFTY 5m bars; all CE orders remain in-memory paper records."""
+
+    while runtime.running and _cascade_engines.get(int(user_id)) is runtime:
+        try:
+            today = datetime.now(IST).date()
+            candles = await runtime.adapter.async_get_candles("NIFTY", "5m", from_date=today, to_date=today)
+            for candle in candles:
+                if candle.timestamp <= runtime.last_candle_timestamp:
+                    continue
+                runtime.last_candle_timestamp = candle.timestamp
+                runtime.engine.on_candle(candle)
+                await _save_cascade_open_state(user_id, runtime)
+                await _notify_cascade_ws(user_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[CASCADE] NIFTY paper poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(12)
+
+
 def _scalp_open_state_key(user_id: int) -> str:
     return f"scalp_open:{int(user_id)}"
 
@@ -2501,6 +2655,18 @@ class CascadeBacktestPayload(BaseModel):
     option_type: str = "CE"
     timeframe: str = "1h"
     to_date: str = ""
+
+
+class CascadePaperStartPayload(BaseModel):
+    """Manual 5m NIFTY mother used to begin a current-session paper campaign."""
+
+    mother_timestamp: str
+    mother_open: float = Field(gt=0)
+    mother_high: float = Field(gt=0)
+    mother_low: float = Field(gt=0)
+    mother_close: float = Field(gt=0)
+    rung_inr: float = Field(default=13000, gt=0, le=1_000_000)
+    ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
 
 
 class OhlcvExportPayload(BaseModel):
@@ -5274,6 +5440,9 @@ async def save_state(request: Request):
         if engine.running:
             engine._save_state()
             saved.append(f"paper:{owner_id}:{run_id}")
+    for owner_id, runtime in list(_cascade_engines.items()):
+        await _save_cascade_open_state(owner_id, runtime, force=True)
+        saved.append(f"cascade-paper:{owner_id}")
     return {"status": "ok", "saved": saved}
 
 
@@ -6820,6 +6989,158 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
         raise HTTPException(status_code=500, detail="Cascade backtest failed. Check Dhan access and retry.") from exc
 
 
+# ── NIFTY Options Cascade: current-session paper campaign ─────────
+def _cascade_live_gate_status() -> dict:
+    """Expose the Phase-4 boundary without providing a hidden live path."""
+
+    if not _CASCADE_LIVE_FLAG:
+        return {
+            "enabled": False,
+            "armed": False,
+            "reason": (
+                "Live Cascade is server-locked. Paper validation, explicit account confirmation, "
+                "one-lot approval and an expiry-day square-off proof are required before it can be armed."
+            ),
+        }
+    return {
+        "enabled": True,
+        "armed": False,
+        "reason": (
+            "Server flag is present, but live arming remains blocked until the Dhan partial-fill/reconciliation "
+            "adapter is implemented and explicitly approved."
+        ),
+    }
+
+
+def _parse_cascade_mother_timestamp(raw: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="Mother timestamp must be an IST datetime (YYYY-MM-DDTHH:MM)."
+        ) from exc
+    return parsed.replace(tzinfo=IST) if parsed.tzinfo is None else parsed.astimezone(IST)
+
+
+@app.get("/api/cascade/paper/status")
+async def cascade_paper_status(request: Request):
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtime = await _restore_cascade_open_state(user_id, broker_client)
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper", "live_gate": _cascade_live_gate_status()}
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "live_gate": _cascade_live_gate_status(),
+        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.post("/api/cascade/paper/start")
+async def cascade_paper_start(payload: CascadePaperStartPayload, request: Request):
+    """Start a new current-session CE campaign.  This never calls Dhan order APIs."""
+
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if mother_timestamp.date() != now.date():
+        raise HTTPException(
+            status_code=400,
+            detail="Paper campaigns may only start from today's closed 5m candle; historical fixed-premium fills are unavailable.",
+        )
+    if (
+        mother_timestamp + timedelta(minutes=5) > now
+        or mother_timestamp.minute % 5
+        or mother_timestamp.second
+        or mother_timestamp.microsecond
+    ):
+        raise HTTPException(status_code=400, detail="Mother timestamp must be a completed NIFTY 5m candle open in IST.")
+    if not (dt_time(9, 15) <= mother_timestamp.time() < dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
+    if not (payload.mother_low <= payload.mother_open <= payload.mother_high):
+        raise HTTPException(status_code=400, detail="Mother open must be within the entered high/low range.")
+    if not (payload.mother_low <= payload.mother_close <= payload.mother_high):
+        raise HTTPException(status_code=400, detail="Mother close must be within the entered high/low range.")
+    if payload.mother_high <= payload.mother_low:
+        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a paper Cascade campaign.")
+    old_runtime = await _restore_cascade_open_state(user_id, broker_client)
+    if old_runtime is not None and old_runtime.running:
+        raise HTTPException(
+            status_code=409, detail="A paper Cascade campaign is already running. Stop it before replacing its mother."
+        )
+    mother = IndexCandle(
+        timestamp=mother_timestamp,
+        open=float(payload.mother_open),
+        high=float(payload.mother_high),
+        low=float(payload.mother_low),
+        close=float(payload.mother_close),
+    )
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        contract = await asyncio.to_thread(
+            adapter.select_campaign_contract,
+            mother_spot=mother.close,
+            selected_at=mother.timestamp,
+            ce_offset_steps=payload.ce_offset_steps,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to select the fixed next-weekly CE: {exc}") from exc
+    engine = NiftyOptionsPaperCascade(
+        mother,
+        contract,
+        adapter,
+        _cascade_premium_lookup(broker_client),
+        PaperCascadeConfig(rung_inr=payload.rung_inr, ce_offset_steps=payload.ce_offset_steps),
+    )
+    runtime = _CascadeRuntime(
+        engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=mother.timestamp
+    )
+    _cascade_engines[user_id] = runtime
+    runtime.task = asyncio.create_task(_run_cascade_paper_loop(user_id, runtime))
+    await _save_cascade_open_state(user_id, runtime, force=True)
+    await _notify_cascade_ws(user_id)
+    return {"status": "started", "mode": "paper", "campaign": {**engine.get_status(), "running": True}}
+
+
+@app.post("/api/cascade/paper/stop")
+async def cascade_paper_stop(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _cascade_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_running"}
+    runtime.running = False
+    runtime.engine.status = "STOPPED"
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_cascade_open_state(user_id, runtime, force=True)
+    await _notify_cascade_ws(user_id)
+    return {"status": "stopped", "mode": "paper"}
+
+
+@app.delete("/api/cascade/paper")
+async def cascade_paper_delete(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _cascade_engines.pop(user_id, None)
+    if runtime is not None:
+        runtime.running = False
+        if runtime.task and not runtime.task.done():
+            runtime.task.cancel()
+    await _db_mod.set_app_state(_cascade_open_state_key(user_id), "")
+    return {"status": "deleted"}
+
+
+@app.get("/api/cascade/live-gate")
+async def cascade_live_gate(request: Request):
+    # Request authentication is intentionally retained even though this is
+    # read-only: it prevents exposing a trader's deployment posture publicly.
+    _request_user_id(request)
+    return _cascade_live_gate_status()
+
+
 # ── Backtest ──────────────────────────────────────────────────────
 @app.post("/api/backtest")
 async def api_run_backtest(payload: StrategyPayload, request: Request):
@@ -8245,6 +8566,9 @@ async def websocket_endpoint(ws: WebSocket):
                 payload["live_engines"] = live_sts
                 payload["paper_running"] = any(s.get("running") for s in paper_sts.values())
                 payload["live_running"] = any(s.get("running") for s in live_sts.values())
+                cascade_runtime = _cascade_engines.get(int(user_id))
+                if cascade_runtime is not None:
+                    payload["cascade"] = {**cascade_runtime.engine.get_status(), "running": cascade_runtime.running}
 
             await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
@@ -10124,6 +10448,15 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved live engine: {owner_id}:{run_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save live engine {owner_id}:{run_id}: {e}")
+    for owner_id, runtime in list(_cascade_engines.items()):
+        try:
+            await _save_cascade_open_state(owner_id, runtime, force=True)
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+            print(f"🛑 [Shutdown] Saved paper Cascade campaign: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save paper Cascade campaign {owner_id}: {e}")
     shutdown_feed()
     await alerter.shutdown()
     await _db_mod.close_db()

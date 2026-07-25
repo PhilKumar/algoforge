@@ -1322,3 +1322,257 @@ class NiftyOptionsPaperCascade:
         for candle in sorted(candles, key=lambda row: row.timestamp):
             self.on_candle(candle)
         return self
+
+    @staticmethod
+    def _candle_from_dict(payload: Mapping[str, Any]) -> IndexCandle:
+        return IndexCandle(
+            timestamp=_as_ist(datetime.fromisoformat(str(payload["timestamp"]).replace("Z", "+00:00"))),
+            open=float(payload["open"]),
+            high=float(payload["high"]),
+            low=float(payload["low"]),
+            close=float(payload["close"]),
+        )
+
+    @staticmethod
+    def _candle_to_dict(candle: IndexCandle) -> dict[str, Any]:
+        return {
+            "timestamp": candle.timestamp.isoformat(),
+            "open": candle.open,
+            "high": candle.high,
+            "low": candle.low,
+            "close": candle.close,
+        }
+
+    @staticmethod
+    def _fill_to_dict(fill: PaperCascadeFill) -> dict[str, Any]:
+        return {
+            "timestamp": fill.timestamp.isoformat(),
+            "index_price": fill.index_price,
+            "option_premium": fill.option_premium,
+            "lots": fill.lots,
+            "quantity": fill.quantity,
+            "rung_keys": list(fill.rung_keys),
+            "order_id": fill.order_id,
+        }
+
+    @classmethod
+    def _fill_from_dict(cls, payload: Mapping[str, Any]) -> PaperCascadeFill:
+        return PaperCascadeFill(
+            timestamp=_as_ist(datetime.fromisoformat(str(payload["timestamp"]).replace("Z", "+00:00"))),
+            index_price=float(payload["index_price"]),
+            option_premium=float(payload["option_premium"]),
+            lots=int(payload["lots"]),
+            quantity=int(payload["quantity"]),
+            rung_keys=tuple(str(key) for key in payload.get("rung_keys") or []),
+            order_id=str(payload.get("order_id") or ""),
+        )
+
+    @staticmethod
+    def _costs_to_dict(costs: OptionRoundCosts) -> dict[str, float]:
+        return {
+            "buy_turnover": costs.buy_turnover,
+            "sell_turnover": costs.sell_turnover,
+            "brokerage": costs.brokerage,
+            "stt": costs.stt,
+            "exchange_transaction": costs.exchange_transaction,
+            "sebi": costs.sebi,
+            "stamp": costs.stamp,
+            "gst": costs.gst,
+            "total": costs.total,
+        }
+
+    @staticmethod
+    def _costs_from_dict(payload: Mapping[str, Any]) -> OptionRoundCosts:
+        return OptionRoundCosts(
+            buy_turnover=float(payload.get("buy_turnover") or 0),
+            sell_turnover=float(payload.get("sell_turnover") or 0),
+            brokerage=float(payload.get("brokerage") or 0),
+            stt=float(payload.get("stt") or 0),
+            exchange_transaction=float(payload.get("exchange_transaction") or 0),
+            sebi=float(payload.get("sebi") or 0),
+            stamp=float(payload.get("stamp") or 0),
+            gst=float(payload.get("gst") or 0),
+        )
+
+    def get_status(self) -> dict[str, Any]:
+        """A stable, UI-ready snapshot.  It contains no broker-order state."""
+
+        contract = self.contract
+        return {
+            "mode": "paper",
+            "running": self.status not in {"STOPPED", "MOTHER_BROKEN", "MOTHER_RETESTED"},
+            "status": self.status,
+            "contract": {
+                "underlying": contract.underlying,
+                "strike": contract.strike,
+                "expiry": contract.expiry.isoformat(),
+                "option_type": contract.option_type,
+                "lot_size": contract.lot_size,
+                "security_id": contract.security_id,
+            },
+            "mother": {
+                "timestamp": self.geometry.campaign.mother_timestamp.isoformat(),
+                "high": self.geometry.campaign.mother_high,
+                "low": self.geometry.campaign.mother_low,
+                "state": self.geometry.campaign.state,
+            },
+            "target_index": self.target_index,
+            "average_index_entry": self.average_index_entry,
+            "open_quantity": self.open_quantity,
+            "pending_inr": self.pending_inr,
+            "pending_stop": self.pending_stop,
+            "reuse_below": self.reuse_below,
+            "rungs": [
+                {
+                    "key": rung.key,
+                    "leg_id": rung.leg_id,
+                    "level": rung.level,
+                    "index_price": rung.index_price,
+                    "budget_inr": rung.budget_inr,
+                    "status": rung.status,
+                }
+                for rung in sorted(self.rungs.values(), key=lambda row: (row.leg_id, row.level))
+            ],
+            "open_fills": [self._fill_to_dict(fill) for fill in self.open_fills],
+            "rounds": [
+                {
+                    "round_id": row.round_id,
+                    "opened_at": row.opened_at.isoformat(),
+                    "closed_at": row.closed_at.isoformat(),
+                    "fills": [self._fill_to_dict(fill) for fill in row.fills],
+                    "target_index": row.target_index,
+                    "exit_index_price": row.exit_index_price,
+                    "exit_option_premium": row.exit_option_premium,
+                    "exit_quantity": row.exit_quantity,
+                    "gross_pnl": row.gross_pnl,
+                    "costs": self._costs_to_dict(row.costs),
+                    "net_pnl": row.net_pnl,
+                    "exit_reason": row.exit_reason,
+                }
+                for row in self.rounds
+            ],
+            "events": self.events[-100:],
+            "geometry": {
+                "trendlines": [
+                    {
+                        "id": row.trendline_id,
+                        "anchor1_price": row.anchor1_price,
+                        "anchor1_timestamp": row.anchor1_timestamp.isoformat(),
+                        "anchor2_price": row.anchor2_price,
+                        "anchor2_timestamp": row.anchor2_timestamp.isoformat(),
+                        "bears_fib": row.bears_fib,
+                    }
+                    for row in self.geometry.campaign.trendlines
+                ],
+                "legs": [
+                    {
+                        "leg_id": row.leg_id,
+                        "trendline_id": row.trendline_id,
+                        "fib_high": row.touch_high,
+                        "fib_low": row.low,
+                        "touch_timestamp": row.touch_timestamp.isoformat(),
+                    }
+                    for row in self.geometry.campaign.legs
+                ],
+            },
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Persist a paper campaign; live execution is never serialised here."""
+
+        status = self.get_status()
+        return {
+            "version": 1,
+            "config": {
+                "rung_inr": self.config.rung_inr,
+                "target_fraction": self.config.target_fraction,
+                "ce_offset_steps": self.config.ce_offset_steps,
+                "cost_schedule": dict(self.config.cost_schedule.__dict__),
+            },
+            "contract": status["contract"],
+            "history": [self._candle_to_dict(row) for row in self.geometry.history],
+            "rungs": status["rungs"],
+            "open_fills": status["open_fills"],
+            "rounds": status["rounds"],
+            "pending_rung_keys": list(self.pending_rung_keys),
+            "pending_inr": self.pending_inr,
+            "pending_line": self.pending_line,
+            "pending_last_red": self.pending_last_red,
+            "pending_stop": self.pending_stop,
+            "pending_stop_timestamp": self.pending_stop_timestamp.isoformat() if self.pending_stop_timestamp else None,
+            "reuse_below": self.reuse_below,
+            "status": self.status,
+            "events": list(self.events[-100:]),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+    ) -> "NiftyOptionsPaperCascade":
+        history = [cls._candle_from_dict(row) for row in payload.get("history") or []]
+        if not history:
+            raise CascadeError("Cannot restore a Cascade campaign without its mother candle")
+        raw_contract = payload.get("contract") or {}
+        contract = FixedCampaignOption(
+            underlying=str(raw_contract["underlying"]),
+            strike=int(raw_contract["strike"]),
+            expiry=date.fromisoformat(str(raw_contract["expiry"])),
+            option_type=str(raw_contract["option_type"]),
+            lot_size=int(raw_contract["lot_size"]),
+            security_id=str(raw_contract["security_id"]),
+        )
+        raw_config = payload.get("config") or {}
+        config = PaperCascadeConfig(
+            rung_inr=float(raw_config["rung_inr"]),
+            target_fraction=float(raw_config.get("target_fraction") or 0.25),
+            ce_offset_steps=int(raw_config.get("ce_offset_steps") or -2),
+            cost_schedule=NiftyOptionCostSchedule(**dict(raw_config.get("cost_schedule") or {})),
+        )
+        engine = cls(history[0], contract, adapter, option_premium_lookup, config)
+        engine.geometry.feed(history[1:])
+        engine.rungs = {
+            str(row["key"]): PaperCascadeRung(
+                leg_id=int(row["leg_id"]),
+                level=int(row["level"]),
+                index_price=float(row["index_price"]),
+                budget_inr=float(row["budget_inr"]),
+                status=str(row.get("status") or "PENDING"),
+            )
+            for row in payload.get("rungs") or []
+        }
+        engine.open_fills = [cls._fill_from_dict(row) for row in payload.get("open_fills") or []]
+        engine.rounds = [
+            PaperCascadeRound(
+                round_id=int(row["round_id"]),
+                opened_at=_as_ist(datetime.fromisoformat(str(row["opened_at"]).replace("Z", "+00:00"))),
+                closed_at=_as_ist(datetime.fromisoformat(str(row["closed_at"]).replace("Z", "+00:00"))),
+                fills=tuple(cls._fill_from_dict(fill) for fill in row.get("fills") or []),
+                target_index=float(row["target_index"]),
+                exit_index_price=float(row["exit_index_price"]),
+                exit_option_premium=float(row["exit_option_premium"]),
+                exit_quantity=int(row["exit_quantity"]),
+                gross_pnl=float(row["gross_pnl"]),
+                costs=cls._costs_from_dict(row.get("costs") or {}),
+                net_pnl=float(row["net_pnl"]),
+                exit_reason=str(row["exit_reason"]),
+            )
+            for row in payload.get("rounds") or []
+        ]
+        engine.pending_rung_keys = [str(key) for key in payload.get("pending_rung_keys") or []]
+        engine.pending_inr = float(payload.get("pending_inr") or 0)
+        engine.pending_line = payload.get("pending_line")
+        engine.pending_last_red = payload.get("pending_last_red")
+        engine.pending_stop = payload.get("pending_stop")
+        raw_stop_timestamp = payload.get("pending_stop_timestamp")
+        if raw_stop_timestamp:
+            engine.pending_stop_timestamp = _as_ist(
+                datetime.fromisoformat(str(raw_stop_timestamp).replace("Z", "+00:00"))
+            )
+        engine.reuse_below = payload.get("reuse_below")
+        engine.status = str(payload.get("status") or "WAITING")
+        engine.events = list(payload.get("events") or [])[-100:]
+        return engine

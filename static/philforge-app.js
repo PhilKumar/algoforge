@@ -828,6 +828,7 @@ const NAV_BUTTON_MAP = {
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
   'cascade-page': 'nav-cascade',
+  'cascade-options-page': 'nav-options-cascade',
   'charts-page': 'nav-charts',
 };
 
@@ -1026,6 +1027,7 @@ async function applyNavState(state) {
   if (page === 'stock-terminal-page') initStockTerminalPage();
   if (page === 'scalp-page') initScalpPage();
   if (page === 'cascade-page') initCascadePage();
+  if (page === 'cascade-options-page') initCascadeOptionsPage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
@@ -1082,6 +1084,7 @@ function showPage(id, btn, options = {}) {
   // Stop scalp polling when leaving scalp page
   if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   if (id !== 'scalp-page' && _scalpLTPTimer) { clearInterval(_scalpLTPTimer); _scalpLTPTimer = null; }
+  if (id !== 'cascade-options-page' && _cascadeOptionsPollTimer) { clearInterval(_cascadeOptionsPollTimer); _cascadeOptionsPollTimer = null; }
   if (id !== 'portfolio-page') stopPortfolioRefresh();
   // Start/stop builder preview polling
   if (id === 'builder-page') {
@@ -1285,6 +1288,174 @@ async function runCascadeBacktest() {
 // later loaded as a module by the PWA/runtime.
 window.initCascadePage = initCascadePage;
 window.runCascadeBacktest = runCascadeBacktest;
+
+// ══════════════════════════════════════════════════════════════
+//  NIFTY OPTIONS CASCADE — CURRENT-SESSION PAPER CAMPAIGN
+// ══════════════════════════════════════════════════════════════
+let _cascadeOptionsPollTimer = null;
+let _lastCascadeOptionsStatus = null;
+
+function _cascadeOptionsEl(id) { return document.getElementById(id); }
+function _cascadeOptionsMoney(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+}
+function _cascadeOptionsSetFormStatus(message, tone = 'muted') {
+  const el = _cascadeOptionsEl('cascade-options-form-status');
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+function _cascadeOptionsTimestamp(value) {
+  return value ? String(value).replace('T', ' ').replace(/(?:\.\d+)?(?:\+05:30|Z)$/, ' IST') : '—';
+}
+function _cascadeOptionsMetric(label, value, accent = 'var(--text)') {
+  return `<div style="padding:10px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px 'JetBrains Mono',monospace;color:${accent};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(value)}</div></div>`;
+}
+
+function _renderCascadeOptionsStatus(payload) {
+  const gate = payload?.live_gate || {};
+  const gateEl = _cascadeOptionsEl('cascade-options-live-gate');
+  if (gateEl) {
+    gateEl.innerHTML = `<strong>${gate.enabled ? 'LIVE GATE PRESENT' : 'LIVE LOCKED'}</strong><br><span style="color:var(--muted);font-size:10px;">${escapeHtml(gate.reason || 'Paper validation required')}</span>`;
+  }
+  const campaign = payload?.campaign;
+  const badge = _cascadeOptionsEl('cascade-options-badge');
+  const contract = _cascadeOptionsEl('cascade-options-contract');
+  const summary = _cascadeOptionsEl('cascade-options-summary');
+  const empty = _cascadeOptionsEl('cascade-options-empty');
+  const active = _cascadeOptionsEl('cascade-options-active');
+  const startBtn = _cascadeOptionsEl('cascade-options-start');
+  const stopBtn = _cascadeOptionsEl('cascade-options-stop');
+  if (!campaign) {
+    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
+    if (contract) contract.textContent = 'No active campaign';
+    if (summary) summary.innerHTML = '';
+    if (empty) empty.style.display = '';
+    if (active) active.style.display = 'none';
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.style.display = 'none';
+    _renderCascadeOptionsRounds([]);
+    _renderCascadeOptionsEvents([]);
+    return;
+  }
+  const isRunning = !!campaign.running;
+  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
+  const tone = isRunning ? '#6ee7b7' : '#fbbf24';
+  if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
+  const c = campaign.contract || {};
+  if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
+  if (summary) {
+    summary.innerHTML = [
+      _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
+      _cascadeOptionsMetric('Avg index', _cascadeNumber(campaign.average_index_entry)),
+      _cascadeOptionsMetric('Open quantity', String(campaign.open_quantity || 0), '#6ee7b7'),
+      _cascadeOptionsMetric('Pending cash', _cascadeOptionsMoney(campaign.pending_inr || 0), '#fde68a'),
+    ].join('');
+  }
+  if (empty) empty.style.display = 'none';
+  if (active) active.style.display = '';
+  if (startBtn) startBtn.disabled = isRunning;
+  if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
+  const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
+  const fillsEl = _cascadeOptionsEl('cascade-options-fills');
+  if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
+  const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
+  const rungsEl = _cascadeOptionsEl('cascade-options-rungs');
+  if (rungsEl) rungsEl.innerHTML = rungs.length ? rungs.map(rung => {
+    const stateColor = ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa' }[rung.status] || 'var(--muted)');
+    return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>F${escapeHtml(rung.leg_id)} · L${escapeHtml(rung.level)}</strong><span style="color:${stateColor};">${escapeHtml(rung.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(rung.index_price))}</div></div>`;
+  }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">Geometry has not drawn a fib ladder yet.</div>';
+  _renderCascadeOptionsRounds(campaign.rounds || []);
+  _renderCascadeOptionsEvents(campaign.events || []);
+}
+
+function _renderCascadeOptionsRounds(rounds) {
+  const body = _cascadeOptionsEl('cascade-options-rounds');
+  const count = _cascadeOptionsEl('cascade-options-round-count');
+  if (count) count.textContent = `${rounds.length} round${rounds.length === 1 ? '' : 's'}`;
+  if (!body) return;
+  body.innerHTML = rounds.length ? rounds.slice().reverse().map(row => {
+    const pnl = Number(row.net_pnl || 0);
+    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(row.round_id)}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(row.exit_quantity)}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+}
+
+function _renderCascadeOptionsEvents(events) {
+  const el = _cascadeOptionsEl('cascade-options-events');
+  if (!el) return;
+  el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong></div>`).join('') : 'No events yet.';
+}
+
+async function refreshCascadeOptionsStatus() {
+  try {
+    const response = await fetch('/api/cascade/paper/status', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.detail || 'Unable to load Cascade campaign');
+    _lastCascadeOptionsStatus = data;
+    _renderCascadeOptionsStatus(data);
+  } catch (error) {
+    _cascadeOptionsSetFormStatus(error.message || 'Unable to load campaign status.', 'error');
+  }
+}
+
+async function initCascadeOptionsPage() {
+  await refreshCascadeOptionsStatus();
+  if (!_cascadeOptionsPollTimer) {
+    _cascadeOptionsPollTimer = setInterval(() => {
+      if (_isPageVisible() && _isPageActive('cascade-options-page')) refreshCascadeOptionsStatus();
+    }, _ws && _ws.readyState === 1 ? 10000 : 3000);
+  }
+}
+
+async function startCascadeOptionsPaper() {
+  const fields = ['timestamp', 'open', 'high', 'low', 'close'];
+  const value = key => _cascadeOptionsEl(`cascade-options-mother-${key}`)?.value;
+  const payload = {
+    mother_timestamp: value('timestamp'),
+    mother_open: Number(value('open')),
+    mother_high: Number(value('high')),
+    mother_low: Number(value('low')),
+    mother_close: Number(value('close')),
+    rung_inr: Number(_cascadeOptionsEl('cascade-options-rung-inr')?.value),
+    ce_offset_steps: Number(_cascadeOptionsEl('cascade-options-offset')?.value),
+  };
+  if (!payload.mother_timestamp || fields.slice(1).some(key => !Number.isFinite(payload[`mother_${key}`])) || !Number.isFinite(payload.rung_inr)) {
+    _cascadeOptionsSetFormStatus('Enter every mother OHLC field and an INR rung size.', 'error');
+    return;
+  }
+  const button = _cascadeOptionsEl('cascade-options-start');
+  if (button) { button.disabled = true; button.textContent = 'Selecting fixed CE and starting paper monitor…'; }
+  _cascadeOptionsSetFormStatus('Selecting next-weekly CE from the ScripMaster. No order will be sent.', 'busy');
+  try {
+    const response = await fetch('/api/cascade/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'started') throw new Error(data?.detail || data?.message || 'Campaign did not start');
+    _cascadeOptionsSetFormStatus('Paper campaign started. Only closed NIFTY 5m candles are processed.', 'success');
+    _renderCascadeOptionsStatus({ status: 'ok', mode: 'paper', live_gate: _lastCascadeOptionsStatus?.live_gate, campaign: data.campaign });
+  } catch (error) {
+    _cascadeOptionsSetFormStatus(error.message || 'Campaign start failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '▶ Start paper campaign'; }
+  }
+}
+
+async function stopCascadeOptionsPaper() {
+  try {
+    const response = await fetch('/api/cascade/paper/stop', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.detail || 'Unable to stop paper campaign');
+    _cascadeOptionsSetFormStatus('Paper monitoring stopped; its state remains saved.', 'success');
+    await refreshCascadeOptionsStatus();
+  } catch (error) {
+    _cascadeOptionsSetFormStatus(error.message || 'Unable to stop paper campaign.', 'error');
+  }
+}
+
+window.initCascadeOptionsPage = initCascadeOptionsPage;
+window.startCascadeOptionsPaper = startCascadeOptionsPaper;
+window.stopCascadeOptionsPaper = stopCascadeOptionsPaper;
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {
@@ -9939,6 +10110,19 @@ function handleWSMessage(msg) {
       window.requestAnimationFrame(_flushScalpRender);
     }
   }
+  // Options Cascade updates are per-user paper-campaign snapshots.  They are
+  // rendered directly so the monitor does not have to wait for its 12s poll.
+  const cascadeCampaign = msg.type === 'cascade_status'
+    ? msg.cascade
+    : (msg.type === 'status' ? msg.cascade : null);
+  if (cascadeCampaign) {
+    _renderCascadeOptionsStatus({
+      status: 'ok',
+      mode: 'paper',
+      live_gate: _lastCascadeOptionsStatus?.live_gate,
+      campaign: cascadeCampaign,
+    });
+  }
 }
 
 function _flushScalpRender() {
@@ -10073,6 +10257,9 @@ document.addEventListener('visibilitychange', () => {
   }
   if (_isPageActive('scalp-page')) {
     try { refreshScalpStatus(); } catch(e) {}
+  }
+  if (_isPageActive('cascade-options-page')) {
+    try { refreshCascadeOptionsStatus(); } catch(e) {}
   }
   // Tab is back in focus — check WebSocket health immediately
   const alive = _ws && _ws.readyState === 1;

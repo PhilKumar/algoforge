@@ -174,6 +174,10 @@
       <span class="tab-icon" style="color: #f59e0b;">↗</span>
       <span class="tab-label">Cascade</span>
     </button>
+    <button id="nav-options-cascade" class="nav-tab" data-pf-nav-page="cascade-options-page" data-pf-after-nav="initCascadeOptionsPage" style="--accent-tab: #22c55e;">
+      <span class="tab-icon" style="color: #34d399;">◈</span>
+      <span class="tab-label">Options Cascade</span>
+    </button>
     <button id="nav-charts" class="nav-tab" data-pf-nav-page="charts-page" data-pf-after-nav="initChartsPage" style="--accent-tab: #a78bfa;">
       <span class="tab-icon" style="color: #a78bfa;" id="ico-charts"></span>
       <span class="tab-label">Journal</span>
@@ -1604,6 +1608,68 @@
         </table>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ═══ NIFTY OPTIONS CASCADE PAPER ENGINE ═══ -->
+<div id="cascade-options-page" class="page-section">
+  <div class="card-glass" style="padding:20px;margin-bottom:16px;border-color:rgba(52,211,153,.3);background:linear-gradient(110deg,rgba(6,78,59,.25),rgba(15,23,42,.15));">
+    <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:11px;color:#34d399;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px;">NIFTY 5m index geometry · fixed next-weekly CE</div>
+        <h2 style="margin:0;font-size:22px;">Options Cascade Campaign</h2>
+        <p style="margin:7px 0 0;color:var(--muted);font-size:12px;max-width:760px;line-height:1.6;">Paper execution only. The index builds the geometry; one ATM−2 CE is fixed at the mother candle and every paper rung uses that same contract. Round P&amp;L is shown net of configured charges.</p>
+      </div>
+      <div id="cascade-options-live-gate" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#fde68a;border:1px solid rgba(251,191,36,.3);background:rgba(245,158,11,.08);border-radius:8px;padding:9px 11px;line-height:1.45;max-width:290px;">LIVE LOCKED<br><span style="color:var(--muted);">Paper validation required</span></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(300px,.72fr) minmax(420px,1.28fr);gap:16px;align-items:start;">
+    <div class="card" style="padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
+        <h3 style="margin:0;font-size:15px;">Start paper campaign</h3>
+        <span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">CE ONLY · 5m</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Use a completed <strong style="color:var(--text);">today</strong> NIFTY 5m candle. Close is required so the fixed CE strike is selected from an actual mother price.</div>
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label>
+      <input id="cascade-options-mother-timestamp" type="datetime-local" step="300" style="width:100%;padding:8px 10px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Open</label><input id="cascade-options-mother-open" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Close</label><input id="cascade-options-mother-close" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">High</label><input id="cascade-options-mother-high" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Low</label><input id="cascade-options-mother-low" type="number" min="1" step="0.05" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="cascade-options-rung-inr" type="number" min="1" step="500" value="13000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">CE offset</label><select id="cascade-options-offset" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="-2" selected>ATM − 2 strikes</option><option value="-1">ATM − 1 strike</option><option value="0">ATM</option></select></div>
+      </div>
+      <button id="cascade-options-start" class="btn" type="button" onclick="startCascadeOptionsPaper()" style="width:100%;margin-top:16px;--btn-bg:linear-gradient(180deg,rgba(16,185,129,.3),rgba(5,150,105,.46));--btn-color:#d1fae5;--btn-border:rgba(52,211,153,.56);font-weight:800;">▶ Start paper campaign</button>
+      <button id="cascade-options-stop" class="btn btn-sm" type="button" onclick="stopCascadeOptionsPaper()" style="width:100%;margin-top:8px;padding:7px;font-size:11px;display:none;">■ Stop monitoring</button>
+      <div id="cascade-options-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+    </div>
+
+    <div class="card" style="padding:20px;min-height:364px;">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:14px;">
+        <div><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><div id="cascade-options-contract" style="margin-top:4px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">No active campaign</div></div>
+        <span id="cascade-options-badge" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.5px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+      </div>
+      <div id="cascade-options-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;"></div>
+      <div id="cascade-options-empty" style="margin-top:18px;border:1px dashed var(--border);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6;">Start a current-session paper campaign to see the fixed contract, index geometry, paper fills and net round P&amp;L here.</div>
+      <div id="cascade-options-active" style="display:none;margin-top:16px;">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
+        <div id="cascade-options-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Index rungs</div>
+        <div id="cascade-options-rungs" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">
+    <div class="card" style="padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper rounds · net P&amp;L</h3><span id="cascade-options-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
+      <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Exit CE</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="cascade-options-rounds"><tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
+    </div>
+    <div class="card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">5m CLOSED BARS</span></div><div id="cascade-options-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
   </div>
 </div>
 

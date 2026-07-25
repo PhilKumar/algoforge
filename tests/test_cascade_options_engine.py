@@ -156,6 +156,11 @@ class PaperRoundTests(unittest.TestCase):
         self.assertLess(round_row.net_pnl, round_row.gross_pnl)
         self.assertEqual([order.side for order in adapter.orders], ["BUY", "SELL"])
 
+        restored = NiftyOptionsPaperCascade.from_dict(engine.to_dict(), adapter=adapter, option_premium_lookup=premium)
+        self.assertEqual(restored.get_status()["contract"]["strike"], 64800)
+        self.assertEqual(len(restored.rounds), 1)
+        self.assertEqual(restored.rounds[0].net_pnl, round_row.net_pnl)
+
     def test_new_low_releases_closed_rungs_for_a_fresh_paper_round(self):
         adapter = _PaperAdapter()
         mother = IndexCandle(ts(0), 100, 110, 90, 105)
