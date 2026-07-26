@@ -1824,6 +1824,9 @@ window.initCascadeOptionsPage = initCascadeOptionsPage;
 window.startCascadeOptionsPaper = startCascadeOptionsPaper;
 window.stopCascadeOptionsPaper = stopCascadeOptionsPaper;
 window.loadCascadeOptionsChart = loadCascadeOptionsChart;
+window.hideCascadeOptionsChart = hideCascadeOptionsChart;
+window.startCandleEntryPaper = startCandleEntryPaper;
+window.killCandleEntryPaper = killCandleEntryPaper;
 window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 
 // Lot size lookup for display (matches backend get_lot_size)

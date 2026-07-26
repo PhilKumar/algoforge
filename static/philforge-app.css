@@ -98,10 +98,22 @@
   [data-theme="light"] .pf-cascade-calendar { border-color:rgba(37,99,235,.20); background:linear-gradient(160deg,#ffffff,#f1f5f9); box-shadow:0 24px 60px rgba(15,23,42,.18); }
   [data-theme="light"] .pf-cascade-calendar-nav { background:#fff; color:#0f172a; }
   [data-theme="light"] .pf-cascade-calendar-day:hover, [data-theme="light"] .pf-cascade-calendar-day.is-selected { color:#047857; background:rgba(5,150,105,.10); }
-  [data-theme="light"] #cascade-options-page [style*="color:#93c5fd"] { color: #1d4ed8 !important; }
-  [data-theme="light"] #cascade-options-page [style*="color:#34d399"] { color: #047857 !important; }
-  [data-theme="light"] #cascade-options-page [style*="color:#fde68a"] { color: #a16207 !important; }
-  [data-theme="light"] #cascade-options-page [style*="color:#fecaca"] { color: #be123c !important; }
+  [data-theme="light"] #cascade-page,
+  [data-theme="light"] #cascade-options-page { --text:#0b1220; --muted:#334155; --border:rgba(15,23,42,.16); --border-hi:rgba(15,23,42,.22); }
+  [data-theme="light"] #cascade-page [style*="color:#93c5fd"],
+  [data-theme="light"] #cascade-options-page [style*="color:#93c5fd"] { color:#1d4ed8 !important; }
+  [data-theme="light"] #cascade-page [style*="color:#34d399"],
+  [data-theme="light"] #cascade-options-page [style*="color:#34d399"],
+  [data-theme="light"] #cascade-page [style*="color:#6ee7b7"],
+  [data-theme="light"] #cascade-options-page [style*="color:#6ee7b7"] { color:#047857 !important; }
+  [data-theme="light"] #cascade-page [style*="color:#fde68a"],
+  [data-theme="light"] #cascade-options-page [style*="color:#fde68a"],
+  [data-theme="light"] #cascade-page [style*="color:#fbbf24"],
+  [data-theme="light"] #cascade-options-page [style*="color:#fbbf24"] { color:#92400e !important; }
+  [data-theme="light"] #cascade-page [style*="color:#fecaca"],
+  [data-theme="light"] #cascade-options-page [style*="color:#fecaca"],
+  [data-theme="light"] #cascade-page [style*="color:#fca5a5"],
+  [data-theme="light"] #cascade-options-page [style*="color:#fca5a5"] { color:#be123c !important; }
   body::before {
     content: '';
     position: fixed;
@@ -3110,6 +3122,17 @@
     z-index: 1;
     overflow: visible;
   }
+  /* Keep execution tools directly after Portfolio in every viewport. */
+  .nav-tabs > #nav-dashboard { order: 1; }
+  .nav-tabs > #nav-portfolio { order: 2; }
+  .nav-tabs > #nav-terminal { order: 3; }
+  .nav-tabs > #nav-scalp { order: 4; }
+  .nav-tabs > #nav-cascade-wrap { order: 5; }
+  .nav-tabs > #nav-insights-wrap { order: 6; }
+  .nav-tabs > #nav-live { order: 7; }
+  .nav-tabs > #nav-builder { order: 8; }
+  .nav-tabs > #nav-charts { order: 9; }
+  .nav-tabs > #nav-results { order: 10; }
   .nav-tab {
     background: none;
     border: none;
