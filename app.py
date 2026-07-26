@@ -1403,6 +1403,7 @@ _CASCADE_LIVE_FLAG = (os.getenv("PHILFORGE_CASCADE_OPTIONS_LIVE") or "").strip()
     "yes",
     "on",
 }
+_CANDLE_ENTRY_HISTORY_DAYS = 15
 
 
 def _cascade_open_state_key(user_id: int) -> str:
@@ -7038,6 +7039,35 @@ def _parse_cascade_mother_timestamp(raw: str) -> datetime:
     return parsed.replace(tzinfo=IST) if parsed.tzinfo is None else parsed.astimezone(IST)
 
 
+def _historical_candle_entry_contract(
+    mother: IndexCandle, candles: list[IndexCandle], ce_offset_steps: int
+) -> FixedCampaignOption:
+    """Resolve the contract that was valid at a historical mother candle.
+
+    Today's ScripMaster cannot be used as an expiry calendar for a past trade:
+    it drops expired weekly contracts.  The index sessions returned by Dhan let
+    us derive the correct Tuesday/holiday-shifted next-weekly expiry instead.
+    The empty security id is deliberate—historical replay never requests an
+    LTP or submits even a paper broker order for that expired contract.
+    """
+
+    session_days = {row.timestamp.date() for row in candles}
+    end_day = max(session_days) if session_days else mother.timestamp.date()
+    expiries = _cascade_weekly_expiries(mother.timestamp.date(), end_day, session_days)
+    expiry = next(
+        (value for value in expiries if 6 <= (value - mother.timestamp.date()).days <= 13),
+        None,
+    )
+    if expiry is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Dhan did not return enough NIFTY sessions to resolve this mother candle's next-weekly expiry.",
+        )
+    atm = int(float(mother.close) / 50.0 + 0.5) * 50
+    strike = atm + int(ce_offset_steps) * 50
+    return FixedCampaignOption("NIFTY", strike, expiry, "CE", 65, "")
+
+
 def _cascade_gap_adjusted_candles(
     candles: list[IndexCandle], mother_timestamp: Optional[datetime] = None
 ) -> list[dict]:
@@ -7181,8 +7211,13 @@ async def candle_entry_paper_status(request: Request):
 async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, request: Request):
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
-    if mother_timestamp.date() != now.date():
-        raise HTTPException(status_code=400, detail="The 1H Candle Entry mother must be from today (IST).")
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Choose a completed 1H mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days.",
+        )
     if mother_timestamp.minute != 15 or not (9 <= mother_timestamp.hour <= 15):
         raise HTTPException(
             status_code=400, detail="Mother timestamp must be an NSE-aligned 1H candle open (09:15, 10:15 … 15:15 IST)."
@@ -7203,26 +7238,56 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
             detail="A 1H Candle Entry campaign is already running. Kill it before replacing its mother.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    candles = await adapter.async_get_candles("NIFTY", "1h", from_date=now.date(), to_date=now.date())
+    candles = await adapter.async_get_candles("NIFTY", "1h", from_date=mother_timestamp.date(), to_date=now.date())
     mother = next((row for row in candles if row.timestamp == mother_timestamp), None)
     if mother is None:
         raise HTTPException(status_code=404, detail="Dhan did not return a closed NIFTY 1H candle at that timestamp.")
+    is_historical_replay = mother_timestamp.date() != now.date()
     try:
-        contract = await asyncio.to_thread(
-            adapter.select_campaign_contract,
-            mother_spot=mother.close,
-            selected_at=mother.timestamp,
-            ce_offset_steps=payload.ce_offset_steps,
+        contract = (
+            _historical_candle_entry_contract(mother, candles, payload.ce_offset_steps)
+            if is_historical_replay
+            else await asyncio.to_thread(
+                adapter.select_campaign_contract,
+                mother_spot=mother.close,
+                selected_at=mother.timestamp,
+                ce_offset_steps=payload.ce_offset_steps,
+            )
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to select fixed next-weekly CE: {exc}") from exc
-    engine = OneHourCandleEntryPaper(mother, contract, adapter, _cascade_premium_lookup(broker_client))
+    engine = OneHourCandleEntryPaper(
+        mother,
+        contract,
+        adapter,
+        _cascade_premium_lookup(broker_client),
+        signal_only=is_historical_replay,
+    )
+    last_candle_timestamp = mother.timestamp
+    if is_historical_replay:
+        for candle in candles:
+            if candle.timestamp <= mother.timestamp:
+                continue
+            engine.on_candle(candle)
+            last_candle_timestamp = candle.timestamp
+        engine.complete_historical_replay(candles[-1] if candles else mother)
     runtime = _CascadeRuntime(
-        engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=mother.timestamp
+        engine=engine,
+        adapter=adapter,
+        broker=broker_client,
+        last_candle_timestamp=last_candle_timestamp,
+        running=not is_historical_replay,
     )
     _candle_entry_engines[user_id] = runtime
-    runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(user_id, runtime))
-    return {"status": "started", "mode": "paper", "campaign": {**engine.get_status(), "running": True}}
+    if runtime.running:
+        runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(user_id, runtime))
+    return {
+        "status": "replayed" if is_historical_replay else "started",
+        "mode": "paper",
+        "campaign": {**engine.get_status(), "running": runtime.running},
+    }
 
 
 @app.post("/api/candle-entry/paper/kill")

@@ -1613,11 +1613,16 @@ function _renderCandleEntryStatus(payload) {
   }
   const running = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  if (badge) { badge.textContent = state; badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
+  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
   if (start) start.disabled = running;
   if (kill) kill.style.display = running ? '' : 'none';
   const c = campaign.contract || {};
-  if (summary) summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · ${escapeHtml(c.expiry || '—')} · one lot (${escapeHtml(String(c.lot_size || '—'))})<br>Entry stop: ${escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}`;
+  if (summary) {
+    const signal = campaign.signal_entry || {};
+    const signalLine = signal.index_price == null ? '' : `<br>Index entry signal: ${escapeHtml(_cascadeNumber(signal.index_price))}${signal.exit_timestamp ? ' · Target reached' : ''}`;
+    const pricingLine = campaign.pricing_warning ? `<br><span style="color:#fbbf24;">${escapeHtml(campaign.pricing_warning)}</span>` : '';
+    summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · ${escapeHtml(c.expiry || '—')} · one lot (${escapeHtml(String(c.lot_size || '—'))})<br>Entry stop: ${escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${signalLine}${pricingLine}`;
+  }
 }
 
 async function refreshCandleEntryStatus() {
@@ -1651,8 +1656,8 @@ async function startCandleEntryPaper() {
     return;
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.status !== 'started') { _setCandleEntryFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
-  _setCandleEntryFormStatus('1H paper campaign started. No live order will be sent.', 'success');
+  if (!response.ok || !['started', 'replayed'].includes(data.status)) { _setCandleEntryFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
+  _setCandleEntryFormStatus(data.status === 'replayed' ? 'Historical 1H replay completed. Fixed-strike P&L is withheld.' : '1H paper campaign started. No live order will be sent.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
 }
 

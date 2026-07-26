@@ -1630,6 +1630,7 @@ class OneHourCandleEntryPaper:
         option_premium_lookup: OptionPremiumLookup,
         *,
         target_fraction: float = 0.25,
+        signal_only: bool = False,
     ) -> None:
         if not adapter.paper_only or contract.option_type != "CE":
             raise PaperOnlyViolation("The 1H Candle Entry campaign is CE-only and paper-only")
@@ -1638,11 +1639,20 @@ class OneHourCandleEntryPaper:
         self.adapter = adapter
         self.option_premium_lookup = option_premium_lookup
         self.target_fraction = float(target_fraction)
+        # Historical Dhan index candles can prove the entry/target geometry,
+        # but must never be paired with a current option LTP and presented as
+        # a historical fixed-strike fill.  This mode records index signals
+        # only; normal current-session paper campaigns remain quote-backed.
+        self.signal_only = bool(signal_only)
+        self.replay_complete = False
         self.history = [mother]
         self.qualifying_reds: list[IndexCandle] = []
         self.pending_stop: Optional[float] = None
         self.pending_stop_timestamp: Optional[datetime] = None
         self.fill: Optional[PaperCascadeFill] = None
+        self.signal_entry_timestamp: Optional[datetime] = None
+        self.signal_entry_index_price: Optional[float] = None
+        self.signal_exit_timestamp: Optional[datetime] = None
         self.rounds: list[PaperCascadeRound] = []
         self.events: list[dict[str, Any]] = []
         self.status = "WAITING_TWO_RED"
@@ -1652,9 +1662,19 @@ class OneHourCandleEntryPaper:
 
     @property
     def target_index(self) -> Optional[float]:
-        if self.fill is None:
+        entry_price = self.fill.index_price if self.fill is not None else self.signal_entry_index_price
+        if entry_price is None:
             return None
-        return self.fill.index_price + self.target_fraction * (self.mother.high - self.fill.index_price)
+        return entry_price + self.target_fraction * (self.mother.high - entry_price)
+
+    def complete_historical_replay(self, candle: Optional[IndexCandle] = None) -> None:
+        """Mark a finite signal-only replay complete without inventing a trade."""
+
+        if not self.signal_only:
+            return
+        self.replay_complete = True
+        if candle is not None:
+            self._log(candle, "historical_replay_complete", status=self.status)
 
     def _premium(self, candle: IndexCandle) -> Optional[float]:
         value = self.option_premium_lookup(candle.timestamp, self.contract)
@@ -1664,6 +1684,13 @@ class OneHourCandleEntryPaper:
             return None
 
     def _close(self, candle: IndexCandle, reason: str) -> bool:
+        if self.signal_only:
+            if self.signal_entry_index_price is None:
+                return True
+            self.signal_exit_timestamp = candle.timestamp
+            self.status = "CLOSED" if reason != "manual_kill" else "KILLED"
+            self._log(candle, "signal_target_reached", reason=reason, target_index=self.target_index)
+            return True
         if self.fill is None:
             return True
         premium = self._premium(candle)
@@ -1707,6 +1734,11 @@ class OneHourCandleEntryPaper:
             return
         prior = self.history[-1]
         self.history.append(candle)
+        if self.signal_only and self.signal_entry_index_price is not None:
+            target = self.target_index
+            if target is not None and candle.high >= target:
+                self._close(candle, "target")
+            return
         if self.fill is not None:
             target = self.target_index
             if target is not None and candle.high >= target:
@@ -1718,6 +1750,19 @@ class OneHourCandleEntryPaper:
             and candle.timestamp > self.pending_stop_timestamp
         ):
             if candle.high >= self.pending_stop:
+                if self.signal_only:
+                    self.signal_entry_timestamp = candle.timestamp
+                    self.signal_entry_index_price = self.pending_stop
+                    self.pending_stop = None
+                    self.pending_stop_timestamp = None
+                    self.status = "OPEN_SIGNAL_ONLY"
+                    self._log(
+                        candle,
+                        "signal_entry",
+                        index_price=self.signal_entry_index_price,
+                        target_index=self.target_index,
+                    )
+                    return
                 premium = self._premium(candle)
                 if premium is None:
                     self.status = "AWAITING_OPTION_QUOTE"
@@ -1753,6 +1798,8 @@ class OneHourCandleEntryPaper:
     def kill_and_close(self, candle: IndexCandle) -> bool:
         self.pending_stop = None
         self.pending_stop_timestamp = None
+        if self.signal_only and self.signal_entry_index_price is not None:
+            return self._close(candle, "manual_kill")
         if self.fill is not None:
             return self._close(candle, "manual_kill")
         self.status = "KILLED"
@@ -1765,6 +1812,14 @@ class OneHourCandleEntryPaper:
             "strategy": "candle_entry_1h",
             "running": self.status not in {"CLOSED", "KILLED"},
             "status": self.status,
+            "pricing_mode": "signal_only_dhan" if self.signal_only else "current_quote_paper",
+            "pricing_warning": (
+                "Historical replay verifies NIFTY 1H entry and target geometry only. "
+                "Fixed-strike option premium and P&L are intentionally withheld."
+                if self.signal_only
+                else None
+            ),
+            "replay_complete": self.replay_complete,
             "mother": {
                 "timestamp": self.mother.timestamp.isoformat(),
                 "high": self.mother.high,
@@ -1781,6 +1836,15 @@ class OneHourCandleEntryPaper:
             "target_index": self.target_index,
             "qualifying_reds": [row.timestamp.isoformat() for row in self.qualifying_reds],
             "open_fill": NiftyOptionsPaperCascade._fill_to_dict(self.fill) if self.fill else None,
+            "signal_entry": (
+                {
+                    "timestamp": self.signal_entry_timestamp.isoformat() if self.signal_entry_timestamp else None,
+                    "index_price": self.signal_entry_index_price,
+                    "exit_timestamp": self.signal_exit_timestamp.isoformat() if self.signal_exit_timestamp else None,
+                }
+                if self.signal_entry_index_price is not None
+                else None
+            ),
             "rounds": [
                 {"round_id": row.round_id, "net_pnl": row.net_pnl, "exit_reason": row.exit_reason}
                 for row in self.rounds

@@ -222,6 +222,29 @@ class PaperRoundTests(unittest.TestCase):
         self.assertEqual(engine.fill.quantity, 65)
         self.assertEqual([row.side for row in adapter.orders], ["BUY"])
 
+    def test_one_hour_historical_replay_records_index_signal_without_option_order(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "")
+        engine = OneHourCandleEntryPaper(mother, contract, adapter, lambda _t, _c: None, signal_only=True)
+        candles = [
+            IndexCandle(ts(1), 105, 106, 98, 100),
+            IndexCandle(ts(2), 100, 101, 94, 97),
+            IndexCandle(ts(3), 96, 98, 94, 97),
+            IndexCandle(ts(4), 98, 101, 96, 100),
+        ]
+
+        for candle in candles:
+            engine.on_candle(candle)
+        engine.complete_historical_replay(candles[-1])
+
+        status = engine.get_status()
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(status["pricing_mode"], "signal_only_dhan")
+        self.assertTrue(status["replay_complete"])
+        self.assertEqual(status["signal_entry"]["index_price"], 97)
+        self.assertEqual([row.side for row in adapter.orders], [])
+
 
 if __name__ == "__main__":
     unittest.main()
