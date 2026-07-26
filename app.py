@@ -178,14 +178,18 @@ if os.path.exists("static"):
 
 
 _ASSET_MANIFEST_PATH = os.path.join(_HERE, "static", "asset-manifest.json")
-_ASSET_VERSION_CACHE: str | None = None
+_ASSET_VERSION_CACHE: tuple[int | None, str] | None = None
 
 
 def _asset_version() -> str:
     """Return the single frontend cache-bust version for HTML/PWA templates."""
     global _ASSET_VERSION_CACHE
-    if _ASSET_VERSION_CACHE:
-        return _ASSET_VERSION_CACHE
+    try:
+        manifest_mtime = os.stat(_ASSET_MANIFEST_PATH).st_mtime_ns
+    except OSError:
+        manifest_mtime = None
+    if _ASSET_VERSION_CACHE and _ASSET_VERSION_CACHE[0] == manifest_mtime:
+        return _ASSET_VERSION_CACHE[1]
     fallback = os.getenv("PHILFORGE_ASSET_VERSION") or "dev"
     try:
         with open(_ASSET_MANIFEST_PATH, encoding="utf-8") as handle:
@@ -193,8 +197,8 @@ def _asset_version() -> str:
         version = str(data.get("version") or "").strip()
     except Exception:
         version = ""
-    _ASSET_VERSION_CACHE = version or fallback
-    return _ASSET_VERSION_CACHE
+    _ASSET_VERSION_CACHE = (manifest_mtime, version or fallback)
+    return _ASSET_VERSION_CACHE[1]
 
 
 def _inject_asset_version(content: str) -> str:
