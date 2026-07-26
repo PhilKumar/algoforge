@@ -5273,6 +5273,23 @@
 .terminal-cascade-pill-warn { color: #fde68a; border-color: rgba(251,191,36,.34); }
 .terminal-cascade-pill-live { color: #fbbf24; border-color: rgba(251,191,36,.55); }
 .terminal-cascade-start-btn { --btn-bg: linear-gradient(180deg,rgba(245,158,11,.30),rgba(180,83,9,.42)); --btn-color: #fef3c7; --btn-border: rgba(251,191,36,.50); font-weight: 800; }
+.terminal-cascade-workspace { display: grid; grid-template-columns: minmax(270px, 320px) minmax(0, 1fr); gap: 14px; align-items: stretch; width: 100%; min-height: min(72vh, 760px); }
+.terminal-cascade-start-panel,
+.terminal-cascade-instrument-panel,
+.terminal-cascade-scrip-window { min-width: 0; border: 1px solid rgba(148,163,184,.14); border-radius: 10px; background: rgba(8,13,24,.48); overflow: hidden; }
+.terminal-cascade-start-panel { display: flex; flex-direction: column; align-self: stretch; }
+.terminal-cascade-instrument-panel { display: flex; flex-direction: column; padding-bottom: 13px; }
+.terminal-cascade-start-panel .terminal-cascade-form-grid { grid-template-columns: 1fr; gap: 10px; padding: 13px; }
+.terminal-cascade-start-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 13px 10px; }
+.terminal-cascade-start-panel-actions .btn { flex: 1 1 126px; justify-content: center; }
+.terminal-cascade-scrip-flow { flex: 1 1 auto; min-height: 0; display: grid; gap: 12px; padding: 0 13px; overflow: auto; scrollbar-gutter: stable; }
+.terminal-cascade-scrip-window { display: flex; flex-direction: column; background: rgba(7,16,29,.58); }
+.terminal-cascade-scrip-window.is-active { border-color: rgba(52,211,153,.34); box-shadow: inset 3px 0 0 rgba(52,211,153,.72); }
+.terminal-cascade-scrip-window-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 13px; border-bottom: 1px solid rgba(148,163,184,.12); background: rgba(255,255,255,.025); }
+.terminal-cascade-scrip-window-head > div { min-width: 0; display: grid; gap: 3px; }
+.terminal-cascade-scrip-window-head span { color: var(--text); font-size: 13px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-cascade-scrip-window-head strong { color: var(--muted); font: 11px var(--font-mono); font-weight: 600; }
+.terminal-cascade-card-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .terminal-cascade-setup { border: 1px solid rgba(148,163,184,.12); border-radius: 10px; background: rgba(255,255,255,.025); overflow: hidden; margin-bottom: 12px; }
 .terminal-cascade-setup summary { display: flex; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; font-size: 12px; font-weight: 800; }
 .terminal-cascade-setup summary::-webkit-details-marker { display: none; }
@@ -5281,8 +5298,8 @@
 .terminal-cascade-field label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .terminal-cascade-field input,
 .terminal-cascade-field select { width: 100%; min-height: 40px; padding: 8px 10px; font: 12px var(--font-mono); }
-.terminal-cascade-form-status { min-height: 19px; font: 12px var(--font-mono); color: var(--muted); margin: 3px 0 12px; }
-.terminal-cascade-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 9px; margin-bottom: 14px; }
+.terminal-cascade-form-status { min-height: 19px; font: 12px var(--font-mono); color: var(--muted); margin: auto 13px 12px; overflow-wrap: anywhere; }
+.terminal-cascade-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 9px; padding: 13px; }
 .terminal-cascade-metric { min-width: 0; padding: 11px 12px; border: 1px solid rgba(148,163,184,.14); border-radius: 8px; background: rgba(9,15,28,.54); }
 .terminal-cascade-metric span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .terminal-cascade-metric strong { display: block; font: 800 14px var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -5339,15 +5356,23 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .terminal-cascade-chart-dialog.is-fullscreen #terminal-cascade-chart-meta { display: none; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-body svg { width: 100%; height: 100%; max-height: none; border-radius: 0; }
 @media (max-width: 1180px) {
+  .terminal-cascade-workspace { grid-template-columns: 1fr; min-height: 0; }
   .terminal-cascade-form-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .terminal-cascade-start-panel .terminal-cascade-form-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
   .terminal-cascade-bottom-grid { grid-template-columns: 1fr; }
   .terminal-cascade-chart-toolbar { flex-wrap: wrap; }
   .terminal-cascade-chart-actions { width: 100%; justify-content: flex-start; }
 }
 @media (max-width: 640px) {
+  .terminal-cascade-scrip-window-head { align-items: flex-start; flex-direction: column; }
+  .terminal-cascade-card-actions { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 640px) {
   .terminal-cascade-head { flex-direction: column; }
   .terminal-cascade-actions { justify-content: flex-start; }
   .terminal-cascade-form-grid { grid-template-columns: 1fr; }
+  .terminal-cascade-start-panel .terminal-cascade-form-grid { grid-template-columns: 1fr; }
+  .terminal-cascade-start-panel-actions .btn { flex-basis: 100%; }
   .terminal-cascade-log-row { grid-template-columns: 1fr; gap: 3px; }
   .terminal-cascade-log-row em { text-align: left; }
   .terminal-cascade-chart-overlay { padding: 8px; }
@@ -5356,6 +5381,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .terminal-cascade-chart-body { padding: 10px 14px 14px; }
 }
 [data-theme="light"] .terminal-cascade-shell,
+[data-theme="light"] .terminal-cascade-start-panel,
+[data-theme="light"] .terminal-cascade-instrument-panel,
+[data-theme="light"] .terminal-cascade-scrip-window,
 [data-theme="light"] .terminal-cascade-ladder-panel,
 [data-theme="light"] .terminal-cascade-log-panel,
 [data-theme="light"] .terminal-cascade-metric { background: rgba(255,255,255,.88) !important; }

@@ -3666,6 +3666,7 @@ let _lastTerminalCascadeStatus = null;
 let _terminalCascadeInputsBound = false;
 let _terminalCascadeChartTimeframe = 'auto';
 let _terminalCascadeChartPayload = null;
+let _terminalCascadeChartContext = null;
 let _terminalCascadeZoom = { k: 1, x: 0, y: 0 };
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 const _TERMINAL_CASCADE_CAPITAL_KEY = 'philforge_terminal_cascade_capital_v1';
@@ -3917,7 +3918,9 @@ function _terminalCascadeStatusColor(status) {
 
 function _renderTerminalCascadeStatus(payload) {
   _lastTerminalCascadeStatus = payload || null;
-  const campaign = payload?.campaign;
+  const campaigns = Array.isArray(payload?.campaigns)
+    ? payload.campaigns
+    : (payload?.campaign ? [payload.campaign] : []);
   const gate = payload?.live_gate || {};
   const gateEl = _terminalCascadeEl('terminal-cascade-live-gate');
   if (gateEl) {
@@ -3930,60 +3933,118 @@ function _renderTerminalCascadeStatus(payload) {
   const stop = _terminalCascadeEl('terminal-cascade-stop');
   const del = _terminalCascadeEl('terminal-cascade-delete');
   const chart = _terminalCascadeEl('terminal-cascade-chart-btn');
-  const summary = _terminalCascadeEl('terminal-cascade-summary');
   const controlSummary = _terminalCascadeEl('terminal-cascade-control-summary');
-  if (!campaign) {
+  const scripSubtitle = _terminalCascadeEl('terminal-cascade-scrip-subtitle');
+  const flow = _terminalCascadeEl('terminal-cascade-scrip-flow');
+  const runningCampaigns = campaigns.filter(campaign => campaign && campaign.running);
+  if (!campaigns.length) {
+    const selectedSymbol = _stockTerminalSelected?.symbol || 'Selected scrip';
+    const referenceSymbol = _stockTerminalSelected?.cascade_reference?.symbol || '';
     if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (start) start.disabled = false;
     if (stop) stop.style.display = 'none';
     if (del) del.style.display = 'none';
     if (chart) chart.disabled = false;
     if (controlSummary) controlSummary.textContent = 'Mother, capital, timeframe and product';
-    if (summary) summary.innerHTML = [
-      _terminalCascadeMetric('Selected', _stockTerminalSelected?.symbol || '-'),
-      _terminalCascadeMetric('Reference', _stockTerminalSelected?.cascade_reference?.symbol || '-'),
-      _terminalCascadeMetric('Product', 'CNC'),
-      _terminalCascadeMetric('Status', 'Idle'),
-    ].join('');
-    _renderTerminalCascadeRungs([]);
-    _renderTerminalCascadeFills([]);
-    _renderTerminalCascadeRounds([]);
-    _renderTerminalCascadeEvents([]);
+    if (scripSubtitle) {
+      scripSubtitle.textContent = referenceSymbol && referenceSymbol !== selectedSymbol
+        ? `${referenceSymbol} signal -> ${selectedSymbol} trade/TP`
+        : 'Select a symbol to load its Cascade window';
+    }
+    if (flow) flow.innerHTML = _terminalCascadeEmptyWindow(selectedSymbol, referenceSymbol);
     return;
   }
-  const running = !!campaign.running;
-  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const tone = running ? '#6ee7b7' : '#fbbf24';
-  if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
-  if (start) start.disabled = running;
-  if (stop) stop.style.display = running ? '' : 'none';
-  if (del) del.style.display = '';
-  if (chart) chart.disabled = false;
-  const inst = campaign.instrument || {};
-  const config = campaign.config || {};
-  if (controlSummary) {
-    controlSummary.textContent = `${inst.symbol || 'Campaign'} · ${config.timeframe || '5m'} · ${config.product_type || 'CNC'} · ${state}`;
+  if (badge) {
+    badge.textContent = `${runningCampaigns.length} ACTIVE / ${campaigns.length}`;
+    badge.style.color = runningCampaigns.length ? '#6ee7b7' : '#fbbf24';
+    badge.style.borderColor = runningCampaigns.length ? '#6ee7b7' : '#fbbf24';
   }
-  if (summary) {
-    summary.innerHTML = [
-      _terminalCascadeMetric('Signal', inst.signal_symbol || '-', inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
-      _terminalCascadeMetric('Trade', inst.symbol || '-', '#6ee7b7'),
-      _terminalCascadeMetric('Avg', _cascadeNumber(campaign.average_entry_price)),
-      _terminalCascadeMetric('TP', _cascadeNumber(campaign.target_price), '#fef3c7'),
-      _terminalCascadeMetric('Qty', String(campaign.open_quantity || 0), '#6ee7b7'),
-      _terminalCascadeMetric('Pending', _terminalCascadeMoney(campaign.pending_inr || 0), '#fde68a'),
-      _terminalCascadeMetric('Carry', _terminalCascadeMoney(campaign.cash_carry_inr || 0), '#93c5fd'),
-      _terminalCascadeMetric('Capital', _terminalCascadeMoney(config.capital_inr || 0)),
-    ].join('');
+  if (start) start.disabled = false;
+  if (stop) stop.style.display = 'none';
+  if (del) del.style.display = 'none';
+  if (chart) chart.disabled = false;
+  if (controlSummary) {
+    controlSummary.textContent = `${campaigns.length} scrip${campaigns.length === 1 ? '' : 's'} · paper only`;
   }
   const motherInput = _terminalCascadeEl('terminal-cascade-mother-timestamp');
-  if (motherInput && !motherInput.value && campaign?.mother?.signal?.timestamp) {
-    motherInput.value = String(campaign.mother.signal.timestamp).slice(0, 16);
+  if (motherInput && !motherInput.value && campaigns[0]?.mother?.signal?.timestamp) {
+    motherInput.value = String(campaigns[0].mother.signal.timestamp).slice(0, 16);
   }
-  _renderTerminalCascadeRungs(campaign.rungs || []);
-  _renderTerminalCascadeFills(campaign.open_fills || []);
-  _renderTerminalCascadeRounds(campaign.rounds || []);
-  _renderTerminalCascadeEvents(campaign.events || []);
+  if (scripSubtitle) scripSubtitle.textContent = `${runningCampaigns.length} active paper campaign${runningCampaigns.length === 1 ? '' : 's'}`;
+  if (flow) flow.innerHTML = campaigns.map(_terminalCascadeWindow).join('');
+}
+
+function _terminalCascadeEmptyWindow(symbol, reference) {
+  const subtitle = reference && reference !== symbol ? `${reference} signal -> ${symbol} trade/TP` : 'Choose a scrip, then start a paper campaign.';
+  return `<article class="terminal-cascade-scrip-window"><div class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></div><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></article>`;
+}
+
+function _terminalCascadeWindow(campaign) {
+  const inst = campaign.instrument || {};
+  const config = campaign.config || {};
+  const symbol = String(inst.symbol || 'Scrip');
+  const signal = String(inst.signal_symbol || symbol);
+  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
+  const mother = String(campaign?.mother?.signal?.timestamp || '');
+  const timeframe = String(config.timeframe || '5m');
+  const cardClass = campaign.running ? ' is-active' : '';
+  const metrics = [
+    _terminalCascadeMetric('Signal', signal, inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
+    _terminalCascadeMetric('Trade', symbol, '#6ee7b7'),
+    _terminalCascadeMetric('Avg', _cascadeNumber(campaign.average_entry_price)),
+    _terminalCascadeMetric('TP', _cascadeNumber(campaign.target_price), '#fef3c7'),
+    _terminalCascadeMetric('Qty', String(campaign.open_quantity || 0), '#6ee7b7'),
+    _terminalCascadeMetric('Pending', _terminalCascadeMoney(campaign.pending_inr || 0), '#fde68a'),
+    _terminalCascadeMetric('Carry', _terminalCascadeMoney(campaign.cash_carry_inr || 0), '#93c5fd'),
+    _terminalCascadeMetric('Capital', _terminalCascadeMoney(config.capital_inr || 0)),
+  ].join('');
+  return `<article class="terminal-cascade-scrip-window${cardClass}" data-terminal-cascade-symbol="${escapeAttr(symbol)}">
+    <div class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(signal)} signal -> ${escapeHtml(symbol)} trade/TP · ${escapeHtml(state)} · ${escapeHtml(timeframe)}</strong></div>
+      <div class="terminal-cascade-card-actions"><button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">Chart</button>${campaign.running ? `<button class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper('${escapeAttr(symbol)}')">Stop</button>` : ''}<button class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper('${escapeAttr(symbol)}')">Delete</button></div></div>
+    <div class="terminal-cascade-summary">${metrics}</div>
+    <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
+    <div class="terminal-cascade-bottom-grid">
+      <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Open fills</span><strong>paper basket</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeFillsMarkup(campaign.open_fills || [])}</div></section>
+      <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Events</span><strong>latest first</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeEventsMarkup(campaign.events || [])}</div></section>
+      <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Rounds</span><strong>closed paper trades</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeRoundsMarkup(campaign.rounds || [])}</div></section>
+    </div></article>`;
+}
+
+function _terminalCascadeRungsMarkup(rungs) {
+  if (!Array.isArray(rungs) || !rungs.length) return '<div class="terminal-cascade-empty">No fib rungs yet.</div>';
+  const rows = rungs.map(rung => {
+    const status = String(rung.status || 'PENDING').toUpperCase();
+    const color = _terminalCascadeStatusColor(status);
+    const allocation = Number(rung.allocation_pct || 0);
+    return `<tr class="terminal-cascade-rung-row is-${escapeAttr(status.toLowerCase())}"><td><strong>F${escapeHtml(rung.leg_id)} L${escapeHtml(rung.level)}</strong><small>${Number.isFinite(allocation) ? allocation.toFixed(2) : '0.00'}% allocation</small></td><td class="num">${escapeHtml(_cascadeNumber(rung.signal_price))}</td><td class="num">${escapeHtml(_terminalCascadeMoney(rung.pool_inr || 0))}<small>pool</small></td><td class="num">${escapeHtml(_terminalCascadeMoney(rung.budget_inr || 0))}</td><td><span class="terminal-cascade-status" style="color:${color};border-color:${color};">${escapeHtml(status)}</span></td></tr>`;
+  }).join('');
+  return `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Level</th><th class="num">Signal price</th><th class="num">Pool</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function _terminalCascadeFillsMarkup(fills) {
+  if (!Array.isArray(fills) || !fills.length) return '<div class="terminal-cascade-empty">No open fills.</div>';
+  return fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
+}
+
+function _terminalCascadeRoundsMarkup(rounds) {
+  if (!Array.isArray(rounds) || !rounds.length) return '<div class="terminal-cascade-empty">No completed round.</div>';
+  return rounds.slice(-8).reverse().map(row => {
+    const pnl = Number(row.net_pnl || 0);
+    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    return `<div class="terminal-cascade-log-row"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong><em>${escapeHtml(String(row.exit_quantity || 0))} qty</em></div>`;
+  }).join('');
+}
+
+function _terminalCascadeEventsMarkup(events) {
+  if (!Array.isArray(events) || !events.length) return '<div class="terminal-cascade-empty">No events.</div>';
+  return events.slice(-12).reverse().map(event => {
+    const bits = [];
+    if (event.rung) bits.push(event.rung);
+    if (event.quantity) bits.push(`${event.quantity} qty`);
+    if (event.trade_price) bits.push(_cascadeNumber(event.trade_price));
+    if (event.target_price) bits.push(`TP ${_cascadeNumber(event.target_price)}`);
+    return `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span><strong>${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong><em>${bits.length ? escapeHtml(bits.join(' · ')) : ''}</em></div>`;
+  }).join('');
 }
 
 function _renderTerminalCascadeRungs(rungs) {
@@ -4096,8 +4157,8 @@ async function startTerminalCascadePaper() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status !== 'started') throw new Error(data?.detail || 'Terminal Cascade did not start');
     _terminalCascadeSetStatus('Terminal Cascade paper campaign started.', 'success');
-    _renderTerminalCascadeStatus({ status: 'ok', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate, campaign: data.campaign });
-    loadTerminalCascadeChart().catch(() => {});
+    await refreshTerminalCascadeStatus();
+    loadTerminalCascadeChart(symbol, timestamp, payload.timeframe).catch(() => {});
   } catch (error) {
     _terminalCascadeSetStatus(error.message || 'Terminal Cascade start failed.', 'error');
   } finally {
@@ -4105,38 +4166,46 @@ async function startTerminalCascadePaper() {
   }
 }
 
-async function stopTerminalCascadePaper() {
-  const res = await fetch('/api/terminal/cascade/stop', { method: 'POST', credentials: 'same-origin' });
+async function stopTerminalCascadePaper(symbol) {
+  const target = symbol || _stockTerminalSelected?.symbol || '';
+  if (!target) return;
+  const res = await fetch(`/api/terminal/cascade/stop?symbol=${encodeURIComponent(target)}`, { method: 'POST', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { _terminalCascadeSetStatus(data?.detail || 'Stop failed.', 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade monitoring stopped.', 'success');
   refreshTerminalCascadeStatus();
 }
 
-async function deleteTerminalCascadePaper() {
+async function deleteTerminalCascadePaper(symbol) {
+  const target = symbol || _stockTerminalSelected?.symbol || '';
+  if (!target) return;
   const ok = await customConfirm('Delete this Terminal Cascade paper campaign from the Terminal view? No Dhan order is sent.', { title: 'Delete Cash Cascade', icon: ICO.warn(28), okText: 'Delete', danger: true });
   if (!ok) return;
-  const res = await fetch('/api/terminal/cascade', { method: 'DELETE', credentials: 'same-origin' });
+  const res = await fetch(`/api/terminal/cascade?symbol=${encodeURIComponent(target)}`, { method: 'DELETE', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status !== 'deleted') { _terminalCascadeSetStatus(data?.detail || 'Delete failed.', 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade paper campaign deleted.', 'success');
-  _renderTerminalCascadeStatus({ status: 'not_started', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate });
+  refreshTerminalCascadeStatus();
 }
 
-async function killTerminalCascadePaper() {
+async function killTerminalCascadePaper(symbol) {
+  const target = symbol || _stockTerminalSelected?.symbol || '';
+  if (!target) return;
   const ok = await customConfirm('Kill this Terminal Cascade paper campaign and close any paper basket at current quote? No Dhan order is sent.', { title: 'Kill Cash Cascade', icon: ICO.warn(28), okText: 'Kill Paper', danger: true });
   if (!ok) return;
-  const res = await fetch('/api/terminal/cascade/kill', { method: 'POST', credentials: 'same-origin' });
+  const res = await fetch(`/api/terminal/cascade/kill?symbol=${encodeURIComponent(target)}`, { method: 'POST', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status !== 'killed') { _terminalCascadeSetStatus(data?.detail || 'Kill failed.', 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade campaign killed.', 'success');
-  _renderTerminalCascadeStatus({ status: 'ok', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate, campaign: data.campaign });
+  refreshTerminalCascadeStatus();
 }
 
 
 function _terminalCascadeCurrentChartTimeframe() {
   if (_terminalCascadeChartTimeframe !== 'auto') return _terminalCascadeChartTimeframe;
-  return _lastTerminalCascadeStatus?.campaign?.config?.timeframe || _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
+  const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
+  const current = campaigns.find(campaign => campaign?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0];
+  return _terminalCascadeChartContext?.timeframe || current?.config?.timeframe || _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
 }
 
 function _terminalCascadeMarkChartTimeframe(resolved) {
@@ -4157,7 +4226,8 @@ function setTerminalCascadeChartTimeframe(tf) {
 }
 
 function _terminalCascadeChartStatusMap() {
-  const campaign = _lastTerminalCascadeStatus?.campaign || {};
+  const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
+  const campaign = campaigns.find(row => row?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0] || {};
   const map = new Map();
   (campaign.rungs || []).forEach(row => map.set(`${row.leg_id}:${row.level}`, row));
   return map;
@@ -4235,7 +4305,8 @@ function _terminalCascadeChartSvg(payload) {
   const geometry = payload.geometry || {};
   const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
   const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
-  const campaign = _lastTerminalCascadeStatus?.campaign || {};
+  const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
+  const campaign = campaigns.find(row => row?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0] || {};
   const instrument = payload.instrument || campaign.instrument || {};
   const ownScale = instrument.reference_mode !== 'reference_index';
   const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -4338,24 +4409,55 @@ function _terminalCascadeChartSvg(payload) {
     parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${width || .9}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''}/>`);
     if (text) label(y, text, color);
   };
+  const projectionSlots = [];
+  const projectionLabel = (y, text, color) => {
+    let ly = Math.max(padT + 12, Math.min(H - padB - 8, y));
+    for (let pass = 0; pass < 8; pass += 1) {
+      const near = projectionSlots.find(slot => Math.abs(slot - ly) < 12);
+      if (!Number.isFinite(near)) break;
+      const down = near + 13;
+      ly = down <= H - padB - 8 ? down : near - 13;
+    }
+    projectionSlots.push(ly);
+    parts.push(`<text x="${padL + plotW - 4}" y="${(ly - 5).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" text-anchor="end" opacity=".72">${escapeHtml(text)}</text>`);
+  };
 
   if (Number.isFinite(Number(mother.h))) hline(Number(mother.h), PAL.mother, `MOTHER (${number(mother.h)})`, '5 3', 1.1);
 
   trendlines.forEach(line => {
     const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
     if (!a1t || !a2t || a1t === a2t) return;
-    const t1 = millis(candles[n - 1].t);
+    const firstCandle = candles[0], lastCandle = candles[n - 1];
+    const t0 = millis(firstCandle.t), t1 = millis(lastCandle.t);
+    const a1p = Number(line.anchor1_price);
+    const a2p = Number(line.anchor2_price);
+    if (!Number.isFinite(a1p) || !Number.isFinite(a2p)) return;
+    const startPrice = trendlinePrice(line, t0);
     const endPrice = trendlinePrice(line, t1);
     const color = colorById(line.id);
     const noFib = line.bears_fib === false;
-    parts.push(`<line x1="${Xt(line.anchor1_timestamp).toFixed(1)}" y1="${Y(Number(line.anchor1_price)).toFixed(1)}" x2="${Xt(candles[n - 1].t).toFixed(1)}" y2="${Y(endPrice).toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .9 : 1.3}" opacity="${noFib ? .35 : .9}"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
+    const x1 = Xt(line.anchor1_timestamp), y1 = Y(a1p);
+    const x2 = Xt(line.anchor2_timestamp), y2 = Y(a2p);
+    const xStart = Xt(firstCandle.t), yStart = Y(startPrice);
+    const xEnd = Xt(lastCandle.t), yEnd = Y(endPrice);
+    // Match the BTCUSDT chart: one continuous mother-high trendline across
+    // the whole visible window. The ring records the exact red-open anchor.
+    parts.push(`<line x1="${xStart.toFixed(1)}" y1="${yStart.toFixed(1)}" x2="${xEnd.toFixed(1)}" y2="${yEnd.toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .8 : 1.3}" opacity="${noFib ? .35 : .92}" stroke-linecap="round"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
+    if (inView(a1p)) parts.push(`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.3" fill="${color}"/>`);
+    if (inView(a2p)) {
+      parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="4.2" fill="${PAL.bg}" stroke="${color}" stroke-width="1.8"/>`);
+      parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="1.9" fill="${color}"/>`);
+      parts.push(`<text x="${(x2 + 6).toFixed(1)}" y="${(y2 - 7).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" font-weight="700">TL${escapeHtml(line.id)} red open</text>`);
+    }
     if (inView(endPrice)) {
-      parts.push(`<text x="${(Xt(candles[n - 1].t) - 4).toFixed(1)}" y="${(Y(endPrice) - 5).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" text-anchor="end" opacity=".9">TL${escapeHtml(line.id)}${noFib ? ' (no fib)' : ''}</text>`);
+      projectionLabel(yEnd, `TL${line.id} proj${noFib ? ' no fib' : ''}`, color);
     }
   });
 
   legs.forEach(leg => {
-    const color = colorById(leg.leg_id);
+    const trendline = trendlines.find(line => Number(line.id) === Number(leg.trendline_id));
+    if (trendline?.bears_fib === false) return;
+    const color = colorById(leg.trendline_id || leg.leg_id);
     const hiP = Number(leg.fib_high), loP = Number(leg.fib_low), range = hiP - loP;
     if (!Number.isFinite(range) || range <= 0) return;
     hline(hiP, color, `0 (${number(hiP)})`, null, .8, .4);
@@ -4484,10 +4586,16 @@ function toggleTerminalCascadeFullscreen(force) {
   }
 }
 
-async function loadTerminalCascadeChart(options = {}) {
-  const symbol = _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
-  const timestamp = _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || _lastTerminalCascadeStatus?.campaign?.mother?.signal?.timestamp || '';
-  const timeframe = _terminalCascadeCurrentChartTimeframe();
+async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timeframeArg = '') {
+  const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
+  const requestedSymbol = typeof symbolArg === 'string' ? symbolArg : '';
+  const active = campaigns.find(campaign => campaign?.instrument?.symbol === requestedSymbol)
+    || campaigns.find(campaign => campaign?.instrument?.symbol === _terminalCascadeChartContext?.symbol)
+    || campaigns.find(campaign => campaign?.instrument?.symbol === _stockTerminalSelected?.symbol)
+    || campaigns[0];
+  const symbol = requestedSymbol || active?.instrument?.symbol || _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
+  const timestamp = (typeof timestampArg === 'string' && timestampArg) || active?.mother?.signal?.timestamp || _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || '';
+  const timeframe = (typeof timeframeArg === 'string' && timeframeArg) || _terminalCascadeCurrentChartTimeframe();
   const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
   const body = _terminalCascadeEl('terminal-cascade-chart-body');
   if (!symbol || !timestamp) { _terminalCascadeSetStatus('Select a symbol and mother timestamp first.', 'error'); return; }
@@ -4505,6 +4613,7 @@ async function loadTerminalCascadeChart(options = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${res.status})`);
     _terminalCascadeChartPayload = data;
+    _terminalCascadeChartContext = { symbol, timestamp, timeframe: data.timeframe || timeframe };
     if (body) body.innerHTML = _terminalCascadeChartHtml(data);
     const meta = _terminalCascadeEl('terminal-cascade-chart-meta');
     const instrument = data.instrument || {};
@@ -11243,7 +11352,7 @@ function handleWSMessage(msg) {
       status: 'ok',
       mode: 'paper',
       live_gate: _lastTerminalCascadeStatus?.live_gate,
-      campaign: terminalCascadeCampaign,
+      campaigns: terminalCascadeCampaign.campaigns || [terminalCascadeCampaign],
     });
   }
 }

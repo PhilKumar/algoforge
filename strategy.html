@@ -1420,75 +1420,64 @@
       <div class="terminal-cascade-actions">
         <span id="terminal-cascade-badge" class="terminal-cascade-pill">IDLE</span>
         <span id="terminal-cascade-live-gate" class="terminal-cascade-pill terminal-cascade-pill-warn">LIVE LOCKED</span>
-        <button id="terminal-cascade-chart-btn" class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Chart</button>
-        <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
-        <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
-        <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
       </div>
     </div>
 
-    <details class="terminal-cascade-setup" open>
-      <summary>
-        <span>Campaign setup</span>
-        <em id="terminal-cascade-control-summary">Mother, capital, timeframe and product</em>
-      </summary>
-      <div class="terminal-cascade-form-grid">
-        <div class="terminal-cascade-field">
-          <label>Mother timestamp</label>
-          <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300">
+    <div class="terminal-cascade-workspace">
+      <section class="terminal-cascade-start-panel">
+        <div class="terminal-cascade-section-head">
+          <div>
+            <span>Campaign setup</span>
+            <strong id="terminal-cascade-control-summary">Mother, capital, timeframe and product</strong>
+          </div>
         </div>
-        <div class="terminal-cascade-field">
-          <label>Capital INR</label>
-          <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000">
+        <div class="terminal-cascade-form-grid">
+          <div class="terminal-cascade-field">
+            <label>Mother timestamp</label>
+            <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300">
+          </div>
+          <div class="terminal-cascade-field">
+            <label>Capital INR</label>
+            <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000">
+          </div>
+          <div class="terminal-cascade-field">
+            <label>Timeframe</label>
+            <select id="terminal-cascade-timeframe">
+              <option value="5m" selected>5m</option>
+              <option value="15m">15m</option>
+              <option value="1h">1H</option>
+            </select>
+          </div>
+          <div class="terminal-cascade-field">
+            <label>TP fraction</label>
+            <input id="terminal-cascade-target-pct" type="number" min="1" max="100" step="1" value="25">
+          </div>
+          <div class="terminal-cascade-field">
+            <label>Product</label>
+            <select id="terminal-cascade-product">
+              <option value="CNC" selected>CNC</option>
+              <option value="MTF">MTF</option>
+            </select>
+          </div>
         </div>
-        <div class="terminal-cascade-field">
-          <label>Timeframe</label>
-          <select id="terminal-cascade-timeframe">
-            <option value="5m" selected>5m</option>
-            <option value="15m">15m</option>
-            <option value="1h">1H</option>
-          </select>
+        <div class="terminal-cascade-start-panel-actions">
+          <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
+          <button id="terminal-cascade-chart-btn" class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Chart</button>
+          <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
+          <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
         </div>
-        <div class="terminal-cascade-field">
-          <label>TP fraction</label>
-          <input id="terminal-cascade-target-pct" type="number" min="1" max="100" step="1" value="25">
-        </div>
-        <div class="terminal-cascade-field">
-          <label>Product</label>
-          <select id="terminal-cascade-product">
-            <option value="CNC" selected>CNC</option>
-            <option value="MTF">MTF</option>
-          </select>
-        </div>
-      </div>
-    </details>
-
-    <div id="terminal-cascade-form-status" class="terminal-cascade-form-status"></div>
-    <div id="terminal-cascade-summary" class="terminal-cascade-summary"></div>
-
-    <div class="terminal-cascade-ladder-panel">
-      <div class="terminal-cascade-section-head">
-        <div>
-          <span>Ladder and order flow</span>
-          <strong id="terminal-cascade-rung-count">No rungs</strong>
-        </div>
-        <button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Open Chart</button>
-      </div>
-      <div id="terminal-cascade-rungs" class="terminal-cascade-rungs"></div>
-    </div>
-
-    <div class="terminal-cascade-bottom-grid">
-      <section class="terminal-cascade-log-panel">
-        <div class="terminal-cascade-section-head"><div><span>Open fills</span><strong>paper basket</strong></div></div>
-        <div id="terminal-cascade-fills" class="terminal-cascade-log-body">No open fills</div>
+        <div id="terminal-cascade-form-status" class="terminal-cascade-form-status"></div>
       </section>
-      <section class="terminal-cascade-log-panel">
-        <div class="terminal-cascade-section-head"><div><span>Events</span><strong>latest first</strong></div></div>
-        <div id="terminal-cascade-events" class="terminal-cascade-log-body">No events</div>
-      </section>
-      <section class="terminal-cascade-log-panel">
-        <div class="terminal-cascade-section-head"><div><span>Rounds</span><strong>closed paper trades</strong></div></div>
-        <div id="terminal-cascade-rounds" class="terminal-cascade-log-body">No completed round</div>
+
+      <section class="terminal-cascade-instrument-panel">
+        <div class="terminal-cascade-section-head">
+          <div>
+            <span>Instrument</span>
+            <strong id="terminal-cascade-scrip-subtitle">Select a symbol</strong>
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Open Chart</button>
+        </div>
+        <div id="terminal-cascade-scrip-flow" class="terminal-cascade-scrip-flow"></div>
       </section>
     </div>
   </div>
@@ -2455,6 +2444,6 @@
   </div>
 </div>
 
-<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-native-chart-1"></script>
+<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-flow-chart-1"></script>
 </body>
 </html>

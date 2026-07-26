@@ -1416,7 +1416,7 @@ class _TerminalCascadeRuntime:
 
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
 _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
-_terminal_cascade_engines: Dict[int, _TerminalCascadeRuntime] = {}
+_terminal_cascade_engines: Dict[int, Dict[str, _TerminalCascadeRuntime]] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
@@ -6470,23 +6470,24 @@ async def _terminal_cascade_quote_pair(runtime: _TerminalCascadeRuntime) -> tupl
 
 
 async def _notify_terminal_cascade_ws(user_id: int) -> None:
-    runtime = _terminal_cascade_engines.get(int(user_id))
-    if runtime is None:
-        return
+    runtimes = _terminal_cascade_engines.get(int(user_id), {})
+    campaigns = [
+        {**runtime.engine.get_status(), "running": runtime.running} for _symbol, runtime in sorted(runtimes.items())
+    ]
     await _broadcast_user_ws_json(
         int(user_id),
         {
             "type": "terminal_cascade_status",
-            "terminal_cascade": {**runtime.engine.get_status(), "running": runtime.running},
+            "terminal_cascade": {"campaigns": campaigns},
         },
     )
 
 
 async def _save_terminal_cascade_open_state(
-    user_id: int, runtime: _TerminalCascadeRuntime | None = None, *, force: bool = False
+    user_id: int, _runtime: _TerminalCascadeRuntime | None = None, *, force: bool = False
 ) -> None:
-    runtime = runtime or _terminal_cascade_engines.get(int(user_id))
-    if runtime is None:
+    runtimes = _terminal_cascade_engines.get(int(user_id), {})
+    if not runtimes:
         return
     now = time.time()
     if (
@@ -6495,12 +6496,17 @@ async def _save_terminal_cascade_open_state(
     ):
         return
     payload = {
-        "running": bool(runtime.running),
-        "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
-        "signal_instrument": dict(runtime.signal_instrument),
-        "trade_instrument": dict(runtime.trade_instrument),
+        "campaigns": [
+            {
+                "running": bool(runtime.running),
+                "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
+                "signal_instrument": dict(runtime.signal_instrument),
+                "trade_instrument": dict(runtime.trade_instrument),
+                "engine": runtime.engine.to_dict(),
+            }
+            for _symbol, runtime in sorted(runtimes.items())
+        ],
         "saved_at": datetime.now(IST).isoformat(),
-        "engine": runtime.engine.to_dict(),
     }
     await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), json.dumps(payload, default=str))
     _terminal_cascade_open_state_last_save[int(user_id)] = now
@@ -6508,47 +6514,62 @@ async def _save_terminal_cascade_open_state(
 
 async def _restore_terminal_cascade_open_state(
     user_id: int, broker: DhanClient | None
-) -> _TerminalCascadeRuntime | None:
+) -> Dict[str, _TerminalCascadeRuntime]:
     existing = _terminal_cascade_engines.get(int(user_id))
     if existing is not None:
         return existing
     if broker is None:
-        return None
+        return {}
     raw = await _db_mod.get_app_state(_terminal_cascade_open_state_key(user_id))
     if not raw:
-        return None
+        return {}
     try:
         payload = json.loads(raw)
-        if not isinstance(payload, dict) or not payload.get("engine"):
-            return None
-        engine = CashCascadePaperEngine.from_dict(payload["engine"])
-        last_text = str(payload.get("last_candle_timestamp") or "")
-        last = (
-            datetime.fromisoformat(last_text.replace("Z", "+00:00"))
-            if last_text
-            else engine.geometry.history[-1].timestamp
-        )
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=IST)
-        runtime = _TerminalCascadeRuntime(
-            engine=engine,
-            broker=broker,
-            signal_instrument=dict(payload.get("signal_instrument") or {}),
-            trade_instrument=dict(payload.get("trade_instrument") or {}),
-            last_candle_timestamp=last,
-            running=bool(payload.get("running")),
-        )
-        _terminal_cascade_engines[int(user_id)] = runtime
-        if runtime.running:
-            runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(int(user_id), runtime))
-        return runtime
+        if not isinstance(payload, dict):
+            return {}
+        # Accept the prior single-campaign record once, then always persist the
+        # per-scrip shape.  This keeps existing paper campaigns recoverable.
+        records = payload.get("campaigns")
+        if not isinstance(records, list):
+            records = [payload] if payload.get("engine") else []
+        runtimes: Dict[str, _TerminalCascadeRuntime] = {}
+        for record in records:
+            if not isinstance(record, dict) or not record.get("engine"):
+                continue
+            engine = CashCascadePaperEngine.from_dict(record["engine"])
+            last_text = str(record.get("last_candle_timestamp") or "")
+            last = (
+                datetime.fromisoformat(last_text.replace("Z", "+00:00"))
+                if last_text
+                else engine.geometry.history[-1].timestamp
+            )
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=IST)
+            runtime = _TerminalCascadeRuntime(
+                engine=engine,
+                broker=broker,
+                signal_instrument=dict(record.get("signal_instrument") or {}),
+                trade_instrument=dict(record.get("trade_instrument") or {}),
+                last_candle_timestamp=last,
+                running=bool(record.get("running")),
+            )
+            symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
+            runtimes[symbol] = runtime
+        if not runtimes:
+            return {}
+        _terminal_cascade_engines[int(user_id)] = runtimes
+        for runtime in runtimes.values():
+            if runtime.running:
+                runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(int(user_id), runtime))
+        return runtimes
     except Exception as exc:
         _logger.warning("[TERMINAL CASCADE] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
-        return None
+        return {}
 
 
 async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCascadeRuntime) -> None:
-    while runtime.running and _terminal_cascade_engines.get(int(user_id)) is runtime:
+    symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
+    while runtime.running and _terminal_cascade_engines.get(int(user_id), {}).get(symbol) is runtime:
         try:
             today = datetime.now(IST).date()
             start = runtime.last_candle_timestamp.date()
@@ -9379,14 +9400,16 @@ async def cancel_order(order_id: str, request: Request):
 async def terminal_cascade_status(request: Request):
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
-    runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
-    if runtime is None:
+    runtimes = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    if not runtimes:
         return {"status": "not_started", "mode": "paper", "live_gate": _terminal_cascade_live_gate_status()}
     return {
         "status": "ok",
         "mode": "paper",
         "live_gate": _terminal_cascade_live_gate_status(),
-        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+        "campaigns": [
+            {**runtime.engine.get_status(), "running": runtime.running} for _symbol, runtime in sorted(runtimes.items())
+        ],
     }
 
 
@@ -9453,12 +9476,14 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
         raise HTTPException(
             status_code=400, detail="Connect a Dhan account before starting Terminal Cascade paper mode."
         )
-    old_runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    runtimes = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    instrument, signal_instrument, trade_instrument = _terminal_cascade_instruments(payload.symbol)
+    symbol = ScripMaster.normalize_equity_symbol(instrument.symbol)
+    old_runtime = runtimes.get(symbol)
     if old_runtime is not None and old_runtime.running:
         raise HTTPException(
-            status_code=409, detail="A Terminal Cascade paper campaign is already running. Stop it first."
+            status_code=409, detail=f"A Terminal Cascade paper campaign is already running for {symbol}."
         )
-    instrument, signal_instrument, trade_instrument = _terminal_cascade_instruments(payload.symbol)
     mother_signal, mother_trade = await _terminal_cascade_load_mother_pair(
         broker_client, signal_instrument, trade_instrument, normalised_tf, mother_timestamp
     )
@@ -9483,7 +9508,8 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
         trade_instrument=trade_instrument,
         last_candle_timestamp=last,
     )
-    _terminal_cascade_engines[user_id] = runtime
+    runtimes[symbol] = runtime
+    _terminal_cascade_engines[user_id] = runtimes
     runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(user_id, runtime))
     await _save_terminal_cascade_open_state(user_id, runtime, force=True)
     await _notify_terminal_cascade_ws(user_id)
@@ -9491,9 +9517,10 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
 
 
 @app.post("/api/terminal/cascade/stop")
-async def terminal_cascade_stop(request: Request):
+async def terminal_cascade_stop(request: Request, symbol: str):
     user_id = _request_user_id(request)
-    runtime = _terminal_cascade_engines.get(user_id)
+    runtimes = _terminal_cascade_engines.get(user_id, {})
+    runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
     if runtime is None:
         return {"status": "not_running"}
     runtime.running = False
@@ -9506,10 +9533,11 @@ async def terminal_cascade_stop(request: Request):
 
 
 @app.post("/api/terminal/cascade/kill")
-async def terminal_cascade_kill(request: Request):
+async def terminal_cascade_kill(request: Request, symbol: str):
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
-    runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    runtimes = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
     if runtime is None:
         raise HTTPException(status_code=404, detail="No Terminal Cascade paper campaign is active.")
     signal, trade = await _terminal_cascade_quote_pair(runtime)
@@ -9528,14 +9556,20 @@ async def terminal_cascade_kill(request: Request):
 
 
 @app.delete("/api/terminal/cascade")
-async def terminal_cascade_delete(request: Request):
+async def terminal_cascade_delete(request: Request, symbol: str):
     user_id = _request_user_id(request)
-    runtime = _terminal_cascade_engines.pop(user_id, None)
+    runtimes = _terminal_cascade_engines.get(user_id, {})
+    runtime = runtimes.pop(ScripMaster.normalize_equity_symbol(symbol), None)
     if runtime is not None:
         runtime.running = False
         if runtime.task and not runtime.task.done():
             runtime.task.cancel()
-    await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), "")
+    if runtimes:
+        await _save_terminal_cascade_open_state(user_id, force=True)
+    else:
+        _terminal_cascade_engines.pop(user_id, None)
+        await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), "")
+    await _notify_terminal_cascade_ws(user_id)
     return {"status": "deleted"}
 
 
