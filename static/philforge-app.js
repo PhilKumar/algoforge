@@ -3664,6 +3664,7 @@ let _stockTerminalValueListenersAttached = false;
 let _terminalCascadePollTimer = null;
 let _lastTerminalCascadeStatus = null;
 let _terminalCascadeInputsBound = false;
+const _terminalCascadeOpenSymbols = new Set();
 let _terminalCascadeChartTimeframe = 'auto';
 let _terminalCascadeChartPayload = null;
 let _terminalCascadeChartContext = null;
@@ -3921,6 +3922,13 @@ function _terminalCascadeMetric(label, value, accent = 'var(--text)') {
   return `<div class="terminal-cascade-metric"><span>${escapeHtml(label)}</span><strong style="color:${accent};">${escapeHtml(value)}</strong></div>`;
 }
 
+function setTerminalCascadeScripOpen(symbol, isOpen) {
+  const key = String(symbol || '');
+  if (!key) return;
+  if (isOpen) _terminalCascadeOpenSymbols.add(key);
+  else _terminalCascadeOpenSymbols.delete(key);
+}
+
 function _terminalCascadeStatusColor(status) {
   return ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[String(status || '').toUpperCase()] || 'var(--muted)');
 }
@@ -3985,7 +3993,8 @@ function _renderTerminalCascadeStatus(payload) {
 
 function _terminalCascadeEmptyWindow(symbol, reference) {
   const subtitle = reference && reference !== symbol ? `${reference} signal -> ${symbol} trade/TP` : 'Choose a scrip, then start a paper campaign.';
-  return `<article class="terminal-cascade-scrip-window"><div class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></div><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></article>`;
+  const open = _terminalCascadeOpenSymbols.has(String(symbol)) ? ' open' : '';
+  return `<details class="terminal-cascade-scrip-window" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}><summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></summary><div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></div></details>`;
 }
 
 function _terminalCascadeWindow(campaign) {
@@ -3997,6 +4006,7 @@ function _terminalCascadeWindow(campaign) {
   const mother = String(campaign?.mother?.signal?.timestamp || '');
   const timeframe = String(config.timeframe || '5m');
   const cardClass = campaign.running ? ' is-active' : '';
+  const open = _terminalCascadeOpenSymbols.has(symbol) ? ' open' : '';
   const metrics = [
     _terminalCascadeMetric('Signal', signal, inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
     _terminalCascadeMetric('Trade', symbol, '#6ee7b7'),
@@ -4007,16 +4017,16 @@ function _terminalCascadeWindow(campaign) {
     _terminalCascadeMetric('Carry', _terminalCascadeMoney(campaign.cash_carry_inr || 0), '#93c5fd'),
     _terminalCascadeMetric('Capital', _terminalCascadeMoney(config.capital_inr || 0)),
   ].join('');
-  return `<article class="terminal-cascade-scrip-window${cardClass}" data-terminal-cascade-symbol="${escapeAttr(symbol)}">
-    <div class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(signal)} signal -> ${escapeHtml(symbol)} trade/TP · ${escapeHtml(state)} · ${escapeHtml(timeframe)}</strong></div>
-      <div class="terminal-cascade-card-actions"><button class="terminal-cascade-card-control" title="Open ${escapeAttr(symbol)} chart" aria-label="Open ${escapeAttr(symbol)} chart" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">${ICO.chart(15)}</button>${campaign.running ? `<button class="terminal-cascade-card-control" title="Stop ${escapeAttr(symbol)} paper campaign" aria-label="Stop ${escapeAttr(symbol)} paper campaign" onclick="stopTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.sqstop(14)}</button>` : ''}<button class="terminal-cascade-card-control is-danger" title="Delete ${escapeAttr(symbol)} paper campaign" aria-label="Delete ${escapeAttr(symbol)} paper campaign" onclick="deleteTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.trash(15)}</button></div></div>
-    <div class="terminal-cascade-summary">${metrics}</div>
+  return `<details class="terminal-cascade-scrip-window${cardClass}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
+    <summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(signal)} signal -> ${escapeHtml(symbol)} trade/TP · ${escapeHtml(state)} · ${escapeHtml(timeframe)}</strong></div>
+      <div class="terminal-cascade-card-actions"><button class="terminal-cascade-card-control" title="Open ${escapeAttr(symbol)} chart" aria-label="Open ${escapeAttr(symbol)} chart" onclick="event.preventDefault();event.stopPropagation();loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">${ICO.chart(15)}</button>${campaign.running ? `<button class="terminal-cascade-card-control" title="Stop ${escapeAttr(symbol)} paper campaign" aria-label="Stop ${escapeAttr(symbol)} paper campaign" onclick="event.preventDefault();event.stopPropagation();stopTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.sqstop(14)}</button>` : ''}<button class="terminal-cascade-card-control is-danger" title="Delete ${escapeAttr(symbol)} paper campaign" aria-label="Delete ${escapeAttr(symbol)} paper campaign" onclick="event.preventDefault();event.stopPropagation();deleteTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.trash(15)}</button></div></summary>
+    <div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-summary">${metrics}</div>
     <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
     <div class="terminal-cascade-bottom-grid">
       <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Open fills</span><strong>paper basket</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeFillsMarkup(campaign.open_fills || [])}</div></section>
       <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Events</span><strong>latest first</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeEventsMarkup(campaign.events || [])}</div></section>
       <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Rounds</span><strong>closed paper trades</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeRoundsMarkup(campaign.rounds || [])}</div></section>
-    </div></article>`;
+    </div></div></details>`;
 }
 
 function _terminalCascadeRungsMarkup(rungs) {

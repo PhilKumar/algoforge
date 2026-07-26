@@ -1462,7 +1462,7 @@
         </div>
         <div class="terminal-cascade-start-panel-actions">
           <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
-          <button id="terminal-cascade-chart-btn" class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Chart</button>
+          <button id="terminal-cascade-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" onclick="loadTerminalCascadeChart()">Chart</button>
           <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
           <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
         </div>
@@ -1475,7 +1475,7 @@
             <span>Instrument</span>
             <strong id="terminal-cascade-scrip-subtitle">Select a symbol</strong>
           </div>
-          <button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Open Chart</button>
+          <button class="btn btn-sm terminal-cascade-chart-launch" onclick="loadTerminalCascadeChart()">Open Chart</button>
         </div>
         <div id="terminal-cascade-scrip-flow" class="terminal-cascade-scrip-flow"></div>
       </section>

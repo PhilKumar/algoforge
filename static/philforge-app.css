@@ -5273,6 +5273,7 @@
 .terminal-cascade-pill-warn { color: #fde68a; border-color: rgba(251,191,36,.34); }
 .terminal-cascade-pill-live { color: #fbbf24; border-color: rgba(251,191,36,.55); }
 .terminal-cascade-start-btn { --btn-bg: linear-gradient(180deg,rgba(245,158,11,.30),rgba(180,83,9,.42)); --btn-color: #fef3c7; --btn-border: rgba(251,191,36,.50); font-weight: 800; }
+.terminal-cascade-chart-launch { --btn-bg: linear-gradient(180deg, rgba(96,165,250,.28), rgba(30,64,175,.46)); --btn-color: #bfdbfe; --btn-border: rgba(147,197,253,.48); }
 .terminal-cascade-workspace { display: grid; grid-template-columns: minmax(270px, 320px) minmax(0, 1fr); gap: 14px; align-items: stretch; width: 100%; height: min(760px, calc(100dvh - 310px)); min-height: 560px; }
 .terminal-cascade-start-panel,
 .terminal-cascade-instrument-panel,
@@ -5285,15 +5286,22 @@
 .terminal-cascade-scrip-flow { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: max-content; align-content: start; gap: 12px; padding: 0 13px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .terminal-cascade-scrip-window { display: flex; flex: 0 0 auto; flex-direction: column; background: rgba(7,16,29,.58); }
 .terminal-cascade-scrip-window.is-active { border-color: rgba(52,211,153,.34); box-shadow: inset 3px 0 0 rgba(52,211,153,.72); }
-.terminal-cascade-scrip-window-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 13px; border-bottom: 1px solid rgba(148,163,184,.12); background: rgba(255,255,255,.025); }
+.terminal-cascade-scrip-window > summary { list-style: none; }
+.terminal-cascade-scrip-window > summary::-webkit-details-marker { display: none; }
+.terminal-cascade-scrip-window-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 13px; cursor: pointer; background: linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.018)); }
+.terminal-cascade-scrip-window[open] > .terminal-cascade-scrip-window-head { border-bottom: 1px solid rgba(148,163,184,.12); }
+.terminal-cascade-scrip-window-head::before { content: '\25B6'; flex: 0 0 auto; color: #93c5fd; font-size: 10px; transition: transform .16s ease; }
+.terminal-cascade-scrip-window[open] > .terminal-cascade-scrip-window-head::before { transform: rotate(90deg); }
 .terminal-cascade-scrip-window-head > div:not(.terminal-cascade-card-actions) { min-width: 0; display: grid; gap: 3px; }
 .terminal-cascade-scrip-window-head span { color: var(--text); font-size: 13px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .terminal-cascade-scrip-window-head strong { color: var(--muted); font: 11px var(--font-mono); font-weight: 600; }
 .terminal-cascade-card-actions { display: flex; flex: 0 0 auto; flex-direction: row; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; }
-.terminal-cascade-card-control { display: inline-flex; align-items: center; justify-content: center; width: 30px; min-width: 30px; height: 30px; padding: 0; border: 1px solid rgba(96,165,250,.34); border-radius: 7px; background: rgba(59,130,246,.10); color: #93c5fd; cursor: pointer; }
-.terminal-cascade-card-control:hover { border-color: rgba(96,165,250,.72); background: rgba(59,130,246,.18); color: #dbeafe; }
-.terminal-cascade-card-control.is-danger { border-color: rgba(248,113,113,.35); background: rgba(239,68,68,.08); color: #fca5a5; }
-.terminal-cascade-card-control .ico { display: inline-flex; }
+.terminal-cascade-card-control { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; min-width: 30px; height: 30px; padding: 0; overflow: hidden; border: 1px solid rgba(147,197,253,.52); border-radius: 7px; background: linear-gradient(180deg, rgba(96,165,250,.34), rgba(30,64,175,.52)); color: #dbeafe; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(0,0,0,.26); text-shadow: 0 1px 1px rgba(0,0,0,.25); transition: transform .15s ease, box-shadow .15s ease, filter .15s ease; }
+.terminal-cascade-card-control::before { content: ''; position: absolute; inset: 1px 2px auto; height: 42%; border-radius: 5px 5px 8px 8px; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0)); pointer-events: none; }
+.terminal-cascade-card-control:hover { transform: translateY(-1px); border-color: rgba(191,219,254,.82); color: #fff; filter: saturate(1.10) brightness(1.05); box-shadow: 0 6px 13px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.30); }
+.terminal-cascade-card-control:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,.28), inset 0 2px 2px rgba(0,0,0,.25); }
+.terminal-cascade-card-control.is-danger { border-color: rgba(252,165,165,.54); background: linear-gradient(180deg, rgba(248,113,113,.30), rgba(153,27,27,.52)); color: #fee2e2; }
+.terminal-cascade-card-control .ico { position: relative; z-index: 1; display: inline-flex; }
 .terminal-cascade-setup { border: 1px solid rgba(148,163,184,.12); border-radius: 10px; background: rgba(255,255,255,.025); overflow: hidden; margin-bottom: 12px; }
 .terminal-cascade-setup summary { display: flex; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; font-size: 12px; font-weight: 800; }
 .terminal-cascade-setup summary::-webkit-details-marker { display: none; }
@@ -5356,11 +5364,12 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .terminal-cascade-chart-details summary > span::before { content: '\25B6'; color: #93c5fd; font-size: 10px; transition: transform .16s ease; }
 .terminal-cascade-chart-details[open] summary > span::before { transform: rotate(90deg); }
 .terminal-cascade-chart-details summary em { color: var(--muted); font: 11px var(--font-mono); font-style: normal; }
-.terminal-cascade-chart-control { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0; border: 1px solid rgba(96,165,250,.34); border-radius: 7px; background: rgba(59,130,246,.10); color: #93c5fd; cursor: pointer; box-shadow: none; }
-.terminal-cascade-chart-control:hover { background: rgba(59,130,246,.18); border-color: rgba(96,165,250,.72); color: #dbeafe; }
-.terminal-cascade-chart-control.is-danger { border-color: rgba(248,113,113,.32); background: rgba(239,68,68,.08); color: #fca5a5; }
-.terminal-cascade-chart-control.is-danger:hover { border-color: rgba(248,113,113,.72); background: rgba(239,68,68,.16); color: #fee2e2; }
-.terminal-cascade-chart-control .ico { display: inline-flex; }
+.terminal-cascade-chart-control { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0; overflow: hidden; border: 1px solid rgba(147,197,253,.52); border-radius: 7px; background: linear-gradient(180deg, rgba(96,165,250,.34), rgba(30,64,175,.52)); color: #dbeafe; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(0,0,0,.26); transition: transform .15s ease, box-shadow .15s ease, filter .15s ease; }
+.terminal-cascade-chart-control::before { content: ''; position: absolute; inset: 1px 2px auto; height: 42%; border-radius: 5px 5px 8px 8px; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0)); pointer-events: none; }
+.terminal-cascade-chart-control:hover { transform: translateY(-1px); border-color: rgba(191,219,254,.82); color: #fff; filter: saturate(1.10) brightness(1.05); box-shadow: 0 6px 13px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.30); }
+.terminal-cascade-chart-control:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,.28), inset 0 2px 2px rgba(0,0,0,.25); }
+.terminal-cascade-chart-control.is-danger { border-color: rgba(252,165,165,.54); background: linear-gradient(180deg, rgba(248,113,113,.30), rgba(153,27,27,.52)); color: #fee2e2; }
+.terminal-cascade-chart-control .ico { position: relative; z-index: 1; display: inline-flex; }
 .terminal-cascade-chart-dialog.is-fullscreen { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-toolbar { position: sticky; top: 0; z-index: 3; background: #0b1220; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-body { padding: 0; display: grid; place-items: center; touch-action: none; user-select: none; }
