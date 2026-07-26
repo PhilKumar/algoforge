@@ -111,8 +111,10 @@ const ICO = {
     const now = new Date();
     const step = Math.max(Number(activeInput.dataset.pfCalendarStep || activeInput.getAttribute('step') || 300) / 60, 1);
     const minutes = [];
-    const firstMinute = step >= 60 ? 15 : 0;
-    for (let minute = firstMinute; minute < 60; minute += step) minutes.push(minute);
+    // 1H candles normally begin at :15, but manual replay must allow the
+    // complete minute selection so the user can enter any valid mother bar.
+    const minuteStep = step >= 60 ? 5 : step;
+    for (let minute = 0; minute < 60; minute += minuteStep) minutes.push(minute);
     const monthName = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(visibleMonth);
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('');
     let days = '';
@@ -1630,13 +1632,27 @@ async function refreshCandleEntryStatus() {
   }
 }
 
+function _setCandleEntryFormStatus(message, tone = 'muted') {
+  const el = _cascadeOptionsEl('candle-entry-form-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+
 async function startCandleEntryPaper() {
   const timestamp = _cascadeOptionsEl('candle-entry-mother-timestamp')?.value;
-  if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a completed 1H mother timestamp for Candle Entry.', 'error'); return; }
-  const response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: timestamp }) });
+  if (!timestamp) { _setCandleEntryFormStatus('Choose a completed 1H mother timestamp.', 'error'); return; }
+  _setCandleEntryFormStatus('Checking the 1H mother candle…', 'busy');
+  let response;
+  try {
+    response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: timestamp }) });
+  } catch (error) {
+    _setCandleEntryFormStatus(error?.message || 'Unable to reach the paper campaign service.', 'error');
+    return;
+  }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.status !== 'started') { _cascadeOptionsSetFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
-  _cascadeOptionsSetFormStatus('1H Candle Entry paper campaign started. No live order will be sent.', 'success');
+  if (!response.ok || data.status !== 'started') { _setCandleEntryFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
+  _setCandleEntryFormStatus('1H paper campaign started. No live order will be sent.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
 }
 
@@ -1645,8 +1661,8 @@ async function killCandleEntryPaper() {
   if (!confirmed) return;
   const response = await fetch('/api/candle-entry/paper/kill', { method: 'POST', credentials: 'same-origin' });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.status !== 'killed') { _cascadeOptionsSetFormStatus(data?.detail || 'Candle Entry kill could not be confirmed.', 'error'); return; }
-  _cascadeOptionsSetFormStatus('1H Candle Entry campaign killed.', 'success');
+  if (!response.ok || data.status !== 'killed') { _setCandleEntryFormStatus(data?.detail || 'Candle Entry kill could not be confirmed.', 'error'); return; }
+  _setCandleEntryFormStatus('1H Candle Entry campaign killed.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
 }
 
