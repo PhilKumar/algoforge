@@ -3664,6 +3664,9 @@ let _stockTerminalValueListenersAttached = false;
 let _terminalCascadePollTimer = null;
 let _lastTerminalCascadeStatus = null;
 let _terminalCascadeInputsBound = false;
+let _terminalCascadeChartTimeframe = 'auto';
+let _terminalCascadeChartPayload = null;
+let _terminalCascadeZoom = { k: 1, x: 0, y: 0 };
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 const _TERMINAL_CASCADE_CAPITAL_KEY = 'philforge_terminal_cascade_capital_v1';
 
@@ -3905,7 +3908,11 @@ function updateTerminalCascadeReference() {
 }
 
 function _terminalCascadeMetric(label, value, accent = 'var(--text)') {
-  return `<div style="padding:9px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px 'JetBrains Mono',monospace;color:${accent};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(value)}</div></div>`;
+  return `<div class="terminal-cascade-metric"><span>${escapeHtml(label)}</span><strong style="color:${accent};">${escapeHtml(value)}</strong></div>`;
+}
+
+function _terminalCascadeStatusColor(status) {
+  return ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[String(status || '').toUpperCase()] || 'var(--muted)');
 }
 
 function _renderTerminalCascadeStatus(payload) {
@@ -3916,21 +3923,25 @@ function _renderTerminalCascadeStatus(payload) {
   if (gateEl) {
     gateEl.textContent = gate.enabled ? 'LIVE GATE' : 'LIVE LOCKED';
     gateEl.title = gate.reason || '';
-    gateEl.style.color = gate.enabled ? '#fbbf24' : '#fde68a';
+    gateEl.classList.toggle('terminal-cascade-pill-live', !!gate.enabled);
   }
   const badge = _terminalCascadeEl('terminal-cascade-badge');
   const start = _terminalCascadeEl('terminal-cascade-start');
   const stop = _terminalCascadeEl('terminal-cascade-stop');
-  const kill = _terminalCascadeEl('terminal-cascade-kill');
+  const del = _terminalCascadeEl('terminal-cascade-delete');
+  const chart = _terminalCascadeEl('terminal-cascade-chart-btn');
   const summary = _terminalCascadeEl('terminal-cascade-summary');
+  const controlSummary = _terminalCascadeEl('terminal-cascade-control-summary');
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (start) start.disabled = false;
     if (stop) stop.style.display = 'none';
-    if (kill) kill.style.display = 'none';
+    if (del) del.style.display = 'none';
+    if (chart) chart.disabled = false;
+    if (controlSummary) controlSummary.textContent = 'Mother, capital, timeframe and product';
     if (summary) summary.innerHTML = [
-      _terminalCascadeMetric('Selected', _stockTerminalSelected?.symbol || '—'),
-      _terminalCascadeMetric('Reference', _stockTerminalSelected?.cascade_reference?.symbol || '—'),
+      _terminalCascadeMetric('Selected', _stockTerminalSelected?.symbol || '-'),
+      _terminalCascadeMetric('Reference', _stockTerminalSelected?.cascade_reference?.symbol || '-'),
       _terminalCascadeMetric('Product', 'CNC'),
       _terminalCascadeMetric('Status', 'Idle'),
     ].join('');
@@ -3946,13 +3957,17 @@ function _renderTerminalCascadeStatus(payload) {
   if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
   if (start) start.disabled = running;
   if (stop) stop.style.display = running ? '' : 'none';
-  if (kill) kill.style.display = running ? '' : 'none';
+  if (del) del.style.display = '';
+  if (chart) chart.disabled = false;
   const inst = campaign.instrument || {};
   const config = campaign.config || {};
+  if (controlSummary) {
+    controlSummary.textContent = `${inst.symbol || 'Campaign'} · ${config.timeframe || '5m'} · ${config.product_type || 'CNC'} · ${state}`;
+  }
   if (summary) {
     summary.innerHTML = [
-      _terminalCascadeMetric('Signal', inst.signal_symbol || '—', inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
-      _terminalCascadeMetric('Trade', inst.symbol || '—', '#6ee7b7'),
+      _terminalCascadeMetric('Signal', inst.signal_symbol || '-', inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
+      _terminalCascadeMetric('Trade', inst.symbol || '-', '#6ee7b7'),
       _terminalCascadeMetric('Avg', _cascadeNumber(campaign.average_entry_price)),
       _terminalCascadeMetric('TP', _cascadeNumber(campaign.target_price), '#fef3c7'),
       _terminalCascadeMetric('Qty', String(campaign.open_quantity || 0), '#6ee7b7'),
@@ -3973,44 +3988,70 @@ function _renderTerminalCascadeStatus(payload) {
 
 function _renderTerminalCascadeRungs(rungs) {
   const el = _terminalCascadeEl('terminal-cascade-rungs');
+  const count = _terminalCascadeEl('terminal-cascade-rung-count');
   if (!el) return;
+  if (count) count.textContent = Array.isArray(rungs) && rungs.length ? `${rungs.length} rungs` : 'No rungs';
   if (!Array.isArray(rungs) || !rungs.length) {
-    el.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib rungs yet</div>';
+    el.innerHTML = '<div class="terminal-cascade-empty">No fib rungs yet.</div>';
     return;
   }
-  el.innerHTML = rungs.map(rung => {
-    const color = ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[rung.status] || 'var(--muted)');
-    return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;min-width:0;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>F${escapeHtml(rung.leg_id)} L${escapeHtml(rung.level)}</strong><span style="color:${color};">${escapeHtml(rung.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(rung.signal_price))}</div><div style="margin-top:3px;font-size:10px;color:var(--muted);">${escapeHtml(_terminalCascadeMoney(rung.budget_inr))}</div></div>`;
+  const rows = rungs.map(rung => {
+    const status = String(rung.status || 'PENDING').toUpperCase();
+    const color = _terminalCascadeStatusColor(status);
+    const allocation = Number(rung.allocation_pct || 0);
+    return `<tr class="terminal-cascade-rung-row is-${escapeAttr(status.toLowerCase())}">
+      <td><strong>F${escapeHtml(rung.leg_id)} L${escapeHtml(rung.level)}</strong><small>${Number.isFinite(allocation) ? allocation.toFixed(2) : '0.00'}% allocation</small></td>
+      <td class="num">${escapeHtml(_cascadeNumber(rung.signal_price))}</td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(rung.pool_inr || 0))}<small>pool</small></td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(rung.budget_inr || 0))}</td>
+      <td><span class="terminal-cascade-status" style="color:${color};border-color:${color};">${escapeHtml(status)}</span></td>
+    </tr>`;
   }).join('');
+  el.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table">
+    <thead><tr><th>Level</th><th class="num">Signal price</th><th class="num">Pool</th><th class="num">Amount</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 function _renderTerminalCascadeFills(fills) {
   const el = _terminalCascadeEl('terminal-cascade-fills');
   if (!el) return;
-  el.innerHTML = Array.isArray(fills) && fills.length ? fills.map(fill => `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong></div>`).join('') : '<div style="color:var(--muted);">No open fills</div>';
+  if (!Array.isArray(fills) || !fills.length) {
+    el.innerHTML = '<div class="terminal-cascade-empty">No open fills.</div>';
+    return;
+  }
+  el.innerHTML = fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
 }
 
 function _renderTerminalCascadeRounds(rounds) {
   const el = _terminalCascadeEl('terminal-cascade-rounds');
   if (!el) return;
-  el.innerHTML = Array.isArray(rounds) && rounds.length ? rounds.slice(-4).reverse().map(row => {
+  if (!Array.isArray(rounds) || !rounds.length) {
+    el.innerHTML = '<div class="terminal-cascade-empty">No completed round.</div>';
+    return;
+  }
+  el.innerHTML = rounds.slice(-8).reverse().map(row => {
     const pnl = Number(row.net_pnl || 0);
     const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
-    return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong></div>`;
-  }).join('') : '<div style="color:var(--muted);">No completed round</div>';
+    return `<div class="terminal-cascade-log-row"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong><em>${escapeHtml(String(row.exit_quantity || 0))} qty</em></div>`;
+  }).join('');
 }
 
 function _renderTerminalCascadeEvents(events) {
   const el = _terminalCascadeEl('terminal-cascade-events');
   if (!el) return;
-  el.innerHTML = Array.isArray(events) && events.length ? events.slice(-20).reverse().map(event => {
+  if (!Array.isArray(events) || !events.length) {
+    el.innerHTML = '<div class="terminal-cascade-empty">No events.</div>';
+    return;
+  }
+  el.innerHTML = events.slice(-30).reverse().map(event => {
     const bits = [];
     if (event.rung) bits.push(event.rung);
     if (event.quantity) bits.push(`${event.quantity} qty`);
     if (event.trade_price) bits.push(_cascadeNumber(event.trade_price));
     if (event.target_price) bits.push(`TP ${_cascadeNumber(event.target_price)}`);
-    return `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${bits.length ? ` <span>${escapeHtml(bits.join(' · '))}</span>` : ''}</div>`;
-  }).join('') : 'No events';
+    return `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span><strong>${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong><em>${bits.length ? escapeHtml(bits.join(' · ')) : ''}</em></div>`;
+  }).join('');
 }
 
 async function refreshTerminalCascadeStatus() {
@@ -4072,6 +4113,16 @@ async function stopTerminalCascadePaper() {
   refreshTerminalCascadeStatus();
 }
 
+async function deleteTerminalCascadePaper() {
+  const ok = await customConfirm('Delete this Terminal Cascade paper campaign from the Terminal view? No Dhan order is sent.', { title: 'Delete Cash Cascade', icon: ICO.warn(28), okText: 'Delete', danger: true });
+  if (!ok) return;
+  const res = await fetch('/api/terminal/cascade', { method: 'DELETE', credentials: 'same-origin' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== 'deleted') { _terminalCascadeSetStatus(data?.detail || 'Delete failed.', 'error'); return; }
+  _terminalCascadeSetStatus('Terminal Cascade paper campaign deleted.', 'success');
+  _renderTerminalCascadeStatus({ status: 'not_started', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate });
+}
+
 async function killTerminalCascadePaper() {
   const ok = await customConfirm('Kill this Terminal Cascade paper campaign and close any paper basket at current quote? No Dhan order is sent.', { title: 'Kill Cash Cascade', icon: ICO.warn(28), okText: 'Kill Paper', danger: true });
   if (!ok) return;
@@ -4082,110 +4133,420 @@ async function killTerminalCascadePaper() {
   _renderTerminalCascadeStatus({ status: 'ok', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate, campaign: data.campaign });
 }
 
+
+function _terminalCascadeCurrentChartTimeframe() {
+  if (_terminalCascadeChartTimeframe !== 'auto') return _terminalCascadeChartTimeframe;
+  return _lastTerminalCascadeStatus?.campaign?.config?.timeframe || _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
+}
+
+function _terminalCascadeMarkChartTimeframe(resolved) {
+  document.querySelectorAll('#terminal-cascade-chart-tf .terminal-cascade-tf-option[data-tf]').forEach((button) => {
+    const tf = button.getAttribute('data-tf');
+    const active = tf === _terminalCascadeChartTimeframe;
+    button.classList.toggle('is-active', active);
+    button.classList.toggle('is-resolved', _terminalCascadeChartTimeframe === 'auto' && tf === resolved);
+    button.setAttribute('aria-checked', active ? 'true' : 'false');
+  });
+}
+
+function setTerminalCascadeChartTimeframe(tf) {
+  _terminalCascadeChartTimeframe = ['auto', '5m', '15m', '1h'].includes(tf) ? tf : 'auto';
+  _terminalCascadeMarkChartTimeframe(_terminalCascadeCurrentChartTimeframe());
+  const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
+  if (overlay?.classList.contains('is-open')) loadTerminalCascadeChart({ keepOpen: true }).catch(() => {});
+}
+
+function _terminalCascadeChartStatusMap() {
+  const campaign = _lastTerminalCascadeStatus?.campaign || {};
+  const map = new Map();
+  (campaign.rungs || []).forEach(row => map.set(`${row.leg_id}:${row.level}`, row));
+  return map;
+}
+
+function _terminalCascadeChartDetails(payload) {
+  const geometry = payload?.geometry || {};
+  const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
+  const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
+  const rungMap = _terminalCascadeChartStatusMap();
+  const rows = [];
+  trendlines.forEach(line => {
+    rows.push(`<tr><td>TL ${escapeHtml(line.id)}</td><td>mother high</td><td class="num">${escapeHtml(_cascadeNumber(line.anchor1_price))}</td><td>${escapeHtml(_cascadeOptionsTimestamp(line.anchor1_timestamp))}</td></tr>`);
+    rows.push(`<tr><td></td><td>red open</td><td class="num">${escapeHtml(_cascadeNumber(line.anchor2_price))}</td><td>${escapeHtml(_cascadeOptionsTimestamp(line.anchor2_timestamp))}</td></tr>`);
+  });
+  legs.forEach(leg => {
+    const hi = Number(leg.fib_high), lo = Number(leg.fib_low), range = hi - lo;
+    rows.push(`<tr><td>Fib ${escapeHtml(leg.leg_id)}</td><td>0 swing high</td><td class="num">${escapeHtml(_cascadeNumber(hi))}</td><td>${escapeHtml(_cascadeOptionsTimestamp(leg.touch_timestamp))}</td></tr>`);
+    rows.push(`<tr><td></td><td>1 leg low</td><td class="num">${escapeHtml(_cascadeNumber(lo))}</td><td>reference move</td></tr>`);
+    if (Number.isFinite(range) && range > 0) {
+      [2, 4, 8].forEach(level => {
+        const rung = rungMap.get(`${leg.leg_id}:${level}`) || {};
+        const price = hi - level * range;
+        rows.push(`<tr><td></td><td>L${level} buy level</td><td class="num">${escapeHtml(_cascadeNumber(price))}</td><td>${escapeHtml(rung.status || 'PENDING')}${rung.budget_inr ? ` · ${escapeHtml(_terminalCascadeMoney(rung.budget_inr))}` : ''}</td></tr>`);
+      });
+    }
+  });
+  if (!rows.length) return '<div class="terminal-cascade-empty">No trendlines or fib levels marked yet.</div>';
+  return `<details class="terminal-cascade-chart-details"><summary><span>Structure, fibs and order details</span><em>${rows.length} rows · expand</em></summary><div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Object</th><th>Anchor</th><th class="num">Price</th><th>Time / status</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details>`;
+}
+
+function _terminalCascadeChartHtml(payload) {
+  const instrument = payload?.instrument || {};
+  const referenceMode = instrument.reference_mode === 'reference_index';
+  const signal = instrument.signal_symbol || instrument.symbol || 'Signal';
+  const trade = instrument.symbol || signal;
+  const legend = `<div class="terminal-cascade-chart-legend">
+    <span style="color:#a78bfa;">MC / mother high</span>
+    <span style="color:#60a5fa;">trendlines</span>
+    <span style="color:#34d399;">fib buy levels</span>
+    <span style="color:#6ee7b7;">fills</span>
+    ${referenceMode ? `<em>${escapeHtml(signal)} signal chart -> ${escapeHtml(trade)} trade/TP</em>` : '<em>Own chart, own trade and TP scale</em>'}
+  </div>`;
+  return legend + _terminalCascadeChartSvg(payload) + _terminalCascadeChartDetails(payload);
+}
+
+function _terminalCascadeChartPalette() {
+  let theme = document.documentElement.getAttribute('data-theme');
+  if (!theme || theme === 'auto') {
+    theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  if (theme === 'light') {
+    return {
+      bg: '#ffffff', grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
+      up: '#0f766e', down: '#be123c', mother: '#7c3aed',
+      tp: '#047857', avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
+      fibs: ['#1d4ed8', '#15803d', '#be123c'],
+    };
+  }
+  return {
+    bg: '#07101d', grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
+    up: '#3fae56', down: '#d9534f', mother: '#a855f7',
+    tp: '#10b981', avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
+    fibs: ['#3b82f6', '#22c55e', '#ef4444'],
+  };
+}
+
 function _terminalCascadeChartSvg(payload) {
+  const PAL = _terminalCascadeChartPalette();
   const candles = Array.isArray(payload?.candles) ? payload.candles : [];
-  if (!candles.length) return '<div style="padding:20px;color:var(--muted);">No candles</div>';
-  const W = 1180, H = 430, padL = 82, padR = 66, padT = 20, padB = 35;
+  if (!candles.length) return '<div class="pf-cascade-chart-empty">No candles</div>';
+  const W = 1180, H = 520, padL = 168, padR = 58, padT = 14, padB = 30;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const n = candles.length, cw = plotW / Math.max(n, 1);
   const geometry = payload.geometry || {};
   const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
   const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
-  const fibPrices = [];
-  legs.forEach(leg => {
-    const hi = Number(leg.fib_high), lo = Number(leg.fib_low), range = hi - lo;
-    if (Number.isFinite(hi) && Number.isFinite(lo) && range > 0) [0, 1, 2, 4, 8].forEach(level => fibPrices.push(hi - level * range));
+  const campaign = _lastTerminalCascadeStatus?.campaign || {};
+  const instrument = payload.instrument || campaign.instrument || {};
+  const ownScale = instrument.reference_mode !== 'reference_index';
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const millis = value => {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+
+  let lo = Number(candles[0].l), hi = Number(candles[0].h);
+  candles.forEach(candle => {
+    const cLo = Number(candle.l), cHi = Number(candle.h);
+    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
+    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
   });
-  let lo = Math.min(...candles.map(c => Number(c.l)), ...fibPrices);
-  let hi = Math.max(...candles.map(c => Number(c.h)), ...fibPrices);
   const mother = payload.mother || {};
   if (Number.isFinite(Number(mother.h))) hi = Math.max(hi, Number(mother.h));
   if (Number.isFinite(Number(mother.l))) lo = Math.min(lo, Number(mother.l));
-  const padding = Math.max((hi - lo) * .06, 1);
-  hi += padding; lo -= padding;
-  const Y = p => padT + ((hi - p) / (hi - lo || 1)) * plotH;
-  const X = i => padL + i * cw + cw / 2;
-  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-  const idxForTime = value => {
-    const target = Date.parse(value);
-    if (!Number.isFinite(target)) return 0;
-    let best = 0, bestDelta = Infinity;
-    candles.forEach((c, i) => {
-      const delta = Math.abs(Date.parse(c.t) - target);
-      if (delta < bestDelta) { best = i; bestDelta = delta; }
+  legs.forEach(leg => {
+    const fibHi = Number(leg.fib_high), fibLo = Number(leg.fib_low);
+    if (Number.isFinite(fibHi)) hi = Math.max(hi, fibHi);
+    if (Number.isFinite(fibLo)) lo = Math.min(lo, fibLo);
+    const range = fibHi - fibLo;
+    if (Number.isFinite(range) && range > 0) {
+      [0, 1, 2, 4, 8].forEach(level => {
+        const price = fibHi - level * range;
+        hi = Math.max(hi, price);
+        lo = Math.min(lo, price);
+      });
+    }
+  });
+  if (ownScale) {
+    [campaign.target_price, campaign.average_entry_price].forEach(price => {
+      const p = Number(price);
+      if (Number.isFinite(p) && p > 0) { hi = Math.max(hi, p); lo = Math.min(lo, p); }
     });
-    return best;
+  }
+  const span = (hi - lo) || 1;
+  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
+  const X = index => padL + index * cw + cw / 2;
+  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
+  const Xt = value => {
+    const t = millis(value), t0 = millis(candles[0].t), t1 = millis(candles[n - 1].t);
+    if (!t || !t0 || !t1 || t1 === t0) return X(0);
+    return padL + cw / 2 + ((t - t0) / (t1 - t0)) * (plotW - cw);
   };
-  const parts = [];
+  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
+  const trendlinePrice = (line, atMillis) => {
+    const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
+    const a1p = Number(line.anchor1_price), a2p = Number(line.anchor2_price);
+    if (!a1t || !a2t || !Number.isFinite(a1p) || !Number.isFinite(a2p) || a2t === a1t) return a1p;
+    return a1p + ((a2p - a1p) / (a2t - a1t)) * (atMillis - a1t);
+  };
+  const colorById = id => PAL.fibs[(Math.max(1, Number(id) || 1) - 1) % PAL.fibs.length];
+  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
+
   for (let i = 0; i <= 4; i += 1) {
-    const price = lo + (hi - lo) * i / 4, y = Y(price);
-    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="rgba(148,163,184,.16)"/>`);
-    parts.push(`<text x="${padL + plotW + 7}" y="${(y + 3).toFixed(1)}" fill="#94a3b8" font-size="9.5" font-family="monospace">${number(price)}</text>`);
+    const price = minP + (maxP - minP) * (i / 4);
+    const y = Y(price);
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="${PAL.grid}" stroke-width="1"/>`);
+    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
   }
   const tickCount = Math.min(6, n);
   for (let i = 0; i < tickCount; i += 1) {
-    const at = Math.round((n - 1) * i / Math.max(tickCount - 1, 1));
-    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 10}" fill="#94a3b8" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
+    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
   }
-  const bodyW = Math.max(Math.min(cw * .66, 9), 1);
-  candles.forEach((candle, i) => {
-    const up = Number(candle.c) >= Number(candle.o);
-    const color = candle.gap_direction === 'up' ? '#34d399' : candle.gap_direction === 'down' ? '#f87171' : (up ? '#39c6b1' : '#ec5f91');
-    const x = X(i), top = Y(Math.max(Number(candle.o), Number(candle.c))), bottom = Y(Math.min(Number(candle.o), Number(candle.c)));
-    parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(Number(candle.h)).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(Number(candle.l)).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+
+  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
+  candles.forEach((candle, index) => {
+    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
+    if (![o, h, l, c].every(Number.isFinite)) return;
+    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
+    parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(l).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+    const top = Y(Math.max(o, c)), bottom = Y(Math.min(o, c));
     parts.push(`<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(bottom - top, 1).toFixed(1)}" fill="${color}"/>`);
     if (candle.is_mother) {
-      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${plotH.toFixed(1)}" fill="#a78bfa" opacity=".11"/>`);
-      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(Number(candle.h)) - 8, 12).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
+      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
+      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
     }
   });
-  const cycle = ['#60a5fa', '#34d399', '#f87171'];
-  legs.forEach((leg, index) => {
-    const color = cycle[index % cycle.length];
+
+  const labelSlots = [];
+  const label = (y, text, color) => {
+    let ly = y;
+    for (let pass = 0, moved = true; moved && pass <= labelSlots.length; pass += 1) {
+      moved = false;
+      for (let i = 0; i < labelSlots.length; i += 1) {
+        if (Math.abs(labelSlots[i] - ly) < 10) { ly = labelSlots[i] + 10.5; moved = true; break; }
+      }
+    }
+    labelSlots.push(ly);
+    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
+  };
+  const hline = (price, color, text, dash, width, opacity) => {
+    const p = Number(price);
+    if (!inView(p)) return;
+    const y = Y(p);
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${width || .9}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''}/>`);
+    if (text) label(y, text, color);
+  };
+
+  if (Number.isFinite(Number(mother.h))) hline(Number(mother.h), PAL.mother, `MOTHER (${number(mother.h)})`, '5 3', 1.1);
+
+  trendlines.forEach(line => {
+    const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
+    if (!a1t || !a2t || a1t === a2t) return;
+    const t1 = millis(candles[n - 1].t);
+    const endPrice = trendlinePrice(line, t1);
+    const color = colorById(line.id);
+    const noFib = line.bears_fib === false;
+    parts.push(`<line x1="${Xt(line.anchor1_timestamp).toFixed(1)}" y1="${Y(Number(line.anchor1_price)).toFixed(1)}" x2="${Xt(candles[n - 1].t).toFixed(1)}" y2="${Y(endPrice).toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .9 : 1.3}" opacity="${noFib ? .35 : .9}"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
+    if (inView(endPrice)) {
+      parts.push(`<text x="${(Xt(candles[n - 1].t) - 4).toFixed(1)}" y="${(Y(endPrice) - 5).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" text-anchor="end" opacity=".9">TL${escapeHtml(line.id)}${noFib ? ' (no fib)' : ''}</text>`);
+    }
+  });
+
+  legs.forEach(leg => {
+    const color = colorById(leg.leg_id);
     const hiP = Number(leg.fib_high), loP = Number(leg.fib_low), range = hiP - loP;
     if (!Number.isFinite(range) || range <= 0) return;
-    const x1 = X(idxForTime(leg.touch_timestamp));
-    [0, 1, 2, 4, 8].forEach(level => {
+    hline(hiP, color, `0 (${number(hiP)})`, null, .8, .4);
+    hline(loP, color, `1 (${number(loP)})`, null, .8, .4);
+    [2, 4, 8].forEach(level => {
       const price = hiP - level * range;
-      const y = Y(price);
-      parts.push(`<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${level === 0 || level === 1 ? 1.1 : .85}" opacity="${level === 2 || level === 4 || level === 8 ? .72 : .9}" stroke-dasharray="${level === 0 || level === 1 ? '0' : '4 3'}"/>`);
-      if ([2, 4, 8].includes(level)) parts.push(`<text x="${(padL + plotW - 6).toFixed(1)}" y="${(y - 3).toFixed(1)}" fill="${color}" font-size="9" font-family="monospace" text-anchor="end">F${escapeHtml(leg.leg_id)} L${level}</text>`);
+      const rung = (campaign.rungs || []).find(row => Number(row.leg_id) === Number(leg.leg_id) && Number(row.level) === level) || {};
+      const budget = Number(rung.budget_inr || 0);
+      hline(price, color, `L${level} (${number(price)})${budget > 0 ? `  ${_terminalCascadeMoney(budget)}` : ''}`, null, 1.1, .9);
     });
+    if (leg.touch_timestamp && inView(hiP)) {
+      parts.push(`<circle cx="${Xt(leg.touch_timestamp).toFixed(1)}" cy="${Y(hiP).toFixed(1)}" r="3.5" fill="none" stroke="${color}" stroke-width="1.5"/>`);
+    }
   });
-  trendlines.forEach((line, index) => {
-    if (line.bears_fib === false) return;
-    const color = cycle[index % cycle.length];
-    parts.push(`<line x1="${X(idxForTime(line.anchor1_timestamp)).toFixed(1)}" y1="${Y(Number(line.anchor1_price)).toFixed(1)}" x2="${X(idxForTime(line.anchor2_timestamp)).toFixed(1)}" y2="${Y(Number(line.anchor2_price)).toFixed(1)}" stroke="${color}" stroke-width="1.4"/>`);
+
+  (campaign.open_fills || []).forEach(fill => {
+    const price = Number(fill.signal_price);
+    if (!inView(price)) return;
+    parts.push(`<circle cx="${Xt(fill.timestamp).toFixed(1)}" cy="${Y(price).toFixed(1)}" r="3.5" fill="${PAL.fill}" stroke="${PAL.fillRing}" stroke-width="1"/>`);
   });
-  if (Number.isFinite(Number(mother.h))) {
-    const y = Y(Number(mother.h));
-    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="#a78bfa" stroke-width="1.1" stroke-dasharray="5 3"/>`);
-    parts.push(`<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" text-anchor="end">MOTHER ${number(mother.h)}</text>`);
+  if (ownScale) {
+    if (inView(Number(campaign.target_price))) hline(Number(campaign.target_price), PAL.tp, `TARGET (${number(campaign.target_price)})`, '6 3', 1.2);
+    if (inView(Number(campaign.average_entry_price))) hline(Number(campaign.average_entry_price), PAL.avg, `AVG ENTRY (${number(campaign.average_entry_price)})`, '4 4', 1.1);
   }
-  const label = payload?.instrument?.signal_symbol || 'Signal';
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(label)} Cascade chart">${parts.join('')}</svg>`;
+  const chartLabel = payload?.instrument?.signal_symbol || 'Signal';
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} Cascade chart">${parts.join('')}</svg>`;
 }
 
-async function loadTerminalCascadeChart() {
+function _terminalCascadeChartSvgEl() {
+  return _terminalCascadeEl('terminal-cascade-chart-body')?.querySelector('svg') || null;
+}
+
+function _terminalCascadeApplyZoom() {
+  const svg = _terminalCascadeChartSvgEl();
+  if (!svg) return;
+  if (!svg.dataset.baseViewbox) svg.dataset.baseViewbox = svg.getAttribute('viewBox') || '';
+  const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
+  if (base.length !== 4 || !Number.isFinite(base[2])) return;
+  const z = _terminalCascadeZoom;
+  const w = base[2] / z.k, h = base[3] / z.k;
+  z.x = Math.max(base[0], Math.min(z.x, base[0] + base[2] - w));
+  z.y = Math.max(base[1], Math.min(z.y, base[1] + base[3] - h));
+  svg.setAttribute('viewBox', `${z.x} ${z.y} ${w} ${h}`);
+  svg.style.cursor = z.k > 1 ? 'grab' : '';
+  const label = _terminalCascadeEl('terminal-cascade-zoom-level');
+  if (label) label.textContent = `${Math.round(z.k * 100)}%`;
+}
+
+function terminalCascadeZoom(factor, resetPan = false) {
+  const svg = _terminalCascadeChartSvgEl();
+  if (!svg) return;
+  if (!svg.dataset.baseViewbox) svg.dataset.baseViewbox = svg.getAttribute('viewBox') || '';
+  const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
+  const previous = Number(_terminalCascadeZoom.k) || 1;
+  const step = Number(factor);
+  if (!Number.isFinite(step)) return;
+  _terminalCascadeZoom.k = Math.max(1, Math.min(12, step === 0 ? 1 : previous * step));
+  if (step === 0 || resetPan || _terminalCascadeZoom.k === 1 || base.length !== 4) {
+    _terminalCascadeZoom.x = base[0] || 0;
+    _terminalCascadeZoom.y = base[1] || 0;
+  } else {
+    const cx = _terminalCascadeZoom.x + (base[2] / previous) / 2;
+    const cy = _terminalCascadeZoom.y + (base[3] / previous) / 2;
+    _terminalCascadeZoom.x = cx - (base[2] / _terminalCascadeZoom.k) / 2;
+    _terminalCascadeZoom.y = cy - (base[3] / _terminalCascadeZoom.k) / 2;
+  }
+  _terminalCascadeApplyZoom();
+}
+
+function terminalCascadeZoomIn() { terminalCascadeZoom(1.4); }
+function terminalCascadeZoomOut() { terminalCascadeZoom(1 / 1.4); }
+function terminalCascadeZoomReset() { terminalCascadeZoom(0, true); }
+
+function _terminalCascadeBindZoom() {
+  const body = _terminalCascadeEl('terminal-cascade-chart-body');
+  if (!body || body.dataset.zoomBound === '1') return;
+  body.dataset.zoomBound = '1';
+  body.addEventListener('wheel', (event) => {
+    const svg = _terminalCascadeChartSvgEl();
+    if (!svg) return;
+    const overChart = svg === event.target || svg.contains(event.target);
+    if (!overChart && !event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    terminalCascadeZoom(event.deltaY < 0 ? 1.15 : 1 / 1.15);
+  }, { passive: false });
+  let drag = null;
+  body.addEventListener('pointerdown', (event) => {
+    const svg = _terminalCascadeChartSvgEl();
+    if (!svg || _terminalCascadeZoom.k <= 1) return;
+    drag = { x: event.clientX, y: event.clientY, vx: _terminalCascadeZoom.x, vy: _terminalCascadeZoom.y, w: svg.clientWidth || 1, h: svg.clientHeight || 1 };
+    svg.style.cursor = 'grabbing';
+    try { body.setPointerCapture(event.pointerId); } catch (err) {}
+  });
+  body.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const svg = _terminalCascadeChartSvgEl();
+    if (!svg) return;
+    const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
+    if (base.length !== 4) return;
+    _terminalCascadeZoom.x = drag.vx - (event.clientX - drag.x) * (base[2] / _terminalCascadeZoom.k) / drag.w;
+    _terminalCascadeZoom.y = drag.vy - (event.clientY - drag.y) * (base[3] / _terminalCascadeZoom.k) / drag.h;
+    _terminalCascadeApplyZoom();
+  });
+  const endDrag = (event) => {
+    if (!drag) return;
+    drag = null;
+    const svg = _terminalCascadeChartSvgEl();
+    if (svg) svg.style.cursor = _terminalCascadeZoom.k > 1 ? 'grab' : '';
+    try { body.releasePointerCapture(event.pointerId); } catch (err) {}
+  };
+  body.addEventListener('pointerup', endDrag);
+  body.addEventListener('pointercancel', endDrag);
+}
+
+function toggleTerminalCascadeFullscreen(force) {
+  const panel = _terminalCascadeEl('terminal-cascade-chart-panel');
+  const button = _terminalCascadeEl('terminal-cascade-expand-btn');
+  if (!panel) return;
+  const open = typeof force === 'boolean' ? force : !panel.classList.contains('is-fullscreen');
+  panel.classList.toggle('is-fullscreen', open);
+  panel.classList.toggle('is-chart-only', open);
+  terminalCascadeZoomReset();
+  if (button) {
+    button.setAttribute('aria-pressed', open ? 'true' : 'false');
+    button.textContent = open ? 'Exit' : 'Expand';
+  }
+}
+
+async function loadTerminalCascadeChart(options = {}) {
   const symbol = _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
   const timestamp = _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || _lastTerminalCascadeStatus?.campaign?.mother?.signal?.timestamp || '';
-  const timeframe = _terminalCascadeEl('terminal-cascade-timeframe')?.value || _lastTerminalCascadeStatus?.campaign?.config?.timeframe || '5m';
-  const chart = _terminalCascadeEl('terminal-cascade-chart');
+  const timeframe = _terminalCascadeCurrentChartTimeframe();
+  const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
+  const body = _terminalCascadeEl('terminal-cascade-chart-body');
   if (!symbol || !timestamp) { _terminalCascadeSetStatus('Select a symbol and mother timestamp first.', 'error'); return; }
-  if (chart) chart.innerHTML = '<div style="padding:20px;color:var(--muted);">Loading chart...</div>';
+  if (overlay) {
+    if (overlay.parentNode !== document.body) document.body.appendChild(overlay);
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('terminal-cascade-chart-open');
+  }
+  if (body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading chart...</div>';
+  _terminalCascadeMarkChartTimeframe(timeframe);
   try {
     const url = `/api/terminal/cascade/chart?symbol=${encodeURIComponent(symbol)}&mother_timestamp=${encodeURIComponent(timestamp)}&timeframe=${encodeURIComponent(timeframe)}`;
     const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${res.status})`);
-    if (chart) chart.innerHTML = _terminalCascadeChartSvg(data);
+    _terminalCascadeChartPayload = data;
+    if (body) body.innerHTML = _terminalCascadeChartHtml(data);
+    const meta = _terminalCascadeEl('terminal-cascade-chart-meta');
+    const instrument = data.instrument || {};
+    const cands = Array.isArray(data.candles) ? data.candles.length : 0;
+    if (meta) meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${(data.geometry?.legs || []).length} fib(s), ${(data.geometry?.trendlines || []).length} trendline(s)`;
     _terminalCascadeSetStatus(`${data.instrument?.signal_symbol || symbol} chart loaded.`, 'success');
+    _terminalCascadeBindZoom();
+    terminalCascadeZoomReset();
+    _terminalCascadeMarkChartTimeframe(data.timeframe || timeframe);
   } catch (error) {
-    if (chart) chart.innerHTML = `<div style="padding:20px;color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
     _terminalCascadeSetStatus(error.message || 'Chart unavailable.', 'error');
   }
 }
+
+function refreshTerminalCascadeChart() {
+  loadTerminalCascadeChart({ keepOpen: true }).catch(() => {});
+}
+
+function hideTerminalCascadeChart() {
+  toggleTerminalCascadeFullscreen(false);
+  const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
+  if (overlay) {
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+  document.body.classList.remove('terminal-cascade-chart-open');
+}
+
+function terminalCascadeChartBackdrop(event) {
+  if (event && event.target && event.target.id === 'terminal-cascade-chart-overlay') hideTerminalCascadeChart();
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
+  const panel = _terminalCascadeEl('terminal-cascade-chart-panel');
+  if (!overlay?.classList.contains('is-open')) return;
+  if (panel?.classList.contains('is-fullscreen')) toggleTerminalCascadeFullscreen(false);
+  else hideTerminalCascadeChart();
+});
+
 
 function toggleStockOrderMode() {
   const mode = document.getElementById('stock-order-mode')?.value || 'regular';

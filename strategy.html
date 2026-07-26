@@ -1410,72 +1410,117 @@
     </div>
   </div>
 
-  <div class="card" id="terminal-cascade-panel" style="padding:18px;margin-bottom:16px;border-color:rgba(245,158,11,0.28);background:linear-gradient(110deg,rgba(120,53,15,0.18),rgba(15,23,42,0.10));">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px;">
-      <div style="min-width:240px;">
-        <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;text-transform:uppercase;">Cash Cascade</div>
-        <h3 style="margin:5px 0 0;font-size:16px;">BEES &amp; Equity Cascade</h3>
-        <div id="terminal-cascade-reference" style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">Select a symbol</div>
+  <div class="card terminal-cascade-shell" id="terminal-cascade-panel">
+    <div class="terminal-cascade-head">
+      <div class="terminal-cascade-title-block">
+        <div class="terminal-cascade-eyebrow">Cash Cascade</div>
+        <h3>BEES &amp; Equity Cascade</h3>
+        <div id="terminal-cascade-reference" class="terminal-cascade-reference">Select a symbol</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-        <span id="terminal-cascade-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
-        <span id="terminal-cascade-live-gate" style="font:10px 'JetBrains Mono',monospace;color:#fde68a;border:1px solid rgba(251,191,36,.28);border-radius:999px;padding:5px 9px;">LIVE LOCKED</span>
+      <div class="terminal-cascade-actions">
+        <span id="terminal-cascade-badge" class="terminal-cascade-pill">IDLE</span>
+        <span id="terminal-cascade-live-gate" class="terminal-cascade-pill terminal-cascade-pill-warn">LIVE LOCKED</span>
+        <button id="terminal-cascade-chart-btn" class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Chart</button>
+        <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
+        <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
+        <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin-bottom:12px;">
-      <div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp</label>
-        <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300" style="font-size:12px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Capital INR</label>
-        <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000" style="font-size:12px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Timeframe</label>
-        <select id="terminal-cascade-timeframe" style="font-size:12px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-          <option value="5m" selected>5m</option>
-          <option value="15m">15m</option>
-          <option value="1h">1H</option>
-        </select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">TP fraction</label>
-        <input id="terminal-cascade-target-pct" type="number" min="1" max="100" step="1" value="25" style="font-size:12px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Product</label>
-        <select id="terminal-cascade-product" style="font-size:12px;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-          <option value="CNC" selected>CNC</option>
-          <option value="MTF">MTF</option>
-        </select>
-      </div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap;">
-        <button id="terminal-cascade-chart-btn" class="btn btn-sm" onclick="loadTerminalCascadeChart()" style="padding:8px 10px;font-size:11px;">Chart</button>
-        <button id="terminal-cascade-start" class="btn btn-sm" onclick="startTerminalCascadePaper()" style="padding:8px 10px;font-size:11px;--btn-bg:linear-gradient(180deg,rgba(245,158,11,.30),rgba(180,83,9,.42));--btn-color:#fef3c7;--btn-border:rgba(251,191,36,.50);font-weight:800;">Start Paper</button>
-        <button id="terminal-cascade-stop" class="btn btn-sm" onclick="stopTerminalCascadePaper()" style="display:none;padding:8px 10px;font-size:11px;">Stop</button>
-        <button id="terminal-cascade-kill" class="btn btn-sm" onclick="killTerminalCascadePaper()" style="display:none;padding:8px 10px;font-size:11px;color:#fecaca;border-color:rgba(248,113,113,.55);background:rgba(127,29,29,.20);">Kill</button>
-      </div>
-    </div>
-    <div id="terminal-cascade-form-status" style="min-height:18px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-
-    <div id="terminal-cascade-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px;"></div>
-    <div style="display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(260px,.9fr);gap:14px;margin-top:14px;align-items:start;">
-      <div>
-        <div id="terminal-cascade-chart" style="min-height:190px;border:1px dashed var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">No chart loaded</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px;">
-          <div id="terminal-cascade-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--muted);">No open fills</div>
-          <div id="terminal-cascade-events" style="font:11px/1.5 'JetBrains Mono',monospace;color:var(--muted);max-height:150px;overflow:auto;">No events</div>
+    <details class="terminal-cascade-setup" open>
+      <summary>
+        <span>Campaign setup</span>
+        <em id="terminal-cascade-control-summary">Mother, capital, timeframe and product</em>
+      </summary>
+      <div class="terminal-cascade-form-grid">
+        <div class="terminal-cascade-field">
+          <label>Mother timestamp</label>
+          <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300">
+        </div>
+        <div class="terminal-cascade-field">
+          <label>Capital INR</label>
+          <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000">
+        </div>
+        <div class="terminal-cascade-field">
+          <label>Timeframe</label>
+          <select id="terminal-cascade-timeframe">
+            <option value="5m" selected>5m</option>
+            <option value="15m">15m</option>
+            <option value="1h">1H</option>
+          </select>
+        </div>
+        <div class="terminal-cascade-field">
+          <label>TP fraction</label>
+          <input id="terminal-cascade-target-pct" type="number" min="1" max="100" step="1" value="25">
+        </div>
+        <div class="terminal-cascade-field">
+          <label>Product</label>
+          <select id="terminal-cascade-product">
+            <option value="CNC" selected>CNC</option>
+            <option value="MTF">MTF</option>
+          </select>
         </div>
       </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Rungs</div>
-        <div id="terminal-cascade-rungs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:7px;"></div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:12px 0 7px;">Rounds</div>
-        <div id="terminal-cascade-rounds" style="font:11px 'JetBrains Mono',monospace;color:var(--muted);">No completed round</div>
+    </details>
+
+    <div id="terminal-cascade-form-status" class="terminal-cascade-form-status"></div>
+    <div id="terminal-cascade-summary" class="terminal-cascade-summary"></div>
+
+    <div class="terminal-cascade-ladder-panel">
+      <div class="terminal-cascade-section-head">
+        <div>
+          <span>Ladder and order flow</span>
+          <strong id="terminal-cascade-rung-count">No rungs</strong>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart()">Open Chart</button>
       </div>
+      <div id="terminal-cascade-rungs" class="terminal-cascade-rungs"></div>
     </div>
+
+    <div class="terminal-cascade-bottom-grid">
+      <section class="terminal-cascade-log-panel">
+        <div class="terminal-cascade-section-head"><div><span>Open fills</span><strong>paper basket</strong></div></div>
+        <div id="terminal-cascade-fills" class="terminal-cascade-log-body">No open fills</div>
+      </section>
+      <section class="terminal-cascade-log-panel">
+        <div class="terminal-cascade-section-head"><div><span>Events</span><strong>latest first</strong></div></div>
+        <div id="terminal-cascade-events" class="terminal-cascade-log-body">No events</div>
+      </section>
+      <section class="terminal-cascade-log-panel">
+        <div class="terminal-cascade-section-head"><div><span>Rounds</span><strong>closed paper trades</strong></div></div>
+        <div id="terminal-cascade-rounds" class="terminal-cascade-log-body">No completed round</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" id="terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Terminal Cascade chart" onclick="terminalCascadeChartBackdrop(event)">
+    <section class="pf-cascade-chart-dialog terminal-cascade-chart-dialog" id="terminal-cascade-chart-panel">
+      <div class="terminal-cascade-chart-toolbar">
+        <div class="terminal-cascade-chart-title">
+          <h3>Campaign Chart</h3>
+          <div id="terminal-cascade-chart-meta">Signal chart, fib anchors and ladder levels.</div>
+        </div>
+        <div class="terminal-cascade-chart-actions">
+          <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="terminal-cascade-chart-tf">
+            <button type="button" class="terminal-cascade-tf-option is-active" data-tf="auto" role="radio" aria-checked="true" onclick="setTerminalCascadeChartTimeframe('auto')">Auto</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="5m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('5m')">5m</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="15m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('15m')">15m</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="1h" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('1h')">1H</button>
+          </div>
+          <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
+            <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomOut()" title="Zoom out" aria-label="Zoom out">-</button>
+            <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" id="terminal-cascade-zoom-level" onclick="terminalCascadeZoomReset()" title="Reset zoom">100%</button>
+            <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="refreshTerminalCascadeChart()">Refresh</button>
+          <button class="btn btn-sm btn-outline" id="terminal-cascade-expand-btn" onclick="toggleTerminalCascadeFullscreen()" aria-pressed="false">Expand</button>
+          <button class="btn btn-sm btn-outline" onclick="hideTerminalCascadeChart()">Close</button>
+        </div>
+      </div>
+      <div id="terminal-cascade-chart-body" class="terminal-cascade-chart-body">
+        <div class="pf-cascade-chart-empty">Select a mother candle and open the chart.</div>
+      </div>
+    </section>
   </div>
 
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
@@ -2410,6 +2455,6 @@
   </div>
 </div>
 
-<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-1"></script>
+<script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-native-chart-1"></script>
 </body>
 </html>

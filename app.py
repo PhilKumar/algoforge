@@ -7467,6 +7467,32 @@ def _cascade_gap_adjusted_candles(
     return rows
 
 
+def _cascade_native_candles(candles: list[IndexCandle], mother_timestamp: Optional[datetime] = None) -> list[dict]:
+    selected = (
+        mother_timestamp.replace(tzinfo=IST)
+        if mother_timestamp and mother_timestamp.tzinfo is None
+        else mother_timestamp.astimezone(IST)
+        if mother_timestamp
+        else None
+    )
+    return [
+        {
+            "t": candle.timestamp.isoformat(),
+            "o": candle.open,
+            "h": candle.high,
+            "l": candle.low,
+            "c": candle.close,
+            "native_open": candle.open,
+            "native_high": candle.high,
+            "native_low": candle.low,
+            "native_close": candle.close,
+            "gap_direction": None,
+            "is_mother": bool(selected and candle.timestamp == selected),
+        }
+        for candle in sorted(candles, key=lambda item: item.timestamp)
+    ]
+
+
 async def _load_cascade_mother_candle(adapter: CascadeOptionsAdapter, mother_timestamp: datetime) -> IndexCandle:
     candles = await adapter.async_get_candles(
         "NIFTY", "5m", from_date=mother_timestamp.date(), to_date=mother_timestamp.date()
@@ -9382,7 +9408,7 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
         mother_signal, mother_trade, instrument, CashCascadePaperConfig(capital_inr=100000, timeframe=normalised_tf)
     )
     await _terminal_cascade_replay_to_now(broker_client, engine, signal_instrument, trade_instrument, mother)
-    rows = _cascade_gap_adjusted_candles(list(engine.geometry.history), mother)
+    rows = _cascade_native_candles(list(engine.geometry.history), mother)
     mother_row = next((row for row in rows if row["is_mother"]), None)
     if mother_row is None:
         raise HTTPException(status_code=404, detail="The selected mother candle was not returned by Dhan.")
@@ -9390,12 +9416,12 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
         "status": "ok",
         "timeframe": normalised_tf,
         "bar_minutes": minutes,
-        "chart_mode": "visual_gap_adjusted",
+        "chart_mode": "native_ohlc",
         "instrument": instrument.to_dict(),
         "candles": rows,
         "mother": mother_row,
         "geometry": engine.get_status()["geometry"],
-        "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
+        "note": "Terminal Cascade charts use native Dhan OHLC; paper geometry uses the same exchange candles.",
     }
 
 
