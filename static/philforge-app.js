@@ -3661,10 +3661,15 @@ let _stockTerminalOrderWatchTimer = null;
 let _stockTerminalOrderInFlight = false;
 let _stockTerminalLastLtp = 0;
 let _stockTerminalValueListenersAttached = false;
+let _terminalCascadePollTimer = null;
+let _lastTerminalCascadeStatus = null;
+let _terminalCascadeInputsBound = false;
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
+const _TERMINAL_CASCADE_CAPITAL_KEY = 'philforge_terminal_cascade_capital_v1';
 
 async function initStockTerminalPage(force = false) {
   bindStockTerminalValueInputs();
+  bindTerminalCascadeInputs();
   toggleStockOrderMode();
   toggleStockOrderFields();
   if (force || !_stockTerminalInitialized || !_stockTerminalStocks.length) {
@@ -3673,7 +3678,15 @@ async function initStockTerminalPage(force = false) {
     renderStockTerminalList();
   }
   if (_stockTerminalSelected) refreshStockTerminalQuote(true);
+  updateTerminalCascadeReference();
+  refreshTerminalCascadeStatus();
   refreshStockTerminalOrders();
+  if (!_terminalCascadePollTimer) {
+    _terminalCascadePollTimer = setInterval(() => {
+      if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      refreshTerminalCascadeStatus();
+    }, _ws && _ws.readyState === 1 ? 10000 : 4000);
+  }
   if (!_stockTerminalQuoteTimer) {
     _stockTerminalQuoteTimer = setInterval(() => {
       if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
@@ -3803,6 +3816,7 @@ function selectStockTerminal(symbol, options = {}) {
   }
   _stockTerminalLastLtp = 0;
   updateStockOrderValue();
+  updateTerminalCascadeReference();
   _setLocalState(_STOCK_TERMINAL_KEY, stock.symbol);
   renderStockTerminalList();
   if (!options.skipQuote) refreshStockTerminalQuote(true);
@@ -3845,6 +3859,331 @@ async function refreshStockTerminalQuote(force) {
       _stockTerminalLastLtp = 0;
       updateStockOrderValue();
     }
+  }
+}
+
+function _terminalCascadeEl(id) { return document.getElementById(id); }
+
+function bindTerminalCascadeInputs() {
+  if (_terminalCascadeInputsBound) return;
+  _terminalCascadeInputsBound = true;
+  const capital = _terminalCascadeEl('terminal-cascade-capital');
+  if (capital) {
+    const saved = _getLocalState(_TERMINAL_CASCADE_CAPITAL_KEY);
+    if (saved && Number(saved) > 0) capital.value = saved;
+    capital.addEventListener('input', () => _setLocalState(_TERMINAL_CASCADE_CAPITAL_KEY, capital.value || ''));
+  }
+}
+
+function _terminalCascadeMoney(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+}
+
+function _terminalCascadeSetStatus(message, tone = 'muted') {
+  const el = _terminalCascadeEl('terminal-cascade-form-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = ({ muted: 'var(--muted)', busy: '#fde68a', error: 'var(--danger)', success: '#6ee7b7' }[tone] || 'var(--muted)');
+}
+
+function updateTerminalCascadeReference() {
+  const el = _terminalCascadeEl('terminal-cascade-reference');
+  if (!el) return;
+  const stock = _stockTerminalSelected;
+  if (!stock) {
+    el.textContent = 'Select a symbol';
+    return;
+  }
+  const ref = stock.cascade_reference || {};
+  const refSymbol = ref.symbol || stock.symbol;
+  const refName = ref.name || stock.name || refSymbol;
+  el.textContent = ref.mode === 'reference_index'
+    ? `${refSymbol} signal -> ${stock.symbol} trade/TP`
+    : `${stock.symbol} own chart -> own trade/TP`;
+  el.title = refName;
+}
+
+function _terminalCascadeMetric(label, value, accent = 'var(--text)') {
+  return `<div style="padding:9px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px 'JetBrains Mono',monospace;color:${accent};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(value)}</div></div>`;
+}
+
+function _renderTerminalCascadeStatus(payload) {
+  _lastTerminalCascadeStatus = payload || null;
+  const campaign = payload?.campaign;
+  const gate = payload?.live_gate || {};
+  const gateEl = _terminalCascadeEl('terminal-cascade-live-gate');
+  if (gateEl) {
+    gateEl.textContent = gate.enabled ? 'LIVE GATE' : 'LIVE LOCKED';
+    gateEl.title = gate.reason || '';
+    gateEl.style.color = gate.enabled ? '#fbbf24' : '#fde68a';
+  }
+  const badge = _terminalCascadeEl('terminal-cascade-badge');
+  const start = _terminalCascadeEl('terminal-cascade-start');
+  const stop = _terminalCascadeEl('terminal-cascade-stop');
+  const kill = _terminalCascadeEl('terminal-cascade-kill');
+  const summary = _terminalCascadeEl('terminal-cascade-summary');
+  if (!campaign) {
+    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
+    if (start) start.disabled = false;
+    if (stop) stop.style.display = 'none';
+    if (kill) kill.style.display = 'none';
+    if (summary) summary.innerHTML = [
+      _terminalCascadeMetric('Selected', _stockTerminalSelected?.symbol || '—'),
+      _terminalCascadeMetric('Reference', _stockTerminalSelected?.cascade_reference?.symbol || '—'),
+      _terminalCascadeMetric('Product', 'CNC'),
+      _terminalCascadeMetric('Status', 'Idle'),
+    ].join('');
+    _renderTerminalCascadeRungs([]);
+    _renderTerminalCascadeFills([]);
+    _renderTerminalCascadeRounds([]);
+    _renderTerminalCascadeEvents([]);
+    return;
+  }
+  const running = !!campaign.running;
+  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
+  const tone = running ? '#6ee7b7' : '#fbbf24';
+  if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
+  if (start) start.disabled = running;
+  if (stop) stop.style.display = running ? '' : 'none';
+  if (kill) kill.style.display = running ? '' : 'none';
+  const inst = campaign.instrument || {};
+  const config = campaign.config || {};
+  if (summary) {
+    summary.innerHTML = [
+      _terminalCascadeMetric('Signal', inst.signal_symbol || '—', inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
+      _terminalCascadeMetric('Trade', inst.symbol || '—', '#6ee7b7'),
+      _terminalCascadeMetric('Avg', _cascadeNumber(campaign.average_entry_price)),
+      _terminalCascadeMetric('TP', _cascadeNumber(campaign.target_price), '#fef3c7'),
+      _terminalCascadeMetric('Qty', String(campaign.open_quantity || 0), '#6ee7b7'),
+      _terminalCascadeMetric('Pending', _terminalCascadeMoney(campaign.pending_inr || 0), '#fde68a'),
+      _terminalCascadeMetric('Carry', _terminalCascadeMoney(campaign.cash_carry_inr || 0), '#93c5fd'),
+      _terminalCascadeMetric('Capital', _terminalCascadeMoney(config.capital_inr || 0)),
+    ].join('');
+  }
+  const motherInput = _terminalCascadeEl('terminal-cascade-mother-timestamp');
+  if (motherInput && !motherInput.value && campaign?.mother?.signal?.timestamp) {
+    motherInput.value = String(campaign.mother.signal.timestamp).slice(0, 16);
+  }
+  _renderTerminalCascadeRungs(campaign.rungs || []);
+  _renderTerminalCascadeFills(campaign.open_fills || []);
+  _renderTerminalCascadeRounds(campaign.rounds || []);
+  _renderTerminalCascadeEvents(campaign.events || []);
+}
+
+function _renderTerminalCascadeRungs(rungs) {
+  const el = _terminalCascadeEl('terminal-cascade-rungs');
+  if (!el) return;
+  if (!Array.isArray(rungs) || !rungs.length) {
+    el.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib rungs yet</div>';
+    return;
+  }
+  el.innerHTML = rungs.map(rung => {
+    const color = ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[rung.status] || 'var(--muted)');
+    return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;min-width:0;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>F${escapeHtml(rung.leg_id)} L${escapeHtml(rung.level)}</strong><span style="color:${color};">${escapeHtml(rung.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(rung.signal_price))}</div><div style="margin-top:3px;font-size:10px;color:var(--muted);">${escapeHtml(_terminalCascadeMoney(rung.budget_inr))}</div></div>`;
+  }).join('');
+}
+
+function _renderTerminalCascadeFills(fills) {
+  const el = _terminalCascadeEl('terminal-cascade-fills');
+  if (!el) return;
+  el.innerHTML = Array.isArray(fills) && fills.length ? fills.map(fill => `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong></div>`).join('') : '<div style="color:var(--muted);">No open fills</div>';
+}
+
+function _renderTerminalCascadeRounds(rounds) {
+  const el = _terminalCascadeEl('terminal-cascade-rounds');
+  if (!el) return;
+  el.innerHTML = Array.isArray(rounds) && rounds.length ? rounds.slice(-4).reverse().map(row => {
+    const pnl = Number(row.net_pnl || 0);
+    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong></div>`;
+  }).join('') : '<div style="color:var(--muted);">No completed round</div>';
+}
+
+function _renderTerminalCascadeEvents(events) {
+  const el = _terminalCascadeEl('terminal-cascade-events');
+  if (!el) return;
+  el.innerHTML = Array.isArray(events) && events.length ? events.slice(-20).reverse().map(event => {
+    const bits = [];
+    if (event.rung) bits.push(event.rung);
+    if (event.quantity) bits.push(`${event.quantity} qty`);
+    if (event.trade_price) bits.push(_cascadeNumber(event.trade_price));
+    if (event.target_price) bits.push(`TP ${_cascadeNumber(event.target_price)}`);
+    return `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${bits.length ? ` <span>${escapeHtml(bits.join(' · '))}</span>` : ''}</div>`;
+  }).join('') : 'No events';
+}
+
+async function refreshTerminalCascadeStatus() {
+  try {
+    const res = await fetch('/api/terminal/cascade/status', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.detail || 'Unable to load Terminal Cascade');
+    _renderTerminalCascadeStatus(data);
+  } catch (error) {
+    _terminalCascadeSetStatus(error.message || 'Unable to load Terminal Cascade.', 'error');
+  }
+}
+
+async function startTerminalCascadePaper() {
+  const symbol = _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
+  const timestamp = _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || '';
+  const capital = Number(_terminalCascadeEl('terminal-cascade-capital')?.value || 0);
+  const targetPct = Number(_terminalCascadeEl('terminal-cascade-target-pct')?.value || 25);
+  if (!symbol || !timestamp || !Number.isFinite(capital) || capital <= 0 || !Number.isFinite(targetPct) || targetPct <= 0) {
+    _terminalCascadeSetStatus('Select a symbol, timestamp, capital and TP fraction.', 'error');
+    return;
+  }
+  const payload = {
+    symbol,
+    mother_timestamp: timestamp,
+    capital_inr: capital,
+    timeframe: _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m',
+    target_fraction: targetPct / 100,
+    product_type: _terminalCascadeEl('terminal-cascade-product')?.value || 'CNC',
+  };
+  const ref = _stockTerminalSelected?.cascade_reference || {};
+  const ok = await customConfirm(
+    `Start Terminal Cascade paper for <strong>${escapeHtml(symbol)}</strong>?<br><span style="font-size:12px;color:var(--muted);">Signal: ${escapeHtml(ref.symbol || symbol)} · Capital: ${escapeHtml(_terminalCascadeMoney(capital))} · No Dhan order is sent.</span>`,
+    { title: 'Start Cash Cascade', icon: ICO.chart(28), okText: 'Start Paper' }
+  );
+  if (!ok) return;
+  const button = _terminalCascadeEl('terminal-cascade-start');
+  if (button) button.disabled = true;
+  _terminalCascadeSetStatus('Starting paper campaign...', 'busy');
+  try {
+    const res = await fetch('/api/terminal/cascade/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'started') throw new Error(data?.detail || 'Terminal Cascade did not start');
+    _terminalCascadeSetStatus('Terminal Cascade paper campaign started.', 'success');
+    _renderTerminalCascadeStatus({ status: 'ok', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate, campaign: data.campaign });
+    loadTerminalCascadeChart().catch(() => {});
+  } catch (error) {
+    _terminalCascadeSetStatus(error.message || 'Terminal Cascade start failed.', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function stopTerminalCascadePaper() {
+  const res = await fetch('/api/terminal/cascade/stop', { method: 'POST', credentials: 'same-origin' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { _terminalCascadeSetStatus(data?.detail || 'Stop failed.', 'error'); return; }
+  _terminalCascadeSetStatus('Terminal Cascade monitoring stopped.', 'success');
+  refreshTerminalCascadeStatus();
+}
+
+async function killTerminalCascadePaper() {
+  const ok = await customConfirm('Kill this Terminal Cascade paper campaign and close any paper basket at current quote? No Dhan order is sent.', { title: 'Kill Cash Cascade', icon: ICO.warn(28), okText: 'Kill Paper', danger: true });
+  if (!ok) return;
+  const res = await fetch('/api/terminal/cascade/kill', { method: 'POST', credentials: 'same-origin' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== 'killed') { _terminalCascadeSetStatus(data?.detail || 'Kill failed.', 'error'); return; }
+  _terminalCascadeSetStatus('Terminal Cascade campaign killed.', 'success');
+  _renderTerminalCascadeStatus({ status: 'ok', mode: 'paper', live_gate: _lastTerminalCascadeStatus?.live_gate, campaign: data.campaign });
+}
+
+function _terminalCascadeChartSvg(payload) {
+  const candles = Array.isArray(payload?.candles) ? payload.candles : [];
+  if (!candles.length) return '<div style="padding:20px;color:var(--muted);">No candles</div>';
+  const W = 1180, H = 430, padL = 82, padR = 66, padT = 20, padB = 35;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = candles.length, cw = plotW / Math.max(n, 1);
+  const geometry = payload.geometry || {};
+  const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
+  const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
+  const fibPrices = [];
+  legs.forEach(leg => {
+    const hi = Number(leg.fib_high), lo = Number(leg.fib_low), range = hi - lo;
+    if (Number.isFinite(hi) && Number.isFinite(lo) && range > 0) [0, 1, 2, 4, 8].forEach(level => fibPrices.push(hi - level * range));
+  });
+  let lo = Math.min(...candles.map(c => Number(c.l)), ...fibPrices);
+  let hi = Math.max(...candles.map(c => Number(c.h)), ...fibPrices);
+  const mother = payload.mother || {};
+  if (Number.isFinite(Number(mother.h))) hi = Math.max(hi, Number(mother.h));
+  if (Number.isFinite(Number(mother.l))) lo = Math.min(lo, Number(mother.l));
+  const padding = Math.max((hi - lo) * .06, 1);
+  hi += padding; lo -= padding;
+  const Y = p => padT + ((hi - p) / (hi - lo || 1)) * plotH;
+  const X = i => padL + i * cw + cw / 2;
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+  const idxForTime = value => {
+    const target = Date.parse(value);
+    if (!Number.isFinite(target)) return 0;
+    let best = 0, bestDelta = Infinity;
+    candles.forEach((c, i) => {
+      const delta = Math.abs(Date.parse(c.t) - target);
+      if (delta < bestDelta) { best = i; bestDelta = delta; }
+    });
+    return best;
+  };
+  const parts = [];
+  for (let i = 0; i <= 4; i += 1) {
+    const price = lo + (hi - lo) * i / 4, y = Y(price);
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="rgba(148,163,184,.16)"/>`);
+    parts.push(`<text x="${padL + plotW + 7}" y="${(y + 3).toFixed(1)}" fill="#94a3b8" font-size="9.5" font-family="monospace">${number(price)}</text>`);
+  }
+  const tickCount = Math.min(6, n);
+  for (let i = 0; i < tickCount; i += 1) {
+    const at = Math.round((n - 1) * i / Math.max(tickCount - 1, 1));
+    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 10}" fill="#94a3b8" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+  }
+  const bodyW = Math.max(Math.min(cw * .66, 9), 1);
+  candles.forEach((candle, i) => {
+    const up = Number(candle.c) >= Number(candle.o);
+    const color = candle.gap_direction === 'up' ? '#34d399' : candle.gap_direction === 'down' ? '#f87171' : (up ? '#39c6b1' : '#ec5f91');
+    const x = X(i), top = Y(Math.max(Number(candle.o), Number(candle.c))), bottom = Y(Math.min(Number(candle.o), Number(candle.c)));
+    parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(Number(candle.h)).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(Number(candle.l)).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+    parts.push(`<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(bottom - top, 1).toFixed(1)}" fill="${color}"/>`);
+    if (candle.is_mother) {
+      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${plotH.toFixed(1)}" fill="#a78bfa" opacity=".11"/>`);
+      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(Number(candle.h)) - 8, 12).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+    }
+  });
+  const cycle = ['#60a5fa', '#34d399', '#f87171'];
+  legs.forEach((leg, index) => {
+    const color = cycle[index % cycle.length];
+    const hiP = Number(leg.fib_high), loP = Number(leg.fib_low), range = hiP - loP;
+    if (!Number.isFinite(range) || range <= 0) return;
+    const x1 = X(idxForTime(leg.touch_timestamp));
+    [0, 1, 2, 4, 8].forEach(level => {
+      const price = hiP - level * range;
+      const y = Y(price);
+      parts.push(`<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${level === 0 || level === 1 ? 1.1 : .85}" opacity="${level === 2 || level === 4 || level === 8 ? .72 : .9}" stroke-dasharray="${level === 0 || level === 1 ? '0' : '4 3'}"/>`);
+      if ([2, 4, 8].includes(level)) parts.push(`<text x="${(padL + plotW - 6).toFixed(1)}" y="${(y - 3).toFixed(1)}" fill="${color}" font-size="9" font-family="monospace" text-anchor="end">F${escapeHtml(leg.leg_id)} L${level}</text>`);
+    });
+  });
+  trendlines.forEach((line, index) => {
+    if (line.bears_fib === false) return;
+    const color = cycle[index % cycle.length];
+    parts.push(`<line x1="${X(idxForTime(line.anchor1_timestamp)).toFixed(1)}" y1="${Y(Number(line.anchor1_price)).toFixed(1)}" x2="${X(idxForTime(line.anchor2_timestamp)).toFixed(1)}" y2="${Y(Number(line.anchor2_price)).toFixed(1)}" stroke="${color}" stroke-width="1.4"/>`);
+  });
+  if (Number.isFinite(Number(mother.h))) {
+    const y = Y(Number(mother.h));
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="#a78bfa" stroke-width="1.1" stroke-dasharray="5 3"/>`);
+    parts.push(`<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" fill="#c4b5fd" font-size="9.5" font-family="monospace" text-anchor="end">MOTHER ${number(mother.h)}</text>`);
+  }
+  const label = payload?.instrument?.signal_symbol || 'Signal';
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(label)} Cascade chart">${parts.join('')}</svg>`;
+}
+
+async function loadTerminalCascadeChart() {
+  const symbol = _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
+  const timestamp = _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || _lastTerminalCascadeStatus?.campaign?.mother?.signal?.timestamp || '';
+  const timeframe = _terminalCascadeEl('terminal-cascade-timeframe')?.value || _lastTerminalCascadeStatus?.campaign?.config?.timeframe || '5m';
+  const chart = _terminalCascadeEl('terminal-cascade-chart');
+  if (!symbol || !timestamp) { _terminalCascadeSetStatus('Select a symbol and mother timestamp first.', 'error'); return; }
+  if (chart) chart.innerHTML = '<div style="padding:20px;color:var(--muted);">Loading chart...</div>';
+  try {
+    const url = `/api/terminal/cascade/chart?symbol=${encodeURIComponent(symbol)}&mother_timestamp=${encodeURIComponent(timestamp)}&timeframe=${encodeURIComponent(timeframe)}`;
+    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${res.status})`);
+    if (chart) chart.innerHTML = _terminalCascadeChartSvg(data);
+    _terminalCascadeSetStatus(`${data.instrument?.signal_symbol || symbol} chart loaded.`, 'success');
+  } catch (error) {
+    if (chart) chart.innerHTML = `<div style="padding:20px;color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
+    _terminalCascadeSetStatus(error.message || 'Chart unavailable.', 'error');
   }
 }
 
@@ -10533,6 +10872,17 @@ function handleWSMessage(msg) {
       mode: 'paper',
       live_gate: _lastCascadeOptionsStatus?.live_gate,
       campaign: cascadeCampaign,
+    });
+  }
+  const terminalCascadeCampaign = msg.type === 'terminal_cascade_status'
+    ? msg.terminal_cascade
+    : (msg.type === 'status' ? msg.terminal_cascade : null);
+  if (terminalCascadeCampaign) {
+    _renderTerminalCascadeStatus({
+      status: 'ok',
+      mode: 'paper',
+      live_gate: _lastTerminalCascadeStatus?.live_gate,
+      campaign: terminalCascadeCampaign,
     });
   }
 }

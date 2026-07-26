@@ -30,7 +30,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(
@@ -71,6 +71,12 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
+from engine.cascade_equity import (
+    CashCascadeInstrument,
+    CashCascadePaperConfig,
+    CashCascadePaperEngine,
+    cash_cascade_reference_symbol,
+)
 from engine.cascade_options import (
     CascadeConfig,
     CascadeOptionsAdapter,
@@ -1397,11 +1403,31 @@ class _CascadeRuntime:
     running: bool = True
 
 
+@dataclass
+class _TerminalCascadeRuntime:
+    engine: CashCascadePaperEngine
+    broker: DhanClient
+    signal_instrument: dict
+    trade_instrument: dict
+    last_candle_timestamp: datetime
+    task: asyncio.Task | None = None
+    running: bool = True
+
+
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
 _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
+_terminal_cascade_engines: Dict[int, _TerminalCascadeRuntime] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
+_terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
+_TERMINAL_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _CASCADE_LIVE_FLAG = (os.getenv("PHILFORGE_CASCADE_OPTIONS_LIVE") or "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_TERMINAL_CASCADE_LIVE_FLAG = (os.getenv("PHILFORGE_TERMINAL_CASCADE_LIVE") or "").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -1412,6 +1438,10 @@ _CANDLE_ENTRY_HISTORY_DAYS = 15
 
 def _cascade_open_state_key(user_id: int) -> str:
     return f"cascade_options_open:{int(user_id)}"
+
+
+def _terminal_cascade_open_state_key(user_id: int) -> str:
+    return f"terminal_cash_cascade_open:{int(user_id)}"
 
 
 def _cascade_premium_lookup(broker: DhanClient):
@@ -2688,6 +2718,15 @@ class CandleEntryPaperStartPayload(BaseModel):
 
     mother_timestamp: str
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+
+
+class TerminalCascadePaperStartPayload(BaseModel):
+    symbol: str
+    mother_timestamp: str
+    capital_inr: float = Field(default=100000, gt=0, le=50_000_000)
+    timeframe: str = "5m"
+    target_fraction: float = Field(default=0.25, gt=0, le=1)
+    product_type: str = "CNC"
 
 
 class OhlcvExportPayload(BaseModel):
@@ -6219,6 +6258,24 @@ TERMINAL_STOCKS = NIFTY200_STOCKS + BEES_ETFS
 _TERMINAL_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in TERMINAL_STOCKS}
 _NIFTY200_FALLBACK_ALIASES = {"M&M": "M_M"}
 
+_TERMINAL_CASCADE_REFERENCE_INDEX = {
+    "NIFTY": {
+        "symbol": "NIFTY",
+        "name": "NIFTY 50 Index",
+        "security_id": "13",
+        "exchange_segment": "IDX_I",
+        "instrument_type": "INDEX",
+    },
+    "BANKNIFTY": {
+        "symbol": "BANKNIFTY",
+        "name": "BANK NIFTY Index",
+        "security_id": "25",
+        "exchange_segment": "IDX_I",
+        "instrument_type": "INDEX",
+    },
+}
+_TERMINAL_CASCADE_TIMEFRAMES = {"5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
+
 
 def _resolve_terminal_stock(symbol: str) -> dict:
     """Resolve a terminal symbol to Dhan NSE_EQ metadata."""
@@ -6236,7 +6293,7 @@ def _resolve_terminal_stock(symbol: str) -> dict:
     fallback_key = _NIFTY200_FALLBACK_ALIASES.get(normalized, normalized)
     fallback = INSTRUMENT_MAP.get(fallback_key, {})
     security_id = str(equity.get("security_id") or fallback.get("dhan_id") or "")
-    return {
+    resolved = {
         "symbol": normalized,
         "name": stock["name"],
         "security_id": security_id,
@@ -6244,6 +6301,14 @@ def _resolve_terminal_stock(symbol: str) -> dict:
         "instrument_type": equity.get("instrument_type") or fallback.get("dhan_type") or "EQUITY",
         "tradable": bool(security_id),
     }
+    signal_symbol = cash_cascade_reference_symbol(normalized)
+    reference = _TERMINAL_CASCADE_REFERENCE_INDEX.get(signal_symbol)
+    resolved["cascade_reference"] = {
+        "mode": "reference_index" if reference else "own_scrip",
+        "symbol": reference["symbol"] if reference else normalized,
+        "name": reference["name"] if reference else stock["name"],
+    }
+    return resolved
 
 
 def _extract_marketfeed_ltp(data: dict, exchange_segment: str, security_id: str) -> float:
@@ -6264,6 +6329,285 @@ def _extract_marketfeed_ltp(data: dict, exchange_segment: str, security_id: str)
                 if isinstance(nested, (int, float)):
                     return float(nested)
     return 0.0
+
+
+def _terminal_cascade_live_gate_status() -> dict:
+    if not _TERMINAL_CASCADE_LIVE_FLAG:
+        return {
+            "enabled": False,
+            "armed": False,
+            "reason": (
+                "Terminal Cascade live GTT is server-locked. Source/paper validation, account confirmation "
+                "and explicit arming are required before Dhan orders can be submitted."
+            ),
+        }
+    return {
+        "enabled": True,
+        "armed": False,
+        "reason": "Server flag is present, but live GTT submission remains blocked until explicitly wired and approved.",
+    }
+
+
+def _terminal_cascade_timeframe_parts(timeframe: str) -> tuple[str, int, str]:
+    normalised = str(timeframe or "5m").lower()
+    if normalised not in _TERMINAL_CASCADE_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail="Terminal Cascade timeframe must be 5m, 15m, or 1h.")
+    interval, minutes = _TERMINAL_CASCADE_TIMEFRAMES[normalised]
+    return interval, minutes, normalised
+
+
+def _terminal_cascade_instruments(symbol: str) -> tuple[CashCascadeInstrument, dict, dict]:
+    trade = _resolve_terminal_stock(symbol)
+    if not trade["security_id"]:
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {trade['symbol']}")
+    signal_symbol = cash_cascade_reference_symbol(trade["symbol"])
+    reference = _TERMINAL_CASCADE_REFERENCE_INDEX.get(signal_symbol)
+    signal = (
+        reference
+        if reference
+        else {
+            "symbol": trade["symbol"],
+            "name": trade["name"],
+            "security_id": trade["security_id"],
+            "exchange_segment": trade["exchange_segment"],
+            "instrument_type": trade["instrument_type"],
+        }
+    )
+    instrument = CashCascadeInstrument(
+        symbol=trade["symbol"],
+        name=trade["name"],
+        security_id=trade["security_id"],
+        exchange_segment=trade["exchange_segment"],
+        instrument_type=trade["instrument_type"],
+        signal_symbol=signal["symbol"],
+        signal_name=signal["name"],
+        signal_security_id=signal["security_id"],
+        signal_exchange_segment=signal["exchange_segment"],
+        signal_instrument_type=signal["instrument_type"],
+    )
+    return instrument, signal, trade
+
+
+async def _terminal_cascade_load_candles(
+    broker: DhanClient,
+    instrument: Mapping[str, Any],
+    timeframe: str,
+    *,
+    from_date: date,
+    to_date: date,
+) -> list[IndexCandle]:
+    interval, minutes, _normalised = _terminal_cascade_timeframe_parts(timeframe)
+    frame = await asyncio.to_thread(
+        broker.get_historical_data,
+        security_id=str(instrument["security_id"]),
+        exchange_segment=str(instrument["exchange_segment"]),
+        instrument_type=str(instrument["instrument_type"]),
+        from_date=from_date.isoformat(),
+        to_date=to_date.isoformat(),
+        candle_type=interval,
+    )
+    return CashCascadePaperEngine.normalise_frame(frame, datetime.now(IST), timeframe_minutes=minutes)
+
+
+async def _terminal_cascade_load_mother_pair(
+    broker: DhanClient,
+    signal_instrument: Mapping[str, Any],
+    trade_instrument: Mapping[str, Any],
+    timeframe: str,
+    mother_timestamp: datetime,
+) -> tuple[IndexCandle, IndexCandle]:
+    signal_candles, trade_candles = await asyncio.gather(
+        _terminal_cascade_load_candles(
+            broker, signal_instrument, timeframe, from_date=mother_timestamp.date(), to_date=mother_timestamp.date()
+        ),
+        _terminal_cascade_load_candles(
+            broker, trade_instrument, timeframe, from_date=mother_timestamp.date(), to_date=mother_timestamp.date()
+        ),
+    )
+    signal = next((row for row in signal_candles if row.timestamp == mother_timestamp), None)
+    trade = next((row for row in trade_candles if row.timestamp == mother_timestamp), None)
+    if signal is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No closed {signal_instrument['symbol']} {timeframe} signal candle at that IST timestamp.",
+        )
+    if trade is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No closed {trade_instrument['symbol']} {timeframe} traded candle at that IST timestamp.",
+        )
+    return signal, trade
+
+
+def _terminal_cascade_pair_candles(
+    signal_candles: list[IndexCandle], trade_candles: list[IndexCandle], after: datetime
+) -> list[tuple[IndexCandle, IndexCandle]]:
+    trade_by_time = {row.timestamp: row for row in trade_candles}
+    pairs: list[tuple[IndexCandle, IndexCandle]] = []
+    for signal in sorted(signal_candles, key=lambda row: row.timestamp):
+        if signal.timestamp <= after:
+            continue
+        trade = trade_by_time.get(signal.timestamp)
+        if trade is not None:
+            pairs.append((signal, trade))
+    return pairs
+
+
+def _terminal_cascade_ltp(broker: DhanClient, instrument: Mapping[str, Any]) -> float:
+    payload = broker.get_ltp([str(instrument["security_id"])], exchange_segment=str(instrument["exchange_segment"]))
+    return float(_extract_marketfeed_ltp(payload, str(instrument["exchange_segment"]), str(instrument["security_id"])))
+
+
+async def _terminal_cascade_quote_pair(runtime: _TerminalCascadeRuntime) -> tuple[IndexCandle, IndexCandle]:
+    now = datetime.now(IST)
+    signal_price, trade_price = await asyncio.gather(
+        asyncio.to_thread(_terminal_cascade_ltp, runtime.broker, runtime.signal_instrument),
+        asyncio.to_thread(_terminal_cascade_ltp, runtime.broker, runtime.trade_instrument),
+    )
+    signal = IndexCandle(now, signal_price, signal_price, signal_price, signal_price)
+    trade = IndexCandle(now, trade_price, trade_price, trade_price, trade_price)
+    return signal, trade
+
+
+async def _notify_terminal_cascade_ws(user_id: int) -> None:
+    runtime = _terminal_cascade_engines.get(int(user_id))
+    if runtime is None:
+        return
+    await _broadcast_user_ws_json(
+        int(user_id),
+        {
+            "type": "terminal_cascade_status",
+            "terminal_cascade": {**runtime.engine.get_status(), "running": runtime.running},
+        },
+    )
+
+
+async def _save_terminal_cascade_open_state(
+    user_id: int, runtime: _TerminalCascadeRuntime | None = None, *, force: bool = False
+) -> None:
+    runtime = runtime or _terminal_cascade_engines.get(int(user_id))
+    if runtime is None:
+        return
+    now = time.time()
+    if (
+        not force
+        and now - _terminal_cascade_open_state_last_save[int(user_id)] < _TERMINAL_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC
+    ):
+        return
+    payload = {
+        "running": bool(runtime.running),
+        "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
+        "signal_instrument": dict(runtime.signal_instrument),
+        "trade_instrument": dict(runtime.trade_instrument),
+        "saved_at": datetime.now(IST).isoformat(),
+        "engine": runtime.engine.to_dict(),
+    }
+    await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), json.dumps(payload, default=str))
+    _terminal_cascade_open_state_last_save[int(user_id)] = now
+
+
+async def _restore_terminal_cascade_open_state(
+    user_id: int, broker: DhanClient | None
+) -> _TerminalCascadeRuntime | None:
+    existing = _terminal_cascade_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    raw = await _db_mod.get_app_state(_terminal_cascade_open_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or not payload.get("engine"):
+            return None
+        engine = CashCascadePaperEngine.from_dict(payload["engine"])
+        last_text = str(payload.get("last_candle_timestamp") or "")
+        last = (
+            datetime.fromisoformat(last_text.replace("Z", "+00:00"))
+            if last_text
+            else engine.geometry.history[-1].timestamp
+        )
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        runtime = _TerminalCascadeRuntime(
+            engine=engine,
+            broker=broker,
+            signal_instrument=dict(payload.get("signal_instrument") or {}),
+            trade_instrument=dict(payload.get("trade_instrument") or {}),
+            last_candle_timestamp=last,
+            running=bool(payload.get("running")),
+        )
+        _terminal_cascade_engines[int(user_id)] = runtime
+        if runtime.running:
+            runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[TERMINAL CASCADE] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
+        return None
+
+
+async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCascadeRuntime) -> None:
+    while runtime.running and _terminal_cascade_engines.get(int(user_id)) is runtime:
+        try:
+            today = datetime.now(IST).date()
+            start = runtime.last_candle_timestamp.date()
+            signal_candles, trade_candles = await asyncio.gather(
+                _terminal_cascade_load_candles(
+                    runtime.broker,
+                    runtime.signal_instrument,
+                    runtime.engine.config.timeframe,
+                    from_date=start,
+                    to_date=today,
+                ),
+                _terminal_cascade_load_candles(
+                    runtime.broker,
+                    runtime.trade_instrument,
+                    runtime.engine.config.timeframe,
+                    from_date=start,
+                    to_date=today,
+                ),
+            )
+            for signal, trade in _terminal_cascade_pair_candles(
+                signal_candles, trade_candles, runtime.last_candle_timestamp
+            ):
+                runtime.last_candle_timestamp = signal.timestamp
+                runtime.engine.on_candle(signal, trade)
+                await _save_terminal_cascade_open_state(user_id, runtime)
+                await _notify_terminal_cascade_ws(user_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning(
+                "[TERMINAL CASCADE] %s paper poll failed for user %s: %s",
+                runtime.engine.instrument.symbol,
+                user_id,
+                exc,
+            )
+        await asyncio.sleep(12)
+
+
+async def _terminal_cascade_replay_to_now(
+    broker: DhanClient,
+    engine: CashCascadePaperEngine,
+    signal_instrument: Mapping[str, Any],
+    trade_instrument: Mapping[str, Any],
+    mother_timestamp: datetime,
+) -> datetime:
+    today = datetime.now(IST).date()
+    signal_candles, trade_candles = await asyncio.gather(
+        _terminal_cascade_load_candles(
+            broker, signal_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
+        ),
+        _terminal_cascade_load_candles(
+            broker, trade_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
+        ),
+    )
+    last = mother_timestamp
+    for signal, trade in _terminal_cascade_pair_candles(signal_candles, trade_candles, mother_timestamp):
+        engine.on_candle(signal, trade)
+        last = signal.timestamp
+    return last
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
@@ -9003,6 +9347,170 @@ async def cancel_order(order_id: str, request: Request):
         return broker_client.cancel_order(order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/terminal/cascade/status")
+async def terminal_cascade_status(request: Request):
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper", "live_gate": _terminal_cascade_live_gate_status()}
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "live_gate": _terminal_cascade_live_gate_status(),
+        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.get("/api/terminal/cascade/chart")
+async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp: str, timeframe: str = "5m"):
+    mother = _parse_cascade_mother_timestamp(mother_timestamp)
+    _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(timeframe)
+    now = datetime.now(IST)
+    if mother.date() > now.date() or (now.date() - mother.date()).days > 14:
+        raise HTTPException(status_code=400, detail="Chart is available for mothers in the last 14 calendar days.")
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the Terminal Cascade chart.")
+    instrument, signal_instrument, trade_instrument = _terminal_cascade_instruments(symbol)
+    mother_signal, mother_trade = await _terminal_cascade_load_mother_pair(
+        broker_client, signal_instrument, trade_instrument, normalised_tf, mother
+    )
+    engine = CashCascadePaperEngine(
+        mother_signal, mother_trade, instrument, CashCascadePaperConfig(capital_inr=100000, timeframe=normalised_tf)
+    )
+    await _terminal_cascade_replay_to_now(broker_client, engine, signal_instrument, trade_instrument, mother)
+    rows = _cascade_gap_adjusted_candles(list(engine.geometry.history), mother)
+    mother_row = next((row for row in rows if row["is_mother"]), None)
+    if mother_row is None:
+        raise HTTPException(status_code=404, detail="The selected mother candle was not returned by Dhan.")
+    return {
+        "status": "ok",
+        "timeframe": normalised_tf,
+        "bar_minutes": minutes,
+        "chart_mode": "visual_gap_adjusted",
+        "instrument": instrument.to_dict(),
+        "candles": rows,
+        "mother": mother_row,
+        "geometry": engine.get_status()["geometry"],
+        "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
+    }
+
+
+@app.post("/api/terminal/cascade/start")
+async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit("terminal_cascade_start", ip, max_calls=3, window_sec=5)
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(payload.timeframe)
+    now = datetime.now(IST)
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future.")
+    if (now.date() - mother_timestamp.date()).days > 14:
+        raise HTTPException(status_code=400, detail="Mother candle is outside the 14-day paper replay window.")
+    if mother_timestamp + timedelta(minutes=minutes) > now or mother_timestamp.second or mother_timestamp.microsecond:
+        raise HTTPException(
+            status_code=400, detail="Mother timestamp must be a completed Terminal Cascade candle open."
+        )
+    if normalised_tf == "1h":
+        if mother_timestamp.minute != 15:
+            raise HTTPException(status_code=400, detail="1H mother timestamp must be NSE aligned at :15 IST.")
+    elif mother_timestamp.minute % minutes:
+        raise HTTPException(status_code=400, detail=f"{normalised_tf} mother timestamp is not aligned.")
+    if not (dt_time(9, 15) <= mother_timestamp.time() < dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15-15:30 session.")
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(
+            status_code=400, detail="Connect a Dhan account before starting Terminal Cascade paper mode."
+        )
+    old_runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    if old_runtime is not None and old_runtime.running:
+        raise HTTPException(
+            status_code=409, detail="A Terminal Cascade paper campaign is already running. Stop it first."
+        )
+    instrument, signal_instrument, trade_instrument = _terminal_cascade_instruments(payload.symbol)
+    mother_signal, mother_trade = await _terminal_cascade_load_mother_pair(
+        broker_client, signal_instrument, trade_instrument, normalised_tf, mother_timestamp
+    )
+    engine = CashCascadePaperEngine(
+        mother_signal,
+        mother_trade,
+        instrument,
+        CashCascadePaperConfig(
+            capital_inr=payload.capital_inr,
+            target_fraction=payload.target_fraction,
+            timeframe=normalised_tf,
+            product_type=payload.product_type,
+        ),
+    )
+    last = await _terminal_cascade_replay_to_now(
+        broker_client, engine, signal_instrument, trade_instrument, mother_timestamp
+    )
+    runtime = _TerminalCascadeRuntime(
+        engine=engine,
+        broker=broker_client,
+        signal_instrument=signal_instrument,
+        trade_instrument=trade_instrument,
+        last_candle_timestamp=last,
+    )
+    _terminal_cascade_engines[user_id] = runtime
+    runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(user_id, runtime))
+    await _save_terminal_cascade_open_state(user_id, runtime, force=True)
+    await _notify_terminal_cascade_ws(user_id)
+    return {"status": "started", "mode": "paper", "campaign": {**engine.get_status(), "running": True}}
+
+
+@app.post("/api/terminal/cascade/stop")
+async def terminal_cascade_stop(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _terminal_cascade_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_running"}
+    runtime.running = False
+    runtime.engine.status = "STOPPED"
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_terminal_cascade_open_state(user_id, runtime, force=True)
+    await _notify_terminal_cascade_ws(user_id)
+    return {"status": "stopped", "mode": "paper"}
+
+
+@app.post("/api/terminal/cascade/kill")
+async def terminal_cascade_kill(request: Request):
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtime = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Terminal Cascade paper campaign is active.")
+    signal, trade = await _terminal_cascade_quote_pair(runtime)
+    result = runtime.engine.kill_and_close(signal, trade)
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_terminal_cascade_open_state(user_id, runtime, force=True)
+    await _notify_terminal_cascade_ws(user_id)
+    return {
+        "status": "killed",
+        "mode": "paper",
+        "cancelled_rungs": result["cancelled_rungs"],
+        "campaign": {**runtime.engine.get_status(), "running": False},
+    }
+
+
+@app.delete("/api/terminal/cascade")
+async def terminal_cascade_delete(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _terminal_cascade_engines.pop(user_id, None)
+    if runtime is not None:
+        runtime.running = False
+        if runtime.task and not runtime.task.done():
+            runtime.task.cancel()
+    await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), "")
+    return {"status": "deleted"}
 
 
 @app.get("/api/terminal/nifty200")
