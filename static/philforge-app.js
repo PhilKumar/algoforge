@@ -73,11 +73,20 @@ const ICO = {
   if (terminalHead) terminalHead.innerHTML = ICO.money(14);
 })();
 
-// ── Site-styled Cascade date/time picker ──────────────────────────
-// Native picker popups cannot inherit the PhilForge visual system.  Keep the
-// ISO value expected by the campaign API, but provide a consistent calendar.
+// ── Site-styled date/time picker ──────────────────────────────────
+// Native picker popups cannot inherit the PhilForge visual system. Keep the
+// ISO values expected by each form, while giving every calendar field a
+// consistent picker and a useful blank-state prompt.
 (() => {
-  const TARGET = '.pf-cascade-datetime';
+  const TARGET = 'input[type="date"], input[type="datetime-local"], .pf-cascade-datetime';
+  const PLACEHOLDERS = {
+    'bt-from-date': 'Select backtest start date',
+    'bt-to-date': 'Select backtest end date',
+    'candle-entry-mother-timestamp': 'Select 1H mother timestamp · IST',
+    'cascade-options-mother-timestamp': 'Select 5m mother timestamp · IST',
+    'cascade-to-date': 'Select replay end date',
+    'cascade-mother-timestamp': 'Select mother timestamp · IST',
+  };
   let popover;
   let activeInput;
   let visibleMonth;
@@ -85,11 +94,12 @@ const ICO = {
 
   const pad = value => String(value).padStart(2, '0');
   const parseValue = value => {
-    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-    if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+    if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0));
     return new Date();
   };
   const iso = value => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  const dateOnly = value => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
   const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const close = () => { if (popover) popover.hidden = true; activeInput = null; };
 
@@ -110,6 +120,7 @@ const ICO = {
     const gridStart = new Date(year, month, 1 - first.getDay());
     const now = new Date();
     const step = Math.max(Number(activeInput.dataset.pfCalendarStep || activeInput.getAttribute('step') || 300) / 60, 1);
+    const dateOnlyPicker = activeInput.dataset.pfCalendarKind === 'date';
     const minutes = [];
     // 1H candles normally begin at :15, but manual replay must allow the
     // complete minute selection so the user can enter any valid mother bar.
@@ -129,7 +140,8 @@ const ICO = {
     }
     const hours = Array.from({ length: 24 }, (_, hour) => `<option value="${hour}" ${hour === selectedDate.getHours() ? 'selected' : ''}>${pad(hour)}</option>`).join('');
     const minuteOptions = minutes.map(minute => `<option value="${minute}" ${minute === selectedDate.getMinutes() ? 'selected' : ''}>${pad(minute)}</option>`).join('');
-    popover.innerHTML = `<div class="pf-cascade-calendar-head"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-1" aria-label="Previous month">‹</button><span>${monthName}</span><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="1" aria-label="Next month">›</button></div><div class="pf-cascade-calendar-weekdays">${weekdays}</div><div class="pf-cascade-calendar-days">${days}</div><div class="pf-cascade-calendar-time"><select aria-label="Hour" data-pf-calendar-hour>${hours}</select><select aria-label="Minute" data-pf-calendar-minute>${minuteOptions}</select></div><div class="pf-cascade-calendar-actions"><button class="btn btn-sm" type="button" data-pf-calendar-cancel>Cancel</button><button class="btn btn-sm" type="button" data-pf-calendar-apply>Apply</button></div>`;
+    const timeControls = dateOnlyPicker ? '' : `<div class="pf-cascade-calendar-time"><select aria-label="Hour" data-pf-calendar-hour>${hours}</select><select aria-label="Minute" data-pf-calendar-minute>${minuteOptions}</select></div>`;
+    popover.innerHTML = `<div class="pf-cascade-calendar-head"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-1" aria-label="Previous month">‹</button><span>${monthName}</span><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="1" aria-label="Next month">›</button></div><div class="pf-cascade-calendar-weekdays">${weekdays}</div><div class="pf-cascade-calendar-days">${days}</div>${timeControls}<div class="pf-cascade-calendar-actions"><button class="btn btn-sm" type="button" data-pf-calendar-cancel>Cancel</button><button class="btn btn-sm" type="button" data-pf-calendar-apply>Apply</button></div>`;
   }
 
   function open(input) {
@@ -148,9 +160,14 @@ const ICO = {
   function setup(input) {
     if (input.dataset.pfCalendarReady) return;
     input.dataset.pfCalendarReady = '1';
+    input.dataset.pfCalendarKind = input.type;
     input.dataset.pfCalendarStep = input.getAttribute('step') || '300';
+    const initialValue = input.value;
     input.type = 'text';
+    input.value = initialValue;
     input.readOnly = true;
+    input.classList.add('pf-cascade-datetime');
+    if (!input.placeholder) input.placeholder = PLACEHOLDERS[input.id] || 'Select date';
     input.setAttribute('aria-haspopup', 'dialog');
     input.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); open(input); });
     input.addEventListener('keydown', event => {
@@ -172,10 +189,12 @@ const ICO = {
       visibleMonth = new Date(year, month, 1);
       render();
     } else if (action.hasAttribute('data-pf-calendar-apply')) {
-      const hour = Number(popover.querySelector('[data-pf-calendar-hour]').value);
-      const minute = Number(popover.querySelector('[data-pf-calendar-minute]').value);
-      selectedDate.setHours(hour, minute, 0, 0);
-      activeInput.value = iso(selectedDate);
+      if (activeInput.dataset.pfCalendarKind !== 'date') {
+        const hour = Number(popover.querySelector('[data-pf-calendar-hour]').value);
+        const minute = Number(popover.querySelector('[data-pf-calendar-minute]').value);
+        selectedDate.setHours(hour, minute, 0, 0);
+      }
+      activeInput.value = activeInput.dataset.pfCalendarKind === 'date' ? dateOnly(selectedDate) : iso(selectedDate);
       activeInput.dispatchEvent(new Event('input', { bubbles: true }));
       activeInput.dispatchEvent(new Event('change', { bubbles: true }));
       close();
