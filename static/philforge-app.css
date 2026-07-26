@@ -68,6 +68,7 @@
   .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: invert(79%) sepia(32%) saturate(716%) hue-rotate(119deg); cursor: pointer; }
   .pf-cascade-datetime { cursor: pointer; }
   .pf-cascade-campaign-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 16px; }
+  .pf-cascade-campaign-actions:has(#cascade-options-stop[style*="display:none"]) { grid-template-columns: minmax(0, 1fr); }
   .pf-cascade-campaign-actions .btn { width: 100%; min-height: 40px; margin: 0 !important; }
   .pf-cascade-calendar { position: fixed; z-index: 1300; width: min(332px, calc(100vw - 24px)); padding: 12px; border: 1px solid rgba(79,142,247,.34); border-radius: 14px; background: linear-gradient(160deg, #111b2d, #080d16); box-shadow: 0 24px 60px rgba(0,0,0,.48); color: var(--text); }
   .pf-cascade-calendar[hidden] { display: none; }
