@@ -60,6 +60,8 @@ def _is_invalid_token_response(resp) -> bool:
 
 def _notify_token_event(success: bool, detail: str = "") -> None:
     """Fire-and-forget sync Telegram notification for token refresh events."""
+    if not config.TELEGRAM_ALERTS_ENABLED:
+        return
     try:
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")

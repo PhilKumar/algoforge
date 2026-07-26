@@ -66,6 +66,23 @@
   }
   .pf-cascade-datetime:focus { outline: none; border-color: rgba(0,191,165,.75); box-shadow: 0 0 0 3px rgba(0,191,165,.13); }
   .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: invert(79%) sepia(32%) saturate(716%) hue-rotate(119deg); cursor: pointer; }
+  .pf-cascade-datetime { cursor: pointer; }
+  .pf-cascade-campaign-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 16px; }
+  .pf-cascade-campaign-actions .btn { width: 100%; min-height: 40px; margin: 0 !important; }
+  .pf-cascade-calendar { position: fixed; z-index: 1300; width: min(332px, calc(100vw - 24px)); padding: 12px; border: 1px solid rgba(79,142,247,.34); border-radius: 14px; background: linear-gradient(160deg, #111b2d, #080d16); box-shadow: 0 24px 60px rgba(0,0,0,.48); color: var(--text); }
+  .pf-cascade-calendar[hidden] { display: none; }
+  .pf-cascade-calendar-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; font:700 12px 'JetBrains Mono',monospace; }
+  .pf-cascade-calendar-nav { width:30px; height:30px; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,.04); color:var(--text); cursor:pointer; }
+  .pf-cascade-calendar-weekdays, .pf-cascade-calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:4px; }
+  .pf-cascade-calendar-weekdays { margin-bottom:4px; color:var(--muted); font:9px 'JetBrains Mono',monospace; text-align:center; }
+  .pf-cascade-calendar-day { min-height:32px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text); font:11px 'JetBrains Mono',monospace; cursor:pointer; }
+  .pf-cascade-calendar-day:hover, .pf-cascade-calendar-day.is-selected { border-color:rgba(0,191,165,.55); background:rgba(0,191,165,.14); color:#6ee7b7; }
+  .pf-cascade-calendar-day.is-today { box-shadow:inset 0 0 0 1px rgba(79,142,247,.48); }
+  .pf-cascade-calendar-day.is-outside { opacity:.34; }
+  .pf-cascade-calendar-time { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+  .pf-cascade-calendar-time select { min-height:36px; padding:7px 8px; font:11px 'JetBrains Mono',monospace; }
+  .pf-cascade-calendar-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+  .pf-cascade-calendar-actions .btn { min-height:34px; padding:6px 10px; font-size:11px; }
   [data-theme="light"] .pf-cascade-datetime { color-scheme: light; background: linear-gradient(135deg, #ffffff, #f8fafc); border-color: rgba(37,99,235,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 0 0 1px rgba(15,23,42,.04); }
   [data-theme="light"] .pf-cascade-datetime::-webkit-calendar-picker-indicator { filter: none; }
   .pf-cascade-chart { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 10px; background: radial-gradient(ellipse at 50% 0%, rgba(79,142,247,.07), transparent 55%), #0a101b; min-height: 260px; }
@@ -77,6 +94,9 @@
   [data-theme="light"] .pf-cascade-chart-overlay { background: rgba(15, 23, 42, .42); }
   [data-theme="light"] .pf-cascade-chart-dialog { border-color: rgba(37,99,235,.22); background: linear-gradient(160deg, #ffffff, #f1f5f9); box-shadow: 0 28px 80px rgba(15,23,42,.24); }
   [data-theme="light"] .pf-cascade-chart { background: radial-gradient(ellipse at 50% 0%, rgba(37,99,235,.09), transparent 55%), #ffffff; }
+  [data-theme="light"] .pf-cascade-calendar { border-color:rgba(37,99,235,.20); background:linear-gradient(160deg,#ffffff,#f1f5f9); box-shadow:0 24px 60px rgba(15,23,42,.18); }
+  [data-theme="light"] .pf-cascade-calendar-nav { background:#fff; color:#0f172a; }
+  [data-theme="light"] .pf-cascade-calendar-day:hover, [data-theme="light"] .pf-cascade-calendar-day.is-selected { color:#047857; background:rgba(5,150,105,.10); }
   [data-theme="light"] #cascade-options-page [style*="color:#93c5fd"] { color: #1d4ed8 !important; }
   [data-theme="light"] #cascade-options-page [style*="color:#34d399"] { color: #047857 !important; }
   [data-theme="light"] #cascade-options-page [style*="color:#fde68a"] { color: #a16207 !important; }
@@ -4249,6 +4269,7 @@
     #cascade-options-page .card { min-width: 0; }
     #cascade-options-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
     #cascade-options-rungs { grid-template-columns: 1fr !important; }
+    .pf-cascade-campaign-actions { grid-template-columns: 1fr; }
     .pf-cascade-chart-overlay { padding: 8px; }
     .pf-cascade-chart-dialog { max-height: calc(100dvh - 16px); padding: 12px; border-radius: 12px; }
     .pf-cascade-chart svg { min-width: 720px; }

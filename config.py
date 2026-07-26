@@ -64,6 +64,10 @@ APP_HOST = os.getenv("APP_HOST", "127.0.0.1")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+# Telegram is deliberately opt-in.  It is currently disabled to prevent alert
+# storms; set this to true only when notifications are explicitly wanted.
+TELEGRAM_ALERTS_ENABLED = os.getenv("PHILFORGE_TELEGRAM_ALERTS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+
 # ── Backtest Defaults ───────────────────────────────────────
 DEFAULT_SYMBOL = "NIFTY"
 DEFAULT_FROM = "2024-01-01"

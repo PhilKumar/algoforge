@@ -18,6 +18,8 @@ from typing import Optional
 
 import httpx
 
+import config
+
 _log = logging.getLogger("alerter")
 
 # ── Config (from env) ─────────────────────────────────────────────
@@ -25,7 +27,7 @@ TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
 DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
 
-_TELEGRAM_OK = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+_TELEGRAM_OK = bool(config.TELEGRAM_ALERTS_ENABLED and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
 _DISCORD_OK = bool(DISCORD_WEBHOOK_URL)
 
 # Shared async client — connection-pooled, reused across calls

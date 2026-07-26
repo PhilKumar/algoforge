@@ -73,6 +73,123 @@ const ICO = {
   if (terminalHead) terminalHead.innerHTML = ICO.money(14);
 })();
 
+// ── Site-styled Cascade date/time picker ──────────────────────────
+// Native picker popups cannot inherit the PhilForge visual system.  Keep the
+// ISO value expected by the campaign API, but provide a consistent calendar.
+(() => {
+  const TARGET = '.pf-cascade-datetime';
+  let popover;
+  let activeInput;
+  let visibleMonth;
+  let selectedDate;
+
+  const pad = value => String(value).padStart(2, '0');
+  const parseValue = value => {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+    return new Date();
+  };
+  const iso = value => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const close = () => { if (popover) popover.hidden = true; activeInput = null; };
+
+  function createPopover() {
+    popover = document.createElement('div');
+    popover.className = 'pf-cascade-calendar';
+    popover.hidden = true;
+    popover.setAttribute('role', 'dialog');
+    popover.setAttribute('aria-label', 'Choose candle date and time');
+    document.body.append(popover);
+  }
+
+  function render() {
+    if (!popover || !activeInput || !visibleMonth || !selectedDate) return;
+    const year = visibleMonth.getFullYear();
+    const month = visibleMonth.getMonth();
+    const first = new Date(year, month, 1);
+    const gridStart = new Date(year, month, 1 - first.getDay());
+    const now = new Date();
+    const step = Math.max(Number(activeInput.dataset.pfCalendarStep || activeInput.getAttribute('step') || 300) / 60, 1);
+    const minutes = [];
+    const firstMinute = step >= 60 ? 15 : 0;
+    for (let minute = firstMinute; minute < 60; minute += step) minutes.push(minute);
+    const monthName = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(visibleMonth);
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('');
+    let days = '';
+    for (let index = 0; index < 42; index += 1) {
+      const day = new Date(gridStart);
+      day.setDate(gridStart.getDate() + index);
+      const classes = ['pf-cascade-calendar-day'];
+      if (day.getMonth() !== month) classes.push('is-outside');
+      if (sameDay(day, now)) classes.push('is-today');
+      if (sameDay(day, selectedDate)) classes.push('is-selected');
+      days += `<button type="button" class="${classes.join(' ')}" data-pf-calendar-day="${day.getFullYear()}-${day.getMonth()}-${day.getDate()}">${day.getDate()}</button>`;
+    }
+    const hours = Array.from({ length: 24 }, (_, hour) => `<option value="${hour}" ${hour === selectedDate.getHours() ? 'selected' : ''}>${pad(hour)}</option>`).join('');
+    const minuteOptions = minutes.map(minute => `<option value="${minute}" ${minute === selectedDate.getMinutes() ? 'selected' : ''}>${pad(minute)}</option>`).join('');
+    popover.innerHTML = `<div class="pf-cascade-calendar-head"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-1" aria-label="Previous month">‹</button><span>${monthName}</span><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="1" aria-label="Next month">›</button></div><div class="pf-cascade-calendar-weekdays">${weekdays}</div><div class="pf-cascade-calendar-days">${days}</div><div class="pf-cascade-calendar-time"><select aria-label="Hour" data-pf-calendar-hour>${hours}</select><select aria-label="Minute" data-pf-calendar-minute>${minuteOptions}</select></div><div class="pf-cascade-calendar-actions"><button class="btn btn-sm" type="button" data-pf-calendar-cancel>Cancel</button><button class="btn btn-sm" type="button" data-pf-calendar-apply>Apply</button></div>`;
+  }
+
+  function open(input) {
+    if (!popover) createPopover();
+    activeInput = input;
+    selectedDate = parseValue(input.value);
+    visibleMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    render();
+    popover.hidden = false;
+    const rect = input.getBoundingClientRect();
+    const width = Math.min(332, window.innerWidth - 24);
+    popover.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+    popover.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 430)}px`;
+  }
+
+  function setup(input) {
+    if (input.dataset.pfCalendarReady) return;
+    input.dataset.pfCalendarReady = '1';
+    input.dataset.pfCalendarStep = input.getAttribute('step') || '300';
+    input.type = 'text';
+    input.readOnly = true;
+    input.setAttribute('aria-haspopup', 'dialog');
+    input.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); open(input); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(input); }
+    });
+  }
+
+  document.addEventListener('click', event => {
+    if (popover && !popover.contains(event.target)) { close(); return; }
+    const action = event.target.closest('[data-pf-calendar-nav], [data-pf-calendar-day], [data-pf-calendar-apply], [data-pf-calendar-cancel]');
+    if (!action) return;
+    if (!activeInput) return;
+    if (action.dataset.pfCalendarNav) {
+      visibleMonth.setMonth(visibleMonth.getMonth() + Number(action.dataset.pfCalendarNav));
+      render();
+    } else if (action.dataset.pfCalendarDay) {
+      const [year, month, day] = action.dataset.pfCalendarDay.split('-').map(Number);
+      selectedDate.setFullYear(year, month, day);
+      visibleMonth = new Date(year, month, 1);
+      render();
+    } else if (action.hasAttribute('data-pf-calendar-apply')) {
+      const hour = Number(popover.querySelector('[data-pf-calendar-hour]').value);
+      const minute = Number(popover.querySelector('[data-pf-calendar-minute]').value);
+      selectedDate.setHours(hour, minute, 0, 0);
+      activeInput.value = iso(selectedDate);
+      activeInput.dispatchEvent(new Event('input', { bubbles: true }));
+      activeInput.dispatchEvent(new Event('change', { bubbles: true }));
+      close();
+    } else if (action.hasAttribute('data-pf-calendar-cancel')) {
+      close();
+    }
+  });
+
+  document.addEventListener('change', event => {
+    if (!popover || !activeInput || !event.target.matches('[data-pf-calendar-hour], [data-pf-calendar-minute]')) return;
+    selectedDate.setHours(Number(popover.querySelector('[data-pf-calendar-hour]').value), Number(popover.querySelector('[data-pf-calendar-minute]').value), 0, 0);
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') close(); });
+  document.addEventListener('DOMContentLoaded', () => document.querySelectorAll(TARGET).forEach(setup));
+})();
+
 (function initShellIcons() {
   const iconMap = {
     'admin-btn': ICO.shield(16),

@@ -202,6 +202,10 @@ async def token_renewal_loop():
 def _alert_renewal_failure():
     """Send Telegram alert when all token renewal attempts fail."""
     try:
+        import config
+
+        if not config.TELEGRAM_ALERTS_ENABLED:
+            return
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
         if not bot_token or not chat_id:
