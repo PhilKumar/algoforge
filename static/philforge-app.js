@@ -3869,6 +3869,15 @@ async function refreshStockTerminalQuote(force) {
 function _terminalCascadeEl(id) { return document.getElementById(id); }
 
 function bindTerminalCascadeInputs() {
+  const chartIcons = {
+    'terminal-cascade-refresh-icon': ICO.refresh(15),
+    'terminal-cascade-expand-icon': ICO.target(15),
+    'terminal-cascade-close-icon': ICO.cross(15),
+  };
+  Object.entries(chartIcons).forEach(([id, icon]) => {
+    const element = _terminalCascadeEl(id);
+    if (element) element.innerHTML = icon;
+  });
   if (_terminalCascadeInputsBound) return;
   _terminalCascadeInputsBound = true;
   const capital = _terminalCascadeEl('terminal-cascade-capital');
@@ -4000,7 +4009,7 @@ function _terminalCascadeWindow(campaign) {
   ].join('');
   return `<article class="terminal-cascade-scrip-window${cardClass}" data-terminal-cascade-symbol="${escapeAttr(symbol)}">
     <div class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(signal)} signal -> ${escapeHtml(symbol)} trade/TP · ${escapeHtml(state)} · ${escapeHtml(timeframe)}</strong></div>
-      <div class="terminal-cascade-card-actions"><button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">Chart</button>${campaign.running ? `<button class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper('${escapeAttr(symbol)}')">Stop</button>` : ''}<button class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper('${escapeAttr(symbol)}')">Delete</button></div></div>
+      <div class="terminal-cascade-card-actions"><button class="terminal-cascade-card-control" title="Open ${escapeAttr(symbol)} chart" aria-label="Open ${escapeAttr(symbol)} chart" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">${ICO.chart(15)}</button>${campaign.running ? `<button class="terminal-cascade-card-control" title="Stop ${escapeAttr(symbol)} paper campaign" aria-label="Stop ${escapeAttr(symbol)} paper campaign" onclick="stopTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.sqstop(14)}</button>` : ''}<button class="terminal-cascade-card-control is-danger" title="Delete ${escapeAttr(symbol)} paper campaign" aria-label="Delete ${escapeAttr(symbol)} paper campaign" onclick="deleteTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.trash(15)}</button></div></div>
     <div class="terminal-cascade-summary">${metrics}</div>
     <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
     <div class="terminal-cascade-bottom-grid">
@@ -4256,7 +4265,7 @@ function _terminalCascadeChartDetails(payload) {
     }
   });
   if (!rows.length) return '<div class="terminal-cascade-empty">No trendlines or fib levels marked yet.</div>';
-  return `<details class="terminal-cascade-chart-details"><summary><span>Structure, fibs and order details</span><em>${rows.length} rows · expand</em></summary><div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Object</th><th>Anchor</th><th class="num">Price</th><th>Time / status</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details>`;
+  return `<details class="terminal-cascade-chart-details"><summary><span>Structure, fibs and order details</span><em>${rows.length} rows</em></summary><div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Object</th><th>Anchor</th><th class="num">Price</th><th>Time / status</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details>`;
 }
 
 function _terminalCascadeChartHtml(payload) {
@@ -4349,17 +4358,23 @@ function _terminalCascadeChartSvg(payload) {
   const X = index => padL + index * cw + cw / 2;
   const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
   const Xt = value => {
-    const t = millis(value), t0 = millis(candles[0].t), t1 = millis(candles[n - 1].t);
-    if (!t || !t0 || !t1 || t1 === t0) return X(0);
-    return padL + cw / 2 + ((t - t0) / (t1 - t0)) * (plotW - cw);
+    const t = millis(value);
+    if (!t) return X(0);
+    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
+    if (t <= first) return X(0);
+    if (t >= last) return X(n - 1);
+    // Candles deliberately skip NSE overnight/weekend gaps. Anchor positions
+    // must use that same bar sequence, not elapsed calendar time.
+    for (let index = 1; index < n; index += 1) {
+      const right = millis(candles[index].t);
+      if (t > right) continue;
+      const left = millis(candles[index - 1].t);
+      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
+      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
+    }
+    return X(n - 1);
   };
   const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
-  const trendlinePrice = (line, atMillis) => {
-    const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
-    const a1p = Number(line.anchor1_price), a2p = Number(line.anchor2_price);
-    if (!a1t || !a2t || !Number.isFinite(a1p) || !Number.isFinite(a2p) || a2t === a1t) return a1p;
-    return a1p + ((a2p - a1p) / (a2t - a1t)) * (atMillis - a1t);
-  };
   const colorById = id => PAL.fibs[(Math.max(1, Number(id) || 1) - 1) % PAL.fibs.length];
   const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
 
@@ -4406,20 +4421,8 @@ function _terminalCascadeChartSvg(payload) {
     const p = Number(price);
     if (!inView(p)) return;
     const y = Y(p);
-    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${width || .9}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''}/>`);
+    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${width || .9}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''}/>`);
     if (text) label(y, text, color);
-  };
-  const projectionSlots = [];
-  const projectionLabel = (y, text, color) => {
-    let ly = Math.max(padT + 12, Math.min(H - padB - 8, y));
-    for (let pass = 0; pass < 8; pass += 1) {
-      const near = projectionSlots.find(slot => Math.abs(slot - ly) < 12);
-      if (!Number.isFinite(near)) break;
-      const down = near + 13;
-      ly = down <= H - padB - 8 ? down : near - 13;
-    }
-    projectionSlots.push(ly);
-    parts.push(`<text x="${padL + plotW - 4}" y="${(ly - 5).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" text-anchor="end" opacity=".72">${escapeHtml(text)}</text>`);
   };
 
   if (Number.isFinite(Number(mother.h))) hline(Number(mother.h), PAL.mother, `MOTHER (${number(mother.h)})`, '5 3', 1.1);
@@ -4427,30 +4430,26 @@ function _terminalCascadeChartSvg(payload) {
   trendlines.forEach(line => {
     const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
     if (!a1t || !a2t || a1t === a2t) return;
-    const firstCandle = candles[0], lastCandle = candles[n - 1];
-    const t0 = millis(firstCandle.t), t1 = millis(lastCandle.t);
     const a1p = Number(line.anchor1_price);
     const a2p = Number(line.anchor2_price);
     if (!Number.isFinite(a1p) || !Number.isFinite(a2p)) return;
-    const startPrice = trendlinePrice(line, t0);
-    const endPrice = trendlinePrice(line, t1);
     const color = colorById(line.id);
     const noFib = line.bears_fib === false;
     const x1 = Xt(line.anchor1_timestamp), y1 = Y(a1p);
     const x2 = Xt(line.anchor2_timestamp), y2 = Y(a2p);
-    const xStart = Xt(firstCandle.t), yStart = Y(startPrice);
-    const xEnd = Xt(lastCandle.t), yEnd = Y(endPrice);
-    // Match the BTCUSDT chart: one continuous mother-high trendline across
-    // the whole visible window. The ring records the exact red-open anchor.
-    parts.push(`<line x1="${xStart.toFixed(1)}" y1="${yStart.toFixed(1)}" x2="${xEnd.toFixed(1)}" y2="${yEnd.toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .8 : 1.3}" opacity="${noFib ? .35 : .92}" stroke-linecap="round"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
+    // Match CryptoForge: project the validated line across the current chart,
+    // but calculate that projection from its two bar-axis anchors. This keeps
+    // it exactly on the mother high and the selected red-candle open even when
+    // the visible NSE candles span overnight or weekend gaps.
+    const visualSlope = x2 === x1 ? 0 : (a2p - a1p) / (x2 - x1);
+    const yStart = Y(a1p + visualSlope * (padL - x1));
+    const yEnd = Y(a1p + visualSlope * (padL + plotW - x1));
+    parts.push(`<line x1="${padL}" y1="${yStart.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${yEnd.toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .8 : 1.5}" opacity="${noFib ? .35 : .96}" stroke-linecap="round"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
     if (inView(a1p)) parts.push(`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.3" fill="${color}"/>`);
     if (inView(a2p)) {
       parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="4.2" fill="${PAL.bg}" stroke="${color}" stroke-width="1.8"/>`);
       parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="1.9" fill="${color}"/>`);
       parts.push(`<text x="${(x2 + 6).toFixed(1)}" y="${(y2 - 7).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" font-weight="700">TL${escapeHtml(line.id)} red open</text>`);
-    }
-    if (inView(endPrice)) {
-      projectionLabel(yEnd, `TL${line.id} proj${noFib ? ' no fib' : ''}`, color);
     }
   });
 
@@ -4582,7 +4581,10 @@ function toggleTerminalCascadeFullscreen(force) {
   terminalCascadeZoomReset();
   if (button) {
     button.setAttribute('aria-pressed', open ? 'true' : 'false');
-    button.textContent = open ? 'Exit' : 'Expand';
+    button.setAttribute('title', open ? 'Exit full screen' : 'Expand chart');
+    button.setAttribute('aria-label', open ? 'Exit full screen' : 'Expand chart');
+    const icon = _terminalCascadeEl('terminal-cascade-expand-icon');
+    if (icon) icon.innerHTML = open ? ICO.cross(15) : ICO.target(15);
   }
 }
 

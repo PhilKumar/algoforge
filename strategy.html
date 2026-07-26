@@ -1501,9 +1501,9 @@
             <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" id="terminal-cascade-zoom-level" onclick="terminalCascadeZoomReset()" title="Reset zoom">100%</button>
             <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
           </div>
-          <button class="btn btn-sm btn-outline" onclick="refreshTerminalCascadeChart()">Refresh</button>
-          <button class="btn btn-sm btn-outline" id="terminal-cascade-expand-btn" onclick="toggleTerminalCascadeFullscreen()" aria-pressed="false">Expand</button>
-          <button class="btn btn-sm btn-outline" onclick="hideTerminalCascadeChart()">Close</button>
+          <button type="button" class="terminal-cascade-chart-control" onclick="refreshTerminalCascadeChart()" title="Refresh chart" aria-label="Refresh chart"><span id="terminal-cascade-refresh-icon"></span></button>
+          <button type="button" class="terminal-cascade-chart-control" id="terminal-cascade-expand-btn" onclick="toggleTerminalCascadeFullscreen()" title="Expand chart" aria-label="Expand chart" aria-pressed="false"><span id="terminal-cascade-expand-icon"></span></button>
+          <button type="button" class="terminal-cascade-chart-control is-danger" onclick="hideTerminalCascadeChart()" title="Close chart" aria-label="Close chart"><span id="terminal-cascade-close-icon"></span></button>
         </div>
       </div>
       <div id="terminal-cascade-chart-body" class="terminal-cascade-chart-body">
