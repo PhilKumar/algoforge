@@ -89,6 +89,8 @@ from engine.cascade_options import (
     OneHourCascade,
     PaperCascadeConfig,
 )
+from engine.cascade_scanner import ScanInput
+from engine.cascade_scanner import scan as cascade_scan
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -9572,6 +9574,116 @@ async def terminal_cascade_delete(request: Request, symbol: str):
         await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), "")
     await _notify_terminal_cascade_ws(user_id)
     return {"status": "deleted"}
+
+
+# ── Terminal Cascade: instrument scanner ──────────────────────────
+_CASCADE_SCAN_CACHE: Dict[str, tuple] = {}
+_CASCADE_SCAN_TTL_SEC = 900
+_CASCADE_SCAN_CONCURRENCY = 8
+_CASCADE_SCAN_HISTORY_DAYS = 200
+
+
+async def _cascade_scan_history(broker: DhanClient, stock: dict, semaphore: asyncio.Semaphore) -> Optional[ScanInput]:
+    """Daily candles for one scrip, or None if Dhan cannot supply them.
+
+    A scrip that fails to load is dropped rather than scanned on partial data:
+    a short history silently changes what "performing" and "off its high" mean.
+    """
+    if not stock.get("security_id"):
+        return None
+    today = datetime.now(IST).date()
+    async with semaphore:
+        try:
+            frame = await asyncio.to_thread(
+                broker.get_historical_data,
+                security_id=str(stock["security_id"]),
+                exchange_segment=str(stock["exchange_segment"]),
+                instrument_type=str(stock["instrument_type"]),
+                from_date=(today - timedelta(days=_CASCADE_SCAN_HISTORY_DAYS)).isoformat(),
+                to_date=today.isoformat(),
+                candle_type="D",
+            )
+        except Exception:
+            return None
+    if frame is None or getattr(frame, "empty", True):
+        return None
+    closes = [float(value) for value in frame["close"].tolist()]
+    highs = [float(value) for value in frame["high"].tolist()]
+    if not closes:
+        return None
+    return ScanInput(
+        symbol=stock["symbol"],
+        name=stock.get("name") or stock["symbol"],
+        closes=closes,
+        highs=highs,
+        last_price=closes[-1],
+    )
+
+
+@app.get("/api/terminal/cascade/scan")
+async def terminal_cascade_scan(
+    request: Request,
+    capital_inr: float = 100000.0,
+    limit: int = 30,
+    min_price: float = 200.0,
+    refresh: bool = False,
+):
+    """Rank Nifty 200 scrips by how tradeable a Cascade on them would be today.
+
+    Read-only: it places no orders and starts no campaign.  The result is cached
+    because it costs a couple of hundred Dhan calls to build, and daily candles
+    only change once a day.
+    """
+    if capital_inr <= 0:
+        raise HTTPException(status_code=400, detail="Capital must be positive.")
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to run the Cascade scanner.")
+
+    cache_key = f"{datetime.now(IST).date()}:{capital_inr:.0f}:{min_price:.0f}:{limit}"
+    cached = _CASCADE_SCAN_CACHE.get(cache_key)
+    if cached and not refresh and time.time() - cached[0] < _CASCADE_SCAN_TTL_SEC:
+        return {**cached[1], "cached": True}
+
+    semaphore = asyncio.Semaphore(_CASCADE_SCAN_CONCURRENCY)
+    stocks = [_resolve_terminal_stock(row["symbol"]) for row in TERMINAL_STOCKS]
+    loaded = await asyncio.gather(*(_cascade_scan_history(broker_client, row, semaphore) for row in stocks))
+    rows = [row for row in loaded if row is not None]
+
+    candidates, rejected = cascade_scan(
+        rows,
+        capital_inr=float(capital_inr),
+        min_price=float(min_price),
+        limit=int(limit),
+    )
+    payload = {
+        "status": "ok",
+        "scanned_at": datetime.now(IST).isoformat(),
+        "capital_inr": float(capital_inr),
+        "universe": len(stocks),
+        "with_history": len(rows),
+        "no_history": len(stocks) - len(rows),
+        "candidates": [
+            {
+                "symbol": row.symbol,
+                "name": row.name,
+                "last_price": row.last_price,
+                "strength_pct": row.strength_pct,
+                "pullback_pct": row.pullback_pct,
+                "recent_high": row.recent_high,
+                "affordable_shares": row.affordable_shares,
+                "rungs_fundable": row.rungs_fundable,
+                "score": row.score,
+            }
+            for row in candidates
+        ],
+        # Kept so an empty list can explain itself instead of looking like a bug.
+        "rejected_sample": [{"symbol": row.symbol, "reason": row.reason} for row in rejected[:12]],
+        "rejected_total": len(rejected),
+        "cached": False,
+    }
+    _CASCADE_SCAN_CACHE[cache_key] = (time.time(), payload)
+    return payload
 
 
 @app.get("/api/terminal/nifty200")

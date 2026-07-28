@@ -1,0 +1,68 @@
+/* Terminal Cascade scrip scanner. Scoped to .cascade-scan-* so it cannot
+   reach into the existing Terminal styles. */
+
+.cascade-scan-shell { margin-bottom: 18px; }
+
+.cascade-scan-head {
+  display: flex; flex-wrap: wrap; gap: 16px;
+  align-items: flex-start; justify-content: space-between;
+}
+.cascade-scan-head h3 { margin: 2px 0 4px; }
+.cascade-scan-sub { font-size: 12px; opacity: .7; max-width: 52ch; line-height: 1.45; }
+
+.cascade-scan-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cascade-scan-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+.cascade-scan-controls input {
+  width: 130px; padding: 6px 9px; border-radius: 7px;
+  border: 1px solid rgba(128, 128, 128, .35); background: transparent; color: inherit;
+}
+#cascade-scan-run[disabled] { opacity: .55; cursor: progress; }
+
+.cascade-scan-meta-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin: 12px 0 6px; font-size: 12px;
+}
+.cascade-scan-status { opacity: .8; }
+.cascade-scan-status-ok { color: #1a9d5a; opacity: 1; }
+.cascade-scan-status-warn { color: #b8860b; opacity: 1; }
+.cascade-scan-status-error { color: #c0392b; opacity: 1; }
+.cascade-scan-meta { opacity: .6; }
+
+/* Wide tables scroll inside their own box; the page never scrolls sideways. */
+.cascade-scan-table-wrap { overflow-x: auto; }
+.cascade-scan-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cascade-scan-table th, .cascade-scan-table td {
+  padding: 8px 10px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid rgba(128, 128, 128, .18);
+}
+.cascade-scan-table th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  opacity: .65; font-weight: 600;
+}
+.cascade-scan-table .num { text-align: right; }
+.cascade-scan-table tbody tr:hover { background: rgba(128, 128, 128, .07); }
+.cascade-scan-rank { opacity: .5; width: 34px; }
+.cascade-scan-name { display: block; font-size: 11px; opacity: .55; font-weight: 400; }
+.cascade-scan-pullback { color: #c0392b; }
+
+.cascade-scan-rungs { font-weight: 600; }
+.cascade-scan-rungs.ok { color: #1a9d5a; }
+.cascade-scan-rungs.warn { color: #b8860b; }
+.cascade-scan-rungs.bad { color: #c0392b; }
+
+.cascade-scan-pick {
+  padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  border: 1px solid rgba(128, 128, 128, .4); background: transparent; color: inherit;
+}
+.cascade-scan-pick:hover { background: rgba(128, 128, 128, .14); }
+
+.cascade-scan-empty { padding: 18px 4px; font-size: 13px; opacity: .75; }
+.cascade-scan-empty p { margin: 0 0 8px; }
+.cascade-scan-empty-note { opacity: .7; font-size: 12px; }
+.cascade-scan-empty ul { margin: 0; padding-left: 18px; font-size: 12px; opacity: .8; }
+.cascade-scan-empty li { margin-bottom: 3px; }
+
+@media (max-width: 640px) {
+  .cascade-scan-controls { width: 100%; }
+  .cascade-scan-controls input { flex: 1; width: auto; }
+}

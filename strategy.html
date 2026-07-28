@@ -16,8 +16,10 @@
 <link rel="shortcut icon" href="/favicon.ico?v=__ASSET_VERSION__">
 <link rel="manifest" href="/manifest.webmanifest?v=__ASSET_VERSION__">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="/static/philforge-appearance.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-theme.js?v=__ASSET_VERSION__"></script>
 <link rel="stylesheet" href="/static/philforge-app.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="/static/philforge-cascade-scanner.css?v=__ASSET_VERSION__">
 <link rel="stylesheet" href="/static/philforge-theme.css?v=__ASSET_VERSION__">
 <script src="/static/error-handler.js" defer></script>
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
@@ -1410,6 +1412,30 @@
     </div>
   </div>
 
+  <div class="card cascade-scan-shell" id="cascade-scan-panel">
+    <div class="cascade-scan-head">
+      <div>
+        <div class="terminal-cascade-eyebrow">Cash Cascade</div>
+        <h3>Scrip Scanner</h3>
+        <div class="cascade-scan-sub">
+          Nifty 200 above &#8377;200, still trending up, currently pulled back from a recent high.
+        </div>
+      </div>
+      <div class="cascade-scan-controls">
+        <label for="cascade-scan-capital">Capital per campaign</label>
+        <input id="cascade-scan-capital" type="number" min="500" step="500" value="100000">
+        <button type="button" id="cascade-scan-run" class="btn btn-sm">Scan</button>
+      </div>
+    </div>
+    <div class="cascade-scan-meta-row">
+      <span id="cascade-scan-status" class="cascade-scan-status">Press Scan to rank today&#39;s candidates.</span>
+      <span id="cascade-scan-meta" class="cascade-scan-meta"></span>
+    </div>
+    <div id="cascade-scan-body" class="cascade-scan-body">
+      <div class="cascade-scan-empty"><p>No scan run yet.</p></div>
+    </div>
+  </div>
+
   <div class="card terminal-cascade-shell" id="terminal-cascade-panel">
     <div class="terminal-cascade-head">
       <div class="terminal-cascade-title-block">
@@ -2234,24 +2260,11 @@
     </div>
     <section class="appearance-section">
       <h4>Color Tint</h4>
-      <div class="appearance-options appearance-tint-options">
-        <button class="appearance-option" data-appearance-tint="native"><span class="appearance-swatch swatch-native"></span><span>PhilForge Default</span></button>
-        <button class="appearance-option" data-appearance-tint="jade"><span class="appearance-swatch swatch-jade"></span><span>Jade Mist</span></button>
-        <button class="appearance-option" data-appearance-tint="cobalt"><span class="appearance-swatch swatch-cobalt"></span><span>Cobalt Haze</span></button>
-        <button class="appearance-option" data-appearance-tint="copper"><span class="appearance-swatch swatch-copper"></span><span>Copper Sand</span></button>
-        <button class="appearance-option" data-appearance-tint="fuchsia"><span class="appearance-swatch swatch-fuchsia"></span><span>Rose Dusk</span></button>
-        <button class="appearance-option" data-appearance-tint="lime"><span class="appearance-swatch swatch-lime"></span><span>Olive Calm</span></button>
-      </div>
+      <div class="appearance-options appearance-tint-options" id="appearance-tint-options"></div>
     </section>
     <section class="appearance-section">
       <h4>Font Style</h4>
-      <div class="appearance-options">
-        <button class="appearance-option font-forge" data-appearance-font="forge"><span class="appearance-font-sample">Aa</span><span>Forge Native</span></button>
-        <button class="appearance-option font-atelier" data-appearance-font="atelier"><span class="appearance-font-sample">Aa</span><span>Grotesk Desk</span></button>
-        <button class="appearance-option font-exchange" data-appearance-font="exchange"><span class="appearance-font-sample">Aa</span><span>Terminal Tape</span></button>
-        <button class="appearance-option font-blueprint" data-appearance-font="blueprint"><span class="appearance-font-sample">Aa</span><span>Circuit Draft</span></button>
-        <button class="appearance-option font-scribe" data-appearance-font="scribe"><span class="appearance-font-sample">Aa</span><span>Editorial Serif</span></button>
-      </div>
+      <div class="appearance-options" id="appearance-font-options"></div>
     </section>
     <div class="appearance-actions">
       <button class="btn btn-outline btn-sm" data-pf-action="resetAppearance">Reset</button>
@@ -2445,5 +2458,6 @@
 </div>
 
 <script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-flow-chart-1"></script>
+<script src="/static/philforge-cascade-scanner.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>
