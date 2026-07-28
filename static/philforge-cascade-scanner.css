@@ -263,6 +263,42 @@
 .cascade-scan-shell { border-radius: 14px; overflow: hidden; }
 .cascade-scan-body { transition: opacity .2s ease; }
 
+/* ── Panel chrome ─────────────────────────────────────────────────
+   The instrument and setup panels were flat boxes next to the site's layered
+   cards. Same corner radius, same gradient, same hairline as the rest. */
+.terminal-cascade-start-panel,
+.terminal-cascade-instrument-panel {
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, .008));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .28);
+}
+.terminal-cascade-section-head {
+  padding: 13px 15px 11px;
+  border-bottom: 1px solid rgba(148, 163, 184, .12);
+}
+.terminal-cascade-section-head span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em; opacity: .6;
+}
+.terminal-cascade-section-head strong {
+  display: block; margin-top: 2px; font-size: 13px; font-weight: 600; opacity: .9;
+}
+.pf-campaign-card {
+  border-radius: 11px; overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .16);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.pf-campaign-card:hover { border-color: rgba(148, 163, 184, .3); }
+.pf-campaign-card.is-active {
+  border-color: rgba(52, 211, 153, .38);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, .12), 0 2px 8px rgba(0, 0, 0, .3);
+}
+.terminal-cascade-scrip-window-body { padding: 13px 15px 15px; }
+
+/* Overlays and their toolbars follow the same radius as the panels. */
+.terminal-cascade-chart-dialog { border-radius: 16px; }
+.terminal-cascade-chart-toolbar { border-bottom: 1px solid rgba(148, 163, 184, .12); }
+
 /* Which scrip the setup below is actually for. */
 .terminal-cascade-selected {
   margin: 12px 13px 0; padding: 8px 12px; border-radius: 9px; font-size: 12px;

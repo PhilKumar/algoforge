@@ -178,17 +178,26 @@
     out.push('<rect x="' + padL + '" y="' + yHigh.toFixed(1) + '" width="' + plotW + '" height="' +
       Math.max(0, yNow - yHigh).toFixed(1) + '" fill="' + PAL.zone + '"/>');
 
+    // Strokes centred on a half pixel, fills aligned to whole ones -- otherwise
+    // the rasteriser spreads every 1px line across two columns and the whole
+    // chart reads as soft.
+    var sharp = function (v) { return Math.round(v) + 0.5; };
+    var solid = function (v) { return Math.round(v); };
+
     rows.forEach(function (row, i) {
       var up = row.c >= row.o;
       var colour = up ? PAL.up : PAL.down;
       var x = X(i);
-      var bodyTop = Y(Math.max(row.o, row.c));
-      var bodyH = Math.max(1, Math.abs(Y(row.o) - Y(row.c)));
+      var bodyTop = solid(Y(Math.max(row.o, row.c)));
+      var bodyBottom = solid(Y(Math.min(row.o, row.c)));
       var bw = Math.max(1, cw * 0.62);
-      out.push('<line x1="' + x.toFixed(1) + '" y1="' + Y(row.h).toFixed(1) + '" x2="' + x.toFixed(1) +
-        '" y2="' + Y(row.l).toFixed(1) + '" stroke="' + colour + '" stroke-width="1"/>');
-      out.push('<rect x="' + (x - bw / 2).toFixed(1) + '" y="' + bodyTop.toFixed(1) + '" width="' + bw.toFixed(1) +
-        '" height="' + bodyH.toFixed(1) + '" fill="' + colour + '"/>');
+      var left = solid(x - bw / 2);
+      var right = Math.max(solid(x + bw / 2), left + 1);
+      out.push('<line x1="' + sharp(x) + '" y1="' + solid(Y(row.h)) + '" x2="' + sharp(x) +
+        '" y2="' + solid(Y(row.l)) + '" stroke="' + colour + '" stroke-width="1" shape-rendering="crispEdges"/>');
+      out.push('<rect x="' + left + '" y="' + bodyTop + '" width="' + (right - left) +
+        '" height="' + Math.max(bodyBottom - bodyTop, 1) + '" fill="' + colour +
+        '" shape-rendering="crispEdges"/>');
     });
 
     out.push('<line x1="' + padL + '" y1="' + yHigh.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yHigh.toFixed(1) +

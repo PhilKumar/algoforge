@@ -4425,10 +4425,16 @@ function _terminalCascadeChartSvg(payload) {
   const colorById = id => PAL.fibs[(Math.max(1, Number(id) || 1) - 1) % PAL.fibs.length];
   const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
 
+  // A 1px stroke centred on a fractional coordinate is spread across two pixel
+  // columns by the rasteriser, which is what makes every line look soft. Centre
+  // strokes on a half pixel and align filled edges to whole ones instead.
+  const sharp = value => Math.round(value) + 0.5;
+  const solid = value => Math.round(value);
+
   for (let i = 0; i <= 4; i += 1) {
     const price = minP + (maxP - minP) * (i / 4);
     const y = Y(price);
-    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="${PAL.grid}" stroke-width="1"/>`);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
     parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
   }
   const tickCount = Math.min(6, n);
@@ -4442,9 +4448,10 @@ function _terminalCascadeChartSvg(payload) {
     const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
     if (![o, h, l, c].every(Number.isFinite)) return;
     const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
-    parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(l).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
-    const top = Y(Math.max(o, c)), bottom = Y(Math.min(o, c));
-    parts.push(`<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(bottom - top, 1).toFixed(1)}" fill="${color}"/>`);
+    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
+    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
+    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
+    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
     if (candle.is_mother) {
       parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
       parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
@@ -4468,7 +4475,7 @@ function _terminalCascadeChartSvg(payload) {
     const p = Number(price);
     if (!inView(p)) return;
     const y = Y(p);
-    parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="${width || .9}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''}/>`);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
     if (text) label(y, text, color);
   };
 
@@ -4529,7 +4536,9 @@ function _terminalCascadeChartSvg(payload) {
     if (inView(Number(campaign.average_entry_price))) hline(Number(campaign.average_entry_price), PAL.avg, `AVG ENTRY (${number(campaign.average_entry_price)})`, '4 4', 1.1);
   }
   const chartLabel = payload?.instrument?.signal_symbol || 'Signal';
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} Cascade chart">${parts.join('')}</svg>`;
+  // geometricPrecision is the right default for the diagonals and circles; the
+  // axis-aligned pieces opt into crispEdges individually above.
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} Cascade chart">${parts.join('')}</svg>`;
 }
 
 function _terminalCascadeChartSvgEl() {
