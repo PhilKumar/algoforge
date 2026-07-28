@@ -4007,20 +4007,58 @@ function _terminalCascadeWindow(campaign) {
   const timeframe = String(config.timeframe || '5m');
   const cardClass = campaign.running ? ' is-active' : '';
   const open = _terminalCascadeOpenSymbols.has(symbol) ? ' open' : '';
-  const metrics = [
-    _terminalCascadeMetric('Signal', signal, inst.reference_mode === 'reference_index' ? '#93c5fd' : 'var(--text)'),
-    _terminalCascadeMetric('Trade', symbol, '#6ee7b7'),
-    _terminalCascadeMetric('Avg', _cascadeNumber(campaign.average_entry_price)),
-    _terminalCascadeMetric('TP', _cascadeNumber(campaign.target_price), '#fef3c7'),
-    _terminalCascadeMetric('Qty', String(campaign.open_quantity || 0), '#6ee7b7'),
-    _terminalCascadeMetric('Pending', _terminalCascadeMoney(campaign.pending_inr || 0), '#fde68a'),
-    _terminalCascadeMetric('Carry', _terminalCascadeMoney(campaign.cash_carry_inr || 0), '#93c5fd'),
-    _terminalCascadeMetric('Capital', _terminalCascadeMoney(config.capital_inr || 0)),
+  const rounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
+  const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
+  const realised = rounds.reduce((sum, row) => sum + (Number(row.net_pnl) || 0), 0);
+  const mode = String(campaign.mode || 'paper').toUpperCase();
+  const ended = ['STOPPED', 'KILLED', 'MOTHER_BROKEN', 'MOTHER_RETESTED'].includes(String(campaign.status || '').toUpperCase());
+  const halted = Boolean(campaign.halted);
+  // A collapsed card still has to say how the campaign is doing, otherwise the
+  // list is a row of names and you must open every one to find the live trade.
+  let gist = fills.length
+    ? `${fills.length} open fill${fills.length === 1 ? '' : 's'}`
+    : (rounds.length ? `${rounds.length} round${rounds.length === 1 ? '' : 's'}` : 'no entry yet');
+  if (rounds.length) gist += ` · ${realised >= 0 ? '+' : ''}${_terminalCascadeMoney(realised)}`;
+
+  const pill = (text, tone) => `<span class="pf-campaign-pill"${tone ? ` data-state="${escapeAttr(tone)}"` : ''}>${escapeHtml(text)}</span>`;
+  const stat = (label, value, note) =>
+    `<div class="pf-campaign-stat"><div class="pf-campaign-stat-label">${escapeHtml(label)}</div>` +
+    `<div class="pf-campaign-stat-value">${escapeHtml(value)}</div>` +
+    (note ? `<div class="pf-campaign-stat-note">${escapeHtml(note)}</div>` : '') + '</div>';
+
+  const stats = [
+    stat('Mother high', _cascadeNumber(campaign?.mother?.trade?.high)),
+    stat('Avg entry', _cascadeNumber(campaign.average_entry_price)),
+    stat('Take profit', _cascadeNumber(campaign.target_price), 'a quarter back to the mother high'),
+    stat('Quantity', String(campaign.open_quantity || 0), `${escapeHtml(symbol)} shares held`),
+    stat('In position', _terminalCascadeMoney(campaign.open_invested_inr || 0), `of ${_terminalCascadeMoney(config.capital_inr || 0)} capital`),
+    stat('Waiting to buy', _terminalCascadeMoney(campaign.pending_inr || 0), `${_terminalCascadeMoney(campaign.cash_carry_inr || 0)} carried`),
+    stat('Rounds closed', String(rounds.length), `realised ${_terminalCascadeMoney(realised)}`),
   ].join('');
-  return `<details class="terminal-cascade-scrip-window${cardClass}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
-    <summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(signal)} signal -> ${escapeHtml(symbol)} trade/TP · ${escapeHtml(state)} · ${escapeHtml(timeframe)}</strong></div>
-      <div class="terminal-cascade-card-actions"><button class="terminal-cascade-card-control" title="Open ${escapeAttr(symbol)} chart" aria-label="Open ${escapeAttr(symbol)} chart" onclick="event.preventDefault();event.stopPropagation();loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">${ICO.chart(15)}</button>${campaign.running ? `<button class="terminal-cascade-card-control" title="Stop ${escapeAttr(symbol)} paper campaign" aria-label="Stop ${escapeAttr(symbol)} paper campaign" onclick="event.preventDefault();event.stopPropagation();stopTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.sqstop(14)}</button>` : ''}<button class="terminal-cascade-card-control is-danger" title="Delete ${escapeAttr(symbol)} paper campaign" aria-label="Delete ${escapeAttr(symbol)} paper campaign" onclick="event.preventDefault();event.stopPropagation();deleteTerminalCascadePaper('${escapeAttr(symbol)}')">${ICO.trash(15)}</button></div></summary>
-    <div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-summary">${metrics}</div>
+
+  const button = (label, handler, kind) =>
+    `<button class="btn btn-sm ${kind || 'btn-outline'}" onclick="event.preventDefault();event.stopPropagation();${handler}">${escapeHtml(label)}</button>`;
+
+  return `<details class="terminal-cascade-scrip-window pf-campaign-card${cardClass}${ended ? ' is-ended' : ''}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
+    <summary class="terminal-cascade-scrip-window-head pf-campaign-head">
+      <div class="pf-campaign-title">
+        <span class="pf-campaign-caret" aria-hidden="true">&#9656;</span>
+        <strong>${escapeHtml(symbol)}</strong>
+        ${pill(state, campaign.running ? 'ok' : 'warn')}
+        ${pill(mode, mode === 'LIVE' ? 'warn' : 'ok')}
+        ${pill(timeframe)}
+        ${inst.reference_mode === 'reference_index' ? pill(`${signal} signal`, 'info') : ''}
+        ${halted ? pill('HALTED', 'danger') : ''}
+        <span class="pf-campaign-gist">${escapeHtml(gist)}</span>
+      </div>
+      <div class="pf-campaign-actions">
+        ${button('Chart', `loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')`)}
+        ${campaign.running ? button('Stop', `stopTerminalCascadePaper('${escapeAttr(symbol)}')`) : ''}
+        ${button('Delete', `deleteTerminalCascadePaper('${escapeAttr(symbol)}')`, 'btn-danger')}
+      </div>
+    </summary>
+    <div class="terminal-cascade-scrip-window-body">
+      <div class="pf-campaign-stats">${stats}</div>
     <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
     <div class="terminal-cascade-bottom-grid">
       <section class="terminal-cascade-log-panel"><div class="terminal-cascade-section-head"><div><span>Open fills</span><strong>paper basket</strong></div></div><div class="terminal-cascade-log-body">${_terminalCascadeFillsMarkup(campaign.open_fills || [])}</div></section>

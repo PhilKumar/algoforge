@@ -102,3 +102,57 @@
   display: block; margin-top: 4px; font-size: 11px; opacity: .7;
   font-variant-numeric: tabular-nums; letter-spacing: .01em;
 }
+
+/* ── Campaign card ────────────────────────────────────────────────
+   Matches the CryptoForge active-campaign card: pills instead of a run-on
+   subtitle, a one-line gist so a collapsed card still reports itself, and
+   stat boxes instead of flat chips. */
+
+.pf-campaign-card { transition: opacity .2s ease; }
+.pf-campaign-card.is-ended { opacity: .55; }
+.pf-campaign-card.is-ended:hover { opacity: .85; }
+
+.pf-campaign-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; cursor: pointer;
+}
+.pf-campaign-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.pf-campaign-title strong { font-size: 14px; letter-spacing: .01em; }
+
+.pf-campaign-caret {
+  display: inline-block; transition: transform .2s ease; opacity: .55; font-size: 11px;
+}
+.pf-campaign-card[open] .pf-campaign-caret { transform: rotate(90deg); }
+
+.pf-campaign-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  border: 1px solid rgba(128, 128, 128, .38); opacity: .85;
+}
+.pf-campaign-pill[data-state="ok"] { color: #1a9d5a; border-color: rgba(26, 157, 90, .45); opacity: 1; }
+.pf-campaign-pill[data-state="warn"] { color: #b8860b; border-color: rgba(184, 134, 11, .45); opacity: 1; }
+.pf-campaign-pill[data-state="info"] { color: #3b82f6; border-color: rgba(59, 130, 246, .45); opacity: 1; }
+.pf-campaign-pill[data-state="danger"] { color: #c0392b; border-color: rgba(192, 57, 43, .5); opacity: 1; }
+
+.pf-campaign-gist { font-size: 12px; opacity: .65; font-variant-numeric: tabular-nums; }
+
+.pf-campaign-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.pf-campaign-stats {
+  display: grid; gap: 10px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.pf-campaign-stat {
+  padding: 10px 12px; border-radius: 9px;
+  border: 1px solid rgba(128, 128, 128, .2); background: rgba(128, 128, 128, .05);
+}
+.pf-campaign-stat-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin-bottom: 4px;
+}
+.pf-campaign-stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pf-campaign-stat-note { margin-top: 3px; font-size: 11px; opacity: .55; }
+
+@media (max-width: 640px) {
+  .pf-campaign-actions { width: 100%; }
+  .pf-campaign-actions .btn { flex: 1; }
+}
