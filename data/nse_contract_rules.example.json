@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Dated NSE contract rules for NIFTY, used by the cascade replay and backtest.",
+    "",
+    "Copy this file to data/nse_contract_rules.json and CORRECT THE VALUES against",
+    "the NSE circulars before trusting any replay that crosses a change. The rows",
+    "below are placeholders with plausible shapes, not verified history.",
+    "",
+    "Why this file exists: expiry weekday and lot size are exchange policy and have",
+    "both moved inside recent twelve-month windows. No amount of price data can",
+    "derive them, and a replay that assumes today's rules will pick the wrong",
+    "expiry and size every contract wrongly for the whole stretch before a change,",
+    "silently. A range starting before the earliest row here is refused outright",
+    "rather than backdated.",
+    "",
+    "expiry_weekday: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4.",
+    "Market-holiday shifts are NOT listed here. They are read back from the trading",
+    "sessions present in the index candles, which cannot drift out of date."
+  ],
+  "rules": [
+    {
+      "effective_from": "2024-01-01",
+      "expiry_weekday": 3,
+      "lot_size": 50,
+      "strike_step": 50.0,
+      "note": "PLACEHOLDER - Thursday weekly expiry period. Verify weekday, lot size and start date."
+    },
+    {
+      "effective_from": "2024-11-20",
+      "expiry_weekday": 2,
+      "lot_size": 75,
+      "strike_step": 50.0,
+      "note": "PLACEHOLDER - Wednesday weekly expiry period. Verify weekday, lot size and start date."
+    },
+    {
+      "effective_from": "2025-09-01",
+      "expiry_weekday": 1,
+      "lot_size": 65,
+      "strike_step": 50.0,
+      "note": "PLACEHOLDER - Tuesday weekly expiry, the rule this repository already assumes."
+    }
+  ]
+}

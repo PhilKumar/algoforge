@@ -114,24 +114,48 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(result.status, "data_gap")
         self.assertIn("missing option candle", result.data_gap)
 
-    def test_ce_moves_stop_before_fill_and_enters_at_stop_price(self):
+    # The bar below traded through the resting trigger and then closed lower.
+    # Both readings of that bar are pinned here because the difference between
+    # them is the difference between a real fill and an invented skip.
+    STOP_RACE_CANDLES = [
+        Candle(t(10), 24950, 24960, 24880, 24890),  # first qualifying red
+        Candle(t(11), 24900, 24910, 24850, 24870),  # arms at 24,890
+        Candle(t(12), 24890, 24910, 24820, 24840),  # high 24,910 crosses 24,890
+        Candle(t(13), 24850, 24880, 24830, 24870),
+    ]
+
+    @staticmethod
+    def _flat_option(timestamp, _contract: Contract):
+        return OptionCandle(timestamp, 100, 102, 98, 101)
+
+    def test_resting_stop_fills_even_when_the_bar_closes_lower(self):
+        """A buy-stop already in the market cannot be retracted by a close.
+
+        The order was placed at the previous candle's close, so it rests for
+        the whole of the next bar. Once that bar's high reaches the trigger the
+        fill has happened; the bar closing lower afterwards only means the trade
+        went straight into drawdown, which is exactly the outcome a backtest
+        must keep rather than discard.
+        """
         config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24900)
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
-        candles = [
-            Candle(t(10), 24950, 24960, 24880, 24890),  # first qualifying red
-            Candle(t(11), 24900, 24910, 24850, 24870),  # arms at 24,890
-            # This red bar traded above the old trigger but closed lower. It
-            # must move the pending stop to 24,870—not fill at its 24,840 close.
-            Candle(t(12), 24890, 24910, 24820, 24840),
-            Candle(t(13), 24850, 24880, 24830, 24870),  # later recovery fills 24,870
-        ]
 
-        def option_lookup(timestamp, _contract: Contract):
-            if timestamp != t(13):
-                return None
-            return OptionCandle(timestamp, 100, 102, 98, 101)
+        result = OneHourCascade(config, resolver, self._flat_option).run(self.STOP_RACE_CANDLES)
+        self.assertEqual(len(result.entries), 1)
+        self.assertEqual(result.entries[0].timestamp, t(12))
+        self.assertEqual(result.entries[0].spot, 24890)
 
-        result = OneHourCascade(config, resolver, option_lookup).run(candles)
+    def test_legacy_stop_walk_suppresses_the_fill_when_flag_is_off(self):
+        """The original behaviour, kept only so the delta can be measured."""
+        config = CascadeConfig(
+            mother_timestamp=t(9),
+            mother_high=25000,
+            mother_low=24900,
+            fill_before_stop_walk=False,
+        )
+        resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
+
+        result = OneHourCascade(config, resolver, self._flat_option).run(self.STOP_RACE_CANDLES)
         self.assertEqual(len(result.entries), 1)
         self.assertEqual(result.entries[0].timestamp, t(13))
         self.assertEqual(result.entries[0].spot, 24870)

@@ -88,6 +88,45 @@ class CascadeConfig:
     strict_option_data: bool = True
     force_exit_on_expiry: bool = True
 
+    # ── Order mechanics ────────────────────────────────────────────
+    # A buy-stop placed at the previous candle's close is RESTING in the market
+    # for the whole of the next bar.  If that bar's high reaches the trigger it
+    # fills, whatever the bar later closes at.  The engine originally suppressed
+    # that fill whenever the same bar also closed low enough to walk the stop
+    # down, which quietly deleted precisely the whipsaw entries that go against
+    # the position.  True reproduces real order mechanics; False reproduces the
+    # original behaviour so the difference can be measured rather than argued.
+    fill_before_stop_walk: bool = True
+
+    # ── Rule interpretations (swept, not assumed) ──────────────────
+    # Rule 4, "the close has to be low compared to the previous candle":
+    #   "last_qualifying" -> compare against the previous qualifying red close
+    #                        (greens in between are skipped entirely)
+    #   "previous_candle" -> compare against the immediately preceding candle's
+    #                        close, whatever colour it was
+    arm_compare: str = "last_qualifying"
+    # Rule 2: must the FIRST of the two reds also close beyond the reference
+    # (mother low, then each marked low), or only the second?
+    first_leg_beyond_reference: bool = True
+    # Rule 6, "mark the latest low before the entry candle":
+    #   "lowest" -> the lowest low of the whole stage window
+    #   "latest" -> the low of the last candle before the entry candle
+    mark_low_mode: str = "lowest"
+    # Rule 9: the stop walks down over several bars, so by the time it fills the
+    # spot may be far from where the strike was chosen.  A real desk cancelling
+    # and re-placing the order would re-pick ATM-N at the new level.
+    restrike_on_stop_walk: bool = False
+
+    # ── Execution frictions ────────────────────────────────────────
+    # Index points paid through the trigger (stop orders fill at or worse than
+    # the trigger, never better).
+    slippage_points: float = 0.0
+    # Fraction of premium given up to the bid-ask spread on each side.  The
+    # strategy deliberately trades the NEXT weekly rather than the current one,
+    # which is a thinner book than the front week: do not leave this at zero.
+    option_slippage_pct: float = 0.0
+    cost_schedule: Optional[NiftyOptionCostSchedule] = None
+
     def __post_init__(self) -> None:
         side = str(self.option_type).upper()
         if side not in {"CE", "PE"}:
@@ -100,6 +139,12 @@ class CascadeConfig:
             raise CascadeError("target_fraction must be between 0 and 1")
         if not 0 <= self.min_dte <= self.max_dte:
             raise CascadeError("invalid DTE range")
+        if self.arm_compare not in {"last_qualifying", "previous_candle"}:
+            raise CascadeError("arm_compare must be 'last_qualifying' or 'previous_candle'")
+        if self.mark_low_mode not in {"lowest", "latest"}:
+            raise CascadeError("mark_low_mode must be 'lowest' or 'latest'")
+        if self.slippage_points < 0 or not 0 <= self.option_slippage_pct < 1:
+            raise CascadeError("slippage_points must be >= 0 and option_slippage_pct in [0, 1)")
         base_timeframe = self.timeframe.lower()
         defaults = {
             "5m": ("5m", "15m", "1h"),
@@ -194,9 +239,55 @@ class CascadeResult:
     exit_reason: Optional[str] = None
     data_gap: Optional[str] = None
     events: list[dict] = field(default_factory=list)
+    # Every missing option bar, whether or not it aborted the run.  A one-year
+    # replay will always have some; the point is that the report shows how many
+    # rather than one gap ending the campaign or, worse, going unmentioned.
+    data_gaps: list[str] = field(default_factory=list)
+    exit_option_prices: list[Optional[float]] = field(default_factory=list)
+    costs_total: float = 0.0
+    net_pnl: Optional[float] = None
+    index_move: Optional[float] = None  # target - average entry, in index points
+
+    @property
+    def fully_priced(self) -> bool:
+        """True when every leg has a real entry and exit premium."""
+        return (
+            bool(self.entries)
+            and not self.data_gaps
+            and all(entry.option_price is not None for entry in self.entries)
+            and bool(self.exit_option_prices)
+            and all(price is not None for price in self.exit_option_prices)
+        )
 
 
 OptionLookup = Callable[[datetime, Contract], Optional[OptionCandle]]
+
+# Nominal bar length, used only as a fallback when a series has no following
+# bar to read the true close time from.  NSE's final intraday bar of the day is
+# irregular (the 14:15 hourly bar runs 75 minutes to 15:30), so the real close
+# time is always preferred over these.
+TIMEFRAME_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 375}
+
+
+def _close_times(rows: list[Candle], timeframe: str) -> list[datetime]:
+    """Close timestamp of each bar, taken from the next bar's open where possible.
+
+    Dhan stamps a candle at its OPEN.  Replaying merged timeframes in open-time
+    order lets a 1H bar stamped 10:15 act an hour before it has finished, ahead
+    of the 5m bars that make it up -- the engine would be reading its own
+    future.  Ordering by close time is what removes that.
+    """
+    fallback = timedelta(minutes=TIMEFRAME_MINUTES.get(timeframe, 60))
+    closes: list[datetime] = []
+    for position, candle in enumerate(rows):
+        following = rows[position + 1] if position + 1 < len(rows) else None
+        # A following bar on the next trading day says nothing about when this
+        # one closed, so only trust it within the same session.
+        if following is not None and following.timestamp.date() == candle.timestamp.date():
+            closes.append(following.timestamp)
+        else:
+            closes.append(candle.timestamp + fallback)
+    return closes
 
 
 class OneHourCascade:
@@ -223,10 +314,13 @@ class OneHourCascade:
         self._stage_started_at = config.mother_timestamp
         self._reference = config.mother_low if self._side == "CE" else config.mother_high
         self._last_same_colour_close: Optional[float] = None
+        self._previous_close: Optional[float] = None
+        self._leg_seen = False
         self._pending_trigger: Optional[float] = None
         self._pending_since: Optional[datetime] = None
         self._pending_contract: Optional[Contract] = None
         self._stage_extreme: Optional[float] = self._reference
+        self._stage_last_low: Optional[float] = None
         self._last_entry_timestamp: Optional[datetime] = None
 
     def _lookup_option(self, timestamp: datetime, contract: Contract) -> Optional[OptionCandle]:
@@ -250,55 +344,77 @@ class OneHourCascade:
         total_qty = sum(entry.quantity for entry in self.result.entries)
         return sum(entry.spot * entry.quantity for entry in self.result.entries) / total_qty
 
+    def _beyond(self, price: float, level: Optional[float]) -> bool:
+        """Is `price` past `level` in the direction this side needs?"""
+        if level is None:
+            return False
+        return price < level if self._side == "CE" else price > level
+
+    def _baseline_close(self) -> Optional[float]:
+        """The close the current candle must beat, per the rule-4 reading.
+
+        This is also the stop trigger: rule 3 places the order at the close of
+        the previous candle, so whichever close is used as the comparison is
+        the one the order sits on.
+        """
+        if self.config.arm_compare == "previous_candle":
+            return self._previous_close
+        return self._last_same_colour_close
+
     def _arm_if_qualified(self, candle: Candle) -> None:
         qualifies = candle.is_red if self._side == "CE" else candle.is_green
-        beyond_reference = candle.close < self._reference if self._side == "CE" else candle.close > self._reference
-        if not qualifies or not beyond_reference:
+        if not qualifies:
             return
-        current_close = candle.close
-        if self._last_same_colour_close is None:
-            self._last_same_colour_close = current_close
-            return
-        if self._side == "CE" and current_close >= self._last_same_colour_close:
-            return
-        if self._side == "PE" and current_close <= self._last_same_colour_close:
-            return
-        # Previous same-colour close is the stop trigger. Greens/reds between
-        # qualifying candles are ignored by design.
-        self._pending_trigger = self._last_same_colour_close
-        self._pending_since = candle.timestamp
-        self._pending_contract = self.resolver.select(candle.timestamp, candle.close, self._side, self.config)
-        self.result.status = "armed"
-        self._log(
-            candle.timestamp,
-            "arm",
-            stage=self._stage + 1,
-            trigger=self._pending_trigger,
-            strike=self._pending_contract.strike,
-            expiry=self._pending_contract.expiry.isoformat(),
-        )
-        self._last_same_colour_close = current_close
+        beyond_reference = self._beyond(candle.close, self._reference)
+        baseline = self._baseline_close()
+
+        if self._leg_seen and beyond_reference and self._beyond(candle.close, baseline):
+            self._pending_trigger = baseline
+            self._pending_since = candle.timestamp
+            self._pending_contract = self.resolver.select(candle.timestamp, candle.close, self._side, self.config)
+            self.result.status = "armed"
+            self._log(
+                candle.timestamp,
+                "arm",
+                stage=self._stage + 1,
+                trigger=self._pending_trigger,
+                strike=self._pending_contract.strike,
+                expiry=self._pending_contract.expiry.isoformat(),
+            )
+        elif beyond_reference or not self.config.first_leg_beyond_reference:
+            # Not the arming candle, but it counts as the first of the two.
+            self._leg_seen = True
+
+        self._last_same_colour_close = candle.close
 
     def _walk_pending_stop(self, candle: Candle) -> bool:
-        """Move an existing stop after a newly closed qualifying candle.
+        """Move an existing stop down after a newly closed qualifying candle.
 
-        A red CE candle (or green PE candle) that makes a new qualifying close
-        has priority over a possible intrabar trigger in the same OHLC bar.
-        The revised order is only eligible from the next candle onward; this is
-        the unambiguous, conservative interpretation of a close-based rule.
+        Whether this runs before or after the fill test is decided by
+        `fill_before_stop_walk`; see that field for why the order matters.
+        The revised order is only eligible from the next candle onward, since
+        it is placed on this candle's close.
         """
         if self._pending_trigger is None or not (candle.is_red if self._side == "CE" else candle.is_green):
             return False
-        if self._side == "CE":
-            if candle.close >= self._reference or candle.close >= (self._last_same_colour_close or float("inf")):
-                return False
-        else:
-            if candle.close <= self._reference or candle.close <= (self._last_same_colour_close or -float("inf")):
-                return False
-        self._pending_trigger = self._last_same_colour_close
+        baseline = self._baseline_close()
+        if not self._beyond(candle.close, self._reference) or not self._beyond(candle.close, baseline):
+            return False
+        self._pending_trigger = baseline
         self._pending_since = candle.timestamp
         self._last_same_colour_close = candle.close
-        self._log(candle.timestamp, "move_stop", trigger=self._pending_trigger, stage=self._stage + 1)
+        if self.config.restrike_on_stop_walk:
+            # The order is cancelled and re-placed, so the strike is re-picked
+            # at the level the market is at now rather than left at the one
+            # chosen when the stop first armed, possibly hundreds of points ago.
+            self._pending_contract = self.resolver.select(candle.timestamp, candle.close, self._side, self.config)
+        self._log(
+            candle.timestamp,
+            "move_stop",
+            trigger=self._pending_trigger,
+            stage=self._stage + 1,
+            strike=self._pending_contract.strike if self._pending_contract else None,
+        )
         return True
 
     def _try_fill(self, candle: Candle) -> bool:
@@ -308,20 +424,27 @@ class OneHourCascade:
         if not crossed:
             return False
         option_bar = self._lookup_option(candle.timestamp, self._pending_contract)
-        if option_bar is None and self.config.strict_option_data:
-            self.result.data_gap = (
+        if option_bar is None:
+            gap = (
                 f"missing option candle at {candle.timestamp.isoformat()} for "
                 f"{self._pending_contract.symbol} {self._pending_contract.strike}{self._pending_contract.option_type}"
             )
-            self.result.status = "data_gap"
-            return False
+            self.result.data_gaps.append(gap)
+            if self.config.strict_option_data:
+                self.result.data_gap = gap
+                self.result.status = "data_gap"
+                return False
         lots = self.config.lot_schedule[self._stage]
         quantity = lots * self._pending_contract.lot_size
-        trigger_price = float(self._pending_trigger)
+        # A stop fills at the trigger or worse, never better.
+        trigger_price = float(self._pending_trigger) + (
+            self.config.slippage_points if self._side == "CE" else -self.config.slippage_points
+        )
+        entry_premium = option_bar.open * (1.0 + self.config.option_slippage_pct) if option_bar is not None else None
         entry = Entry(
             candle.timestamp,
             trigger_price,
-            option_bar.open if option_bar is not None else None,
+            entry_premium,
             lots,
             quantity,
             self._pending_contract,
@@ -330,13 +453,17 @@ class OneHourCascade:
         self.result.entries.append(entry)
         self._last_entry_timestamp = candle.timestamp
         self._stage += 1
-        if self._stage_extreme is not None:
-            self._reference = self._stage_extreme
+        marked_low = self._stage_last_low if self.config.mark_low_mode == "latest" else self._stage_extreme
+        if marked_low is not None:
+            self._reference = marked_low
         self._stage_extreme = None
+        self._stage_last_low = None
         self._stage_started_at = candle.timestamp
         if self._stage < len(self._stage_timeframes):
             self._active_timeframe = self._stage_timeframes[self._stage]
         self._last_same_colour_close = None
+        self._previous_close = None
+        self._leg_seen = False
         self._pending_trigger = None
         self._pending_since = None
         self._pending_contract = None
@@ -348,7 +475,8 @@ class OneHourCascade:
             lots=lots,
             quantity=quantity,
             trigger=trigger_price,
-            option_price=option_bar.open if option_bar is not None else None,
+            marked_low=marked_low,
+            option_price=entry_premium,
             timeframe=self._stage_timeframes[entry.stage - 1],
         )
         return True
@@ -366,31 +494,79 @@ class OneHourCascade:
         for entry in self.result.entries:
             option_bar = self._lookup_option(candle.timestamp, entry.contract)
             if option_bar is None:
+                gap = f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.symbol}"
+                self.result.data_gaps.append(gap)
                 if self.config.strict_option_data:
-                    self.result.data_gap = (
-                        f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.symbol}"
-                    )
+                    self.result.data_gap = gap
                     self.result.status = "data_gap"
                     return False
                 option_prices.append(None)
                 continue
-            option_prices.append(option_bar.close)
+            option_prices.append(option_bar.close * (1.0 - self.config.option_slippage_pct))
         self.result.exit_timestamp = candle.timestamp
+        self.result.exit_option_prices = list(option_prices)
         known_prices = [price for price in option_prices if price is not None]
+        # Legs sit on different strikes, so a single blended premium is only
+        # ever a display value. Realized P&L below is summed leg by leg.
         self.result.exit_option_price = sum(known_prices) / len(known_prices) if known_prices else None
         self.result.target_index = target
         self.result.average_spot = self._average_spot()
-        if all(price is not None for price in option_prices) and all(
-            entry.option_price is not None for entry in self.result.entries
-        ):
-            self.result.realized_pnl = sum(
-                (float(exit_price) - float(entry.option_price)) * entry.quantity
-                for exit_price, entry in zip(option_prices, self.result.entries)
-            )
+        self.result.index_move = target - self.result.average_spot
+        self._settle(option_prices)
         self.result.status = "closed"
         self.result.exit_reason = "target"
-        self._log(candle.timestamp, "exit", target=target, realized_pnl=self.result.realized_pnl, reason="target")
+        self._log(
+            candle.timestamp,
+            "exit",
+            target=target,
+            realized_pnl=self.result.realized_pnl,
+            costs=self.result.costs_total,
+            net_pnl=self.result.net_pnl,
+            reason="target",
+        )
         return True
+
+    def _settle(self, option_prices: list[Optional[float]]) -> None:
+        """Book gross P&L and statutory charges for the closing basket.
+
+        Charges are grouped by contract because two stages that land on the
+        same strike and expiry are one position at the broker, while stages on
+        different strikes are genuinely separate orders. Charging a cascade as
+        one synthetic average-price trade would understate brokerage and GST.
+        """
+        entries = self.result.entries
+        if not entries or any(price is None for price in option_prices):
+            return
+        if any(entry.option_price is None for entry in entries):
+            return
+
+        self.result.realized_pnl = sum(
+            (float(exit_price) - float(entry.option_price)) * entry.quantity
+            for exit_price, entry in zip(option_prices, entries)
+        )
+
+        grouped: dict[str, list[tuple[Entry, float]]] = {}
+        for entry, exit_price in zip(entries, option_prices):
+            grouped.setdefault(entry.contract.key, []).append((entry, float(exit_price)))
+
+        total = 0.0
+        for rows in grouped.values():
+            quantity = sum(entry.quantity for entry, _ in rows)
+            lots = sum(entry.lots for entry, _ in rows)
+            # One exit order per contract, at the quantity-weighted exit price.
+            sell_price = sum(price * entry.quantity for entry, price in rows) / quantity
+            total += calculate_nifty_option_basket_round_costs(
+                buys=[
+                    OptionCostFill(price=float(entry.option_price), quantity=entry.quantity, lots=entry.lots)
+                    for entry, _ in rows
+                ],
+                sell_price=sell_price,
+                sell_quantity=quantity,
+                sell_lots=lots,
+                schedule=self.config.cost_schedule,
+            ).total
+        self.result.costs_total = round(total, 2)
+        self.result.net_pnl = round(self.result.realized_pnl - total, 2)
 
     def _try_expiry_exit(self, candle: Candle) -> bool:
         """Force a strategy exit at the last tradable expiry candle.
@@ -409,14 +585,46 @@ class OneHourCascade:
         self.result.exit_timestamp = candle.timestamp
         self.result.average_spot = self._average_spot()
         self.result.target_index = self._target()
+        self.result.index_move = (
+            self.result.target_index - self.result.average_spot if self.result.target_index is not None else None
+        )
+        # An option at its own expiry is worth intrinsic value and nothing else,
+        # which the index alone settles exactly. That matters: expiry is where
+        # this strategy takes its losses, and it is the one exit that stays
+        # fully priced even with no premium history at all.
+        prices: list[Optional[float]] = []
+        for entry in self.result.entries:
+            option_bar = self._lookup_option(candle.timestamp, entry.contract)
+            if option_bar is not None:
+                prices.append(option_bar.close * (1.0 - self.config.option_slippage_pct))
+            elif entry.contract.expiry <= candle.timestamp.date():
+                strike = entry.contract.strike
+                intrinsic = (
+                    max(0.0, candle.close - strike)
+                    if entry.contract.option_type == "CE"
+                    else max(0.0, strike - candle.close)
+                )
+                prices.append(intrinsic)
+            else:
+                prices.append(None)
+        self.result.exit_option_prices = list(prices)
+        self._settle(prices)
         self.result.status = "expired"
         self.result.exit_reason = "expiry_square_off"
-        self._log(candle.timestamp, "expiry_exit", expiry=expiry.isoformat(), reason="expiry_square_off")
+        self._log(
+            candle.timestamp,
+            "expiry_exit",
+            expiry=expiry.isoformat(),
+            realized_pnl=self.result.realized_pnl,
+            net_pnl=self.result.net_pnl,
+            reason="expiry_square_off",
+        )
         return True
 
     def _update_stage_extreme(self, candle: Candle) -> None:
+        self._stage_last_low = candle.low if self._side == "CE" else candle.high
         if self._stage_extreme is None:
-            self._stage_extreme = candle.low if self._side == "CE" else candle.high
+            self._stage_extreme = self._stage_last_low
             return
         self._stage_extreme = (
             min(self._stage_extreme, candle.low) if self._side == "CE" else max(self._stage_extreme, candle.high)
@@ -436,11 +644,17 @@ class OneHourCascade:
                 return
         if event_timeframe != self._active_timeframe or candle.timestamp <= self._stage_started_at:
             return
-        # A new qualifying close revises the stop before any fill test.  This
-        # prevents a falling red candle from filling against its *old* trigger
-        # merely because its high traded there earlier in the same 1H bar.
-        moved_stop = self._walk_pending_stop(candle) if self._pending_trigger is not None else False
-        filled = False if moved_stop else self._try_fill(candle)
+        if self.config.fill_before_stop_walk:
+            # The stop is resting in the market for the whole of this bar. If
+            # the bar's high reached it, it filled -- the bar's eventual close
+            # cannot retract an execution that already happened.
+            filled = self._try_fill(candle)
+            moved_stop = False if filled else self._walk_pending_stop(candle)
+        else:
+            # Original behaviour, retained only so the difference is measurable:
+            # a qualifying close revises the stop and cancels the same bar's fill.
+            moved_stop = self._walk_pending_stop(candle) if self._pending_trigger is not None else False
+            filled = False if moved_stop else self._try_fill(candle)
         if self.result.status == "data_gap":
             return
         if filled:
@@ -453,24 +667,29 @@ class OneHourCascade:
         if self._pending_trigger is None:
             self._arm_if_qualified(candle)
         self._update_stage_extreme(candle)
+        self._previous_close = candle.close
 
     def run(self, candles: Iterable[Candle] | Mapping[str, Iterable[Candle]]) -> CascadeResult:
         if isinstance(candles, Mapping):
+            # Bars are stamped at their OPEN but only become knowable at their
+            # CLOSE. Merging several timeframes on open time would feed a 1H bar
+            # to the engine an hour before it finished, ahead of the 5m bars
+            # inside it. Ordering on close time is what keeps the replay honest.
+            # Ties break toward the finer timeframe, which closed first in fact.
             priority = {timeframe: index for index, timeframe in enumerate(self._stage_timeframes)}
-            ordered = sorted(
-                (
-                    (candle.timestamp, str(timeframe).lower(), candle)
-                    for timeframe, rows in candles.items()
-                    for candle in rows
-                ),
-                key=lambda item: (item[0], priority.get(item[1], len(priority))),
-            )
+            rows: list[tuple[datetime, str, Candle]] = []
+            for timeframe, series in candles.items():
+                name = str(timeframe).lower()
+                sorted_rows = sorted(series, key=lambda candle: candle.timestamp)
+                for candle, close_time in zip(sorted_rows, _close_times(sorted_rows, name)):
+                    rows.append((close_time, name, candle))
+            ordered = sorted(rows, key=lambda item: (item[0], priority.get(item[1], len(priority))))
         else:
             ordered = [
                 (candle.timestamp, self._stage_timeframes[0], candle)
                 for candle in sorted(candles, key=lambda c: c.timestamp)
             ]
-        for _timestamp, timeframe, candle in ordered:
+        for _close_time, timeframe, candle in ordered:
             self.on_candle(candle, timeframe=timeframe)
             if self.result.status in {"closed", "expired", "data_gap", "invalid"}:
                 break

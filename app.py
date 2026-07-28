@@ -71,6 +71,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
+from engine.cascade_calendar import ContractCalendar
 from engine.cascade_equity import (
     CashCascadeInstrument,
     CashCascadePaperConfig,
@@ -7187,30 +7188,30 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
 
 
 # ── Manual NIFTY cascade backtest ─────────────────────────────────
-def _cascade_weekly_expiries(from_day: date, to_day: date, session_days: set[date]) -> list[date]:
-    """Build NIFTY's Tuesday weekly expiry calendar from actual trading sessions.
+_CASCADE_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "nse_contract_rules.json")
 
-    When Tuesday is a market holiday, NSE weekly expiry moves to the immediately
-    preceding trading day.  Dhan's index candles give us that historical
-    session calendar without guessing Indian-market holidays.
+
+def _cascade_contract_calendar() -> ContractCalendar:
+    """Dated NSE contract rules, overridable without a code change."""
+    if os.path.exists(_CASCADE_RULES_FILE):
+        return ContractCalendar.from_json(_CASCADE_RULES_FILE)
+    return ContractCalendar()
+
+
+def _cascade_weekly_expiries(from_day: date, to_day: date, session_days: set[date]) -> list[date]:
+    """Build NIFTY's weekly expiry calendar from actual trading sessions.
+
+    The expiry weekday is exchange policy and it has moved: a replay spanning a
+    change cannot assume today's weekday throughout.  It comes from a dated
+    rule table, while the holiday shift (expiry moves to the preceding session)
+    comes from the trading days Dhan's own candles show.
+
+    A range starting before the earliest known rule raises rather than
+    backdating current rules, because a silently wrong expiry weekday
+    reprices every trade in the replay instead of failing.
     """
 
-    cursor = from_day - timedelta(days=from_day.weekday() - 1)
-    if cursor < from_day:
-        cursor += timedelta(days=7)
-    last = to_day + timedelta(days=14)
-    expiries: list[date] = []
-    known_last_day = max(session_days) if session_days else from_day
-    while cursor <= last:
-        if cursor <= known_last_day:
-            candidates = [session for session in session_days if session <= cursor]
-            if candidates:
-                expiries.append(max(candidates))
-        else:
-            # Data beyond the requested range cannot be holiday-validated yet.
-            expiries.append(cursor)
-        cursor += timedelta(days=7)
-    return sorted(set(expiries))
+    return _cascade_contract_calendar().weekly_expiries(from_day, to_day, session_days)
 
 
 def _run_cascade_feasibility(
