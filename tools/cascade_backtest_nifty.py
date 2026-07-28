@@ -337,6 +337,33 @@ def report(outcomes: list[Outcome], mothers: list[MotherCandidate], label: str) 
     lots = [row.lots for row in traded]
     print(f"  lots committed        median {median(lots):.0f}   max {max(lots)}")
 
+    # A hit rate on its own says nothing about size. The index move captured on
+    # a win, and given up on a loss, are both exact here -- they are the numbers
+    # the premium will be applied to, so they are worth stating before Layer 2
+    # exists rather than after.
+    won = [
+        row.target_index - row.average_spot
+        for row in traded
+        if row.exit_reason == "target" and row.target_index is not None and row.average_spot is not None
+    ]
+    if won:
+        print(
+            f"  index points won      median {median(won):,.0f}   mean {mean(won):,.0f}   "
+            f"best {max(won):,.0f}   (target is 0.25 of the way back to the mother high)"
+        )
+    lost = [row.mae_points for row in traded if row.exit_reason != "target" and row.mae_points is not None]
+    if lost:
+        print(
+            f"  index points against  median {median(lost):,.0f}   worst {max(lost):,.0f}   "
+            f"on the {len(lost)} that never reached target"
+        )
+    if won and lost:
+        print(
+            f"  >> {len(won)} wins of ~{median(won):,.0f} pts against {len(lost)} losses "
+            f"of ~{median(lost):,.0f} pts. Whether that pays depends entirely on premium, "
+            "which Layer 2 has not supplied."
+        )
+
     priced = [row for row in traded if row.net_pnl is not None]
     unpriced = len(traded) - len(priced)
     print(
