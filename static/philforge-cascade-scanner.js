@@ -311,8 +311,10 @@
     if (typeof window.selectStockTerminal === 'function') {
       try { window.selectStockTerminal(symbol); } catch (err) { /* header is optional */ }
     }
+    // Jump, do not glide. Smooth scrolling across a long page reads as a lag
+    // between the click and anything happening.
     var panel = $('terminal-cascade-panel');
-    if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
   }
 
   async function run(refresh) {

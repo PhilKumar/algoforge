@@ -8,7 +8,11 @@
   align-items: flex-start; justify-content: space-between;
 }
 .cascade-scan-head h3 { margin: 2px 0 4px; }
-.cascade-scan-sub { font-size: 12px; opacity: .7; max-width: 52ch; line-height: 1.45; }
+/* One line, never wrapped -- it is a caption, not a paragraph. */
+.cascade-scan-sub {
+  font-size: 12px; opacity: .7; line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
 
 .cascade-scan-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cascade-scan-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
@@ -50,11 +54,31 @@
 .cascade-scan-rungs.warn { color: #b8860b; }
 .cascade-scan-rungs.bad { color: #c0392b; }
 
-.cascade-scan-pick {
-  padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
-  border: 1px solid rgba(128, 128, 128, .4); background: transparent; color: inherit;
+/* Row actions get the same glossy treatment as the site's action controls;
+   flat outlines read as disabled next to everything around them. */
+.cascade-scan-pick,
+.cascade-scan-chart-btn {
+  position: relative; overflow: hidden; cursor: pointer;
+  padding: 5px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: linear-gradient(180deg, rgba(96, 165, 250, .30), rgba(30, 64, 175, .46));
+  border: 1px solid rgba(147, 197, 253, .48); color: #dbeafe;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 2px 5px rgba(0, 0, 0, .32);
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
 }
-.cascade-scan-pick:hover { background: rgba(128, 128, 128, .14); }
+.cascade-scan-pick::after,
+.cascade-scan-chart-btn::after {
+  content: ''; position: absolute; inset: 0 0 56% 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0));
+}
+.cascade-scan-pick:hover,
+.cascade-scan-chart-btn:hover { transform: translateY(-1px); filter: brightness(1.14); }
+.cascade-scan-pick:active,
+.cascade-scan-chart-btn:active { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35); }
+/* Use is the committing action, so it leads in green rather than matching Chart. */
+.cascade-scan-pick {
+  background: linear-gradient(180deg, rgba(52, 211, 153, .30), rgba(6, 95, 70, .46));
+  border-color: rgba(110, 231, 183, .48); color: #d1fae5;
+}
 
 .cascade-scan-empty { padding: 18px 4px; font-size: 13px; opacity: .75; }
 .cascade-scan-empty p { margin: 0 0 8px; }
@@ -122,8 +146,10 @@
 .cascade-scan-pager-label { font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
 .cascade-scan-pager .btn[disabled] { opacity: .4; cursor: not-allowed; }
 
+/* Sits inside the label, not under the input -- the default belongs with the
+   field's name, where it reads as "this is what it is set to". */
 .terminal-cascade-field-hint {
-  display: block; margin-top: 4px; font-size: 11px; opacity: .7;
+  margin-left: 6px; font-size: 10px; opacity: .6; text-transform: none;
   font-variant-numeric: tabular-nums; letter-spacing: .01em;
 }
 
@@ -135,38 +161,32 @@
 .pf-campaign-card.is-ended { opacity: .55; }
 .pf-campaign-card.is-ended:hover { opacity: .85; }
 
-/* The panel already styles every direct div of the head as a one-column grid
-   (`.terminal-cascade-scrip-window-head > div:not(.terminal-cascade-card-actions)`),
-   which is what stacked the pills and the buttons one per line. That selector
-   scores (0,2,1), so these have to out-rank it rather than merely follow it. */
-.pf-campaign-card > .terminal-cascade-scrip-window-head > div.pf-campaign-title {
-  display: flex; align-items: center; gap: 8px;
+/* The head owns its own class rather than reusing .terminal-cascade-scrip-window-head.
+   That panel styles every direct div of a head as a one-column grid and repaints
+   every span in it, which is what stacked the pills one per line. Out-ranking it
+   worked but was fragile; not inheriting it at all cannot regress. Everything the
+   old head supplied -- caret, padding, background -- is restated here. */
+.pf-campaign-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 11px 13px; cursor: pointer; list-style: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .065), rgba(255, 255, 255, .018));
+}
+.pf-campaign-head::-webkit-details-marker { display: none; }
+.pf-campaign-head::before {
+  content: '\25B6'; flex: 0 0 auto; color: #93c5fd; font-size: 9px;
+  transition: transform .16s ease;
+}
+.pf-campaign-card[open] > .pf-campaign-head::before { transform: rotate(90deg); }
+.pf-campaign-card[open] > .pf-campaign-head { border-bottom: 1px solid rgba(148, 163, 184, .12); }
+
+.pf-campaign-title {
+  display: flex; align-items: center; gap: 7px;
   flex: 1 1 auto; min-width: 0; flex-wrap: wrap;
 }
-.pf-campaign-card > .terminal-cascade-scrip-window-head > div.pf-campaign-actions {
-  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+.pf-campaign-title strong {
+  font: 800 13px var(--font-mono); color: var(--text); letter-spacing: .01em;
 }
-
-/* The head also restyles every bare span and strong inside it (13px/800 for
-   spans, muted 11px mono for strongs). Left alone that repaints the pills as
-   headings and the symbol as a caption. */
-.pf-campaign-card .terminal-cascade-scrip-window-head strong {
-  color: var(--text); font: 800 14px var(--font-mono); letter-spacing: .01em;
-}
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill {
-  font-size: 10px; font-weight: 600; letter-spacing: .05em;
-  overflow: visible; text-overflow: clip;
-}
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-gist {
-  font-size: 12px; font-weight: 500; color: var(--muted);
-}
-/* Re-stated at this depth so the head's blanket span colour cannot flatten the
-   state tones back to plain text. */
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill { color: var(--muted); }
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill[data-state="ok"] { color: #6ee7b7; }
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill[data-state="warn"] { color: #fde68a; }
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill[data-state="info"] { color: #93c5fd; }
-.pf-campaign-card .terminal-cascade-scrip-window-head .pf-campaign-pill[data-state="danger"] { color: #fca5a5; }
+.pf-campaign-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 
 .pf-campaign-pill {
   display: inline-block; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
@@ -278,9 +298,22 @@
 .terminal-cascade-field input,
 .terminal-cascade-field select { width: 100%; }
 
-/* Without the fixed workspace height the list would grow without end, so it
-   keeps its own scroll instead of pushing the page down. */
-.terminal-cascade-scrip-flow { max-height: min(680px, 72vh); padding-top: 2px; }
+/* Campaign cards run side by side so which scrip is live is one glance, not a
+   scroll. An opened card spans the full width, so its detail tables sit under
+   the row rather than squeezed into a third of it. */
+.terminal-cascade-scrip-flow {
+  max-height: min(680px, 72vh); padding-top: 2px;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+}
+.terminal-cascade-scrip-flow > .pf-campaign-card[open] { grid-column: 1 / -1; }
+
+/* Collapsed, the card is a status tile: symbol, state, and how it is doing. */
+.pf-campaign-card:not([open]) .pf-campaign-head { flex-wrap: wrap; }
+.pf-campaign-card:not([open]) .pf-campaign-gist { flex-basis: 100%; padding-left: 15px; }
+
+@media (max-width: 640px) {
+  .terminal-cascade-scrip-flow { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 640px) {
   .terminal-cascade-form-grid,

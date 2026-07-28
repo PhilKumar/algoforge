@@ -4040,7 +4040,7 @@ function _terminalCascadeWindow(campaign) {
     `<button class="btn btn-sm ${kind || 'btn-outline'}" onclick="event.preventDefault();event.stopPropagation();${handler}">${escapeHtml(label)}</button>`;
 
   return `<details class="terminal-cascade-scrip-window pf-campaign-card${cardClass}${ended ? ' is-ended' : ''}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
-    <summary class="terminal-cascade-scrip-window-head pf-campaign-head">
+    <summary class="pf-campaign-head">
       <div class="pf-campaign-title">
         <strong>${escapeHtml(symbol)}</strong>
         ${pill(state, campaign.running ? 'ok' : 'warn')}
