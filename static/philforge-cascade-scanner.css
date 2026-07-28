@@ -297,6 +297,9 @@
    the column is widened rather than the layout stacked. */
 .terminal-cascade-workspace {
   grid-template-columns: minmax(340px, 380px) minmax(0, 1fr) !important;
+  height: auto;
+  min-height: 0;
+  align-items: start;
 }
 
 .terminal-cascade-form-grid,
@@ -310,14 +313,14 @@
 .terminal-cascade-field input,
 .terminal-cascade-field select { width: 100%; }
 
-/* Campaign cards run side by side so which scrip is live is one glance, not a
-   scroll. An opened card spans the full width, so its detail tables sit under
-   the row rather than squeezed into a third of it. */
+/* Each campaign is a full-width instrument strip. Its details flow directly
+   below the strip after it is opened, keeping future scrips in one clear list. */
 .terminal-cascade-scrip-flow {
   padding-top: 2px;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
-.terminal-cascade-scrip-flow > .pf-campaign-card[open] { grid-column: 1 / -1; }
+
+.terminal-cascade-scrip-flow > .pf-campaign-card { grid-column: 1; width: 100%; }
 
 /* Collapsed, the card is a status tile: symbol, state, and how it is doing. */
 .pf-campaign-card:not([open]) .pf-campaign-head { flex-wrap: wrap; }
