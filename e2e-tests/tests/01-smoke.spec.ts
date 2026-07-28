@@ -112,6 +112,9 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/paper/status') await route.fulfill({ json: paperStatusMock });
     else if (path === '/api/live/status') await route.fulfill({ json: liveStatusMock });
     else if (path === '/api/scalp/status') await route.fulfill({ json: scalpStatusMock });
+    else if (path === '/api/terminal/cascade/scan') {
+      await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
+    }
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
