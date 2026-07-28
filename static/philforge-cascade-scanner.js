@@ -12,6 +12,8 @@
   var lastPayload = null;
   var page = 0;
   var PAGE_SIZE = 10;
+  // Mirrors engine/cascade_scanner.py LEVEL_ALLOCATION. Change both together.
+  var LEVEL_ALLOCATION = [0.20, 0.30, 0.50];
 
   function $(id) { return document.getElementById(id); }
 
@@ -112,10 +114,12 @@
     }
     if (theme === 'light') {
       return { bg: '#ffffff', grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
-               up: '#0f766e', down: '#be123c', high: '#7c3aed', now: '#334155', zone: 'rgba(190,18,60,.09)' };
+               up: '#0f766e', down: '#be123c', high: '#7c3aed', now: '#334155',
+               zone: 'rgba(190,18,60,.09)', low: '#0369a1', rung: 'rgba(3,105,161,.55)' };
     }
     return { bg: '#07101d', grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
-             up: '#3fae56', down: '#d9534f', high: '#a855f7', now: '#e2e8f0', zone: 'rgba(217,83,79,.12)' };
+             up: '#3fae56', down: '#d9534f', high: '#a855f7', now: '#e2e8f0',
+             zone: 'rgba(217,83,79,.12)', low: '#38bdf8', rung: 'rgba(56,189,248,.5)' };
   }
 
   function esc(text) {
@@ -129,7 +133,7 @@
     var rows = payload.candles || [];
     if (!rows.length) return '<div class="cascade-scan-empty">No candles returned.</div>';
 
-    var W = 1100, H = 300, padL = 12, padR = 74, padT = 12, padB = 24;
+    var W = 1320, H = 380, padL = 14, padR = 86, padT = 16, padB = 26;
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var n = rows.length, cw = plotW / Math.max(n, 1);
 
@@ -139,6 +143,17 @@
     lo = Math.min(lo, payload.last_price);
     var span = (hi - lo) || 1;
     var maxP = hi + span * 0.06, minP = lo - span * 0.06;
+
+    // The leg the ranking is reading: the window's highest high, and the lowest
+    // low printed since it. Every number under the chart is measured off this
+    // pair, so it is drawn rather than left implied.
+    var highAt = 0;
+    rows.forEach(function (row, i) { if (row.h >= rows[highAt].h) highAt = i; });
+    var lowAt = highAt;
+    for (var k = highAt; k < n; k += 1) { if (rows[k].l <= rows[lowAt].l) lowAt = k; }
+    var swingLow = rows[lowAt].l;
+    var legRange = payload.recent_high - swingLow;
+    var retraced = legRange > 0 ? ((payload.recent_high - payload.last_price) / legRange) * 100 : 0;
 
     var X = function (i) { return padL + i * cw + cw / 2; };
     var Y = function (p) { return padT + ((maxP - p) / ((maxP - minP) || 1)) * plotH; };
@@ -181,11 +196,23 @@
     out.push('<text x="' + (padL + 5) + '" y="' + (yHigh - 4).toFixed(1) + '" fill="' + PAL.high +
       '" font-size="10" font-family="monospace">' + payload.recent_high_lookback + '-session high ' +
       num(payload.recent_high) + '</text>');
+    var yLow = Y(swingLow);
+    out.push('<line x1="' + padL + '" y1="' + yLow.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yLow.toFixed(1) +
+      '" stroke="' + PAL.low + '" stroke-width="1.25" stroke-dasharray="5 3"/>');
+    out.push('<text x="' + (padL + 5) + '" y="' + (yLow + 12).toFixed(1) + '" fill="' + PAL.low +
+      '" font-size="11" font-family="monospace">leg low ' + num(swingLow) + '</text>');
+
+    // Mark which two bars set the leg, so the lines are traceable to candles.
+    [[highAt, PAL.high], [lowAt, PAL.low]].forEach(function (pair) {
+      out.push('<line x1="' + X(pair[0]).toFixed(1) + '" y1="' + padT + '" x2="' + X(pair[0]).toFixed(1) +
+        '" y2="' + (padT + plotH) + '" stroke="' + pair[1] + '" stroke-width="1" stroke-dasharray="1 4" opacity=".55"/>');
+    });
+
     out.push('<line x1="' + padL + '" y1="' + yNow.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yNow.toFixed(1) +
-      '" stroke="' + PAL.now + '" stroke-width="1" stroke-dasharray="2 3"/>');
-    out.push('<text x="' + (padL + 5) + '" y="' + (yNow + 12).toFixed(1) + '" fill="' + PAL.now +
-      '" font-size="10" font-family="monospace">now ' + num(payload.last_price) + '  (-' +
-      payload.pullback_pct.toFixed(1) + '%)</text>');
+      '" stroke="' + PAL.now + '" stroke-width="1.25" stroke-dasharray="2 3"/>');
+    out.push('<text x="' + (padL + 5) + '" y="' + (yNow + 13).toFixed(1) + '" fill="' + PAL.now +
+      '" font-size="11" font-family="monospace">now ' + num(payload.last_price) + '  (-' +
+      payload.pullback_pct.toFixed(1) + '% off the high, ' + retraced.toFixed(0) + '% down the leg)</text>');
 
     var ticks = Math.min(6, n);
     for (var t = 0; t < ticks; t += 1) {
@@ -194,9 +221,35 @@
         '" font-size="10" font-family="monospace" text-anchor="middle">' + esc(day(rows[at].t)) + '</text>');
     }
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" ' +
-      'class="cascade-scan-chart-svg" role="img" aria-label="Daily candles for ' + esc(payload.symbol) + '">' +
-      out.join('') + '</svg>';
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" ' +
+      'shape-rendering="geometricPrecision" class="cascade-scan-chart-svg" role="img" ' +
+      'aria-label="Daily candles for ' + esc(payload.symbol) + '">' + out.join('') + '</svg>';
+    return svg + capitalFooter(payload);
+  }
+
+  /* What the campaign would actually do with the capital in the box. The ladder
+   * itself cannot be drawn here -- its rungs come from 5m trendline anchors that
+   * only exist once a campaign is running -- but the pool split is fixed, so the
+   * three slices and what each can buy at today's price are real numbers now. */
+  function capitalFooter(payload) {
+    var capital = parseFloat((els.capital && els.capital.value) || '0');
+    var price = Number(payload.last_price) || 0;
+    if (!(capital > 0) || !(price > 0)) return '';
+    var rupees = function (v) {
+      return '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    };
+    var cells = LEVEL_ALLOCATION.map(function (share, i) {
+      var slice = capital * share;
+      var shares = Math.floor(slice / price);
+      return '<div class="cascade-scan-rung' + (shares >= 1 ? '' : ' is-short') + '">' +
+        '<span>Buy ' + (i + 1) + ' · ' + Math.round(share * 100) + '%</span>' +
+        '<strong>' + rupees(slice) + '</strong>' +
+        '<em>' + (shares >= 1 ? shares + ' share' + (shares === 1 ? '' : 's') : 'cannot afford one share') + '</em>' +
+        '</div>';
+    }).join('');
+    return '<div class="cascade-scan-rungs-strip">' + cells +
+      '<div class="cascade-scan-rung-note">Pool split per leg at ' + rupees(capital) +
+      ' capital. Rung prices are set by the 5m ladder once the campaign starts.</div></div>';
   }
 
   async function toggleChart(symbol, row) {
@@ -251,6 +304,12 @@
     if (banner) {
       banner.textContent = 'Campaign setup is for ' + symbol + (row ? ' · ' + (row.name || '') : '');
       banner.classList.add('is-set');
+    }
+    // The page header carries the selected chip and the live LTP, but only
+    // reacts to the stock list. Picking from the scanner has to reach it too,
+    // otherwise the header keeps reading "—" while a campaign is being set up.
+    if (typeof window.selectStockTerminal === 'function') {
+      try { window.selectStockTerminal(symbol); } catch (err) { /* header is optional */ }
     }
     var panel = $('terminal-cascade-panel');
     if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
