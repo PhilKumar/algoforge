@@ -4042,7 +4042,6 @@ function _terminalCascadeWindow(campaign) {
   return `<details class="terminal-cascade-scrip-window pf-campaign-card${cardClass}${ended ? ' is-ended' : ''}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
     <summary class="terminal-cascade-scrip-window-head pf-campaign-head">
       <div class="pf-campaign-title">
-        <span class="pf-campaign-caret" aria-hidden="true">&#9656;</span>
         <strong>${escapeHtml(symbol)}</strong>
         ${pill(state, campaign.running ? 'ok' : 'warn')}
         ${pill(mode, mode === 'LIVE' ? 'warn' : 'ok')}

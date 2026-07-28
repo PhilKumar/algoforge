@@ -240,6 +240,18 @@
     } else {
       setStatus(symbol + ' selected. Set the mother candle to start.', 'ok');
     }
+    document.querySelectorAll('.cascade-scan-table tr.is-picked').forEach(function (node) {
+      node.classList.remove('is-picked');
+    });
+    var picked = document.querySelector('.cascade-scan-table tr[data-symbol="' + symbol + '"]');
+    if (picked) picked.classList.add('is-picked');
+    // Say plainly which scrip the setup below is now for, since the form
+    // itself only shows a symbol field that is easy to miss.
+    var banner = $('terminal-cascade-selected');
+    if (banner) {
+      banner.textContent = 'Campaign setup is for ' + symbol + (row ? ' · ' + (row.name || '') : '');
+      banner.classList.add('is-set');
+    }
     var panel = $('terminal-cascade-panel');
     if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -249,6 +261,10 @@
     if (!(capital > 0)) { setStatus('Enter the capital you would put on one campaign.', 'warn'); return; }
     setStatus('Scanning 200+ scrips — this takes a few seconds on a cold run…', '');
     els.run.disabled = true;
+    els.run.classList.add('is-working');
+    els.body.innerHTML = '<div class="cascade-scan-loading">' +
+      '<div class="cascade-scan-spinner" aria-hidden="true"></div>' +
+      '<div>Pulling daily candles for 223 scrips…</div></div>';
     try {
       var url = '/api/terminal/cascade/scan?capital_inr=' + encodeURIComponent(capital) +
         (refresh ? '&refresh=true' : '');
@@ -263,6 +279,7 @@
       els.body.innerHTML = '<div class="cascade-scan-empty"><p>Could not run the scan.</p></div>';
     } finally {
       els.run.disabled = false;
+      els.run.classList.remove('is-working');
     }
   }
 

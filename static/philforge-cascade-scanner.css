@@ -104,55 +104,115 @@
 }
 
 /* ── Campaign card ────────────────────────────────────────────────
-   Matches the CryptoForge active-campaign card: pills instead of a run-on
-   subtitle, a one-line gist so a collapsed card still reports itself, and
-   stat boxes instead of flat chips. */
+   Matches the CryptoForge active-campaign card. The head is laid out by
+   .terminal-cascade-scrip-window-head, which already supplies its own caret,
+   so this only governs what sits inside it. */
 
-.pf-campaign-card { transition: opacity .2s ease; }
 .pf-campaign-card.is-ended { opacity: .55; }
 .pf-campaign-card.is-ended:hover { opacity: .85; }
 
-.pf-campaign-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap; cursor: pointer;
+/* Without a flex basis the title collapses to min-content and the pills
+   stack into a column instead of running along the row. */
+.pf-campaign-title {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1 1 auto; min-width: 0; flex-wrap: wrap;
 }
-.pf-campaign-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .pf-campaign-title strong { font-size: 14px; letter-spacing: .01em; }
 
-.pf-campaign-caret {
-  display: inline-block; transition: transform .2s ease; opacity: .55; font-size: 11px;
-}
-.pf-campaign-card[open] .pf-campaign-caret { transform: rotate(90deg); }
-
 .pf-campaign-pill {
-  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  display: inline-block; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
   font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
-  border: 1px solid rgba(128, 128, 128, .38); opacity: .85;
+  border: 1px solid rgba(148, 163, 184, .32); color: var(--muted, #94a3b8);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .015));
 }
-.pf-campaign-pill[data-state="ok"] { color: #1a9d5a; border-color: rgba(26, 157, 90, .45); opacity: 1; }
-.pf-campaign-pill[data-state="warn"] { color: #b8860b; border-color: rgba(184, 134, 11, .45); opacity: 1; }
-.pf-campaign-pill[data-state="info"] { color: #3b82f6; border-color: rgba(59, 130, 246, .45); opacity: 1; }
-.pf-campaign-pill[data-state="danger"] { color: #c0392b; border-color: rgba(192, 57, 43, .5); opacity: 1; }
+.pf-campaign-pill[data-state="ok"] { color: #6ee7b7; border-color: rgba(110, 231, 183, .42); }
+.pf-campaign-pill[data-state="warn"] { color: #fde68a; border-color: rgba(253, 230, 138, .42); }
+.pf-campaign-pill[data-state="info"] { color: #93c5fd; border-color: rgba(147, 197, 253, .42); }
+.pf-campaign-pill[data-state="danger"] { color: #fca5a5; border-color: rgba(252, 165, 165, .5); }
 
-.pf-campaign-gist { font-size: 12px; opacity: .65; font-variant-numeric: tabular-nums; }
+.pf-campaign-gist { font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.pf-campaign-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pf-campaign-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+/* Glossy treatment matching the site's action controls. */
+.pf-campaign-actions .btn {
+  position: relative; overflow: hidden;
+  border-radius: 8px; padding: 5px 14px; font-size: 12px; font-weight: 600;
+  background: linear-gradient(180deg, rgba(59, 130, 246, .32), rgba(29, 78, 216, .22));
+  border: 1px solid rgba(147, 197, 253, .35); color: #dbeafe;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .35);
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.pf-campaign-actions .btn::after {
+  content: ''; position: absolute; inset: 0 0 55% 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0));
+}
+.pf-campaign-actions .btn:hover { transform: translateY(-1px); filter: brightness(1.12); }
+.pf-campaign-actions .btn:active { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35); }
+.pf-campaign-actions .btn-danger {
+  background: linear-gradient(180deg, rgba(239, 68, 68, .34), rgba(153, 27, 27, .24));
+  border-color: rgba(252, 165, 165, .38); color: #fee2e2;
+}
 
 .pf-campaign-stats {
   display: grid; gap: 10px; margin-bottom: 14px;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 .pf-campaign-stat {
-  padding: 10px 12px; border-radius: 9px;
-  border: 1px solid rgba(128, 128, 128, .2); background: rgba(128, 128, 128, .05);
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .012));
 }
 .pf-campaign-stat-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin-bottom: 4px;
 }
 .pf-campaign-stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.pf-campaign-stat-note { margin-top: 3px; font-size: 11px; opacity: .55; }
+.pf-campaign-stat-note { margin-top: 3px; font-size: 11px; opacity: .5; line-height: 1.35; }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .pf-campaign-actions { width: 100%; }
   .pf-campaign-actions .btn { flex: 1; }
 }
+
+/* Scan is a multi-second round trip; without this the button looks dead. */
+.cascade-scan-loading {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 40px 12px; font-size: 13px; opacity: .75;
+}
+.cascade-scan-spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, .25); border-top-color: #93c5fd;
+  animation: cascade-scan-spin .8s linear infinite;
+}
+@keyframes cascade-scan-spin { to { transform: rotate(360deg); } }
+#cascade-scan-run.is-working { opacity: .7; cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  .cascade-scan-spinner { animation-duration: 2.4s; }
+}
+
+/* Scanner shell: rounded and flowing like the other panels. */
+.cascade-scan-shell { border-radius: 14px; overflow: hidden; }
+.cascade-scan-body { transition: opacity .2s ease; }
+
+/* Which scrip the setup below is actually for. */
+.terminal-cascade-selected {
+  margin-bottom: 12px; padding: 8px 12px; border-radius: 9px; font-size: 12px;
+  border: 1px dashed rgba(148, 163, 184, .3); opacity: .7;
+}
+.terminal-cascade-selected.is-set {
+  border-style: solid; border-color: rgba(110, 231, 183, .45);
+  color: #6ee7b7; opacity: 1; font-weight: 600;
+}
+.cascade-scan-table tr.is-picked { background: rgba(110, 231, 183, .1); }
+.cascade-scan-table tr.is-picked td:first-child { box-shadow: inset 3px 0 0 #6ee7b7; }
+
+/* Campaign setup reads as one row of related settings, not a stack of five. */
+.terminal-cascade-form-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  gap: 12px !important;
+  align-items: end;
+}
+.terminal-cascade-field { min-width: 0; }
+.terminal-cascade-field input,
+.terminal-cascade-field select { width: 100%; }
