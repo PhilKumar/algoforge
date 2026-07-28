@@ -1,15 +1,18 @@
 (function () {
   var THEME_KEY = 'philforge_theme';
   var APPEARANCE_KEY = 'philforge_appearance';
-  var DEFAULT_APPEARANCE = { tint: 'native', font: 'forge' };
-  var TINTS = { native: true, jade: true, cobalt: true, copper: true, fuchsia: true, lime: true };
-  var FONTS = {
-    forge: '',
-    atelier: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap',
-    exchange: 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap',
-    blueprint: 'https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600;700&family=Oxanium:wght@500;600;700;800&display=swap',
-    scribe: 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Nunito+Sans:wght@400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600;700&display=swap'
-  };
+  var PRESETS = window.PHILFORGE_APPEARANCE_PRESETS || {};
+  var FALLBACK_TINTS = [{ id: 'native' }, { id: 'jade' }, { id: 'cobalt' }, { id: 'copper' }, { id: 'fuchsia' }, { id: 'lime' }];
+  var FALLBACK_FONTS = [{ id: 'forge', href: '' }];
+  var DEFAULT_APPEARANCE = PRESETS.default || { tint: 'native', font: 'forge' };
+  var TINTS = {};
+  var FONTS = {};
+  (PRESETS.tints || FALLBACK_TINTS).forEach(function (tint) {
+    if (tint && tint.id) TINTS[tint.id] = true;
+  });
+  (PRESETS.fonts || FALLBACK_FONTS).forEach(function (font) {
+    if (font && font.id) FONTS[font.id] = font.href || '';
+  });
 
   function normalizeTheme(value) {
     return value === 'light' || value === 'dark' ? value : '';

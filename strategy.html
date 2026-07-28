@@ -16,6 +16,7 @@
 <link rel="shortcut icon" href="/favicon.ico?v=__ASSET_VERSION__">
 <link rel="manifest" href="/manifest.webmanifest?v=__ASSET_VERSION__">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="/static/philforge-appearance.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-theme.js?v=__ASSET_VERSION__"></script>
 <link rel="stylesheet" href="/static/philforge-app.css?v=__ASSET_VERSION__">
 <link rel="stylesheet" href="/static/philforge-cascade-scanner.css?v=__ASSET_VERSION__">
@@ -2259,24 +2260,11 @@
     </div>
     <section class="appearance-section">
       <h4>Color Tint</h4>
-      <div class="appearance-options appearance-tint-options">
-        <button class="appearance-option" data-appearance-tint="native"><span class="appearance-swatch swatch-native"></span><span>PhilForge Default</span></button>
-        <button class="appearance-option" data-appearance-tint="jade"><span class="appearance-swatch swatch-jade"></span><span>Jade Mist</span></button>
-        <button class="appearance-option" data-appearance-tint="cobalt"><span class="appearance-swatch swatch-cobalt"></span><span>Cobalt Haze</span></button>
-        <button class="appearance-option" data-appearance-tint="copper"><span class="appearance-swatch swatch-copper"></span><span>Copper Sand</span></button>
-        <button class="appearance-option" data-appearance-tint="fuchsia"><span class="appearance-swatch swatch-fuchsia"></span><span>Rose Dusk</span></button>
-        <button class="appearance-option" data-appearance-tint="lime"><span class="appearance-swatch swatch-lime"></span><span>Olive Calm</span></button>
-      </div>
+      <div class="appearance-options appearance-tint-options" id="appearance-tint-options"></div>
     </section>
     <section class="appearance-section">
       <h4>Font Style</h4>
-      <div class="appearance-options">
-        <button class="appearance-option font-forge" data-appearance-font="forge"><span class="appearance-font-sample">Aa</span><span>Forge Native</span></button>
-        <button class="appearance-option font-atelier" data-appearance-font="atelier"><span class="appearance-font-sample">Aa</span><span>Grotesk Desk</span></button>
-        <button class="appearance-option font-exchange" data-appearance-font="exchange"><span class="appearance-font-sample">Aa</span><span>Terminal Tape</span></button>
-        <button class="appearance-option font-blueprint" data-appearance-font="blueprint"><span class="appearance-font-sample">Aa</span><span>Circuit Draft</span></button>
-        <button class="appearance-option font-scribe" data-appearance-font="scribe"><span class="appearance-font-sample">Aa</span><span>Editorial Serif</span></button>
-      </div>
+      <div class="appearance-options" id="appearance-font-options"></div>
     </section>
     <div class="appearance-actions">
       <button class="btn btn-outline btn-sm" data-pf-action="resetAppearance">Reset</button>

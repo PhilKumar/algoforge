@@ -46,6 +46,7 @@ jobs:
 
       - name: JavaScript syntax check
         run: |
+          node --check static/philforge-appearance.js
           node --check static/philforge-theme.js
           node --check static/philforge-app.js
           node --check static/philforge-login.js

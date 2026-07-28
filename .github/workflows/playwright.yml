@@ -70,6 +70,8 @@ jobs:
           E2E_USERNAME: "admin"
           E2E_PIN: "123456"
           E2E_BASE_URL: "http://localhost:8000"
+          E2E_OFFLINE: "1"
+          PLAYWRIGHT_ARTIFACT_ROOT: ${{ runner.temp }}/philforge-playwright
         working-directory: e2e-tests
         run: npx playwright test --project=philforge
 
@@ -80,6 +82,6 @@ jobs:
         with:
           name: playwright-report-philforge
           path: |
-            e2e-tests/playwright-report/
-            e2e-tests/test-results/
+            ${{ runner.temp }}/philforge-playwright/playwright-report/
+            ${{ runner.temp }}/philforge-playwright/test-results/
           retention-days: 14

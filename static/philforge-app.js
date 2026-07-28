@@ -10548,28 +10548,59 @@ function renderYearlyMonthlyTable() {
 // ══════════════════════════════════════════════════════════════
 //  APPEARANCE CONTROLS
 // ══════════════════════════════════════════════════════════════
-const PF_APPEARANCE_TINT_LABELS = {
-  native: 'PhilForge Default',
-  jade: 'Jade Mist',
-  cobalt: 'Cobalt Haze',
-  copper: 'Copper Sand',
-  fuchsia: 'Rose Dusk',
-  lime: 'Olive Calm',
+const PF_APPEARANCE_FALLBACK = {
+  default: { tint: 'native', font: 'forge' },
+  tints: [{ id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true }],
+  fonts: [{ id: 'forge', label: 'Forge Native', className: 'font-forge', sample: 'Aa' }],
 };
-const PF_APPEARANCE_FONT_LABELS = {
-  forge: 'Forge Native',
-  atelier: 'Grotesk Desk',
-  exchange: 'Terminal Tape',
-  blueprint: 'Circuit Draft',
-  scribe: 'Editorial Serif',
-};
+
+function appearancePresetConfig() {
+  const cfg = window.PHILFORGE_APPEARANCE_PRESETS || {};
+  return {
+    default: cfg.default || PF_APPEARANCE_FALLBACK.default,
+    tints: Array.isArray(cfg.tints) && cfg.tints.length ? cfg.tints : PF_APPEARANCE_FALLBACK.tints,
+    fonts: Array.isArray(cfg.fonts) && cfg.fonts.length ? cfg.fonts : PF_APPEARANCE_FALLBACK.fonts,
+  };
+}
+
+function appearanceDefaults() {
+  const defaults = appearancePresetConfig().default || PF_APPEARANCE_FALLBACK.default;
+  return { tint: defaults.tint || 'native', font: defaults.font || 'forge' };
+}
+
+function appearancePresetLabel(type, id) {
+  const list = type === 'font' ? appearancePresetConfig().fonts : appearancePresetConfig().tints;
+  const preset = list.find(item => item.id === id);
+  return (preset && preset.label) || id;
+}
+
+function renderAppearancePanelOptions() {
+  const cfg = appearancePresetConfig();
+  const tintWrap = document.getElementById('appearance-tint-options');
+  if (tintWrap && !tintWrap.dataset.rendered) {
+    tintWrap.innerHTML = cfg.tints.map(tint => {
+      const swatchClass = tint.swatch || `swatch-${tint.id}`;
+      return `<button class="appearance-option" data-appearance-tint="${escapeAttr(tint.id)}"><span class="appearance-swatch ${escapeAttr(swatchClass)}"></span><span>${escapeHtml(tint.label || tint.id)}</span></button>`;
+    }).join('');
+    tintWrap.dataset.rendered = '1';
+  }
+  const fontWrap = document.getElementById('appearance-font-options');
+  if (fontWrap && !fontWrap.dataset.rendered) {
+    fontWrap.innerHTML = cfg.fonts.map(font => {
+      const className = font.className || `font-${font.id}`;
+      return `<button class="appearance-option ${escapeAttr(className)}" data-appearance-font="${escapeAttr(font.id)}"><span class="appearance-font-sample">${escapeHtml(font.sample || 'Aa')}</span><span>${escapeHtml(font.label || font.id)}</span></button>`;
+    }).join('');
+    fontWrap.dataset.rendered = '1';
+  }
+}
 
 function currentAppearance() {
   if (typeof window.pfGetAppearance === 'function') return window.pfGetAppearance();
-  return { tint: 'native', font: 'forge' };
+  return appearanceDefaults();
 }
 
 function syncAppearancePanel() {
+  renderAppearancePanelOptions();
   const state = currentAppearance();
   document.querySelectorAll('[data-appearance-tint]').forEach((btn) => {
     const active = btn.getAttribute('data-appearance-tint') === state.tint;
@@ -10601,17 +10632,17 @@ function closeAppearanceModal() {
 function setAppearanceTint(tint) {
   if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint }, { persist: true });
   syncAppearancePanel();
-  if (typeof toast === 'function') toast('Tint changed to ' + (PF_APPEARANCE_TINT_LABELS[tint] || tint), 'success');
+  if (typeof toast === 'function') toast('Tint changed to ' + appearancePresetLabel('tint', tint), 'success');
 }
 
 function setAppearanceFont(font) {
   if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ font }, { persist: true });
   syncAppearancePanel();
-  if (typeof toast === 'function') toast('Font changed to ' + (PF_APPEARANCE_FONT_LABELS[font] || font), 'success');
+  if (typeof toast === 'function') toast('Font changed to ' + appearancePresetLabel('font', font), 'success');
 }
 
 function resetAppearance() {
-  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance({ tint: 'native', font: 'forge' }, { persist: true });
+  if (typeof window.pfApplyAppearance === 'function') window.pfApplyAppearance(appearanceDefaults(), { persist: true });
   syncAppearancePanel();
   if (typeof toast === 'function') toast('Appearance reset', 'info');
 }

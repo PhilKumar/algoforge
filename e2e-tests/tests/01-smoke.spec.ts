@@ -10,41 +10,111 @@ import { test, expect, Page } from '@playwright/test';
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
+const OFFLINE_E2E = process.env.E2E_OFFLINE !== '0';
+const BASE_ORIGIN = new URL(process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:8000').origin;
 
-async function mockShellApis(page: Page) {
-  await page.route('**/api/ticker**', async route => {
-    await route.fulfill({
-      json: {
-        status: 'ok',
-        nifty: { price: 22000 },
-        banknifty: { price: 47000 },
-        midcpnifty: { price: 12000 },
-        sensex: { price: 73000 },
-      },
-    });
+const tickerMock = {
+  status: 'ok',
+  nifty: { price: 22000 },
+  banknifty: { price: 47000 },
+  midcpnifty: { price: 12000 },
+  sensex: { price: 73000 },
+};
+
+const paperStatusMock = {
+  running: false,
+  in_trade: false,
+  total_pnl: 0,
+  trades_today: 0,
+  positions: [],
+  closed_trades: [],
+  event_log: [],
+};
+
+const liveStatusMock = {
+  running: false,
+  in_trade: false,
+  total_pnl: 0,
+  trades_today: 0,
+  positions: [],
+  closed_trades: [],
+  event_log: [],
+};
+
+const scalpStatusMock = {
+  running: false,
+  open_trades: [],
+  closed_trades: [],
+  events: [],
+  session_pnl: 0,
+};
+
+const dashboardSummaryMock = {
+  paper_flow: { pnl: 0, trades: 0 },
+  real_flow: { pnl: 0, trades: 0, source_label: 'E2E mock' },
+  paper_strategy_flow: {},
+  live_strategy_flow: {},
+  scalp_flow: {},
+  active_count: 0,
+  active_detail: 'No strategies running',
+  strategy_count: 0,
+  backtest_count: 0,
+  best_run: null,
+  worst_run: null,
+  recent_transactions: [],
+  running_engines: [],
+  fii_dii: { status: 'unavailable' },
+};
+
+async function installOfflineE2E(page: Page) {
+  if (!OFFLINE_E2E) return;
+
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin === BASE_ORIGIN) {
+      await route.fallback();
+      return;
+    }
+    if (url.hostname === 'fonts.googleapis.com') {
+      await route.fulfill({ contentType: 'text/css', body: '' });
+      return;
+    }
+    if (url.hostname === 'fonts.gstatic.com') {
+      await route.fulfill({ status: 204, body: '' });
+      return;
+    }
+    throw new Error(`Offline E2E blocked external request: ${url.href}`);
   });
-  await page.route('**/api/dashboard/summary', async route => {
-    await route.fulfill({
-      json: {
-        paper_flow: { pnl: 0, trades: 0 },
-        real_flow: { pnl: 0, trades: 0, source_label: 'E2E mock' },
-        paper_strategy_flow: {},
-        live_strategy_flow: {},
-        scalp_flow: {},
-        active_count: 0,
-        active_detail: 'No strategies running',
-        strategy_count: 0,
-        backtest_count: 0,
-        best_run: null,
-        worst_run: null,
-        recent_transactions: [],
-        running_engines: [],
-        fii_dii: { status: 'unavailable' },
-      },
-    });
-  });
-  await page.route('**/api/broker/check', async route => {
-    await route.fulfill({ json: { status: 'error', message: 'E2E mock broker check', available_balance: 0, funds: {} } });
+
+  await page.route('**/api/**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    if (path === '/api/health' || path.startsWith('/api/auth/')) {
+      await route.continue();
+      return;
+    }
+    if (path.includes('/broker') || path.includes('/dhan')) {
+      await route.fulfill({ json: { status: 'error', message: 'E2E offline broker mock', available_balance: 0, funds: {} } });
+      return;
+    }
+    if (path === '/api/ticker') await route.fulfill({ json: tickerMock });
+    else if (path === '/api/dashboard/summary') await route.fulfill({ json: dashboardSummaryMock });
+    else if (path === '/api/backfill/status') await route.fulfill({ json: { status: 'idle', running: false } });
+    else if (path === '/api/strategies') await route.fulfill({ json: [] });
+    else if (path === '/api/strategies/folders') await route.fulfill({ json: [] });
+    else if (path === '/api/runs') await route.fulfill({ json: [] });
+    else if (path.startsWith('/api/runs/')) await route.fulfill({ json: { status: 'error', message: 'E2E offline run mock' } });
+    else if (path === '/api/engines/all') await route.fulfill({ json: { engines: [] } });
+    else if (path === '/api/expiry-dates') await route.fulfill({ json: { status: 'ok', nifty: '2026-05-07', banknifty: '2026-05-28', sensex: '2026-05-01' } });
+    else if (path.startsWith('/api/expiry-list/')) await route.fulfill({ json: { status: 'ok', expiries: ['2026-05-07', '2026-05-14'] } });
+    else if (path === '/api/option-ltp') await route.fulfill({ json: { status: 'ok', ltp: 110.5 } });
+    else if (path === '/api/paper/status') await route.fulfill({ json: paperStatusMock });
+    else if (path === '/api/live/status') await route.fulfill({ json: liveStatusMock });
+    else if (path === '/api/scalp/status') await route.fulfill({ json: scalpStatusMock });
+    else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
+    else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
+    else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }
 
@@ -52,7 +122,7 @@ async function mockShellApis(page: Page) {
 // Current login defaults to username + password, but we keep a fallback
 // for explicit PIN mode in case a branch toggles that UI back on.
 async function login(page: Page) {
-  await mockShellApis(page);
+  await installOfflineE2E(page);
   await page.goto('/');
 
   await page.fill('#username-input', USERNAME);
@@ -141,43 +211,29 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-pf-font', 'scribe');
 });
 
-test('Appearance, mobile nav, and scalp launchpad screenshot surfaces render', async ({ page }, testInfo) => {
-  await page.route('**/api/expiry-list/**', async route => {
-    await route.fulfill({ json: { status: 'ok', expiries: ['2026-03-26', '2026-04-02'] } });
-  });
-  await page.route('**/api/ticker**', async route => {
-    await route.fulfill({
-      json: {
-        status: 'ok',
-        nifty: { price: 22000 },
-        banknifty: { price: 47000 },
-        midcpnifty: { price: 12000 },
-        sensex: { price: 73000 },
-      },
-    });
-  });
-  await page.route('**/api/option-ltp**', async route => {
-    await route.fulfill({ json: { status: 'ok', ltp: 110.5 } });
-  });
-  await page.route('**/api/scalp/status', async route => {
-    await route.fulfill({ json: { running: false, open_trades: [], closed_trades: [], events: [], session_pnl: 0 } });
-  });
-
+test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ page }) => {
   await login(page);
 
   await page.click('#appearance-btn');
   await expect(page.locator('#appearance-modal')).toHaveClass(/open/);
-  await page.locator('#appearance-modal .appearance-modal').screenshot({
-    path: testInfo.outputPath('appearance-modal.png'),
+  await expect(page.locator('#appearance-modal .appearance-modal')).toHaveScreenshot('appearance-modal.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.04,
   });
   await page.click('[data-pf-action="closeAppearanceModal"]');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.nav-bar')).toBeVisible();
-  await page.locator('.nav-bar').screenshot({ path: testInfo.outputPath('mobile-nav.png') });
+  await expect(page.locator('.nav-bar')).toHaveScreenshot('mobile-nav.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.04,
+  });
 
   await page.click('#nav-scalp');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await expect(page.locator('#scalp-form-title')).toBeVisible();
-  await page.locator('#scalp-page').screenshot({ path: testInfo.outputPath('scalp-launchpad.png') });
+  await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.04,
+  });
 });
