@@ -9579,9 +9579,34 @@ async def terminal_cascade_delete(request: Request, symbol: str):
 
 # ── Terminal Cascade: instrument scanner ──────────────────────────
 _CASCADE_SCAN_CACHE: Dict[str, tuple] = {}
-_CASCADE_SCAN_TTL_SEC = 900
+# The cache key includes the IST date. Keeping it for a full day means a scan is
+# stable for that day's campaign decisions, while the next IST day naturally
+# gets a fresh universe and daily candles.
+_CASCADE_SCAN_TTL_SEC = 24 * 60 * 60
 _CASCADE_SCAN_CONCURRENCY = 8
 _CASCADE_SCAN_HISTORY_DAYS = 200
+
+
+def _terminal_cascade_scan_state_key(user_id: int, cache_key: str) -> str:
+    """Persistent, per-user snapshot for one day's scanner settings."""
+    return f"terminal_cash_cascade_scan:{int(user_id)}:{cache_key}"
+
+
+async def _load_terminal_cascade_scan_snapshot(user_id: int, cache_key: str) -> dict | None:
+    raw = await _db_mod.get_app_state(_terminal_cascade_scan_state_key(user_id, cache_key))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("status") != "ok"
+        or not isinstance(payload.get("candidates"), list)
+    ):
+        return None
+    return payload
 
 
 async def _cascade_scan_history(broker: DhanClient, stock: dict, semaphore: asyncio.Semaphore) -> Optional[ScanInput]:
@@ -9628,6 +9653,7 @@ async def terminal_cascade_scan(
     limit: int = 30,
     min_price: float = 200.0,
     refresh: bool = False,
+    load_only: bool = False,
 ):
     """Rank Nifty 200 scrips by how tradeable a Cascade on them would be today.
 
@@ -9637,14 +9663,26 @@ async def terminal_cascade_scan(
     """
     if capital_inr <= 0:
         raise HTTPException(status_code=400, detail="Capital must be positive.")
-    _user, broker_client, _source = await _request_broker_context(request)
-    if broker_client is None:
-        raise HTTPException(status_code=400, detail="Connect a Dhan account to run the Cascade scanner.")
-
-    cache_key = f"{datetime.now(IST).date()}:{capital_inr:.0f}:{min_price:.0f}:{limit}"
+    user, broker_client, _source = await _request_broker_context(request)
+    user_id = int((user or {}).get("id") or _request_user_id(request))
+    scan_date = datetime.now(IST).date().isoformat()
+    settings_key = f"{scan_date}:{capital_inr:.0f}:{min_price:.0f}:{limit}"
+    cache_key = f"{user_id}:{settings_key}"
     cached = _CASCADE_SCAN_CACHE.get(cache_key)
     if cached and not refresh and time.time() - cached[0] < _CASCADE_SCAN_TTL_SEC:
         return {**cached[1], "cached": True}
+
+    if not refresh:
+        snapshot = await _load_terminal_cascade_scan_snapshot(user_id, settings_key)
+        if snapshot is not None:
+            _CASCADE_SCAN_CACHE[cache_key] = (time.time(), snapshot)
+            return {**snapshot, "cached": True}
+
+    if load_only:
+        return {"status": "empty", "cached": False, "scan_date": scan_date}
+
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to run the Cascade scanner.")
 
     semaphore = asyncio.Semaphore(_CASCADE_SCAN_CONCURRENCY)
     stocks = [_resolve_terminal_stock(row["symbol"]) for row in TERMINAL_STOCKS]
@@ -9660,6 +9698,7 @@ async def terminal_cascade_scan(
     payload = {
         "status": "ok",
         "scanned_at": datetime.now(IST).isoformat(),
+        "scan_date": scan_date,
         "capital_inr": float(capital_inr),
         "universe": len(stocks),
         "with_history": len(rows),
@@ -9684,6 +9723,15 @@ async def terminal_cascade_scan(
         "cached": False,
     }
     _CASCADE_SCAN_CACHE[cache_key] = (time.time(), payload)
+    try:
+        await _db_mod.set_app_state(
+            _terminal_cascade_scan_state_key(user_id, settings_key),
+            json.dumps(payload, default=str),
+        )
+    except Exception as exc:
+        # The fresh result remains useful even if durable storage is briefly
+        # unavailable; the in-memory day cache still prevents another scan.
+        _logger.warning("[TERMINAL CASCADE] Could not save scanner snapshot for user %s: %s", user_id, exc)
     return payload
 
 

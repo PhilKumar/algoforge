@@ -345,7 +345,7 @@
   async function run(refresh) {
     var capital = parseFloat((els.capital && els.capital.value) || '100000');
     if (!(capital > 0)) { setStatus('Enter the capital you would put on one campaign.', 'warn'); return; }
-    setStatus('Scanning 200+ scrips — this takes a few seconds on a cold run…', '');
+    setStatus('Scanning 200+ scrips — this takes a few seconds…', '');
     els.run.disabled = true;
     els.run.classList.add('is-working');
     els.body.innerHTML = '<div class="cascade-scan-loading">' +
@@ -369,6 +369,24 @@
     }
   }
 
+  async function restoreToday() {
+    try {
+      var capital = parseFloat((els.capital && els.capital.value) || '100000');
+      if (!(capital > 0)) return;
+      var res = await fetch(
+        '/api/terminal/cascade/scan?capital_inr=' + encodeURIComponent(capital) + '&load_only=true',
+        { credentials: 'same-origin', cache: 'no-store' }
+      );
+      var data = await res.json();
+      if (!res.ok || data.status !== 'ok') return;
+      lastPayload = data;
+      render(data);
+      setStatus('Today\'s scan restored · ' + new Date(data.scanned_at).toLocaleTimeString('en-IN'), 'ok');
+    } catch (err) {
+      // No saved scan is a normal first-visit state. Keep the initial prompt.
+    }
+  }
+
   function init() {
     els.run = $('cascade-scan-run');
     if (!els.run) return;
@@ -389,6 +407,7 @@
         render(lastPayload, true);
       }
     });
+    restoreToday();
   }
 
   if (document.readyState === 'loading') {
