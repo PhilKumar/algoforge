@@ -89,6 +89,7 @@ from engine.cascade_options import (
     OneHourCascade,
     PaperCascadeConfig,
 )
+from engine.cascade_scanner import HIGH_LOOKBACK as CASCADE_SCAN_HIGH_LOOKBACK
 from engine.cascade_scanner import ScanInput
 from engine.cascade_scanner import scan as cascade_scan
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
@@ -9684,6 +9685,69 @@ async def terminal_cascade_scan(
     }
     _CASCADE_SCAN_CACHE[cache_key] = (time.time(), payload)
     return payload
+
+
+@app.get("/api/terminal/cascade/scan/chart")
+async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: int = 90):
+    """Real daily OHLC for one scanned scrip, plus the levels the rank is based on.
+
+    Native exchange OHLC only.  The whole point of the scanner is to justify a
+    ranking, and a smoothed or synthesised series would be justifying something
+    other than what the ranking was computed from.
+    """
+    stock = _resolve_terminal_stock(symbol)
+    if not stock.get("security_id"):
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the scanner chart.")
+
+    sessions = max(20, min(int(sessions or 90), 250))
+    today = datetime.now(IST).date()
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(stock["security_id"]),
+            exchange_segment=str(stock["exchange_segment"]),
+            instrument_type=str(stock["instrument_type"]),
+            from_date=(today - timedelta(days=int(sessions * 1.6) + 30)).isoformat(),
+            to_date=today.isoformat(),
+            candle_type="D",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Dhan did not return candles for {stock['symbol']}: {exc}"
+        ) from exc
+    if frame is None or getattr(frame, "empty", True):
+        raise HTTPException(status_code=404, detail=f"No daily candles returned for {stock['symbol']}.")
+
+    rows = [
+        {
+            "t": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
+            "o": float(row["open"]),
+            "h": float(row["high"]),
+            "l": float(row["low"]),
+            "c": float(row["close"]),
+        }
+        for timestamp, row in frame.iterrows()
+    ][-sessions:]
+
+    # The same 20-session window the ranking measures the pullback against, so
+    # the line on the chart is the number in the table and not a lookalike.
+    window = rows[-CASCADE_SCAN_HIGH_LOOKBACK:] if len(rows) >= CASCADE_SCAN_HIGH_LOOKBACK else rows
+    recent_high = max(item["h"] for item in window)
+    last_price = rows[-1]["c"]
+    return {
+        "status": "ok",
+        "symbol": stock["symbol"],
+        "name": stock.get("name") or stock["symbol"],
+        "chart_mode": "native_ohlc",
+        "candles": rows,
+        "recent_high": round(recent_high, 2),
+        "recent_high_lookback": CASCADE_SCAN_HIGH_LOOKBACK,
+        "last_price": round(last_price, 2),
+        "pullback_pct": round((recent_high - last_price) / recent_high * 100.0, 2) if recent_high else 0.0,
+    }
 
 
 @app.get("/api/terminal/nifty200")

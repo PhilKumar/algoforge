@@ -30,6 +30,10 @@ from typing import Iterable, Optional, Sequence
 # engine's own split, so fundability here means fundability there.
 LEVEL_ALLOCATION = (0.20, 0.30, 0.50)
 
+# Sessions the recent high is measured over. Shared with the chart endpoint
+# so the line drawn is the number the ranking was computed from.
+HIGH_LOOKBACK = 20
+
 
 @dataclass(frozen=True)
 class ScanInput:
@@ -88,7 +92,7 @@ def scan(
     capital_inr: float,
     min_price: float = 200.0,
     lookback: int = 60,
-    high_lookback: int = 20,
+    high_lookback: int = HIGH_LOOKBACK,
     min_strength_pct: float = 0.0,
     min_pullback_pct: float = 1.0,
     max_pullback_pct: float = 25.0,
