@@ -54,31 +54,12 @@
 .cascade-scan-rungs.warn { color: #b8860b; }
 .cascade-scan-rungs.bad { color: #c0392b; }
 
-/* Row actions get the same glossy treatment as the site's action controls;
-   flat outlines read as disabled next to everything around them. */
+/* Row actions carry .terminal-cascade-chart-launch, so they inherit the exact
+   "Open Chart" treatment. Only spacing is set here -- restyling them would
+   reintroduce the drift this was meant to remove. */
 .cascade-scan-pick,
-.cascade-scan-chart-btn {
-  position: relative; overflow: hidden; cursor: pointer;
-  padding: 5px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
-  background: linear-gradient(180deg, rgba(96, 165, 250, .30), rgba(30, 64, 175, .46));
-  border: 1px solid rgba(147, 197, 253, .48); color: #dbeafe;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 2px 5px rgba(0, 0, 0, .32);
-  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
-}
-.cascade-scan-pick::after,
-.cascade-scan-chart-btn::after {
-  content: ''; position: absolute; inset: 0 0 56% 0; pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0));
-}
-.cascade-scan-pick:hover,
-.cascade-scan-chart-btn:hover { transform: translateY(-1px); filter: brightness(1.14); }
-.cascade-scan-pick:active,
-.cascade-scan-chart-btn:active { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35); }
-/* Use is the committing action, so it leads in green rather than matching Chart. */
-.cascade-scan-pick {
-  background: linear-gradient(180deg, rgba(52, 211, 153, .30), rgba(6, 95, 70, .46));
-  border-color: rgba(110, 231, 183, .48); color: #d1fae5;
-}
+.cascade-scan-chart-btn { padding: 5px 14px; font-size: 12px; }
+.cascade-scan-chart-btn { margin-right: 6px; }
 
 .cascade-scan-empty { padding: 18px 4px; font-size: 13px; opacity: .75; }
 .cascade-scan-empty p { margin: 0 0 8px; }
@@ -311,23 +292,18 @@
 .cascade-scan-table tr.is-picked { background: rgba(110, 231, 183, .1); }
 .cascade-scan-table tr.is-picked td:first-child { box-shadow: inset 3px 0 0 #6ee7b7; }
 
-/* Campaign setup reads as one row of related settings, not a stack of five.
-   The fields could never sit side by side while the panel was pinned to a
-   270-320px column, so the workspace stacks instead: setup full width on top,
-   instrument list full width beneath it. */
+/* Setup and instrument sit side by side. The fields could not pair up in the
+   original 270-320px column -- two 150px columns plus a gap needs 312px -- so
+   the column is widened rather than the layout stacked. */
 .terminal-cascade-workspace {
-  grid-template-columns: minmax(0, 1fr) !important;
-  height: auto !important;
-  min-height: 0 !important;
+  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr) !important;
 }
-.terminal-cascade-start-panel { overflow: visible; }
-.terminal-cascade-instrument-panel { overflow: visible; }
 
 .terminal-cascade-form-grid,
 .terminal-cascade-start-panel .terminal-cascade-form-grid {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
-  gap: 12px !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px 12px !important;
   align-items: end;
 }
 .terminal-cascade-field { min-width: 0; }
@@ -338,8 +314,8 @@
    scroll. An opened card spans the full width, so its detail tables sit under
    the row rather than squeezed into a third of it. */
 .terminal-cascade-scrip-flow {
-  max-height: min(680px, 72vh); padding-top: 2px;
-  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  padding-top: 2px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
 }
 .terminal-cascade-scrip-flow > .pf-campaign-card[open] { grid-column: 1 / -1; }
 

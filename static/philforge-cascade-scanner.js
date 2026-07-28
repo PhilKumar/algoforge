@@ -70,8 +70,10 @@
         '<td class="num">' + row.affordable_shares + '</td>' +
         '<td class="num">' + rungLabel(row.rungs_fundable) + '</td>' +
         '<td class="cascade-scan-row-actions">' +
-        '<button type="button" class="btn btn-sm btn-outline cascade-scan-chart-btn" data-symbol="' + row.symbol + '">Chart</button>' +
-        '<button type="button" class="btn btn-sm cascade-scan-pick" data-symbol="' + row.symbol + '">Use</button>' +
+        // Same classes as "Open Chart" in the instrument panel, so the two are
+        // the same control rather than two that merely resemble each other.
+        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-chart-btn" data-symbol="' + row.symbol + '">Chart</button>' +
+        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-pick" data-symbol="' + row.symbol + '">Use</button>' +
         '</td>' +
         '</tr>';
     }).join('');
@@ -133,7 +135,9 @@
     var rows = payload.candles || [];
     if (!rows.length) return '<div class="cascade-scan-empty">No candles returned.</div>';
 
-    var W = 1320, H = 380, padL = 14, padR = 86, padT = 16, padB = 26;
+    // Same proportions and left price gutter as the campaign chart, so moving
+    // between the two does not mean re-learning where to look.
+    var W = 1320, H = 380, padL = 150, padR = 22, padT = 16, padB = 28;
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var n = rows.length, cw = plotW / Math.max(n, 1);
 
@@ -165,12 +169,18 @@
 
     var out = ['<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="' + PAL.bg + '"/>'];
 
-    for (var g = 0; g <= 3; g += 1) {
-      var price = minP + (maxP - minP) * (g / 3), y = Y(price);
-      out.push('<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(1) +
-        '" stroke="' + PAL.grid + '" stroke-width="1"/>');
-      out.push('<text x="' + (padL + plotW + 6) + '" y="' + (y + 3).toFixed(1) + '" fill="' + PAL.axis +
-        '" font-size="10" font-family="monospace">' + num(price) + '</text>');
+    var sharpY = function (v) { return Math.round(v) + 0.5; };
+    // Price labels live in the left gutter, as they do on the campaign chart.
+    var gutter = function (y, text, colour) {
+      out.push('<text x="' + (padL - 8) + '" y="' + (y + 3).toFixed(1) + '" fill="' + colour +
+        '" font-size="10" font-family="monospace" text-anchor="end">' + esc(text) + '</text>');
+    };
+
+    for (var g = 0; g <= 4; g += 1) {
+      var price = minP + (maxP - minP) * (g / 4), y = Y(price);
+      out.push('<line x1="' + padL + '" y1="' + sharpY(y) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(y) +
+        '" stroke="' + PAL.grid + '" stroke-width="1" shape-rendering="crispEdges"/>');
+      gutter(y, num(price), PAL.axis);
     }
 
     // The discount being ranked, shaded between the recent high and now.
@@ -200,16 +210,21 @@
         '" shape-rendering="crispEdges"/>');
     });
 
-    out.push('<line x1="' + padL + '" y1="' + yHigh.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yHigh.toFixed(1) +
-      '" stroke="' + PAL.high + '" stroke-width="1.25" stroke-dasharray="5 3"/>');
-    out.push('<text x="' + (padL + 5) + '" y="' + (yHigh - 4).toFixed(1) + '" fill="' + PAL.high +
-      '" font-size="10" font-family="monospace">' + payload.recent_high_lookback + '-session high ' +
-      num(payload.recent_high) + '</text>');
+    // The high bar is banded and tagged the way the campaign chart marks its
+    // mother candle -- this is the same role on a different timeframe.
+    var xh = X(highAt), bwh = Math.max(cw * 0.62, 6);
+    out.push('<rect x="' + (xh - bwh / 2 - 3).toFixed(1) + '" y="' + (padT + 1) + '" width="' + (bwh + 6).toFixed(1) +
+      '" height="' + (plotH - 2).toFixed(1) + '" fill="' + PAL.high + '" opacity=".09"/>');
+    out.push('<text x="' + xh.toFixed(1) + '" y="' + Math.max(Y(rows[highAt].h) - 8, padT + 10).toFixed(1) +
+      '" fill="' + PAL.high + '" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>');
+
+    out.push('<line x1="' + padL + '" y1="' + sharpY(yHigh) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yHigh) +
+      '" stroke="' + PAL.high + '" stroke-width="1.25" stroke-dasharray="5 3" shape-rendering="crispEdges"/>');
+    gutter(yHigh, payload.recent_high_lookback + 'd high ' + num(payload.recent_high), PAL.high);
     var yLow = Y(swingLow);
-    out.push('<line x1="' + padL + '" y1="' + yLow.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yLow.toFixed(1) +
-      '" stroke="' + PAL.low + '" stroke-width="1.25" stroke-dasharray="5 3"/>');
-    out.push('<text x="' + (padL + 5) + '" y="' + (yLow + 12).toFixed(1) + '" fill="' + PAL.low +
-      '" font-size="11" font-family="monospace">leg low ' + num(swingLow) + '</text>');
+    out.push('<line x1="' + padL + '" y1="' + sharpY(yLow) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yLow) +
+      '" stroke="' + PAL.low + '" stroke-width="1.25" stroke-dasharray="5 3" shape-rendering="crispEdges"/>');
+    gutter(yLow, 'leg low ' + num(swingLow), PAL.low);
 
     // Mark which two bars set the leg, so the lines are traceable to candles.
     [[highAt, PAL.high], [lowAt, PAL.low]].forEach(function (pair) {
@@ -217,11 +232,12 @@
         '" y2="' + (padT + plotH) + '" stroke="' + pair[1] + '" stroke-width="1" stroke-dasharray="1 4" opacity=".55"/>');
     });
 
-    out.push('<line x1="' + padL + '" y1="' + yNow.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yNow.toFixed(1) +
-      '" stroke="' + PAL.now + '" stroke-width="1.25" stroke-dasharray="2 3"/>');
-    out.push('<text x="' + (padL + 5) + '" y="' + (yNow + 13).toFixed(1) + '" fill="' + PAL.now +
-      '" font-size="11" font-family="monospace">now ' + num(payload.last_price) + '  (-' +
-      payload.pullback_pct.toFixed(1) + '% off the high, ' + retraced.toFixed(0) + '% down the leg)</text>');
+    out.push('<line x1="' + padL + '" y1="' + sharpY(yNow) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yNow) +
+      '" stroke="' + PAL.now + '" stroke-width="1.25" stroke-dasharray="2 3" shape-rendering="crispEdges"/>');
+    gutter(yNow, 'now ' + num(payload.last_price), PAL.now);
+    out.push('<text x="' + (padL + 6) + '" y="' + (yNow + 13).toFixed(1) + '" fill="' + PAL.now +
+      '" font-size="10" font-family="monospace" opacity=".8">-' + payload.pullback_pct.toFixed(1) +
+      '% off the high · ' + retraced.toFixed(0) + '% down the leg</text>');
 
     var ticks = Math.min(6, n);
     for (var t = 0; t < ticks; t += 1) {
