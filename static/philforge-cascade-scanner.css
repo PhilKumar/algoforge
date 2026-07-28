@@ -80,3 +80,25 @@
   width: 100%; height: auto; display: block;
   border-radius: 8px; border: 1px solid rgba(128, 128, 128, .18);
 }
+
+/* Flow-down: the chart grows into place instead of snapping open. */
+.cascade-scan-chart-flow {
+  max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height .32s ease, opacity .24s ease;
+}
+.cascade-scan-chart-flow.open { max-height: 620px; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .cascade-scan-chart-flow { transition: none; }
+}
+
+.cascade-scan-pager {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 10px; padding: 12px 2px 2px;
+}
+.cascade-scan-pager-label { font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
+.cascade-scan-pager .btn[disabled] { opacity: .4; cursor: not-allowed; }
+
+.terminal-cascade-field-hint {
+  display: block; margin-top: 4px; font-size: 11px; opacity: .7;
+  font-variant-numeric: tabular-nums; letter-spacing: .01em;
+}

@@ -1454,13 +1454,14 @@
         <div class="terminal-cascade-section-head">
           <div>
             <span>Campaign setup</span>
-            <strong id="terminal-cascade-control-summary">Mother, capital, timeframe and product</strong>
+            <strong id="terminal-cascade-control-summary">Mother candle, capital, timeframe and product</strong>
           </div>
         </div>
         <div class="terminal-cascade-form-grid">
           <div class="terminal-cascade-field">
-            <label>Mother timestamp</label>
+            <label>Mother candle</label>
             <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300">
+            <span id="terminal-cascade-mother-readable" class="terminal-cascade-field-hint">--</span>
           </div>
           <div class="terminal-cascade-field">
             <label>Capital INR</label>
@@ -1474,10 +1475,7 @@
               <option value="1h">1H</option>
             </select>
           </div>
-          <div class="terminal-cascade-field">
-            <label>TP fraction</label>
-            <input id="terminal-cascade-target-pct" type="number" min="1" max="100" step="1" value="25">
-          </div>
+          <input id="terminal-cascade-target-pct" type="hidden" value="25">
           <div class="terminal-cascade-field">
             <label>Product</label>
             <select id="terminal-cascade-product">

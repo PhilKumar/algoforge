@@ -9,6 +9,9 @@
 
   var els = {};
   var lastRows = [];
+  var lastPayload = null;
+  var page = 0;
+  var PAGE_SIZE = 10;
 
   function $(id) { return document.getElementById(id); }
 
@@ -29,8 +32,9 @@
     return '<span class="cascade-scan-rungs bad">' + count + ' of 3</span>';
   }
 
-  function render(payload) {
+  function render(payload, keepPage) {
     lastRows = payload.candidates || [];
+    if (!keepPage) page = 0;
     if (els.meta) {
       els.meta.textContent =
         lastRows.length + ' of ' + payload.universe + ' scanned' +
@@ -50,7 +54,10 @@
       return;
     }
 
-    var rows = lastRows.map(function (row, index) {
+    var start = page * PAGE_SIZE;
+    var pageRows = lastRows.slice(start, start + PAGE_SIZE);
+    var rows = pageRows.map(function (row, offset) {
+      var index = start + offset;
       return '' +
         '<tr data-symbol="' + row.symbol + '">' +
         '<td class="cascade-scan-rank">' + (index + 1) + '</td>' +
@@ -61,11 +68,23 @@
         '<td class="num">' + row.affordable_shares + '</td>' +
         '<td class="num">' + rungLabel(row.rungs_fundable) + '</td>' +
         '<td class="cascade-scan-row-actions">' +
-        '<button type="button" class="cascade-scan-chart-btn" data-symbol="' + row.symbol + '">Chart</button>' +
-        '<button type="button" class="cascade-scan-pick" data-symbol="' + row.symbol + '">Use</button>' +
+        '<button type="button" class="btn btn-sm btn-outline cascade-scan-chart-btn" data-symbol="' + row.symbol + '">Chart</button>' +
+        '<button type="button" class="btn btn-sm cascade-scan-pick" data-symbol="' + row.symbol + '">Use</button>' +
         '</td>' +
         '</tr>';
     }).join('');
+
+    var pages = Math.max(1, Math.ceil(lastRows.length / PAGE_SIZE));
+    var pager = pages > 1 ? (
+      '<div class="cascade-scan-pager">' +
+      '<button type="button" class="btn btn-sm btn-outline" data-page="prev"' +
+      (page === 0 ? ' disabled' : '') + '>Previous</button>' +
+      '<span class="cascade-scan-pager-label">' + (start + 1) + '&ndash;' +
+      Math.min(start + PAGE_SIZE, lastRows.length) + ' of ' + lastRows.length + '</span>' +
+      '<button type="button" class="btn btn-sm btn-outline" data-page="next"' +
+      (page >= pages - 1 ? ' disabled' : '') + '>Next</button>' +
+      '</div>'
+    ) : '';
 
     els.body.innerHTML =
       '<div class="cascade-scan-table-wrap"><table class="cascade-scan-table">' +
@@ -76,7 +95,7 @@
       '<th class="num" title="Shares your capital buys">Shares</th>' +
       '<th class="num" title="How many of the three buy levels your capital can reach">Rungs</th>' +
       '<th></th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' + pager;
   }
 
   /* ── chart ──────────────────────────────────────────────────────
@@ -187,8 +206,11 @@
 
     var holder = document.createElement('tr');
     holder.className = 'cascade-scan-chart-row';
-    holder.innerHTML = '<td colspan="8"><div class="cascade-scan-chart">Loading ' + esc(symbol) + ' daily candles…</div></td>';
+    holder.innerHTML = '<td colspan="8"><div class="cascade-scan-chart-flow">' +
+      '<div class="cascade-scan-chart">Loading ' + esc(symbol) + ' daily candles…</div></div></td>';
     row.parentNode.insertBefore(holder, row.nextSibling);
+    var flow = holder.querySelector('.cascade-scan-chart-flow');
+    requestAnimationFrame(function () { flow.classList.add('open'); });
     var box = holder.querySelector('.cascade-scan-chart');
     try {
       var res = await fetch('/api/terminal/cascade/scan/chart?symbol=' + encodeURIComponent(symbol),
@@ -233,6 +255,7 @@
       var res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Scan failed');
+      lastPayload = data;
       render(data);
       setStatus('Scanned ' + new Date(data.scanned_at).toLocaleTimeString('en-IN'), 'ok');
     } catch (err) {
@@ -256,8 +279,77 @@
       var use = event.target.closest('.cascade-scan-pick');
       if (use) { pick(use.dataset.symbol); return; }
       var chart = event.target.closest('.cascade-scan-chart-btn');
-      if (chart) toggleChart(chart.dataset.symbol, chart.closest('tr'));
+      if (chart) { toggleChart(chart.dataset.symbol, chart.closest('tr')); return; }
+      var pager = event.target.closest('[data-page]');
+      if (pager && !pager.disabled) {
+        page += pager.dataset.page === 'next' ? 1 : -1;
+        render(lastPayload, true);
+      }
     });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* Mother-candle field: readable IST echo and a sensible default.
+ *
+ * The native picker stays -- it is the only reliable way to enter a datetime --
+ * but it renders in browser locale, which reads as mm/dd to half the world. The
+ * echo underneath states the value unambiguously in IST, which is the only
+ * timezone this system trades in.
+ */
+(function () {
+  'use strict';
+
+  var MINUTES = { '5m': 5, '15m': 15, '1h': 60 };
+
+  function pad(value) { return String(value).padStart(2, '0'); }
+
+  function readable(value) {
+    if (!value) return '--';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return '--';
+    return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
+      '  ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' IST';
+  }
+
+  // Last completed candle of the selected timeframe, so the field is never
+  // blank and never points at a bar that has not closed.
+  function lastClosed(tf) {
+    var step = MINUTES[tf] || 5;
+    var now = new Date();
+    var d = new Date(now.getTime() - step * 60000);
+    if (step === 60) {
+      d.setMinutes(15, 0, 0);
+      if (d > now) d.setHours(d.getHours() - 1);
+    } else {
+      d.setMinutes(Math.floor(d.getMinutes() / step) * step, 0, 0);
+    }
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function init() {
+    var input = document.getElementById('terminal-cascade-mother-timestamp');
+    var hint = document.getElementById('terminal-cascade-mother-readable');
+    var tf = document.getElementById('terminal-cascade-timeframe');
+    if (!input || !hint) return;
+
+    var sync = function () { hint.textContent = readable(input.value); };
+    if (!input.value) input.value = lastClosed(tf ? tf.value : '5m');
+    sync();
+    input.addEventListener('input', sync);
+    input.addEventListener('change', sync);
+    if (tf) {
+      tf.addEventListener('change', function () {
+        input.value = lastClosed(tf.value);
+        sync();
+      });
+    }
   }
 
   if (document.readyState === 'loading') {
