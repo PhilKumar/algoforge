@@ -97,10 +97,15 @@ class FibBoundaryBacktestSerializerTest(unittest.TestCase):
         self.assertEqual(payload["status"], "closed")
         self.assertEqual(payload["exit_reason"], "target")
         self.assertTrue(payload["fully_priced"])
-        # Two deep legs, priced with real premiums, at one fixed strike/expiry.
+        # Two deep legs, priced with real premiums; each re-selects its own
+        # strike against the index at that depth (deeper L8 CE < L4 CE).
         self.assertEqual([e["level"] for e in payload["entries"]], [4, 8])
-        self.assertEqual({e["strike"] for e in payload["entries"]}, {payload["contract"]["strike"]})
+        strikes = [e["strike"] for e in payload["entries"]]
+        self.assertEqual(len(set(strikes)), 2)
+        self.assertLess(strikes[1], strikes[0])
         self.assertEqual({e["expiry"] for e in payload["entries"]}, {"2026-08-11"})
+        # Fixed lot ladder: 1 lot on the first buy, 2 on the second.
+        self.assertEqual([e["lots"] for e in payload["entries"]], [1, 2])
         self.assertTrue(all(e["option_price"] is not None for e in payload["entries"]))
         # Bought cheap-and-deep, sold on the snap: net positive, and strictly
         # below gross because costs were charged.

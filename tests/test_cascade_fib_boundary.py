@@ -96,11 +96,15 @@ class FibBoundaryCeCampaignTest(unittest.TestCase):
         self.assertEqual(result.status, "closed")
         self.assertEqual(result.exit_reason, "target")
         self.assertEqual([e.stage for e in result.entries], [4, 8])  # level 4 then level 8
-        # Fixed contract: ATM-2 CE on the next-weekly expiry, same for both legs.
-        strikes = {e.contract.strike for e in result.entries}
-        expiries = {e.contract.expiry for e in result.entries}
-        self.assertEqual(expiries, {date(2026, 8, 11)})
-        self.assertEqual(len(strikes), 1)
+        # Per-entry strike: each buy re-selects ATM-2 against the index at that
+        # depth, so the deeper (L8) CE strike sits BELOW the shallower (L4) one.
+        strikes = [e.contract.strike for e in result.entries]
+        self.assertEqual(len(set(strikes)), 2)
+        self.assertLess(strikes[1], strikes[0])
+        # Same next-weekly expiry for both legs though.
+        self.assertEqual({e.contract.expiry for e in result.entries}, {date(2026, 8, 11)})
+        # Fixed lot ladder, not a rupee budget: 1 lot then 2.
+        self.assertEqual([e.lots for e in result.entries], [1, 2])
         self.assertTrue(result.fully_priced)
         self.assertIsNotNone(result.net_pnl)
         self.assertGreater(result.net_pnl, 0)  # bought cheap deep, sold on the snap

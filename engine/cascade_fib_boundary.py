@@ -119,6 +119,14 @@ class FibBoundaryConfig:
         """Index price of a fib boundary, on the side the option trades."""
         return boundary_price(self.option_type, self.mother_high, self.mother_low, level)
 
+    def lots_for_entry(self, entry_index: int) -> int:
+        """Lots for the Nth fill (0-based): a fixed 1, 2, 3... ladder.
+
+        The buy count is the sizing -- no rupee budget, no premium division.
+        First buy takes 1 lot, the second 2, the third 3, and so on.
+        """
+        return int(entry_index) + 1
+
     def ordered_boundaries(self) -> list[int]:
         """Boundaries in the order price reaches them (shallow-first)."""
         # CE prices fall (level 4 sits above level 8); PE prices rise (level 4
@@ -157,8 +165,10 @@ class FibBoundaryCascade:
             _RungState(level=level, index_price=config.boundary_price(level)) for level in config.ordered_boundaries()
         ]
 
-        # Fixed contract for the whole campaign, chosen once against the mother.
-        self._contract: Optional[Contract] = None
+        # The contract for the currently-armed rung.  Each entry re-selects its
+        # own strike against the index at that depth (ATM-N slides down as NIFTY
+        # falls), so a campaign holds several strikes -- not one fixed contract.
+        self._pending_contract: Optional[Contract] = None
         # 2-candle trigger bookkeeping.
         self._streak = 0
         self._prev_close: Optional[float] = None
@@ -226,18 +236,19 @@ class FibBoundaryCascade:
             self._pending_trigger = candle.close
             self._pending_since = candle.timestamp
             rung.status = "ARMED"
-            if self._contract is None:
-                self._contract = self.resolver.select(
-                    candle.timestamp, candle.close, self._side, self._contract_config()
-                )
+            # Re-select the strike for THIS rung against the current index, so a
+            # deeper entry buys a lower CE strike (higher PE) as the index moves.
+            self._pending_contract = self.resolver.select(
+                candle.timestamp, candle.close, self._side, self._contract_config()
+            )
             self._log(
                 candle.timestamp,
                 "arm",
                 level=rung.level,
                 boundary=round(rung.index_price, 2),
                 trigger=round(candle.close, 2),
-                strike=self._contract.strike,
-                expiry=self._contract.expiry.isoformat(),
+                strike=self._pending_contract.strike,
+                expiry=self._pending_contract.expiry.isoformat(),
             )
         self._prev_close = candle.close
 
@@ -245,7 +256,7 @@ class FibBoundaryCascade:
         if (
             self._pending_rung is None
             or self._pending_trigger is None
-            or self._contract is None
+            or self._pending_contract is None
             or candle.timestamp <= (self._pending_since or candle.timestamp)
         ):
             return False
@@ -254,11 +265,11 @@ class FibBoundaryCascade:
         if not crossed:
             return False
 
-        option_bar = self._lookup_option(candle.timestamp, self._contract)
+        option_bar = self._lookup_option(candle.timestamp, self._pending_contract)
         if option_bar is None:
             gap = (
                 f"missing option candle at {candle.timestamp.isoformat()} for "
-                f"{self._contract.symbol} {self._contract.strike}{self._contract.option_type}"
+                f"{self._pending_contract.symbol} {self._pending_contract.strike}{self._pending_contract.option_type}"
             )
             self.result.data_gaps.append(gap)
             if self.config.strict_option_data:
@@ -267,9 +278,9 @@ class FibBoundaryCascade:
                 return False
 
         premium = option_bar.open * (1.0 + self.config.option_slippage_pct) if option_bar is not None else None
-        lots = 1
-        if premium and premium > 0:
-            lots = max(1, int(self.config.rung_inr // (premium * self.config.lot_size)))
+        # Fixed lot ladder: 1 lot on the first buy, 2 on the second, 3 on the
+        # third...  No rupee budget -- the count IS the sizing.
+        lots = self.config.lots_for_entry(len(self.result.entries))
         quantity = lots * self.config.lot_size
         fill_index = float(self._pending_trigger) + (
             self.config.slippage_points if self._side == "CE" else -self.config.slippage_points
@@ -280,7 +291,7 @@ class FibBoundaryCascade:
             premium,
             lots,
             quantity,
-            self._contract,
+            self._pending_contract,
             self._pending_rung.level,
         )
         self.result.entries.append(entry)
@@ -299,6 +310,7 @@ class FibBoundaryCascade:
         self._pending_rung = None
         self._pending_trigger = None
         self._pending_since = None
+        self._pending_contract = None
         self._streak = 0
         return True
 
