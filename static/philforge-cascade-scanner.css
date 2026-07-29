@@ -338,3 +338,51 @@
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
   }
 }
+
+/* This stylesheet loads after philforge-app.css. Reapply the light palette here
+   so its Terminal/Scanner button chrome cannot restore pale dark-mode labels. */
+[data-theme="light"] .terminal-cascade-start-btn {
+  --btn-bg: linear-gradient(180deg, #fef3c7, #fde68a) !important;
+  --btn-color: #713f12 !important;
+  --btn-border: #d97706 !important;
+  color: #713f12 !important;
+  font-weight: 900;
+  text-shadow: none;
+}
+[data-theme="light"] .terminal-cascade-chart-launch,
+[data-theme="light"] .pf-campaign-actions .btn:not(.btn-danger) {
+  --btn-bg: linear-gradient(180deg, #dbeafe, #bfdbfe) !important;
+  --btn-color: #172554 !important;
+  --btn-border: #60a5fa !important;
+  background: linear-gradient(180deg, #dbeafe, #bfdbfe) !important;
+  color: #172554 !important;
+  border-color: #60a5fa !important;
+  font-weight: 900;
+  text-shadow: none;
+}
+[data-theme="light"] .pf-campaign-actions .btn-danger {
+  --btn-bg: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  --btn-color: #881337 !important;
+  --btn-border: #fb7185 !important;
+  background: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  color: #881337 !important;
+  border-color: #fb7185 !important;
+  font-weight: 900;
+  text-shadow: none;
+}
+[data-theme="light"] .terminal-cascade-card-control {
+  background: linear-gradient(180deg, #dbeafe, #bfdbfe);
+  border-color: #60a5fa;
+  color: #172554;
+  text-shadow: none;
+}
+[data-theme="light"] .terminal-cascade-card-control.is-danger {
+  background: linear-gradient(180deg, #ffe4e6, #fecdd3);
+  border-color: #fb7185;
+  color: #881337;
+}
+[data-theme="light"] .terminal-cascade-start-panel-actions .btn:disabled,
+[data-theme="light"] .cascade-scan-pager .btn:disabled {
+  opacity: .88;
+  filter: saturate(.72);
+}
