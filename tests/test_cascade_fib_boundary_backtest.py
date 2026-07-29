@@ -8,6 +8,7 @@ fixed contract, and -- critically -- stays gap-honest: a missing premium bar is
 a recorded gap and a withheld (None) net P&L, never a fabricated zero.
 """
 
+import base64
 import os
 import sys
 import unittest
@@ -23,7 +24,7 @@ os.environ.setdefault("PHILFORGE_PIN", "123456")
 os.environ.setdefault("PHILFORGE_DB", "/tmp/philforge-test-fib-backtest.db")
 os.environ.setdefault("PHILFORGE_USER_DATA_ROOT", "/tmp/philforge-test-fib-backtest-data")
 os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
-os.environ.setdefault("ENCRYPTION_KEY", "QmG8YWqLPtWFDn7gCAiHJXoX7zH5zi89kUnkkMvibU=")
+os.environ.setdefault("ENCRYPTION_KEY", base64.urlsafe_b64encode(b"0" * 32).decode())
 
 from app import _serialize_fib_backtest  # noqa: E402
 from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig  # noqa: E402
