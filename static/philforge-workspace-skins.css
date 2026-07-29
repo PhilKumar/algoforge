@@ -1,41 +1,37 @@
-/*
- * Workspace skins
- *
- * The native PhilForge appearance intentionally lives outside this file. The
- * five optional skins are full workspace systems, not hue substitutions: each
- * changes the application shell, information hierarchy, controls, and data
- * surfaces while retaining the underlying trading controls and accessibility.
- */
+/* Optional workspace skins. Native PhilForge intentionally has no selector here. */
 
 html[data-pf-tint] {
-  --skin-paper: #ffffff;
-  --skin-paper-alt: #f7f7f7;
-  --skin-ink: #17212b;
-  --skin-subtle: #66727d;
-  --skin-rule: #cad2d7;
-  --skin-strong-rule: #9aa7af;
-  --skin-accent: #176f67;
+  --skin-page: #f5f7f7;
+  --skin-panel: #ffffff;
+  --skin-panel-soft: #f8faf9;
+  --skin-chrome: #f1f5f3;
+  --skin-ink: #182625;
+  --skin-muted: #63716f;
+  --skin-rule: #d7e0de;
+  --skin-rule-strong: #b5c6c1;
+  --skin-accent: #277d73;
+  --skin-accent-rgb: 39, 125, 115;
   --skin-accent-ink: #ffffff;
-  --skin-radius: 8px;
-  --skin-shadow: none;
-  --bg: var(--skin-paper) !important;
-  --surface: var(--skin-paper) !important;
-  --card: var(--skin-paper) !important;
-  --card2: var(--skin-paper-alt) !important;
-  --bg-elev: var(--skin-paper-alt) !important;
-  --panel: var(--skin-paper) !important;
-  --panel-hi: var(--skin-paper-alt) !important;
+  --skin-radius: 10px;
+  --skin-shadow: 0 8px 24px rgba(20, 39, 36, 0.07);
+  --bg: var(--skin-page) !important;
+  --surface: var(--skin-panel) !important;
+  --card: var(--skin-panel) !important;
+  --card2: var(--skin-panel-soft) !important;
+  --bg-elev: var(--skin-panel-soft) !important;
+  --panel: var(--skin-panel) !important;
+  --panel-hi: var(--skin-panel-soft) !important;
   --border: var(--skin-rule) !important;
-  --border-hi: var(--skin-strong-rule) !important;
-  --border-strong: var(--skin-strong-rule) !important;
+  --border-hi: var(--skin-rule-strong) !important;
+  --border-strong: var(--skin-rule-strong) !important;
   --border-acc: var(--skin-accent) !important;
   --text: var(--skin-ink) !important;
-  --text-dim: var(--skin-subtle) !important;
-  --muted: var(--skin-subtle) !important;
+  --text-dim: var(--skin-muted) !important;
+  --muted: var(--skin-muted) !important;
   --muted-strong: var(--skin-ink) !important;
   --accent: var(--skin-accent) !important;
   --accent2: var(--skin-accent) !important;
-  --accent-soft: color-mix(in srgb, var(--skin-accent) 12%, transparent) !important;
+  --accent-soft: rgba(var(--skin-accent-rgb), 0.10) !important;
   --accent-blue: var(--skin-accent) !important;
   --accent-cyan: var(--skin-accent) !important;
   --purple: var(--skin-accent) !important;
@@ -43,7 +39,7 @@ html[data-pf-tint] {
 }
 
 html[data-pf-tint] body {
-  background: var(--skin-paper) !important;
+  background: var(--skin-page) !important;
   background-image: none !important;
   color: var(--skin-ink) !important;
 }
@@ -66,36 +62,21 @@ html[data-pf-tint] .appearance-heading,
 html[data-pf-tint] .brand-title,
 html[data-pf-tint] .unlock-title {
   background: none !important;
-  -webkit-text-fill-color: currentColor !important;
   color: var(--skin-ink) !important;
+  -webkit-text-fill-color: currentColor !important;
 }
 
 html[data-pf-tint] .app-topbar,
 html[data-pf-tint] .nav-bar,
+html[data-pf-tint] .expiry-bar,
 html[data-pf-tint] .header-brand-panel,
-html[data-pf-tint] .card,
-html[data-pf-tint] .card-glass,
-html[data-pf-tint] .stat-box,
-html[data-pf-tint] .modal,
-html[data-pf-tint] .unlock-card,
-html[data-pf-tint] .surface-card,
-html[data-pf-tint] .settings-section,
-html[data-pf-tint] .settings-meta-card,
-html[data-pf-tint] .admin-summary-card,
-html[data-pf-tint] .mobile-data-card,
 html[data-pf-tint] .topbar-ticker,
 html[data-pf-tint] .topbar-clock,
 html[data-pf-tint] .topbar-user-chip,
-html[data-pf-tint] .topbar-icon-btn,
-html[data-pf-tint] .expiry-bar,
-html[data-pf-tint] .trade-log-wrap,
-html[data-pf-tint] .combined-pnl-bar,
-html[data-pf-tint] .leg-card,
-html[data-pf-tint] .unit-grp,
-html[data-pf-tint] .admin-table-wrap {
-  background: var(--skin-paper) !important;
+html[data-pf-tint] .topbar-icon-btn {
+  background: var(--skin-chrome) !important;
   border-color: var(--skin-rule) !important;
-  box-shadow: var(--skin-shadow) !important;
+  box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -110,16 +91,17 @@ html[data-pf-tint] .settings-section,
 html[data-pf-tint] .settings-meta-card,
 html[data-pf-tint] .admin-summary-card,
 html[data-pf-tint] .mobile-data-card,
+html[data-pf-tint] .trade-log-wrap,
+html[data-pf-tint] .combined-pnl-bar,
+html[data-pf-tint] .leg-card,
+html[data-pf-tint] .unit-grp,
 html[data-pf-tint] .admin-table-wrap {
+  background: var(--skin-panel) !important;
+  border-color: var(--skin-rule) !important;
   border-radius: var(--skin-radius) !important;
-}
-
-html[data-pf-tint] .card:hover,
-html[data-pf-tint] .stat-box:hover,
-html[data-pf-tint] .topbar-icon-btn:hover,
-html[data-pf-tint] .topbar-user-chip:hover {
-  transform: none !important;
   box-shadow: var(--skin-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 html[data-pf-tint] input,
@@ -127,9 +109,9 @@ html[data-pf-tint] select,
 html[data-pf-tint] textarea,
 html[data-pf-tint] .auth-field input,
 html[data-pf-tint] .key {
-  background: var(--skin-paper-alt) !important;
+  background: var(--skin-panel-soft) !important;
   border-color: var(--skin-rule) !important;
-  border-radius: calc(var(--skin-radius) - 2px) !important;
+  border-radius: 7px !important;
   box-shadow: none !important;
   color: var(--skin-ink) !important;
 }
@@ -139,19 +121,19 @@ html[data-pf-tint] select:focus,
 html[data-pf-tint] textarea:focus,
 html[data-pf-tint] .auth-field input:focus {
   border-color: var(--skin-accent) !important;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--skin-accent) 20%, transparent) !important;
+  box-shadow: 0 0 0 3px rgba(var(--skin-accent-rgb), 0.14) !important;
 }
 
 html[data-pf-tint] .btn,
 html[data-pf-tint] .topbar-icon-btn,
 html[data-pf-tint] .admin-action-btn,
 html[data-pf-tint] .modal-close {
-  --btn-bg: var(--skin-paper-alt) !important;
+  --btn-bg: var(--skin-panel-soft) !important;
   --btn-color: var(--skin-ink) !important;
-  --btn-border: var(--skin-strong-rule) !important;
-  background: var(--skin-paper-alt) !important;
-  border-color: var(--skin-strong-rule) !important;
-  border-radius: calc(var(--skin-radius) - 2px) !important;
+  --btn-border: var(--skin-rule-strong) !important;
+  background: var(--skin-panel-soft) !important;
+  border-color: var(--skin-rule-strong) !important;
+  border-radius: 7px !important;
   box-shadow: none !important;
   color: var(--skin-ink) !important;
   text-shadow: none !important;
@@ -173,258 +155,150 @@ html[data-pf-tint] .unlock-btn {
 }
 
 html[data-pf-tint] .btn-danger {
-  --btn-bg: #fbe8e6 !important;
-  --btn-color: #8b1f1f !important;
-  --btn-border: #c9554d !important;
-  background: #fbe8e6 !important;
-  border-color: #c9554d !important;
-  color: #8b1f1f !important;
+  --btn-bg: #fff0f0 !important;
+  --btn-color: #9e2f35 !important;
+  --btn-border: #d89093 !important;
+  background: #fff0f0 !important;
+  border-color: #d89093 !important;
+  color: #9e2f35 !important;
 }
 
 html[data-pf-tint] .nav-tab {
+  background: transparent !important;
   border-radius: 0 !important;
-  color: var(--skin-subtle) !important;
+  color: var(--skin-muted) !important;
 }
 
-html[data-pf-tint] .nav-tab:hover,
+html[data-pf-tint] .nav-tab:hover {
+  background: rgba(var(--skin-accent-rgb), 0.06) !important;
+  color: var(--skin-ink) !important;
+}
+
 html[data-pf-tint] .nav-tab.active {
-  background: var(--skin-paper-alt) !important;
+  background: rgba(var(--skin-accent-rgb), 0.10) !important;
+  border-bottom-color: var(--skin-accent) !important;
   color: var(--skin-accent) !important;
-  border-color: var(--skin-accent) !important;
 }
 
-html[data-pf-tint] .ticker-cell,
-html[data-pf-tint] .expiry-chip,
-html[data-pf-tint] .status-chip,
-html[data-pf-tint] .meta-pill,
-html[data-pf-tint] .filter-chip,
-html[data-pf-tint] .type-pill {
-  border-radius: calc(var(--skin-radius) - 2px) !important;
-}
-
+html[data-pf-tint] .ticker-cell:hover { background: rgba(var(--skin-accent-rgb), 0.05) !important; }
 html[data-pf-tint] table th,
-html[data-pf-tint] .admin-table th {
-  background: var(--skin-paper-alt) !important;
-  color: var(--skin-subtle) !important;
-}
-
+html[data-pf-tint] .admin-table th { background: var(--skin-panel-soft) !important; color: var(--skin-muted) !important; }
 html[data-pf-tint] table td,
 html[data-pf-tint] .admin-table td,
-html[data-pf-tint] .dash-table td {
-  border-color: var(--skin-rule) !important;
-}
+html[data-pf-tint] .dash-table td { border-color: var(--skin-rule) !important; }
 
-/* Market Ledger: calm, paper-led workspace with disciplined accounting rules. */
+/* Jade Mist: quiet modern ledger, clean white surfaces and restrained teal. */
 html[data-pf-tint="jade"] {
-  --skin-paper: #f5f7f2;
-  --skin-paper-alt: #e9eee6;
-  --skin-ink: #1f2d2a;
-  --skin-subtle: #60706a;
-  --skin-rule: #c6d1c9;
-  --skin-strong-rule: #8fa59a;
-  --skin-accent: #176f63;
-  --skin-accent-ink: #f7fbf8;
-  --skin-radius: 4px;
-  --skin-shadow: 0 1px 0 rgba(31, 45, 42, 0.08);
+  --skin-page: #f4f7f6;
+  --skin-panel: #ffffff;
+  --skin-panel-soft: #f7faf9;
+  --skin-chrome: #edf4f1;
+  --skin-ink: #16312d;
+  --skin-muted: #67807b;
+  --skin-rule: #d3e1dc;
+  --skin-rule-strong: #a9c6bd;
+  --skin-accent: #247a6d;
+  --skin-accent-rgb: 36, 122, 109;
+  --skin-radius: 10px;
+  --skin-shadow: 0 8px 22px rgba(31, 89, 79, 0.08);
 }
+html[data-pf-tint="jade"] .card { border-top: 2px solid rgba(36, 122, 109, 0.34) !important; }
+html[data-pf-tint="jade"] .stat-box { border-left: 3px solid #247a6d !important; }
+html[data-pf-tint="jade"] .topbar-brand-text { color: #247a6d !important; }
 
-html[data-pf-tint="jade"] .header-shell {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 10px;
-  padding-left: 0;
-}
-
-html[data-pf-tint="jade"] .header-brand-panel {
-  position: static;
-  width: auto;
-  min-height: 122px;
-  flex-direction: row;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 16px;
-  text-align: left;
-}
-
-html[data-pf-tint="jade"] .header-brand-copy { align-items: flex-start; text-align: left; }
-html[data-pf-tint="jade"] .header-brand-mark { width: 52px; height: 52px; border-radius: 50%; background: #dce7de; box-shadow: none; }
-html[data-pf-tint="jade"] .header-brand-logo { width: 42px; height: 42px; border-radius: 50%; }
-html[data-pf-tint="jade"] .topbar-brand-text { color: #176f63 !important; font-size: 20px; }
-html[data-pf-tint="jade"] .app-topbar { border-radius: 4px 4px 0 0 !important; }
-html[data-pf-tint="jade"] .nav-bar { border-radius: 0 0 4px 4px !important; box-shadow: none !important; }
-html[data-pf-tint="jade"] .card { border-left: 3px solid #176f63 !important; }
-html[data-pf-tint="jade"] .stat-box { border-top: 3px solid #176f63 !important; }
-html[data-pf-tint="jade"] .btn-submit { text-transform: uppercase; letter-spacing: 0.55px; }
-
-/* Exchange Console: dense, black-terminal dashboard with grid rules and data-first controls. */
+/* Cobalt Haze: compact dark trading desk with clear blue data contrast. */
 html[data-pf-tint="cobalt"] {
-  --skin-paper: #080b10;
-  --skin-paper-alt: #10161f;
-  --skin-ink: #e8edf5;
-  --skin-subtle: #9ca8b7;
-  --skin-rule: #293442;
-  --skin-strong-rule: #4a6075;
-  --skin-accent: #6fb6ff;
-  --skin-accent-ink: #07111e;
-  --skin-radius: 2px;
-  --skin-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
+  --skin-page: #101521;
+  --skin-panel: #171e2b;
+  --skin-panel-soft: #1d2635;
+  --skin-chrome: #0d1320;
+  --skin-ink: #e7edf7;
+  --skin-muted: #9aa9bc;
+  --skin-rule: #2d394c;
+  --skin-rule-strong: #4d6380;
+  --skin-accent: #7da8ed;
+  --skin-accent-rgb: 125, 168, 237;
+  --skin-accent-ink: #0d1828;
+  --skin-radius: 7px;
+  --skin-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
 }
-
-html[data-pf-tint="cobalt"] body {
-  background-color: #080b10 !important;
-  background-image: linear-gradient(rgba(105, 136, 169, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(105, 136, 169, 0.08) 1px, transparent 1px) !important;
-  background-size: 28px 28px !important;
-}
-
-html[data-pf-tint="cobalt"] .header-shell { padding-left: 0; margin: 0 0 10px; }
-html[data-pf-tint="cobalt"] .header-brand-panel { position: absolute; left: 12px; top: 9px; bottom: auto; width: 176px; height: 42px; flex-direction: row; justify-content: flex-start; gap: 9px; padding: 0 10px; border: 1px solid var(--skin-rule) !important; }
-html[data-pf-tint="cobalt"] .header-main { margin-left: 198px; }
-html[data-pf-tint="cobalt"] .header-brand-mark { width: 26px; height: 26px; border-radius: 1px; background: #101b2b; box-shadow: none; }
-html[data-pf-tint="cobalt"] .header-brand-logo { width: 22px; height: 22px; border-radius: 0; }
-html[data-pf-tint="cobalt"] .header-brand-copy { align-items: flex-start; text-align: left; gap: 0; }
-html[data-pf-tint="cobalt"] .topbar-brand-text { color: #dceaff !important; font-size: 14px; letter-spacing: 0.75px; text-transform: uppercase; }
-html[data-pf-tint="cobalt"] .topbar-brand-sub { font-size: 7px; letter-spacing: 1.35px; }
-html[data-pf-tint="cobalt"] .app-topbar,
-html[data-pf-tint="cobalt"] .nav-bar,
-html[data-pf-tint="cobalt"] .expiry-bar { background: #0d131c !important; }
 html[data-pf-tint="cobalt"] .card,
-html[data-pf-tint="cobalt"] .card-glass,
-html[data-pf-tint="cobalt"] .stat-box { box-shadow: inset 3px 0 0 #233449, var(--skin-shadow) !important; }
-html[data-pf-tint="cobalt"] .btn { font-family: var(--font-mono) !important; font-size: 11px; text-transform: uppercase; letter-spacing: 0.45px; }
-html[data-pf-tint="cobalt"] .btn-submit { color: #07111e !important; }
-html[data-pf-tint="cobalt"] .nav-tab { font-family: var(--font-mono) !important; font-size: 11px; letter-spacing: 0.35px; border-bottom-width: 1px !important; }
-html[data-pf-tint="cobalt"] .stat-label,
-html[data-pf-tint="cobalt"] table th { font-family: var(--font-mono) !important; letter-spacing: 0.7px; }
+html[data-pf-tint="cobalt"] .card-glass { border-left: 2px solid #466992 !important; }
+html[data-pf-tint="cobalt"] .stat-box { background: #151c28 !important; }
+html[data-pf-tint="cobalt"] .topbar-brand-text { color: #a9c7ff !important; }
+html[data-pf-tint="cobalt"] .nav-tab { font-family: var(--font-mono) !important; font-size: 12px; }
+html[data-pf-tint="cobalt"] .btn { font-family: var(--font-mono) !important; }
 
-/* Broker Journal: warm financial journal with editorial columns and ink accents. */
+/* Copper Sand: warm broker paper, quiet ink and understated borders. */
 html[data-pf-tint="copper"] {
-  --skin-paper: #fbf7ef;
-  --skin-paper-alt: #f0e7d8;
-  --skin-ink: #30251d;
-  --skin-subtle: #78695b;
-  --skin-rule: #d6c5af;
-  --skin-strong-rule: #ae9272;
-  --skin-accent: #8d3d2f;
-  --skin-accent-ink: #fffaf1;
-  --skin-radius: 0px;
-  --skin-shadow: 4px 4px 0 rgba(74, 47, 29, 0.10);
+  --skin-page: #f7f3ed;
+  --skin-panel: #fffdf9;
+  --skin-panel-soft: #f4ece2;
+  --skin-chrome: #eee4d7;
+  --skin-ink: #382b23;
+  --skin-muted: #806f61;
+  --skin-rule: #dfcfbd;
+  --skin-rule-strong: #bda58e;
+  --skin-accent: #9a6043;
+  --skin-accent-rgb: 154, 96, 67;
+  --skin-radius: 8px;
+  --skin-shadow: 0 7px 20px rgba(94, 67, 44, 0.08);
 }
+html[data-pf-tint="copper"] .card { border-top: 2px solid #c7a58d !important; }
+html[data-pf-tint="copper"] .stat-box { border-left: 3px solid #9a6043 !important; }
+html[data-pf-tint="copper"] .topbar-brand-text { color: #7e4932 !important; font-family: Georgia, serif !important; }
+html[data-pf-tint="copper"] table th { border-bottom: 2px solid #bda58e !important; }
 
-html[data-pf-tint="copper"] .header-shell { padding-left: 0; display: flex; flex-direction: column; gap: 6px; }
-html[data-pf-tint="copper"] .header-brand-panel { position: static; width: 100%; min-height: 64px; flex-direction: row; justify-content: flex-start; padding: 10px 16px; gap: 12px; border-top: 3px solid #8d3d2f !important; }
-html[data-pf-tint="copper"] .header-brand-copy { align-items: flex-start; text-align: left; }
-html[data-pf-tint="copper"] .header-brand-mark { width: 42px; height: 42px; border-radius: 0; background: #ead8be; box-shadow: none; }
-html[data-pf-tint="copper"] .header-brand-logo { width: 34px; height: 34px; border-radius: 0; }
-html[data-pf-tint="copper"] .topbar-brand-text { color: #6f3025 !important; font-family: Georgia, serif !important; font-size: 23px; }
-html[data-pf-tint="copper"] .topbar-brand-sub { letter-spacing: 1.45px; color: #8d3d2f; }
-html[data-pf-tint="copper"] .app-topbar { border-bottom: 2px solid #30251d !important; }
-html[data-pf-tint="copper"] .nav-bar { justify-content: flex-start; border-top: 1px solid #30251d !important; }
-html[data-pf-tint="copper"] .nav-tab { font-family: Georgia, serif !important; font-size: 14px; padding: 11px 17px; }
-html[data-pf-tint="copper"] .nav-tab.active { border-bottom-width: 3px !important; }
-html[data-pf-tint="copper"] .card,
-html[data-pf-tint="copper"] .card-glass { border-width: 1px !important; }
-html[data-pf-tint="copper"] .stat-box { border-top: 4px solid #8d3d2f !important; }
-html[data-pf-tint="copper"] .btn { font-family: Georgia, serif !important; font-size: 13px; }
-html[data-pf-tint="copper"] .btn-submit { letter-spacing: 0.3px; }
-html[data-pf-tint="copper"] table th { border-bottom: 2px solid #30251d !important; }
-html[data-pf-tint="copper"] table tr:nth-child(even) td { background: #f6efe4; }
-
-/* Night Shift: high-contrast operations room, purpose-built for a late market session. */
+/* Rose Dusk: muted night desk, charcoal surfaces and a controlled rose signal. */
 html[data-pf-tint="fuchsia"] {
-  --skin-paper: #121318;
-  --skin-paper-alt: #1b1d24;
-  --skin-ink: #f4eff3;
-  --skin-subtle: #b5a8b1;
-  --skin-rule: #39323d;
-  --skin-strong-rule: #6f5264;
-  --skin-accent: #ff6fae;
-  --skin-accent-ink: #2a0b1b;
+  --skin-page: #17171c;
+  --skin-panel: #202027;
+  --skin-panel-soft: #292830;
+  --skin-chrome: #121217;
+  --skin-ink: #f0edf1;
+  --skin-muted: #b7adb5;
+  --skin-rule: #3a3740;
+  --skin-rule-strong: #665764;
+  --skin-accent: #bb7698;
+  --skin-accent-rgb: 187, 118, 152;
+  --skin-accent-ink: #27121c;
   --skin-radius: 12px;
-  --skin-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+  --skin-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
 }
+html[data-pf-tint="fuchsia"] .card { border-top: 2px solid #6e4b5c !important; }
+html[data-pf-tint="fuchsia"] .stat-box { background: #1c1c23 !important; }
+html[data-pf-tint="fuchsia"] .topbar-brand-text { color: #e4b5ca !important; }
+html[data-pf-tint="fuchsia"] .nav-tab.active { border-bottom-width: 3px !important; }
 
-html[data-pf-tint="fuchsia"] .header-shell { padding-left: 0; }
-html[data-pf-tint="fuchsia"] .header-brand-panel { position: static; width: auto; min-height: 112px; flex-direction: row; justify-content: flex-start; padding: 18px; gap: 13px; border-radius: 12px !important; }
-html[data-pf-tint="fuchsia"] .header-shell { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 10px; }
-html[data-pf-tint="fuchsia"] .header-brand-copy { align-items: flex-start; text-align: left; }
-html[data-pf-tint="fuchsia"] .header-brand-mark { width: 54px; height: 54px; border-radius: 16px; background: #28212c; box-shadow: none; }
-html[data-pf-tint="fuchsia"] .header-brand-logo { width: 42px; height: 42px; border-radius: 12px; }
-html[data-pf-tint="fuchsia"] .topbar-brand-text { color: #ff9fca !important; font-size: 21px; }
-html[data-pf-tint="fuchsia"] .topbar-brand-sub { color: #e8b9d0; }
-html[data-pf-tint="fuchsia"] .app-topbar { border-radius: 12px 12px 0 0 !important; }
-html[data-pf-tint="fuchsia"] .nav-bar { border-radius: 0 0 12px 12px !important; }
-html[data-pf-tint="fuchsia"] .card { border-top: 3px solid #ff6fae !important; }
-html[data-pf-tint="fuchsia"] .stat-box { background: #1b1d24 !important; }
-html[data-pf-tint="fuchsia"] .btn { border-radius: 999px !important; }
-html[data-pf-tint="fuchsia"] .btn-submit { box-shadow: 0 4px 0 #8e2d5f !important; }
-html[data-pf-tint="fuchsia"] .btn-submit:active { transform: translateY(3px) !important; box-shadow: 0 1px 0 #8e2d5f !important; }
-html[data-pf-tint="fuchsia"] .nav-tab { border-radius: 999px !important; margin: 5px 2px; border-bottom: 0 !important; }
-html[data-pf-tint="fuchsia"] .nav-tab.active { color: #2a0b1b !important; background: #ff6fae !important; }
-
-/* Field Notes: an airy research notebook with restrained olive signals and stitched panels. */
+/* Olive Calm: daylight research desk with soft sage structure and deep ink. */
 html[data-pf-tint="lime"] {
-  --skin-paper: #f5f5e9;
-  --skin-paper-alt: #e8ead9;
-  --skin-ink: #26352a;
-  --skin-subtle: #697562;
-  --skin-rule: #c8cfb8;
-  --skin-strong-rule: #9ca98e;
-  --skin-accent: #526e3b;
-  --skin-accent-ink: #fbfdf7;
-  --skin-radius: 14px;
-  --skin-shadow: 0 8px 20px rgba(66, 82, 47, 0.09);
+  --skin-page: #f4f6f0;
+  --skin-panel: #ffffff;
+  --skin-panel-soft: #edf1e9;
+  --skin-chrome: #e7ede4;
+  --skin-ink: #26362b;
+  --skin-muted: #6e7b6e;
+  --skin-rule: #d0dacd;
+  --skin-rule-strong: #aebdab;
+  --skin-accent: #5d7756;
+  --skin-accent-rgb: 93, 119, 86;
+  --skin-radius: 12px;
+  --skin-shadow: 0 8px 20px rgba(62, 82, 54, 0.08);
 }
+html[data-pf-tint="lime"] .card { border-top: 2px solid #aebdab !important; }
+html[data-pf-tint="lime"] .stat-box { border-left: 3px solid #5d7756 !important; }
+html[data-pf-tint="lime"] .topbar-brand-text { color: #526e4d !important; }
+html[data-pf-tint="lime"] .nav-tab.active { background: #e0e8db !important; }
 
-html[data-pf-tint="lime"] .header-shell { padding-left: 0; display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 12px; }
-html[data-pf-tint="lime"] .header-brand-panel { position: static; width: auto; min-height: 120px; flex-direction: column; justify-content: center; padding: 16px; gap: 8px; border: 1px dashed #9ca98e !important; }
-html[data-pf-tint="lime"] .header-brand-mark { width: 50px; height: 50px; border-radius: 50%; background: #dfe5cf; box-shadow: none; }
-html[data-pf-tint="lime"] .header-brand-logo { width: 40px; height: 40px; border-radius: 50%; }
-html[data-pf-tint="lime"] .topbar-brand-text { color: #526e3b !important; font-size: 20px; }
-html[data-pf-tint="lime"] .card,
-html[data-pf-tint="lime"] .card-glass,
-html[data-pf-tint="lime"] .stat-box { border-style: dashed !important; }
-html[data-pf-tint="lime"] .stat-box { border-top: 5px solid #7d8f57 !important; }
-html[data-pf-tint="lime"] .btn { border-radius: 999px !important; }
-html[data-pf-tint="lime"] .btn-submit { box-shadow: 0 3px 0 #324728 !important; }
-html[data-pf-tint="lime"] .nav-tab { border-radius: 10px 10px 0 0 !important; border-bottom-width: 3px !important; }
-html[data-pf-tint="lime"] .nav-tab.active { background: #e0e7d0 !important; }
-html[data-pf-tint="lime"] .ticker-cell { border-right-style: dashed !important; }
-
-/* Make the appearance picker describe real workspace identities instead of colored glass tiles. */
-.appearance-option[data-appearance-tint="jade"] .appearance-swatch { background: #176f63 !important; border-radius: 2px !important; }
-.appearance-option[data-appearance-tint="cobalt"] .appearance-swatch { background: #080b10 !important; border-radius: 1px !important; border-color: #6fb6ff !important; }
-.appearance-option[data-appearance-tint="copper"] .appearance-swatch { background: #f0e7d8 !important; border-radius: 0 !important; border-color: #8d3d2f !important; }
-.appearance-option[data-appearance-tint="fuchsia"] .appearance-swatch { background: #ff6fae !important; border-radius: 999px !important; border-color: #ffb8d7 !important; }
-.appearance-option[data-appearance-tint="lime"] .appearance-swatch { background: #e0e7d0 !important; border: 1px dashed #526e3b !important; border-radius: 50% !important; }
-
-@media (max-width: 900px) {
-  html[data-pf-tint="jade"] .header-shell,
-  html[data-pf-tint="fuchsia"] .header-shell,
-  html[data-pf-tint="lime"] .header-shell {
-    display: block;
-  }
-
-  html[data-pf-tint="jade"] .header-brand-panel,
-  html[data-pf-tint="fuchsia"] .header-brand-panel,
-  html[data-pf-tint="lime"] .header-brand-panel,
-  html[data-pf-tint="copper"] .header-brand-panel {
-    margin-bottom: 8px;
-    min-height: 64px;
-    flex-direction: row;
-    justify-content: flex-start;
-  }
-
-  html[data-pf-tint="cobalt"] .header-shell { margin: 0 0 8px; }
-  html[data-pf-tint="cobalt"] .header-brand-panel { position: static; width: auto; height: auto; min-height: 50px; margin: 0 12px 8px; }
-  html[data-pf-tint="cobalt"] .header-main { margin-left: 0; }
-}
+/* The picker itself previews material, not a glossy color effect. */
+.appearance-option[data-appearance-tint="jade"] .appearance-swatch { background: #f7faf9 !important; border: 2px solid #247a6d !important; border-radius: 5px !important; }
+.appearance-option[data-appearance-tint="cobalt"] .appearance-swatch { background: #171e2b !important; border: 2px solid #7da8ed !important; border-radius: 4px !important; }
+.appearance-option[data-appearance-tint="copper"] .appearance-swatch { background: #fffdf9 !important; border: 2px solid #9a6043 !important; border-radius: 4px !important; }
+.appearance-option[data-appearance-tint="fuchsia"] .appearance-swatch { background: #202027 !important; border: 2px solid #bb7698 !important; border-radius: 6px !important; }
+.appearance-option[data-appearance-tint="lime"] .appearance-swatch { background: #edf1e9 !important; border: 2px solid #5d7756 !important; border-radius: 6px !important; }
 
 @media (max-width: 640px) {
   html[data-pf-tint] .header-shell { margin-left: 8px; margin-right: 8px; }
-  html[data-pf-tint] .header-brand-panel { padding: 11px 12px !important; }
-  html[data-pf-tint] .header-brand-mark { width: 38px; height: 38px; }
-  html[data-pf-tint] .header-brand-logo { width: 30px; height: 30px; }
-  html[data-pf-tint] .topbar-brand-text { font-size: 17px !important; }
   html[data-pf-tint] .nav-bar { overflow-x: auto !important; justify-content: flex-start !important; }
   html[data-pf-tint] .nav-tabs { min-width: max-content; }
   html[data-pf-tint] .nav-tab { min-height: 42px; padding: 9px 11px !important; }
