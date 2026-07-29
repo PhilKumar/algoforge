@@ -8126,6 +8126,7 @@ def _serialize_cascade_geometry(engine: NiftyOptionsPaperCascade, mother: IndexC
     ]
     trendlines = [
         {
+            "id": line.trendline_id,
             "a1t": _iso(line.anchor1_timestamp),
             "a1p": line.anchor1_price,
             "a2t": _iso(line.anchor2_timestamp),

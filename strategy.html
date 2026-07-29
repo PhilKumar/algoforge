@@ -1886,12 +1886,12 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Historical backtest</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike Upstox premiums</div></div>
           <div id="fibx-backtest-gist" class="cascade-options-gist">Prices every leg off Upstox expired-option history.</div>
+          <div class="cascade-options-strip-actions"><button id="fibx-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="fibx-backtest-summary" class="cascade-options-summary"></div>
           <div id="fibx-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
           <div id="fibx-backtest-gaps" style="margin-top:10px;"></div>
-          <div id="fibx-backtest-chart-actions" style="margin-top:14px;display:none;"><button id="fibx-backtest-chart-btn" class="btn cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart">◱ Journal chart</button></div>
           <div id="fibx-backtest-chart" style="display:none;margin-top:12px;overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Priced legs</div>
           <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Level</th><th style="padding:6px 8px;">Time</th><th style="padding:6px 8px;">Index</th><th style="padding:6px 8px;">Strike</th><th style="padding:6px 8px;">Premium</th><th style="padding:6px 8px;">Lots</th><th style="padding:6px 8px;">Qty</th></tr></thead><tbody id="fibx-backtest-legs"></tbody></table></div>

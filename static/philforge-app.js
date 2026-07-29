@@ -2399,13 +2399,11 @@ function _renderFibBoundaryBacktest(data) {
   const result = data.result || {};
   // Stash for the journal chart toggle; reset the chart to hidden on each run.
   _lastFibBacktest = { result, meta: data };
-  const chartActions = document.getElementById('fibx-backtest-chart-actions');
   const chartBox = document.getElementById('fibx-backtest-chart');
   const hasGeometry = !!(result.geometry && Array.isArray(result.geometry.candles) && result.geometry.candles.length);
-  if (chartActions) chartActions.style.display = hasGeometry ? '' : 'none';
   if (chartBox) { chartBox.style.display = 'none'; chartBox.innerHTML = ''; }
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
-  if (chartBtn) chartBtn.textContent = '◱ Journal chart';
+  if (chartBtn) { chartBtn.style.display = hasGeometry ? '' : 'none'; chartBtn.textContent = '↗ Journal chart'; }
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
     const priced = !!result.fully_priced;
@@ -2465,7 +2463,7 @@ function toggleFibBoundaryBacktestChart() {
   if (box.style.display !== 'none' && box.innerHTML) {
     box.style.display = 'none';
     box.innerHTML = '';
-    if (btn) btn.textContent = '◱ Journal chart';
+    if (btn) btn.textContent = '↗ Journal chart';
     return;
   }
   const result = _lastFibBacktest && _lastFibBacktest.result;
@@ -2582,58 +2580,76 @@ function _fibBoundaryBacktestChartSvg(result, meta) {
     if (text) label(y, text, color);
   };
 
-  // The auto trendlines: mother_high → the red-candle touch anchor, exactly as
-  // the engine drew them, with a faded extension to the right edge.
-  trendlines.forEach(tl => {
+  // Colour is keyed to structure order — 1st blue, 2nd green, 3rd red — so each
+  // trendline and its fib share a hue. Only the newest three are drawn (past
+  // three the lines overlap into an unreadable mesh); the engine still traded
+  // them all. This is the CryptoForge cascade chart's exact scheme.
+  const cyc = PAL.fibs; // [blue, green, red]
+  const MAX_STRUCT = 3;
+  const tlOrder = {};
+  trendlines.forEach((tl, i) => { tlOrder[tl.id] = i; });
+  const hueFor = id => cyc[((tlOrder[id] != null ? tlOrder[id] : 0)) % cyc.length];
+  const shownTls = trendlines.slice(-MAX_STRUCT);
+  const shownLegs = legs.slice(-MAX_STRUCT);
+
+  // Clip the trendlines to the plot so a steep line extended across weeks can't
+  // bleed into the gutters. One chart is mounted at a time, so a fixed id is ok.
+  parts.push(`<clipPath id="fibxBtClip"><rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}"/></clipPath>`);
+  parts.push(`<g clip-path="url(#fibxBtClip)">`);
+  shownTls.forEach(tl => {
     const t1 = millis(tl.a1t), t2 = millis(tl.a2t);
     const p1 = Number(tl.a1p), p2 = Number(tl.a2p);
-    if (![p1, p2].every(Number.isFinite) || !t1 || !t2) return;
-    const slope = t2 === t1 ? 0 : (p2 - p1) / (t2 - t1);
-    const lastT = millis(candles[n - 1].t);
-    const pEnd = p1 + slope * (lastT - t1);
-    const x1 = Xt(tl.a1t), y1 = Y(p1), x2 = Xt(tl.a2t), y2 = Y(p2);
-    // Extend the slope to the right edge, but clip where it leaves the plot so a
-    // steep line doesn't trail off into the axis gutter.
-    let xE = X(n - 1), yE = Y(pEnd);
-    const bottom = padT + plotH;
-    if (yE > bottom && yE !== y2) { const f = (bottom - y2) / (yE - y2); xE = x2 + (xE - x2) * f; yE = bottom; }
-    else if (yE < padT && yE !== y2) { const f = (padT - y2) / (yE - y2); xE = x2 + (xE - x2) * f; yE = padT; }
-    parts.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${PAL.fibs[0]}" stroke-width="1.5"/>`);
-    parts.push(`<line x1="${x2.toFixed(1)}" y1="${y2.toFixed(1)}" x2="${xE.toFixed(1)}" y2="${yE.toFixed(1)}" stroke="${PAL.fibs[0]}" stroke-width="1.1" stroke-dasharray="5 4" opacity=".4"/>`);
-    parts.push(`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.6" fill="${PAL.fibs[0]}"/>`);
-    parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="2.6" fill="${PAL.fibs[0]}"/>`);
+    if (![p1, p2].every(Number.isFinite) || !t1 || !t2 || t2 === t1) return;
+    const slope = (p2 - p1) / (t2 - t1);
+    const t0 = millis(candles[0].t), tN = millis(candles[n - 1].t);
+    // One continuous line, mother_high → touch anchor, extended full-width.
+    parts.push(`<line x1="${X(0).toFixed(1)}" y1="${Y(p1 + slope * (t0 - t1)).toFixed(1)}" x2="${X(n - 1).toFixed(1)}" y2="${Y(p1 + slope * (tN - t1)).toFixed(1)}" stroke="${hueFor(tl.id)}" stroke-width="1.3" opacity="0.9"/>`);
+  });
+  parts.push(`</g>`);
+  // TL labels ride the right end, outside the clip so they're never cut off.
+  shownTls.forEach(tl => {
+    const t1 = millis(tl.a1t), t2 = millis(tl.a2t);
+    const p1 = Number(tl.a1p), p2 = Number(tl.a2p);
+    if (![p1, p2].every(Number.isFinite) || !t1 || !t2 || t2 === t1) return;
+    const pEnd = p1 + ((p2 - p1) / (t2 - t1)) * (millis(candles[n - 1].t) - t1);
+    if (!inView(pEnd)) return;
+    parts.push(`<text x="${(X(n - 1) - 4).toFixed(1)}" y="${(Y(pEnd) - 5).toFixed(1)}" fill="${hueFor(tl.id)}" font-size="9.5" font-family="monospace" text-anchor="end" opacity="0.9">TL${escapeHtml(String(tl.id))}</text>`);
   });
 
-  // The mother frame.
-  hline(Number(mother.high), PAL.mother, `MOTHER HIGH (${number(mother.high)})`, '5 3', 1.1);
-  hline(Number(mother.low), PAL.mother, `MOTHER LOW (${number(mother.low)})`, '5 3', 1.1, .7);
+  // Mother — the high line only, dashed.
+  hline(Number(mother.high), PAL.mother, `MOTHER (${number(mother.high)})`, '5 3', 1.1);
 
-  // Each leg's fib ladder: 0/1 are the touch anchors (quiet), 2/4/8 the deep
-  // boundaries the cascade fires on (coloured, dashed). Levels below view are
-  // silently skipped so the deepest boundary never blows up the price scale.
-  const fibColor = { '0': PAL.axis, '1': PAL.axis, '2': PAL.fibs[1], '4': '#fbbf24', '8': PAL.fibs[2] };
-  legs.forEach(leg => {
+  // Fibs: 0/1 anchors quiet, 2/4/8 buy levels solid at full strength. No "L"
+  // prefix — the number and bracketed price are all the gutter carries; the
+  // COLOUR tells which fib. Levels below view are silently skipped.
+  shownLegs.forEach(leg => {
     const lv = leg.levels || {};
-    ['0', '1', '2', '4', '8'].forEach(k => {
+    const col = hueFor(leg.trendline_id);
+    ['0', '1'].forEach(k => {
       const price = Number(lv[k]);
-      if (!Number.isFinite(price)) return;
-      const isAnchor = k === '0' || k === '1';
-      const name = k === '0' ? 'FIB 0 · touch high' : k === '1' ? 'FIB 1 · touch low' : `L${k}`;
-      hline(price, fibColor[k] || PAL.axis, `${name} (${number(price)})`, isAnchor ? '2 4' : '4 3', isAnchor ? 1 : 1.2, isAnchor ? .55 : .95);
+      if (Number.isFinite(price)) hline(price, col, `${k} (${number(price)})`, null, 0.8, 0.4);
     });
+    ['2', '4', '8'].forEach(k => {
+      const price = Number(lv[k]);
+      if (Number.isFinite(price)) hline(price, col, `${k} (${number(price)})`, null, 1.1, 0.9);
+    });
+    const th = Number(leg.touch_high);
+    if (leg.touch_t && inView(th)) {
+      parts.push(`<circle cx="${Xt(leg.touch_t).toFixed(1)}" cy="${Y(th).toFixed(1)}" r="3.5" fill="none" stroke="${col}" stroke-width="1.5"/>`);
+    }
   });
 
-  // Per-round targets.
+  // Avg entry + per-round targets — the only dashed horizontals besides mother.
+  if (Number.isFinite(Number(result.average_spot))) hline(Number(result.average_spot), PAL.avg, `AVG ENTRY (${number(result.average_spot)})`, '4 4', 1.1);
   rounds.forEach(r => hline(Number(r.target_index), PAL.tp, `TARGET (${number(r.target_index)})`, '6 3', 1.2));
 
-  // Buy arrows: one per entry, below the candle it filled on, tagged with the
-  // level, the ATM-N strike, and the lot count.
+  // Buy arrows: up, below the candle it filled on — level (no "L"), strike, lots.
   entries.forEach(e => {
     const price = Number(e.spot);
     if (!inView(price)) return;
     const x = Xt(e.timestamp), y = Y(price) + 10;
     parts.push(`<path d="M${x.toFixed(1)} ${(y - 9).toFixed(1)}L${(x - 5).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${y.toFixed(1)}L${(x + 5).toFixed(1)} ${y.toFixed(1)}Z" fill="${PAL.fill}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
-    parts.push(`<text x="${x.toFixed(1)}" y="${(y + 17).toFixed(1)}" fill="${PAL.fill}" font-size="8.5" font-family="monospace" text-anchor="middle">L${escapeHtml(String(e.level))} ${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ×${escapeHtml(String(e.lots))}</text>`);
+    parts.push(`<text x="${x.toFixed(1)}" y="${(y + 17).toFixed(1)}" fill="${PAL.fill}" font-size="8.5" font-family="monospace" text-anchor="middle">${escapeHtml(String(e.level))} · ${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ×${escapeHtml(String(e.lots))}</text>`);
   });
 
   // Target-hit exits: a down arrow above the exit candle, labelled net P&L.
