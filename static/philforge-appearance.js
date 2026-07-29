@@ -3,11 +3,11 @@
     default: { tint: 'native', font: 'forge' },
     tints: [
       { id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true },
-      { id: 'jade', label: 'Jade Mist', swatch: 'swatch-jade' },
-      { id: 'cobalt', label: 'Cobalt Haze', swatch: 'swatch-cobalt' },
-      { id: 'copper', label: 'Copper Sand', swatch: 'swatch-copper' },
-      { id: 'fuchsia', label: 'Rose Dusk', swatch: 'swatch-fuchsia' },
-      { id: 'lime', label: 'Olive Calm', swatch: 'swatch-lime' },
+      { id: 'jade', label: 'Market Ledger', swatch: 'swatch-jade' },
+      { id: 'cobalt', label: 'Exchange Console', swatch: 'swatch-cobalt' },
+      { id: 'copper', label: 'Broker Journal', swatch: 'swatch-copper' },
+      { id: 'fuchsia', label: 'Night Shift', swatch: 'swatch-fuchsia' },
+      { id: 'lime', label: 'Field Notes', swatch: 'swatch-lime' },
     ],
     fonts: [
       { id: 'forge', label: 'Forge Native', className: 'font-forge', href: '', sample: 'Aa' },

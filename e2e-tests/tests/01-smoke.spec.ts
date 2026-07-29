@@ -198,11 +198,11 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
     });
   }
   expect(new Set(Object.values(tintPalettes)).size).toBe(5);
-  expect(tintPalettes.jade).toContain('#f4f7f6');
-  expect(tintPalettes.cobalt).toContain('#101521');
-  expect(tintPalettes.copper).toContain('#f7f3ed');
-  expect(tintPalettes.fuchsia).toContain('#17171c');
-  expect(tintPalettes.lime).toContain('#f4f6f0');
+  expect(tintPalettes.jade).toContain('#f5f7f2');
+  expect(tintPalettes.cobalt).toContain('#080b10');
+  expect(tintPalettes.copper).toContain('#fbf7ef');
+  expect(tintPalettes.fuchsia).toContain('#121318');
+  expect(tintPalettes.lime).toContain('#f5f5e9');
 
   const fontStacks: Record<string, string> = {};
   for (const font of ['forge', 'atelier', 'exchange', 'blueprint', 'scribe']) {
