@@ -1402,11 +1402,21 @@ function _cascadeTimestamp(value) {
   return String(value).replace('T', ' ').replace(/:00(?:\.\d+)?$/, ' IST');
 }
 
+function _cascadeSetTone(el, tone = 'muted') {
+  if (!el) return;
+  el.classList.remove('is-positive', 'is-warning', 'is-negative', 'is-info');
+  if (tone === 'success') el.classList.add('is-positive');
+  if (tone === 'busy' || tone === 'warning') el.classList.add('is-warning');
+  if (tone === 'error') el.classList.add('is-negative');
+  if (tone === 'info') el.classList.add('is-info');
+}
+
 function _cascadeSetStatus(message, tone = 'muted') {
   const el = _cascadeEl('cascade-form-status');
   if (!el) return;
   const colors = { muted: 'var(--muted)', busy: '#fbbf24', error: 'var(--danger)', success: 'var(--success)' };
   el.textContent = message;
+  _cascadeSetTone(el, tone);
   el.style.color = colors[tone] || colors.muted;
 }
 
@@ -1431,6 +1441,7 @@ function _renderCascadeResult(payload) {
   const expired = result.state === 'expired';
   const tone = closed ? '#6ee7b7' : result.state === 'data_gap' ? '#fca5a5' : expired ? '#fbbf24' : '#fbbf24';
   badge.textContent = String(result.state || 'unknown').replace('_', ' ').toUpperCase();
+  _cascadeSetTone(badge, closed ? 'success' : result.state === 'data_gap' ? 'error' : 'warning');
   badge.style.color = tone;
   badge.style.borderColor = tone;
 
@@ -1529,6 +1540,7 @@ function _cascadeOptionsSetFormStatus(message, tone = 'muted') {
   const el = _cascadeOptionsEl('cascade-options-form-status');
   if (!el) return;
   el.textContent = message;
+  _cascadeSetTone(el, tone);
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 function _cascadeOptionsTimestamp(value) {
@@ -1565,7 +1577,7 @@ function _renderCascadeOptionsStatus(payload) {
   const stopBtn = _cascadeOptionsEl('cascade-options-stop');
   const killBtn = _cascadeOptionsEl('cascade-options-kill');
   if (!campaign) {
-    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
+    if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (contract) contract.textContent = 'No active campaign';
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
@@ -1582,7 +1594,7 @@ function _renderCascadeOptionsStatus(payload) {
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const tone = isRunning ? '#6ee7b7' : '#fbbf24';
-  if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
+  if (badge) { badge.textContent = state; _cascadeSetTone(badge, isRunning ? 'success' : 'warning'); badge.style.color = tone; badge.style.borderColor = tone; }
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
   if (gist) gist.textContent = `${campaign.rounds?.length || 0} round${campaign.rounds?.length === 1 ? '' : 's'} · ${_cascadeOptionsMoney(campaign.pending_inr || 0)} pending`;
@@ -1605,7 +1617,7 @@ function _renderCascadeOptionsStatus(payload) {
   if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const fillsEl = _cascadeOptionsEl('cascade-options-fills');
-  if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
+  if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong class="is-positive" style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
   const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
   const rungsEl = _cascadeOptionsEl('cascade-options-rungs');
   if (rungsEl) rungsEl.innerHTML = rungs.length ? rungs.map(rung => {
@@ -1665,7 +1677,7 @@ function _renderCandleEntryStatus(payload) {
   const start = _cascadeOptionsEl('candle-entry-start');
   const kill = _cascadeOptionsEl('candle-entry-kill');
   if (!campaign) {
-    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; }
+    if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
     if (summary) summary.textContent = 'No active 1H Candle Entry campaign.';
     if (start) start.disabled = false;
     if (kill) kill.style.display = 'none';
@@ -1673,14 +1685,14 @@ function _renderCandleEntryStatus(payload) {
   }
   const running = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
+  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
   if (start) start.disabled = running;
   if (kill) kill.style.display = running ? '' : 'none';
   const c = campaign.contract || {};
   if (summary) {
     const signal = campaign.signal_entry || {};
     const signalLine = signal.index_price == null ? '' : `<br>Index entry signal: ${escapeHtml(_cascadeNumber(signal.index_price))}${signal.exit_timestamp ? ' · Target reached' : ''}`;
-    const pricingLine = campaign.pricing_warning ? `<br><span style="color:#fbbf24;">${escapeHtml(campaign.pricing_warning)}</span>` : '';
+    const pricingLine = campaign.pricing_warning ? `<br><span class="is-warning" style="color:#fbbf24;">${escapeHtml(campaign.pricing_warning)}</span>` : '';
     summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · ${escapeHtml(c.expiry || '—')} · one lot (${escapeHtml(String(c.lot_size || '—'))})<br>Entry stop: ${escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${signalLine}${pricingLine}`;
   }
 }
@@ -1701,6 +1713,7 @@ function _setCandleEntryFormStatus(message, tone = 'muted') {
   const el = _cascadeOptionsEl('candle-entry-form-status');
   if (!el) return;
   el.textContent = message || '';
+  _cascadeSetTone(el, tone);
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 
@@ -1976,10 +1989,7 @@ function _fibSetFormStatus(message, tone = 'muted') {
   const el = document.getElementById('fibx-form-status');
   if (!el) return;
   el.textContent = message || '';
-  el.classList.remove('is-positive', 'is-warning', 'is-negative');
-  if (tone === 'success') el.classList.add('is-positive');
-  if (tone === 'busy') el.classList.add('is-warning');
-  if (tone === 'error') el.classList.add('is-negative');
+  _cascadeSetTone(el, tone);
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 

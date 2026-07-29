@@ -93,3 +93,29 @@
   opacity: .88;
   filter: saturate(.72);
 }
+
+/* Cascade writes live/replay statuses after load. Use semantic state classes
+   so the light palette remains readable even when JS has set an inline color. */
+[data-theme="light"] #cascade-page .is-positive,
+[data-theme="light"] #cascade-options-page .is-positive,
+[data-theme="light"] #options-cascade-page .is-positive {
+  color: #047857 !important;
+}
+
+[data-theme="light"] #cascade-page .is-warning,
+[data-theme="light"] #cascade-options-page .is-warning,
+[data-theme="light"] #options-cascade-page .is-warning {
+  color: #92400e !important;
+}
+
+[data-theme="light"] #cascade-page .is-negative,
+[data-theme="light"] #cascade-options-page .is-negative,
+[data-theme="light"] #options-cascade-page .is-negative {
+  color: #be123c !important;
+}
+
+[data-theme="light"] #cascade-page .is-info,
+[data-theme="light"] #cascade-options-page .is-info,
+[data-theme="light"] #options-cascade-page .is-info {
+  color: #1d4ed8 !important;
+}
