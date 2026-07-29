@@ -78,9 +78,11 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
+from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
 from engine.cascade_options import (
     CascadeConfig,
     CascadeOptionsAdapter,
+    FibBoundaryPaper,
     FixedCampaignOption,
     IndexCandle,
     NiftyContractResolver,
@@ -1420,6 +1422,7 @@ class _TerminalCascadeRuntime:
 
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
 _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
+_fib_boundary_engines: Dict[int, _CascadeRuntime] = {}
 _terminal_cascade_engines: Dict[int, Dict[str, _TerminalCascadeRuntime]] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
@@ -2722,6 +2725,24 @@ class CandleEntryPaperStartPayload(BaseModel):
 
     mother_timestamp: str
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+
+
+class FibBoundaryPaperStartPayload(BaseModel):
+    """A manually-typed mother candle for the fib-boundary paper campaign.
+
+    Unlike the auto-geometry cascade, the mother's high and low are ALWAYS given
+    by hand: they anchor the deep fib ladder directly.  The timeframe decides
+    which levels trade -- (4, 8) on 1m/5m, (2, 4, 8) on 15m/1h -- and the side
+    (CE below support, PE above resistance) is chosen per mother.
+    """
+
+    mother_timestamp: str
+    mother_high: float = Field(gt=0)
+    mother_low: float = Field(gt=0)
+    side: str = Field(default="CE")
+    timeframe: str = Field(default="5m")
+    rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
+    itm_steps: int = Field(default=2, ge=0, le=10)
 
 
 class TerminalCascadePaperStartPayload(BaseModel):
@@ -7708,6 +7729,257 @@ async def candle_entry_paper_kill(request: Request):
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
+
+
+# ── Fib-boundary paper strategy (manual mother, CE/PE, one target then done) ──
+
+_FIB_BOUNDARY_HISTORY_DAYS = 15
+_FIB_TIMEFRAME_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+_FIB_TIMEFRAME_POLL_SEC = {"1m": 10, "5m": 15, "15m": 30, "1h": 60}
+
+
+def _historical_fib_contract(
+    mother: IndexCandle, candles: list[IndexCandle], side: str, itm_steps: int
+) -> FixedCampaignOption:
+    """Resolve the contract valid at a historical mother, without today's ScripMaster.
+
+    Same reasoning as :func:`_historical_candle_entry_contract`: the live
+    ScripMaster drops expired weeklies, so the next-weekly expiry is derived from
+    the NIFTY sessions Dhan returned.  The empty security id is deliberate --
+    signal-only replay never requests an LTP or places even a paper order.
+    """
+
+    session_days = {row.timestamp.date() for row in candles}
+    end_day = max(session_days) if session_days else mother.timestamp.date()
+    expiries = _cascade_weekly_expiries(mother.timestamp.date(), end_day, session_days)
+    expiry = next((value for value in expiries if 6 <= (value - mother.timestamp.date()).days <= 13), None)
+    if expiry is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Dhan did not return enough NIFTY sessions to resolve this mother candle's next-weekly expiry.",
+        )
+    atm = int(float(mother.close) / 50.0 + 0.5) * 50
+    # ATM-N toward ITM: a CE drops strikes, a PE raises them.
+    strike = atm + (-int(itm_steps) if side == "CE" else int(itm_steps)) * 50
+    return FixedCampaignOption("NIFTY", strike, expiry, side, 65, "")
+
+
+async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
+    """Poll closed NIFTY bars at the campaign's timeframe; paper-only throughout."""
+
+    engine = runtime.engine
+    timeframe = engine.timeframe
+    poll = _FIB_TIMEFRAME_POLL_SEC.get(timeframe, 15)
+    while runtime.running and _fib_boundary_engines.get(int(user_id)) is runtime:
+        try:
+            today = datetime.now(IST).date()
+            start = engine.mother.timestamp.date()
+            candles = await runtime.adapter.async_get_candles("NIFTY", timeframe, from_date=start, to_date=today)
+            for candle in candles:
+                if candle.timestamp <= runtime.last_candle_timestamp:
+                    continue
+                runtime.last_candle_timestamp = candle.timestamp
+                engine.on_candle(candle)
+            if engine.status in {"CLOSED", "KILLED"}:
+                runtime.running = False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[FIB BOUNDARY] NIFTY %s paper poll failed for user %s: %s", timeframe, user_id, exc)
+        await asyncio.sleep(poll)
+
+
+@app.get("/api/fib-boundary/paper/status")
+async def fib_boundary_paper_status(request: Request):
+    runtime = _fib_boundary_engines.get(_request_user_id(request))
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper"}
+    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+
+
+@app.post("/api/fib-boundary/paper/start")
+async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, request: Request):
+    """Start a manual-mother fib-boundary paper campaign. Never calls Dhan order APIs."""
+
+    side = str(payload.side).upper()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    timeframe = str(payload.timeframe).lower()
+    if timeframe not in _FIB_TIMEFRAME_MINUTES:
+        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
+    if payload.mother_high <= payload.mother_low:
+        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if (now.date() - mother_timestamp.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Choose a completed mother candle from the last {_FIB_BOUNDARY_HISTORY_DAYS} calendar days.",
+        )
+    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
+    tf_minutes = _FIB_TIMEFRAME_MINUTES[timeframe]
+    if timeframe == "1h":
+        if mother_timestamp.minute != 15:
+            raise HTTPException(status_code=400, detail="A 1H mother opens at 09:15, 10:15 … 15:15 IST.")
+    elif mother_timestamp.minute % tf_minutes or mother_timestamp.second or mother_timestamp.microsecond:
+        raise HTTPException(
+            status_code=400, detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open in IST."
+        )
+    effective_minutes = 15 if (timeframe == "1h" and mother_timestamp.hour == 15) else tf_minutes
+    if mother_timestamp + timedelta(minutes=effective_minutes) > now:
+        raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
+
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(
+            status_code=400, detail="Connect a Dhan account before starting a fib-boundary paper campaign."
+        )
+    old = _fib_boundary_engines.get(user_id)
+    if old is not None and old.running:
+        raise HTTPException(
+            status_code=409,
+            detail="A fib-boundary campaign is already running. Kill it before starting a new mother.",
+        )
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    candles = await adapter.async_get_candles("NIFTY", timeframe, from_date=mother_timestamp.date(), to_date=now.date())
+    mother_row = next((row for row in candles if row.timestamp == mother_timestamp), None)
+    # The typed high/low anchor the fib geometry; the loaded (or midpoint) spot
+    # only picks the ATM-N strike.  Open/close are never used by the geometry.
+    spot = float(mother_row.close) if mother_row is not None else (payload.mother_high + payload.mother_low) / 2.0
+    mother = IndexCandle(mother_timestamp, spot, float(payload.mother_high), float(payload.mother_low), spot)
+    is_historical_replay = mother_timestamp.date() != now.date()
+    try:
+        contract = (
+            _historical_fib_contract(mother, candles, side, payload.itm_steps)
+            if is_historical_replay
+            else await asyncio.to_thread(
+                adapter.select_campaign_contract,
+                mother_spot=spot,
+                selected_at=mother.timestamp,
+                ce_offset_steps=(-payload.itm_steps if side == "CE" else payload.itm_steps),
+                option_type=side,
+            )
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to select the fixed next-weekly {side}: {exc}") from exc
+    engine = FibBoundaryPaper(
+        mother,
+        contract,
+        adapter,
+        _cascade_premium_lookup(broker_client),
+        timeframe=timeframe,
+        rung_inr=payload.rung_inr,
+        signal_only=is_historical_replay,
+    )
+    last_candle_timestamp = mother.timestamp
+    if is_historical_replay:
+        for candle in candles:
+            if candle.timestamp <= mother.timestamp:
+                continue
+            engine.on_candle(candle)
+            last_candle_timestamp = candle.timestamp
+        engine.complete_historical_replay(candles[-1] if candles else mother)
+    runtime = _CascadeRuntime(
+        engine=engine,
+        adapter=adapter,
+        broker=broker_client,
+        last_candle_timestamp=last_candle_timestamp,
+        running=not is_historical_replay,
+    )
+    _fib_boundary_engines[user_id] = runtime
+    if runtime.running:
+        runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
+    return {
+        "status": "replayed" if is_historical_replay else "started",
+        "mode": "paper",
+        "campaign": {**engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.post("/api/fib-boundary/paper/kill")
+async def fib_boundary_paper_kill(request: Request):
+    runtime = _fib_boundary_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No fib-boundary campaign is active.")
+    now = datetime.now(IST)
+    try:
+        quote = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
+        price = float(quote["last_price"])
+    except Exception:
+        price = float(runtime.engine.history[-1].close)
+    if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
+        raise HTTPException(
+            status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
+        )
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
+
+
+@app.get("/api/fib-boundary/paper/chart")
+async def fib_boundary_paper_chart(
+    mother_timestamp: str,
+    high: float,
+    low: float,
+    request: Request,
+    timeframe: str = "5m",
+    side: str = "CE",
+):
+    """Serve the fib-boundary window: real candles + the typed-mother deep boundaries."""
+
+    side = str(side).upper()
+    timeframe = str(timeframe).lower()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    if timeframe not in _FIB_TIMEFRAME_MINUTES:
+        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
+    if high <= low:
+        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+    mother = _parse_cascade_mother_timestamp(mother_timestamp)
+    now = datetime.now(IST)
+    if mother.date() > now.date() or (now.date() - mother.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Chart is available for mothers in the last {_FIB_BOUNDARY_HISTORY_DAYS} calendar days.",
+        )
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY chart.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        candles = await adapter.async_get_candles("NIFTY", timeframe, from_date=mother.date(), to_date=now.date())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+    rows = _cascade_gap_adjusted_candles(candles, mother)
+    mother_row = next(
+        (row for row in rows if row["is_mother"]),
+        # The typed high/low own the geometry even when Dhan's bar differs, so
+        # synthesise a marker if the exact candle was not returned.
+        {"t": mother.isoformat(), "h": float(high), "l": float(low), "is_mother": True},
+    )
+    boundaries = [
+        {"level": level, "price": round(boundary_price(side, float(high), float(low), level), 2)}
+        for level in boundaries_for_timeframe(timeframe)
+    ]
+    return {
+        "status": "ok",
+        "timeframe": timeframe,
+        "side": side,
+        "chart_mode": "visual_gap_adjusted",
+        "candles": rows,
+        "mother": mother_row,
+        "mother_high": float(high),
+        "mother_low": float(low),
+        "boundaries": boundaries,
+        "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
+    }
 
 
 @app.post("/api/cascade/paper/start")

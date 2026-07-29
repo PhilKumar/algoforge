@@ -180,6 +180,10 @@
           <span class="nav-subtab-icon" style="color:#34d399;">◈</span>
           <span class="nav-subtab-copy"><span class="nav-subtab-title">Options Paper</span><span class="nav-subtab-desc">Current-session paper campaign</span></span>
         </button>
+        <button class="nav-subtab" type="button" data-pf-nav-page="options-cascade-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initOptionsCascadePage">
+          <span class="nav-subtab-icon" style="color:#38bdf8;">⑃</span>
+          <span class="nav-subtab-copy"><span class="nav-subtab-title">Options Cascade</span><span class="nav-subtab-desc">Fib-boundary &amp; Candle-entry paper</span></span>
+        </button>
       </div>
     </div>
     <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page">
@@ -1760,13 +1764,6 @@
     </div>
   </div>
 
-  <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · 1H ONLY · NO TF ESCALATION</div><h3 style="margin:5px 0 0;font-size:16px;">Candle Entry Strategy</h3><p style="margin:6px 0 0;font-size:11px;color:var(--muted);line-height:1.55;max-width:720px;">Choose a completed 1H mother candle from the last 15 calendar days. Dhan supplies its NIFTY OHLC. Today starts a quote-backed paper campaign; an earlier date replays the same index geometry only, without inventing fixed-strike premium or P&amp;L.</p></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
-    <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
-    <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-    <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
-  </div>
-
   <div class="cascade-options-workspace">
     <div class="card cascade-options-setup-card" style="padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
@@ -1821,6 +1818,111 @@
     <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="NIFTY 5 minute geometry chart">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 style="margin:0;font-size:15px;">NIFTY 5m geometry chart</h3><div id="cascade-options-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#34d399;">■</span> gap-up &nbsp; <span style="color:#f87171;">■</span> gap-down &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideCascadeOptionsChart">Close</button></div></div>
       <div id="cascade-options-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY 5m candles. Overnight gaps are connected visually only; paper geometry continues to use native exchange OHLC.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
+<div id="options-cascade-page" class="page-section">
+  <div class="card-glass" style="padding:20px;margin-bottom:16px;border-color:rgba(56,189,248,.32);background:linear-gradient(110deg,rgba(8,47,73,.28),rgba(15,23,42,.15));">
+    <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:11px;color:#38bdf8;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px;">Manual mother · deep fib boundaries · one target then done</div>
+        <h2 style="margin:0;font-size:22px;">Options Cascade</h2>
+        <p style="margin:7px 0 0;color:var(--muted);font-size:12px;max-width:780px;line-height:1.6;">Two paper strategies. <strong style="color:var(--text);">Fib-boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong style="color:var(--text);">Candle-entry</strong> is the two-red recovery buy-stop on a single 1H mother. Paper only; no live order is sent.</p>
+      </div>
+      <div id="options-cascade-live-gate" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#fde68a;border:1px solid rgba(251,191,36,.3);background:rgba(245,158,11,.08);border-radius:8px;padding:9px 11px;line-height:1.45;max-width:290px;">LIVE LOCKED<br><span style="color:var(--muted);">Paper validation required</span></div>
+    </div>
+  </div>
+
+  <div class="oc-tabs" role="tablist" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib">⑃ Fib-boundary</button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle">◧ Candle-entry</button>
+  </div>
+
+  <!-- ── TAB · Fib-boundary ── -->
+  <div id="oc-tab-fib" class="oc-tab-panel">
+    <div class="cascade-options-workspace">
+      <div class="card cascade-options-setup-card" style="padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
+          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L4 · L8</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Type the mother candle's <strong style="color:var(--text);">high and low</strong> by hand — they anchor the fib ladder directly. The timeframe decides which deep levels trade. Today starts a quote-backed paper campaign; an earlier date replays the index geometry only.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
+            <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+              <option value="CE" selected>CE — below support</option>
+              <option value="PE">PE — above resistance</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Timeframe</label>
+            <select id="fibx-timeframe" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+              <option value="1m">1m · L4 · L8</option>
+              <option value="5m" selected>5m · L4 · L8</option>
+              <option value="15m">15m · L2 · L4 · L8</option>
+              <option value="1h">1H · L2 · L4 · L8</option>
+            </select>
+          </div>
+        </div>
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
+        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="300" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother high <span style="color:#f87171;">*</span></label><input id="fibx-mother-high" type="number" min="1" step="0.05" placeholder="e.g. 24,180.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother low <span style="color:#f87171;">*</span></label><input id="fibx-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,050.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
+        </div>
+        <div class="pf-cascade-campaign-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button></div>
+        <div id="fibx-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      </div>
+
+      <details id="fibx-window" class="cascade-options-window" open>
+        <summary class="cascade-options-window-head">
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
+          <div id="fibx-gist" class="cascade-options-gist">Type a mother high &amp; low and pick a side to begin.</div>
+          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+        </summary>
+        <div class="cascade-options-window-body">
+          <div id="fibx-summary" class="cascade-options-summary"></div>
+          <div id="fibx-empty" class="cascade-options-empty">Start a current-session paper campaign to see the fixed contract, deep fib boundaries, paper fills and net round P&amp;L here.</div>
+          <div id="fibx-active" style="display:none;margin-top:16px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
+            <div id="fibx-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Fib boundaries</div>
+            <div id="fibx-boundaries" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">
+      <div class="card" style="padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span id="fibx-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
+        <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="fibx-rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
+      </div>
+      <div class="card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span id="fibx-events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div id="fibx-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
+    </div>
+
+    <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
+      <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="NIFTY fib-boundary geometry chart">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 style="margin:0;font-size:15px;">NIFTY fib-boundary chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> boundary &nbsp; <span style="color:#34d399;">▲</span> fill &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
+        <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY candles at the campaign timeframe. The deep fib boundaries and each paper fill are drawn on top; geometry always uses native exchange OHLC.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB · Candle-entry ── -->
+  <div id="oc-tab-candle" class="oc-tab-panel" style="display:none;">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · 1H · TWO-RED RECOVERY BUY-STOP</div><h3 style="margin:5px 0 0;font-size:16px;">Candle Entry Strategy</h3><p style="margin:6px 0 0;font-size:11px;color:var(--muted);line-height:1.55;max-width:720px;">Choose a completed 1H mother candle from the last 15 calendar days. Dhan supplies its NIFTY OHLC. Today starts a quote-backed paper campaign; an earlier date replays the same index geometry only, without inventing fixed-strike premium or P&amp;L.</p></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
+      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+      <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
     </div>
   </div>
 </div>

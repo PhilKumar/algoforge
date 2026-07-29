@@ -21,6 +21,7 @@ from cascade_costs import (
     OptionRoundCosts,
     calculate_nifty_option_basket_round_costs,
 )
+from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price, normalise_timeframe
 
 
 class CascadeError(ValueError):
@@ -147,16 +148,17 @@ class CascadeConfig:
             raise CascadeError("slippage_points must be >= 0 and option_slippage_pct in [0, 1)")
         base_timeframe = self.timeframe.lower()
         defaults = {
+            "1m": ("1m", "5m", "15m"),
             "5m": ("5m", "15m", "1h"),
             "15m": ("15m", "1h", "4h"),
             "1h": ("1h", "4h", "1d"),
         }
         if base_timeframe not in defaults:
-            raise CascadeError("timeframe must be 5m, 15m, or 1h")
+            raise CascadeError("timeframe must be 1m, 5m, 15m, or 1h")
         stages = tuple(str(value).lower() for value in (self.stage_timeframes or defaults[base_timeframe]))
         if len(stages) < len(self.lot_schedule):
             raise CascadeError("stage_timeframes must cover every lot stage")
-        if stages[0] != base_timeframe or any(value not in {"5m", "15m", "1h", "4h", "1d"} for value in stages):
+        if stages[0] != base_timeframe or any(value not in {"1m", "5m", "15m", "1h", "4h", "1d"} for value in stages):
             raise CascadeError("invalid cascade stage timeframe")
         object.__setattr__(self, "timeframe", base_timeframe)
         object.__setattr__(self, "stage_timeframes", stages[: len(self.lot_schedule)])
@@ -266,7 +268,7 @@ OptionLookup = Callable[[datetime, Contract], Optional[OptionCandle]]
 # bar to read the true close time from.  NSE's final intraday bar of the day is
 # irregular (the 14:15 hourly bar runs 75 minutes to 15:30), so the real close
 # time is always preferred over these.
-TIMEFRAME_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 375}
+TIMEFRAME_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 375}
 
 
 def _close_times(rows: list[Candle], timeframe: str) -> list[datetime]:
@@ -1139,19 +1141,26 @@ class CascadeOptionsAdapter:
         selected_at: datetime,
         ce_offset_steps: int = -2,
         strike_step: int = 50,
+        option_type: str = "CE",
     ) -> FixedCampaignOption:
+        side = str(option_type).upper()
+        if side not in {"CE", "PE"}:
+            raise OptionsAdapterError("option_type must be CE or PE")
         if strike_step <= 0:
             raise OptionsAdapterError("strike_step must be positive")
         selected_at = _as_ist(selected_at)
         expiries = [date.fromisoformat(str(value)[:10]) for value in self.scrip_master.get_expiries("NIFTY")]
         expiry = self._next_weekly_expiry(expiries, selected_at.date())
         atm = int(math.floor(float(mother_spot) / strike_step + 0.5) * strike_step)
+        # ce_offset_steps is signed toward ITM for the side: a CE goes ITM by
+        # dropping strikes (negative), a PE goes ITM by raising them (positive).
+        # The caller mirrors the sign per side; the maths here stays one line.
         strike = atm + int(ce_offset_steps) * strike_step
         lot_size = int(self.scrip_master.get_lot_size("NIFTY", expiry.isoformat()))
-        security_id = str(self.scrip_master.lookup("NIFTY", strike, expiry.isoformat(), "CE") or "")
+        security_id = str(self.scrip_master.lookup("NIFTY", strike, expiry.isoformat(), side) or "")
         if not security_id:
-            raise OptionsAdapterError(f"ScripMaster has no NIFTY {strike}CE for {expiry.isoformat()}")
-        return FixedCampaignOption("NIFTY", strike, expiry, "CE", lot_size, security_id)
+            raise OptionsAdapterError(f"ScripMaster has no NIFTY {strike}{side} for {expiry.isoformat()}")
+        return FixedCampaignOption("NIFTY", strike, expiry, side, lot_size, security_id)
 
     @staticmethod
     def _next_weekly_expiry(expiries: Iterable[date], trade_date: date) -> date:
@@ -1189,8 +1198,8 @@ class CascadeOptionsAdapter:
 
         if not self.paper_only:
             raise PaperOnlyViolation("Live order submission is not implemented in Phase 1")
-        if contract.option_type != "CE" or str(side).upper() not in {"BUY", "SELL"}:
-            raise OptionsAdapterError("Phase 1 paper adapter only accepts CE BUY/SELL orders")
+        if contract.option_type not in {"CE", "PE"} or str(side).upper() not in {"BUY", "SELL"}:
+            raise OptionsAdapterError("Paper adapter accepts only CE/PE BUY/SELL orders")
         if quantity <= 0 or quantity % contract.lot_size:
             raise OptionsAdapterError("Option quantity must be an exact whole number of ScripMaster lots")
         self._paper_order_sequence += 1
@@ -2070,3 +2079,485 @@ class OneHourCandleEntryPaper:
             ],
             "events": self.events[-100:],
         }
+
+
+@dataclass
+class _FibRung:
+    """One deep fib line the campaign may buy on, and how far it has got."""
+
+    level: int
+    index_price: float
+    status: str = "PENDING"  # PENDING -> ARMED -> FILLED
+
+    @property
+    def key(self) -> str:
+        return f"L{self.level}"
+
+
+class FibBoundaryPaper:
+    """Manual-mother fib-boundary CE/PE paper campaign, one target then done.
+
+    The sibling of :class:`OneHourCandleEntryPaper`.  Both share the recovery
+    buy-stop mechanic (two same-colour closes arm a stop at that close; it fills
+    when price trades back through it) and the same paper infrastructure --
+    ``IndexCandle`` in, ``FixedCampaignOption`` out through the paper-only
+    adapter, current-quote premium only.  What differs is *where* a buy is
+    allowed: never at an arbitrary swing, only on the deep fib lines measured
+    straight off the typed mother candle -- levels (4, 8) on 1m/5m and
+    (2, 4, 8) on 15m/1h.  CE arms below support and targets 0.25 up toward the
+    mother high; PE mirrors above resistance and targets 0.25 down toward the
+    mother low.  When the averaged basket reaches its target the whole thing
+    closes and the campaign ENDS -- there is no new-low re-arm.
+
+    ``signal_only`` proves the index geometry over historical Dhan candles
+    without ever pairing a current LTP with a past fill; it withholds premium
+    and P&L exactly like the 1H Candle Entry replay.
+    """
+
+    def __init__(
+        self,
+        mother: IndexCandle,
+        contract: FixedCampaignOption,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+        *,
+        timeframe: str = "5m",
+        rung_inr: float = 75_000.0,
+        target_fraction: float = 0.25,
+        signal_only: bool = False,
+    ) -> None:
+        side = str(contract.option_type).upper()
+        if not adapter.paper_only:
+            raise PaperOnlyViolation("The fib-boundary campaign requires a paper-only adapter")
+        if side not in {"CE", "PE"}:
+            raise CascadeError("fib-boundary option_type must be CE or PE")
+        if mother.high <= mother.low:
+            raise CascadeError("mother high must exceed mother low")
+        if rung_inr <= 0:
+            raise CascadeError("rung_inr must be positive")
+        if not 0 < float(target_fraction) <= 1:
+            raise CascadeError("target_fraction must be between 0 and 1")
+        self.mother = mother
+        self.contract = contract
+        self.adapter = adapter
+        self.option_premium_lookup = option_premium_lookup
+        self.side = side
+        self.timeframe = normalise_timeframe(timeframe)
+        self.rung_inr = float(rung_inr)
+        self.target_fraction = float(target_fraction)
+        self.signal_only = bool(signal_only)
+        self.replay_complete = False
+
+        self.history: list[IndexCandle] = [mother]
+        self.rungs: list[_FibRung] = [
+            _FibRung(level=level, index_price=boundary_price(side, mother.high, mother.low, level))
+            for level in boundaries_for_timeframe(self.timeframe)
+        ]
+        # 2-candle trigger + a single armed buy-stop waiting to fill.
+        self.streak = 0
+        self.pending_rung: Optional[_FibRung] = None
+        self.pending_stop: Optional[float] = None
+        self.pending_stop_timestamp: Optional[datetime] = None
+        # Real quote-backed fills (current session).
+        self.open_fills: list[PaperCascadeFill] = []
+        # Index-only fills for signal_only historical proof: (timestamp, price, level).
+        self.signal_fills: list[dict[str, Any]] = []
+        self.rounds: list[PaperCascadeRound] = []
+        self.events: list[dict[str, Any]] = []
+        self.status = "WAITING"
+
+    # ── geometry helpers ──────────────────────────────────────────
+
+    @staticmethod
+    def _is_green(candle: IndexCandle) -> bool:
+        return candle.close > candle.open
+
+    def _qualifies(self, candle: IndexCandle) -> bool:
+        return candle.is_red if self.side == "CE" else self._is_green(candle)
+
+    def _beyond(self, price: float, level_price: float) -> bool:
+        return price <= level_price if self.side == "CE" else price >= level_price
+
+    def _next_rung(self) -> Optional[_FibRung]:
+        for rung in self.rungs:
+            if rung.status == "PENDING":
+                return rung
+        return None
+
+    @property
+    def average_index_entry(self) -> Optional[float]:
+        if self.signal_only:
+            if not self.signal_fills:
+                return None
+            return sum(row["index_price"] for row in self.signal_fills) / len(self.signal_fills)
+        quantity = sum(fill.quantity for fill in self.open_fills)
+        if quantity <= 0:
+            return None
+        return sum(fill.index_price * fill.quantity for fill in self.open_fills) / quantity
+
+    @property
+    def open_quantity(self) -> int:
+        return sum(fill.quantity for fill in self.open_fills)
+
+    @property
+    def target_index(self) -> Optional[float]:
+        average = self.average_index_entry
+        if average is None:
+            return None
+        if self.side == "CE":
+            return average + self.target_fraction * (self.mother.high - average)
+        return average - self.target_fraction * (average - self.mother.low)
+
+    def _has_open(self) -> bool:
+        return bool(self.signal_fills) if self.signal_only else bool(self.open_fills)
+
+    # ── plumbing ──────────────────────────────────────────────────
+
+    def _log(self, candle: IndexCandle, event: str, **payload: Any) -> None:
+        self.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **payload})
+
+    def _premium(self, candle: IndexCandle) -> Optional[float]:
+        value = self.option_premium_lookup(candle.timestamp, self.contract)
+        try:
+            return float(value) if value is not None and float(value) > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def complete_historical_replay(self, candle: Optional[IndexCandle] = None) -> None:
+        """Mark a finite signal-only replay complete without inventing a trade."""
+        if not self.signal_only:
+            return
+        self.replay_complete = True
+        if candle is not None:
+            self._log(candle, "historical_replay_complete", status=self.status)
+
+    # ── state machine ─────────────────────────────────────────────
+
+    def _fill_pending_stop(self, candle: IndexCandle) -> None:
+        if (
+            self.pending_rung is None
+            or self.pending_stop is None
+            or self.pending_stop_timestamp is None
+            or candle.timestamp <= self.pending_stop_timestamp
+        ):
+            return
+        crossed = candle.high >= self.pending_stop if self.side == "CE" else candle.low <= self.pending_stop
+        if not crossed:
+            return
+        rung = self.pending_rung
+        if self.signal_only:
+            self.signal_fills.append(
+                {"timestamp": candle.timestamp.isoformat(), "index_price": self.pending_stop, "level": rung.level}
+            )
+            rung.status = "FILLED"
+            self.pending_rung = None
+            self.pending_stop = None
+            self.pending_stop_timestamp = None
+            self.streak = 0
+            self.status = "OPEN_SIGNAL_ONLY"
+            self._log(candle, "signal_entry", level=rung.level, index_price=self.signal_fills[-1]["index_price"])
+            return
+        premium = self._premium(candle)
+        if premium is None:
+            self.status = "AWAITING_OPTION_QUOTE"
+            self._log(candle, "option_quote_missing", action="buy", level=rung.level)
+            return
+        lots = max(1, math.floor(self.rung_inr / (premium * self.contract.lot_size)))
+        quantity = lots * self.contract.lot_size
+        order = self.adapter.place_order(self.contract, side="BUY", quantity=quantity)
+        fill = PaperCascadeFill(
+            timestamp=candle.timestamp,
+            index_price=self.pending_stop,
+            option_premium=premium,
+            lots=lots,
+            quantity=quantity,
+            rung_keys=(rung.key,),
+            order_id=order.order_id,
+        )
+        self.open_fills.append(fill)
+        rung.status = "FILLED"
+        self.pending_rung = None
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        self.streak = 0
+        self.status = "OPEN"
+        self._log(
+            candle,
+            "paper_fill",
+            level=rung.level,
+            index_price=fill.index_price,
+            option_premium=premium,
+            lots=lots,
+            quantity=quantity,
+            target_index=self.target_index,
+        )
+
+    def _arm_if_qualified(self, candle: IndexCandle) -> None:
+        if not self._qualifies(candle):
+            self.streak = 0
+            return
+        self.streak += 1
+        rung = self._next_rung()
+        if rung is None or self.streak < 2 or not self._beyond(candle.close, rung.index_price):
+            return
+        self.pending_rung = rung
+        self.pending_stop = candle.close
+        self.pending_stop_timestamp = candle.timestamp
+        rung.status = "ARMED"
+        self.status = "ARMED"
+        self._log(
+            candle,
+            "stop_armed",
+            level=rung.level,
+            boundary=round(rung.index_price, 2),
+            trigger=round(candle.close, 2),
+        )
+
+    def _close(self, candle: IndexCandle, reason: str) -> bool:
+        target = self.target_index
+        if self.signal_only:
+            if not self.signal_fills:
+                self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
+                return True
+            self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
+            self._log(candle, "signal_target_reached", reason=reason, target_index=target)
+            return True
+        if not self.open_fills:
+            self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
+            return True
+        premium = self._premium(candle)
+        if premium is None:
+            self.status = "AWAITING_OPTION_QUOTE"
+            self._log(candle, "option_quote_missing", action="sell", reason=reason)
+            return False
+        quantity = self.open_quantity
+        lots = quantity // self.contract.lot_size
+        self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+        costs = calculate_nifty_option_basket_round_costs(
+            buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in self.open_fills],
+            sell_price=premium,
+            sell_quantity=quantity,
+            sell_lots=lots,
+        )
+        gross = round(sum((premium - fill.option_premium) * fill.quantity for fill in self.open_fills), 2)
+        self.rounds.append(
+            PaperCascadeRound(
+                round_id=len(self.rounds) + 1,
+                opened_at=self.open_fills[0].timestamp,
+                closed_at=candle.timestamp,
+                fills=tuple(self.open_fills),
+                target_index=target or candle.close,
+                exit_index_price=target if reason == "target" and target is not None else candle.close,
+                exit_option_premium=premium,
+                exit_quantity=quantity,
+                gross_pnl=gross,
+                costs=costs,
+                net_pnl=round(gross - costs.total, 2),
+                exit_reason=reason,
+            )
+        )
+        for rung in self.rungs:
+            if rung.status == "FILLED":
+                rung.status = "CLOSED"
+        self.open_fills = []
+        self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
+        self._log(candle, "round_closed", reason=reason, net_pnl=self.rounds[-1].net_pnl)
+        return True
+
+    def _check_exit(self, candle: IndexCandle) -> bool:
+        if not self._has_open():
+            return False
+        target = self.target_index
+        if target is not None:
+            hit = candle.high >= target if self.side == "CE" else candle.low <= target
+            if hit:
+                return self._close(candle, "target")
+        if not self.signal_only and self.adapter.expiry_squareoff_due(self.contract, candle.timestamp):
+            return self._close(candle, "expiry_square_off")
+        return False
+
+    def on_candle(self, candle: IndexCandle) -> None:
+        if candle.timestamp <= self.mother.timestamp or self.status in {"CLOSED", "KILLED"}:
+            return
+        self.history.append(candle)
+        # Same safe order as the sibling engines: settle a resting stop, take a
+        # target if one is now reachable, then look for the next arm.  One
+        # target ends the campaign, so nothing re-arms after a close.
+        self._fill_pending_stop(candle)
+        if self._check_exit(candle):
+            return
+        self._arm_if_qualified(candle)
+
+    def run(self, candles: Iterable[IndexCandle]) -> "FibBoundaryPaper":
+        for candle in sorted(candles, key=lambda row: row.timestamp):
+            self.on_candle(candle)
+        return self
+
+    def kill_and_close(self, candle: IndexCandle) -> bool:
+        self.pending_rung = None
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        for rung in self.rungs:
+            if rung.status in {"PENDING", "ARMED"}:
+                rung.status = "CANCELLED"
+        if self._has_open():
+            return self._close(candle, "manual_kill")
+        self.status = "KILLED"
+        self._log(candle, "campaign_killed")
+        return True
+
+    # ── snapshot + persistence ────────────────────────────────────
+
+    def get_status(self) -> dict[str, Any]:
+        contract = self.contract
+        return {
+            "mode": "paper",
+            "strategy": "fib_boundary",
+            "running": self.status not in {"CLOSED", "KILLED"},
+            "status": self.status,
+            "side": self.side,
+            "timeframe": self.timeframe,
+            "pricing_mode": "signal_only_dhan" if self.signal_only else "current_quote_paper",
+            "pricing_warning": (
+                "Historical replay verifies NIFTY index entry and target geometry only. "
+                "Fixed-strike option premium and P&L are intentionally withheld."
+                if self.signal_only
+                else None
+            ),
+            "replay_complete": self.replay_complete,
+            "mother": {
+                "timestamp": self.mother.timestamp.isoformat(),
+                "high": self.mother.high,
+                "low": self.mother.low,
+            },
+            "contract": {
+                "underlying": contract.underlying,
+                "strike": contract.strike,
+                "expiry": contract.expiry.isoformat(),
+                "option_type": contract.option_type,
+                "lot_size": contract.lot_size,
+                "security_id": contract.security_id,
+            },
+            "rung_inr": self.rung_inr,
+            "target_index": self.target_index,
+            "average_index_entry": self.average_index_entry,
+            "open_quantity": self.open_quantity,
+            "entry_stop": self.pending_stop,
+            "boundaries": [
+                {"key": rung.key, "level": rung.level, "index_price": rung.index_price, "status": rung.status}
+                for rung in self.rungs
+            ],
+            "open_fills": [NiftyOptionsPaperCascade._fill_to_dict(fill) for fill in self.open_fills],
+            "signal_fills": list(self.signal_fills),
+            "rounds": [
+                {
+                    "round_id": row.round_id,
+                    "opened_at": row.opened_at.isoformat(),
+                    "closed_at": row.closed_at.isoformat(),
+                    "fills": [NiftyOptionsPaperCascade._fill_to_dict(fill) for fill in row.fills],
+                    "target_index": row.target_index,
+                    "exit_index_price": row.exit_index_price,
+                    "exit_option_premium": row.exit_option_premium,
+                    "exit_quantity": row.exit_quantity,
+                    "gross_pnl": row.gross_pnl,
+                    "costs": NiftyOptionsPaperCascade._costs_to_dict(row.costs),
+                    "net_pnl": row.net_pnl,
+                    "exit_reason": row.exit_reason,
+                }
+                for row in self.rounds
+            ],
+            "events": self.events[-100:],
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        status = self.get_status()
+        return {
+            "version": 1,
+            "strategy": "fib_boundary",
+            "config": {
+                "timeframe": self.timeframe,
+                "rung_inr": self.rung_inr,
+                "target_fraction": self.target_fraction,
+                "signal_only": self.signal_only,
+            },
+            "contract": status["contract"],
+            "history": [NiftyOptionsPaperCascade._candle_to_dict(row) for row in self.history],
+            "boundaries": status["boundaries"],
+            "open_fills": status["open_fills"],
+            "signal_fills": list(self.signal_fills),
+            "rounds": status["rounds"],
+            "streak": self.streak,
+            "pending_level": self.pending_rung.level if self.pending_rung else None,
+            "pending_stop": self.pending_stop,
+            "pending_stop_timestamp": self.pending_stop_timestamp.isoformat() if self.pending_stop_timestamp else None,
+            "replay_complete": self.replay_complete,
+            "status": self.status,
+            "events": list(self.events[-100:]),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+    ) -> "FibBoundaryPaper":
+        history = [NiftyOptionsPaperCascade._candle_from_dict(row) for row in payload.get("history") or []]
+        if not history:
+            raise CascadeError("Cannot restore a fib-boundary campaign without its mother candle")
+        raw_contract = payload.get("contract") or {}
+        contract = FixedCampaignOption(
+            underlying=str(raw_contract["underlying"]),
+            strike=int(raw_contract["strike"]),
+            expiry=date.fromisoformat(str(raw_contract["expiry"])),
+            option_type=str(raw_contract["option_type"]),
+            lot_size=int(raw_contract["lot_size"]),
+            security_id=str(raw_contract["security_id"]),
+        )
+        raw_config = payload.get("config") or {}
+        engine = cls(
+            history[0],
+            contract,
+            adapter,
+            option_premium_lookup,
+            timeframe=str(raw_config.get("timeframe") or "5m"),
+            rung_inr=float(raw_config.get("rung_inr") or 75_000.0),
+            target_fraction=float(raw_config.get("target_fraction") or 0.25),
+            signal_only=bool(raw_config.get("signal_only")),
+        )
+        engine.history = history
+        by_level = {int(row["level"]): str(row.get("status") or "PENDING") for row in payload.get("boundaries") or []}
+        for rung in engine.rungs:
+            rung.status = by_level.get(rung.level, rung.status)
+        engine.open_fills = [NiftyOptionsPaperCascade._fill_from_dict(row) for row in payload.get("open_fills") or []]
+        engine.signal_fills = [dict(row) for row in payload.get("signal_fills") or []]
+        engine.rounds = [
+            PaperCascadeRound(
+                round_id=int(row["round_id"]),
+                opened_at=_as_ist(datetime.fromisoformat(str(row["opened_at"]).replace("Z", "+00:00"))),
+                closed_at=_as_ist(datetime.fromisoformat(str(row["closed_at"]).replace("Z", "+00:00"))),
+                fills=tuple(NiftyOptionsPaperCascade._fill_from_dict(fill) for fill in row.get("fills") or []),
+                target_index=float(row["target_index"]),
+                exit_index_price=float(row["exit_index_price"]),
+                exit_option_premium=float(row["exit_option_premium"]),
+                exit_quantity=int(row["exit_quantity"]),
+                gross_pnl=float(row["gross_pnl"]),
+                costs=NiftyOptionsPaperCascade._costs_from_dict(row.get("costs") or {}),
+                net_pnl=float(row["net_pnl"]),
+                exit_reason=str(row["exit_reason"]),
+            )
+            for row in payload.get("rounds") or []
+        ]
+        engine.streak = int(payload.get("streak") or 0)
+        pending_level = payload.get("pending_level")
+        if pending_level is not None:
+            engine.pending_rung = next((rung for rung in engine.rungs if rung.level == int(pending_level)), None)
+        engine.pending_stop = payload.get("pending_stop")
+        raw_stop_ts = payload.get("pending_stop_timestamp")
+        if raw_stop_ts:
+            engine.pending_stop_timestamp = _as_ist(datetime.fromisoformat(str(raw_stop_ts).replace("Z", "+00:00")))
+        engine.replay_complete = bool(payload.get("replay_complete"))
+        engine.status = str(payload.get("status") or "WAITING")
+        engine.events = list(payload.get("events") or [])[-100:]
+        return engine

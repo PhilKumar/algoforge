@@ -968,6 +968,7 @@ const NAV_BUTTON_MAP = {
   'scalp-page': 'nav-scalp',
   'cascade-page': 'nav-cascade',
   'cascade-options-page': 'nav-cascade',
+  'options-cascade-page': 'nav-cascade',
   'charts-page': 'nav-charts',
 };
 
@@ -1181,6 +1182,11 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startCandleEntryPaper',
   'killCandleEntryPaper',
   'killCascadeOptionsPaper',
+  'showOptionsCascadeTab',
+  'startFibBoundaryPaper',
+  'killFibBoundaryPaper',
+  'loadFibBoundaryChart',
+  'hideFibBoundaryChart',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -1235,6 +1241,7 @@ async function applyNavState(state) {
   if (page === 'scalp-page') initScalpPage();
   if (page === 'cascade-page') initCascadePage();
   if (page === 'cascade-options-page') initCascadeOptionsPage();
+  if (page === 'options-cascade-page') initOptionsCascadePage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
@@ -1296,6 +1303,7 @@ function showPage(id, btn, options = {}) {
   if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   if (id !== 'scalp-page' && _scalpLTPTimer) { clearInterval(_scalpLTPTimer); _scalpLTPTimer = null; }
   if (id !== 'cascade-options-page' && _cascadeOptionsPollTimer) { clearInterval(_cascadeOptionsPollTimer); _cascadeOptionsPollTimer = null; }
+  if (id !== 'options-cascade-page' && _fibBoundaryPollTimer) { clearInterval(_fibBoundaryPollTimer); _fibBoundaryPollTimer = null; }
   if (id !== 'portfolio-page') stopPortfolioRefresh();
   // Start/stop builder preview polling
   if (id === 'builder-page') {
@@ -1891,6 +1899,401 @@ window.hideCascadeOptionsChart = hideCascadeOptionsChart;
 window.startCandleEntryPaper = startCandleEntryPaper;
 window.killCandleEntryPaper = killCandleEntryPaper;
 window.killCascadeOptionsPaper = killCascadeOptionsPaper;
+
+// ══════════════════════════════════════════════════════════════
+//  OPTIONS CASCADE — two-tab paper (Fib-boundary + Candle-entry)
+// ══════════════════════════════════════════════════════════════
+let _fibBoundaryPollTimer = null;
+let _lastFibBoundaryStatus = null;
+
+function showOptionsCascadeTab(event, el) {
+  const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
+  document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => b.classList.toggle('is-active', b.getAttribute('data-oc-tab') === tab));
+  const fib = document.getElementById('oc-tab-fib');
+  const candle = document.getElementById('oc-tab-candle');
+  if (fib) fib.style.display = tab === 'fib' ? '' : 'none';
+  if (candle) candle.style.display = tab === 'candle' ? '' : 'none';
+  if (tab === 'candle') refreshCandleEntryStatus();
+  else refreshFibBoundaryStatus();
+}
+
+function _syncFibLevelsHint() {
+  const tf = document.getElementById('fibx-timeframe')?.value || '5m';
+  const hint = document.getElementById('fibx-levels-hint');
+  if (hint) hint.textContent = (tf === '1m' || tf === '5m') ? 'L4 · L8' : 'L2 · L4 · L8';
+}
+
+async function initOptionsCascadePage() {
+  const tfSel = document.getElementById('fibx-timeframe');
+  if (tfSel && !tfSel._fibHintBound) { tfSel.addEventListener('change', _syncFibLevelsHint); tfSel._fibHintBound = true; }
+  _syncFibLevelsHint();
+  await refreshFibBoundaryStatus();
+  await refreshCandleEntryStatus();
+  if (!_fibBoundaryPollTimer) {
+    _fibBoundaryPollTimer = setInterval(() => {
+      if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); }
+    }, _ws && _ws.readyState === 1 ? 10000 : 3000);
+  }
+}
+
+function _fibSetFormStatus(message, tone = 'muted') {
+  const el = document.getElementById('fibx-form-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+
+function _renderFibBoundaryStatus(payload) {
+  _lastFibBoundaryStatus = payload || null;
+  const campaign = payload?.campaign;
+  const badge = document.getElementById('fibx-badge');
+  const contract = document.getElementById('fibx-contract');
+  const summary = document.getElementById('fibx-summary');
+  const empty = document.getElementById('fibx-empty');
+  const active = document.getElementById('fibx-active');
+  const gist = document.getElementById('fibx-gist');
+  const win = document.getElementById('fibx-window');
+  const startBtn = document.getElementById('fibx-start');
+  const killBtn = document.getElementById('fibx-kill');
+  const eventsTf = document.getElementById('fibx-events-tf');
+  if (!campaign) {
+    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
+    if (contract) contract.textContent = 'No active campaign';
+    if (summary) summary.innerHTML = '';
+    if (empty) empty.style.display = '';
+    if (active) active.style.display = 'none';
+    if (gist) gist.textContent = 'Type a mother high & low and pick a side to begin.';
+    if (win) win.classList.remove('is-active');
+    if (startBtn) startBtn.disabled = false;
+    if (killBtn) killBtn.style.display = 'none';
+    _renderFibBoundaryRounds([]);
+    _renderFibBoundaryEvents([]);
+    return;
+  }
+  const isRunning = !!campaign.running;
+  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
+  const tone = isRunning ? '#6ee7b7' : '#fbbf24';
+  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; badge.style.color = tone; badge.style.borderColor = tone; }
+  const c = campaign.contract || {};
+  if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || campaign.side || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
+  if (eventsTf) eventsTf.textContent = `${String(campaign.timeframe || '').toUpperCase()} CLOSED BARS`;
+  const filled = (campaign.boundaries || []).filter(b => ['FILLED', 'CLOSED'].includes(b.status)).length;
+  if (gist) gist.textContent = `${String(campaign.side || 'CE')} · ${String(campaign.timeframe || '').toUpperCase()} · ${filled}/${(campaign.boundaries || []).length} boundaries filled`;
+  if (win) win.classList.toggle('is-active', isRunning);
+  if (summary) {
+    summary.innerHTML = [
+      _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
+      _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
+      _cascadeOptionsMetric('Open qty', String(campaign.open_quantity || 0), '#6ee7b7'),
+      _cascadeOptionsMetric('₹ per rung', _cascadeOptionsMoney(campaign.rung_inr || 0), '#fde68a'),
+    ].join('');
+  }
+  if (empty) empty.style.display = 'none';
+  if (active) active.style.display = '';
+  if (startBtn) startBtn.disabled = isRunning;
+  if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  const pricingWarn = campaign.pricing_warning ? `<div style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:#fbbf24;font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
+  if (pricingWarn && summary) summary.insertAdjacentHTML('beforeend', pricingWarn);
+  const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
+  const signalFills = Array.isArray(campaign.signal_fills) ? campaign.signal_fills : [];
+  const fillsEl = document.getElementById('fibx-fills');
+  if (fillsEl) {
+    if (fills.length) {
+      fillsEl.innerHTML = fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(c.option_type || campaign.side || 'CE'))} ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('');
+    } else if (signalFills.length) {
+      fillsEl.innerHTML = signalFills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong style="color:#fbbf24;">SIGNAL ONLY</strong></div>`).join('');
+    } else {
+      fillsEl.innerHTML = '<div style="color:var(--muted);padding:8px 0;">No open paper basket.</div>';
+    }
+  }
+  const boundaries = Array.isArray(campaign.boundaries) ? campaign.boundaries : [];
+  const boundEl = document.getElementById('fibx-boundaries');
+  if (boundEl) boundEl.innerHTML = boundaries.length ? boundaries.map(b => {
+    const stateColor = ({ PENDING: 'var(--muted)', ARMED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#f87171' }[b.status] || 'var(--muted)');
+    return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>L${escapeHtml(String(b.level))}</strong><span style="color:${stateColor};">${escapeHtml(b.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(b.index_price))}</div></div>`;
+  }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib boundaries yet.</div>';
+  _renderFibBoundaryRounds(campaign.rounds || []);
+  _renderFibBoundaryEvents(campaign.events || []);
+}
+
+function _renderFibBoundaryRounds(rounds) {
+  const body = document.getElementById('fibx-rounds');
+  const count = document.getElementById('fibx-round-count');
+  if (count) count.textContent = `${rounds.length} round${rounds.length === 1 ? '' : 's'}`;
+  if (!body) return;
+  body.innerHTML = rounds.length ? rounds.slice().reverse().map(row => {
+    const pnl = Number(row.net_pnl || 0);
+    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    const avgEntry = row.fills && row.fills.length ? (row.fills.reduce((s, f) => s + Number(f.index_price) * Number(f.quantity), 0) / row.fills.reduce((s, f) => s + Number(f.quantity), 0)) : null;
+    return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(row.round_id))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(String(row.exit_quantity))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(avgEntry))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
+  }).join('') : '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+}
+
+function _renderFibBoundaryEvents(events) {
+  const el = document.getElementById('fibx-events');
+  if (!el) return;
+  const scrollTop = el.scrollTop;
+  el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${event.level != null ? ` <span style="color:#38bdf8;">L${escapeHtml(String(event.level))}</span>` : ''}</div>`).join('') : 'No events yet.';
+  el.scrollTop = scrollTop;
+}
+
+async function refreshFibBoundaryStatus() {
+  try {
+    const response = await fetch('/api/fib-boundary/paper/status', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.detail || 'Unable to load fib-boundary campaign');
+    _renderFibBoundaryStatus(data.status === 'not_started' ? {} : data);
+  } catch (error) {
+    const summary = document.getElementById('fibx-summary');
+    if (summary && !summary.innerHTML) summary.textContent = error.message || 'Unable to load fib-boundary campaign.';
+  }
+}
+
+async function startFibBoundaryPaper() {
+  const el = id => document.getElementById(id);
+  const payload = {
+    mother_timestamp: el('fibx-mother-timestamp')?.value,
+    mother_high: Number(el('fibx-mother-high')?.value),
+    mother_low: Number(el('fibx-mother-low')?.value),
+    side: el('fibx-side')?.value || 'CE',
+    timeframe: el('fibx-timeframe')?.value || '5m',
+    rung_inr: Number(el('fibx-rung-inr')?.value),
+    itm_steps: Number(el('fibx-itm')?.value),
+  };
+  if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
+  if (!Number.isFinite(payload.mother_high) || !Number.isFinite(payload.mother_low)) { _fibSetFormStatus('Enter both the mother high and low by hand.', 'error'); return; }
+  if (payload.mother_high <= payload.mother_low) { _fibSetFormStatus('Mother high must exceed mother low.', 'error'); return; }
+  if (!Number.isFinite(payload.rung_inr) || payload.rung_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ per rung.', 'error'); return; }
+  const button = el('fibx-start');
+  if (button) { button.disabled = true; button.textContent = 'Selecting fixed contract and starting paper monitor…'; }
+  _fibSetFormStatus(`Selecting next-weekly ${payload.side} from the ScripMaster. No order will be sent.`, 'busy');
+  try {
+    const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !['started', 'replayed'].includes(data.status)) throw new Error(data?.detail || `Campaign did not start (${response.status})`);
+    _fibSetFormStatus(data.status === 'replayed' ? 'Historical replay completed. Fixed-strike P&L is withheld for signal-only mode.' : 'Fib-boundary paper campaign started. No live order will be sent.', 'success');
+    _renderFibBoundaryStatus({ campaign: data.campaign });
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Campaign start failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '▶ Start fib-boundary paper'; }
+  }
+}
+
+async function killFibBoundaryPaper() {
+  const confirmed = await customConfirm('Kill this <strong>paper-only</strong> fib-boundary campaign and close any open paper basket at the current quote? No Dhan order is sent.', { title: 'Kill fib-boundary', icon: ICO.warn(28), okText: 'Kill & close', danger: true });
+  if (!confirmed) return;
+  const button = document.getElementById('fibx-kill');
+  if (button) { button.disabled = true; button.textContent = 'Closing…'; }
+  try {
+    const response = await fetch('/api/fib-boundary/paper/kill', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'killed') throw new Error(data?.detail || `Kill failed (${response.status})`);
+    _fibSetFormStatus('Fib-boundary campaign killed.', 'success');
+    _renderFibBoundaryStatus({ campaign: data.campaign });
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Kill & close could not be confirmed.', 'error');
+    await refreshFibBoundaryStatus();
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '■ Kill'; }
+  }
+}
+
+// A full-fidelity port of the CryptoForge cascade chart, sharing PhilForge's
+// own `_terminalCascadeChartPalette` so the two charts read identically:
+// theme-aware, half-pixel-sharpened, mother column + MC tag, IST time axis,
+// left-gutter labels that nudge apart on collision. It draws the fib-boundary
+// world — the typed mother, the deep boundary ladder tinted by its live status,
+// avg-entry and target lines, buy arrows for every fill, and a target-hit exit
+// arrow with the round's net P&L — rather than the auto-trendline geometry the
+// terminal chart carries. The status data rides in on `_lastFibBoundaryStatus`;
+// the candles and boundary prices come from the chart route payload.
+function _fibBoundaryChartSvg(payload) {
+  const PAL = _terminalCascadeChartPalette();
+  const candles = Array.isArray(payload?.candles) ? payload.candles : [];
+  if (!candles.length) return '<div class="pf-cascade-chart-empty">No candles</div>';
+  const boundaries = Array.isArray(payload?.boundaries) ? payload.boundaries : [];
+  const campaign = _lastFibBoundaryStatus?.campaign || {};
+  const side = String(payload?.side || campaign.side || 'CE').toUpperCase();
+  // Status per level, so a boundary line carries the same colour as its chip in
+  // the monitor — pending is quiet, armed amber, filled green, closed purple.
+  const statusByLevel = {};
+  (campaign.boundaries || []).forEach(b => { statusByLevel[Number(b.level)] = String(b.status || 'PENDING'); });
+  const statusColor = { PENDING: PAL.fibs[0], ARMED: '#fbbf24', FILLED: PAL.fill, CLOSED: '#a78bfa', CANCELLED: PAL.down };
+
+  const W = 1180, H = 520, padL = 168, padR = 58, padT = 14, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = candles.length, cw = plotW / Math.max(n, 1);
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const millis = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
+  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+
+  let lo = Number(candles[0].l), hi = Number(candles[0].h);
+  candles.forEach(candle => {
+    const cLo = Number(candle.l), cHi = Number(candle.h);
+    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
+    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
+  });
+  const motherHigh = Number(payload.mother_high), motherLow = Number(payload.mother_low);
+  [motherHigh, motherLow, campaign.target_index, campaign.average_index_entry]
+    .concat(boundaries.map(b => Number(b.price)))
+    .forEach(price => { const p = Number(price); if (Number.isFinite(p)) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
+  const span = (hi - lo) || 1;
+  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
+  const X = index => padL + index * cw + cw / 2;
+  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
+  const Xt = value => {
+    const t = millis(value);
+    if (!t) return X(0);
+    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
+    if (t <= first) return X(0);
+    if (t >= last) return X(n - 1);
+    // Candles skip NSE overnight/weekend gaps; anchor to the bar sequence, not
+    // elapsed calendar time, so a fill lands on the candle it happened on.
+    for (let index = 1; index < n; index += 1) {
+      const right = millis(candles[index].t);
+      if (t > right) continue;
+      const left = millis(candles[index - 1].t);
+      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
+      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
+    }
+    return X(n - 1);
+  };
+  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
+  const sharp = value => Math.round(value) + 0.5;
+  const solid = value => Math.round(value);
+  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
+
+  for (let i = 0; i <= 4; i += 1) {
+    const price = minP + (maxP - minP) * (i / 4);
+    const y = Y(price);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
+    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
+  }
+  const tickCount = Math.min(6, n);
+  for (let i = 0; i < tickCount; i += 1) {
+    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
+    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+  }
+
+  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
+  candles.forEach((candle, index) => {
+    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
+    if (![o, h, l, c].every(Number.isFinite)) return;
+    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
+    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
+    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
+    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
+    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
+    if (candle.is_mother) {
+      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
+      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
+      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+    }
+  });
+
+  const labelSlots = [];
+  const label = (y, text, color) => {
+    let ly = y;
+    for (let pass = 0, moved = true; moved && pass <= labelSlots.length; pass += 1) {
+      moved = false;
+      for (let i = 0; i < labelSlots.length; i += 1) {
+        if (Math.abs(labelSlots[i] - ly) < 10) { ly = labelSlots[i] + 10.5; moved = true; break; }
+      }
+    }
+    labelSlots.push(ly);
+    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
+  };
+  const hline = (price, color, text, dash, width, opacity) => {
+    const p = Number(price);
+    if (!inView(p)) return;
+    const y = Y(p);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
+    if (text) label(y, text, color);
+  };
+
+  // The mother frame: high and low are both typed by hand and anchor the ladder.
+  hline(motherHigh, PAL.mother, `MOTHER HIGH (${number(motherHigh)})`, '5 3', 1.1);
+  hline(motherLow, PAL.mother, `MOTHER LOW (${number(motherLow)})`, '5 3', 1.1, .7);
+
+  // The deep boundary ladder. Every line is drawn alike; its colour tells the
+  // live status (pending/armed/filled/closed), matching the boundary chips.
+  boundaries.forEach(b => {
+    const level = Number(b.level);
+    const status = statusByLevel[level] || 'PENDING';
+    const color = statusColor[status] || PAL.fibs[0];
+    const suffix = status !== 'PENDING' ? `  ${status}` : '';
+    hline(Number(b.price), color, `L${escapeHtml(String(level))} (${number(b.price)})${suffix}`, null, 1.1, status === 'PENDING' ? .85 : 1);
+  });
+
+  if (Number.isFinite(Number(campaign.target_index))) hline(Number(campaign.target_index), PAL.tp, `TARGET (${number(campaign.target_index)})`, '6 3', 1.2);
+  if (Number.isFinite(Number(campaign.average_index_entry))) hline(Number(campaign.average_index_entry), PAL.avg, `AVG ENTRY (${number(campaign.average_index_entry)})`, '4 4', 1.1);
+
+  // Buy arrows point UP and sit below the candle they filled on — priced paper
+  // fills in green, signal-only replay fills dimmed amber. Closed-round entries
+  // ride in from `rounds` because open_fills is emptied the moment a TP lands.
+  const buyMark = (t, price, color, opacity) => {
+    if (!inView(price)) return;
+    const x = Xt(t), y = Y(price) + 10;
+    parts.push(`<path d="M${x.toFixed(1)} ${(y - 9).toFixed(1)}L${(x - 5).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${y.toFixed(1)}L${(x + 5).toFixed(1)} ${y.toFixed(1)}Z" fill="${color}" stroke="${PAL.fillRing}" stroke-width="0.9"${opacity ? ` opacity="${opacity}"` : ''}/>`);
+  };
+  (campaign.rounds || []).forEach(round => (round.fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), PAL.fill, .55)));
+  (campaign.open_fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), PAL.fill));
+  (campaign.signal_fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), '#fbbf24'));
+
+  // Target-hit exits: a down arrow above the exit candle, labelled with the
+  // round's net P&L — the one number the record is kept for.
+  (campaign.rounds || []).forEach(round => {
+    const price = Number(round.exit_index_price);
+    if (!inView(price)) return;
+    const cx = Xt(round.closed_at), cy = Y(price) - 10;
+    const pnl = Number(round.net_pnl) || 0;
+    parts.push(`<path d="M${cx.toFixed(1)} ${(cy + 9).toFixed(1)}L${(cx - 5).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${cy.toFixed(1)}L${(cx + 5).toFixed(1)} ${cy.toFixed(1)}Z" fill="${PAL.down}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
+    parts.push(`<text x="${cx.toFixed(1)}" y="${(cy - 9).toFixed(1)}" fill="${PAL.down}" font-size="9.5" font-family="monospace" text-anchor="middle">TARGET ${number(price)} · ${pnl >= 0 ? '+' : '−'}${escapeHtml(_cascadeOptionsMoney(Math.abs(pnl)))}</text>`);
+  });
+
+  const chartLabel = `${side} fib-boundary`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} chart">${parts.join('')}</svg>`;
+}
+
+async function loadFibBoundaryChart() {
+  const el = id => document.getElementById(id);
+  const timestamp = el('fibx-mother-timestamp')?.value || _lastFibBoundaryStatus?.campaign?.mother?.timestamp;
+  const campaign = _lastFibBoundaryStatus?.campaign;
+  const high = Number(el('fibx-mother-high')?.value) || Number(campaign?.mother?.high);
+  const low = Number(el('fibx-mother-low')?.value) || Number(campaign?.mother?.low);
+  const side = el('fibx-side')?.value || campaign?.side || 'CE';
+  const timeframe = el('fibx-timeframe')?.value || campaign?.timeframe || '5m';
+  const chart = el('fibx-chart');
+  const meta = el('fibx-chart-meta');
+  const overlay = el('fibx-chart-overlay');
+  if (!timestamp || !Number.isFinite(high) || !Number.isFinite(low)) { _fibSetFormStatus('Enter a mother timestamp, high and low first.', 'error'); return; }
+  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading actual closed NIFTY ${escapeHtml(String(timeframe))} candles…</div>`;
+  try {
+    const query = new URLSearchParams({ mother_timestamp: timestamp, high: String(high), low: String(low), side, timeframe });
+    const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    if (chart) chart.innerHTML = _fibBoundaryChartSvg(data);
+    if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${(data.boundaries || []).length} deep boundaries · paper geometry uses native OHLC`;
+  } catch (error) {
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+  }
+}
+
+function hideFibBoundaryChart() {
+  const overlay = document.getElementById('fibx-chart-overlay');
+  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+}
+
+window.initOptionsCascadePage = initOptionsCascadePage;
+window.showOptionsCascadeTab = showOptionsCascadeTab;
+window.startFibBoundaryPaper = startFibBoundaryPaper;
+window.killFibBoundaryPaper = killFibBoundaryPaper;
+window.loadFibBoundaryChart = loadFibBoundaryChart;
+window.hideFibBoundaryChart = hideFibBoundaryChart;
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {

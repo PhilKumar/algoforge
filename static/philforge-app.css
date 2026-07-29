@@ -5414,6 +5414,15 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .cascade-options-empty { background: rgba(248,250,252,.74); border-color: rgba(15,23,42,.16); }
 [data-theme="light"] #cascade-options-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
 .cascade-options-control:focus-visible, .cascade-options-primary-btn:focus-visible, .cascade-options-window-head:focus-visible { outline: 3px solid rgba(96,165,250,.42); outline-offset: 2px; }
+/* Options Cascade two-tab switcher (Fib-boundary + Candle-entry) */
+.oc-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 15px; border: 1px solid var(--border); border-radius: 9px; background: rgba(148,163,184,.06); color: var(--muted); font: 800 12px var(--font-mono); letter-spacing: .3px; cursor: pointer; transition: transform .15s ease, border-color .15s ease, color .15s ease, background .15s ease; }
+.oc-tab:hover { border-color: rgba(56,189,248,.5); color: var(--text); transform: translateY(-1px); }
+.oc-tab.is-active { border-color: rgba(56,189,248,.6); color: #e0f2fe; background: linear-gradient(180deg, rgba(56,189,248,.24), rgba(2,132,199,.34)); box-shadow: 0 4px 12px rgba(2,132,199,.28), inset 0 1px 0 rgba(255,255,255,.16); }
+.oc-tab:focus-visible { outline: 3px solid rgba(56,189,248,.42); outline-offset: 2px; }
+[data-theme="light"] .oc-tab { border-color: rgba(15,23,42,.16); background: rgba(248,250,252,.9); color: #475569; }
+[data-theme="light"] .oc-tab.is-active { border-color: rgba(2,132,199,.5); color: #075985; background: linear-gradient(180deg, #e0f2fe, #bae6fd); box-shadow: 0 3px 8px rgba(2,132,199,.16), inset 0 1px 0 rgba(255,255,255,.8); }
+[data-theme="light"] #options-cascade-page > .card-glass:first-child { border-color: rgba(2,132,199,.24) !important; background: linear-gradient(110deg, rgba(240,249,255,.95), rgba(248,250,252,.96)) !important; }
+[data-theme="light"] #fibx-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
 .terminal-cascade-chart-dialog.is-fullscreen { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-toolbar { position: sticky; top: 0; z-index: 3; background: #0b1220; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-body { padding: 0; display: grid; place-items: center; touch-action: none; user-select: none; }
