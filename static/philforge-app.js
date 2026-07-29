@@ -1116,6 +1116,16 @@ function _scrollViewportToTop() {
   });
 }
 
+const _pageScrollPositions = new Map();
+
+function _restorePageScroll(page) {
+  const position = _pageScrollPositions.get(page);
+  if (!position) return;
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: position.top, left: position.left, behavior: 'auto' });
+  });
+}
+
 function _restoreInitialMobileNavPosition(page = 'dashboard-page') {
   if (window.innerWidth > 767) return;
   const navBar = document.querySelector('.nav-bar');
@@ -1269,6 +1279,9 @@ async function ensureStrategiesLoaded(force = false) {
 
 function showPage(id, btn, options = {}) {
   const previousPageId = document.querySelector('.page-section.active-page')?.id || '';
+  if (previousPageId && previousPageId !== id) {
+    _pageScrollPositions.set(previousPageId, { top: window.scrollY, left: window.scrollX });
+  }
   const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
   if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
   document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
@@ -1312,8 +1325,9 @@ function showPage(id, btn, options = {}) {
       history.pushState(navState, '', nextHash);
     }
   }
-  if (options.scrollToTop !== false && previousPageId && previousPageId !== id) {
-    _scrollViewportToTop();
+  if (previousPageId && previousPageId !== id) {
+    if (options.scrollToTop === true) _scrollViewportToTop();
+    else _restorePageScroll(id);
   }
 }
 

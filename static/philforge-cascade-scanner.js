@@ -11,7 +11,8 @@
   var lastRows = [];
   var lastPayload = null;
   var page = 0;
-  var PAGE_SIZE = 10;
+  var PAGE_SIZE = 5;
+  var pendingScrollState = null;
   // Mirrors engine/cascade_scanner.py LEVEL_ALLOCATION. Change both together.
   var LEVEL_ALLOCATION = [0.20, 0.30, 0.50];
 
@@ -34,7 +35,27 @@
     return '<span class="cascade-scan-rungs bad">' + count + ' of 3</span>';
   }
 
+  function captureScrollState() {
+    var wrap = els.body && els.body.querySelector('.cascade-scan-table-wrap');
+    return {
+      pageX: window.scrollX,
+      pageY: window.scrollY,
+      tableLeft: wrap ? wrap.scrollLeft : 0
+    };
+  }
+
+  function restoreScrollState(state) {
+    if (!state) return;
+    requestAnimationFrame(function () {
+      window.scrollTo({ left: state.pageX, top: state.pageY, behavior: 'auto' });
+      var wrap = els.body && els.body.querySelector('.cascade-scan-table-wrap');
+      if (wrap) wrap.scrollLeft = state.tableLeft;
+    });
+  }
+
   function render(payload, keepPage) {
+    var scrollState = pendingScrollState || captureScrollState();
+    pendingScrollState = null;
     lastRows = payload.candidates || [];
     if (!keepPage) page = 0;
     if (els.meta) {
@@ -53,9 +74,12 @@
         '<p>Nothing qualifies right now.</p>' +
         (why ? '<p class="cascade-scan-empty-note">Why the others were dropped:</p><ul>' + why + '</ul>' : '') +
         '</div>';
+      restoreScrollState(scrollState);
       return;
     }
 
+    var pages = Math.max(1, Math.ceil(lastRows.length / PAGE_SIZE));
+    page = Math.min(page, pages - 1);
     var start = page * PAGE_SIZE;
     var pageRows = lastRows.slice(start, start + PAGE_SIZE);
     var rows = pageRows.map(function (row, offset) {
@@ -78,7 +102,6 @@
         '</tr>';
     }).join('');
 
-    var pages = Math.max(1, Math.ceil(lastRows.length / PAGE_SIZE));
     var pager = pages > 1 ? (
       '<div class="cascade-scan-pager">' +
       '<button type="button" class="btn btn-sm btn-outline" data-page="prev"' +
@@ -100,6 +123,7 @@
       '<th class="num" title="How many of the three buy levels your capital can reach">Rungs</th>' +
       '<th></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' + pager;
+    restoreScrollState(scrollState);
   }
 
   /* ── chart ──────────────────────────────────────────────────────
@@ -336,15 +360,12 @@
     if (typeof window.selectStockTerminal === 'function') {
       try { window.selectStockTerminal(symbol); } catch (err) { /* header is optional */ }
     }
-    // Jump, do not glide. Smooth scrolling across a long page reads as a lag
-    // between the click and anything happening.
-    var panel = $('terminal-cascade-panel');
-    if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
   }
 
   async function run(refresh) {
     var capital = parseFloat((els.capital && els.capital.value) || '100000');
     if (!(capital > 0)) { setStatus('Enter the capital you would put on one campaign.', 'warn'); return; }
+    pendingScrollState = captureScrollState();
     setStatus('Scanning 200+ scrips — this takes a few seconds…', '');
     els.run.disabled = true;
     els.run.classList.add('is-working');
@@ -358,7 +379,7 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Scan failed');
       lastPayload = data;
-      render(data);
+      render(data, true);
       setStatus('Scanned ' + new Date(data.scanned_at).toLocaleTimeString('en-IN'), 'ok');
     } catch (err) {
       setStatus(String((err && err.message) || err), 'error');
