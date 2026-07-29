@@ -91,3 +91,4 @@ test_philforge.db
 # Study asset privacy manifest
 static/notebooklm/.study-sanitize-index.json
 tools/.nifty_cache/
+tools/.upstox_cache/

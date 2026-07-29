@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "VERIFIED NIFTY contract rules, derived 2026-07-29 from Upstox's real listed",
+    "expired-instrument chains (the near-ATM strikes of each weekly expiry carry a",
+    "single uniform lot size; the expiry weekday is the actual date NSE settled).",
+    "This is ground truth from listed contracts, not hand-read circulars.",
+    "",
+    "Holiday shifts (a Thursday that settled Wednesday, a Tuesday that settled",
+    "Monday) are NOT encoded here -- the calendar reads them back from the trading",
+    "sessions in the index candles. Only the base weekday per era is listed.",
+    "",
+    "expiry_weekday: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4.",
+    "",
+    "Confirmed transitions from 95 real expiries 2024-10-03..2026-07-21:",
+    "  weekday: Thursday through 2025-08-28, then Tuesday from 2025-09-02.",
+    "  lot:     25 (to 2024-12-26), 75 (2025-01-02..2025-12-30), 65 (from 2026-01-06).",
+    "One lone anomaly: 2025-01-30 lists lot 25 amid a 75 run; treated as noise.",
+    "A range starting before 2024-10-03 is refused (no Upstox price data before it)."
+  ],
+  "rules": [
+    {
+      "effective_from": "2024-10-03",
+      "expiry_weekday": 3,
+      "lot_size": 25,
+      "strike_step": 50.0,
+      "note": "Thursday weekly expiry, lot 25. Verified from Upstox chains 2024-10-03..2024-12-26."
+    },
+    {
+      "effective_from": "2025-01-02",
+      "expiry_weekday": 3,
+      "lot_size": 75,
+      "strike_step": 50.0,
+      "note": "Thursday weekly expiry, lot raised to 75. Verified 2025-01-02..2025-08-28."
+    },
+    {
+      "effective_from": "2025-09-01",
+      "expiry_weekday": 1,
+      "lot_size": 75,
+      "strike_step": 50.0,
+      "note": "Weekly expiry moved to Tuesday (first Tuesday settle 2025-09-02); lot still 75."
+    },
+    {
+      "effective_from": "2026-01-06",
+      "expiry_weekday": 1,
+      "lot_size": 65,
+      "strike_step": 50.0,
+      "note": "Tuesday weekly expiry, lot cut to 65. Verified from 2026-01-06 onward."
+    }
+  ]
+}

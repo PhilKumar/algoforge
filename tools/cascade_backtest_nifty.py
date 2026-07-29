@@ -332,7 +332,9 @@ def report(outcomes: list[Outcome], mothers: list[MotherCandidate], label: str) 
         )
     hours = [row.hours_to_exit for row in traded if row.hours_to_exit is not None]
     if hours:
-        print(f"  market hours to exit  median {median(hours):,.1f}   worst {max(hours):,.1f}")
+        # Wall-clock hours between first entry and exit, NOT trading hours: 266
+        # here is ~11 calendar days, a normal 7-13 DTE hold, not 40 trading days.
+        print(f"  calendar hours to exit  median {median(hours):,.1f}   worst {max(hours):,.1f}  (wall-clock)")
 
     lots = [row.lots for row in traded]
     print(f"  lots committed        median {median(lots):.0f}   max {max(lots)}")
@@ -360,8 +362,8 @@ def report(outcomes: list[Outcome], mothers: list[MotherCandidate], label: str) 
     if won and lost:
         print(
             f"  >> {len(won)} wins of ~{median(won):,.0f} pts against {len(lost)} losses "
-            f"of ~{median(lost):,.0f} pts. Whether that pays depends entirely on premium, "
-            "which Layer 2 has not supplied."
+            f"of ~{median(lost):,.0f} pts. Whether that pays depends entirely on premium; "
+            "see the priced P&L below when --premium is on."
         )
 
     priced = [row for row in traded if row.net_pnl is not None]
@@ -434,17 +436,15 @@ def main() -> int:
     parser.add_argument("--min-range-atr", type=float, default=0.8)
     parser.add_argument("--min-separation-bars", type=int, default=5)
     parser.add_argument("--sweep", choices=sorted(SWEEPS), help="rerun the range across one rule interpretation")
-    parser.add_argument("--premium", help="Layer 2: fixed-strike premium source (not yet connected)")
+    parser.add_argument(
+        "--premium",
+        action="store_true",
+        help="Layer 2: price every leg with real fixed-strike Upstox premiums (needs UPSTOX_ACCESS_TOKEN)",
+    )
     args = parser.parse_args()
 
     calendar = optional_calendar(args.calendar)
     print(calendar.describe())
-
-    if args.premium:
-        raise SystemExit(
-            "Layer 2 premium sourcing is not connected yet. Run without --premium for the exact "
-            "index-space signal backtest; expiry outcomes are already priced from intrinsic."
-        )
 
     timeframes = sorted(set(LADDERS[args.tf]))
     series = load_candles(timeframes, args.from_date, args.to_date, refetch=args.refetch)
@@ -460,13 +460,30 @@ def main() -> int:
         min_range_atr=args.min_range_atr,
         min_separation_bars=args.min_separation_bars,
     )
+
+    # Layer 1 default: no premium history, so only expiry exits price (from
+    # intrinsic). Layer 2 (--premium) swaps in real fixed-strike Upstox bars.
+    premium_source = None
+    option_lookup = lambda _timestamp, _contract: None  # noqa: E731
+    if args.premium:
+        from data.cascade_upstox import UpstoxPremiumSource
+
+        premium_source = UpstoxPremiumSource()
+        covered = premium_source.available_expiries()
+        oldest = min(covered)
+        if date.fromisoformat(args.from_date) < oldest:
+            print(
+                f"  [premium] Upstox history starts {oldest}; legs before it stay unpriced gaps "
+                f"(requested from {args.from_date})."
+            )
+        option_lookup = premium_source.lookup
+
     shared = dict(
         base_timeframe=args.tf,
         max_concurrent=args.max_concurrent,
         max_days=args.max_days,
         scanner_kwargs=scanner_kwargs,
-        # Layer 1: no premium history. Expiry exits still price from intrinsic.
-        option_lookup=lambda _timestamp, _contract: None,
+        option_lookup=option_lookup,
         start_at_pivot=args.start_at_pivot,
         slippage_points=args.slippage_points,
         option_slippage_pct=args.option_slippage_pct,
@@ -480,6 +497,13 @@ def main() -> int:
         name = ", ".join(f"{key}={value}" for key, value in overrides.items()) or "defaults"
         outcomes, mothers = run_backtest(series, calendar, **shared, **overrides)
         report(outcomes, mothers, f"{args.tf}  {args.from_date}..{args.to_date}  [{name}]")
+
+    if premium_source is not None:
+        print(
+            f"\n  [premium] Upstox calls {premium_source.requests_made}   "
+            f"unlisted-strike gaps {premium_source.missing_contracts}   "
+            f"missing-minute gaps {premium_source.missing_minutes}"
+        )
     return 0
 
 

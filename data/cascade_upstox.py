@@ -1,0 +1,243 @@
+"""
+data/cascade_upstox.py -- Layer 2 premium source for the NIFTY option cascade.
+
+The cascade backtest (tools/cascade_backtest_nifty.py) computes every decision
+from index candles alone and then asks one question of a premium source:
+
+    option_lookup(timestamp, contract) -> OptionCandle | None
+
+This module answers that question with REAL 1-minute premiums for the exact
+fixed strike and expiry the engine chose, pulled from Upstox's expired-
+instruments history. A held call at 24000 CE on a specific weekly expiry is one
+instrument with one price series; Dhan's rolling ATM feed cannot price it (see
+data/cascade_dhan.py, which correctly refuses to pretend otherwise). Upstox can.
+
+Design rules, each of which is a way a premium backtest lies if you skip it:
+
+  * A strike/type the exchange never listed for that expiry is a GAP, not a
+    zero. lookup() returns None; the engine records a data gap and leaves that
+    leg unpriced rather than inventing a fill.
+  * A minute with no candle (near-ATM empty-but-200 responses were reported for
+    exactly this endpoint) is also a gap, never a zero.
+  * Nothing here decides anything. It only prices what the index engine already
+    decided. It reads no index candles and holds no strategy state.
+
+Every contract list and every 1-minute series is cached under tools/.upstox_cache
+so a second run is offline and the numbers move only when the rules do. Requires
+UPSTOX_ACCESS_TOKEN (the read-only Analytics Token) in .env. See
+tools/upstox_probe.py for the live-access check.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+import requests
+
+from engine.cascade_options import Contract, OptionCandle
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ENV_PATH = REPO_ROOT / ".env"
+CACHE_DIR = REPO_ROOT / "tools" / ".upstox_cache"
+
+BASE = "https://api.upstox.com/v2"
+NIFTY_INDEX_KEY = "NSE_INDEX|Nifty 50"
+
+# The endpoint returns at most 3000 one-minute bars per call. A weekly option
+# lives ~2 trading weeks (~3700 minutes at most from listing to expiry), but the
+# cascade only trades it inside a 7-13 DTE window, so a 20-calendar-day lookback
+# from expiry comfortably covers every minute the engine can ask about.
+_HISTORY_LOOKBACK_DAYS = 20
+
+
+class UpstoxAccessError(RuntimeError):
+    """Raised when the token is missing or Upstox refuses a request outright."""
+
+
+def _read_token() -> str:
+    if not ENV_PATH.exists():
+        raise UpstoxAccessError(f"No {ENV_PATH}; put UPSTOX_ACCESS_TOKEN in it first.")
+    for line in ENV_PATH.read_text().splitlines():
+        key, _, value = line.strip().partition("=")
+        if key.strip() == "UPSTOX_ACCESS_TOKEN":
+            cleaned = value.strip().strip('"').strip("'")
+            if cleaned:
+                return cleaned
+    raise UpstoxAccessError(
+        f"UPSTOX_ACCESS_TOKEN missing or empty in {ENV_PATH}. Copy it from "
+        "https://account.upstox.com/developer/apps -> Analytics."
+    )
+
+
+def _minute_key(moment: datetime) -> datetime:
+    """Naive IST minute. Upstox stamps +05:30 and the index engine works in IST,
+    so both collapse to the same wall-clock minute once tzinfo is dropped."""
+    return moment.replace(tzinfo=None, second=0, microsecond=0)
+
+
+class UpstoxPremiumSource:
+    """Fixed-strike 1-minute premium lookups, cached, gap-honest.
+
+    Pass ``.lookup`` (a bound method matching ``OptionLookup``) straight to the
+    backtest's ``option_lookup`` argument.
+    """
+
+    def __init__(
+        self,
+        *,
+        token: Optional[str] = None,
+        cache_dir: Path = CACHE_DIR,
+        underlying_key: str = NIFTY_INDEX_KEY,
+        session: Optional[requests.Session] = None,
+        timeout: int = 30,
+    ) -> None:
+        self._token = token or _read_token()
+        self._underlying = underlying_key
+        self._timeout = timeout
+        self._session = session or requests.Session()
+        self._cache_dir = Path(cache_dir)
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # In-memory memoisation on top of the disk cache.
+        self._contracts: dict[date, dict[tuple[int, str], str]] = {}
+        self._series: dict[str, dict[datetime, OptionCandle]] = {}
+        self._expiries: Optional[set[date]] = None
+
+        # Observability: the engine already counts gaps, but knowing *why* a run
+        # is thin (strike never listed vs. minute missing) is worth keeping.
+        self.missing_contracts = 0
+        self.missing_minutes = 0
+        self.requests_made = 0
+
+    # ── HTTP ──────────────────────────────────────────────────────
+
+    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+        """One GET with a small retry on 429/5xx. Raises on a hard failure so a
+        broken run stops loudly instead of silently pricing nothing."""
+        url = f"{BASE}{path}"
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {self._token}"}
+        last: Optional[str] = None
+        for attempt in range(4):
+            self.requests_made += 1
+            response = self._session.get(url, headers=headers, params=params or {}, timeout=self._timeout)
+            if response.status_code == 200:
+                body = response.json()
+                if isinstance(body, dict) and body.get("status") == "success":
+                    return body
+                raise UpstoxAccessError(f"{path}: 200 but not success: {str(body)[:300]}")
+            if response.status_code in (429, 500, 502, 503, 504):
+                last = f"HTTP {response.status_code}"
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise UpstoxAccessError(f"{path}: HTTP {response.status_code}: {response.text[:300]}")
+        raise UpstoxAccessError(f"{path}: gave up after retries ({last})")
+
+    # ── expiry coverage ───────────────────────────────────────────
+
+    def available_expiries(self) -> set[date]:
+        """The expiries Upstox still holds history for. Anything outside this
+        set can never be priced -- the caller should know before a long run."""
+        if self._expiries is None:
+            cache = self._cache_dir / "expiries.json"
+            if cache.exists():
+                raw = json.loads(cache.read_text())
+            else:
+                body = self._get("/expired-instruments/expiries", {"instrument_key": self._underlying})
+                raw = [str(x) for x in (body.get("data") or [])]
+                cache.write_text(json.dumps(raw))
+            self._expiries = {date.fromisoformat(x) for x in raw}
+        return self._expiries
+
+    # ── contract resolution ───────────────────────────────────────
+
+    def _contract_index(self, expiry: date) -> dict[tuple[int, str], str]:
+        """{(strike, 'CE'|'PE') -> upstox instrument key} for one expiry."""
+        if expiry in self._contracts:
+            return self._contracts[expiry]
+
+        cache = self._cache_dir / f"contracts_{expiry.isoformat()}.json"
+        if cache.exists():
+            raw = json.loads(cache.read_text())
+        else:
+            try:
+                body = self._get(
+                    "/expired-instruments/option/contract",
+                    {"instrument_key": self._underlying, "expiry_date": expiry.isoformat()},
+                )
+            except UpstoxAccessError:
+                # An expiry Upstox no longer lists resolves to an empty index:
+                # every lookup against it is a clean gap, not a crash.
+                raw = {}
+            else:
+                raw = {}
+                for contract in body.get("data") or []:
+                    strike = contract.get("strike_price")
+                    side = str(contract.get("instrument_type") or "").upper()
+                    key = contract.get("expired_instrument_key") or contract.get("instrument_key")
+                    if strike is None or side not in {"CE", "PE"} or not key:
+                        continue
+                    raw[f"{int(round(float(strike)))}|{side}"] = key
+            cache.write_text(json.dumps(raw))
+
+        index = {(int(k.split("|")[0]), k.split("|")[1]): v for k, v in raw.items()}
+        self._contracts[expiry] = index
+        return index
+
+    # ── 1-minute premium series ───────────────────────────────────
+
+    def _minute_series(self, instrument_key: str, expiry: date) -> dict[datetime, OptionCandle]:
+        """{naive-IST minute -> OptionCandle} for one instrument, whole life."""
+        if instrument_key in self._series:
+            return self._series[instrument_key]
+
+        safe = instrument_key.replace("|", "_").replace("/", "_")
+        cache = self._cache_dir / f"candles_{safe}.json"
+        if cache.exists():
+            rows = json.loads(cache.read_text())
+        else:
+            to_date = expiry.isoformat()
+            from_date = (expiry - timedelta(days=_HISTORY_LOOKBACK_DAYS)).isoformat()
+            path = f"/expired-instruments/historical-candle/{instrument_key}/1minute/{to_date}/{from_date}"
+            try:
+                body = self._get(path)
+                rows = (body.get("data") or {}).get("candles") or []
+            except UpstoxAccessError:
+                rows = []
+            cache.write_text(json.dumps(rows))
+
+        series: dict[datetime, OptionCandle] = {}
+        for row in rows:
+            # [ts, open, high, low, close, volume, open_interest], newest-first.
+            moment = _minute_key(datetime.fromisoformat(row[0]))
+            series[moment] = OptionCandle(
+                timestamp=moment,
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+            )
+        self._series[instrument_key] = series
+        return series
+
+    # ── the one method the engine calls ───────────────────────────
+
+    def lookup(self, timestamp: datetime, contract: Contract) -> Optional[OptionCandle]:
+        """The exact premium bar for ``contract`` at ``timestamp``'s minute, or
+        None if that strike/expiry was never listed or that minute has no data.
+        Never fabricates a price."""
+        index = self._contract_index(contract.expiry)
+        instrument_key = index.get((int(round(contract.strike)), str(contract.option_type).upper()))
+        if instrument_key is None:
+            self.missing_contracts += 1
+            return None
+
+        series = self._minute_series(instrument_key, contract.expiry)
+        bar = series.get(_minute_key(timestamp))
+        if bar is None:
+            self.missing_minutes += 1
+            return None
+        return bar
