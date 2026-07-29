@@ -411,6 +411,31 @@
     gap: 10px;
     margin-top: 22px;
   }
+  .appearance-action-btn {
+    min-width: 96px;
+    min-height: 38px;
+    margin: 0;
+    justify-content: center;
+    letter-spacing: 0;
+  }
+  .appearance-action-reset {
+    --btn-bg: rgba(255,255,255,0.035);
+    --btn-color: var(--text-dim);
+    --btn-border: var(--border);
+    box-shadow: none;
+    text-shadow: none;
+  }
+  .appearance-action-reset::before { display: none; }
+  .appearance-action-reset:hover {
+    --btn-bg: rgba(255,255,255,0.07);
+    --btn-color: var(--text);
+    box-shadow: 0 5px 12px rgba(0,0,0,0.20);
+  }
+  .appearance-action-apply {
+    --btn-bg: linear-gradient(180deg, rgba(0,191,165,0.25) 0%, rgba(0,150,130,0.45) 100%);
+    --btn-color: #5eead4;
+    --btn-border: rgba(0,191,165,0.50);
+  }
   [data-theme="light"] .appearance-option {
     background: rgba(248,250,252,0.86);
     border-color: rgba(15,23,42,0.09);
@@ -427,6 +452,24 @@
   [data-theme="light"] .appearance-font-sample {
     background: rgba(255,255,255,0.74);
   }
+  [data-theme="light"] .appearance-action-reset {
+    --btn-bg: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+    --btn-color: #334155;
+    --btn-border: rgba(15,23,42,0.14);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.08);
+  }
+  [data-theme="light"] .appearance-action-reset:hover {
+    --btn-bg: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+    --btn-color: #0f172a;
+    box-shadow: 0 3px 8px rgba(15,23,42,0.12);
+  }
+  [data-theme="light"] .appearance-action-apply {
+    --btn-bg: linear-gradient(180deg, #059669 0%, #047857 100%);
+    --btn-color: #ffffff;
+    --btn-border: #047857;
+    box-shadow: 0 3px 8px rgba(5,150,105,0.24), inset 0 1px 0 rgba(255,255,255,0.18);
+    text-shadow: none;
+  }
   @media (max-width: 720px) {
     .appearance-modal {
       width: 100%;
@@ -440,6 +483,8 @@
       align-items: flex-end;
       padding: 12px;
     }
+    .appearance-actions { justify-content: stretch; }
+    .appearance-action-btn { flex: 1 1 0; }
   }
 
 /* Shared page hooks for Study Lounge, Market Movers, and Login */
