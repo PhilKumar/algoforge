@@ -1761,13 +1761,13 @@
 
   <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · 1H ONLY · NO TF ESCALATION</div><h3 style="margin:5px 0 0;font-size:16px;">Candle Entry Strategy</h3><p style="margin:6px 0 0;font-size:11px;color:var(--muted);line-height:1.55;max-width:720px;">Choose a completed 1H mother candle from the last 15 calendar days. Dhan supplies its NIFTY OHLC. Today starts a quote-backed paper campaign; an earlier date replays the same index geometry only, without inventing fixed-strike premium or P&amp;L.</p></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
-    <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" placeholder="Select 1H mother timestamp · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm" type="button" data-pf-action="startCandleEntryPaper" style="padding:9px 12px;--btn-bg:linear-gradient(180deg,rgba(59,130,246,.30),rgba(37,99,235,.40));--btn-color:#dbeafe;--btn-border:rgba(96,165,250,.56);">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm" type="button" data-pf-action="killCandleEntryPaper" style="display:none;padding:9px 12px;color:#fecaca;border-color:rgba(248,113,113,.55);background:rgba(127,29,29,.20);">■ Kill &amp; close</button></div>
+    <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
     <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
     <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
   </div>
 
-  <div style="display:grid;grid-template-columns:minmax(300px,.72fr) minmax(420px,1.28fr);gap:16px;align-items:start;">
-    <div class="card" style="padding:20px;">
+  <div class="cascade-options-workspace">
+    <div class="card cascade-options-setup-card" style="padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
         <h3 style="margin:0;font-size:15px;">Start paper campaign</h3>
         <span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">CE ONLY · 5m</span>
@@ -1785,24 +1785,27 @@
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="cascade-options-rung-inr" type="number" min="1" step="500" value="13000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
         <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">CE offset</label><select id="cascade-options-offset" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="-2" selected>ATM − 2 strikes</option><option value="-1">ATM − 1 strike</option><option value="0">ATM</option></select></div>
       </div>
-      <div class="pf-cascade-campaign-actions"><button id="cascade-options-start" class="btn" type="button" data-pf-action="startCascadeOptionsPaper" style="--btn-bg:linear-gradient(180deg,rgba(16,185,129,.3),rgba(5,150,105,.46));--btn-color:#d1fae5;--btn-border:rgba(52,211,153,.56);font-weight:800;">▶ Start paper campaign</button><button id="cascade-options-stop" class="btn btn-sm" type="button" data-pf-action="stopCascadeOptionsPaper" style="padding:7px;font-size:11px;display:none;">■ Stop monitoring</button></div>
+      <div class="pf-cascade-campaign-actions"><button id="cascade-options-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startCascadeOptionsPaper">▶ Start paper campaign</button></div>
       <div id="cascade-options-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
     </div>
 
-    <div class="card" style="padding:20px;min-height:364px;">
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:14px;">
-        <div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="cascade-options-badge" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.5px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div><div id="cascade-options-contract" style="margin-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">No active campaign</div></div>
-        <div style="display:flex;gap:7px;align-items:center;"><button id="cascade-options-load-chart" class="btn btn-sm" type="button" data-pf-action="loadCascadeOptionsChart" style="padding:7px 10px;font-size:11px;">↗ Chart</button><button id="cascade-options-kill" class="btn btn-sm" type="button" data-pf-action="killCascadeOptionsPaper" style="display:none;padding:7px 10px;font-size:11px;color:#fecaca;border-color:rgba(248,113,113,.55);background:rgba(127,29,29,.20);">■ Kill &amp; close</button></div>
+    <details id="cascade-options-window" class="cascade-options-window">
+      <summary class="cascade-options-window-head">
+        <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="cascade-options-badge" class="cascade-options-state">IDLE</span></div><div id="cascade-options-contract" class="cascade-options-contract">No active campaign</div></div>
+        <div id="cascade-options-gist" class="cascade-options-gist">Choose a completed 5m mother candle to begin.</div>
+        <div class="cascade-options-strip-actions"><button id="cascade-options-load-chart" class="cascade-options-control" type="button" data-pf-action="loadCascadeOptionsChart" aria-label="Open campaign chart">↗ Chart</button><button id="cascade-options-stop" class="cascade-options-control is-warn" type="button" data-pf-action="stopCascadeOptionsPaper" style="display:none;">■ Stop</button><button id="cascade-options-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killCascadeOptionsPaper" style="display:none;">■ Kill</button></div>
+      </summary>
+      <div class="cascade-options-window-body">
+        <div id="cascade-options-summary" class="cascade-options-summary"></div>
+        <div id="cascade-options-empty" class="cascade-options-empty">Start a current-session paper campaign to see the fixed contract, index geometry, paper fills and net round P&amp;L here.</div>
+        <div id="cascade-options-active" style="display:none;margin-top:16px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
+          <div id="cascade-options-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Index rungs</div>
+          <div id="cascade-options-rungs" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
+        </div>
       </div>
-      <div id="cascade-options-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;"></div>
-      <div id="cascade-options-empty" style="margin-top:18px;border:1px dashed var(--border);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6;">Start a current-session paper campaign to see the fixed contract, index geometry, paper fills and net round P&amp;L here.</div>
-      <div id="cascade-options-active" style="display:none;margin-top:16px;">
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
-        <div id="cascade-options-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Index rungs</div>
-        <div id="cascade-options-rungs" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
-      </div>
-    </div>
+    </details>
   </div>
 
   <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">

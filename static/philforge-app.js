@@ -1541,6 +1541,8 @@ function _renderCascadeOptionsStatus(payload) {
   const summary = _cascadeOptionsEl('cascade-options-summary');
   const empty = _cascadeOptionsEl('cascade-options-empty');
   const active = _cascadeOptionsEl('cascade-options-active');
+  const gist = _cascadeOptionsEl('cascade-options-gist');
+  const campaignWindow = _cascadeOptionsEl('cascade-options-window');
   const startBtn = _cascadeOptionsEl('cascade-options-start');
   const stopBtn = _cascadeOptionsEl('cascade-options-stop');
   const killBtn = _cascadeOptionsEl('cascade-options-kill');
@@ -1550,6 +1552,8 @@ function _renderCascadeOptionsStatus(payload) {
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
     if (active) active.style.display = 'none';
+    if (gist) gist.textContent = 'Choose a completed 5m mother candle to begin.';
+    if (campaignWindow) campaignWindow.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (stopBtn) stopBtn.style.display = 'none';
     if (killBtn) killBtn.style.display = 'none';
@@ -1563,6 +1567,8 @@ function _renderCascadeOptionsStatus(payload) {
   if (badge) { badge.textContent = state; badge.style.color = tone; badge.style.borderColor = tone; }
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
+  if (gist) gist.textContent = `${campaign.rounds?.length || 0} round${campaign.rounds?.length === 1 ? '' : 's'} · ${_cascadeOptionsMoney(campaign.pending_inr || 0)} pending`;
+  if (campaignWindow) campaignWindow.classList.toggle('is-active', isRunning);
   if (summary) {
     summary.innerHTML = [
       _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
@@ -1607,7 +1613,9 @@ function _renderCascadeOptionsRounds(rounds) {
 function _renderCascadeOptionsEvents(events) {
   const el = _cascadeOptionsEl('cascade-options-events');
   if (!el) return;
+  const scrollTop = el.scrollTop;
   el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong></div>`).join('') : 'No events yet.';
+  el.scrollTop = scrollTop;
 }
 
 async function refreshCascadeOptionsStatus() {
