@@ -8116,6 +8116,17 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         # UPSTOX_ACCESS_TOKEN, so the whole batch runs off the event loop.
         from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
 
+        # Dhan-style self-heal: if the daily Upstox token is missing or expired
+        # and headless-login creds are configured, mint a fresh one and persist
+        # it to .env before the source reads it.  A no-op when Upstox auto-login
+        # isn't set up (returns None), so the clear 503 below still fires.
+        try:
+            from upstox_token_manager import ensure_fresh_token
+
+            ensure_fresh_token()
+        except Exception as exc:  # never let the refresher's failure mask the real error
+            _logger.warning("[fib-backtest] Upstox token pre-check skipped: %s", exc)
+
         try:
             premium_source = UpstoxPremiumSource()
             expiries = sorted(premium_source.available_expiries())
@@ -8123,8 +8134,9 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Upstox premium history is not available (UPSTOX_ACCESS_TOKEN missing or expired). "
-                    f"Real-premium backtest needs it. {exc}"
+                    "Upstox premium history is not available (UPSTOX_ACCESS_TOKEN missing or expired, "
+                    "and headless auto-login is not configured). Real-premium backtest needs it. "
+                    f"{exc}"
                 ),
             ) from exc
         if not expiries:
