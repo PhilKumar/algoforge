@@ -1,0 +1,95 @@
+/* Final light-theme action layer. This file is loaded after the feature
+   stylesheets so pale dark-mode foreground tokens cannot leak into light mode. */
+[data-theme="light"] .btn {
+  color: #172554 !important;
+  font-weight: 800;
+  text-shadow: none !important;
+}
+
+[data-theme="light"] .btn::before { opacity: .42; }
+
+[data-theme="light"] .btn.btn-submit,
+[data-theme="light"] .cascade-options-primary-btn,
+[data-theme="light"] .btn[onclick*="submitScalpEntry('BUY')"],
+[data-theme="light"] .btn[onclick*="submitStockTerminalOrder('BUY')"] {
+  --btn-bg: linear-gradient(180deg, #a7f3d0, #6ee7b7) !important;
+  --btn-color: #064e3b !important;
+  --btn-border: #34d399 !important;
+  background: linear-gradient(180deg, #a7f3d0, #6ee7b7) !important;
+  color: #064e3b !important;
+  border-color: #34d399 !important;
+}
+
+[data-theme="light"] .btn.btn-danger,
+[data-theme="light"] .btn[onclick*="submitScalpEntry('SELL')"],
+[data-theme="light"] .btn[onclick*="submitStockTerminalOrder('SELL')"] {
+  --btn-bg: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  --btn-color: #881337 !important;
+  --btn-border: #fb7185 !important;
+  background: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  color: #881337 !important;
+  border-color: #fb7185 !important;
+}
+
+[data-theme="light"] .btn.btn-secondary {
+  --btn-bg: linear-gradient(180deg, #ede9fe, #ddd6fe) !important;
+  --btn-color: #4c1d95 !important;
+  --btn-border: #a78bfa !important;
+  color: #4c1d95 !important;
+}
+
+[data-theme="light"] .btn.btn-outline {
+  --btn-bg: linear-gradient(180deg, #ffffff, #f1f5f9) !important;
+  --btn-color: #334155 !important;
+  --btn-border: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] #cascade-run-btn,
+[data-theme="light"] .terminal-cascade-start-btn,
+[data-theme="light"] .cascade-options-control.is-warn {
+  --btn-bg: linear-gradient(180deg, #fef3c7, #fde68a) !important;
+  --btn-color: #713f12 !important;
+  --btn-border: #f59e0b !important;
+  background: linear-gradient(180deg, #fef3c7, #fde68a) !important;
+  color: #713f12 !important;
+  border-color: #f59e0b !important;
+}
+
+[data-theme="light"] .terminal-cascade-chart-launch,
+[data-theme="light"] .pf-campaign-actions .btn:not(.btn-danger),
+[data-theme="light"] .cascade-options-control,
+[data-theme="light"] .terminal-cascade-card-control,
+[data-theme="light"] .terminal-cascade-chart-control {
+  --btn-bg: linear-gradient(180deg, #dbeafe, #bfdbfe) !important;
+  --btn-color: #172554 !important;
+  --btn-border: #60a5fa !important;
+  background: linear-gradient(180deg, #dbeafe, #bfdbfe) !important;
+  color: #172554 !important;
+  border-color: #60a5fa !important;
+}
+
+[data-theme="light"] .cascade-options-control.is-danger,
+[data-theme="light"] .terminal-cascade-card-control.is-danger,
+[data-theme="light"] .terminal-cascade-chart-control.is-danger {
+  --btn-bg: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  --btn-color: #881337 !important;
+  --btn-border: #fb7185 !important;
+  background: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  color: #881337 !important;
+  border-color: #fb7185 !important;
+}
+
+[data-theme="light"] .terminal-cascade-tf-option.is-active,
+[data-theme="light"] .terminal-cascade-tf-option.is-resolved {
+  color: #713f12;
+  background: #fef3c7;
+  box-shadow: inset 0 0 0 1px #f59e0b;
+}
+
+[data-theme="light"] .btn:disabled,
+[data-theme="light"] .terminal-cascade-start-panel-actions .btn:disabled,
+[data-theme="light"] .cascade-scan-pager .btn:disabled {
+  opacity: .88;
+  filter: saturate(.72);
+}
