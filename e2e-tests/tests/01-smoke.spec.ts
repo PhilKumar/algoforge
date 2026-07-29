@@ -183,15 +183,26 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
     await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
     tintPalettes[tint] = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
+      const header = document.querySelector('.header-shell');
+      const card = document.querySelector('.card');
+      const nav = document.querySelector('.nav-tab');
+      if (!header || !card || !nav) throw new Error('Workspace shell is unavailable');
       return [
-        root.getPropertyValue('--bg').trim(),
-        root.getPropertyValue('--card').trim(),
-        root.getPropertyValue('--accent').trim(),
-        getComputedStyle(document.body).backgroundImage,
+        root.getPropertyValue('--skin-paper').trim(),
+        root.getPropertyValue('--skin-radius').trim(),
+        root.getPropertyValue('--skin-accent').trim(),
+        getComputedStyle(header).display,
+        getComputedStyle(card).borderRadius,
+        getComputedStyle(nav).borderRadius,
       ].join('|');
     });
   }
   expect(new Set(Object.values(tintPalettes)).size).toBe(5);
+  expect(tintPalettes.jade).toContain('#f5f7f2');
+  expect(tintPalettes.cobalt).toContain('#080b10');
+  expect(tintPalettes.copper).toContain('#fbf7ef');
+  expect(tintPalettes.fuchsia).toContain('#121318');
+  expect(tintPalettes.lime).toContain('#f5f5e9');
 
   const fontStacks: Record<string, string> = {};
   for (const font of ['forge', 'atelier', 'exchange', 'blueprint', 'scribe']) {
