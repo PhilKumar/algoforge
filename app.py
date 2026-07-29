@@ -8195,9 +8195,13 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
                 "NIFTY", int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
             )
 
-        def select(timestamp, index_price) -> FixedCampaignOption:
-            # ATM-N at the index AT THIS FILL -> a deeper CE buys a lower strike.
-            return to_fixed(resolver.select(timestamp, index_price, side, resolver_config))
+        def select(_timestamp, index_price) -> FixedCampaignOption:
+            # Strike is ATM-N at the index AT THIS FILL (a deeper CE buys a lower
+            # strike), but the EXPIRY stays the mother's next-weekly for the whole
+            # campaign -- so we resolve against the mother's date, not the fill's.
+            # Re-resolving on the fill date would drift the expiry as the campaign
+            # ages and eventually find none Upstox has priced.
+            return to_fixed(resolver.select(mother.timestamp, index_price, side, resolver_config))
 
         def premium_lookup(timestamp, contract):
             bar = premium_source.lookup(timestamp, contract)
