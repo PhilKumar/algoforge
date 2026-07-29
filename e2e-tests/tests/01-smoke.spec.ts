@@ -214,6 +214,65 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-pf-font', 'scribe');
 });
 
+test('Cascade generated statuses remain legible in light mode', async ({ page }) => {
+  await login(page);
+
+  const statuses = await page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'light');
+
+    const app = window as typeof window & {
+      _cascadeSetStatus?: (message: string, tone: string) => void;
+      _cascadeOptionsSetFormStatus?: (message: string, tone: string) => void;
+      _setCandleEntryFormStatus?: (message: string, tone: string) => void;
+      _renderCandleEntryStatus?: (payload: unknown) => void;
+      _fibSetFormStatus?: (message: string, tone: string) => void;
+    };
+    if (!app._cascadeSetStatus || !app._cascadeOptionsSetFormStatus || !app._setCandleEntryFormStatus || !app._renderCandleEntryStatus || !app._fibSetFormStatus) {
+      throw new Error('Cascade status renderers are unavailable');
+    }
+
+    app._cascadeSetStatus('Signal replay is running', 'busy');
+    app._cascadeOptionsSetFormStatus('Options paper campaign started', 'success');
+    app._setCandleEntryFormStatus('Historical 1H replay completed. Fixed-strike P&L is withheld.', 'success');
+    app._renderCandleEntryStatus({
+      campaign: {
+        running: false,
+        replay_complete: true,
+        status: 'completed',
+        contract: { underlying: 'NIFTY', strike: 24000, option_type: 'CE', expiry: '2026-08-06', lot_size: 65 },
+        entry_stop: 23900,
+        target_index: 24100,
+        qualifying_reds: [],
+        pricing_warning: 'Historical replay verifies index geometry only. Fixed-strike option P&L is withheld.',
+      },
+    });
+    app._fibSetFormStatus('Replaying the index geometry...', 'busy');
+
+    const color = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Missing ${selector}`);
+      return getComputedStyle(element).color;
+    };
+    return {
+      signalReplay: color('#cascade-form-status'),
+      optionsPaper: color('#cascade-options-form-status'),
+      candleReplay: color('#candle-entry-form-status'),
+      candleBadge: color('#candle-entry-badge'),
+      candleWarning: color('#candle-entry-summary .is-warning'),
+      fibBoundary: color('#fibx-form-status'),
+    };
+  });
+
+  expect(statuses).toEqual({
+    signalReplay: 'rgb(146, 64, 14)',
+    optionsPaper: 'rgb(4, 120, 87)',
+    candleReplay: 'rgb(4, 120, 87)',
+    candleBadge: 'rgb(146, 64, 14)',
+    candleWarning: 'rgb(146, 64, 14)',
+    fibBoundary: 'rgb(146, 64, 14)',
+  });
+});
+
 test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ page }) => {
   await login(page);
 
