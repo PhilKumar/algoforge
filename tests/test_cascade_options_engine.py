@@ -162,6 +162,36 @@ class PaperRoundTests(unittest.TestCase):
         self.assertEqual(len(restored.rounds), 1)
         self.assertEqual(restored.rounds[0].net_pnl, round_row.net_pnl)
 
+    def test_lot_ladder_sizes_the_first_fill_at_one_lot_ignoring_the_budget(self):
+        # Same verified fixture, but the fib-boundary lot ladder replaces the
+        # rupee budget: the first fill takes 1 lot (not the 2 that rung_inr
+        # 13000 / premium 100 / 65 would buy).
+        mother = IndexCandle(ts(0), 65020.00, 65107.99, 65002.00, 65051.98)
+        candles = [
+            IndexCandle(ts(1), 65051.98, 65051.98, 64804.76, 64919.31),
+            IndexCandle(ts(2), 64919.31, 64923.67, 64852.01, 64876.01),
+            IndexCandle(ts(3), 64876.01, 64878.01, 64792.00, 64800.01),
+            IndexCandle(ts(4), 64800.00, 64938.00, 64790.01, 64904.00),
+            IndexCandle(ts(5), 64904.00, 64928.00, 64822.24, 64822.24),
+            IndexCandle(ts(6), 64822.24, 64822.24, 64639.00, 64665.99),
+            IndexCandle(ts(7), 64665.99, 64680.00, 64500.00, 64550.00),
+            IndexCandle(ts(8), 64550.00, 64600.00, 64400.00, 64450.00),
+            IndexCandle(ts(9), 64450.00, 64600.00, 64420.00, 64580.00),
+            IndexCandle(ts(10), 64580.00, 64720.00, 64570.00, 64690.00),
+        ]
+        adapter = _PaperAdapter()
+        contract = FixedCampaignOption("NIFTY", 64800, date(2026, 7, 28), "CE", 65, "123456")
+
+        def premium(timestamp, _contract):
+            return 100.0 if timestamp == ts(9) else 120.0 if timestamp == ts(10) else None
+
+        engine = NiftyOptionsPaperCascade(
+            mother, contract, adapter, premium, PaperCascadeConfig(rung_inr=13000, lot_ladder=True)
+        ).run(candles)
+        self.assertEqual(len(engine.rounds), 1)
+        self.assertEqual(engine.rounds[0].fills[0].lots, 1)  # ladder: first buy = 1 lot
+        self.assertEqual(engine.rounds[0].fills[0].quantity, 65)
+
     def test_new_low_releases_closed_rungs_for_a_fresh_paper_round(self):
         adapter = _PaperAdapter()
         mother = IndexCandle(ts(0), 100, 110, 90, 105)

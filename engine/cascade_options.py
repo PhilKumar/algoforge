@@ -1249,6 +1249,11 @@ class PaperCascadeConfig:
     target_fraction: float = 0.25
     ce_offset_steps: int = -2
     cost_schedule: NiftyOptionCostSchedule = field(default_factory=NiftyOptionCostSchedule)
+    # Fib-boundary sizing: ignore the rupee budget and buy a fixed lot ladder --
+    # 1 lot on the first fill, 2 on the second, 3 on the third...  The buy count
+    # is the sizing (no percent, no fund allocation).  When False (the default),
+    # the classic cascade converts rung_inr cash to whole lots at the premium.
+    lot_ladder: bool = False
 
     def __post_init__(self) -> None:
         if self.rung_inr <= 0:
@@ -1445,7 +1450,11 @@ class NiftyOptionsPaperCascade:
             self.status = "AWAITING_OPTION_QUOTE"
             self._log(candle, "option_quote_missing", action="buy")
             return
-        lots = max(1, math.floor(self.pending_inr / (premium * self.contract.lot_size)))
+        if self.config.lot_ladder:
+            # 1 lot on the first fill of this basket, 2 on the second, 3 next...
+            lots = len(self.open_fills) + 1
+        else:
+            lots = max(1, math.floor(self.pending_inr / (premium * self.contract.lot_size)))
         quantity = lots * self.contract.lot_size
         paper_order = self.adapter.place_order(self.contract, side="BUY", quantity=quantity)
         fill = PaperCascadeFill(
