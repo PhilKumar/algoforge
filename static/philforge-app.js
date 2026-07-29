@@ -1534,8 +1534,17 @@ function _cascadeOptionsSetFormStatus(message, tone = 'muted') {
 function _cascadeOptionsTimestamp(value) {
   return value ? String(value).replace('T', ' ').replace(/(?:\.\d+)?(?:\+05:30|Z)$/, ' IST') : '—';
 }
+function _cascadeOptionsToneClass(accent) {
+  const tone = String(accent || '').toLowerCase();
+  if (tone.includes('6ee7b7') || tone.includes('34d399')) return 'is-positive';
+  if (tone.includes('fde68a') || tone.includes('fbbf24')) return 'is-warning';
+  if (tone.includes('fca5a5') || tone.includes('f87171')) return 'is-negative';
+  return '';
+}
+
 function _cascadeOptionsMetric(label, value, accent = 'var(--text)') {
-  return `<div style="padding:10px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px 'JetBrains Mono',monospace;color:${accent};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(value)}</div></div>`;
+  const toneClass = _cascadeOptionsToneClass(accent);
+  return `<div class="cascade-options-metric ${toneClass}" style="padding:10px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div class="cascade-options-metric-value" style="margin-top:4px;font:800 12px 'JetBrains Mono',monospace;color:${accent};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(value)}</div></div>`;
 }
 
 function _renderCascadeOptionsStatus(payload) {
@@ -1967,6 +1976,10 @@ function _fibSetFormStatus(message, tone = 'muted') {
   const el = document.getElementById('fibx-form-status');
   if (!el) return;
   el.textContent = message || '';
+  el.classList.remove('is-positive', 'is-warning', 'is-negative');
+  if (tone === 'success') el.classList.add('is-positive');
+  if (tone === 'busy') el.classList.add('is-warning');
+  if (tone === 'error') el.classList.add('is-negative');
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 
@@ -1991,7 +2004,12 @@ function _renderFibBoundaryStatus(payload) {
     liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
   };
   if (!campaign) {
-    if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
+    if (badge) {
+      badge.textContent = 'IDLE';
+      badge.classList.remove('is-positive', 'is-warning');
+      badge.style.color = 'var(--muted)';
+      badge.style.borderColor = 'var(--border)';
+    }
     if (contract) contract.textContent = 'No active campaign';
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
@@ -2008,7 +2026,13 @@ function _renderFibBoundaryStatus(payload) {
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const tone = isRunning ? '#6ee7b7' : '#fbbf24';
-  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; badge.style.color = tone; badge.style.borderColor = tone; }
+  if (badge) {
+    badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state;
+    badge.classList.toggle('is-positive', isRunning);
+    badge.classList.toggle('is-warning', !isRunning);
+    badge.style.color = tone;
+    badge.style.borderColor = tone;
+  }
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || campaign.side || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
   if (eventsTf) eventsTf.textContent = `${String(campaign.timeframe || '').toUpperCase()} CLOSED BARS`;
@@ -2030,16 +2054,16 @@ function _renderFibBoundaryStatus(payload) {
   if (active) active.style.display = '';
   if (startBtn) startBtn.disabled = isRunning;
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
-  const pricingWarn = campaign.pricing_warning ? `<div style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:#fbbf24;font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
+  const pricingWarn = campaign.pricing_warning ? `<div class="fibx-pricing-warning" style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:#fbbf24;font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
   if (pricingWarn && summary) summary.insertAdjacentHTML('beforeend', pricingWarn);
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const signalFills = Array.isArray(campaign.signal_fills) ? campaign.signal_fills : [];
   const fillsEl = document.getElementById('fibx-fills');
   if (fillsEl) {
     if (fills.length) {
-      fillsEl.innerHTML = fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(c.option_type || campaign.side || 'CE'))} ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('');
+      fillsEl.innerHTML = fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(c.option_type || campaign.side || 'CE'))} ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('');
     } else if (signalFills.length) {
-      fillsEl.innerHTML = signalFills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong style="color:#fbbf24;">SIGNAL ONLY</strong></div>`).join('');
+      fillsEl.innerHTML = signalFills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong class="fibx-warning-value" style="color:#fbbf24;">SIGNAL ONLY</strong></div>`).join('');
     } else {
       fillsEl.innerHTML = '<div style="color:var(--muted);padding:8px 0;">No open paper basket.</div>';
     }
@@ -2048,7 +2072,8 @@ function _renderFibBoundaryStatus(payload) {
   const boundEl = document.getElementById('fibx-boundaries');
   if (boundEl) boundEl.innerHTML = boundaries.length ? boundaries.map(b => {
     const stateColor = ({ PENDING: 'var(--muted)', ARMED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#f87171' }[b.status] || 'var(--muted)');
-    return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>L${escapeHtml(String(b.level))}</strong><span style="color:${stateColor};">${escapeHtml(b.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(b.index_price))}</div></div>`;
+    const toneClass = _cascadeOptionsToneClass(stateColor);
+    return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>L${escapeHtml(String(b.level))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(b.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(b.index_price))}</div></div>`;
   }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib boundaries yet.</div>';
   _renderFibBoundaryRounds(campaign.rounds || []);
   _renderFibBoundaryEvents(campaign.events || []);
@@ -2063,7 +2088,7 @@ function _renderFibBoundaryRounds(rounds) {
     const pnl = Number(row.net_pnl || 0);
     const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
     const avgEntry = row.fills && row.fills.length ? (row.fills.reduce((s, f) => s + Number(f.index_price) * Number(f.quantity), 0) / row.fills.reduce((s, f) => s + Number(f.quantity), 0)) : null;
-    return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(row.round_id))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(String(row.exit_quantity))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(avgEntry))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
+    return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(row.round_id))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(String(row.exit_quantity))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(avgEntry))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td class="${_cascadeOptionsToneClass(color)}" style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
   }).join('') : '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
 }
 
@@ -2366,6 +2391,8 @@ function _renderFibBoundaryBacktest(data) {
     const priced = !!result.fully_priced;
     badge.textContent = priced ? 'REAL PREMIUMS' : 'PARTIAL · GAPS';
     const tone = priced ? '#6ee7b7' : '#fbbf24';
+    badge.classList.toggle('is-positive', priced);
+    badge.classList.toggle('is-warning', !priced);
     badge.style.color = tone; badge.style.borderColor = tone;
   }
   const c = result.contract;
@@ -2394,7 +2421,7 @@ function _renderFibBoundaryBacktest(data) {
   const gapsEl = document.getElementById('fibx-backtest-gaps');
   if (gapsEl) {
     gapsEl.innerHTML = gaps.length
-      ? `<details style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — legs Upstox never listed or minutes with no bar (net P&L is withheld when any leg is a gap)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`
+      ? `<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — legs Upstox never listed or minutes with no bar (net P&L is withheld when any leg is a gap)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`
       : '';
   }
   const legs = document.getElementById('fibx-backtest-legs');
@@ -2402,7 +2429,7 @@ function _renderFibBoundaryBacktest(data) {
     const rows = result.entries || [];
     legs.innerHTML = rows.length ? rows.map(e => {
       const priced = e.option_price != null;
-      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td style="padding:7px 8px;color:${priced ? 'var(--text)' : '#fbbf24'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
+      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td class="${priced ? '' : 'is-warning'}" style="padding:7px 8px;color:${priced ? 'var(--text)' : '#fbbf24'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
     }).join('') : '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--muted);">No leg filled — price never reached the deep boundaries in this window.</td></tr>';
   }
 }

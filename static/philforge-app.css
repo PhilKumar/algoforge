@@ -5678,8 +5678,33 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] #options-cascade-page .cascade-options-primary-btn::before { opacity: .22; }
 [data-theme="light"] #options-cascade-page .cascade-options-summary > div { background: #f8fafc; }
 [data-theme="light"] #options-cascade-page #fibx-mode-hint:not(:empty) { background: #eff6ff; }
-[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-live { background: #ecfdf5 !important; }
-[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-replay { background: #fffbeb !important; }
+[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-live { color: #047857 !important; background: #ecfdf5 !important; }
+[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-replay { color: #92400e !important; background: #fffbeb !important; }
+
+/* Dynamic campaign data is rendered with semantic classes.  Inline dark-mode
+   accent values must not leak pale yellow or mint text into the light theme. */
+[data-theme="light"] #options-cascade-page .is-positive,
+[data-theme="light"] #options-cascade-page .fibx-positive-value,
+[data-theme="light"] #options-cascade-page .fibx-boundary.is-positive .fibx-boundary-state,
+[data-theme="light"] #options-cascade-page .cascade-options-metric.is-positive .cascade-options-metric-value {
+  color: #047857 !important;
+}
+[data-theme="light"] #options-cascade-page .is-warning,
+[data-theme="light"] #options-cascade-page .fibx-warning-value,
+[data-theme="light"] #options-cascade-page .fibx-boundary.is-warning .fibx-boundary-state,
+[data-theme="light"] #options-cascade-page .fibx-pricing-warning,
+[data-theme="light"] #options-cascade-page .fibx-premium-gaps > summary,
+[data-theme="light"] #options-cascade-page .cascade-options-metric.is-warning .cascade-options-metric-value {
+  color: #92400e !important;
+}
+[data-theme="light"] #options-cascade-page #fibx-form-status.is-positive,
+[data-theme="light"] #options-cascade-page #fibx-form-status.is-warning,
+[data-theme="light"] #options-cascade-page #fibx-form-status.is-negative { font-weight: 700; }
+[data-theme="light"] #options-cascade-page #fibx-form-status.is-negative { color: #b91c1c !important; }
+[data-theme="light"] #options-cascade-page .cascade-options-state.is-positive { border-color: #059669 !important; }
+[data-theme="light"] #options-cascade-page .cascade-options-state.is-warning { border-color: #d97706 !important; }
+[data-theme="light"] #options-cascade-page .fibx-pricing-warning,
+[data-theme="light"] #options-cascade-page .fibx-premium-gaps { border-color: #f59e0b !important; background: #fffbeb; }
 
 @media (max-width: 1180px) {
   #options-cascade-page .oc-fib-workspace { grid-template-columns: 1fr; }
