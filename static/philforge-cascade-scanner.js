@@ -431,28 +431,45 @@
 
   function pad(value) { return String(value).padStart(2, '0'); }
 
+  function istParts() {
+    var parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date());
+    var result = {};
+    parts.forEach(function (part) { if (part.type !== 'literal') result[part.type] = Number(part.value); });
+    return result;
+  }
+
   function readable(value) {
-    if (!value) return '--';
-    var d = new Date(value);
-    if (isNaN(d.getTime())) return '--';
-    return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
-      '  ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' IST';
+    var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!match) return '--';
+    return match[3] + '-' + match[2] + '-' + match[1] + '  ' + match[4] + ':' + match[5] + ' IST';
   }
 
   // Last completed candle of the selected timeframe, so the field is never
   // blank and never points at a bar that has not closed.
   function lastClosed(tf) {
     var step = MINUTES[tf] || 5;
-    var now = new Date();
-    var d = new Date(now.getTime() - step * 60000);
-    if (step === 60) {
-      d.setMinutes(15, 0, 0);
-      if (d > now) d.setHours(d.getHours() - 1);
-    } else {
-      d.setMinutes(Math.floor(d.getMinutes() / step) * step, 0, 0);
+    var parts = istParts();
+    var today = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    var tradingDay = new Date(today);
+    var isWeekend = function (date) { return date.getUTCDay() === 0 || date.getUTCDay() === 6; };
+    while (isWeekend(tradingDay)) tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
+    var openMinute = 9 * 60 + 15;
+    var closeMinute = 15 * 60 + 30;
+    var nowMinute = parts.hour * 60 + parts.minute;
+    var lastBarOffset = (Math.floor((closeMinute - openMinute) / step) - 1) * step;
+    var candleMinute = lastBarOffset;
+    if (today.getTime() === tradingDay.getTime() && nowMinute >= openMinute + step && nowMinute < closeMinute) {
+      candleMinute = (Math.floor((nowMinute - openMinute) / step) - 1) * step;
+    } else if (today.getTime() === tradingDay.getTime() && nowMinute < openMinute + step) {
+      tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
+      while (isWeekend(tradingDay)) tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
     }
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    var totalMinute = openMinute + candleMinute;
+    return tradingDay.getUTCFullYear() + '-' + pad(tradingDay.getUTCMonth() + 1) + '-' + pad(tradingDay.getUTCDate()) +
+      'T' + pad(Math.floor(totalMinute / 60)) + ':' + pad(totalMinute % 60);
   }
 
   function init() {
@@ -462,13 +479,17 @@
     if (!input || !hint) return;
 
     var sync = function () { hint.textContent = readable(input.value); };
-    if (!input.value) input.value = lastClosed(tf ? tf.value : '5m');
+    if (!input.value) {
+      input.value = lastClosed(tf ? tf.value : '5m');
+      input.dataset.pfCalendarDefault = '1';
+    }
     sync();
     input.addEventListener('input', sync);
     input.addEventListener('change', sync);
     if (tf) {
       tf.addEventListener('change', function () {
         input.value = lastClosed(tf.value);
+        input.dataset.pfCalendarDefault = '1';
         sync();
       });
     }

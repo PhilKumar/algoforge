@@ -87,12 +87,24 @@ const ICO = {
     'cascade-to-date': 'Select replay end date',
     'cascade-mother-timestamp': 'Select mother timestamp · IST',
   };
+  const DEFAULT_CANDLE_MINUTES = {
+    'candle-entry-mother-timestamp': 60,
+    'cascade-options-mother-timestamp': 5,
+  };
   let popover;
   let activeInput;
   let visibleMonth;
   let selectedDate;
 
   const pad = value => String(value).padStart(2, '0');
+  const istParts = () => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+    return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+  };
   const parseValue = value => {
     const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
     if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0));
@@ -100,6 +112,36 @@ const ICO = {
   };
   const iso = value => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
   const dateOnly = value => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  const istDateOnly = () => {
+    const parts = istParts();
+    return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
+  };
+  const lastClosedIst = minutes => {
+    const parts = istParts();
+    const today = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    const tradingDay = new Date(today);
+    const isWeekend = date => date.getUTCDay() === 0 || date.getUTCDay() === 6;
+    while (isWeekend(tradingDay)) tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
+    const openMinute = 9 * 60 + 15;
+    const closeMinute = 15 * 60 + 30;
+    const nowMinute = parts.hour * 60 + parts.minute;
+    const lastBarOffset = (Math.floor((closeMinute - openMinute) / minutes) - 1) * minutes;
+    let candleMinute = lastBarOffset;
+    if (today.getTime() === tradingDay.getTime() && nowMinute >= openMinute + minutes && nowMinute < closeMinute) {
+      candleMinute = (Math.floor((nowMinute - openMinute) / minutes) - 1) * minutes;
+    } else if (today.getTime() === tradingDay.getTime() && nowMinute < openMinute + minutes) {
+      tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
+      while (isWeekend(tradingDay)) tradingDay.setUTCDate(tradingDay.getUTCDate() - 1);
+    }
+    const totalMinute = openMinute + candleMinute;
+    return `${tradingDay.getUTCFullYear()}-${pad(tradingDay.getUTCMonth() + 1)}-${pad(tradingDay.getUTCDate())}` +
+      `T${pad(Math.floor(totalMinute / 60))}:${pad(totalMinute % 60)}`;
+  };
+  const setDefaultValue = (input, value) => {
+    if (input.value) return;
+    input.value = value;
+    input.dataset.pfCalendarDefault = '1';
+  };
   const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const close = () => { if (popover) popover.hidden = true; activeInput = null; };
 
@@ -195,6 +237,7 @@ const ICO = {
         selectedDate.setHours(hour, minute, 0, 0);
       }
       activeInput.value = activeInput.dataset.pfCalendarKind === 'date' ? dateOnly(selectedDate) : iso(selectedDate);
+      delete activeInput.dataset.pfCalendarDefault;
       activeInput.dispatchEvent(new Event('input', { bubbles: true }));
       activeInput.dispatchEvent(new Event('change', { bubbles: true }));
       close();
@@ -208,7 +251,25 @@ const ICO = {
     selectedDate.setHours(Number(popover.querySelector('[data-pf-calendar-hour]').value), Number(popover.querySelector('[data-pf-calendar-minute]').value), 0, 0);
   });
   document.addEventListener('keydown', event => { if (event.key === 'Escape') close(); });
-  document.addEventListener('DOMContentLoaded', () => document.querySelectorAll(TARGET).forEach(setup));
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll(TARGET).forEach(setup);
+    Object.entries(DEFAULT_CANDLE_MINUTES).forEach(([id, minutes]) => {
+      const input = document.getElementById(id);
+      if (input) setDefaultValue(input, lastClosedIst(minutes));
+    });
+    const manualMother = document.getElementById('cascade-mother-timestamp');
+    const manualTimeframe = document.getElementById('cascade-timeframe');
+    const manualMinutes = value => ({ '5m': 5, '15m': 15, '1h': 60 }[value] || 60);
+    if (manualMother) setDefaultValue(manualMother, lastClosedIst(manualMinutes(manualTimeframe?.value)));
+    if (manualMother && manualTimeframe) {
+      manualTimeframe.addEventListener('change', () => {
+        if (manualMother.dataset.pfCalendarDefault !== '1') return;
+        manualMother.value = lastClosedIst(manualMinutes(manualTimeframe.value));
+      });
+    }
+    const replayEnd = document.getElementById('cascade-to-date');
+    if (replayEnd) setDefaultValue(replayEnd, istDateOnly());
+  });
 })();
 
 (function initShellIcons() {
@@ -1563,7 +1624,10 @@ function _renderCascadeOptionsStatus(payload) {
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
   const motherTimestamp = campaign?.mother?.timestamp;
   const motherInput = _cascadeOptionsEl('cascade-options-mother-timestamp');
-  if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
+  if (motherInput && (!motherInput.value || motherInput.dataset.pfCalendarDefault === '1') && motherTimestamp) {
+    motherInput.value = String(motherTimestamp).slice(0, 16);
+    delete motherInput.dataset.pfCalendarDefault;
+  }
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const fillsEl = _cascadeOptionsEl('cascade-options-fills');
   if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
@@ -3984,8 +4048,9 @@ function _renderTerminalCascadeStatus(payload) {
     controlSummary.textContent = `${campaigns.length} scrip${campaigns.length === 1 ? '' : 's'} · paper only`;
   }
   const motherInput = _terminalCascadeEl('terminal-cascade-mother-timestamp');
-  if (motherInput && !motherInput.value && campaigns[0]?.mother?.signal?.timestamp) {
+  if (motherInput && (!motherInput.value || motherInput.dataset.pfCalendarDefault === '1') && campaigns[0]?.mother?.signal?.timestamp) {
     motherInput.value = String(campaigns[0].mother.signal.timestamp).slice(0, 16);
+    delete motherInput.dataset.pfCalendarDefault;
   }
   if (scripSubtitle) scripSubtitle.textContent = `${runningCampaigns.length} active paper campaign${runningCampaigns.length === 1 ? '' : 's'}`;
   if (flow) flow.innerHTML = campaigns.map(_terminalCascadeWindow).join('');
