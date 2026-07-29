@@ -188,7 +188,7 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
       const nav = document.querySelector('.nav-tab');
       if (!header || !card || !nav) throw new Error('Workspace shell is unavailable');
       return [
-        root.getPropertyValue('--skin-page').trim(),
+        root.getPropertyValue('--skin-paper').trim(),
         root.getPropertyValue('--skin-radius').trim(),
         root.getPropertyValue('--skin-accent').trim(),
         getComputedStyle(header).display,
