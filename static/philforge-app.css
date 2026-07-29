@@ -5562,6 +5562,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   border-color: rgba(56,189,248,.24);
   background: linear-gradient(180deg, rgba(14,28,42,.76), rgba(8,18,30,.68));
 }
+#options-cascade-page .cascade-options-window {
+  /* Match the shared Dashboard and Portfolio panel radius. */
+  border-radius: 14px;
+}
 #options-cascade-page .fibx-monitor-window {
   grid-column: 2;
   grid-row: 1;
@@ -5730,6 +5734,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .oc-fib-lower-grid { grid-template-columns: 1fr; }
   #options-cascade-page .oc-fib-setup-card > div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
   #options-cascade-page .cascade-options-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #options-cascade-page .cascade-options-window { border-radius: 10px; }
 }
 @media (max-width: 460px) {
   #options-cascade-page .oc-kicker { font-size: 10px; line-height: 1.45; }
