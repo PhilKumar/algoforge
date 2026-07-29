@@ -8093,6 +8093,91 @@ def _serialize_cascade_backtest(engine: NiftyOptionsPaperCascade) -> dict:
     }
 
 
+def _serialize_cascade_geometry(engine: NiftyOptionsPaperCascade, mother: IndexCandle, candles: list) -> dict:
+    """Freeze the index-space geometry into a journal chart payload.
+
+    Everything the CryptoForge state machine actually drew -- the mother frame,
+    each auto trendline (mother_high -> touch anchor), and each leg's fib ladder
+    (touch high/low anchors plus the 2/4/8 deep boundaries the rungs sit on) --
+    alongside the replayed candle series and the per-round targets/exits.  It is
+    a picture of the same geometry the fills came from, nothing recomputed.
+    """
+
+    def _iso(value):
+        return value.isoformat() if value is not None else None
+
+    campaign = engine.geometry.campaign
+    # Mother first, then every forward candle, de-duplicated and time-ordered so
+    # the chart's bar sequence matches the engine's.
+    by_ts = {mother.timestamp: mother}
+    for row in candles:
+        by_ts.setdefault(row.timestamp, row)
+    ordered = [by_ts[key] for key in sorted(by_ts)]
+    candle_rows = [
+        {
+            "t": _iso(row.timestamp),
+            "o": row.open,
+            "h": row.high,
+            "l": row.low,
+            "c": row.close,
+            "is_mother": row.timestamp == mother.timestamp,
+        }
+        for row in ordered
+    ]
+    trendlines = [
+        {
+            "a1t": _iso(line.anchor1_timestamp),
+            "a1p": line.anchor1_price,
+            "a2t": _iso(line.anchor2_timestamp),
+            "a2p": line.anchor2_price,
+        }
+        for line in campaign.trendlines
+    ]
+    legs = []
+    for leg in campaign.legs:
+        fib = leg.fib
+        legs.append(
+            {
+                "leg_id": leg.leg_id,
+                "trendline_id": leg.trendline_id,
+                "touch_t": _iso(leg.touch_timestamp),
+                "touch_high": leg.touch_high,
+                "low": leg.low,
+                # 0 = the touch high anchor, 1 = the touch low anchor, and 2/4/8
+                # are the deep boundaries the cascade rungs fire on.
+                "levels": {str(level): fib.level_price(level) for level in (0, 1, 2, 4, 8)},
+            }
+        )
+    rounds = [
+        {
+            "round_id": row.round_id,
+            "opened_at": _iso(row.opened_at),
+            "closed_at": _iso(row.closed_at),
+            "target_index": row.target_index,
+            "exit_index_price": row.exit_index_price,
+            "exit_reason": row.exit_reason,
+            "net_pnl": row.net_pnl,
+            "fills": [
+                {"timestamp": _iso(fill.timestamp), "index_price": fill.index_price, "lots": fill.lots}
+                for fill in row.fills
+            ],
+        }
+        for row in engine.rounds
+    ]
+    open_fills = [
+        {"timestamp": _iso(fill.timestamp), "index_price": fill.index_price, "lots": fill.lots}
+        for fill in engine.open_fills
+    ]
+    return {
+        "candles": candle_rows,
+        "mother": {"t": _iso(mother.timestamp), "high": mother.high, "low": mother.low},
+        "trendlines": trendlines,
+        "legs": legs,
+        "rounds": rounds,
+        "open_fills": open_fills,
+    }
+
+
 @app.post("/api/fib-boundary/backtest")
 async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Request):
     """Replay a past mother with REAL fixed-strike Upstox premiums.
@@ -8226,7 +8311,9 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             ),
             contract_selector=select,
         ).run(forward)
-        return _serialize_cascade_backtest(engine)
+        serialized = _serialize_cascade_backtest(engine)
+        serialized["geometry"] = _serialize_cascade_geometry(engine, mother, forward)
+        return serialized
 
     try:
         backtest = await asyncio.to_thread(_run)

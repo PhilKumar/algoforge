@@ -1188,6 +1188,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
+  'toggleFibBoundaryBacktestChart',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -2396,6 +2397,15 @@ function _renderFibBoundaryBacktest(data) {
   const panel = document.getElementById('fibx-backtest');
   if (panel) panel.style.display = '';
   const result = data.result || {};
+  // Stash for the journal chart toggle; reset the chart to hidden on each run.
+  _lastFibBacktest = { result, meta: data };
+  const chartActions = document.getElementById('fibx-backtest-chart-actions');
+  const chartBox = document.getElementById('fibx-backtest-chart');
+  const hasGeometry = !!(result.geometry && Array.isArray(result.geometry.candles) && result.geometry.candles.length);
+  if (chartActions) chartActions.style.display = hasGeometry ? '' : 'none';
+  if (chartBox) { chartBox.style.display = 'none'; chartBox.innerHTML = ''; }
+  const chartBtn = document.getElementById('fibx-backtest-chart-btn');
+  if (chartBtn) chartBtn.textContent = '◱ Journal chart';
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
     const priced = !!result.fully_priced;
@@ -2444,7 +2454,205 @@ function _renderFibBoundaryBacktest(data) {
   }
 }
 
+// The last backtest response, kept so the journal chart can be drawn on demand
+// without re-running the (slow, network-bound) Upstox-priced replay.
+let _lastFibBacktest = null;
+
+function toggleFibBoundaryBacktestChart() {
+  const box = document.getElementById('fibx-backtest-chart');
+  const btn = document.getElementById('fibx-backtest-chart-btn');
+  if (!box) return;
+  if (box.style.display !== 'none' && box.innerHTML) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    if (btn) btn.textContent = '◱ Journal chart';
+    return;
+  }
+  const result = _lastFibBacktest && _lastFibBacktest.result;
+  if (!result || !result.geometry) return;
+  box.innerHTML = _fibBoundaryBacktestChartSvg(result, _lastFibBacktest.meta || {});
+  box.style.display = '';
+  if (btn) btn.textContent = '× Hide chart';
+}
+
+// A journal-freeze chart of the backtest: the same auto trendline → touch → fib
+// geometry the fills came from, drawn over the replayed index candles. It shares
+// PhilForge's `_terminalCascadeChartPalette` so it reads like the live cascade
+// chart — theme-aware, half-pixel-sharpened, IST axis, collision-nudged labels.
+function _fibBoundaryBacktestChartSvg(result, meta) {
+  const PAL = _terminalCascadeChartPalette();
+  const geo = result.geometry || {};
+  const candles = Array.isArray(geo.candles) ? geo.candles : [];
+  if (!candles.length) return '<div class="pf-cascade-chart-empty" style="padding:24px;text-align:center;color:var(--muted);">No candles to chart.</div>';
+  const entries = Array.isArray(result.entries) ? result.entries : [];
+  const trendlines = Array.isArray(geo.trendlines) ? geo.trendlines : [];
+  const legs = Array.isArray(geo.legs) ? geo.legs : [];
+  const rounds = Array.isArray(geo.rounds) ? geo.rounds : [];
+  const mother = geo.mother || {};
+
+  const W = 1180, H = 560, padL = 176, padR = 62, padT = 16, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = candles.length, cw = plotW / Math.max(n, 1);
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const millis = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
+  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+
+  // Scale to the candles plus the things that must always be readable — the
+  // mother frame, the entries, each round target — but NOT the deep fib prices
+  // (level 8 sits far below), so those draw only when they fall in view.
+  let lo = Number(candles[0].l), hi = Number(candles[0].h);
+  candles.forEach(candle => {
+    const cLo = Number(candle.l), cHi = Number(candle.h);
+    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
+    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
+  });
+  [Number(mother.high), Number(mother.low)]
+    .concat(entries.map(e => Number(e.spot)))
+    .concat(rounds.map(r => Number(r.target_index)))
+    .forEach(price => { const p = Number(price); if (Number.isFinite(p)) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
+  const span = (hi - lo) || 1;
+  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
+  const X = index => padL + index * cw + cw / 2;
+  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
+  const Xt = value => {
+    const t = millis(value);
+    if (!t) return X(0);
+    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
+    if (t <= first) return X(0);
+    if (t >= last) return X(n - 1);
+    for (let index = 1; index < n; index += 1) {
+      const right = millis(candles[index].t);
+      if (t > right) continue;
+      const left = millis(candles[index - 1].t);
+      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
+      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
+    }
+    return X(n - 1);
+  };
+  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
+  const sharp = value => Math.round(value) + 0.5;
+  const solid = value => Math.round(value);
+  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
+
+  for (let i = 0; i <= 4; i += 1) {
+    const price = minP + (maxP - minP) * (i / 4);
+    const y = Y(price);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
+    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
+  }
+  const tickCount = Math.min(7, n);
+  for (let i = 0; i < tickCount; i += 1) {
+    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
+    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+  }
+
+  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
+  candles.forEach((candle, index) => {
+    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
+    if (![o, h, l, c].every(Number.isFinite)) return;
+    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
+    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
+    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
+    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
+    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
+    if (candle.is_mother) {
+      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
+      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
+      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+    }
+  });
+
+  const labelSlots = [];
+  const label = (y, text, color) => {
+    let ly = y;
+    for (let pass = 0, moved = true; moved && pass <= labelSlots.length; pass += 1) {
+      moved = false;
+      for (let i = 0; i < labelSlots.length; i += 1) {
+        if (Math.abs(labelSlots[i] - ly) < 10) { ly = labelSlots[i] + 10.5; moved = true; break; }
+      }
+    }
+    labelSlots.push(ly);
+    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
+  };
+  const hline = (price, color, text, dash, width, opacity) => {
+    const p = Number(price);
+    if (!inView(p)) return;
+    const y = Y(p);
+    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
+    if (text) label(y, text, color);
+  };
+
+  // The auto trendlines: mother_high → the red-candle touch anchor, exactly as
+  // the engine drew them, with a faded extension to the right edge.
+  trendlines.forEach(tl => {
+    const t1 = millis(tl.a1t), t2 = millis(tl.a2t);
+    const p1 = Number(tl.a1p), p2 = Number(tl.a2p);
+    if (![p1, p2].every(Number.isFinite) || !t1 || !t2) return;
+    const slope = t2 === t1 ? 0 : (p2 - p1) / (t2 - t1);
+    const lastT = millis(candles[n - 1].t);
+    const pEnd = p1 + slope * (lastT - t1);
+    const x1 = Xt(tl.a1t), y1 = Y(p1), x2 = Xt(tl.a2t), y2 = Y(p2);
+    // Extend the slope to the right edge, but clip where it leaves the plot so a
+    // steep line doesn't trail off into the axis gutter.
+    let xE = X(n - 1), yE = Y(pEnd);
+    const bottom = padT + plotH;
+    if (yE > bottom && yE !== y2) { const f = (bottom - y2) / (yE - y2); xE = x2 + (xE - x2) * f; yE = bottom; }
+    else if (yE < padT && yE !== y2) { const f = (padT - y2) / (yE - y2); xE = x2 + (xE - x2) * f; yE = padT; }
+    parts.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${PAL.fibs[0]}" stroke-width="1.5"/>`);
+    parts.push(`<line x1="${x2.toFixed(1)}" y1="${y2.toFixed(1)}" x2="${xE.toFixed(1)}" y2="${yE.toFixed(1)}" stroke="${PAL.fibs[0]}" stroke-width="1.1" stroke-dasharray="5 4" opacity=".4"/>`);
+    parts.push(`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.6" fill="${PAL.fibs[0]}"/>`);
+    parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="2.6" fill="${PAL.fibs[0]}"/>`);
+  });
+
+  // The mother frame.
+  hline(Number(mother.high), PAL.mother, `MOTHER HIGH (${number(mother.high)})`, '5 3', 1.1);
+  hline(Number(mother.low), PAL.mother, `MOTHER LOW (${number(mother.low)})`, '5 3', 1.1, .7);
+
+  // Each leg's fib ladder: 0/1 are the touch anchors (quiet), 2/4/8 the deep
+  // boundaries the cascade fires on (coloured, dashed). Levels below view are
+  // silently skipped so the deepest boundary never blows up the price scale.
+  const fibColor = { '0': PAL.axis, '1': PAL.axis, '2': PAL.fibs[1], '4': '#fbbf24', '8': PAL.fibs[2] };
+  legs.forEach(leg => {
+    const lv = leg.levels || {};
+    ['0', '1', '2', '4', '8'].forEach(k => {
+      const price = Number(lv[k]);
+      if (!Number.isFinite(price)) return;
+      const isAnchor = k === '0' || k === '1';
+      const name = k === '0' ? 'FIB 0 · touch high' : k === '1' ? 'FIB 1 · touch low' : `L${k}`;
+      hline(price, fibColor[k] || PAL.axis, `${name} (${number(price)})`, isAnchor ? '2 4' : '4 3', isAnchor ? 1 : 1.2, isAnchor ? .55 : .95);
+    });
+  });
+
+  // Per-round targets.
+  rounds.forEach(r => hline(Number(r.target_index), PAL.tp, `TARGET (${number(r.target_index)})`, '6 3', 1.2));
+
+  // Buy arrows: one per entry, below the candle it filled on, tagged with the
+  // level, the ATM-N strike, and the lot count.
+  entries.forEach(e => {
+    const price = Number(e.spot);
+    if (!inView(price)) return;
+    const x = Xt(e.timestamp), y = Y(price) + 10;
+    parts.push(`<path d="M${x.toFixed(1)} ${(y - 9).toFixed(1)}L${(x - 5).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${y.toFixed(1)}L${(x + 5).toFixed(1)} ${y.toFixed(1)}Z" fill="${PAL.fill}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
+    parts.push(`<text x="${x.toFixed(1)}" y="${(y + 17).toFixed(1)}" fill="${PAL.fill}" font-size="8.5" font-family="monospace" text-anchor="middle">L${escapeHtml(String(e.level))} ${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ×${escapeHtml(String(e.lots))}</text>`);
+  });
+
+  // Target-hit exits: a down arrow above the exit candle, labelled net P&L.
+  rounds.forEach(r => {
+    const price = Number(r.exit_index_price);
+    if (!inView(price)) return;
+    const cx = Xt(r.closed_at), cy = Y(price) - 10;
+    const pnl = Number(r.net_pnl) || 0;
+    parts.push(`<path d="M${cx.toFixed(1)} ${(cy + 9).toFixed(1)}L${(cx - 5).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${cy.toFixed(1)}L${(cx + 5).toFixed(1)} ${cy.toFixed(1)}Z" fill="${PAL.down}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
+    parts.push(`<text x="${cx.toFixed(1)}" y="${(cy - 9).toFixed(1)}" fill="${PAL.down}" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(String(r.exit_reason || 'exit').replaceAll('_', ' '))} · ${pnl >= 0 ? '+' : '−'}${escapeHtml(_cascadeOptionsMoney(Math.abs(pnl)))}</text>`);
+  });
+
+  const title = `${escapeHtml(String(meta.side || 'CE'))} · ${escapeHtml(String(meta.timeframe || '').toUpperCase())} · auto trendline → touch → fib`;
+  parts.push(`<text x="${padL}" y="${(padT + 11).toFixed(1)}" fill="${PAL.axis}" font-size="10" font-family="monospace">${title}</text>`);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:920px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="fib-boundary backtest journal chart">${parts.join('')}</svg>`;
+}
+
 window.initOptionsCascadePage = initOptionsCascadePage;
+window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
