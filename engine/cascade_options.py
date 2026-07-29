@@ -1110,16 +1110,20 @@ class CascadeOptionsAdapter:
         now: Optional[datetime] = None,
     ) -> list[IndexCandle]:
         normalised_tf = str(timeframe).lower()
-        if str(symbol).upper() != "NIFTY" or normalised_tf not in {"5m", "1h"}:
-            raise OptionsAdapterError("Paper options campaigns support closed NIFTY 5m or 1H index candles")
+        # Dhan intraday intervals the fib-boundary cascade can replay.  5m/1h are
+        # the originals (the live Cascade tab uses 5m); 1m and 15m were added for
+        # the fib-boundary timeframes and map to Dhan's native intervals.
+        tf_interval = {"1m": ("1", 1), "5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
+        if str(symbol).upper() != "NIFTY" or normalised_tf not in tf_interval:
+            raise OptionsAdapterError("Paper options campaigns support closed NIFTY 1m, 5m, 15m or 1H index candles")
+        interval, tf_minutes = tf_interval[normalised_tf]
         current = _as_ist(now or datetime.now(IST))
         start = from_date or current.date()
         end = to_date or current.date()
         start_text = start.isoformat() if isinstance(start, date) else str(start)
         end_text = end.isoformat() if isinstance(end, date) else str(end)
-        interval = "60" if normalised_tf == "1h" else "5"
         frame = await asyncio.to_thread(self.dhan.get_nifty_intraday, start_text, end_text, interval=interval)
-        return self._normalise_index_frame(frame, current, timeframe_minutes=60 if normalised_tf == "1h" else 5)
+        return self._normalise_index_frame(frame, current, timeframe_minutes=tf_minutes)
 
     def get_ticker(self, symbol: str = "NIFTY") -> dict[str, float | str]:
         if str(symbol).upper() != "NIFTY":
