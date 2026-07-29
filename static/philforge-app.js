@@ -1187,6 +1187,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'killFibBoundaryPaper',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
+  'runFibBoundaryBacktest',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -1923,10 +1924,36 @@ function _syncFibLevelsHint() {
   if (hint) hint.textContent = (tf === '1m' || tf === '5m') ? 'L4 · L8' : 'L2 · L4 · L8';
 }
 
+// The mother's date decides how Start behaves — a today mother runs live paper
+// with real current premiums and real P&L; a past mother runs signal-only (P&L
+// withheld, because Dhan only quotes 'now'), and the Backtest button is the way
+// to get real historical P&L for it. Say so before they hit a button.
+function _syncFibModeHint() {
+  const el = document.getElementById('fibx-mode-hint');
+  if (!el) return;
+  const raw = document.getElementById('fibx-mother-timestamp')?.value;
+  el.classList.remove('is-live', 'is-replay');
+  if (!raw) { el.textContent = ''; return; }
+  const picked = new Date(raw);
+  if (isNaN(picked)) { el.textContent = ''; return; }
+  const today = new Date();
+  const isToday = picked.getFullYear() === today.getFullYear() && picked.getMonth() === today.getMonth() && picked.getDate() === today.getDate();
+  if (isToday) {
+    el.classList.add('is-live');
+    el.textContent = '▶ Live paper: buys at real current premiums, P&L accrues live this session.';
+  } else {
+    el.classList.add('is-replay');
+    el.textContent = '↻ Past mother → Start runs SIGNAL-ONLY (P&L withheld). Use ◱ Backtest for real historical P&L.';
+  }
+}
+
 async function initOptionsCascadePage() {
   const tfSel = document.getElementById('fibx-timeframe');
   if (tfSel && !tfSel._fibHintBound) { tfSel.addEventListener('change', _syncFibLevelsHint); tfSel._fibHintBound = true; }
+  const tsSel = document.getElementById('fibx-mother-timestamp');
+  if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
+  _syncFibModeHint();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
   if (!_fibBoundaryPollTimer) {
@@ -1956,6 +1983,13 @@ function _renderFibBoundaryStatus(payload) {
   const startBtn = document.getElementById('fibx-start');
   const killBtn = document.getElementById('fibx-kill');
   const eventsTf = document.getElementById('fibx-events-tf');
+  const liveGate = document.getElementById('options-cascade-live-gate');
+  const setLiveGate = (label, detail, state = '') => {
+    if (!liveGate) return;
+    liveGate.classList.remove('is-paper-live', 'is-replay', 'is-paused');
+    if (state) liveGate.classList.add(state);
+    liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
+  };
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (contract) contract.textContent = 'No active campaign';
@@ -1966,6 +2000,7 @@ function _renderFibBoundaryStatus(payload) {
     if (win) win.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (killBtn) killBtn.style.display = 'none';
+    setLiveGate('LIVE LOCKED', 'Paper validation required');
     _renderFibBoundaryRounds([]);
     _renderFibBoundaryEvents([]);
     return;
@@ -1977,6 +2012,9 @@ function _renderFibBoundaryStatus(payload) {
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || campaign.side || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
   if (eventsTf) eventsTf.textContent = `${String(campaign.timeframe || '').toUpperCase()} CLOSED BARS`;
+  if (isRunning) setLiveGate('PAPER LIVE', 'Quote-backed paper monitor active', 'is-paper-live');
+  else if (campaign.replay_complete) setLiveGate('REPLAY MODE', 'Signal geometry only; P&L withheld', 'is-replay');
+  else setLiveGate('PAPER PAUSED', 'No live order is ever sent', 'is-paused');
   const filled = (campaign.boundaries || []).filter(b => ['FILLED', 'CLOSED'].includes(b.status)).length;
   if (gist) gist.textContent = `${String(campaign.side || 'CE')} · ${String(campaign.timeframe || '').toUpperCase()} · ${filled}/${(campaign.boundaries || []).length} boundaries filled`;
   if (win) win.classList.toggle('is-active', isRunning);
@@ -2288,12 +2326,94 @@ function hideFibBoundaryChart() {
   if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
 }
 
+async function runFibBoundaryBacktest() {
+  const el = id => document.getElementById(id);
+  const payload = {
+    mother_timestamp: el('fibx-mother-timestamp')?.value,
+    mother_high: Number(el('fibx-mother-high')?.value),
+    mother_low: Number(el('fibx-mother-low')?.value),
+    side: el('fibx-side')?.value || 'CE',
+    timeframe: el('fibx-timeframe')?.value || '5m',
+    rung_inr: Number(el('fibx-rung-inr')?.value),
+    itm_steps: Number(el('fibx-itm')?.value),
+  };
+  if (!payload.mother_timestamp) { _fibSetFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
+  if (!Number.isFinite(payload.mother_high) || !Number.isFinite(payload.mother_low) || payload.mother_high <= payload.mother_low) {
+    _fibSetFormStatus('Enter a mother high above the mother low.', 'error'); return;
+  }
+  const button = el('fibx-backtest-btn');
+  if (button) { button.disabled = true; button.textContent = 'Pricing legs off Upstox history…'; }
+  _fibSetFormStatus('Replaying the index geometry and pricing every leg with real Upstox premiums…', 'busy');
+  try {
+    const response = await fetch('/api/fib-boundary/backtest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Backtest failed (${response.status})`);
+    _renderFibBoundaryBacktest(data);
+    _fibSetFormStatus('Backtest complete — real fixed-strike premiums, no order sent.', 'success');
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Backtest failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '◱ Backtest (real premiums)'; }
+  }
+}
+
+function _renderFibBoundaryBacktest(data) {
+  const panel = document.getElementById('fibx-backtest');
+  if (panel) panel.style.display = '';
+  const result = data.result || {};
+  const badge = document.getElementById('fibx-backtest-badge');
+  if (badge) {
+    const priced = !!result.fully_priced;
+    badge.textContent = priced ? 'REAL PREMIUMS' : 'PARTIAL · GAPS';
+    const tone = priced ? '#6ee7b7' : '#fbbf24';
+    badge.style.color = tone; badge.style.borderColor = tone;
+  }
+  const c = result.contract;
+  const contract = document.getElementById('fibx-backtest-contract');
+  if (contract) contract.textContent = c ? `NIFTY ${Number(c.strike).toLocaleString('en-IN')} ${c.option_type} · ${c.expiry} · ${c.lot_size} units/lot` : 'No leg filled in the replay window';
+  const gist = document.getElementById('fibx-backtest-gist');
+  if (gist) gist.textContent = `${data.side} · ${String(data.timeframe).toUpperCase()} · ${data.candles_replayed} candles → expiry/close by ${data.horizon_to}`;
+  const net = result.net_pnl;
+  const netColor = net == null ? 'var(--muted)' : net > 0 ? '#6ee7b7' : net < 0 ? '#fca5a5' : 'var(--text)';
+  const summary = document.getElementById('fibx-backtest-summary');
+  if (summary) {
+    summary.innerHTML = [
+      _cascadeOptionsMetric('Net P&L', net == null ? '— withheld' : _cascadeOptionsMoney(net), netColor),
+      _cascadeOptionsMetric('Gross P&L', result.gross_pnl == null ? '—' : _cascadeOptionsMoney(result.gross_pnl)),
+      _cascadeOptionsMetric('Costs', _cascadeOptionsMoney(result.costs_total || 0), '#fca5a5'),
+      _cascadeOptionsMetric('Index move', result.index_move == null ? '—' : `${_cascadeNumber(result.index_move)} pts`),
+      _cascadeOptionsMetric('Avg entry idx', _cascadeNumber(result.average_spot)),
+      _cascadeOptionsMetric('Target idx', _cascadeNumber(result.target_index)),
+      _cascadeOptionsMetric('Exit', String(result.exit_reason || result.status || '—').replaceAll('_', ' ')),
+      _cascadeOptionsMetric('Legs priced', `${(result.entries || []).filter(e => e.option_price != null).length}/${(result.entries || []).length}`, '#6ee7b7'),
+    ].join('');
+  }
+  const note = document.getElementById('fibx-backtest-note');
+  if (note) note.textContent = data.note || '';
+  const gaps = Array.isArray(result.data_gaps) ? result.data_gaps : [];
+  const gapsEl = document.getElementById('fibx-backtest-gaps');
+  if (gapsEl) {
+    gapsEl.innerHTML = gaps.length
+      ? `<details style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — legs Upstox never listed or minutes with no bar (net P&L is withheld when any leg is a gap)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`
+      : '';
+  }
+  const legs = document.getElementById('fibx-backtest-legs');
+  if (legs) {
+    const rows = result.entries || [];
+    legs.innerHTML = rows.length ? rows.map(e => {
+      const priced = e.option_price != null;
+      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td style="padding:7px 8px;color:${priced ? 'var(--text)' : '#fbbf24'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--muted);">No leg filled — price never reached the deep boundaries in this window.</td></tr>';
+  }
+}
+
 window.initOptionsCascadePage = initOptionsCascadePage;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;
 window.hideFibBoundaryChart = hideFibBoundaryChart;
+window.runFibBoundaryBacktest = runFibBoundaryBacktest;
 
 // Lot size lookup for display (matches backend get_lot_size)
 const INSTRUMENT_LOT_MAP = {

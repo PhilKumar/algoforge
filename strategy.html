@@ -1824,26 +1824,26 @@
 
 <!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
 <div id="options-cascade-page" class="page-section">
-  <div class="card-glass" style="padding:20px;margin-bottom:16px;border-color:rgba(56,189,248,.32);background:linear-gradient(110deg,rgba(8,47,73,.28),rgba(15,23,42,.15));">
-    <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
-      <div>
-        <div style="font-size:11px;color:#38bdf8;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px;">Manual mother · deep fib boundaries · one target then done</div>
-        <h2 style="margin:0;font-size:22px;">Options Cascade</h2>
-        <p style="margin:7px 0 0;color:var(--muted);font-size:12px;max-width:780px;line-height:1.6;">Two paper strategies. <strong style="color:var(--text);">Fib-boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong style="color:var(--text);">Candle-entry</strong> is the two-red recovery buy-stop on a single 1H mother. Paper only; no live order is sent.</p>
+  <div class="card-glass oc-hero">
+    <div class="oc-hero-content">
+      <div class="oc-hero-copy">
+        <div class="oc-kicker">Manual mother · deep fib boundaries · one target then done</div>
+        <h2>Options Cascade</h2>
+        <p>Two paper strategies. <strong>Fib-boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong>Candle-entry</strong> is the two-red recovery buy-stop on a single 1H mother. Paper only; no live order is sent.</p>
       </div>
-      <div id="options-cascade-live-gate" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#fde68a;border:1px solid rgba(251,191,36,.3);background:rgba(245,158,11,.08);border-radius:8px;padding:9px 11px;line-height:1.45;max-width:290px;">LIVE LOCKED<br><span style="color:var(--muted);">Paper validation required</span></div>
+      <div id="options-cascade-live-gate" class="oc-live-gate"><strong>LIVE LOCKED</strong><span>Paper validation required</span></div>
     </div>
   </div>
 
-  <div class="oc-tabs" role="tablist" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+  <div class="oc-tabs" role="tablist">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib">⑃ Fib-boundary</button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle">◧ Candle-entry</button>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->
   <div id="oc-tab-fib" class="oc-tab-panel">
-    <div class="cascade-options-workspace">
-      <div class="card cascade-options-setup-card" style="padding:20px;">
+    <div class="cascade-options-workspace oc-fib-workspace">
+      <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
           <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
           <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L4 · L8</span>
@@ -1877,11 +1877,26 @@
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
-        <div class="pf-cascade-campaign-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button></div>
-        <div id="fibx-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest">◱ Backtest real premiums</button></div>
+        <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
+        <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
-      <details id="fibx-window" class="cascade-options-window" open>
+      <details id="fibx-backtest" class="cascade-options-window fibx-backtest-window" style="display:none;" open>
+        <summary class="cascade-options-window-head">
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Historical backtest</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike Upstox premiums</div></div>
+          <div id="fibx-backtest-gist" class="cascade-options-gist">Prices every leg off Upstox expired-option history.</div>
+        </summary>
+        <div class="cascade-options-window-body">
+          <div id="fibx-backtest-summary" class="cascade-options-summary"></div>
+          <div id="fibx-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
+          <div id="fibx-backtest-gaps" style="margin-top:10px;"></div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Priced legs</div>
+          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Level</th><th style="padding:6px 8px;">Time</th><th style="padding:6px 8px;">Index</th><th style="padding:6px 8px;">Strike</th><th style="padding:6px 8px;">Premium</th><th style="padding:6px 8px;">Lots</th><th style="padding:6px 8px;">Qty</th></tr></thead><tbody id="fibx-backtest-legs"></tbody></table></div>
+        </div>
+      </details>
+
+      <details id="fibx-window" class="cascade-options-window fibx-monitor-window" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
           <div id="fibx-gist" class="cascade-options-gist">Type a mother high &amp; low and pick a side to begin.</div>
@@ -1900,12 +1915,12 @@
       </details>
     </div>
 
-    <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">
-      <div class="card" style="padding:20px;">
+    <div class="oc-fib-lower-grid">
+      <div class="card oc-fib-results-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span id="fibx-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
         <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="fibx-rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
       </div>
-      <div class="card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span id="fibx-events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div id="fibx-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
+      <div class="card oc-fib-events-card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span id="fibx-events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div id="fibx-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
     </div>
 
     <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">

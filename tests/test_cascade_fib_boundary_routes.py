@@ -131,6 +131,34 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
             await app_module.fib_boundary_paper_kill(_DummyRequest())
         self.assertEqual(raised.exception.status_code, 404)
 
+    async def test_backtest_rejects_bad_side(self):
+        payload = app_module.FibBoundaryBacktestPayload(
+            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24180, mother_low=24050, side="XX"
+        )
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_backtest(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("side must be CE or PE", str(raised.exception.detail))
+
+    async def test_backtest_rejects_high_not_above_low(self):
+        payload = app_module.FibBoundaryBacktestPayload(
+            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24050, mother_low=24180
+        )
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_backtest(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("Mother high must exceed mother low", str(raised.exception.detail))
+
+    async def test_backtest_without_broker_asks_to_connect_dhan(self):
+        payload = app_module.FibBoundaryBacktestPayload(
+            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24180, mother_low=24050, side="CE"
+        )
+        with patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_backtest(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("Connect a Dhan account", str(raised.exception.detail))
+
 
 if __name__ == "__main__":
     unittest.main()

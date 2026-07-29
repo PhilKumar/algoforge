@@ -78,8 +78,10 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
+from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
 from engine.cascade_options import (
+    Candle,
     CascadeConfig,
     CascadeOptionsAdapter,
     FibBoundaryPaper,
@@ -2743,6 +2745,27 @@ class FibBoundaryPaperStartPayload(BaseModel):
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
     itm_steps: int = Field(default=2, ge=0, le=10)
+
+
+class FibBoundaryBacktestPayload(BaseModel):
+    """A past mother replayed with REAL fixed-strike Upstox premiums.
+
+    Same manual mother as the paper start, but instead of the current-quote
+    paper engine this runs the batch ``FibBoundaryCascade`` and prices every leg
+    off Upstox's expired-instrument 1-minute history -- so an old mother returns
+    real per-round P&L, not the signal-only geometry the live paper engine
+    withholds.  A strike/expiry Upstox never listed is a recorded gap, never a
+    fabricated zero.
+    """
+
+    mother_timestamp: str
+    mother_high: float = Field(gt=0)
+    mother_low: float = Field(gt=0)
+    side: str = Field(default="CE")
+    timeframe: str = Field(default="5m")
+    rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
+    itm_steps: int = Field(default=2, ge=0, le=10)
+    horizon_days: int = Field(default=20, ge=1, le=45)
 
 
 class TerminalCascadePaperStartPayload(BaseModel):
@@ -7979,6 +8002,175 @@ async def fib_boundary_paper_chart(
         "mother_low": float(low),
         "boundaries": boundaries,
         "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
+    }
+
+
+def _serialize_fib_backtest(result: "CascadeResult", *, contract: dict | None) -> dict:
+    """Flatten a FibBoundaryCascade result into the JSON the backtest UI reads.
+
+    Every premium is a real Upstox bar or an explicit gap; nothing is invented,
+    so ``fully_priced`` is the honest flag for whether the P&L can be trusted.
+    """
+
+    def _iso(value):
+        return value.isoformat() if value is not None else None
+
+    entries = [
+        {
+            "timestamp": _iso(entry.timestamp),
+            "spot": entry.spot,
+            "option_price": entry.option_price,
+            "lots": entry.lots,
+            "quantity": entry.quantity,
+            "level": entry.stage,
+            "strike": entry.contract.strike,
+            "option_type": entry.contract.option_type,
+            "expiry": entry.contract.expiry.isoformat(),
+        }
+        for entry in result.entries
+    ]
+    return {
+        "status": result.status,
+        "fully_priced": result.fully_priced,
+        "gross_pnl": result.realized_pnl,
+        "costs_total": result.costs_total,
+        "net_pnl": result.net_pnl,
+        "target_index": result.target_index,
+        "average_spot": result.average_spot,
+        "index_move": result.index_move,
+        "exit_reason": result.exit_reason,
+        "exit_timestamp": _iso(result.exit_timestamp),
+        "exit_option_price": result.exit_option_price,
+        "exit_option_prices": result.exit_option_prices,
+        "data_gaps": result.data_gaps,
+        "entries": entries,
+        "contract": contract,
+    }
+
+
+# NIFTY's lot size has stepped over the years; the backtest surfaces whichever
+# it used so an old mother's P&L magnitude is never silently wrong.
+_NIFTY_BACKTEST_LOT_SIZE = 75
+
+
+@app.post("/api/fib-boundary/backtest")
+async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Request):
+    """Replay a past mother with REAL fixed-strike Upstox premiums.
+
+    Unlike the live paper engine -- which withholds P&L for an old mother because
+    Dhan only quotes 'now' -- this prices every leg off Upstox's expired-option
+    1-minute history and returns real per-round P&L.  It never places an order.
+    """
+
+    side = str(payload.side).upper()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    timeframe = str(payload.timeframe).lower()
+    if timeframe not in _FIB_TIMEFRAME_MINUTES:
+        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
+    if payload.mother_high <= payload.mother_low:
+        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
+
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY index candles.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=payload.horizon_days))
+    try:
+        index_candles = await adapter.async_get_candles(
+            "NIFTY", timeframe, from_date=mother_timestamp.date(), to_date=horizon_to
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+    candles = [
+        Candle(row.timestamp, row.open, row.high, row.low, row.close)
+        for row in index_candles
+        if row.timestamp >= mother_timestamp
+    ]
+    if not candles:
+        raise HTTPException(status_code=400, detail="No NIFTY candles at or after the mother in that window.")
+
+    config = FibBoundaryConfig(
+        mother_timestamp=mother_timestamp,
+        mother_high=float(payload.mother_high),
+        mother_low=float(payload.mother_low),
+        option_type=side,
+        timeframe=timeframe,
+        rung_inr=float(payload.rung_inr),
+        itm_steps=int(payload.itm_steps),
+        lot_size=_NIFTY_BACKTEST_LOT_SIZE,
+        # Survey the whole campaign and report EVERY missing premium, rather than
+        # halting at the first.  Net P&L is still withheld when any leg is a gap,
+        # so this stays gap-honest -- it just gives the fuller picture.
+        strict_option_data=False,
+    )
+
+    def _run() -> dict:
+        # Upstox construction + the coverage probe both hit the network and read
+        # UPSTOX_ACCESS_TOKEN, so the whole batch runs off the event loop.
+        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+
+        try:
+            premium_source = UpstoxPremiumSource()
+            expiries = sorted(premium_source.available_expiries())
+        except UpstoxAccessError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Upstox premium history is not available (UPSTOX_ACCESS_TOKEN missing or expired). "
+                    f"Real-premium backtest needs it. {exc}"
+                ),
+            ) from exc
+        if not expiries:
+            raise HTTPException(status_code=503, detail="Upstox returned no expiry coverage for NIFTY.")
+        resolver = NiftyContractResolver(
+            expiries=expiries, strike_step=config.strike_step, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
+        )
+        result = FibBoundaryCascade(config, resolver, premium_source.lookup).run(candles)
+        contract = None
+        if result.entries:
+            first = result.entries[0].contract
+            contract = {
+                "underlying": "NIFTY",
+                "strike": first.strike,
+                "option_type": first.option_type,
+                "expiry": first.expiry.isoformat(),
+                "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
+            }
+        return _serialize_fib_backtest(result, contract=contract)
+
+    try:
+        backtest = await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
+
+    return {
+        "status": "ok",
+        "mode": "backtest",
+        "pricing": "upstox_real_premiums",
+        "side": side,
+        "timeframe": timeframe,
+        "mother": {
+            "timestamp": mother_timestamp.isoformat(),
+            "high": float(payload.mother_high),
+            "low": float(payload.mother_low),
+        },
+        "candles_replayed": len(candles),
+        "horizon_to": horizon_to.isoformat(),
+        "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
+        "result": backtest,
+        "note": (
+            "Index geometry is exact; every premium is a real Upstox bar for the fixed strike, "
+            "or a recorded gap. Legs before Upstox coverage stay unpriced."
+        ),
     }
 
 
