@@ -192,6 +192,64 @@ class PaperRoundTests(unittest.TestCase):
         self.assertEqual(engine.rounds[0].fills[0].lots, 1)  # ladder: first buy = 1 lot
         self.assertEqual(engine.rounds[0].fills[0].quantity, 65)
 
+    def test_per_entry_strike_reselects_the_contract_and_prices_it(self):
+        # Per-entry mode picks the strike against the index at the fill, records
+        # it on the fill, and prices/settles that exact contract.
+        mother = IndexCandle(ts(0), 65020.00, 65107.99, 65002.00, 65051.98)
+        candles = [
+            IndexCandle(ts(1), 65051.98, 65051.98, 64804.76, 64919.31),
+            IndexCandle(ts(2), 64919.31, 64923.67, 64852.01, 64876.01),
+            IndexCandle(ts(3), 64876.01, 64878.01, 64792.00, 64800.01),
+            IndexCandle(ts(4), 64800.00, 64938.00, 64790.01, 64904.00),
+            IndexCandle(ts(5), 64904.00, 64928.00, 64822.24, 64822.24),
+            IndexCandle(ts(6), 64822.24, 64822.24, 64639.00, 64665.99),
+            IndexCandle(ts(7), 64665.99, 64680.00, 64500.00, 64550.00),
+            IndexCandle(ts(8), 64550.00, 64600.00, 64400.00, 64450.00),
+            IndexCandle(ts(9), 64450.00, 64600.00, 64420.00, 64580.00),
+            IndexCandle(ts(10), 64580.00, 64720.00, 64570.00, 64690.00),
+        ]
+        adapter = _PaperAdapter()
+        contract = FixedCampaignOption("NIFTY", 64800, date(2026, 7, 28), "CE", 65, "0")
+
+        def selector(_timestamp, index_price):
+            # ATM-2 at 50 steps against the fill index.
+            atm = round(index_price / 50) * 50
+            strike = int(atm - 100)
+            return FixedCampaignOption("NIFTY", strike, date(2026, 7, 28), "CE", 65, str(strike))
+
+        def premium(timestamp, contract):
+            # Priced by strike so a wrong contract would give wrong P&L.
+            base = 100.0 if timestamp == ts(9) else 120.0 if timestamp == ts(10) else None
+            return None if base is None else base + (64800 - contract.strike) * 0.001
+
+        engine = NiftyOptionsPaperCascade(
+            mother,
+            contract,
+            adapter,
+            premium,
+            PaperCascadeConfig(rung_inr=13000, lot_ladder=True, per_entry_strike=True),
+            contract_selector=selector,
+        ).run(candles)
+        self.assertEqual(len(engine.rounds), 1)
+        fill = engine.rounds[0].fills[0]
+        self.assertIsNotNone(fill.contract)  # per-entry strike recorded on the fill
+        self.assertEqual(fill.lots, 1)
+        # The fill priced the SELECTED strike, not the campaign's 64800 default.
+        self.assertEqual(fill.option_premium, round(100.0 + (64800 - fill.contract.strike) * 0.001, 2))
+        self.assertEqual(engine.rounds[0].exit_reason, "target")
+        # Round survives a serialization round-trip with the per-fill contract.
+        restored = NiftyOptionsPaperCascade.from_dict(engine.to_dict(), adapter=adapter, option_premium_lookup=premium)
+        self.assertEqual(restored.rounds[0].fills[0].contract.strike, fill.contract.strike)
+
+    def test_per_entry_strike_without_selector_is_rejected(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        with self.assertRaises(Exception):
+            NiftyOptionsPaperCascade(
+                mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500, per_entry_strike=True)
+            )
+
     def test_new_low_releases_closed_rungs_for_a_fresh_paper_round(self):
         adapter = _PaperAdapter()
         mother = IndexCandle(ts(0), 100, 110, 90, 105)

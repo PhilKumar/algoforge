@@ -78,10 +78,8 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
-from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
 from engine.cascade_options import (
-    Candle,
     CascadeConfig,
     CascadeOptionsAdapter,
     FibBoundaryPaper,
@@ -8005,52 +8003,94 @@ async def fib_boundary_paper_chart(
     }
 
 
-def _serialize_fib_backtest(result: "CascadeResult", *, contract: dict | None) -> dict:
-    """Flatten a FibBoundaryCascade result into the JSON the backtest UI reads.
+# NIFTY's lot size has stepped over the years; the backtest surfaces whichever
+# it used so an old mother's P&L magnitude is never silently wrong.
+_NIFTY_BACKTEST_LOT_SIZE = 75
 
-    Every premium is a real Upstox bar or an explicit gap; nothing is invented,
-    so ``fully_priced`` is the honest flag for whether the P&L can be trusted.
+
+def _serialize_cascade_backtest(engine: NiftyOptionsPaperCascade) -> dict:
+    """Flatten a real-geometry cascade backtest into the JSON the UI reads.
+
+    Same shape the fib backtest panel already renders, but sourced from the
+    CryptoForge geometry engine: entries are the priced fills (each with its own
+    per-entry strike), P&L sums across every round, and a missing Upstox bar is
+    a recorded quote gap rather than a fabricated price.
     """
 
     def _iso(value):
         return value.isoformat() if value is not None else None
 
-    entries = [
-        {
-            "timestamp": _iso(entry.timestamp),
-            "spot": entry.spot,
-            "option_price": entry.option_price,
-            "lots": entry.lots,
-            "quantity": entry.quantity,
-            "level": entry.stage,
-            "strike": entry.contract.strike,
-            "option_type": entry.contract.option_type,
-            "expiry": entry.contract.expiry.isoformat(),
-        }
-        for entry in result.entries
+    def _level(fill) -> Optional[int]:
+        for key in fill.rung_keys:
+            try:
+                return int(str(key).split(":")[1])
+            except (IndexError, ValueError):
+                continue
+        return None
+
+    rounds = engine.rounds
+    all_fills = [fill for row in rounds for fill in row.fills] + list(engine.open_fills)
+    entries = []
+    for fill in all_fills:
+        contract = fill.contract or engine.contract
+        entries.append(
+            {
+                "timestamp": _iso(fill.timestamp),
+                "spot": fill.index_price,
+                "option_price": fill.option_premium,
+                "lots": fill.lots,
+                "quantity": fill.quantity,
+                "level": _level(fill),
+                "strike": contract.strike,
+                "option_type": contract.option_type,
+                "expiry": contract.expiry.isoformat(),
+            }
+        )
+    quantity = sum(fill.quantity for fill in all_fills)
+    average_spot = (
+        round(sum(fill.index_price * fill.quantity for fill in all_fills) / quantity, 2) if quantity else None
+    )
+    last = rounds[-1] if rounds else None
+    target_index = last.target_index if last else engine.target_index
+    net_pnl = round(sum(row.net_pnl for row in rounds), 2) if rounds else None
+    gross_pnl = round(sum(row.gross_pnl for row in rounds), 2) if rounds else None
+    costs_total = round(sum(row.costs.total for row in rounds), 2) if rounds else 0.0
+    index_move = (
+        round(target_index - average_spot, 2) if (target_index is not None and average_spot is not None) else None
+    )
+    data_gaps = [
+        f"missing {event.get('action', '?')} premium at {event.get('timestamp')}"
+        for event in engine.events
+        if event.get("event") == "option_quote_missing"
     ]
+    contract = None
+    if entries:
+        contract = {
+            "underlying": "NIFTY",
+            "strike": entries[0]["strike"],
+            "option_type": entries[0]["option_type"],
+            "expiry": entries[0]["expiry"],
+            "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
+        }
+    fully_priced = bool(rounds) and not data_gaps and all(entry["option_price"] is not None for entry in entries)
     return {
-        "status": result.status,
-        "fully_priced": result.fully_priced,
-        "gross_pnl": result.realized_pnl,
-        "costs_total": result.costs_total,
-        "net_pnl": result.net_pnl,
-        "target_index": result.target_index,
-        "average_spot": result.average_spot,
-        "index_move": result.index_move,
-        "exit_reason": result.exit_reason,
-        "exit_timestamp": _iso(result.exit_timestamp),
-        "exit_option_price": result.exit_option_price,
-        "exit_option_prices": result.exit_option_prices,
-        "data_gaps": result.data_gaps,
+        "status": "closed" if rounds else str(engine.status).lower(),
+        "fully_priced": fully_priced,
+        "gross_pnl": gross_pnl,
+        "costs_total": costs_total,
+        "net_pnl": net_pnl,
+        "target_index": target_index,
+        "average_spot": average_spot,
+        "index_move": index_move,
+        "exit_reason": last.exit_reason if last else ("open" if engine.open_fills else str(engine.status).lower()),
+        "exit_timestamp": _iso(last.closed_at) if last else None,
+        "exit_option_price": last.exit_option_premium if last else None,
+        "exit_option_prices": [],
+        "data_gaps": data_gaps,
         "entries": entries,
         "contract": contract,
+        "rounds_count": len(rounds),
     }
-
-
-# NIFTY's lot size has stepped over the years; the backtest surfaces whichever
-# it used so an old mother's P&L magnitude is never silently wrong.
-_NIFTY_BACKTEST_LOT_SIZE = 75
 
 
 @app.post("/api/fib-boundary/backtest")
@@ -8080,6 +8120,11 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY index candles.")
+    if side != "CE":
+        raise HTTPException(
+            status_code=400,
+            detail="PE cascade backtest is not wired to the real geometry engine yet (CE only for now).",
+        )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=payload.horizon_days))
     try:
@@ -8088,27 +8133,29 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
-    candles = [
-        Candle(row.timestamp, row.open, row.high, row.low, row.close)
-        for row in index_candles
-        if row.timestamp >= mother_timestamp
-    ]
-    if not candles:
-        raise HTTPException(status_code=400, detail="No NIFTY candles at or after the mother in that window.")
 
-    config = FibBoundaryConfig(
+    # The mother candle comes from the real market data -- its high/low anchor the
+    # trendline and the mother-break exactly like CryptoForge.  The typed values
+    # are only a fallback when Dhan didn't return that exact bar.
+    mother_row = next((row for row in index_candles if row.timestamp == mother_timestamp), None)
+    if mother_row is not None:
+        mother = mother_row
+    else:
+        spot = (float(payload.mother_high) + float(payload.mother_low)) / 2.0
+        mother = IndexCandle(mother_timestamp, spot, float(payload.mother_high), float(payload.mother_low), spot)
+    forward = [row for row in index_candles if row.timestamp > mother_timestamp]
+    if not forward:
+        raise HTTPException(status_code=400, detail="No NIFTY candles after the mother in that window.")
+
+    resolver_config = CascadeConfig(
         mother_timestamp=mother_timestamp,
-        mother_high=float(payload.mother_high),
-        mother_low=float(payload.mother_low),
+        mother_high=mother.high,
+        mother_low=mother.low,
         option_type=side,
         timeframe=timeframe,
-        rung_inr=float(payload.rung_inr),
         itm_steps=int(payload.itm_steps),
+        strike_step=50.0,
         lot_size=_NIFTY_BACKTEST_LOT_SIZE,
-        # Survey the whole campaign and report EVERY missing premium, rather than
-        # halting at the first.  Net P&L is still withheld when any leg is a gap,
-        # so this stays gap-honest -- it just gives the fuller picture.
-        strict_option_data=False,
     )
 
     def _run() -> dict:
@@ -8116,10 +8163,8 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         # UPSTOX_ACCESS_TOKEN, so the whole batch runs off the event loop.
         from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
 
-        # Dhan-style self-heal: if the daily Upstox token is missing or expired
-        # and headless-login creds are configured, mint a fresh one and persist
-        # it to .env before the source reads it.  A no-op when Upstox auto-login
-        # isn't set up (returns None), so the clear 503 below still fires.
+        # Dhan-style self-heal: mint a fresh Upstox token if the daily one is dead
+        # and headless-login creds are configured; a no-op otherwise.
         try:
             from upstox_token_manager import ensure_fresh_token
 
@@ -8142,20 +8187,42 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         if not expiries:
             raise HTTPException(status_code=503, detail="Upstox returned no expiry coverage for NIFTY.")
         resolver = NiftyContractResolver(
-            expiries=expiries, strike_step=config.strike_step, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
+            expiries=expiries, strike_step=50.0, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
         )
-        result = FibBoundaryCascade(config, resolver, premium_source.lookup).run(candles)
-        contract = None
-        if result.entries:
-            first = result.entries[0].contract
-            contract = {
-                "underlying": "NIFTY",
-                "strike": first.strike,
-                "option_type": first.option_type,
-                "expiry": first.expiry.isoformat(),
-                "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
-            }
-        return _serialize_fib_backtest(result, contract=contract)
+
+        def to_fixed(contract) -> FixedCampaignOption:
+            return FixedCampaignOption(
+                "NIFTY", int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
+            )
+
+        def select(timestamp, index_price) -> FixedCampaignOption:
+            # ATM-N at the index AT THIS FILL -> a deeper CE buys a lower strike.
+            return to_fixed(resolver.select(timestamp, index_price, side, resolver_config))
+
+        def premium_lookup(timestamp, contract):
+            bar = premium_source.lookup(timestamp, contract)
+            return float(bar.open) if bar is not None else None
+
+        try:
+            initial = select(mother.timestamp, mother.close)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"No next-weekly {side} strike at the mother: {exc}") from exc
+        paper_adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+        engine = NiftyOptionsPaperCascade(
+            mother,
+            initial,
+            paper_adapter,
+            premium_lookup,
+            PaperCascadeConfig(
+                rung_inr=float(payload.rung_inr),
+                ce_offset_steps=-int(payload.itm_steps),
+                target_fraction=0.25,
+                lot_ladder=True,
+                per_entry_strike=True,
+            ),
+            contract_selector=select,
+        ).run(forward)
+        return _serialize_cascade_backtest(engine)
 
     try:
         backtest = await asyncio.to_thread(_run)
@@ -8170,18 +8237,14 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         "pricing": "upstox_real_premiums",
         "side": side,
         "timeframe": timeframe,
-        "mother": {
-            "timestamp": mother_timestamp.isoformat(),
-            "high": float(payload.mother_high),
-            "low": float(payload.mother_low),
-        },
-        "candles_replayed": len(candles),
+        "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
+        "candles_replayed": len(forward),
         "horizon_to": horizon_to.isoformat(),
         "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
         "result": backtest,
         "note": (
-            "Index geometry is exact; every premium is a real Upstox bar for the fixed strike, "
-            "or a recorded gap. Legs before Upstox coverage stay unpriced."
+            "CryptoForge geometry (auto trendline -> touch -> fib); 1/2/3 lot ladder; each entry buys ATM-2 "
+            "against the index at that level. Every premium is a real Upstox bar or a recorded gap."
         ),
     }
 

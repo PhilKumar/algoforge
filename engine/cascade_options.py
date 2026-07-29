@@ -1254,6 +1254,10 @@ class PaperCascadeConfig:
     # is the sizing (no percent, no fund allocation).  When False (the default),
     # the classic cascade converts rung_inr cash to whole lots at the premium.
     lot_ladder: bool = False
+    # Fib-boundary strike: re-select ATM-N against the index at EACH fill (a
+    # deeper CE buys a lower strike as NIFTY falls) instead of one fixed contract
+    # for the whole campaign.  Needs a contract_selector on the engine.
+    per_entry_strike: bool = False
 
     def __post_init__(self) -> None:
         if self.rung_inr <= 0:
@@ -1286,6 +1290,9 @@ class PaperCascadeFill:
     quantity: int
     rung_keys: tuple[str, ...]
     order_id: str
+    # Per-entry-strike mode records the exact contract this leg bought; None
+    # means the campaign's single fixed contract (the classic cascade).
+    contract: Optional["FixedCampaignOption"] = None
 
     @property
     def turnover(self) -> float:
@@ -1326,16 +1333,21 @@ class NiftyOptionsPaperCascade:
         adapter: CascadeOptionsAdapter,
         option_premium_lookup: OptionPremiumLookup,
         config: PaperCascadeConfig,
+        contract_selector: Optional[Callable[[datetime, float], FixedCampaignOption]] = None,
     ) -> None:
         if not adapter.paper_only:
             raise PaperOnlyViolation("Phase 2 paper cascade requires a paper-only adapter")
         if contract.option_type != "CE":
             raise CascadeError("Phase 2 is locked to CE-only campaigns")
+        if config.per_entry_strike and contract_selector is None:
+            raise CascadeError("per_entry_strike needs a contract_selector")
         self.geometry = NiftyIndexCascadeGeometry(mother)
         self.contract = contract
         self.adapter = adapter
         self.option_premium_lookup = option_premium_lookup
         self.config = config
+        # Called (timestamp, index_price) -> contract when per_entry_strike is on.
+        self.contract_selector = contract_selector
         self.rungs: dict[str, PaperCascadeRung] = {}
         self.open_fills: list[PaperCascadeFill] = []
         self.rounds: list[PaperCascadeRound] = []
@@ -1370,8 +1382,8 @@ class NiftyOptionsPaperCascade:
     def _log(self, candle: IndexCandle, event: str, **payload: Any) -> None:
         self.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **payload})
 
-    def _premium(self, candle: IndexCandle) -> Optional[float]:
-        value = self.option_premium_lookup(candle.timestamp, self.contract)
+    def _premium(self, candle: IndexCandle, contract: Optional[FixedCampaignOption] = None) -> Optional[float]:
+        value = self.option_premium_lookup(candle.timestamp, contract or self.contract)
         if value is None:
             return None
         try:
@@ -1445,7 +1457,12 @@ class NiftyOptionsPaperCascade:
             or candle.high < self.pending_stop
         ):
             return
-        premium = self._premium(candle)
+        # Per-entry strike: re-select ATM-N against the index at this fill, so a
+        # deeper CE buys a lower strike.  Otherwise the single campaign contract.
+        fill_contract = self.contract
+        if self.config.per_entry_strike and self.contract_selector is not None:
+            fill_contract = self.contract_selector(candle.timestamp, self.pending_stop)
+        premium = self._premium(candle, fill_contract)
         if premium is None:
             self.status = "AWAITING_OPTION_QUOTE"
             self._log(candle, "option_quote_missing", action="buy")
@@ -1454,9 +1471,9 @@ class NiftyOptionsPaperCascade:
             # 1 lot on the first fill of this basket, 2 on the second, 3 next...
             lots = len(self.open_fills) + 1
         else:
-            lots = max(1, math.floor(self.pending_inr / (premium * self.contract.lot_size)))
-        quantity = lots * self.contract.lot_size
-        paper_order = self.adapter.place_order(self.contract, side="BUY", quantity=quantity)
+            lots = max(1, math.floor(self.pending_inr / (premium * fill_contract.lot_size)))
+        quantity = lots * fill_contract.lot_size
+        paper_order = self.adapter.place_order(fill_contract, side="BUY", quantity=quantity)
         fill = PaperCascadeFill(
             timestamp=candle.timestamp,
             index_price=self.pending_stop,
@@ -1465,6 +1482,7 @@ class NiftyOptionsPaperCascade:
             quantity=quantity,
             rung_keys=tuple(self.pending_rung_keys),
             order_id=paper_order.order_id,
+            contract=fill_contract if self.config.per_entry_strike else None,
         )
         self.open_fills.append(fill)
         for key in self.pending_rung_keys:
@@ -1488,6 +1506,9 @@ class NiftyOptionsPaperCascade:
 
     def _close_round(self, candle: IndexCandle, *, reason: str, target: float) -> None:
         if not self.open_fills:
+            return
+        if self.config.per_entry_strike:
+            self._close_round_multi_strike(candle, reason=reason, target=target)
             return
         premium = self._premium(candle)
         if premium is None:
@@ -1530,6 +1551,92 @@ class NiftyOptionsPaperCascade:
             candle,
             "round_closed",
             order_id=paper_order.order_id,
+            reason=reason,
+            gross_pnl=round_row.gross_pnl,
+            costs=round_row.costs.total,
+            net_pnl=round_row.net_pnl,
+            reuse_below=self.reuse_below,
+        )
+
+    def _close_round_multi_strike(self, candle: IndexCandle, *, reason: str, target: float) -> None:
+        """Close a per-entry-strike basket: each strike sells at its OWN exit
+        premium, and costs sum per sell order (brokerage is per order)."""
+        groups: dict[str, tuple[FixedCampaignOption, list[PaperCascadeFill]]] = {}
+        for fill in self.open_fills:
+            contract = fill.contract or self.contract
+            group_key = f"{contract.strike}:{contract.expiry.isoformat()}:{contract.option_type}"
+            groups.setdefault(group_key, (contract, []))[1].append(fill)
+        exit_premiums: dict[str, float] = {}
+        for key, (contract, _fills) in groups.items():
+            exit_premium = self._premium(candle, contract)
+            if exit_premium is None:
+                self.status = "AWAITING_OPTION_QUOTE"
+                self._log(candle, "option_quote_missing", action="sell", reason=reason)
+                return
+            exit_premiums[key] = exit_premium
+        group_costs: list[OptionRoundCosts] = []
+        gross_pnl = 0.0
+        total_quantity = 0
+        last_order_id = ""
+        for key, (contract, fills) in groups.items():
+            exit_premium = exit_premiums[key]
+            group_quantity = sum(fill.quantity for fill in fills)
+            group_lots = group_quantity // contract.lot_size
+            order = self.adapter.place_order(contract, side="SELL", quantity=group_quantity)
+            last_order_id = order.order_id
+            group_costs.append(
+                calculate_nifty_option_basket_round_costs(
+                    buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in fills],
+                    sell_price=exit_premium,
+                    sell_quantity=group_quantity,
+                    sell_lots=group_lots,
+                    schedule=self.config.cost_schedule,
+                )
+            )
+            gross_pnl += sum((exit_premium - fill.option_premium) * fill.quantity for fill in fills)
+            total_quantity += group_quantity
+        gross_pnl = round(gross_pnl, 2)
+        costs = OptionRoundCosts(
+            buy_turnover=round(sum(c.buy_turnover for c in group_costs), 2),
+            sell_turnover=round(sum(c.sell_turnover for c in group_costs), 2),
+            brokerage=round(sum(c.brokerage for c in group_costs), 2),
+            stt=round(sum(c.stt for c in group_costs), 2),
+            exchange_transaction=round(sum(c.exchange_transaction for c in group_costs), 2),
+            sebi=round(sum(c.sebi for c in group_costs), 2),
+            stamp=round(sum(c.stamp for c in group_costs), 2),
+            gst=round(sum(c.gst for c in group_costs), 2),
+        )
+        # A single representative exit premium for the round row (qty-weighted).
+        exit_premium = round(
+            sum(exit_premiums[key] * sum(f.quantity for f in fills) for key, (_c, fills) in groups.items())
+            / total_quantity,
+            2,
+        )
+        round_row = PaperCascadeRound(
+            round_id=len(self.rounds) + 1,
+            opened_at=self.open_fills[0].timestamp,
+            closed_at=candle.timestamp,
+            fills=tuple(self.open_fills),
+            target_index=target,
+            exit_index_price=target if reason == "target" else candle.close,
+            exit_option_premium=exit_premium,
+            exit_quantity=total_quantity,
+            gross_pnl=gross_pnl,
+            costs=costs,
+            net_pnl=round(gross_pnl - costs.total, 2),
+            exit_reason=reason,
+        )
+        self.rounds.append(round_row)
+        for rung in self.rungs.values():
+            if rung.status == "FILLED":
+                rung.status = "CLOSED"
+        self.open_fills = []
+        self.reuse_below = min(row.low for row in self.geometry.history)
+        self.status = "ROUND_CLOSED"
+        self._log(
+            candle,
+            "round_closed",
+            order_id=last_order_id,
             reason=reason,
             gross_pnl=round_row.gross_pnl,
             costs=round_row.costs.total,
@@ -1618,7 +1725,7 @@ class NiftyOptionsPaperCascade:
 
     @staticmethod
     def _fill_to_dict(fill: PaperCascadeFill) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "timestamp": fill.timestamp.isoformat(),
             "index_price": fill.index_price,
             "option_premium": fill.option_premium,
@@ -1627,9 +1734,30 @@ class NiftyOptionsPaperCascade:
             "rung_keys": list(fill.rung_keys),
             "order_id": fill.order_id,
         }
+        if fill.contract is not None:
+            payload["contract"] = {
+                "underlying": fill.contract.underlying,
+                "strike": fill.contract.strike,
+                "expiry": fill.contract.expiry.isoformat(),
+                "option_type": fill.contract.option_type,
+                "lot_size": fill.contract.lot_size,
+                "security_id": fill.contract.security_id,
+            }
+        return payload
 
     @classmethod
     def _fill_from_dict(cls, payload: Mapping[str, Any]) -> PaperCascadeFill:
+        contract_payload = payload.get("contract")
+        contract = None
+        if contract_payload:
+            contract = FixedCampaignOption(
+                underlying=str(contract_payload["underlying"]),
+                strike=int(contract_payload["strike"]),
+                expiry=date.fromisoformat(str(contract_payload["expiry"])),
+                option_type=str(contract_payload["option_type"]),
+                lot_size=int(contract_payload["lot_size"]),
+                security_id=str(contract_payload["security_id"]),
+            )
         return PaperCascadeFill(
             timestamp=_as_ist(datetime.fromisoformat(str(payload["timestamp"]).replace("Z", "+00:00"))),
             index_price=float(payload["index_price"]),
@@ -1638,6 +1766,7 @@ class NiftyOptionsPaperCascade:
             quantity=int(payload["quantity"]),
             rung_keys=tuple(str(key) for key in payload.get("rung_keys") or []),
             order_id=str(payload.get("order_id") or ""),
+            contract=contract,
         )
 
     @staticmethod
