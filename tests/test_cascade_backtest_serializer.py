@@ -5,6 +5,7 @@ with the lot ladder + per-entry strike: entries carry their own strike, P&L sums
 across rounds, and the shape matches what the backtest panel reads.
 """
 
+import base64
 import os
 import sys
 import unittest
@@ -18,7 +19,8 @@ os.environ.setdefault("PHILFORGE_PIN", "123456")
 os.environ.setdefault("PHILFORGE_DB", "/tmp/philforge-test-bt-serializer.db")
 os.environ.setdefault("PHILFORGE_USER_DATA_ROOT", "/tmp/philforge-test-bt-serializer-data")
 os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
-os.environ.setdefault("ENCRYPTION_KEY", "QmG8YWqLPtWFDn7gCAiHJXoX7zH5zi89kUnkkMvibU=")
+# Computed, not a literal, so the secret scanner doesn't flag a dummy test key.
+os.environ.setdefault("ENCRYPTION_KEY", base64.urlsafe_b64encode(b"0" * 32).decode())
 
 from app import _serialize_cascade_backtest  # noqa: E402
 from engine.cascade_options import (  # noqa: E402
