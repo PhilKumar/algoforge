@@ -209,7 +209,7 @@ class TwoRedLadder:
 
     # ── the state machine ────────────────────────────────────
     def on_candle(self, candle: LadderCandle) -> None:
-        if self.status in {"CLOSED", "EXPIRED"} or candle.timestamp <= self.mother.timestamp:
+        if self.status in {"CLOSED", "EXPIRED", "KILLED"} or candle.timestamp <= self.mother.timestamp:
             return
         self.lowest = min(self.lowest, candle.low)
 
@@ -301,7 +301,7 @@ class TwoRedLadder:
 
     def close_at_expiry(self, candle: LadderCandle, index_price: float) -> None:
         """End an unfinished campaign on its option's last day."""
-        if self.status in {"CLOSED", "EXPIRED"}:
+        if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
             return
         if not self.fills:
             # Nothing was ever bought: the mother simply never set up.
@@ -309,6 +309,22 @@ class TwoRedLadder:
             return
         self._close(candle, index_price, "expiry")
         self.status = "EXPIRED"
+
+    def kill(self, candle: LadderCandle, index_price: float) -> None:
+        """Stop the campaign by hand, selling any open basket at this price.
+
+        A kill always succeeds: if no sell premium can be found the exit is
+        still recorded and the money is left blank, exactly as `_close` does
+        for any other unpriced leg.  Refusing the kill would leave a basket
+        Phil asked to stop still watching the market.
+        """
+        if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+            return
+        if self.fills:
+            self._close(candle, index_price, "manual_kill")
+        else:
+            self._log(candle, "campaign_killed")
+        self.status = "KILLED"
 
     def _close(self, candle: LadderCandle, index_price: float, reason: str) -> None:
         self.exit_timestamp = candle.timestamp

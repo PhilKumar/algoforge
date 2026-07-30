@@ -21,6 +21,14 @@ from cascade_costs import (
     OptionRoundCosts,
     calculate_nifty_option_basket_round_costs,
 )
+from engine.candle_ladder import (
+    LADDER_TIMEFRAMES,
+    LadderCandle,
+    LadderError,
+    TwoRedLadder,
+    ladder_from,
+    order_events,
+)
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price, normalise_timeframe
 from engine.cascade_instruments import InstrumentError, index_spec
 
@@ -2378,6 +2386,320 @@ class OneHourCandleEntryPaper:
                 for row in self.rounds
             ],
             "events": self.events[-100:],
+        }
+
+
+class LadderCandleEntryPaper:
+    """The two-red ladder as the Candle Entry paper campaign, starting 1m-1H.
+
+    :class:`engine.candle_ladder.TwoRedLadder` owns the geometry and the paper
+    fills; this wraps it with everything a live Cascade campaign needs around
+    that: the fixed CE contract, paper broker orders, current-quote premiums,
+    and the signal-only historical replay mode the old 1H engine established.
+    A historical mother proves entry/exit geometry only -- premiums and P&L
+    are withheld rather than invented, exactly as before.
+    """
+
+    def __init__(
+        self,
+        mother: IndexCandle,
+        timeframe: str,
+        contract: FixedCampaignOption,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+        *,
+        target_fraction: float = 0.25,
+        signal_only: bool = False,
+    ) -> None:
+        if not adapter.paper_only or contract.option_type != "CE":
+            raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
+        key = str(timeframe).strip().lower()
+        if key not in LADDER_TIMEFRAMES:
+            raise LadderError(f"{timeframe!r} is not one of {', '.join(LADDER_TIMEFRAMES)}")
+        self.mother = mother
+        self.timeframe = key
+        self.contract = contract
+        self.adapter = adapter
+        self.option_premium_lookup = option_premium_lookup
+        self.signal_only = bool(signal_only)
+        self.replay_complete = False
+        self.stages = ladder_from(key)
+
+        def _premium(timestamp: datetime, _strike: int, _option_type: str) -> Optional[float]:
+            if self.signal_only:
+                return None
+            value = self.option_premium_lookup(timestamp, self.contract)
+            try:
+                return float(value) if value is not None and float(value) > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        self.ladder = TwoRedLadder(
+            LadderCandle(key, mother.timestamp, mother.open, mother.high, mother.low, mother.close),
+            stages=self.stages,
+            strike_for=lambda _timestamp, _price: (contract.strike, contract.option_type),
+            premium_lookup=_premium,
+            lot_size=contract.lot_size,
+            target_fraction=target_fraction,
+        )
+        # Everything at or before the mother's open is pre-history on every
+        # chart; TwoRedLadder skips those itself, this just avoids re-feeding.
+        self._seen: dict[str, datetime] = {}
+        self._candles_reviewed = 0
+        self._latest: Optional[LadderCandle] = None
+
+    # ── passthroughs the routes rely on ──────────────────────
+    @property
+    def status(self) -> str:
+        return self.ladder.status
+
+    @property
+    def target_index(self) -> Optional[float]:
+        return self.ladder.target_index
+
+    @property
+    def open_quantity(self) -> int:
+        if self.ladder.exit_timestamp is not None:
+            return 0
+        return sum(fill.quantity for fill in self.ladder.fills)
+
+    @property
+    def last_index_close(self) -> float:
+        return float(self._latest.close if self._latest is not None else self.mother.close)
+
+    def finish_replay(self, final_candle: IndexCandle, *, reached_expiry: bool) -> None:
+        """End a signal-only replay honestly.
+
+        Only a window that actually reached the contract's expiry may expire
+        an unfinished ladder; a replay of a recent mother whose option is
+        still alive simply stops where the data stops, in whatever state the
+        campaign had reached.
+        """
+        if not self.signal_only:
+            return
+        if reached_expiry:
+            row = LadderCandle(
+                self.timeframe,
+                final_candle.timestamp,
+                final_candle.open,
+                final_candle.high,
+                final_candle.low,
+                final_candle.close,
+            )
+            self.ladder.close_at_expiry(row, final_candle.close)
+        self.complete_historical_replay(final_candle)
+
+    def complete_historical_replay(self, candle: Optional[IndexCandle] = None) -> None:
+        """Mark a finite signal-only replay complete without inventing a trade."""
+        if not self.signal_only:
+            return
+        self.replay_complete = True
+        if candle is not None:
+            self.ladder.events.append(
+                {
+                    "timestamp": candle.timestamp.isoformat(),
+                    "timeframe": self.timeframe,
+                    "event": "historical_replay_complete",
+                    "status": self.ladder.status,
+                }
+            )
+
+    # ── candle intake ─────────────────────────────────────────
+    def ingest(self, batches: Mapping[str, Iterable[IndexCandle]]) -> None:
+        """Feed newly-closed bars from every chart, ordered by close time.
+
+        Each timeframe's bars are deduped against what this campaign has
+        already seen, then interleaved by the moment each bar closed so a 1m
+        target hit is acted on before the 1h bar that contains it.
+        """
+        rows: list[LadderCandle] = []
+        for timeframe, candles in batches.items():
+            key = str(timeframe).strip().lower()
+            last = self._seen.get(key, self.mother.timestamp)
+            fresh = [candle for candle in candles if candle.timestamp > last]
+            if not fresh:
+                continue
+            self._seen[key] = max(candle.timestamp for candle in fresh)
+            rows.extend(
+                LadderCandle(key, candle.timestamp, candle.open, candle.high, candle.low, candle.close)
+                for candle in fresh
+            )
+        for row in order_events(rows):
+            self._feed(row)
+
+    def _feed(self, row: LadderCandle) -> None:
+        fills_before = len(self.ladder.fills)
+        was_open = self.ladder.exit_timestamp is None
+        self.ladder.on_candle(row)
+        self._latest = row
+        self._candles_reviewed += 1
+        if self.signal_only:
+            return
+        # Book-keep the paper broker to mirror what the ladder just did.  The
+        # adapter is paper-locked; these orders exist so the blotter tells the
+        # same story as the campaign.
+        for fill in self.ladder.fills[fills_before:]:
+            self.adapter.place_order(self.contract, side="BUY", quantity=fill.quantity)
+        if was_open and self.ladder.exit_timestamp is not None and self.ladder.exit_premium is not None:
+            quantity = sum(fill.quantity for fill in self.ladder.fills)
+            if quantity:
+                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+
+    def kill_and_close(self, candle: IndexCandle) -> bool:
+        """Stop the campaign at the given index price.  Always succeeds."""
+        had_open_basket = bool(self.ladder.fills) and self.ladder.exit_timestamp is None
+        row = LadderCandle(self.timeframe, candle.timestamp, candle.open, candle.high, candle.low, candle.close)
+        self.ladder.kill(row, candle.close)
+        if not self.signal_only and had_open_basket and self.ladder.exit_premium is not None:
+            quantity = sum(fill.quantity for fill in self.ladder.fills)
+            if quantity:
+                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+        return True
+
+    # ── reporting ─────────────────────────────────────────────
+    def _rung_rows(self) -> list[dict[str, Any]]:
+        ladder = self.ladder
+        fills = {fill.rung: fill for fill in ladder.fills}
+        active = ladder.stages[ladder.active] if ladder.active < len(ladder.stages) else None
+        rows: list[dict[str, Any]] = []
+        for stage in ladder.stages:
+            fill = fills.get(stage.rung)
+            if fill is not None:
+                state = "filled"
+            elif active is not None and stage.rung == active.rung:
+                state = "armed" if stage.stop is not None else "watching"
+            else:
+                state = "waiting"
+            rows.append(
+                {
+                    "rung": stage.rung,
+                    "timeframe": stage.timeframe,
+                    "lots": stage.lots,
+                    "quantity": stage.lots * ladder.lot_size,
+                    "state": state,
+                    "entry_stop": stage.stop,
+                    "qualifying_reds": len(stage.reds),
+                    "fill": (
+                        {
+                            "timestamp": fill.timestamp.isoformat(),
+                            "index_price": fill.index_price,
+                            "option_premium": fill.option_premium,
+                            "lots": fill.lots,
+                            "quantity": fill.quantity,
+                            "marked_low": fill.marked_low,
+                        }
+                        if fill is not None
+                        else None
+                    ),
+                }
+            )
+        return rows
+
+    def get_status(self) -> dict[str, Any]:
+        ladder = self.ladder
+        active = ladder.stages[ladder.active] if ladder.active < len(ladder.stages) else None
+        latest = self._latest
+        first_fill = ladder.fills[0] if ladder.fills else None
+        rounds: list[dict[str, Any]] = []
+        if ladder.exit_timestamp is not None and first_fill is not None:
+            rounds.append(
+                {
+                    "round_id": 1,
+                    "opened_at": first_fill.timestamp.isoformat(),
+                    "closed_at": ladder.exit_timestamp.isoformat(),
+                    "exit_index_price": ladder.exit_index_price,
+                    "exit_option_premium": ladder.exit_premium,
+                    "gross_pnl": ladder.gross_pnl,
+                    "costs": {"total": ladder.costs.total if ladder.costs is not None else None},
+                    "net_pnl": ladder.net_pnl,
+                    "exit_reason": ladder.exit_reason,
+                }
+            )
+        return {
+            "mode": "paper",
+            "strategy": "candle_entry_ladder",
+            "timeframe": self.timeframe,
+            "stages": list(self.stages),
+            "running": ladder.status not in {"CLOSED", "EXPIRED", "KILLED"},
+            "status": ladder.status,
+            "pricing_mode": "signal_only_dhan" if self.signal_only else "current_quote_paper",
+            "pricing_warning": (
+                "Historical replay verifies NIFTY entry and target geometry only. "
+                "Fixed-strike option premium and P&L are intentionally withheld."
+                if self.signal_only
+                else None
+            ),
+            "replay_complete": self.replay_complete,
+            "mother": {
+                "timeframe": self.timeframe,
+                "timestamp": self.mother.timestamp.isoformat(),
+                "open": self.mother.open,
+                "high": self.mother.high,
+                "low": self.mother.low,
+                "close": self.mother.close,
+            },
+            "contract": {
+                "underlying": self.contract.underlying,
+                "strike": self.contract.strike,
+                "expiry": self.contract.expiry.isoformat(),
+                "option_type": self.contract.option_type,
+                "lot_size": self.contract.lot_size,
+            },
+            "entry_stop": active.stop if active is not None else None,
+            "entry_stop_armed_at": (
+                active.armed_at.isoformat() if active is not None and active.armed_at is not None else None
+            ),
+            "target_index": ladder.target_index,
+            "average_entry": ladder.average_entry,
+            "lowest_since_mother": ladder.lowest,
+            "gate_low": ladder.gate_low,
+            "qualifying_reds": ([row.timestamp.isoformat() for row in active.reds] if active is not None else []),
+            "latest_closed_candle": (
+                {
+                    "timeframe": latest.timeframe,
+                    "timestamp": latest.timestamp.isoformat(),
+                    "open": latest.open,
+                    "high": latest.high,
+                    "low": latest.low,
+                    "close": latest.close,
+                }
+                if latest is not None
+                else {
+                    "timeframe": self.timeframe,
+                    "timestamp": self.mother.timestamp.isoformat(),
+                    "open": self.mother.open,
+                    "high": self.mother.high,
+                    "low": self.mother.low,
+                    "close": self.mother.close,
+                }
+            ),
+            "candles_reviewed": self._candles_reviewed,
+            "rungs": self._rung_rows(),
+            "open_quantity": self.open_quantity,
+            "open_fill": (
+                {
+                    "timestamp": ladder.fills[-1].timestamp.isoformat(),
+                    "index_price": ladder.fills[-1].index_price,
+                    "option_premium": ladder.fills[-1].option_premium,
+                    "lots": ladder.fills[-1].lots,
+                    "quantity": sum(fill.quantity for fill in ladder.fills),
+                }
+                if ladder.fills and ladder.exit_timestamp is None
+                else None
+            ),
+            "signal_entry": (
+                {
+                    "timestamp": first_fill.timestamp.isoformat(),
+                    "index_price": first_fill.index_price,
+                    "exit_timestamp": (
+                        ladder.exit_timestamp.isoformat() if ladder.exit_timestamp is not None else None
+                    ),
+                }
+                if self.signal_only and first_fill is not None
+                else None
+            ),
+            "rounds": rounds,
+            "events": ladder.events[-100:],
         }
 
 

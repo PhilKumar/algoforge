@@ -115,6 +115,9 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/terminal/cascade/scan') {
       await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
     }
+    else if (path === '/api/cascade/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_gate: { enabled: false } } });
+    else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
@@ -434,4 +437,52 @@ test('Test Bench switches cleanly between the two strategies', async ({ page }) 
   // The rupee-per-level box is a fib control; the ladder sizes itself in lots.
   await expect(page.locator('#tb-rung-field')).toBeHidden();
   await expect(page.locator('#tb-explainer')).toContainText('two red candles');
+});
+
+test('Desktop nav keeps every tab visible and Test Bench in its slot', async ({ page }) => {
+  // The nav positions tabs with per-id CSS order rules; a tab without one
+  // lands at order 0 and renders on top of the brand panel. This is exactly
+  // how the Test Bench tab shipped broken, so the desktop row is asserted
+  // here the way a user sees it: positions, not markup.
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await login(page);
+
+  const box = async (selector: string) => {
+    const b = await page.locator(selector).boundingBox();
+    if (!b) throw new Error(`${selector} is not visible`);
+    return b;
+  };
+  const brand = await box('.header-brand-panel');
+  const cascade = await box('#nav-cascade');
+  const bench = await box('#nav-test-bench');
+  const insights = await box('#nav-insights-wrap');
+  const results = await box('#nav-results');
+
+  // Between Cascade and Insights, on the same row, clear of the brand panel.
+  expect(bench.x).toBeGreaterThan(cascade.x + cascade.width - 1);
+  expect(bench.x + bench.width).toBeLessThanOrEqual(insights.x + 1);
+  expect(Math.abs(bench.y - cascade.y)).toBeLessThan(2);
+  expect(bench.x).toBeGreaterThan(brand.x + brand.width - 1);
+  // And the far end of the row must not run off the screen.
+  expect(results.x + results.width).toBeLessThanOrEqual(1600);
+});
+
+test('Candle Entry tab offers the full ladder of starting charts', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-candle');
+
+  // The four ladders, each named by the charts it climbs through.
+  await expect(page.locator('#candle-entry-timeframe option')).toHaveCount(4);
+  await expect(page.locator('#candle-entry-timeframe option[value="1m"]')).toHaveText(/1m → 5m → 15m → 1H/);
+  await expect(page.locator('#candle-entry-timeframe option[value="1h"]')).toHaveText(/^1H · 1H$/);
+
+  // Switching the chart retunes the mother calendar's minutes.
+  await page.selectOption('#candle-entry-timeframe', '1h');
+  await expect(page.locator('#candle-entry-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '15');
+  await page.selectOption('#candle-entry-timeframe', '15m');
+  await expect(page.locator('#candle-entry-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '0,15,30,45');
+
+  // The copy sells the ladder, not the old single 1H buy.
+  await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
 });

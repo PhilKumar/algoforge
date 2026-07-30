@@ -3137,11 +3137,12 @@
   .nav-tabs > #nav-terminal { order: 3; }
   .nav-tabs > #nav-scalp { order: 4; }
   .nav-tabs > #nav-cascade { order: 5; }
-  .nav-tabs > #nav-insights-wrap { order: 6; }
-  .nav-tabs > #nav-live { order: 7; }
-  .nav-tabs > #nav-builder { order: 8; }
-  .nav-tabs > #nav-charts { order: 9; }
-  .nav-tabs > #nav-results { order: 10; }
+  .nav-tabs > #nav-test-bench { order: 6; }
+  .nav-tabs > #nav-insights-wrap { order: 7; }
+  .nav-tabs > #nav-live { order: 8; }
+  .nav-tabs > #nav-builder { order: 9; }
+  .nav-tabs > #nav-charts { order: 10; }
+  .nav-tabs > #nav-results { order: 11; }
   .nav-tab {
     background: none;
     border: none;
@@ -3314,8 +3315,10 @@
     animation: none;
   }
 
-  /* Keep the complete navigation inside the viewport before mobile mode. */
-  @media (max-width: 1250px) and (min-width: 481px) {
+  /* Keep the complete navigation inside the viewport before mobile mode.
+     1500px, not 1250px: eleven tabs (Test Bench included) plus the brand
+     panel overflow a single row well above the old ten-tab breakpoint. */
+  @media (max-width: 1500px) and (min-width: 481px) {
     .nav-bar { padding: 0 8px; }
     .nav-tabs { flex-wrap: wrap; justify-content: center; row-gap: 2px; }
     .nav-tab { padding: 10px 12px; font-size: 12px; gap: 6px; }

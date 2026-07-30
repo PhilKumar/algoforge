@@ -6,6 +6,7 @@ from engine.cascade_options import (
     CascadeOptionsAdapter,
     FixedCampaignOption,
     IndexCandle,
+    LadderCandleEntryPaper,
     NiftyIndexCascadeGeometry,
     NiftyOptionsPaperCascade,
     OneHourCandleEntryPaper,
@@ -506,6 +507,110 @@ class PaperRoundTests(unittest.TestCase):
         self.assertTrue(status["replay_complete"])
         self.assertEqual(status["signal_entry"]["index_price"], 97)
         self.assertEqual([row.side for row in adapter.orders], [])
+
+
+class LadderCandleEntryPaperTests(unittest.TestCase):
+    """The two-red ladder wrapped as the live Candle Entry paper campaign."""
+
+    @staticmethod
+    def _minute(hour: int, minute: int) -> datetime:
+        return datetime(2026, 7, 20, hour, minute)
+
+    def _engine(self, adapter, *, signal_only=False, premium=100.0):
+        # Mother low sits at 104 so the ladder's new-low gate is exercised by
+        # the candles below, not defeated by a deep mother wick.
+        mother = IndexCandle(self._minute(9, 15), 104, 110, 104, 105)
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        return LadderCandleEntryPaper(
+            mother,
+            "1m",
+            contract,
+            adapter,
+            (lambda _t, _c: None) if signal_only else (lambda _t, _c: premium),
+            signal_only=signal_only,
+        )
+
+    def _two_rung_batches(self):
+        m = self._minute
+        return {
+            "1m": [
+                IndexCandle(m(9, 16), 105, 106, 104, 106),  # seed close
+                IndexCandle(m(9, 17), 106, 106, 102, 103),  # red 1
+                IndexCandle(m(9, 18), 103, 103, 100, 101),  # red 2 -> stop armed at 103
+                IndexCandle(m(9, 19), 101, 104, 100, 103.5),  # recovery fills rung 1 (1 lot)
+            ],
+            "5m": [
+                IndexCandle(m(9, 20), 101, 102, 99.5, 101.5),  # seed close
+                IndexCandle(m(9, 25), 101.5, 101.5, 98, 99),  # red 1, below the 100 gate low
+                IndexCandle(m(9, 30), 99, 99, 96, 97),  # red 2 -> stop armed at 99
+                IndexCandle(m(9, 35), 97, 99.5, 96.5, 99),  # recovery fills rung 2 (2 lots)
+            ],
+        }
+
+    def test_ladder_climbs_two_rungs_and_places_matching_paper_orders(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+
+        engine.ingest(self._two_rung_batches())
+
+        status = engine.get_status()
+        self.assertEqual([row["state"] for row in status["rungs"]], ["filled", "filled", "watching", "waiting"])
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY"])
+        self.assertEqual([o.quantity for o in adapter.orders], [65, 130])
+        self.assertEqual(status["open_fill"]["quantity"], 195)
+        # avg entry (103*65 + 99*130)/195 = 100.33; target a quarter back to 110.
+        self.assertAlmostEqual(status["target_index"], 102.75, places=2)
+
+    def test_target_hit_sells_the_whole_basket_together(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+        engine.ingest(self._two_rung_batches())
+
+        engine.ingest({"1m": [IndexCandle(self._minute(9, 41), 100, 103, 100, 102)]})
+
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY", "SELL"])
+        self.assertEqual(adapter.orders[-1].quantity, 195)
+        status = engine.get_status()
+        self.assertFalse(status["running"])
+        self.assertEqual(status["rounds"][0]["exit_reason"], "target")
+        self.assertIsNotNone(status["rounds"][0]["net_pnl"])
+
+    def test_ingest_is_idempotent_for_already_seen_candles(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+        batches = self._two_rung_batches()
+
+        engine.ingest(batches)
+        engine.ingest(batches)  # the poll loop refetches from the mother date
+
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY"])
+        self.assertEqual(len(engine.ladder.fills), 2)
+
+    def test_signal_only_replay_records_geometry_without_any_paper_order(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter, signal_only=True)
+
+        engine.ingest(self._two_rung_batches())
+        engine.finish_replay(IndexCandle(self._minute(9, 35), 97, 99.5, 96.5, 99), reached_expiry=False)
+
+        status = engine.get_status()
+        self.assertEqual(adapter.orders, [])
+        self.assertTrue(status["replay_complete"])
+        self.assertEqual(status["pricing_mode"], "signal_only_dhan")
+        self.assertEqual(status["signal_entry"]["index_price"], 103)
+        self.assertIsNone(status["rungs"][0]["fill"]["option_premium"])
+
+    def test_kill_sells_open_basket_and_stops_the_campaign(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+        engine.ingest(self._two_rung_batches())
+
+        self.assertTrue(engine.kill_and_close(IndexCandle(self._minute(9, 40), 100, 100, 100, 100)))
+
+        self.assertEqual(engine.status, "KILLED")
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY", "SELL"])
+        self.assertEqual(engine.open_quantity, 0)
 
 
 if __name__ == "__main__":

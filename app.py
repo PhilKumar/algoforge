@@ -71,6 +71,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
+from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES
 from engine.cascade_calendar import ContractCalendar
 from engine.cascade_equity import (
     CashCascadeInstrument,
@@ -85,9 +86,9 @@ from engine.cascade_options import (
     FibBoundaryPaper,
     FixedCampaignOption,
     IndexCandle,
+    LadderCandleEntryPaper,
     NiftyContractResolver,
     NiftyOptionsPaperCascade,
-    OneHourCandleEntryPaper,
     OneHourCascade,
     PaperCascadeConfig,
 )
@@ -2721,9 +2722,16 @@ class CascadePaperStartPayload(BaseModel):
 
 
 class CandleEntryPaperStartPayload(BaseModel):
-    """1H mother timestamp for the no-escalation paper Candle Entry campaign."""
+    """Mother timestamp and starting chart for the two-red ladder campaign.
+
+    The timeframe is where the ladder STARTS; it climbs from there through
+    every slower chart up to 1H (1m -> 1+2+3+4 lots, 15m -> 3+4, and so on).
+    The default keeps the old single-rung 1H behaviour for anything that
+    still posts without a timeframe.
+    """
 
     mother_timestamp: str
+    timeframe: str = "1h"
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
 
 
@@ -7699,24 +7707,28 @@ async def cascade_paper_chart(mother_timestamp: str, request: Request):
 
 
 async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
-    """Poll closed 1H NIFTY bars for the isolated Candle Entry paper campaign."""
+    """Poll closed NIFTY bars on every ladder chart for the Candle Entry campaign.
+
+    The engine dedupes what it has already seen and interleaves the charts by
+    close time itself; this loop only keeps fresh candles flowing in.
+    """
 
     while runtime.running and _candle_entry_engines.get(int(user_id)) is runtime:
         try:
             today = datetime.now(IST).date()
             start = runtime.engine.mother.timestamp.date()
-            candles = await runtime.adapter.async_get_candles("NIFTY", "1h", from_date=start, to_date=today)
-            for candle in candles:
-                if candle.timestamp <= runtime.last_candle_timestamp:
-                    continue
-                runtime.last_candle_timestamp = candle.timestamp
-                runtime.engine.on_candle(candle)
-            if runtime.engine.status in {"CLOSED", "KILLED"}:
+            batches = {}
+            for timeframe in runtime.engine.stages:
+                batches[timeframe] = await runtime.adapter.async_get_candles(
+                    "NIFTY", timeframe, from_date=start, to_date=today
+                )
+            runtime.engine.ingest(batches)
+            if runtime.engine.status in {"CLOSED", "EXPIRED", "KILLED"}:
                 runtime.running = False
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            _logger.warning("[CANDLE ENTRY] NIFTY 1H paper poll failed for user %s: %s", user_id, exc)
+            _logger.warning("[CANDLE ENTRY] NIFTY ladder paper poll failed for user %s: %s", user_id, exc)
         await asyncio.sleep(20)
 
 
@@ -7730,6 +7742,13 @@ async def candle_entry_paper_status(request: Request):
 
 @app.post("/api/candle-entry/paper/start")
 async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, request: Request):
+    timeframe = str(payload.timeframe or "1h").strip().lower()
+    if timeframe not in LADDER_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.",
+        )
+    bar_minutes = TIMEFRAME_MINUTES[timeframe]
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
     if mother_timestamp.date() > now.date():
@@ -7737,32 +7756,45 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     if (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
         raise HTTPException(
             status_code=400,
-            detail=f"Choose a completed 1H mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days.",
+            detail=f"Choose a completed mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days.",
         )
-    if mother_timestamp.minute != 15 or not (9 <= mother_timestamp.hour <= 15):
+    minutes_since_open = (mother_timestamp.hour * 60 + mother_timestamp.minute) - (9 * 60 + 15)
+    if minutes_since_open < 0 or mother_timestamp.time() >= dt_time(15, 30) or minutes_since_open % bar_minutes != 0:
         raise HTTPException(
-            status_code=400, detail="Mother timestamp must be an NSE-aligned 1H candle open (09:15, 10:15 … 15:15 IST)."
+            status_code=400,
+            detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open (on the 09:15 IST grid).",
         )
-    bar_minutes = 15 if mother_timestamp.hour == 15 else 60
-    if mother_timestamp + timedelta(minutes=bar_minutes) > now:
-        raise HTTPException(status_code=400, detail="Mother timestamp must be a completed 1H candle.")
+    # The last bar of the day closes at 15:30 whatever chart it is read on.
+    mother_close_at = min(
+        mother_timestamp + timedelta(minutes=bar_minutes),
+        mother_timestamp.replace(hour=15, minute=30, second=0, microsecond=0),
+    )
+    if mother_close_at > now:
+        raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
-        raise HTTPException(
-            status_code=400, detail="Connect a Dhan account before starting the 1H Candle Entry campaign."
-        )
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting the Candle Entry campaign.")
     old = _candle_entry_engines.get(user_id)
     if old is not None and old.running:
         raise HTTPException(
             status_code=409,
-            detail="A 1H Candle Entry campaign is already running. Kill it before replacing its mother.",
+            detail="A Candle Entry campaign is already running. Kill it before replacing its mother.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    candles = await adapter.async_get_candles("NIFTY", "1h", from_date=mother_timestamp.date(), to_date=now.date())
+    stages = tuple(LADDER_TIMEFRAMES[LADDER_TIMEFRAMES.index(timeframe) :])
+    batches: dict[str, list[IndexCandle]] = {}
+    for stage_timeframe in stages:
+        batches[stage_timeframe] = await adapter.async_get_candles(
+            "NIFTY", stage_timeframe, from_date=mother_timestamp.date(), to_date=now.date()
+        )
+    candles = batches[timeframe]
     mother = next((row for row in candles if row.timestamp == mother_timestamp), None)
     if mother is None:
-        raise HTTPException(status_code=404, detail="Dhan did not return a closed NIFTY 1H candle at that timestamp.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dhan did not return a closed NIFTY {timeframe} candle at that timestamp.",
+        )
     is_historical_replay = mother_timestamp.date() != now.date()
     try:
         contract = (
@@ -7779,26 +7811,29 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to select fixed next-weekly CE: {exc}") from exc
-    engine = OneHourCandleEntryPaper(
+    engine = LadderCandleEntryPaper(
         mother,
+        timeframe,
         contract,
         adapter,
         _cascade_premium_lookup(broker_client),
         signal_only=is_historical_replay,
     )
-    last_candle_timestamp = mother.timestamp
     if is_historical_replay:
-        for candle in candles:
-            if candle.timestamp <= mother.timestamp:
-                continue
-            engine.on_candle(candle)
-            last_candle_timestamp = candle.timestamp
-        engine.complete_historical_replay(candles[-1] if candles else mother)
+        # A replay must not run past the option's own life.
+        replay = {
+            stage_timeframe: [row for row in rows if row.timestamp.date() <= contract.expiry]
+            for stage_timeframe, rows in batches.items()
+        }
+        engine.ingest(replay)
+        remaining = [rows[-1] for rows in replay.values() if rows]
+        final_candle = max(remaining, key=lambda row: row.timestamp) if remaining else mother
+        engine.finish_replay(final_candle, reached_expiry=now.date() >= contract.expiry)
     runtime = _CascadeRuntime(
         engine=engine,
         adapter=adapter,
         broker=broker_client,
-        last_candle_timestamp=last_candle_timestamp,
+        last_candle_timestamp=mother.timestamp,
         running=not is_historical_replay,
     )
     _candle_entry_engines[user_id] = runtime
@@ -7815,13 +7850,13 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
 async def candle_entry_paper_kill(request: Request):
     runtime = _candle_entry_engines.get(_request_user_id(request))
     if runtime is None:
-        raise HTTPException(status_code=404, detail="No 1H Candle Entry campaign is active.")
+        raise HTTPException(status_code=404, detail="No Candle Entry campaign is active.")
     now = datetime.now(IST)
     try:
         quote = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
         price = float(quote["last_price"])
     except Exception:
-        price = float(runtime.engine.history[-1].close)
+        price = float(runtime.engine.last_index_close)
     if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
         raise HTTPException(
             status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
