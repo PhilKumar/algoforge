@@ -83,8 +83,12 @@ class CascadeConfig:
     lot_size: int = 65
     itm_steps: int = 2
     strike_step: float = 50.0
-    min_dte: int = 7
-    max_dte: int = 13
+    # Weeklies sit 7 days apart, so a 10-day floor does not yield a steady 10:
+    # depending on the weekday of entry the selected expiry lands anywhere from
+    # 10 to 16 days out.  That spread is accepted deliberately -- the rule is
+    # "never inside 10 days", not "always exactly 10".
+    min_dte: int = 10
+    max_dte: int = 16
     target_fraction: float = 0.25
     strict_option_data: bool = True
     force_exit_on_expiry: bool = True
@@ -148,7 +152,10 @@ class CascadeConfig:
             raise CascadeError("slippage_points must be >= 0 and option_slippage_pct in [0, 1)")
         base_timeframe = self.timeframe.lower()
         defaults = {
-            "1m": ("1m", "5m", "15m"),
+            # A 1m start climbs all the way to 1H, so a four-lot schedule has a
+            # timeframe for its fourth buy.  The ladder is truncated to the lot
+            # schedule below, so a three-lot 1m run still stops at 15m.
+            "1m": ("1m", "5m", "15m", "1h"),
             "5m": ("5m", "15m", "1h"),
             "15m": ("15m", "1h", "4h"),
             "1h": ("1h", "4h", "1d"),
@@ -1279,6 +1286,10 @@ class PaperCascadeConfig:
     # first entry always fills (the cap limits averaging depth, never the trade
     # itself).  None (the default) = no ceiling.
     max_round_premium_inr: Optional[float] = None
+    # Time-stop: force the square-off this many CALENDAR days before the option's
+    # own expiry, to cut theta decay before it runs to zero on a leg that never
+    # reached its target.  0 (the default) squares off at expiry as before.
+    exit_days_before_expiry: int = 0
 
     def __post_init__(self) -> None:
         if self.rung_inr <= 0:
@@ -1291,6 +1302,8 @@ class PaperCascadeConfig:
             raise CascadeError("max_rounds must be at least 1 when set")
         if self.max_round_premium_inr is not None and self.max_round_premium_inr <= 0:
             raise CascadeError("max_round_premium_inr must be positive when set")
+        if self.exit_days_before_expiry < 0:
+            raise CascadeError("exit_days_before_expiry cannot be negative")
 
 
 @dataclass
@@ -1734,6 +1747,12 @@ class NiftyOptionsPaperCascade:
         if target is not None and candle.timestamp > newest_fill and candle.high >= target:
             self._close_round(candle, reason="target", target=target)
             return
+        # Time-stop: square off N calendar days before expiry to cut late theta.
+        if self.config.exit_days_before_expiry > 0:
+            effective_expiry = self.contract.expiry - timedelta(days=self.config.exit_days_before_expiry)
+            if option_expiry_squareoff_due(candle.timestamp, effective_expiry):
+                self._close_round(candle, reason="expiry_square_off", target=target or candle.close)
+                return
         if self.adapter.expiry_squareoff_due(self.contract, candle.timestamp):
             self._close_round(candle, reason="expiry_square_off", target=target or candle.close)
 

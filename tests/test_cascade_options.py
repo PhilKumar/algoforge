@@ -20,8 +20,10 @@ class CascadeOptionsTests(unittest.TestCase):
         self.expiries = [date(2026, 7, 21), date(2026, 7, 28), date(2026, 8, 4), date(2026, 8, 11)]
 
     def test_resolver_skips_current_week_and_selects_two_itm_mirror(self):
+        # Pinned to the original 7-13 window: this covers skip-the-current-week
+        # and the CE/PE strike mirror, not the width of the DTE band.
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
-        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000)
+        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000, min_dte=7, max_dte=13)
         ce = resolver.select(t(10), 24876, "CE", config)
         pe = resolver.select(t(10), 24876, "PE", config)
         self.assertEqual(ce.expiry, date(2026, 7, 28))
@@ -29,8 +31,50 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(pe.strike, 25000)
         self.assertEqual(ce.lot_size, 65)
 
+    def test_resolver_honours_the_ten_day_minimum_by_default(self):
+        # The live rule: never take an expiry inside 10 days.  From 20 July the
+        # 28th is only 8 days out, so the resolver must step past it to 4 August
+        # (15 days) rather than take the nearer, cheaper contract.
+        resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
+        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000)
+        self.assertEqual(config.min_dte, 10)
+        contract = resolver.select(t(10), 24876, "CE", config)
+        self.assertEqual(contract.expiry, date(2026, 8, 4))
+        self.assertGreaterEqual((contract.expiry - t(10).date()).days, 10)
+
+    def test_one_minute_ladder_climbs_to_one_hour_on_a_fourth_buy(self):
+        # A 1m start with four lots steps 1m -> 5m -> 15m -> 1H.  With only
+        # three lots it still stops at 15m, so the fourth timeframe appears
+        # exactly when a fourth buy exists to use it.
+        base = dict(mother_timestamp=t(9), mother_high=25000, mother_low=24000, timeframe="1m")
+        self.assertEqual(
+            CascadeConfig(**base, lot_schedule=(1, 2, 3, 4)).stage_timeframes,
+            ("1m", "5m", "15m", "1h"),
+        )
+        self.assertEqual(CascadeConfig(**base).stage_timeframes, ("1m", "5m", "15m"))
+
+    def test_a_fourth_buy_needs_a_fourth_timeframe(self):
+        # 5m only ladders three deep by default, so asking it for a fourth lot
+        # must fail loudly rather than quietly reuse the last timeframe.
+        with self.assertRaises(Exception):
+            CascadeConfig(
+                mother_timestamp=t(9),
+                mother_high=25000,
+                mother_low=24000,
+                timeframe="5m",
+                lot_schedule=(1, 2, 3, 4),
+            )
+
     def test_resolver_allows_holiday_shifted_monday_weekly_expiry(self):
-        config = CascadeConfig(mother_timestamp=datetime(2026, 4, 2, 10, 15), mother_high=23000, mother_low=22000)
+        # Also pinned to 7-13: the holiday shift allows one day inside the floor,
+        # which is only observable when the floor is the original 7.
+        config = CascadeConfig(
+            mother_timestamp=datetime(2026, 4, 2, 10, 15),
+            mother_high=23000,
+            mother_low=22000,
+            min_dte=7,
+            max_dte=13,
+        )
         resolver = NiftyContractResolver([date(2026, 4, 13), date(2026, 4, 21)], strike_step=50, lot_size=65)
         contract = resolver.select(datetime(2026, 4, 7, 13, 15), 22500, "PE", config)
         self.assertEqual(contract.expiry, date(2026, 4, 13))

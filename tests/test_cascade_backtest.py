@@ -218,6 +218,10 @@ class RuleInterpretationTests(unittest.TestCase):
             mother_low=24900,
             stage_timeframes=("1h", "1h", "1h"),
             strict_option_data=False,
+            # Pinned to 7-13 so the 28 July candle below is still expiry day.
+            # This test is about intrinsic pricing at expiry, not the DTE band.
+            min_dte=7,
+            max_dte=13,
         )
         candles = [
             Candle(t(10), 24950, 24960, 24880, 24890),
