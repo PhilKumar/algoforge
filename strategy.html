@@ -1848,7 +1848,9 @@
           </div>
         </div>
         <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
-        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="300" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+        <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
+             made a 1m mother impossible to type. -->
+        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother high <span style="color:#f87171;">*</span></label><input id="fibx-mother-high" type="number" min="1" step="0.05" placeholder="e.g. 24,180.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother low <span style="color:#f87171;">*</span></label><input id="fibx-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,050.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>

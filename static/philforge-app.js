@@ -122,11 +122,22 @@ const ICO = {
     const now = new Date();
     const step = Math.max(Number(activeInput.dataset.pfCalendarStep || activeInput.getAttribute('step') || 300) / 60, 1);
     const dateOnlyPicker = activeInput.dataset.pfCalendarKind === 'date';
-    const minutes = [];
-    // 1H candles normally begin at :15, but manual replay must allow the
-    // complete minute selection so the user can enter any valid mother bar.
-    const minuteStep = step >= 60 ? 5 : step;
-    for (let minute = 0; minute < 60; minute += minuteStep) minutes.push(minute);
+    let minutes = [];
+    // A field can name the exact minutes a candle of its timeframe can open on
+    // (NSE 1H bars only ever open at :15), which beats a fixed step: a 5-minute
+    // step cannot express a 1m mother at all, and an every-minute list is 60
+    // wrong answers when only four are real.
+    const named = String(activeInput.dataset.pfCalendarMinutes || '').trim();
+    if (named) {
+      minutes = named.split(',').map(Number).filter(value => Number.isInteger(value) && value >= 0 && value < 60);
+    }
+    if (!minutes.length) {
+      const minuteStep = step >= 60 ? 5 : step;
+      for (let minute = 0; minute < 60; minute += minuteStep) minutes.push(minute);
+    }
+    // Never hide the minute already in the box — a value set before the
+    // timeframe changed must stay selectable rather than silently snap.
+    if (!minutes.includes(selectedDate.getMinutes())) minutes = [...minutes, selectedDate.getMinutes()].sort((a, b) => a - b);
     const monthName = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(visibleMonth);
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('');
     let days = '';
@@ -13923,6 +13934,23 @@ fetchRuns = async function() {
 
 const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 · L8', '1h': 'L2 · L4 · L8' };
 
+// The minutes a candle of each timeframe can actually open on. NSE sessions
+// start at 09:15, so every bar is offset by 15: a 1H bar opens at :15 and
+// nothing else, a 15m bar at :00/:15/:30/:45. Offering a minute that can never
+// be a candle open only produces "Dhan has no candle at that time".
+const _TB_MINUTES_BY_TF = {
+  '1m': Array.from({ length: 60 }, (_, i) => i).join(','),
+  '5m': [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].join(','),
+  '15m': [0, 15, 30, 45].join(','),
+  '1h': '15',
+};
+
+function _tbSyncCalendarToTimeframe() {
+  const mother = document.getElementById('tb-mother');
+  const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
+  if (mother) mother.dataset.pfCalendarMinutes = _TB_MINUTES_BY_TF[timeframe] || '';
+}
+
 function initTestBenchPage() {
   const mother = document.getElementById('tb-mother');
   // Default to a mother that certainly has candles after it: yesterday's 10:15,
@@ -13932,6 +13960,7 @@ function initTestBenchPage() {
     const pad = (n) => String(n).padStart(2, '0');
     mother.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:15`;
   }
+  _tbSyncCalendarToTimeframe();
 }
 
 function _tbStatus(message, kind) {
@@ -14064,6 +14093,7 @@ function _tbRenderEntries(data) {
 
 document.addEventListener('change', (event) => {
   if (event.target && event.target.id === 'tb-timeframe') {
+    _tbSyncCalendarToTimeframe();
     const hint = _TB_LEVELS_BY_TF[event.target.value];
     if (hint) _tbStatus(`This timeframe buys ${hint}.`, '');
   }

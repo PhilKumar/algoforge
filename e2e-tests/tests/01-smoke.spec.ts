@@ -386,3 +386,34 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
   await expect(page.locator('#tb-verdict')).toContainText('₹31,200');
   await expect(page.locator('#tb-entries tbody tr')).toHaveCount(2);
 });
+
+test('Test Bench calendar offers only the minutes its timeframe can open on', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-test-bench');
+
+  // A 5-minute picker cannot express a 1m mother at all, and an every-minute
+  // list on 1H is 59 choices that all fail with "no candle at that time".
+  const minutesFor = async (timeframe: string) => {
+    await page.selectOption('#tb-timeframe', timeframe);
+    await page.click('#tb-mother');
+    await page.waitForSelector('.pf-cascade-calendar:not([hidden])');
+    const values = await page.$$eval('[data-pf-calendar-minute] option', (opts) =>
+      opts.map((o) => (o as HTMLOptionElement).value));
+    await page.click('[data-pf-calendar-cancel]');
+    return values;
+  };
+
+  expect(await minutesFor('1m')).toHaveLength(60);
+  expect(await minutesFor('15m')).toEqual(['0', '15', '30', '45']);
+  // NSE opens at 09:15, so every 1H bar opens at :15 and no other minute.
+  expect(await minutesFor('1h')).toEqual(['15']);
+
+  // And a 1m timestamp survives the round trip through the picker.
+  await page.selectOption('#tb-timeframe', '1m');
+  await page.click('#tb-mother');
+  await page.waitForSelector('.pf-cascade-calendar:not([hidden])');
+  await page.selectOption('[data-pf-calendar-hour]', '10');
+  await page.selectOption('[data-pf-calendar-minute]', '37');
+  await page.click('[data-pf-calendar-apply]');
+  expect(await page.inputValue('#tb-mother')).toMatch(/T10:37$/);
+});
