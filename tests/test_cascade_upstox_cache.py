@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from data.cascade_upstox import NIFTY_INDEX_KEY, UpstoxPremiumSource
+from data.cascade_upstox import NIFTY_INDEX_KEY, UpstoxAccessError, UpstoxPremiumSource
 
 BANKNIFTY_KEY = "NSE_INDEX|Nifty Bank"
 
@@ -66,6 +66,25 @@ def test_nifty_meta_dir_is_backward_compatible_root(tmp_path: Path) -> None:
     nifty = _source(tmp_path, NIFTY_INDEX_KEY)
     (tmp_path / "expiries.json").write_text(json.dumps(["2026-07-30"]))
     assert nifty.available_expiries() == {date(2026, 7, 30)}
+
+
+def test_cache_only_mode_never_fetches_or_writes_a_cache_miss(tmp_path: Path) -> None:
+    source = UpstoxPremiumSource(cache_only=True, cache_dir=tmp_path)
+    expiry = date(2026, 7, 30)
+
+    # No token is needed and a missing chain is an honest empty lookup, not an
+    # Upstox request or a newly-created empty cache file.
+    assert source._contract_index(expiry) == {}
+    assert not (tmp_path / f"contracts_{expiry.isoformat()}.json").exists()
+    assert source._minute_series("NSE_FO|missing", expiry) == {}
+    assert not (tmp_path / "candles_NSE_FO_missing.json").exists()
+    assert source.requests_made == 0
+
+    # Coverage metadata is required for callers that ask for it; cache-only
+    # mode must refuse the miss before any network request is attempted.
+    with pytest.raises(UpstoxAccessError):
+        source.available_expiries()
+    assert source.requests_made == 0
 
 
 if __name__ == "__main__":

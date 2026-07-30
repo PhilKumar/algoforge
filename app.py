@@ -7265,14 +7265,16 @@ def _run_cascade_feasibility(
     from_date: str,
     to_date: str,
 ) -> dict:
-    """Replay the signal from Dhan's NIFTY index candles.
+    """Replay Dhan's index signal path and price exact contracts from cache.
 
-    Dhan's expired-option endpoint is ATM-relative. It cannot preserve the
-    contract selected at entry, so it must not be queried or displayed as a
-    pricing source for this fixed-strike strategy.
+    Dhan supplies only NIFTY index candles.  Every option price is looked up
+    against the fixed strike/expiry selected by the replay in the existing
+    Upstox expired-options cache.  This intentionally runs offline: a cache
+    miss is a recorded data gap, never a network fetch or synthetic price.
     """
 
     from data.cascade_dhan import DhanOneHourSource
+    from data.cascade_upstox import UpstoxPremiumSource
 
     source = DhanOneHourSource(broker_client)
     index_candles = source.fetch_index_cascade(from_date, to_date, config.stage_timeframes)
@@ -7288,30 +7290,41 @@ def _run_cascade_feasibility(
         lot_size=config.lot_size,
         strike_step=config.strike_step,
     )
+    premium_source = UpstoxPremiumSource(cache_only=True)
     result = OneHourCascade(
         config,
         resolver,
-        # A fixed-strike price lookup is intentionally absent until a
-        # contract-keyed historical adapter is connected.
-        lambda _timestamp, _contract: None,
+        premium_source.lookup,
     ).run(index_candles)
+    fully_priced = result.fully_priced
+    data_gaps = list(result.data_gaps)
+    pricing_warning = (
+        "Exact fixed-strike premiums and net P&L are calculated from the local Upstox cache. "
+        "No live order or Upstox network request was made."
+        if fully_priced
+        else (
+            "The local Upstox cache is missing one or more exact contract candles. "
+            "The NIFTY signal is shown, but P&L is withheld rather than estimated."
+        )
+    )
 
     return {
         "status": "ok",
-        "pricing_mode": "signal_only_dhan",
-        "pricing_warning": (
-            "Dhan confirms the index signal path only. Fixed-strike option premium and P&L are withheld "
-            "until contract-keyed historical candles are available."
-        ),
+        "pricing_mode": "contract_exact_upstox_cache" if fully_priced else "contract_partial_upstox_cache",
+        "pricing_warning": pricing_warning,
         "expiry_calendar_warning": (
             "Expiry selection follows Tuesday weekly expiry and shifts a market-holiday Tuesday to the "
             "previous Dhan-confirmed NIFTY trading session. Exact contract premium history remains separate."
         ),
         "data": {
-            "provider": "Dhan",
-            "source": "NIFTY index candles",
+            "provider": "Dhan index candles + cached Upstox option candles",
+            "source": "Dhan NIFTY index candles; exact fixed-strike Upstox cache",
             "index_candles": {timeframe: len(rows) for timeframe, rows in index_candles.items()},
-            "option_candles": 0,
+            "option_candles": len(result.entries) + len(result.exit_option_prices),
+            "upstox_cache_only": True,
+            "upstox_network_requests": premium_source.requests_made,
+            "missing_contracts": premium_source.missing_contracts,
+            "missing_minutes": premium_source.missing_minutes,
             "from_date": from_date,
             "to_date": to_date,
             "stage_timeframes": list(config.stage_timeframes),
@@ -7322,8 +7335,12 @@ def _run_cascade_feasibility(
             "average_spot": result.average_spot,
             "exit_timestamp": result.exit_timestamp.isoformat() if result.exit_timestamp else None,
             "exit_reason": result.exit_reason,
-            "realized_option_pnl": None,
+            "fully_priced": fully_priced,
+            "realized_option_pnl": result.realized_pnl if fully_priced else None,
+            "net_option_pnl": result.net_pnl if fully_priced else None,
+            "option_costs": result.costs_total if fully_priced else None,
             "data_gap": result.data_gap,
+            "data_gaps": data_gaps,
             "entries": [
                 {
                     "stage": entry.stage,

@@ -1437,7 +1437,7 @@ function _renderCascadeResult(payload) {
   if (!output || !badge) return;
   const result = payload.result || {};
   const entries = Array.isArray(result.entries) ? result.entries : [];
-  const exactContractPricing = payload.pricing_mode === 'contract_exact';
+  const exactContractPricing = payload.pricing_mode === 'contract_exact_upstox_cache' && result.fully_priced === true;
   const closed = result.state === 'closed';
   const expired = result.state === 'expired';
   const tone = closed ? '#6ee7b7' : result.state === 'data_gap' ? '#fca5a5' : expired ? '#fbbf24' : '#fbbf24';
@@ -1462,8 +1462,8 @@ function _renderCascadeResult(payload) {
       : event.event === 'exit' ? `target ${_cascadeNumber(event.target)}` : '';
     return `<div style="display:flex; gap:8px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:var(--muted); white-space:nowrap;">${escapeHtml(_cascadeTimestamp(event.timestamp))}</span><strong style="color:var(--text); min-width:66px;">${escapeHtml(String(event.event || '').replace('_', ' '))}</strong><span>${escapeHtml(detail)}</span></div>`;
   }).join('') || '<div style="color:var(--muted);">No qualifying sequence was armed.</div>';
-  const pnl = exactContractPricing ? result.realized_option_pnl : null;
-  const pnlText = Number.isFinite(Number(pnl)) ? `₹${_cascadeNumber(pnl)}` : 'Requires contract history';
+  const pnl = exactContractPricing ? result.net_option_pnl : null;
+  const pnlText = pnl != null && Number.isFinite(Number(pnl)) ? `₹${_cascadeNumber(pnl)}` : 'P&L incomplete';
   const exitText = result.exit_timestamp
     ? `${_cascadeTimestamp(result.exit_timestamp)}${result.exit_reason === 'expiry_square_off' ? ' · expiry square-off' : ''}`
     : 'Target not reached in range';
@@ -1472,7 +1472,7 @@ function _renderCascadeResult(payload) {
     <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:14px;">
       <div style="padding:10px; border:1px solid var(--border); border-radius:7px;"><div style="font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.55px;">Index target</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800; color:#fef3c7;">${_cascadeNumber(result.target_index)}</div></div>
       <div style="padding:10px; border:1px solid var(--border); border-radius:7px;"><div style="font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.55px;">Average index</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800;">${_cascadeNumber(result.average_spot)}</div></div>
-      <div style="padding:10px; border:1px solid ${exactContractPricing ? 'rgba(52,211,153,.30)' : 'rgba(251,191,36,.30)'}; background:${exactContractPricing ? 'rgba(52,211,153,.06)' : 'rgba(245,158,11,.06)'}; border-radius:7px;"><div style="font-size:9px; color:${exactContractPricing ? '#6ee7b7' : '#fde68a'}; text-transform:uppercase; letter-spacing:.55px;">${exactContractPricing ? 'Realized contract P&amp;L' : 'P&amp;L data status'}</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800; color:${exactContractPricing ? '#6ee7b7' : '#fde68a'};">${pnlText}</div></div>
+      <div style="padding:10px; border:1px solid ${exactContractPricing ? 'rgba(52,211,153,.30)' : 'rgba(251,191,36,.30)'}; background:${exactContractPricing ? 'rgba(52,211,153,.06)' : 'rgba(245,158,11,.06)'}; border-radius:7px;"><div style="font-size:9px; color:${exactContractPricing ? '#6ee7b7' : '#fde68a'}; text-transform:uppercase; letter-spacing:.55px;">${exactContractPricing ? 'Net P&amp;L · Upstox cache' : 'P&amp;L data status'}</div><div style="margin-top:3px; font-family:'JetBrains Mono',monospace; font-weight:800; color:${exactContractPricing ? '#6ee7b7' : '#fde68a'};">${pnlText}</div></div>
     </div>
     <div style="font-size:11px; color:var(--muted); margin-bottom:12px;">Exit: <strong style="color:var(--text);">${escapeHtml(exitText)}</strong>${result.data_gap ? ` · <span style="color:var(--danger);">${escapeHtml(result.data_gap)}</span>` : ''}</div>
     <div style="overflow-x:auto; border:1px solid var(--border); border-radius:7px; margin-bottom:14px;"><table style="border-collapse:collapse; width:100%; font-size:11px;"><thead><tr style="background:rgba(255,255,255,.025); color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:.5px;"><th style="padding:8px 6px;">Stage</th><th style="padding:8px 6px; text-align:left;">Fill IST</th><th style="padding:8px 6px; text-align:right;">NIFTY</th><th style="padding:8px 6px;">Lots (qty)</th><th style="padding:8px 6px; text-align:right;">Contract</th><th style="padding:8px 6px; text-align:left;">Expiry</th></tr></thead><tbody>${entryRows}</tbody></table></div>
@@ -1496,8 +1496,8 @@ async function runCascadeBacktest() {
     return;
   }
   const button = _cascadeEl('cascade-run-btn');
-  if (button) { button.disabled = true; button.textContent = 'Replaying NIFTY signal sequence…'; }
-  _cascadeSetStatus('Fetching NIFTY candles and replaying the selected cascade route.', 'busy');
+  if (button) { button.disabled = true; button.textContent = 'Pricing from Upstox cache…'; }
+  _cascadeSetStatus('Replaying the NIFTY route and pricing each exact contract from the local Upstox cache.', 'busy');
   try {
     const response = await fetch('/api/cascade/backtest', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -1512,11 +1512,12 @@ async function runCascadeBacktest() {
     if (!response.ok || data.status !== 'ok') throw new Error(errorMessage || `Replay failed (${response.status})`);
     _renderCascadeResult(data);
     const counts = Object.values(data.data?.index_candles || {}).reduce((total, count) => total + Number(count || 0), 0);
-    _cascadeSetStatus(`Replay complete · ${counts} NIFTY candles checked across ${data.data?.stage_timeframes?.join(' → ') || 'the cascade route'}.`, 'success');
+    const pricingStatus = data.result?.fully_priced ? 'net P&L calculated from cached Upstox candles.' : 'P&L withheld because the cache has a pricing gap.';
+    _cascadeSetStatus(`Backtest complete · ${counts} NIFTY candles checked · ${pricingStatus}`, data.result?.fully_priced ? 'success' : 'busy');
   } catch (error) {
     _cascadeSetStatus(error.message || 'Cascade replay failed.', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Run cascade signal replay'; }
+    if (button) { button.disabled = false; button.textContent = 'Run cascade backtest'; }
   }
 }
 

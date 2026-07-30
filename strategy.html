@@ -1962,7 +1962,7 @@
       <div>
         <div style="font-size:11px; color:#fbbf24; font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:6px;">Backtest only · no live orders</div>
         <h2 style="margin:0; font-size:22px;">NIFTY Options Cascade</h2>
-        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">A manual, contract-aware replay of your 1 + 2 + 3 cascade. Enter one mother candle in IST; the engine records every selected strike, expiry, fill and index exit condition. No live orders are sent.</p>
+        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">A manual, contract-aware replay of your 1 + 2 + 3 cascade. Dhan supplies the NIFTY signal path; exact fixed-strike premiums come from the local Upstox cache. P&amp;L is shown only when every required historical option candle exists. No live orders are sent.</p>
       </div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">Contract rules<br>2 ITM · 7–13 DTE · skip current week</div>
     </div>
@@ -2009,7 +2009,7 @@
           <input id="cascade-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,329.70" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
         </div>
       </div>
-      <button id="cascade-run-btn" class="btn" type="button" onclick="runCascadeBacktest()" style="width:100%; margin-top:16px; --btn-bg:linear-gradient(180deg,rgba(245,158,11,.32),rgba(180,83,9,.45)); --btn-color:#fef3c7; --btn-border:rgba(251,191,36,.5); font-weight:800;">Run cascade signal replay</button>
+      <button id="cascade-run-btn" class="btn" type="button" onclick="runCascadeBacktest()" style="width:100%; margin-top:16px; --btn-bg:linear-gradient(180deg,rgba(245,158,11,.32),rgba(180,83,9,.45)); --btn-color:#fef3c7; --btn-border:rgba(251,191,36,.5); font-weight:800;">Run cascade backtest</button>
       <div id="cascade-form-status" style="min-height:17px; padding-top:9px; font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace;"></div>
     </div>
 
@@ -2025,7 +2025,7 @@
   </div>
 
   <div class="card-glass" style="margin-top:16px; padding:14px 16px; border-color:rgba(251,191,36,.24); background:rgba(245,158,11,.045); color:#fde68a; font-size:11px; line-height:1.55;">
-    <strong>Data status — signal replay only:</strong> Dhan’s expired-options feed rolls ATM-relative strikes. It is valid for the NIFTY signal sequence, but cannot prove P&amp;L for a fixed contract after spot or expiry rank changes. This tab deliberately withholds profit figures until a contract-keyed historical source is connected.
+    <strong>Data status — cached exact-contract pricing:</strong> Dhan supplies the NIFTY signal sequence. The backtest prices each selected strike and expiry from local cached Upstox 1-minute candles, without a live order or Upstox network request. If a required contract or minute is absent, the result records the gap and withholds P&amp;L rather than estimating it.
   </div>
 </div>
 

@@ -104,8 +104,13 @@ class UpstoxPremiumSource:
         underlying_key: str = NIFTY_INDEX_KEY,
         session: Optional[requests.Session] = None,
         timeout: int = 30,
+        cache_only: bool = False,
     ) -> None:
-        self._token = token or _read_token()
+        # A completed cache is useful long after Upstox's daily token expires.
+        # Backtests using this mode must not silently fall through to the
+        # network: a cache miss is reported as a pricing gap instead.
+        self._cache_only = bool(cache_only)
+        self._token = token or ("" if self._cache_only else _read_token())
         self._underlying = underlying_key
         self._timeout = timeout
         self._session = session or requests.Session()
@@ -141,6 +146,8 @@ class UpstoxPremiumSource:
     def _get(self, path: str, params: Optional[dict] = None) -> dict:
         """One GET with a small retry on 429/5xx. Raises on a hard failure so a
         broken run stops loudly instead of silently pricing nothing."""
+        if self._cache_only:
+            raise UpstoxAccessError(f"Upstox cache has no entry for {path}; offline pricing will not fetch it.")
         url = f"{BASE}{path}"
         headers = {"Accept": "application/json", "Authorization": f"Bearer {self._token}"}
         last: Optional[str] = None
@@ -185,6 +192,9 @@ class UpstoxPremiumSource:
         cache = self._meta_dir / f"contracts_{expiry.isoformat()}.json"
         if cache.exists():
             raw = json.loads(cache.read_text())
+        elif self._cache_only:
+            self._contracts[expiry] = {}
+            return self._contracts[expiry]
         else:
             try:
                 body = self._get(
@@ -221,6 +231,9 @@ class UpstoxPremiumSource:
         cache = self._cache_dir / f"candles_{safe}.json"
         if cache.exists():
             rows = json.loads(cache.read_text())
+        elif self._cache_only:
+            self._series[instrument_key] = {}
+            return self._series[instrument_key]
         else:
             to_date = expiry.isoformat()
             from_date = (expiry - timedelta(days=_HISTORY_LOOKBACK_DAYS)).isoformat()
