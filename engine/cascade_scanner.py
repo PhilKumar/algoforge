@@ -45,6 +45,9 @@ class ScanInput:
     highs: Sequence[float]
     last_price: float
     high_timestamp: Optional[datetime] = None
+    # BEES ETFs are index proxies and cheap by design; the min-price gate is a
+    # stock-quality heuristic that would silently drop most of them.
+    etf: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,7 @@ class ScanCandidate:
     affordable_shares: int
     rungs_fundable: int  # of 3 fib levels, how many can buy >= 1 share
     score: float
+    etf: bool = False
 
     @property
     def tradeable(self) -> bool:
@@ -108,7 +112,10 @@ def scan(
 
     for row in rows:
         price = float(row.last_price or 0)
-        if price < min_price:
+        if price <= 0:
+            rejected.append(ScanRejection(row.symbol, "no last price"))
+            continue
+        if price < min_price and not row.etf:
             rejected.append(ScanRejection(row.symbol, f"price Rs {price:,.2f} below Rs {min_price:,.0f}"))
             continue
         if len(row.closes) < lookback or len(row.highs) < high_lookback:
@@ -155,6 +162,7 @@ def scan(
                 affordable_shares=affordable,
                 rungs_fundable=fundable,
                 score=score,
+                etf=row.etf,
             )
         )
 

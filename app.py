@@ -6330,6 +6330,9 @@ BEES_ETFS = [
 ]
 
 TERMINAL_STOCKS = NIFTY200_STOCKS + BEES_ETFS
+# The scanner's min-price gate is a stock-quality heuristic; BEES ETFs are
+# index proxies and cheap by design, so they are exempted from it by flag.
+_BEES_SYMBOLS = frozenset(row["symbol"] for row in BEES_ETFS)
 _TERMINAL_BY_SYMBOL = {ScripMaster.normalize_equity_symbol(stock["symbol"]): stock for stock in TERMINAL_STOCKS}
 _NIFTY200_FALLBACK_ALIASES = {"M&M": "M_M"}
 
@@ -10910,22 +10913,100 @@ async def terminal_cascade_kill(request: Request, symbol: str):
     }
 
 
+_TERMINAL_CASCADE_CLOSED_LIMIT = 100
+
+
+def _terminal_cascade_closed_state_key(user_id: int) -> str:
+    return f"terminal_cash_cascade_closed:{int(user_id)}"
+
+
+async def _load_terminal_cascade_closed(user_id: int) -> list:
+    raw = await _db_mod.get_app_state(_terminal_cascade_closed_state_key(user_id))
+    if not raw:
+        return []
+    try:
+        rows = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _terminal_cascade_closed_summary(engine: CashCascadePaperEngine) -> dict:
+    """What a deleted campaign leaves behind: its identity, its rounds and the
+    money story — but not the candle history, which would bloat the archive."""
+    import uuid
+
+    status = engine.get_status()
+    rounds = status.get("rounds") or []
+    realised = round(sum(float(row.get("net_pnl") or 0) for row in rounds), 2)
+    costs = round(sum(float((row.get("costs") or {}).get("total") or 0) for row in rounds), 2)
+    return {
+        "archive_id": uuid.uuid4().hex[:10],
+        "deleted_at": datetime.now(IST).isoformat(),
+        "status": status.get("status"),
+        "instrument": status.get("instrument"),
+        "config": status.get("config"),
+        "mother": status.get("mother"),
+        "open_quantity": status.get("open_quantity"),
+        "open_invested_inr": status.get("open_invested_inr"),
+        "rounds": rounds,
+        "realised_net_inr": realised,
+        "costs_inr": costs,
+        "events": (status.get("events") or [])[-40:],
+    }
+
+
 @app.delete("/api/terminal/cascade")
 async def terminal_cascade_delete(request: Request, symbol: str):
     user_id = _request_user_id(request)
-    runtimes = _terminal_cascade_engines.get(user_id, {})
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtimes = await _restore_terminal_cascade_open_state(user_id, broker_client)
     runtime = runtimes.pop(ScripMaster.normalize_equity_symbol(symbol), None)
-    if runtime is not None:
-        runtime.running = False
-        if runtime.task and not runtime.task.done():
-            runtime.task.cancel()
+    if runtime is None:
+        # Nothing in memory and nothing restorable for this symbol. Refusing
+        # here also protects saved campaigns we could not load (no broker):
+        # the old behaviour wiped the whole open-state key in that case.
+        raise HTTPException(status_code=404, detail=f"No Terminal Cascade campaign found for {symbol}.")
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    archived = False
+    try:
+        closed = await _load_terminal_cascade_closed(user_id)
+        closed.insert(0, _terminal_cascade_closed_summary(runtime.engine))
+        await _db_mod.set_app_state(
+            _terminal_cascade_closed_state_key(user_id),
+            json.dumps(closed[:_TERMINAL_CASCADE_CLOSED_LIMIT], default=str),
+        )
+        archived = True
+    except Exception as exc:
+        # The delete still proceeds — history is a courtesy, not a gate.
+        _logger.warning("[TERMINAL CASCADE] Could not archive deleted campaign for user %s: %s", user_id, exc)
     if runtimes:
         await _save_terminal_cascade_open_state(user_id, force=True)
     else:
         _terminal_cascade_engines.pop(user_id, None)
         await _db_mod.set_app_state(_terminal_cascade_open_state_key(user_id), "")
     await _notify_terminal_cascade_ws(user_id)
-    return {"status": "deleted"}
+    return {"status": "deleted", "archived": archived}
+
+
+@app.get("/api/terminal/cascade/closed")
+async def terminal_cascade_closed(request: Request):
+    """Deleted campaigns, newest first — the Terminal's closed-campaign history."""
+    user_id = _request_user_id(request)
+    return {"status": "ok", "campaigns": await _load_terminal_cascade_closed(user_id)}
+
+
+@app.delete("/api/terminal/cascade/closed/{archive_id}")
+async def terminal_cascade_closed_purge(request: Request, archive_id: str):
+    user_id = _request_user_id(request)
+    closed = await _load_terminal_cascade_closed(user_id)
+    kept = [row for row in closed if str(row.get("archive_id")) != str(archive_id)]
+    if len(kept) == len(closed):
+        raise HTTPException(status_code=404, detail="No archived campaign with that id.")
+    await _db_mod.set_app_state(_terminal_cascade_closed_state_key(user_id), json.dumps(kept, default=str))
+    return {"status": "purged"}
 
 
 # ── Terminal Cascade: instrument scanner ──────────────────────────
@@ -10994,6 +11075,7 @@ async def _cascade_scan_history(broker: DhanClient, stock: dict, semaphore: asyn
         closes=closes,
         highs=highs,
         last_price=closes[-1],
+        etf=stock["symbol"] in _BEES_SYMBOLS,
     )
 
 
@@ -11065,6 +11147,7 @@ async def terminal_cascade_scan(
                 "affordable_shares": row.affordable_shares,
                 "rungs_fundable": row.rungs_fundable,
                 "score": row.score,
+                "etf": row.etf,
             }
             for row in candidates
         ],

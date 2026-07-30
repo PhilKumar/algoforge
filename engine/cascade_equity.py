@@ -739,6 +739,10 @@ class CashCascadePaperEngine:
             },
             "average_entry_price": self.average_entry_price,
             "target_price": self.target_price,
+            # The newest traded candle close is the mark the UI values open
+            # positions at; the timestamp says how stale that mark is.
+            "last_trade_close": float(self.trade_history[-1].close),
+            "last_trade_timestamp": self.trade_history[-1].timestamp.isoformat(),
             "open_quantity": self.open_quantity,
             "open_invested_inr": self.open_invested_inr,
             "pending_inr": self.pending_inr,

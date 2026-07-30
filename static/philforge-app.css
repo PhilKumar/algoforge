@@ -5358,6 +5358,13 @@
 .terminal-cascade-rung-row.is-collected td { background: rgba(251,191,36,.045); }
 .terminal-cascade-status { display: inline-flex; align-items: center; justify-content: center; min-width: 78px; padding: 4px 8px; border: 1px solid; border-radius: 999px; font: 800 10px var(--font-mono); }
 .terminal-cascade-bottom-grid { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 12px; margin-top: 12px; }
+/* Ledger pager and the round-buys dialog: the CryptoForge Cascade page's
+   summary furniture, kept in the terminal-cascade look. */
+.terminal-cascade-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.terminal-cascade-pager span { color: var(--muted); font: 11px var(--font-mono); }
+.terminal-cascade-round-dialog { max-width: 760px; width: min(760px, 94vw); margin: auto; }
+.terminal-cascade-round-body { padding: 12px 14px; overflow: auto; }
+.terminal-cascade-round-body .terminal-cascade-ladder-table { min-width: 560px; }
 .terminal-cascade-log-body { max-height: 220px; overflow: auto; padding: 5px 13px 10px; font: 12px var(--font-mono); }
 .terminal-cascade-log-row { display: grid; grid-template-columns: minmax(120px, .9fr) minmax(90px, .8fr) minmax(80px, 1fr); gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,.09); }
 .terminal-cascade-log-row span { color: var(--muted); }

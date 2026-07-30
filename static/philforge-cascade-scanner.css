@@ -48,6 +48,7 @@
 .cascade-scan-rank { opacity: .5; width: 34px; }
 .cascade-scan-name { display: block; font-size: 11px; opacity: .55; font-weight: 400; }
 .cascade-scan-pullback { color: #c0392b; }
+.cascade-scan-etf { display: inline-block; margin-left: 5px; padding: 1px 6px; border: 1px solid rgba(79,142,247,.45); border-radius: 999px; color: #6ea8ff; font-size: 9px; font-weight: 800; letter-spacing: .08em; vertical-align: 2px; }
 
 .cascade-scan-rungs { font-weight: 600; }
 .cascade-scan-rungs.ok { color: #1a9d5a; }

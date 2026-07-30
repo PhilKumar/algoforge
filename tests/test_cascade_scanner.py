@@ -5,14 +5,14 @@ import unittest
 from engine.cascade_scanner import ScanInput, rungs_fundable, scan
 
 
-def row(symbol, *, last, strength_from=None, high=None, sessions=80):
+def row(symbol, *, last, strength_from=None, high=None, sessions=80, etf=False):
     """A synthetic history that ends at `last` and peaked at `high`."""
     start = strength_from if strength_from is not None else last
     closes = [start + (last - start) * i / (sessions - 1) for i in range(sessions)]
     highs = list(closes)
     if high is not None:
         highs[-10] = high
-    return ScanInput(symbol=symbol, name=symbol, closes=closes, highs=highs, last_price=last)
+    return ScanInput(symbol=symbol, name=symbol, closes=closes, highs=highs, last_price=last, etf=etf)
 
 
 class ScannerTests(unittest.TestCase):
@@ -20,6 +20,19 @@ class ScannerTests(unittest.TestCase):
         found, rejected = scan([row("PENNY", last=150.0, strength_from=100.0, high=180.0)], capital_inr=10_000)
         self.assertEqual(found, [])
         self.assertIn("below Rs 200", rejected[0].reason)
+
+    def test_bees_etfs_skip_the_min_price_gate(self):
+        """GOLDBEES trades near Rs 80; the Rs 200 floor is a stock heuristic."""
+        found, _ = scan([row("GOLDBEES", last=80.0, strength_from=64.0, high=90.0, etf=True)], capital_inr=100_000)
+        self.assertEqual([c.symbol for c in found], ["GOLDBEES"])
+        self.assertTrue(found[0].etf)
+
+    def test_an_etf_still_needs_a_trend_and_a_discount(self):
+        found, rejected = scan(
+            [row("FLATBEES", last=80.0, strength_from=100.0, high=90.0, etf=True)], capital_inr=100_000
+        )
+        self.assertEqual(found, [])
+        self.assertIn("trend is", rejected[0].reason)
 
     def test_a_falling_trend_is_dropped_however_deep_the_discount(self):
         """The Cascade bets the trend survives; a knife satisfies every rule."""

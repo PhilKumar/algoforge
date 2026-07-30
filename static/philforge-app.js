@@ -4333,6 +4333,7 @@ async function initStockTerminalPage(force = false) {
   if (_stockTerminalSelected) refreshStockTerminalQuote(true);
   updateTerminalCascadeReference();
   refreshTerminalCascadeStatus();
+  refreshTerminalClosedCampaigns();
   refreshStockTerminalOrders();
   if (!_terminalCascadePollTimer) {
     _terminalCascadePollTimer = setInterval(() => {
@@ -4617,6 +4618,8 @@ function _renderTerminalCascadeStatus(payload) {
         : 'Select a symbol to load its Cascade window';
     }
     if (flow) flow.innerHTML = _terminalCascadeEmptyWindow(selectedSymbol, referenceSymbol);
+    _renderTerminalOpenPositions([]);
+    _renderTerminalRoundsLedger();
     return;
   }
   if (badge) {
@@ -4637,6 +4640,8 @@ function _renderTerminalCascadeStatus(payload) {
   }
   if (scripSubtitle) scripSubtitle.textContent = `${runningCampaigns.length} active paper campaign${runningCampaigns.length === 1 ? '' : 's'}`;
   if (flow) flow.innerHTML = campaigns.map(_terminalCascadeWindow).join('');
+  _renderTerminalOpenPositions(campaigns);
+  _renderTerminalRoundsLedger();
 }
 
 function _terminalCascadeEmptyWindow(symbol, reference) {
@@ -4888,8 +4893,9 @@ async function deleteTerminalCascadePaper(symbol) {
   const res = await fetch(`/api/terminal/cascade?symbol=${encodeURIComponent(target)}`, { method: 'DELETE', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status !== 'deleted') { _terminalCascadeSetStatus(data?.detail || 'Delete failed.', 'error'); return; }
-  _terminalCascadeSetStatus('Terminal Cascade paper campaign deleted.', 'success');
+  _terminalCascadeSetStatus('Terminal Cascade paper campaign deleted — its record moved to Closed Campaigns.', 'success');
   refreshTerminalCascadeStatus();
+  refreshTerminalClosedCampaigns();
 }
 
 async function killTerminalCascadePaper(symbol) {
@@ -4902,6 +4908,297 @@ async function killTerminalCascadePaper(symbol) {
   if (!res.ok || data.status !== 'killed') { _terminalCascadeSetStatus(data?.detail || 'Kill failed.', 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade campaign killed.', 'success');
   refreshTerminalCascadeStatus();
+}
+
+// ── Open positions, closed-rounds ledger, closed campaigns ─────────────
+// The CryptoForge Cascade page's three summary surfaces, ported to the cash
+// Terminal: they read the same per-campaign status payload the cards render.
+let _terminalLedgerScrip = 'ALL';
+let _terminalLedgerPage = 0;
+const _TERMINAL_LEDGER_PAGE_SIZE = 8;
+let _terminalClosedCampaigns = [];
+
+function _terminalRoundAvgEntry(round) {
+  const fills = Array.isArray(round?.fills) ? round.fills : [];
+  let qty = 0, cost = 0;
+  fills.forEach(fill => { const q = Number(fill.quantity) || 0; qty += q; cost += q * (Number(fill.trade_price) || 0); });
+  return qty > 0 ? cost / qty : 0;
+}
+
+function _terminalRoundInvested(round) {
+  const fills = Array.isArray(round?.fills) ? round.fills : [];
+  return fills.reduce((sum, fill) => sum + (Number(fill.spent_inr) || 0), 0);
+}
+
+function _terminalHeldFor(openedAt, closedAt) {
+  const from = Date.parse(openedAt || ''), to = Date.parse(closedAt || '');
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return '—';
+  const mins = Math.round((to - from) / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours}h ${mins % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+function _renderTerminalOpenPositions(campaigns) {
+  const body = document.getElementById('terminal-open-positions-body');
+  const meta = document.getElementById('terminal-open-positions-meta');
+  if (!body) return;
+  const open = (campaigns || []).filter(campaign => (Number(campaign?.open_quantity) || 0) > 0 && (campaign.open_fills || []).length);
+  if (!open.length) {
+    body.innerHTML = '<div class="terminal-cascade-empty">No open positions — nothing has been bought yet.</div>';
+    if (meta) meta.textContent = 'Every campaign holding shares right now, what it cost, and what it is worth.';
+    return;
+  }
+  let totalCost = 0, totalNow = 0;
+  const rows = open.map(campaign => {
+    const inst = campaign.instrument || {};
+    const symbol = String(inst.symbol || '—');
+    const qty = Number(campaign.open_quantity) || 0;
+    const avg = Number(campaign.average_entry_price) || 0;
+    const last = Number(campaign.last_trade_close) || 0;
+    const cost = Number(campaign.open_invested_inr) || avg * qty;
+    const now = last ? last * qty : cost;
+    totalCost += cost; totalNow += now;
+    const pnl = last ? now - cost : 0;
+    const pct = cost > 0 && last ? (pnl / cost) * 100 : 0;
+    const tone = pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    const fills = campaign.open_fills || [];
+    const opened = fills.length ? fills[0].timestamp : '';
+    const tp = Number(campaign.target_price) || 0;
+    const toTp = tp && last ? ((tp - last) / last) * 100 : null;
+    const running = !!campaign.running;
+    const mother = String(campaign?.mother?.signal?.timestamp || '');
+    const timeframe = String(campaign?.config?.timeframe || '5m');
+    return `<tr>
+      <td><strong>${escapeHtml(symbol)}</strong><small>${escapeHtml(String(campaign.status || '').replaceAll('_', ' '))}${running ? '' : ' · stopped — nothing manages this basket'}</small></td>
+      <td>${escapeHtml(_cascadeOptionsTimestamp(opened))}<small>${fills.length} buy${fills.length === 1 ? '' : 's'}</small></td>
+      <td class="num">${escapeHtml(_cascadeNumber(avg))}<small>${qty} qty</small></td>
+      <td class="num">${last ? escapeHtml(_cascadeNumber(last)) : '—'}</td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(cost))}</td>
+      <td class="num" style="color:${tone};font-weight:700;">${last ? `${pnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(pnl)))}` : '—'}<small style="color:${tone};">${last ? `${pnl >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%` : ''}</small></td>
+      <td class="num">${tp ? escapeHtml(_cascadeNumber(tp)) : '—'}${toTp !== null ? `<small>${toTp.toFixed(2)}% away</small>` : ''}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">Chart</button> <button class="btn btn-sm btn-danger" onclick="killTerminalCascadePaper('${escapeAttr(symbol)}')">Kill</button></td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Scrip</th><th>Opened</th><th class="num">Avg entry</th><th class="num">Last</th><th class="num">Invested</th><th class="num">Unrealised</th><th class="num">Target</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  if (meta) {
+    const totalPnl = totalNow - totalCost;
+    const tone = totalPnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    meta.innerHTML = `${open.length} open · ${escapeHtml(_terminalCascadeMoney(totalCost))} invested · <strong style="color:${tone};">${totalPnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(totalPnl)))}</strong> unrealised at the last traded candle close. Each basket sells itself at its target.`;
+  }
+}
+
+function _terminalLedgerRows() {
+  const live = _lastTerminalCascadeStatus?.campaigns || [];
+  const rows = [];
+  live.forEach(campaign => {
+    const symbol = String(campaign?.instrument?.symbol || '—');
+    (campaign.rounds || []).forEach(round => rows.push({ symbol, round, source: 'live', sourceKey: symbol, ended: !campaign.running }));
+  });
+  _terminalClosedCampaigns.forEach(archive => {
+    const symbol = String(archive?.instrument?.symbol || '—');
+    (archive.rounds || []).forEach(round => rows.push({ symbol, round, source: 'archive', sourceKey: String(archive.archive_id || ''), ended: true }));
+  });
+  rows.sort((a, b) => (Date.parse(b.round?.closed_at || 0) || 0) - (Date.parse(a.round?.closed_at || 0) || 0));
+  return rows;
+}
+
+function terminalLedgerSetFilter(symbol) {
+  _terminalLedgerScrip = symbol || 'ALL';
+  _terminalLedgerPage = 0;
+  _renderTerminalRoundsLedger();
+}
+
+function terminalLedgerPageMove(delta) {
+  _terminalLedgerPage += delta;
+  _renderTerminalRoundsLedger();
+}
+
+function _renderTerminalRoundsLedger() {
+  const body = document.getElementById('terminal-rounds-ledger-body');
+  if (!body) return;
+  const meta = document.getElementById('terminal-rounds-ledger-meta');
+  const filters = document.getElementById('terminal-rounds-ledger-filters');
+  const pager = document.getElementById('terminal-rounds-ledger-pager');
+  const all = _terminalLedgerRows();
+  if (filters) {
+    const scrips = [];
+    all.forEach(row => { if (row.symbol && !scrips.includes(row.symbol)) scrips.push(row.symbol); });
+    scrips.sort();
+    if (scrips.length < 2) {
+      filters.innerHTML = '';
+      if (_terminalLedgerScrip !== 'ALL') _terminalLedgerScrip = 'ALL';
+    } else {
+      filters.innerHTML = ['ALL'].concat(scrips).map(name => {
+        const on = name === _terminalLedgerScrip;
+        return `<button type="button" class="terminal-cascade-tf-option${on ? ' is-active' : ''}" role="radio" aria-checked="${on}" onclick="terminalLedgerSetFilter('${escapeAttr(name)}')">${escapeHtml(name === 'ALL' ? 'All' : name)}</button>`;
+      }).join('');
+    }
+  }
+  const rows = _terminalLedgerScrip === 'ALL' ? all : all.filter(row => row.symbol === _terminalLedgerScrip);
+  if (!rows.length) {
+    body.innerHTML = `<div class="terminal-cascade-empty">${all.length ? 'No closed rounds for this scrip.' : 'No closed rounds yet.'}</div>`;
+    if (pager) pager.innerHTML = '';
+    if (meta) meta.textContent = 'Every round that reached its target, across every campaign — running and ended alike. Nothing has closed yet.';
+    return;
+  }
+  let invested = 0, realised = 0, wins = 0;
+  rows.forEach(row => {
+    invested += _terminalRoundInvested(row.round);
+    const pnl = Number(row.round?.net_pnl) || 0;
+    realised += pnl;
+    if (pnl > 0) wins++;
+  });
+  const pages = Math.max(1, Math.ceil(rows.length / _TERMINAL_LEDGER_PAGE_SIZE));
+  if (_terminalLedgerPage >= pages) _terminalLedgerPage = pages - 1;
+  if (_terminalLedgerPage < 0) _terminalLedgerPage = 0;
+  const from = _terminalLedgerPage * _TERMINAL_LEDGER_PAGE_SIZE;
+  const html = rows.slice(from, from + _TERMINAL_LEDGER_PAGE_SIZE).map(row => {
+    const round = row.round || {};
+    const pnl = Number(round.net_pnl) || 0;
+    const inv = _terminalRoundInvested(round);
+    const tone = pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    const buys = (round.fills || []).length;
+    const costs = Number(round?.costs?.total) || 0;
+    return `<tr>
+      <td>${escapeHtml(_cascadeOptionsTimestamp(round.closed_at))}</td>
+      <td><strong>${escapeHtml(row.symbol)}</strong><small>${row.ended ? 'ended' : 'running'}</small></td>
+      <td>#${escapeHtml(String(round.round_id))}<small>${escapeHtml(String(round.exit_reason || '').replaceAll('_', ' '))}</small></td>
+      <td class="num">${escapeHtml(_cascadeNumber(_terminalRoundAvgEntry(round)))}</td>
+      <td class="num">${escapeHtml(_cascadeNumber(round.exit_price))}<small>${escapeHtml(String(round.exit_quantity || 0))} qty</small></td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(inv))}</td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(costs))}</td>
+      <td class="num" style="color:${tone};font-weight:700;">${pnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(pnl)))}<small style="color:${tone};">${inv > 0 ? `${(pnl / inv * 100).toFixed(2)}%` : ''}</small></td>
+      <td>${escapeHtml(_terminalHeldFor(round.opened_at, round.closed_at))}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="terminalCascadeShowRoundLog('${escapeAttr(row.source)}','${escapeAttr(row.sourceKey)}',${Number(round.round_id) || 0})"${buys ? '' : ' disabled title="No per-buy detail recorded for this round"'}>Log${buys ? ` (${buys})` : ''}</button></td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Closed</th><th>Scrip</th><th>Round</th><th class="num">Avg entry</th><th class="num">Exit</th><th class="num">Invested</th><th class="num">Costs</th><th class="num">Net</th><th>Held</th><th></th></tr></thead><tbody>${html}</tbody></table></div>`;
+  if (meta) {
+    const tone = realised >= 0 ? '#6ee7b7' : '#fca5a5';
+    meta.innerHTML = `${rows.length} round${rows.length === 1 ? '' : 's'} closed · ${escapeHtml(_terminalCascadeMoney(invested))} deployed · <strong style="color:${tone};">${realised >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(realised)))} net</strong> after costs · ${wins}/${rows.length} in profit. Log opens the individual buys behind each average.`;
+  }
+  if (pager) {
+    if (pages <= 1) { pager.innerHTML = ''; } else {
+      const to = Math.min(from + _TERMINAL_LEDGER_PAGE_SIZE, rows.length);
+      pager.innerHTML = `<span>${from + 1}–${to} of ${rows.length}</span>`
+        + `<button class="btn btn-sm btn-outline" ${_terminalLedgerPage === 0 ? 'disabled' : ''} onclick="terminalLedgerPageMove(-1)">Newer</button>`
+        + `<button class="btn btn-sm btn-outline" ${_terminalLedgerPage >= pages - 1 ? 'disabled' : ''} onclick="terminalLedgerPageMove(1)">Older</button>`;
+    }
+  }
+}
+
+function terminalCascadeShowRoundLog(source, sourceKey, roundId) {
+  let symbol = '—', round = null;
+  if (source === 'archive') {
+    const archive = _terminalClosedCampaigns.find(row => String(row.archive_id) === String(sourceKey));
+    symbol = String(archive?.instrument?.symbol || '—');
+    round = (archive?.rounds || []).find(row => Number(row.round_id) === Number(roundId)) || null;
+  } else {
+    const campaign = (_lastTerminalCascadeStatus?.campaigns || []).find(row => row?.instrument?.symbol === sourceKey);
+    symbol = String(campaign?.instrument?.symbol || sourceKey);
+    round = (campaign?.rounds || []).find(row => Number(row.round_id) === Number(roundId)) || null;
+  }
+  const overlay = document.getElementById('terminal-cascade-round-overlay');
+  const title = document.getElementById('terminal-cascade-round-title');
+  const meta = document.getElementById('terminal-cascade-round-meta');
+  const body = document.getElementById('terminal-cascade-round-body');
+  if (!overlay || !body) return;
+  if (title) title.textContent = `${symbol} — Round #${roundId}`;
+  if (!round) {
+    if (meta) meta.textContent = 'This round is no longer in the payload.';
+    body.innerHTML = '<div class="terminal-cascade-empty">Round not found.</div>';
+  } else {
+    const fills = round.fills || [];
+    const pnl = Number(round.net_pnl) || 0;
+    if (meta) {
+      meta.textContent = `${fills.length} buy${fills.length === 1 ? '' : 's'} · exit ${_cascadeNumber(round.exit_price)} (${String(round.exit_reason || '').replaceAll('_', ' ')}) · net ${_terminalCascadeMoney(pnl)} after ${_terminalCascadeMoney(Number(round?.costs?.total) || 0)} costs`;
+    }
+    const rows = fills.map(fill => `<tr>
+      <td>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</td>
+      <td class="num">${escapeHtml(String(fill.quantity))}</td>
+      <td class="num">${escapeHtml(_cascadeNumber(fill.trade_price))}</td>
+      <td class="num">${escapeHtml(_cascadeNumber(fill.signal_price))}</td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(fill.spent_inr))}</td>
+      <td>${escapeHtml((fill.rung_keys || []).join(', ') || '—')}</td>
+    </tr>`).join('');
+    body.innerHTML = fills.length
+      ? `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Filled</th><th class="num">Qty</th><th class="num">Trade price</th><th class="num">Signal price</th><th class="num">Spent</th><th>Rungs</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div class="terminal-cascade-empty">This round closed before per-buy detail was recorded, so only the averages survive.</div>';
+  }
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+function terminalCascadeHideRoundLog() {
+  const overlay = document.getElementById('terminal-cascade-round-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('is-open');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+function terminalCascadeRoundBackdrop(event) {
+  if (event && event.target && event.target.id === 'terminal-cascade-round-overlay') terminalCascadeHideRoundLog();
+}
+
+async function refreshTerminalClosedCampaigns() {
+  try {
+    const res = await fetch('/api/terminal/cascade/closed', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || 'Unable to load closed campaigns');
+    _terminalClosedCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
+  } catch (error) {
+    _terminalClosedCampaigns = _terminalClosedCampaigns || [];
+  }
+  _renderTerminalClosedCampaigns();
+  _renderTerminalRoundsLedger();
+}
+
+async function purgeTerminalClosedCampaign(archiveId) {
+  const ok = await customConfirm('Remove this campaign from the closed history? This only clears the record — no orders are affected.', { title: 'Remove from History', icon: ICO.warn(28), okText: 'Remove', danger: true });
+  if (!ok) return;
+  const res = await fetch(`/api/terminal/cascade/closed/${encodeURIComponent(archiveId)}`, { method: 'DELETE', credentials: 'same-origin' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== 'purged') { _terminalCascadeSetStatus(data?.detail || 'Purge failed.', 'error'); return; }
+  refreshTerminalClosedCampaigns();
+}
+
+function _renderTerminalClosedCampaigns() {
+  const body = document.getElementById('terminal-closed-campaigns-body');
+  if (!body) return;
+  const meta = document.getElementById('terminal-closed-campaigns-meta');
+  if (!_terminalClosedCampaigns.length) {
+    body.innerHTML = '<div class="terminal-cascade-empty">No closed campaigns yet — deleting a campaign moves it here.</div>';
+    if (meta) meta.textContent = 'Deleted campaigns keep their record here — rounds, realised money and how they ended.';
+    return;
+  }
+  let realised = 0;
+  const rows = _terminalClosedCampaigns.map(archive => {
+    const inst = archive.instrument || {};
+    const config = archive.config || {};
+    const rounds = archive.rounds || [];
+    const net = Number(archive.realised_net_inr) || 0;
+    realised += net;
+    const tone = net >= 0 ? '#6ee7b7' : '#fca5a5';
+    const heldQty = Number(archive.open_quantity) || 0;
+    return `<tr>
+      <td>${escapeHtml(_cascadeOptionsTimestamp(archive.deleted_at))}</td>
+      <td><strong>${escapeHtml(String(inst.symbol || '—'))}</strong><small>${escapeHtml(inst.signal_symbol && inst.signal_symbol !== inst.symbol ? `${inst.signal_symbol} signal` : '')}</small></td>
+      <td>${escapeHtml(String(config.timeframe || '—'))}<small>${escapeHtml(String(config.product_type || ''))}</small></td>
+      <td class="num">${escapeHtml(_terminalCascadeMoney(config.capital_inr || 0))}</td>
+      <td class="num">${escapeHtml(_cascadeNumber(archive?.mother?.trade?.high))}</td>
+      <td>${escapeHtml(String(archive.status || '—').replaceAll('_', ' '))}${heldQty ? `<small style="color:#fbbf24;">deleted holding ${heldQty} qty</small>` : ''}</td>
+      <td class="num">${rounds.length}</td>
+      <td class="num" style="color:${tone};font-weight:700;">${net >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(net)))}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="purgeTerminalClosedCampaign('${escapeAttr(String(archive.archive_id || ''))}')">Purge</button></td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Deleted</th><th>Scrip</th><th>TF</th><th class="num">Capital</th><th class="num">Mother high</th><th>Ended as</th><th class="num">Rounds</th><th class="num">Realised</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  if (meta) {
+    const tone = realised >= 0 ? '#6ee7b7' : '#fca5a5';
+    meta.innerHTML = `${_terminalClosedCampaigns.length} closed campaign${_terminalClosedCampaigns.length === 1 ? '' : 's'} · <strong style="color:${tone};">${realised >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(realised)))}</strong> realised net across them.`;
+  }
 }
 
 

@@ -87,7 +87,7 @@
       return '' +
         '<tr data-symbol="' + row.symbol + '">' +
         '<td class="cascade-scan-rank">' + (index + 1) + '</td>' +
-        '<td><strong>' + row.symbol + '</strong><span class="cascade-scan-name">' + (row.name || '') + '</span></td>' +
+        '<td><strong>' + row.symbol + '</strong>' + (row.etf ? ' <span class="cascade-scan-etf">ETF</span>' : '') + '<span class="cascade-scan-name">' + (row.name || '') + '</span></td>' +
         '<td class="num">' + money(row.last_price) + '</td>' +
         '<td class="num cascade-scan-pullback">-' + row.pullback_pct.toFixed(1) + '%</td>' +
         '<td class="num">+' + row.strength_pct.toFixed(1) + '%</td>' +
