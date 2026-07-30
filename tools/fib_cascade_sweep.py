@@ -99,6 +99,15 @@ class FibOutcome:
     expiry_rounds: int
     fully_priced: bool
     gaps: int
+    # Index-target-hit vs. premium-book outcome. The engine exits on the INDEX
+    # target, but P&L is realised in premium space, so a target hit does not
+    # guarantee the option book was green. These count the leak, over priced
+    # rounds only (net_pnl is None on a gapped round).
+    target_priced_rounds: int = 0
+    target_net_neg_rounds: int = 0  # target hit, book still net-negative after costs
+    target_gross_neg_rounds: int = 0  # target hit, book negative even before costs
+    target_net_pnl: float = 0.0  # summed net over target-exit rounds
+    expiry_net_pnl: float = 0.0  # summed net over expiry-square-off rounds
 
     @property
     def traded(self) -> bool:
@@ -145,6 +154,8 @@ def replay_one_fib(
     rung_inr: float,
     itm_steps: int,
     single_shot: bool,
+    max_rounds: Optional[int],
+    max_round_premium_inr: Optional[float],
     label: str,
 ) -> FibOutcome:
     # Feed from the mother pivot itself: the fib geometry needs the bars right
@@ -201,6 +212,8 @@ def replay_one_fib(
             lot_ladder=True,
             per_entry_strike=True,
             single_shot=single_shot,
+            max_rounds=max_rounds,
+            max_round_premium_inr=max_round_premium_inr,
         ),
         contract_selector=select,
     ).run(forward)
@@ -212,6 +225,11 @@ def replay_one_fib(
     gross = round(sum(r.gross_pnl for r in engine.rounds), 2) if engine.rounds else None
     costs = round(sum(r.costs.total for r in engine.rounds), 2) if engine.rounds else 0.0
     fully_priced = bool(engine.rounds) and gaps == 0 and all(f.option_premium is not None for f in all_fills)
+
+    # Split the priced rounds by exit reason to expose the index-target-vs-premium
+    # leak: rounds where the INDEX target was hit but the premium book still lost.
+    target_priced = [r for r in engine.rounds if r.exit_reason == "target" and r.net_pnl is not None]
+    expiry_priced = [r for r in engine.rounds if r.exit_reason == "expiry_square_off" and r.net_pnl is not None]
 
     return FibOutcome(
         label=label,
@@ -228,6 +246,11 @@ def replay_one_fib(
         expiry_rounds=sum(1 for r in engine.rounds if r.exit_reason == "expiry_square_off"),
         fully_priced=fully_priced,
         gaps=gaps,
+        target_priced_rounds=len(target_priced),
+        target_net_neg_rounds=sum(1 for r in target_priced if r.net_pnl < 0),
+        target_gross_neg_rounds=sum(1 for r in target_priced if r.gross_pnl < 0),
+        target_net_pnl=round(sum(r.net_pnl for r in target_priced), 2),
+        expiry_net_pnl=round(sum(r.net_pnl for r in expiry_priced), 2),
     )
 
 
@@ -243,6 +266,8 @@ def run_sweep(
     rung_inr: float,
     itm_steps: int,
     single_shot: bool,
+    max_rounds: Optional[int],
+    max_round_premium_inr: Optional[float],
 ) -> tuple[list[FibOutcome], list[MotherCandidate]]:
     mothers = find_mother_candles(index_series, **scanner_kwargs)
     outcomes: list[FibOutcome] = []
@@ -264,6 +289,8 @@ def run_sweep(
             rung_inr=rung_inr,
             itm_steps=itm_steps,
             single_shot=single_shot,
+            max_rounds=max_rounds,
+            max_round_premium_inr=max_round_premium_inr,
             label=f"#{number} {mother.timestamp:%Y-%m-%d %H:%M}",
         )
         outcomes.append(outcome)
@@ -307,6 +334,20 @@ def report(outcomes: list[FibOutcome], mothers: list[MotherCandidate], *, priced
         print(f"  avg / median per camp   Rs {round(mean(nets), 2):,} / Rs {round(median(nets), 2):,}")
         print(f"  best / worst            Rs {round(max(nets), 2):,} / Rs {round(min(nets), 2):,}")
 
+        # Index-target-vs-premium leak: how often hitting the INDEX target still
+        # left the option book underwater, and where the money actually came from.
+        tgt_priced = sum(o.target_priced_rounds for o in fp)
+        if tgt_priced:
+            net_neg = sum(o.target_net_neg_rounds for o in fp)
+            gross_neg = sum(o.target_gross_neg_rounds for o in fp)
+            tgt_net = round(sum(o.target_net_pnl for o in fp), 2)
+            exp_net = round(sum(o.expiry_net_pnl for o in fp), 2)
+            print(
+                f"  target-exit leak        {net_neg}/{tgt_priced} target hits lost money "
+                f"({round(100 * net_neg / tgt_priced, 1)}%); {gross_neg} lost before costs"
+            )
+            print(f"  P&L by exit reason      target-exit Rs {tgt_net:,}   expiry-exit Rs {exp_net:,}")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -316,6 +357,20 @@ def main() -> int:
     ap.add_argument("--tf", dest="timeframe", default="15m", choices=["5m", "15m", "1h"])
     ap.add_argument("--premium", action="store_true", help="Layer 2: price legs with real Upstox premiums")
     ap.add_argument("--single-shot", action="store_true", help="one trade per mother, no deeper buys / re-arm")
+    ap.add_argument(
+        "--max-rounds",
+        type=int,
+        default=None,
+        help="cap rounds per mother (keeps deeper-level averaging within a round; "
+        "1 = one-and-done, a fresh campaign needs a fresh mother). Default: unlimited re-arms.",
+    )
+    ap.add_argument(
+        "--max-round-premium",
+        type=float,
+        default=None,
+        help="per-round premium ceiling in Rs: stop taking deeper legs once deployed "
+        "option premium would breach it (the first entry always fills). Default: none.",
+    )
     ap.add_argument("--max-concurrent", type=int, default=999)
     ap.add_argument("--rung-inr", type=float, default=15000.0)
     ap.add_argument("--itm-steps", type=int, default=2)
@@ -381,9 +436,18 @@ def main() -> int:
         rung_inr=args.rung_inr,
         itm_steps=args.itm_steps,
         single_shot=args.single_shot,
+        max_rounds=args.max_rounds,
+        max_round_premium_inr=args.max_round_premium,
     )
     layer = "Layer 2 (real Upstox premiums)" if args.premium else "Layer 1 (signal geometry, no P&L)"
-    mode = "SINGLE-SHOT (1 trade/mother)" if args.single_shot else "full cascade"
+    if args.single_shot:
+        mode = "SINGLE-SHOT (1 trade/mother)"
+    elif args.max_rounds is not None:
+        mode = f"max {args.max_rounds} round(s)/mother"
+    else:
+        mode = "full cascade"
+    if args.max_round_premium is not None:
+        mode += f" · premium cap Rs {int(args.max_round_premium):,}"
     report(
         outcomes,
         mothers,

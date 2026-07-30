@@ -287,6 +287,70 @@ class PaperRoundTests(unittest.TestCase):
         self.assertFalse(any(row["event"] == "new_low_restart" for row in engine.events))
         self.assertEqual(engine.rungs[rung.key].status, "CLOSED")
 
+    def test_max_rounds_suppresses_the_new_low_re_arm_at_the_cap(self):
+        # max_rounds keeps deeper-level averaging WITHIN a round but stops the
+        # new-low restart once that many rounds have booked. With max_rounds=1
+        # and one round already closed, a fresh low must NOT release the rung;
+        # below the cap (no rounds yet) it still re-arms -- proving the gate is
+        # round-count based, not a blanket off switch like single_shot.
+        from engine.cascade_options import PaperCascadeRung
+
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+
+        capped = NiftyOptionsPaperCascade(
+            mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500, max_rounds=1)
+        )
+        rung = PaperCascadeRung(1, 2, 90, 6500, status="CLOSED")
+        capped.rungs[rung.key] = rung
+        capped.reuse_below = 89
+        capped.rounds.append(object())  # one round already booked -> at the cap
+        capped._release_closed_rungs(IndexCandle(ts(1), 88, 89, 88, 88.5))
+        self.assertEqual(capped.rungs[rung.key].status, "CLOSED")
+
+        below = NiftyOptionsPaperCascade(
+            mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500, max_rounds=1)
+        )
+        rung2 = PaperCascadeRung(1, 2, 90, 6500, status="CLOSED")
+        below.rungs[rung2.key] = rung2
+        below.reuse_below = 89  # no rounds booked yet -> still re-arms
+        below._release_closed_rungs(IndexCandle(ts(1), 88, 89, 88, 88.5))
+        self.assertNotEqual(below.rungs[rung2.key].status, "CLOSED")
+
+    def test_max_round_premium_skips_a_deeper_leg_that_would_breach_the_cap(self):
+        # One leg is already open (6,500 deployed). A deeper leg costing another
+        # 6,500 would take the round to 13,000 > a 10,000 cap, so it is skipped:
+        # no new fill, no broker order, the pending rung is CANCELLED, and the
+        # existing position is left to ride. The FIRST entry is never capped.
+        from engine.cascade_options import PaperCascadeFill, PaperCascadeRung
+
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        engine = NiftyOptionsPaperCascade(
+            mother,
+            contract,
+            adapter,
+            lambda _t, _c: 100,  # premium 100 -> 1 lot of 65 = 6,500 per leg
+            PaperCascadeConfig(rung_inr=6500, max_round_premium_inr=10000),
+        )
+        engine.open_fills = [PaperCascadeFill(ts(1), 95.0, 100.0, 1, 65, ("1:2",), "paper-1", None)]
+        deeper = PaperCascadeRung(1, 4, 90, 6500, status="COLLECTED")
+        engine.rungs[deeper.key] = deeper
+        engine.pending_rung_keys = [deeper.key]
+        engine.pending_inr = 6500
+        engine.pending_line = 90.0
+        engine.pending_stop = 92.0
+        engine.pending_stop_timestamp = ts(2)
+
+        engine._fill_pending_stop(IndexCandle(ts(3), 91, 93, 91, 92.5))
+
+        self.assertEqual(len(engine.open_fills), 1)  # deeper leg not taken
+        self.assertEqual([o.side for o in adapter.orders], [])  # no broker order
+        self.assertEqual(engine.rungs[deeper.key].status, "CANCELLED")
+        self.assertTrue(any(row["event"] == "premium_cap_reached" for row in engine.events))
+
     def test_kill_cancels_unfunded_paper_rungs_without_touching_a_broker(self):
         from engine.cascade_options import PaperCascadeRung
 

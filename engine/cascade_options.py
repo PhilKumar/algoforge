@@ -1268,6 +1268,17 @@ class PaperCascadeConfig:
     # When False (the default), the full cascade arms every deeper level and
     # re-arms a fresh round on each new low.
     single_shot: bool = False
+    # One-and-done: cap the number of rounds per mother.  UNLIKE single_shot this
+    # keeps the deeper-level averaging WITHIN a round (L2->L4->L8) -- it only stops
+    # the new-low re-arm once this many rounds have closed.  max_rounds=1 is the
+    # original locked spec ("one target -> close all -> END; a fresh campaign
+    # needs a fresh mother").  None (the default) = unlimited re-arms.
+    max_rounds: Optional[int] = None
+    # Per-round premium ceiling in rupees: stop taking DEEPER legs once the cash
+    # actually deployed in option premium this round would breach the cap.  The
+    # first entry always fills (the cap limits averaging depth, never the trade
+    # itself).  None (the default) = no ceiling.
+    max_round_premium_inr: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.rung_inr <= 0:
@@ -1276,6 +1287,10 @@ class PaperCascadeConfig:
             raise CascadeError("target_fraction must be between 0 and 1")
         if self.ce_offset_steps > 0:
             raise CascadeError("CE offset must be ATM or below; positive steps are not valid in Phase 2")
+        if self.max_rounds is not None and self.max_rounds < 1:
+            raise CascadeError("max_rounds must be at least 1 when set")
+        if self.max_round_premium_inr is not None and self.max_round_premium_inr <= 0:
+            raise CascadeError("max_round_premium_inr must be positive when set")
 
 
 @dataclass
@@ -1389,6 +1404,10 @@ class NiftyOptionsPaperCascade:
     def open_quantity(self) -> int:
         return sum(fill.quantity for fill in self.open_fills)
 
+    def _deployed_premium(self) -> float:
+        """Rupees of option premium spent on the open legs of the current round."""
+        return sum(fill.option_premium * fill.quantity for fill in self.open_fills if fill.option_premium is not None)
+
     def _log(self, candle: IndexCandle, event: str, **payload: Any) -> None:
         self.events.append({"timestamp": candle.timestamp.isoformat(), "event": event, **payload})
 
@@ -1419,6 +1438,11 @@ class NiftyOptionsPaperCascade:
         # Single-shot: the mother is done after its one round -- never re-arm.
         if self.config.single_shot:
             return
+        # One-and-done / capped rounds: stop re-arming once max_rounds have closed.
+        # The deeper-level averaging within a round is untouched -- only the
+        # new-low restart is suppressed.
+        if self.config.max_rounds is not None and len(self.rounds) >= self.config.max_rounds:
+            return
         if self.reuse_below is None or candle.low >= self.reuse_below:
             return
         released = [rung for rung in self.rungs.values() if rung.status == "CLOSED"]
@@ -1433,6 +1457,12 @@ class NiftyOptionsPaperCascade:
         # rung is collected (pending), filled (open), or booked (rounds), take no
         # deeper boundary -- so a single fill can never bundle L2+L4.
         if self.config.single_shot and (self.pending_rung_keys or self.open_fills or self.rounds):
+            return
+        # Capped rounds: once max_rounds have BOOKED, take no further boundary --
+        # otherwise a deep rung that round 1 never reached would collect after it
+        # closes and open a fresh round, bypassing the re-arm gate.  While the
+        # capped round is still open (not yet booked) deeper averaging is allowed.
+        if self.config.max_rounds is not None and len(self.rounds) >= self.config.max_rounds:
             return
         if not self.adapter.dte_allows_new_rungs(self.contract, candle.timestamp):
             return
@@ -1475,6 +1505,12 @@ class NiftyOptionsPaperCascade:
             or candle.high < self.pending_stop
         ):
             return
+        # Capped rounds: after max_rounds have booked the campaign is done -- a
+        # stop armed during the capped round must not fill into a fresh round.
+        # (While the capped round is still open, len(rounds) < max_rounds, so
+        # in-round averaging fills normally.)
+        if self.config.max_rounds is not None and len(self.rounds) >= self.config.max_rounds:
+            return
         # Per-entry strike: re-select ATM-N against the index at this fill, so a
         # deeper CE buys a lower strike.  Otherwise the single campaign contract.
         fill_contract = self.contract
@@ -1491,6 +1527,34 @@ class NiftyOptionsPaperCascade:
         else:
             lots = max(1, math.floor(self.pending_inr / (premium * fill_contract.lot_size)))
         quantity = lots * fill_contract.lot_size
+
+        # Per-round premium ceiling: a DEEPER leg (open_fills already non-empty)
+        # is skipped if the premium it would deploy pushes the round past the cap.
+        # The rung is retired (CANCELLED) so the round does not retry it, and the
+        # existing open position simply rides to its target/expiry.
+        if (
+            self.config.max_round_premium_inr is not None
+            and self.open_fills
+            and self._deployed_premium() + premium * quantity > self.config.max_round_premium_inr
+        ):
+            for key in self.pending_rung_keys:
+                self.rungs[key].status = "CANCELLED"
+            self._log(
+                candle,
+                "premium_cap_reached",
+                deployed=round(self._deployed_premium(), 2),
+                cap=self.config.max_round_premium_inr,
+                skipped_leg_cost=round(premium * quantity, 2),
+            )
+            self.pending_rung_keys = []
+            self.pending_inr = 0.0
+            self.pending_line = None
+            self.pending_last_red = None
+            self.pending_stop = None
+            self.pending_stop_timestamp = None
+            self.status = "OPEN"
+            return
+
         paper_order = self.adapter.place_order(fill_contract, side="BUY", quantity=quantity)
         fill = PaperCascadeFill(
             timestamp=candle.timestamp,
