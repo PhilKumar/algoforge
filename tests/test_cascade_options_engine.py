@@ -268,6 +268,25 @@ class PaperRoundTests(unittest.TestCase):
         self.assertTrue(any(row["event"] == "new_low_restart" for row in engine.events))
         self.assertNotEqual(engine.rungs[rung.key].status, "CLOSED")
 
+    def test_single_shot_never_re_arms_a_closed_rung_on_a_new_low(self):
+        # Same seeded-rung setup as the new-low release test, but single_shot:
+        # the mother is one trade, so a fresh low must NOT release the closed
+        # rung and must NOT log a restart.
+        from engine.cascade_options import PaperCascadeRung
+
+        adapter = _PaperAdapter()
+        mother = IndexCandle(ts(0), 100, 110, 90, 105)
+        contract = FixedCampaignOption("NIFTY", 100, date(2026, 7, 28), "CE", 65, "1")
+        engine = NiftyOptionsPaperCascade(
+            mother, contract, adapter, lambda _t, _c: 100, PaperCascadeConfig(rung_inr=6500, single_shot=True)
+        )
+        rung = PaperCascadeRung(1, 2, 90, 6500, status="CLOSED")
+        engine.rungs[rung.key] = rung
+        engine.reuse_below = 89
+        engine.on_candle(IndexCandle(ts(1), 88, 89, 88, 88.5))
+        self.assertFalse(any(row["event"] == "new_low_restart" for row in engine.events))
+        self.assertEqual(engine.rungs[rung.key].status, "CLOSED")
+
     def test_kill_cancels_unfunded_paper_rungs_without_touching_a_broker(self):
         from engine.cascade_options import PaperCascadeRung
 

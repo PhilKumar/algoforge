@@ -1,6 +1,7 @@
 """tools/fib_cascade_sweep.py -- replay the FIB-BOUNDARY option cascade (the
 CryptoForge geometry: auto trendline -> touch -> fib deep levels 2/4/8, 1/2/3
-lot ladder, ATM-2 per entry) over months of real NIFTY index data.
+lot ladder, ATM-2 per entry) over months of real index data, for NIFTY or
+BANKNIFTY.
 
 This is the sweep for the SAME engine the fib-boundary tab and the historical
 backtest run -- `NiftyOptionsPaperCascade` over `NiftyIndexCascadeGeometry`.
@@ -8,28 +9,32 @@ It is NOT the candle-entry cascade that tools/cascade_backtest_nifty.py drives
 (that one is `OneHourCascade`, a different strategy). Every mother is found by
 the same swing-high scanner, so the campaign starts are the rules', not the eye's.
 
-Two layers, exactly like the candle-entry sweep:
+  --symbol nifty       weekly expiry, 65-unit lot, 50-point strikes
+  --symbol banknifty   MONTHLY expiry, 30-unit lot, 100-point strikes
 
-  Layer 1 (default, --signal)
-      A constant premium drives the state machine, so every fill/round is the
-      REAL index-space geometry -- entries, deep levels, cascade depth, and
-      whether the target arrived before the fixed next-weekly expiry did.
-      No rupee P&L is reported (a flat premium can't price anything honestly).
+  Layer 1 (default)    A flat premium drives the state machine, so every
+                       fill/round is the REAL index-space geometry with no rupee
+                       claim.  Expiry dates still come from Upstox so the
+                       target-vs-expiry split is honest.
+  Layer 2 (--premium)  Real Upstox expired-option premiums price every leg.
+                       Rupee P&L only for campaigns Upstox priced in full; a
+                       missing strike/expiry is a recorded gap, never faked.
 
-  Layer 2 (--premium)
-      Real Upstox expired-option premiums price every leg. Rupee P&L appears
-      only for campaigns whose every leg Upstox priced; a missing strike/expiry
-      is a recorded gap, and that campaign's P&L is withheld, never faked.
+  --single-shot        One trade per mother: the first boundary fills, rides to
+                       its target or expiry, and the mother is done -- no deeper
+                       level buys and no re-armed round.
 
-    python3 tools/fib_cascade_sweep.py --from 2025-09-01 --to 2026-07-30 --tf 15m
-    python3 tools/fib_cascade_sweep.py --from 2025-09-01 --to 2026-07-30 --tf 15m --premium
+    python3 tools/fib_cascade_sweep.py --symbol nifty     --from 2025-09-01 --to 2026-07-30 --tf 15m --premium
+    python3 tools/fib_cascade_sweep.py --symbol banknifty --from 2025-09-01 --to 2026-07-30 --tf 15m --premium
+    python3 tools/fib_cascade_sweep.py --symbol nifty     --from 2025-09-01 --to 2026-07-30 --tf 15m --premium --single-shot
 
-Candles reuse tools/.nifty_cache via load_candles, so repeat runs are offline.
+Candles cache under tools/.nifty_cache, so repeat runs are offline for candles.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -39,7 +44,6 @@ from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.cascade_calendar import ContractCalendar, optional_calendar  # noqa: E402
 from engine.cascade_mothers import MotherCandidate, find_mother_candles  # noqa: E402
 from engine.cascade_options import (  # noqa: E402
     CascadeConfig,
@@ -50,18 +54,39 @@ from engine.cascade_options import (  # noqa: E402
     NiftyOptionsPaperCascade,
     PaperCascadeConfig,
 )
-from tools.cascade_backtest_nifty import load_candles  # noqa: E402
 
-# The fib tab escalates by re-drawing, not by rolling the timeframe, so a
-# campaign is replayed on the base timeframe it was spotted on.
-DEFAULT_MAX_DAYS = 20  # a next-weekly campaign is dead within ~2 weeks anyway
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nifty_cache")
+
+# Per-underlying contract facts. NIFTY is weekly; BANKNIFTY moved to MONTHLY-only
+# expiry, so its DTE window spans a whole month and a campaign can run ~30 days.
+SYMBOLS = {
+    "nifty": dict(
+        cache="NIFTY",
+        security_id="13",
+        upstox_key="NSE_INDEX|Nifty 50",
+        lot_size=65,
+        strike_step=50.0,
+        min_dte=7,
+        max_dte=13,
+        max_days=20,
+    ),
+    "banknifty": dict(
+        cache="BANKNIFTY",
+        security_id="25",
+        upstox_key="NSE_INDEX|Nifty Bank",
+        lot_size=30,
+        strike_step=100.0,
+        min_dte=5,
+        max_dte=45,
+        max_days=35,
+    ),
+}
 
 
 @dataclass
 class FibOutcome:
     label: str
     mother_timestamp: datetime
-    started_at: datetime
     status: str
     rounds: int
     entries: int
@@ -80,8 +105,24 @@ class FibOutcome:
         return self.entries > 0
 
 
-def _to_index(candle) -> IndexCandle:
-    return IndexCandle(candle.timestamp, candle.open, candle.high, candle.low, candle.close)
+def load_index_candles(cfg: dict, timeframe: str, from_date: str, to_date: str, *, refetch: bool) -> list[IndexCandle]:
+    """Cached index candles for one underlying, fetched from Dhan on a miss."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    path = os.path.join(CACHE_DIR, f"{cfg['cache']}_{timeframe}_{from_date}_{to_date}.json")
+    if os.path.exists(path) and not refetch:
+        with open(path, "r", encoding="utf-8") as handle:
+            rows = json.load(handle)
+        return [IndexCandle(datetime.fromisoformat(r[0]), r[1], r[2], r[3], r[4]) for r in rows]
+    from broker.dhan import DhanClient
+    from data.cascade_dhan import DhanOneHourSource
+
+    print(f"[fetch] {cfg['cache']} {timeframe} {from_date} -> {to_date} (secId={cfg['security_id']})")
+    source = DhanOneHourSource(DhanClient(), nifty_security_id=cfg["security_id"])
+    fetched = source.fetch_index_cascade(from_date, to_date, [timeframe])
+    candles = [IndexCandle(c.timestamp, c.open, c.high, c.low, c.close) for c in fetched[timeframe]]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump([[c.timestamp.isoformat(), c.open, c.high, c.low, c.close] for c in candles], handle)
+    return candles
 
 
 def _level_of(fill) -> Optional[int]:
@@ -96,17 +137,16 @@ def _level_of(fill) -> Optional[int]:
 def replay_one_fib(
     mother: MotherCandidate,
     index_series: list[IndexCandle],
-    calendar: ContractCalendar,
+    cfg: dict,
     *,
     timeframe: str,
-    max_days: int,
     premium_lookup: Callable[[datetime, FixedCampaignOption], Optional[float]],
     expiries: list[date],
     rung_inr: float,
     itm_steps: int,
+    single_shot: bool,
     label: str,
 ) -> FibOutcome:
-    rule = calendar.rule_for(mother.timestamp.date())
     # Feed from the mother pivot itself: the fib geometry needs the bars right
     # after it (first dip -> trendline anchor -> touch). This is NOT lookahead --
     # the earliest a leg can FILL is many bars later, after the structure forms
@@ -114,7 +154,7 @@ def replay_one_fib(
     mother_row = next((row for row in index_series if row.timestamp == mother.timestamp), None)
     if mother_row is None:
         mother_row = IndexCandle(mother.timestamp, mother.high, mother.high, mother.low, mother.low)
-    horizon = mother.timestamp + timedelta(days=max_days)
+    horizon = mother.timestamp + timedelta(days=cfg["max_days"])
     forward = [row for row in index_series if mother.timestamp < row.timestamp <= horizon]
 
     resolver_config = CascadeConfig(
@@ -124,29 +164,29 @@ def replay_one_fib(
         option_type="CE",
         timeframe=timeframe,
         itm_steps=itm_steps,
-        strike_step=rule.strike_step,
-        lot_size=rule.lot_size,
+        strike_step=cfg["strike_step"],
+        lot_size=cfg["lot_size"],
+        min_dte=cfg["min_dte"],
+        max_dte=cfg["max_dte"],
     )
     resolver = NiftyContractResolver(
-        expiries=expiries, strike_step=rule.strike_step, lot_size=rule.lot_size, symbol="NIFTY"
+        expiries=expiries, strike_step=cfg["strike_step"], lot_size=cfg["lot_size"], symbol=cfg["cache"]
     )
 
     def to_fixed(contract) -> FixedCampaignOption:
         return FixedCampaignOption(
-            "NIFTY", int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
+            cfg["cache"], int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
         )
 
     def select(_timestamp, index_price) -> FixedCampaignOption:
-        # Strike is ATM-N at THIS fill's index; expiry stays the mother's
-        # next-weekly for the whole campaign (resolve against the mother date).
+        # Strike is ATM-N at THIS fill's index; expiry stays the mother's next
+        # expiry (weekly for NIFTY, monthly for BANKNIFTY) for the whole campaign.
         return to_fixed(resolver.select(mother.timestamp, index_price, "CE", resolver_config))
 
     try:
         initial = select(mother.timestamp, mother_row.close)
     except Exception:
-        return FibOutcome(
-            label, mother.timestamp, mother.timestamp, "no_strike", 0, 0, 0, None, None, None, 0.0, 0, 0, False, 0
-        )
+        return FibOutcome(label, mother.timestamp, "no_strike", 0, 0, 0, None, None, None, 0.0, 0, 0, False, 0)
 
     adapter = CascadeOptionsAdapter(None, paper_only=True)
     engine = NiftyOptionsPaperCascade(
@@ -160,6 +200,7 @@ def replay_one_fib(
             target_fraction=0.25,
             lot_ladder=True,
             per_entry_strike=True,
+            single_shot=single_shot,
         ),
         contract_selector=select,
     ).run(forward)
@@ -175,7 +216,6 @@ def replay_one_fib(
     return FibOutcome(
         label=label,
         mother_timestamp=mother.timestamp,
-        started_at=mother.timestamp,
         status=str(engine.status).lower(),
         rounds=len(engine.rounds),
         entries=len(all_fills),
@@ -193,19 +233,17 @@ def replay_one_fib(
 
 def run_sweep(
     index_series: list[IndexCandle],
-    calendar: ContractCalendar,
+    cfg: dict,
     *,
     timeframe: str,
     max_concurrent: int,
-    max_days: int,
     scanner_kwargs: dict,
     premium_lookup: Callable[[datetime, FixedCampaignOption], Optional[float]],
     expiries: list[date],
     rung_inr: float,
     itm_steps: int,
+    single_shot: bool,
 ) -> tuple[list[FibOutcome], list[MotherCandidate]]:
-    # The scanner wants the raw candle objects; IndexCandle carries the same
-    # high/low/timestamp fields it reads.
     mothers = find_mother_candles(index_series, **scanner_kwargs)
     outcomes: list[FibOutcome] = []
     open_until: list[datetime] = []
@@ -219,18 +257,18 @@ def run_sweep(
         outcome = replay_one_fib(
             mother,
             index_series,
-            calendar,
+            cfg,
             timeframe=timeframe,
-            max_days=max_days,
             premium_lookup=premium_lookup,
             expiries=expiries,
             rung_inr=rung_inr,
             itm_steps=itm_steps,
+            single_shot=single_shot,
             label=f"#{number} {mother.timestamp:%Y-%m-%d %H:%M}",
         )
         outcomes.append(outcome)
         if outcome.traded:
-            open_until.append(start + timedelta(days=max_days))
+            open_until.append(start + timedelta(days=cfg["max_days"]))
     if skipped:
         print(f"  ({skipped} mothers skipped: max-concurrent {max_concurrent} already deployed)")
     return outcomes, mothers
@@ -272,53 +310,63 @@ def report(outcomes: list[FibOutcome], mothers: list[MotherCandidate], *, priced
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--symbol", choices=sorted(SYMBOLS), default="nifty")
     ap.add_argument("--from", dest="from_date", required=True)
     ap.add_argument("--to", dest="to_date", required=True)
     ap.add_argument("--tf", dest="timeframe", default="15m", choices=["5m", "15m", "1h"])
     ap.add_argument("--premium", action="store_true", help="Layer 2: price legs with real Upstox premiums")
-    ap.add_argument("--max-days", type=int, default=DEFAULT_MAX_DAYS)
-    ap.add_argument("--max-concurrent", type=int, default=3)
+    ap.add_argument("--single-shot", action="store_true", help="one trade per mother, no deeper buys / re-arm")
+    ap.add_argument("--max-concurrent", type=int, default=999)
     ap.add_argument("--rung-inr", type=float, default=15000.0)
     ap.add_argument("--itm-steps", type=int, default=2)
     ap.add_argument("--left-bars", type=int, default=3)
     ap.add_argument("--right-bars", type=int, default=3)
     ap.add_argument("--min-range-atr", type=float, default=0.8)
     ap.add_argument("--refetch", action="store_true")
-    ap.add_argument("--calendar", default=None, help="optional ContractCalendar JSON path")
     args = ap.parse_args()
 
-    series_map = load_candles([args.timeframe], args.from_date, args.to_date, refetch=args.refetch)
-    index_series = [_to_index(c) for c in series_map[args.timeframe]]
+    cfg = SYMBOLS[args.symbol]
+    index_series = load_index_candles(cfg, args.timeframe, args.from_date, args.to_date, refetch=args.refetch)
     if not index_series:
         print("No candles in range.")
         return 1
     print(
-        f"[data] {len(index_series)} {args.timeframe} candles {index_series[0].timestamp:%Y-%m-%d} -> {index_series[-1].timestamp:%Y-%m-%d}"
+        f"[data] {args.symbol} {len(index_series)} {args.timeframe} candles "
+        f"{index_series[0].timestamp:%Y-%m-%d} -> {index_series[-1].timestamp:%Y-%m-%d}"
     )
 
-    calendar = optional_calendar(args.calendar)
-    sessions = {c.timestamp.date() for c in index_series}
+    # Expiries come from Upstox for BOTH layers so the weekly/monthly cadence is
+    # the real one; Layer 1 still prices nothing.
+    from pathlib import Path
+
+    from data.cascade_upstox import UpstoxPremiumSource
+
+    try:
+        from upstox_token_manager import ensure_fresh_token
+
+        ensure_fresh_token()
+    except Exception as exc:
+        print(f"[upstox] token pre-check skipped: {exc}")
+    # IMPORTANT: the Upstox source caches expiries.json and contracts_<expiry>.json
+    # WITHOUT an underlying prefix, so NIFTY and BANKNIFTY would collide on a
+    # shared dir (BANKNIFTY would read NIFTY's chain). NIFTY keeps the root cache
+    # (its 244 files are already there); every other underlying gets its own dir.
+    upstox_cache = Path(os.path.dirname(os.path.abspath(__file__))) / ".upstox_cache"
+    if args.symbol != "nifty":
+        upstox_cache = upstox_cache / cfg["cache"]
+    source = UpstoxPremiumSource(underlying_key=cfg["upstox_key"], cache_dir=upstox_cache)
+    expiries = sorted(source.available_expiries())
+    if not expiries:
+        print(f"[upstox] no expiry coverage for {cfg['upstox_key']}.")
+        return 1
+    print(f"[upstox] {len(expiries)} {args.symbol} expiries: {expiries[0]} -> {expiries[-1]}")
 
     if args.premium:
-        from data.cascade_upstox import UpstoxPremiumSource
-
-        try:
-            from upstox_token_manager import ensure_fresh_token
-
-            ensure_fresh_token()
-        except Exception as exc:
-            print(f"[upstox] token pre-check skipped: {exc}")
-        source = UpstoxPremiumSource()
-        expiries = sorted(source.available_expiries())
-        print(f"[upstox] {len(expiries)} expiries in coverage: {expiries[0]} -> {expiries[-1]}")
 
         def premium_lookup(timestamp, contract):
             bar = source.lookup(timestamp, contract)
             return float(bar.open) if bar is not None else None
     else:
-        expiries = calendar.weekly_expiries(
-            date.fromisoformat(args.from_date), date.fromisoformat(args.to_date), sessions
-        )
 
         def premium_lookup(_timestamp, _contract):
             return 100.0  # flat: drives the geometry, prices nothing
@@ -326,18 +374,24 @@ def main() -> int:
     scanner_kwargs = dict(left_bars=args.left_bars, right_bars=args.right_bars, min_range_atr=args.min_range_atr)
     outcomes, mothers = run_sweep(
         index_series,
-        calendar,
+        cfg,
         timeframe=args.timeframe,
         max_concurrent=args.max_concurrent,
-        max_days=args.max_days,
         scanner_kwargs=scanner_kwargs,
         premium_lookup=premium_lookup,
         expiries=expiries,
         rung_inr=args.rung_inr,
         itm_steps=args.itm_steps,
+        single_shot=args.single_shot,
     )
     layer = "Layer 2 (real Upstox premiums)" if args.premium else "Layer 1 (signal geometry, no P&L)"
-    report(outcomes, mothers, priced=args.premium, label=f"FIB-BOUNDARY {args.timeframe} · {layer}")
+    mode = "SINGLE-SHOT (1 trade/mother)" if args.single_shot else "full cascade"
+    report(
+        outcomes,
+        mothers,
+        priced=args.premium,
+        label=f"{args.symbol.upper()} {args.timeframe} · {mode} · {layer}",
+    )
     return 0
 
 

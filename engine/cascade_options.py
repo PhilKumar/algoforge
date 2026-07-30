@@ -1262,6 +1262,12 @@ class PaperCascadeConfig:
     # deeper CE buys a lower strike as NIFTY falls) instead of one fixed contract
     # for the whole campaign.  Needs a contract_selector on the engine.
     per_entry_strike: bool = False
+    # Single-shot: take only the FIRST entry for a mother -- no deeper-level buys
+    # and no new round after it closes.  The campaign is one trade: the first
+    # deep boundary fills, rides to its target or expiry, and the mother is done.
+    # When False (the default), the full cascade arms every deeper level and
+    # re-arms a fresh round on each new low.
+    single_shot: bool = False
 
     def __post_init__(self) -> None:
         if self.rung_inr <= 0:
@@ -1410,6 +1416,9 @@ class NiftyOptionsPaperCascade:
                     self._log(candle, "rung_created", rung=rung.key, index_price=rung.index_price)
 
     def _release_closed_rungs(self, candle: IndexCandle) -> None:
+        # Single-shot: the mother is done after its one round -- never re-arm.
+        if self.config.single_shot:
+            return
         if self.reuse_below is None or candle.low >= self.reuse_below:
             return
         released = [rung for rung in self.rungs.values() if rung.status == "CLOSED"]
@@ -1420,6 +1429,11 @@ class NiftyOptionsPaperCascade:
             self._log(candle, "new_low_restart", rungs=[rung.key for rung in released], low=candle.low)
 
     def _collect_crossed_rungs(self, candle: IndexCandle) -> None:
+        # Single-shot: the mother buys once, at the first boundary only.  Once a
+        # rung is collected (pending), filled (open), or booked (rounds), take no
+        # deeper boundary -- so a single fill can never bundle L2+L4.
+        if self.config.single_shot and (self.pending_rung_keys or self.open_fills or self.rounds):
+            return
         if not self.adapter.dte_allows_new_rungs(self.contract, candle.timestamp):
             return
         crossed = [rung for rung in self.rungs.values() if rung.status == "PENDING" and candle.low <= rung.index_price]
