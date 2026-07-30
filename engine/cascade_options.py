@@ -1168,6 +1168,12 @@ class CascadeOptionsAdapter:
         # The caller mirrors the sign per side; the maths here stays one line.
         strike = atm + int(ce_offset_steps) * strike_step
         lot_size = int(self.scrip_master.get_lot_size("NIFTY", expiry.isoformat()))
+        if lot_size <= 0:
+            # 0 means Dhan does not carry it.  Refuse rather than build a
+            # campaign whose every quantity is derived from a zero lot.
+            raise OptionsAdapterError(
+                f"ScripMaster has no lot size for NIFTY {expiry.isoformat()}; refusing to size a campaign without it"
+            )
         security_id = str(self.scrip_master.lookup("NIFTY", strike, expiry.isoformat(), side) or "")
         if not security_id:
             raise OptionsAdapterError(f"ScripMaster has no NIFTY {strike}{side} for {expiry.isoformat()}")

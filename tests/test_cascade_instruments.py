@@ -50,13 +50,30 @@ class IndexSpecTests(unittest.TestCase):
             index_spec("NOSUCHINDEX")
         self.assertIn("NIFTY", str(caught.exception))
 
-    def test_sensex_refuses_rather_than_fetching_a_wrong_series(self):
-        # SENSEX is carried but unverified. It must fail loudly: a wrong
-        # exchange segment returns *some* candles, and a backtest priced off
-        # the wrong index looks entirely plausible.
-        with self.assertRaises(InstrumentError) as caught:
-            index_spec("SENSEX")
-        self.assertIn("segment", str(caught.exception).lower())
+    def test_sensex_reaches_its_own_id_not_the_live_feed_one(self):
+        # Confirmed against Dhan: id 51 returns SENSEX at ~77,600. The live
+        # feed reaches SENSEX through id "1" in a different id space, and
+        # asking the historical API for "1" returns a healthy ~23,000 series
+        # for another index without erroring. Pin 51 so nobody "fixes" this
+        # back to match the feed map.
+        spec = index_spec("SENSEX")
+        self.assertEqual(spec.security_id, "51")
+        self.assertEqual(spec.exchange_segment, "IDX_I")
+
+    def test_an_unverified_index_refuses_rather_than_guessing(self):
+        # The guard that kept SENSEX honest until its id was confirmed. A
+        # wrong id returns candles rather than an error, so an unverified
+        # entry must never reach a fetch.
+        from engine.cascade_instruments import INDEX_SPECS, IndexSpec
+
+        unproven = IndexSpec("TESTIDX", "999", "IDX_I", verified=False, note="not confirmed against Dhan.")
+        INDEX_SPECS["TESTIDX"] = unproven
+        try:
+            with self.assertRaises(InstrumentError) as caught:
+                index_spec("TESTIDX")
+            self.assertIn("not confirmed", str(caught.exception))
+        finally:
+            INDEX_SPECS.pop("TESTIDX", None)
 
 
 class ExpiryRhythmTests(unittest.TestCase):

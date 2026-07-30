@@ -1917,9 +1917,12 @@ class PaperTradingEngine:
             if user_lot_size > 0:
                 lot_size = user_lot_size
             else:
-                lot_size = (
-                    ScripMaster.get_lot_size(symbol, expiry) if expiry else get_lot_size(instrument, self.session_date)
-                )
+                # ScripMaster answers 0 when Dhan does not carry the lot size.
+                # Fall back to the effective-dated table rather than sizing this
+                # leg at zero, which is what a bare 0 would silently do here.
+                lot_size = ScripMaster.get_lot_size(symbol, expiry) if expiry else 0
+                if lot_size <= 0:
+                    lot_size = get_lot_size(instrument, self.session_date)
 
             option_type = leg.get("option_type", "PE")
             strike_type = leg.get("strike_type", "atm")

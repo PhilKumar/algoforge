@@ -859,14 +859,24 @@ class ScripMaster:
 
     @classmethod
     def get_lot_size(cls, symbol: str, expiry: str) -> int:
-        """Get lot size from scrip master."""
+        """Lot size from the scrip master, or 0 when Dhan does not say.
+
+        0 means "unknown" and callers must fall back to the effective-dated
+        table in engine/backtest.py, which is what they already do.
+
+        This used to answer a miss with a flat constant per symbol.  Those
+        constants had gone stale without anything noticing -- against the live
+        chain they claimed FINNIFTY was 65 (it is 60) and MIDCPNIFTY 50 (it is
+        120).  A wrong lot size does not fail: it sizes every order and prices
+        every backtest wrongly while looking entirely reasonable.  Saying
+        nothing is far safer than saying something wrong.
+        """
         cls.ensure_loaded()
         lot = cls._lot_cache.get(f"{symbol}_{expiry}", 0)
         if lot > 0:
             return lot
-        # Fallback defaults (current as of Jan 2026)
-        defaults = {"NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 65, "MIDCPNIFTY": 50, "SENSEX": 20}
-        return defaults.get(symbol, 65)
+        print(f"[SCRIP] ⚠ No lot size for {symbol} {expiry} — caller must use the dated table")
+        return 0
 
     @classmethod
     def normalize_equity_symbol(cls, symbol: str) -> str:

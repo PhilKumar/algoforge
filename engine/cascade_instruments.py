@@ -42,24 +42,24 @@ class IndexSpec:
     note: str = ""
 
 
-# Security ids mirror engine/market_feed.py INDEX_MAP, which the live feed uses
-# today.  SENSEX is carried but NOT marked verified: it is a BSE index, and the
-# numeric segment the feed uses for it does not translate to a historical-API
-# segment string the same way the NSE indices do.  Rather than fetch a wrong
-# series and price a whole backtest off it, asking for SENSEX candles raises
-# until someone confirms the segment against a real Dhan response.
+# Every id below was confirmed on 2026-07-30 by fetching daily candles from Dhan
+# and checking the level against what the index actually trades at.  That check
+# mattered: the live feed's map reaches SENSEX through id "1", and asking the
+# historical API for "1" returns a perfectly healthy series around 23,000 --
+# some other index entirely, not SENSEX at 77,600.  It does not error.  Anything
+# priced off it would have looked completely reasonable and been wrong, which is
+# why `verified` exists and why nothing goes in here on inference.
+#
+#   NIFTY 13 -> 24,250   BANKNIFTY 25 -> 57,206   FINNIFTY 27 -> 26,287
+#   MIDCPNIFTY 442 -> 14,683          SENSEX 51 -> 77,655
 INDEX_SPECS: dict[str, IndexSpec] = {
     "NIFTY": IndexSpec("NIFTY", "13", "IDX_I"),
     "BANKNIFTY": IndexSpec("BANKNIFTY", "25", "IDX_I"),
     "FINNIFTY": IndexSpec("FINNIFTY", "27", "IDX_I"),
     "MIDCPNIFTY": IndexSpec("MIDCPNIFTY", "442", "IDX_I"),
-    "SENSEX": IndexSpec(
-        "SENSEX",
-        "1",
-        "IDX_I",
-        verified=False,
-        note="BSE index: confirm the historical-API exchange segment before trusting its candles.",
-    ),
+    # BSE index, but its candles come from IDX_I like the rest -- and from id 51,
+    # NOT the "1" the live feed uses in its own id space.
+    "SENSEX": IndexSpec("SENSEX", "51", "IDX_I"),
 }
 
 
