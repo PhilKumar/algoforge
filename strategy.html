@@ -1824,7 +1824,6 @@
   <div class="oc-tabs" role="tablist">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">You type the mother's high &amp; low · buys the deep fib levels under it</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
-    <button id="oc-tabbtn-signal" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="signal" title="1 + 2 + 3 cascade replay — backtest"><span class="oc-tab-name">↗ Signal Ladder</span><span class="oc-tab-sub">History replay only · nothing here trades</span></button>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->
@@ -1944,79 +1943,6 @@
     </div>
   </div>
 
-  <!-- ── TAB · Signal Ladder (the 1 + 2 + 3 replay, formerly "Signal Replay") ── -->
-  <div id="oc-tab-signal" class="oc-tab-panel" style="display:none;">
-  <div class="card-glass" style="padding: 20px; margin-bottom: 16px; border-color: rgba(245,158,11,.32);">
-    <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
-      <div>
-        <div style="font-size:11px; color:#fbbf24; font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:6px;">Backtest only · no live orders</div>
-        <h3 style="margin:0; font-size:18px;">Signal Ladder · 1 + 2 + 3 replay</h3>
-        <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">A manual, contract-aware replay of your 1 + 2 + 3 cascade. Dhan supplies the NIFTY signal path; exact fixed-strike premiums come from the local Upstox cache. Missing historical option data is backfilled automatically when Upstox access is available. P&amp;L is shown only when every required candle exists. No live orders are sent.</p>
-      </div>
-      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">Contract rules<br>2 ITM · 7–13 DTE · skip current week</div>
-    </div>
-  </div>
-
-  <div style="display:grid; grid-template-columns:minmax(280px, .8fr) minmax(360px, 1.2fr); gap:16px; align-items:start;">
-    <div class="card" style="padding:20px;">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:14px;">
-        <h3 style="margin:0; font-size:15px;">Manual mother candle</h3>
-        <span style="font-size:10px; color:var(--muted); font-family:'JetBrains Mono',monospace;">IST · required fields</span>
-      </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
-        <div>
-          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Side</label>
-          <select id="cascade-side" style="padding:8px 10px; font-size:13px;">
-            <option value="CE">CE — downside then recovery</option>
-            <option value="PE">PE — upside then reversal</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother TF</label>
-          <select id="cascade-timeframe" style="padding:8px 10px; font-size:13px;">
-            <option value="5m">5m → 15m → 1H</option>
-            <option value="15m">15m → 1H → 4H</option>
-            <option value="1h" selected>1H → 4H → 1D</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Replay to</label>
-          <input id="cascade-to-date" type="date" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
-        </div>
-      </div>
-      <div style="margin-top:10px;">
-        <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother timestamp</label>
-        <input id="cascade-mother-timestamp" type="datetime-local" step="300" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
-      </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
-        <div>
-          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother high</label>
-          <input id="cascade-mother-high" type="number" min="1" step="0.05" placeholder="e.g. 24,482.10" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
-        </div>
-        <div>
-          <label style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; display:block; margin-bottom:4px;">Mother low</label>
-          <input id="cascade-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,329.70" style="padding:8px 10px; font-size:13px; font-family:'JetBrains Mono',monospace;">
-        </div>
-      </div>
-      <button id="cascade-run-btn" class="btn" type="button" onclick="runCascadeBacktest()" style="width:100%; margin-top:16px; --btn-bg:linear-gradient(180deg,rgba(245,158,11,.32),rgba(180,83,9,.45)); --btn-color:#fef3c7; --btn-border:rgba(251,191,36,.5); font-weight:800;">Run cascade backtest</button>
-      <div id="cascade-form-status" style="min-height:17px; padding-top:9px; font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace;"></div>
-    </div>
-
-    <div class="card" style="padding:20px; min-height:360px;">
-      <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:13px;">
-        <h3 style="margin:0; font-size:15px;">Replay result</h3>
-        <span id="cascade-result-badge" style="font-size:10px; font-weight:800; letter-spacing:.5px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:4px 8px;">AWAITING INPUT</span>
-      </div>
-      <div id="cascade-result" style="color:var(--muted); font-size:12px; line-height:1.6;">
-        <div style="border:1px dashed var(--border); border-radius:8px; padding:18px; text-align:center;">Enter a separate CE or PE mother candle to inspect the trigger trail, selected contract(s), staged quantities and index exit condition.</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card-glass" style="margin-top:16px; padding:14px 16px; border-color:rgba(251,191,36,.24); background:rgba(245,158,11,.045); color:#fde68a; font-size:11px; line-height:1.55;">
-    <strong>Data status — exact-contract pricing with safe backfill:</strong> Dhan supplies the NIFTY signal sequence. The backtest first checks local cached Upstox 1-minute candles, then refreshes only missing strike/expiry data when Upstox access is available. If a required contract or minute still does not exist, the result shows the exact gap and withholds P&amp;L rather than estimating it.
-  </div>
-  </div>
 </div>
 
 <!-- ═══ SCALP PAGE ═══ -->

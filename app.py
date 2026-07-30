@@ -7436,6 +7436,12 @@ async def api_run_cascade_backtest(payload: CascadeBacktestPayload, request: Req
     """Run one manually supplied CE or PE 1H mother-candle replay.
 
     This endpoint performs no order placement and does not create a live engine.
+
+    NOTE (2026-07-30): the Signal Ladder tab that called this was retired from
+    the Cascade page on Phil's decision — history replays live on the Test
+    Bench.  Nothing in the UI reaches this route anymore; it stays only until
+    its unique replay mode (the 1+2+3 stage ladder) is ported to the bench,
+    after which it and `_run_cascade_feasibility` can go.
     """
 
     try:
