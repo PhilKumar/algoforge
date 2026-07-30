@@ -23,7 +23,9 @@ class CascadeOptionsTests(unittest.TestCase):
         # Pinned to the original 7-13 window: this covers skip-the-current-week
         # and the CE/PE strike mirror, not the width of the DTE band.
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
-        config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000, min_dte=7, max_dte=13)
+        config = CascadeConfig(
+            mother_timestamp=t(9), mother_high=25000, mother_low=24000, min_dte=7, max_dte=13, monthly_only=False
+        )
         ce = resolver.select(t(10), 24876, "CE", config)
         pe = resolver.select(t(10), 24876, "PE", config)
         self.assertEqual(ce.expiry, date(2026, 7, 28))
@@ -31,16 +33,19 @@ class CascadeOptionsTests(unittest.TestCase):
         self.assertEqual(pe.strike, 25000)
         self.assertEqual(ce.lot_size, 65)
 
-    def test_resolver_honours_the_ten_day_minimum_by_default(self):
-        # The live rule: never take an expiry inside 10 days.  From 20 July the
-        # 28th is only 8 days out, so the resolver must step past it to 4 August
-        # (15 days) rather than take the nearer, cheaper contract.
+    def test_resolver_defaults_to_the_monthly_never_inside_fifteen_days(self):
+        # Two defaults at once, both live rules.  Never take an expiry inside
+        # 15 days: from 20 July the 28th is only 8 days out.  And never take a
+        # weekly at all: 4 August clears the floor but is a weekly, so the
+        # resolver must step past it to 11 August, the last expiry it holds for
+        # that month.
         resolver = NiftyContractResolver(self.expiries, strike_step=50, lot_size=65)
         config = CascadeConfig(mother_timestamp=t(9), mother_high=25000, mother_low=24000)
-        self.assertEqual(config.min_dte, 10)
+        self.assertEqual(config.min_dte, 15)
+        self.assertTrue(config.monthly_only)
         contract = resolver.select(t(10), 24876, "CE", config)
-        self.assertEqual(contract.expiry, date(2026, 8, 4))
-        self.assertGreaterEqual((contract.expiry - t(10).date()).days, 10)
+        self.assertEqual(contract.expiry, date(2026, 8, 11))
+        self.assertGreaterEqual((contract.expiry - t(10).date()).days, 15)
 
     def test_one_minute_ladder_climbs_to_one_hour_on_a_fourth_buy(self):
         # A 1m start with four lots steps 1m -> 5m -> 15m -> 1H.  With only
@@ -74,6 +79,7 @@ class CascadeOptionsTests(unittest.TestCase):
             mother_low=22000,
             min_dte=7,
             max_dte=13,
+            monthly_only=False,
         )
         resolver = NiftyContractResolver([date(2026, 4, 13), date(2026, 4, 21)], strike_step=50, lot_size=65)
         contract = resolver.select(datetime(2026, 4, 7, 13, 15), 22500, "PE", config)

@@ -74,7 +74,7 @@ class FibBoundaryConfig:
     mother_low: float
     option_type: str = "CE"  # CE or PE
     timeframe: str = "5m"  # 1m, 5m, 15m or 1h
-    # None -> derive from the timeframe: (4, 8) on 1m/5m, (2, 4, 8) on 15m/1h.
+    # None -> derive from the timeframe: (8,) on 1m, (4, 8) everywhere else.
     # An explicit tuple overrides that (tests and future retuning).
     boundaries: Optional[tuple[int, ...]] = None
     rung_inr: float = 75_000.0
@@ -82,8 +82,13 @@ class FibBoundaryConfig:
     strike_step: float = 50.0
     lot_size: int = 65
     target_fraction: float = 0.25
-    min_dte: int = 7
-    max_dte: int = 13
+    # Monthly contracts only, 15-45 DTE -- see `CascadeConfig.monthly_only` and
+    # `min_dte` for the measurements behind both numbers.  No stop loss means
+    # expiry is the only thing that can end a losing position, so the floor is
+    # what keeps a campaign from being born with too little road.
+    monthly_only: bool = True
+    min_dte: int = 15
+    max_dte: int = 45
     strict_option_data: bool = True
     force_exit_on_expiry: bool = True
     slippage_points: float = 0.0
@@ -451,3 +456,7 @@ class _ResolverView:
     @property
     def max_dte(self) -> int:
         return self._cfg.max_dte
+
+    @property
+    def monthly_only(self) -> bool:
+        return self._cfg.monthly_only

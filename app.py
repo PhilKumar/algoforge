@@ -8526,6 +8526,11 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
                 target_fraction=0.25,
                 lot_ladder=True,
                 per_entry_strike=True,
+                # Phil's locked timeframe rule -- (8,) on 1m, (4, 8) on 5m,
+                # (2, 4, 8) on 15m/1h.  Without this the engine's own default
+                # armed L2 on every chart, including the fast ones where the
+                # Jan-Jul 2026 sweep showed the shallow line only loses money.
+                fib_levels=boundaries_for_timeframe(timeframe),
             ),
             contract_selector=select,
         ).run(forward)

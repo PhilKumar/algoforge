@@ -10,9 +10,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig  # noqa: E402
 from engine.cascade_options import Candle, CascadeError, NiftyContractResolver, OptionCandle  # noqa: E402
 
-# Next-weekly expiries around a 2026-07-29 (Wednesday) mother: 08-04 is this
-# week's Tuesday (6 DTE, skipped), 08-11 is next week's (13 DTE, chosen).
-EXPIRIES = [date(2026, 8, 4), date(2026, 8, 11)]
+# Expiries around a 2026-07-29 (Wednesday) mother. 08-04 and 08-11 are weeklies
+# and are skipped outright; 08-25 is August's MONTHLY at 27 DTE and is the one a
+# campaign may buy -- monthly-only, and never inside the 15-day floor.
+EXPIRIES = [date(2026, 8, 4), date(2026, 8, 11), date(2026, 8, 25)]
 
 
 def _c(hh, mm, o, h, low, c):
@@ -45,14 +46,11 @@ class FibBoundaryGeometryTest(unittest.TestCase):
         self.assertAlmostEqual(cfg.boundary_price(8), 24050.0 + 8 * 130.0)  # 25090
 
     def test_boundaries_follow_the_timeframe(self):
-        # 1m and 5m trade only the two deepest lines.
-        for tf in ("1m", "5m"):
+        # Phil's locked rule: L4 and L8 everywhere, except 1m which takes the
+        # deepest line alone. L2 never trades on any chart.
+        for tf, levels in (("1m", [8]), ("5m", [4, 8]), ("15m", [4, 8]), ("1h", [4, 8])):
             cfg = FibBoundaryConfig(datetime(2026, 7, 29, 9, 10), 24180.0, 24050.0, timeframe=tf)
-            self.assertEqual(cfg.ordered_boundaries(), [4, 8])
-        # 15m and above add level 2, so the ladder starts one step earlier.
-        for tf in ("15m", "1h"):
-            cfg = FibBoundaryConfig(datetime(2026, 7, 29, 9, 10), 24180.0, 24050.0, timeframe=tf)
-            self.assertEqual(cfg.ordered_boundaries(), [2, 4, 8])
+            self.assertEqual(cfg.ordered_boundaries(), levels)
 
     def test_explicit_boundaries_override_the_timeframe(self):
         cfg = FibBoundaryConfig(datetime(2026, 7, 29, 9, 10), 24180.0, 24050.0, timeframe="1h", boundaries=(4, 8))
@@ -101,8 +99,8 @@ class FibBoundaryCeCampaignTest(unittest.TestCase):
         strikes = [e.contract.strike for e in result.entries]
         self.assertEqual(len(set(strikes)), 2)
         self.assertLess(strikes[1], strikes[0])
-        # Same next-weekly expiry for both legs though.
-        self.assertEqual({e.contract.expiry for e in result.entries}, {date(2026, 8, 11)})
+        # Same monthly expiry for both legs though.
+        self.assertEqual({e.contract.expiry for e in result.entries}, {date(2026, 8, 25)})
         # Fixed lot ladder, not a rupee budget: 1 lot then 2.
         self.assertEqual([e.lots for e in result.entries], [1, 2])
         self.assertTrue(result.fully_priced)

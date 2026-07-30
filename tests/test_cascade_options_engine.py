@@ -22,19 +22,25 @@ def ts(offset: int) -> datetime:
 
 
 class _ScripMaster:
+    """A real NIFTY chain: four weeklies and the two monthlies behind them."""
+
+    # 28 July and 25 August are the monthly contracts; the rest are weeklies the
+    # campaign must refuse now that the strategy buys monthlies only.
+    MONTHLY = "2026-08-25"
+
     @classmethod
     def get_expiries(cls, symbol):
         assert symbol == "NIFTY"
-        return ["2026-07-21", "2026-07-28", "2026-08-04"]
+        return ["2026-07-21", "2026-07-28", "2026-08-04", "2026-08-11", "2026-08-18", cls.MONTHLY]
 
     @classmethod
     def get_lot_size(cls, symbol, expiry):
-        assert (symbol, expiry) == ("NIFTY", "2026-07-28")
+        assert (symbol, expiry) == ("NIFTY", cls.MONTHLY)
         return 65
 
     @classmethod
     def lookup(cls, symbol, strike, expiry, option_type):
-        assert (symbol, strike, expiry, option_type) == ("NIFTY", 24800, "2026-07-28", "CE")
+        assert (symbol, strike, expiry, option_type) == ("NIFTY", 24800, cls.MONTHLY, "CE")
         return "123456"
 
 
@@ -104,20 +110,22 @@ class PaperAdapterTests(unittest.TestCase):
         with self.assertRaises(PaperOnlyViolation):
             CascadeOptionsAdapter(_Dhan(), scrip_master=_ScripMaster, paper_only=False)
 
-    def test_campaign_contract_is_fixed_next_week_ce_and_paper_order_never_calls_dhan(self):
+    def test_campaign_contract_is_the_monthly_ce_and_paper_order_never_calls_dhan(self):
         adapter = CascadeOptionsAdapter(_Dhan(), scrip_master=_ScripMaster)
         contract = adapter.select_campaign_contract(
             mother_spot=24900,
             selected_at=datetime(2026, 7, 20, 10, 0),
         )
-        self.assertEqual(contract.expiry, date(2026, 7, 28))
+        # 28 July is July's monthly but only 8 days out, and every August date
+        # before the 25th is a weekly -- so the campaign takes 25 August.
+        self.assertEqual(contract.expiry, date(2026, 8, 25))
         self.assertEqual(contract.strike, 24800)
         self.assertEqual(contract.lot_size, 65)
         order = adapter.place_order(contract, side="BUY", quantity=65)
         self.assertEqual(order.status, "PAPER")
         self.assertEqual(order.product_type, "CARRYFORWARD")
         self.assertEqual(adapter.get_order(order.order_id), order)
-        self.assertFalse(adapter.dte_allows_new_rungs(contract, datetime(2026, 7, 27, 12, 0)))
+        self.assertFalse(adapter.dte_allows_new_rungs(contract, datetime(2026, 8, 24, 12, 0)))
 
 
 class _RecordingDhan:
@@ -254,6 +262,86 @@ class PaperRoundTests(unittest.TestCase):
         self.assertEqual(restored.get_status()["contract"]["strike"], 64800)
         self.assertEqual(len(restored.rounds), 1)
         self.assertEqual(restored.rounds[0].net_pnl, round_row.net_pnl)
+
+    def test_fill_at_boundary_buys_the_line_not_the_two_red_recovery(self):
+        """Phil's variant: the touched fib line IS the entry.
+
+        Same verified fixture as the default-path test above. That one waits for
+        two reds under the line and fills the recovery; this one fills EARLIER
+        and at a HIGHER index -- the line itself.
+
+        Higher is the honest trade-off, not a bug. The two-red wait lets price
+        fall further before it buys, so the call it eventually buys is cheaper.
+        Buying the line pays up for certainty, because a wait whose two reds and
+        recovery never arrive simply never buys at all.
+        """
+        mother = IndexCandle(ts(0), 65020.00, 65107.99, 65002.00, 65051.98)
+        candles = [
+            IndexCandle(ts(1), 65051.98, 65051.98, 64804.76, 64919.31),
+            IndexCandle(ts(2), 64919.31, 64923.67, 64852.01, 64876.01),
+            IndexCandle(ts(3), 64876.01, 64878.01, 64792.00, 64800.01),
+            IndexCandle(ts(4), 64800.00, 64938.00, 64790.01, 64904.00),
+            IndexCandle(ts(5), 64904.00, 64928.00, 64822.24, 64822.24),
+            IndexCandle(ts(6), 64822.24, 64822.24, 64639.00, 64665.99),
+            IndexCandle(ts(7), 64665.99, 64680.00, 64500.00, 64550.00),
+            IndexCandle(ts(8), 64550.00, 64600.00, 64400.00, 64450.00),
+            IndexCandle(ts(9), 64450.00, 64600.00, 64420.00, 64580.00),
+            IndexCandle(ts(10), 64580.00, 64720.00, 64570.00, 64690.00),
+        ]
+        contract = FixedCampaignOption("NIFTY", 64800, date(2026, 7, 28), "CE", 65, "123456")
+
+        def premium(_timestamp, _contract):
+            return 100.0
+
+        def build(**config):
+            return NiftyOptionsPaperCascade(
+                mother, contract, _PaperAdapter(), premium, PaperCascadeConfig(rung_inr=13000, **config)
+            ).run(candles)
+
+        def first_fill(engine):
+            fills = [fill for row in engine.rounds for fill in row.fills] + list(engine.open_fills)
+            return min(fills, key=lambda fill: fill.timestamp)
+
+        default = build()
+        at_line = build(fill_at_boundary=True)
+        first_default = first_fill(default)
+        first_line = first_fill(at_line)
+        self.assertLess(first_line.timestamp, first_default.timestamp)
+        self.assertGreater(first_line.index_price, first_default.index_price)
+        # The line is a fib level of the leg, so it is a price the geometry drew
+        # -- not a candle close that happened to follow two red bars.
+        levels = {
+            leg.fib.level_price(level) for leg in at_line.geometry.campaign.legs for level in at_line.config.fib_levels
+        }
+        self.assertIn(round(first_line.index_price, 2), {round(value, 2) for value in levels})
+
+    def test_fill_at_boundary_uses_the_open_when_a_candle_gaps_past_the_line(self):
+        """A candle that never traded at the line cannot fill there."""
+        mother = IndexCandle(ts(0), 65020.00, 65107.99, 65002.00, 65051.98)
+        candles = [
+            IndexCandle(ts(1), 65051.98, 65051.98, 64804.76, 64919.31),
+            IndexCandle(ts(2), 64919.31, 64923.67, 64852.01, 64876.01),
+            IndexCandle(ts(3), 64876.01, 64878.01, 64792.00, 64800.01),
+            IndexCandle(ts(4), 64800.00, 64938.00, 64790.01, 64904.00),
+            IndexCandle(ts(5), 64904.00, 64928.00, 64822.24, 64822.24),
+            IndexCandle(ts(6), 64822.24, 64822.24, 64639.00, 64665.99),
+            # Gaps clean under every remaining boundary and never trades back up.
+            IndexCandle(ts(7), 64200.00, 64210.00, 64000.00, 64050.00),
+            IndexCandle(ts(8), 64050.00, 64400.00, 64040.00, 64380.00),
+        ]
+        contract = FixedCampaignOption("NIFTY", 64800, date(2026, 7, 28), "CE", 65, "123456")
+        engine = NiftyOptionsPaperCascade(
+            mother,
+            contract,
+            _PaperAdapter(),
+            lambda _timestamp, _contract: 100.0,
+            PaperCascadeConfig(rung_inr=13000, fill_at_boundary=True),
+        ).run(candles)
+        gapped = [fill for row in engine.rounds for fill in row.fills if fill.timestamp == ts(7)] + [
+            fill for fill in engine.open_fills if fill.timestamp == ts(7)
+        ]
+        self.assertTrue(gapped, "the gapping candle should still fill")
+        self.assertEqual(gapped[0].index_price, 64200.00)  # the open, not the line
 
     def test_lot_ladder_sizes_the_first_fill_at_one_lot_ignoring_the_budget(self):
         # Same verified fixture, but the fib-boundary lot ladder replaces the

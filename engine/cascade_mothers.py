@@ -4,16 +4,25 @@ Hand-marking mother candles works for twenty screenshots.  It does not work for
 a year of NIFTY, and a backtest whose campaign starts were chosen by eye is not
 a backtest of the rules -- it is a backtest of the eye.
 
-A mother here is a swing-high pivot: a candle whose high stands above its
-neighbours on both sides, whose own range is meaningful against recent ATR, and
-which is far enough from the previous mother not to spawn a duplicate campaign
-on the same swing.
+Two detectors live here, and they answer different questions.
 
-The one rule that matters more than the pivot definition is `confirmed_at`.
-A pivot cannot be recognised until `right_bars` candles have closed after it,
-so a campaign may only start there -- never at the pivot's own timestamp.
-Starting at the pivot would let the replay trade a high that nothing yet knew
-was a high, which is the classic way a backtest invents its own edge.
+`find_mother_candles` -- the SWING-HIGH pivot: a candle whose high stands above
+its neighbours on both sides, whose own range is meaningful against recent ATR,
+and which is far enough from the previous mother not to spawn a duplicate
+campaign on the same swing.  The rule that matters more than the pivot
+definition is `confirmed_at`: a pivot cannot be recognised until `right_bars`
+candles have closed after it, so a campaign may only start there -- never at the
+pivot's own timestamp.  Starting at the pivot would let the replay trade a high
+that nothing yet knew was a high, which is the classic way a backtest invents
+its own edge.
+
+`find_wick_mothers` -- Phil's own rule, written down: a strong bullish run, then
+one candle that pokes to a new high of that run and gives most of it back,
+leaving an upper wick over half its range.  Red or green both count; the shape
+covers the inverted hammer and the red evening-star opener.  This detector needs
+NO right bars: everything it tests is known the moment the candle closes, so
+`confirmed_at` is simply the next bar.  That makes it strictly free of lookahead,
+unlike the pivot scanner which must wait to be sure.
 """
 
 from __future__ import annotations
@@ -29,7 +38,7 @@ class MotherScanError(ValueError):
 
 @dataclass(frozen=True)
 class MotherCandidate:
-    """One detected swing-high mother and the bar that confirmed it."""
+    """One detected mother candle and the bar that confirmed it."""
 
     timestamp: datetime
     high: float
@@ -39,6 +48,10 @@ class MotherCandidate:
     confirmed_index: int
     atr: float
     range_atr: float  # candle range as a multiple of ATR
+    # Only the wick detector fills these; the swing scanner leaves them at 0.
+    upper_wick_fraction: float = 0.0  # upper wick as a share of the candle range
+    run_atr: float = 0.0  # height of the bullish run into the candle, in ATRs
+    run_green: int = 0  # green candles in the run window
 
     @property
     def range_points(self) -> float:
@@ -147,6 +160,114 @@ def find_mother_candles(
                 confirmed_index=confirm_index,
                 atr=atr,
                 range_atr=span / atr,
+            )
+        )
+        last_index = position
+
+    return found
+
+
+def find_wick_mothers(
+    candles: Sequence,
+    *,
+    run_bars: int = 4,
+    min_run_green: int = 3,
+    min_run_atr: float = 1.5,
+    min_wick_fraction: float = 0.5,
+    atr_period: int = 14,
+    min_range_atr: float = 0.8,
+    min_separation_bars: int = 0,
+    same_session_only: bool = True,
+) -> list[MotherCandidate]:
+    """Rejection candles that end a bullish run -- Phil's mother rule.
+
+    A candle qualifies when all of these hold at its own close:
+
+    run_bars / min_run_green
+        The `run_bars` candles immediately before it are a bullish run: at least
+        `min_run_green` of them closed green.  Not all of them, because a real
+        rally breathes -- one red pause inside four bars is still a rally.
+    min_run_atr
+        The run has to be worth rejecting.  Height is measured from the lowest
+        low of the run window up to the candle's own high, as a multiple of ATR,
+        so "huge" scales with the instrument instead of being a point count that
+        rots as NIFTY drifts.
+    min_wick_fraction
+        The upper wick -- high minus the top of the body -- must be at least this
+        share of the candle's whole range.  At the default 0.5 the candle gave
+        back more than half of what it reached for.  Red and green both pass:
+        the shape is the signal, not the colour.
+    min_range_atr
+        Floor on the candle's own range, same purpose as in the pivot scanner --
+        a doji-sized "wick" is noise, and its 0.25 target cannot clear costs.
+    same_session_only
+        Keep the whole run inside one trading day.  Across an overnight gap the
+        "run" is really a gap, and the wick is measuring a different market.
+
+    The candle's high must also be the highest of the run window: a rejection
+    that never made a new high is not rejecting anything.
+
+    `confirmed_at` is the NEXT bar, always.  Every test above reads bars at or
+    before the candle, so its close is the first moment a live system could know
+    -- and the first bar it could act on is the one after.
+    """
+    if run_bars < 1:
+        raise MotherScanError("run_bars must be at least 1")
+    if min_run_green < 0 or min_run_green > run_bars:
+        raise MotherScanError("min_run_green must be between 0 and run_bars")
+    if not 0.0 < min_wick_fraction <= 1.0:
+        raise MotherScanError("min_wick_fraction must be between 0 and 1")
+    if min_range_atr < 0 or min_run_atr < 0:
+        raise MotherScanError("ATR multiples cannot be negative")
+
+    atrs = atr_series(candles, atr_period)
+    found: list[MotherCandidate] = []
+    last_index: Optional[int] = None
+
+    for position in range(run_bars, len(candles) - 1):
+        candle = candles[position]
+        atr = atrs[position]
+        if atr is None or atr <= 0:
+            continue
+
+        span = candle.high - candle.low
+        if span <= 0 or span < min_range_atr * atr:
+            continue
+
+        body_top = max(candle.open, candle.close)
+        wick_fraction = (candle.high - body_top) / span
+        if wick_fraction < min_wick_fraction:
+            continue
+
+        run = list(candles[position - run_bars : position])
+        if same_session_only and any(bar.timestamp.date() != candle.timestamp.date() for bar in run):
+            continue
+        greens = sum(1 for bar in run if bar.close > bar.open)
+        if greens < min_run_green:
+            continue
+        if any(bar.high > candle.high for bar in run):
+            continue
+
+        run_height = candle.high - min(bar.low for bar in run)
+        if run_height < min_run_atr * atr:
+            continue
+        if last_index is not None and position - last_index < min_separation_bars:
+            continue
+
+        confirm = candles[position + 1]
+        found.append(
+            MotherCandidate(
+                timestamp=candle.timestamp,
+                high=candle.high,
+                low=candle.low,
+                index=position,
+                confirmed_at=confirm.timestamp,
+                confirmed_index=position + 1,
+                atr=atr,
+                range_atr=span / atr,
+                upper_wick_fraction=wick_fraction,
+                run_atr=run_height / atr,
+                run_green=greens,
             )
         )
         last_index = position

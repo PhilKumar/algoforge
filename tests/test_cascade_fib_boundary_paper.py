@@ -63,7 +63,7 @@ class FibBoundaryPaperGeometryTest(unittest.TestCase):
         return IndexCandle(ts(9, 10), 24100, 24180, 24050, 24100)
 
     def test_ce_boundaries_follow_the_timeframe(self):
-        for tf, levels in (("1m", [4, 8]), ("5m", [4, 8]), ("15m", [2, 4, 8]), ("1h", [2, 4, 8])):
+        for tf, levels in (("1m", [8]), ("5m", [4, 8]), ("15m", [4, 8]), ("1h", [4, 8])):
             engine = FibBoundaryPaper(self._mother(), _ce_contract(), _PaperAdapter(), lambda _t, _c: 100, timeframe=tf)
             self.assertEqual([rung.level for rung in engine.rungs], levels)
         # Deep CE line prices fall away below the mother high.

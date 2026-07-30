@@ -8,7 +8,7 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from engine.cascade_calendar import CalendarError, ContractCalendar, ContractRule
-from engine.cascade_mothers import atr_series, find_mother_candles
+from engine.cascade_mothers import MotherScanError, atr_series, find_mother_candles, find_wick_mothers
 from engine.cascade_options import (
     Candle,
     CascadeConfig,
@@ -107,6 +107,128 @@ class MotherScannerTests(unittest.TestCase):
         values = atr_series(candles, 5)
         self.assertEqual(values[:4], [None, None, None, None])
         self.assertIsNotNone(values[4])
+
+
+class WickMotherScannerTests(unittest.TestCase):
+    """Phil's rule: a bullish run, then one candle that gives most of it back."""
+
+    BASE = 24000.0
+
+    @classmethod
+    def _bar(cls, position, open_, high, low, close):
+        return Candle(t(9) + timedelta(minutes=position), open_, high, low, close)
+
+    @classmethod
+    def _rally(cls, bars=12, step=8.0):
+        """A steady green climb, one bar per minute, ~8 points a bar."""
+        out = []
+        for position in range(bars):
+            open_ = cls.BASE + position * step
+            close = open_ + step
+            out.append(cls._bar(position, open_, close + 1, open_ - 1, close))
+        return out
+
+    @classmethod
+    def _series(cls, mother_shape, *, rally=12, tail=4):
+        """Rally, then one candle of the given shape, then quiet bars."""
+        bars = cls._rally(rally)
+        top = bars[-1].close
+        position = len(bars)
+        bars.append(cls._bar(position, *mother_shape(top)))
+        last = bars[-1].close
+        for offset in range(tail):
+            bars.append(cls._bar(position + 1 + offset, last, last + 1, last - 1, last))
+        return bars
+
+    @staticmethod
+    def _long_upper_wick_red(top):
+        # Opens at the rally top, spikes 30 more, closes back below the open.
+        return (top, top + 30, top - 6, top - 4)
+
+    @staticmethod
+    def _long_upper_wick_green(top):
+        # Same spike, but it closes green -- Phil said colour does not matter.
+        return (top - 6, top + 30, top - 7, top + 2)
+
+    @staticmethod
+    def _solid_green(top):
+        # A strong green candle with almost no wick: a rally bar, not a mother.
+        return (top, top + 31, top - 1, top + 30)
+
+    def _find(self, candles, **kwargs):
+        options = dict(run_bars=4, min_run_green=3, min_run_atr=1.0, atr_period=5, min_range_atr=0.5)
+        options.update(kwargs)
+        return find_wick_mothers(candles, **options)
+
+    def test_red_rejection_after_a_run_is_a_mother(self):
+        candles = self._series(self._long_upper_wick_red)
+        found = self._find(candles)
+        self.assertEqual([row.index for row in found], [12])
+        mother = found[0]
+        self.assertGreater(mother.upper_wick_fraction, 0.5)
+        self.assertEqual(mother.run_green, 4)
+        # Known at its own close, so the next bar is the first actionable one.
+        self.assertEqual(mother.confirmed_index, 13)
+        self.assertEqual(mother.confirmed_at, candles[13].timestamp)
+
+    def test_green_rejection_counts_too(self):
+        found = self._find(self._series(self._long_upper_wick_green))
+        self.assertEqual([row.index for row in found], [12])
+
+    def test_a_solid_rally_candle_is_not_a_mother(self):
+        """No wick means nothing was rejected, however big the candle."""
+        self.assertEqual(self._find(self._series(self._solid_green)), [])
+
+    def test_the_same_shape_without_a_run_is_rejected(self):
+        """The wick only means something after a climb worth giving back."""
+        flat = [self._bar(position, self.BASE, self.BASE + 1, self.BASE - 1, self.BASE) for position in range(12)]
+        top = flat[-1].close
+        flat.append(self._bar(12, *self._long_upper_wick_red(top)))
+        flat.extend(self._bar(13 + offset, top, top + 1, top - 1, top) for offset in range(4))
+        self.assertEqual(self._find(flat), [])
+
+    def test_wick_must_clear_the_fraction(self):
+        candles = self._series(self._long_upper_wick_red)
+        # The candle gives back ~85% of its range; asking for 95% rejects it.
+        self.assertEqual(self._find(candles, min_wick_fraction=0.95), [])
+
+    def test_a_lower_high_than_the_run_is_not_a_rejection(self):
+        """Poking below the run's own high rejects nothing new."""
+        bars = self._rally(12)
+        peak = max(bar.high for bar in bars)
+        bars.append(self._bar(12, peak - 40, peak - 10, peak - 46, peak - 44))
+        bars.extend(self._bar(13 + offset, peak - 44, peak - 43, peak - 45, peak - 44) for offset in range(4))
+        self.assertEqual(self._find(bars), [])
+
+    def test_run_may_not_straddle_two_sessions(self):
+        candles = self._series(self._long_upper_wick_red)
+        # Push the mother and its tail to the next day: the run is now a gap.
+        moved = [
+            Candle(bar.timestamp + timedelta(days=1), bar.open, bar.high, bar.low, bar.close) if index >= 12 else bar
+            for index, bar in enumerate(candles)
+        ]
+        self.assertEqual(self._find(moved), [])
+        self.assertTrue(self._find(moved, same_session_only=False))
+
+    def test_separation_keeps_one_run_from_spawning_two_campaigns(self):
+        # Two rejection candles four bars apart on the same rally.
+        bars = self._rally(12)
+        top = bars[-1].close
+        bars.append(self._bar(12, *self._long_upper_wick_red(top)))
+        for offset in range(3):
+            base = top - 4
+            bars.append(self._bar(13 + offset, base, base + 6, base - 1, base + 5))
+        bars.append(self._bar(16, *self._long_upper_wick_red(top + 1)))
+        bars.append(self._bar(17, top, top + 1, top - 1, top))
+        self.assertEqual(len(self._find(bars, min_run_green=2)), 2)
+        self.assertEqual(len(self._find(bars, min_run_green=2, min_separation_bars=6)), 1)
+
+    def test_bad_configuration_is_refused(self):
+        candles = self._series(self._long_upper_wick_red)
+        with self.assertRaises(MotherScanError):
+            find_wick_mothers(candles, min_wick_fraction=0.0)
+        with self.assertRaises(MotherScanError):
+            find_wick_mothers(candles, run_bars=3, min_run_green=4)
 
 
 class ReplayOrderingTests(unittest.TestCase):

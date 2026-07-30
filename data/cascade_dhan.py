@@ -112,10 +112,10 @@ class DhanOneHourSource:
 
     def fetch_index_cascade(self, from_date: str, to_date: str, timeframes: Iterable[str]) -> dict[str, list[Candle]]:
         requested = {str(timeframe).lower() for timeframe in timeframes}
-        if not requested.issubset({"5m", "15m", "1h", "4h", "1d"}):
-            raise DhanDataAccessError("Cascade timeframes must be 5m, 15m, 1h, 4h, or 1d.")
+        if not requested.issubset({"1m", "5m", "15m", "1h", "4h", "1d"}):
+            raise DhanDataAccessError("Cascade timeframes must be 1m, 5m, 15m, 1h, 4h, or 1d.")
         result: dict[str, list[Candle]] = {}
-        interval_map = {"5m": "5", "15m": "15", "1h": "60", "1d": "D"}
+        interval_map = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "1d": "D"}
         direct = {timeframe for timeframe in requested if timeframe in interval_map}
         if "4h" in requested:
             direct.add("1h")

@@ -15,14 +15,27 @@ candle:
 
 Which levels trade depends on the timeframe the mother was read on:
 
-    1m / 5m   -> (4, 8)      only the two deepest lines; shallow bounces are noise
-    15m / 1h  -> (2, 4, 8)   the move is structural enough to start one step earlier
+    1m              -> (8,)      the deepest line only
+    5m / 15m / 1h   -> (4, 8)    the two deepest
+
+Locked by Phil 2026-07-30 off the Jan-Jul 2026 sweep: "Except 1m, all are L4 and
+L8 buys below line 2 red candle process."  L2 never trades on any chart now.
+
+Two findings sit behind it.  On 5m, dropping L2 roughly halved the period's loss.
+And every entry stays the TWO-RED-BELOW recovery rather than the line itself --
+buying the line pays a higher price for the same index target, which turned the
+15m result from profit into loss when it was measured both ways.
+
+The cost of the L2 exclusion is known and accepted: on 15m every filled entry in
+the period landed on L2, so L4/L8 there cut the result from +Rs 15,110 to
++Rs 3,424 over the same four mothers.
 """
 
 from __future__ import annotations
 
 VALID_TIMEFRAMES: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
+DEEPEST_FIB_BOUNDARY: tuple[int, ...] = (8,)
 DEEP_FIB_BOUNDARIES: tuple[int, ...] = (4, 8)
 STRUCTURAL_FIB_BOUNDARIES: tuple[int, ...] = (2, 4, 8)
 
@@ -41,9 +54,7 @@ def normalise_timeframe(timeframe: str) -> str:
 def boundaries_for_timeframe(timeframe: str) -> tuple[int, ...]:
     """The fib levels a buy may happen on, given the timeframe it was read on."""
     tf = normalise_timeframe(timeframe)
-    if tf in {"1m", "5m"}:
-        return DEEP_FIB_BOUNDARIES
-    return STRUCTURAL_FIB_BOUNDARIES
+    return DEEPEST_FIB_BOUNDARY if tf == "1m" else DEEP_FIB_BOUNDARIES
 
 
 def boundary_price(option_type: str, mother_high: float, mother_low: float, level: int) -> float:

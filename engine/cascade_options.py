@@ -92,12 +92,27 @@ class CascadeConfig:
     lot_size: int = 65
     itm_steps: int = 2
     strike_step: float = 50.0
-    # Weeklies sit 7 days apart, so a 10-day floor does not yield a steady 10:
-    # depending on the weekday of entry the selected expiry lands anywhere from
-    # 10 to 16 days out.  That spread is accepted deliberately -- the rule is
-    # "never inside 10 days", not "always exactly 10".
-    min_dte: int = 10
-    max_dte: int = 16
+    # MONTHLY CONTRACTS ONLY (Phil, 2026-07-30: "Monthly for everything").
+    # This is a no-stop-loss strategy -- hold, or let the target hit -- so the
+    # only thing that can kill a position is running out of time.  A weekly gives
+    # a call ~12 days to come back; a monthly gives it 30+.  Measured over
+    # Jan-Jul 2026 on identical mothers, levels and entries, switching NIFTY 5m
+    # from weekly to monthly took expiry square-offs from four to ZERO and the
+    # period from -Rs 2.99 lakh to positive.  Every rupee of loss in that whole
+    # investigation came from a position squared off at expiry.
+    monthly_only: bool = True
+    # 15-DAY FLOOR, measured over Oct 2024 - Jul 2026 on NIFTY and BankNifty.
+    # A 10-day floor still permits a 10-14 DTE contract, and those short-runway
+    # positions are what died at expiry.  Raising the floor to 15 rolls that
+    # mother onto the NEXT month instead, so no campaign is ever born with a
+    # fortnight of road left.  Expiry square-offs across the four tested cells
+    # fell 11 -> 4 and every cell turned positive; NIFTY 5m went from +Rs 55,885
+    # to +Rs 1,50,084 with its worst trade shrinking -Rs 54,683 -> -Rs 10,444.
+    #
+    # The ceiling stays 45.  A 60-day ceiling was measured: identical on NIFTY,
+    # worth Rs 3,037 on BankNifty, which is noise.
+    min_dte: int = 15
+    max_dte: int = 45
     target_fraction: float = 0.25
     strict_option_data: bool = True
     force_exit_on_expiry: bool = True
@@ -147,8 +162,14 @@ class CascadeConfig:
             raise CascadeError("option_type must be CE or PE")
         if not self.lot_schedule or any(int(x) <= 0 for x in self.lot_schedule):
             raise CascadeError("lot_schedule must contain positive lot counts")
-        if self.lot_size <= 0 or self.itm_steps <= 0 or self.strike_step <= 0:
-            raise CascadeError("lot_size, itm_steps and strike_step must be positive")
+        if self.lot_size <= 0 or self.strike_step <= 0:
+            raise CascadeError("lot_size and strike_step must be positive")
+        # 0 is ATM and is a legitimate choice -- a far-dated monthly ATM strike
+        # is the liquid one, while ATM-2 on the same expiry can go whole minutes
+        # without a trade.  Only a NEGATIVE offset is meaningless here, because
+        # the CE/PE direction is applied by the resolver, not by the sign.
+        if self.itm_steps < 0:
+            raise CascadeError("itm_steps cannot be negative")
         if not 0 < self.target_fraction <= 1:
             raise CascadeError("target_fraction must be between 0 and 1")
         if not 0 <= self.min_dte <= self.max_dte:
@@ -180,6 +201,21 @@ class CascadeConfig:
         object.__setattr__(self, "stage_timeframes", stages[: len(self.lot_schedule)])
 
 
+def monthly_expiries(expiries: Iterable[date]) -> list[date]:
+    """The monthly contract of each calendar month, newest rule for every chain.
+
+    The last expiry inside a calendar month IS that month's monthly contract on
+    both NSE weekly chains, so no separate calendar is needed and a natively
+    monthly chain (BankNifty) passes through unchanged.
+    """
+    latest: dict[tuple[int, int], date] = {}
+    for expiry in expiries:
+        key = (expiry.year, expiry.month)
+        if key not in latest or expiry > latest[key]:
+            latest[key] = expiry
+    return sorted(latest.values())
+
+
 class NiftyContractResolver:
     """Resolve the fixed contract selected at each cascade stage.
 
@@ -203,6 +239,10 @@ class NiftyContractResolver:
         if self.strike_step <= 0 or self.lot_size <= 0:
             raise CascadeError("invalid contract resolver configuration")
 
+    @staticmethod
+    def _monthly(expiries: Iterable[date]) -> list[date]:
+        return monthly_expiries(expiries)
+
     def select(self, timestamp: datetime, spot: float, option_type: str, config: CascadeConfig) -> Contract:
         side = str(option_type).upper()
         if side not in {"CE", "PE"}:
@@ -210,7 +250,7 @@ class NiftyContractResolver:
         trade_date = timestamp.date()
         current_week = trade_date.isocalendar()[:2]
         eligible = []
-        for expiry in self.expiries:
+        for expiry in monthly_expiries(self.expiries) if config.monthly_only else self.expiries:
             dte = (expiry - trade_date).days
             # A Tuesday market holiday shifts weekly expiry to the preceding
             # session (normally Monday). Allow that single 6-DTE exception,
@@ -223,8 +263,8 @@ class NiftyContractResolver:
             eligible.append((dte, expiry))
         if not eligible:
             raise ContractSelectionError(
-                f"no {side} expiry in {config.min_dte}-{config.max_dte} DTE outside current expiry week "
-                f"for {trade_date}"
+                f"no {'monthly ' if config.monthly_only else ''}{side} expiry in "
+                f"{config.min_dte}-{config.max_dte} DTE outside current expiry week for {trade_date}"
             )
         expiry = min(eligible, key=lambda item: (item[0], item[1]))[1]
         atm = math.floor(float(spot) / self.strike_step + 0.5) * self.strike_step
@@ -1240,25 +1280,36 @@ class CascadeOptionsAdapter:
         return FixedCampaignOption(underlying, strike, expiry, side, lot_size, security_id)
 
     @staticmethod
-    def _next_expiry(expiries: Iterable[date], trade_date: date, symbol: str = "NIFTY") -> date:
+    def _next_expiry(
+        expiries: Iterable[date], trade_date: date, symbol: str = "NIFTY", *, monthly_only: bool = True
+    ) -> date:
         """The nearest expiry far enough out to hold a campaign.
 
-        Whether the list is weekly (NIFTY) or monthly (BankNifty) does not change
-        the rule: take the first expiry that clears the floor.  A monthly chain
-        simply has nothing inside it.
+        Monthly by default (Phil, 2026-07-30: "Monthly for everything") -- with
+        no stop loss the only thing that can end a losing position is expiry, and
+        a weekly runs out of road first.  See `CascadeConfig.monthly_only`.
+        A natively monthly chain (BankNifty) has nothing to filter.
+
+        `monthly_only=False` keeps the original weekly rule, which is still the
+        correct answer for anything replaying a weekly campaign.
         """
 
-        eligible: list[date] = []
+        if monthly_only:
+            eligible = [expiry for expiry in monthly_expiries(set(expiries)) if (expiry - trade_date).days >= 15]
+            if not eligible:
+                raise OptionsAdapterError(f"No monthly {symbol} expiry 15+ days out is available in ScripMaster")
+            return eligible[0]
+
+        weekly: list[date] = []
         for expiry in sorted(set(expiries)):
-            dte = (expiry - trade_date).days
             # Normal weekly expiry is Tuesday: Monday is 8 DTE and Tuesday is
             # 7 DTE.  A holiday-shifted Monday expiry is permitted at 6 DTE.
-            min_dte = 7 if expiry.weekday() == 1 else 6
-            if dte >= min_dte:
-                eligible.append(expiry)
-        if not eligible:
+            floor = 7 if expiry.weekday() == 1 else 6
+            if (expiry - trade_date).days >= floor:
+                weekly.append(expiry)
+        if not weekly:
             raise OptionsAdapterError(f"No far-enough {symbol} expiry is available in ScripMaster")
-        return eligible[0]
+        return weekly[0]
 
     def dte_allows_new_rungs(self, contract: FixedCampaignOption, at: datetime) -> bool:
         return (contract.expiry - _as_ist(at).date()).days > 1
@@ -1340,6 +1391,10 @@ class PaperCascadeConfig:
     # live paper campaigns were started under the (2, 4, 8) default and changing
     # what they arm underneath them is not a side effect worth having.
     fib_levels: tuple[int, ...] = GEOMETRY_FIB_LEVELS
+    # False (default, unchanged): a touched boundary only starts the two-red
+    # watch, and the buy lands on the recovery -- well BELOW the drawn line.
+    # True: the buy is the line itself, the moment price trades there.
+    fill_at_boundary: bool = False
     # Fib-boundary sizing: ignore the rupee budget and buy a fixed lot ladder --
     # 1 lot on the first fill, 2 on the second, 3 on the third...  The buy count
     # is the sizing (no percent, no fund allocation).  When False (the default),
@@ -1590,11 +1645,29 @@ class NiftyOptionsPaperCascade:
         self.status = "ARMED"
         self._log(candle, "stop_armed" if first_stop else "stop_moved", trigger=self.pending_stop)
 
-    def _fill_pending_stop(self, candle: IndexCandle) -> None:
+    def _fill_at_boundary(self, candle: IndexCandle) -> None:
+        """Buy the fib line itself, with no two-red confirmation.
+
+        The default path treats a touched boundary as permission to WATCH: it
+        waits for two reds closing below the line and buys the recovery over the
+        first red's close, so the real entry sits well under the level that was
+        drawn.  With `fill_at_boundary` the touch IS the entry -- a limit resting
+        at the line, filled the moment price trades there.
+
+        A candle that gapped clean past the line never traded at it, so that
+        fill takes the candle's open, which is the first price that existed.
+        """
+        if self.pending_line is None or self.pending_inr <= 0:
+            return
+        self.pending_stop = self.pending_line if candle.high >= self.pending_line else candle.open
+        self.pending_stop_timestamp = candle.timestamp
+        self._fill_pending_stop(candle, allow_same_candle=True)
+
+    def _fill_pending_stop(self, candle: IndexCandle, *, allow_same_candle: bool = False) -> None:
         if (
             self.pending_stop is None
             or self.pending_stop_timestamp is None
-            or candle.timestamp <= self.pending_stop_timestamp
+            or (candle.timestamp <= self.pending_stop_timestamp and not allow_same_candle)
             or candle.high < self.pending_stop
         ):
             return
@@ -1877,7 +1950,10 @@ class NiftyOptionsPaperCascade:
         self._check_exit(candle)
         self._release_closed_rungs(candle)
         self._collect_crossed_rungs(candle)
-        self._advance_stop(candle)
+        if self.config.fill_at_boundary:
+            self._fill_at_boundary(candle)
+        else:
+            self._advance_stop(candle)
 
     def run(self, candles: Iterable[IndexCandle]) -> "NiftyOptionsPaperCascade":
         for candle in sorted(candles, key=lambda row: row.timestamp):
