@@ -211,5 +211,65 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(chart["entries"], [])
 
 
+class LadderReportingTests(unittest.TestCase):
+    """An open ladder is reported as OPEN, and the mother candle is drawn."""
+
+    @staticmethod
+    def _open_ladder():
+        from datetime import datetime, timedelta
+
+        from engine.candle_ladder import LadderCandle, TwoRedLadder
+
+        start = datetime(2026, 7, 28, 9, 15)
+
+        def bar(offset, o, h, low, c):
+            return LadderCandle("5m", start + timedelta(minutes=5 * offset), o, h, low, c)
+
+        mother = bar(0, 104, 110, 104, 105)
+        ladder = TwoRedLadder(
+            mother,
+            stages=("5m", "15m"),
+            strike_for=lambda _ts, price: (24800, "CE"),
+            premium_lookup=lambda _ts, _strike, _side: 50.0,
+            lot_size=75,
+        )
+        replay = [
+            bar(1, 105, 106, 104, 106),
+            bar(2, 106, 106, 102, 103),  # red 1
+            bar(3, 103, 103, 100, 101),  # red 2 -> stop armed at 103
+            bar(4, 101, 103.5, 100, 103),  # recovery fills, target above all highs
+        ]
+        ladder.run(replay)
+        assert ladder.fills and ladder.exit_timestamp is None
+        return ladder, mother, replay
+
+    def test_an_unfinished_recent_trade_reads_as_open_not_expired(self):
+        from engine.test_bench import ladder_result
+
+        ladder, _mother, _replay = self._open_ladder()
+        reported = ladder_result(
+            ladder, instrument="NIFTY", timeframe="5m", mother_timestamp="2026-07-28T09:15:00", lot_size=75
+        )
+        self.assertEqual(reported["summary"]["outcome"], "Still OPEN — target not yet reached")
+        self.assertTrue(reported["summary"]["still_open"])
+        self.assertIsNone(reported["summary"]["exit_timestamp"])
+
+    def test_an_open_trade_labels_its_target_as_watching_not_missed(self):
+        from engine.test_bench import ladder_chart
+
+        ladder, mother, replay = self._open_ladder()
+        chart = ladder_chart(ladder, [mother, *replay], timeframe="5m")
+        self.assertEqual(chart["tp_label"], "TARGET (open — watching)")
+
+    def test_the_mother_bar_is_in_the_chart_and_flagged(self):
+        from engine.test_bench import ladder_chart
+
+        ladder, mother, replay = self._open_ladder()
+        chart = ladder_chart(ladder, [mother, *replay], timeframe="5m")
+        flagged = [row for row in chart["candles"] if row["is_mother"]]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0]["o"], mother.open)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -312,6 +312,11 @@ const testBenchRunMock = {
     instrument: 'NIFTY',
     timeframe: '15m',
     outcome: 'Target hit',
+    exit_reason: 'target',
+    still_open: false,
+    target_index: 24625,
+    average_spot: 24425,
+    mother_timestamp: '2026-07-21T09:15:00',
     entry_timestamp: '2026-07-21T12:15:00',
     exit_timestamp: '2026-07-21T15:15:00',
     entry_count: 2,
@@ -369,6 +374,15 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await page.click('#tb-run');
+
+  // The result arrives as ONE strip; the chart sits behind its button, the
+  // way every other panel does it.
+  await expect(page.locator('#tb-outcome-badge')).toHaveText('TARGET HIT');
+  await expect(page.locator('#tb-verdict')).toContainText('Target hit');
+  await expect(page.locator('#tb-verdict')).toContainText('₹31,200');
+  await expect(page.locator('#tb-entries tbody tr')).toHaveCount(2);
+
+  await page.click('#tb-chart-btn');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
 
   const paint = await page.evaluate(() => {
@@ -384,10 +398,9 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
   expect(labels.some((text) => text.includes('₹11,700'))).toBe(true);
   expect(labels.some((text) => text.includes('₹19,500'))).toBe(true);
 
-  // The verdict panel reads the same run in words.
-  await expect(page.locator('#tb-verdict')).toContainText('Target hit');
-  await expect(page.locator('#tb-verdict')).toContainText('₹31,200');
-  await expect(page.locator('#tb-entries tbody tr')).toHaveCount(2);
+  // The chart button folds it away again.
+  await page.click('#tb-chart-btn');
+  await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 });
 
 test('Test Bench calendar offers only the minutes its timeframe can open on', async ({ page }) => {

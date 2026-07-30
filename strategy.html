@@ -1781,21 +1781,29 @@
   <div id="tb-status" class="tb-status" role="status"></div>
 
   <div id="tb-results" class="tb-results" hidden>
-    <div id="tb-verdict" class="tb-verdict"></div>
-    <div class="card tb-chart-card">
-      <div class="tb-chart-head">
-        <h3>What the market did</h3>
-        <span id="pf-bench-zoom-level" class="tb-zoom">100%</span>
+    <details id="tb-result-strip" class="cascade-options-window" open>
+      <summary class="cascade-options-window-head">
+        <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Result</h3><span id="tb-outcome-badge" class="cascade-options-state">—</span></div><div id="tb-contract" class="cascade-options-contract">—</div></div>
+        <div id="tb-gist" class="cascade-options-gist"></div>
+        <div class="cascade-options-strip-actions"><button id="tb-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleTestBenchChart" aria-label="Open chart">↗ Chart</button></div>
+      </summary>
+      <div class="cascade-options-window-body">
+        <div id="tb-verdict" class="cascade-options-summary"></div>
+        <div id="tb-warn" style="margin-top:10px;"></div>
+        <div id="tb-chart-box" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:9px;padding:10px;">
+          <div class="tb-chart-head">
+            <h3 style="margin:0;font-size:13px;">What the market did</h3>
+            <span id="pf-bench-zoom-level" class="tb-zoom">100%</span>
+          </div>
+          <div id="tb-chart" class="tb-chart"></div>
+          <p class="tb-chart-legend">Drag to pan · scroll to zoom · drag either axis to stretch it. The view opens on the trade — 25 candles either side — with sessions joined end to end; a translucent block marks an overnight gap. The outlined candle is the mother.</p>
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Every buy</div>
+        <div class="tb-table-scroll">
+          <table class="tb-table" id="tb-entries"></table>
+        </div>
       </div>
-      <div id="tb-chart" class="tb-chart"></div>
-      <p class="tb-chart-legend">Drag to pan · scroll to zoom · drag either axis to stretch it. The shaded column is the mother candle; each numbered line is a fib level, with what it cost when it traded.</p>
-    </div>
-    <div class="card tb-entries-card">
-      <h3>Every buy</h3>
-      <div class="tb-table-scroll">
-        <table class="tb-table" id="tb-entries"></table>
-      </div>
-    </div>
+    </details>
   </div>
 </div>
 
@@ -1804,18 +1812,19 @@
   <div class="card-glass oc-hero">
     <div class="oc-hero-content">
       <div class="oc-hero-copy">
-        <div class="oc-kicker">NIFTY options cascade · every strategy, paper and backtest</div>
+        <div class="oc-kicker">Paper campaigns on live prices · no real order is ever sent</div>
         <h2>Cascade</h2>
-        <p>Three strategies, one place. <strong>Fib Boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong>Candle Entry</strong> is the two-red recovery buy-stop as a climbing ladder — start on any chart from 1m and it escalates 1/2/3/4 lots up to 1H. <strong>Signal Ladder</strong> replays the 1 + 2 + 3 cascade against real historical premiums. Paper and backtest only; no live order is ever sent.</p>
+        <p class="oc-hero-steps"><strong>1</strong>&nbsp;Pick a strategy below &nbsp;·&nbsp; <strong>2</strong>&nbsp;Give it a mother candle &nbsp;·&nbsp; <strong>3</strong>&nbsp;Press <strong>Start paper campaign</strong>. That's the whole page. To replay history instead, use the <a href="#test-bench-page" data-pf-nav-page="test-bench-page" data-pf-nav-tab="nav-test-bench" data-pf-after-nav="initTestBenchPage" style="color:#38bdf8;font-weight:700;">Test Bench</a>.</p>
       </div>
       <div id="options-cascade-live-gate" class="oc-live-gate"><strong>LIVE LOCKED</strong><span>Paper validation required</span></div>
     </div>
   </div>
 
+  <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest">⑃ Fib Boundary</button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper">◧ Candle Entry</button>
-    <button id="oc-tabbtn-signal" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="signal" title="1 + 2 + 3 cascade replay — backtest">↗ Signal Ladder</button>
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">You type the mother's high &amp; low · buys the deep fib levels under it</span></button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
+    <button id="oc-tabbtn-signal" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="signal" title="1 + 2 + 3 cascade replay — backtest"><span class="oc-tab-name">↗ Signal Ladder</span><span class="oc-tab-sub">History replay only · nothing here trades</span></button>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->

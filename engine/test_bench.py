@@ -55,7 +55,7 @@ _OUTCOMES: dict[str, str] = {
     "expiry": "Held to expiry",
     "expiry_squareoff": "Held to expiry",
     "time_stop": "Closed early on the time stop",
-    "open": "Still open at the end of the window",
+    "open": "Still OPEN — target not yet reached",
 }
 
 
@@ -171,6 +171,10 @@ def ladder_result(ladder, *, instrument: str, timeframe: str, mother_timestamp: 
             "underlying": instrument,
             "target_index": ladder.target_index,
             "average_spot": ladder.average_entry,
+            # A trade that has bought but not exited is OPEN, and the screen
+            # must say so — a recent mother on a live contract ends its replay
+            # at "now", not at any exit.
+            "still_open": bool(fills) and ladder.exit_timestamp is None,
             "data_gaps": [
                 f"missing premium for rung {row['level']} at {row['timestamp']}"
                 for row in entries
@@ -246,7 +250,13 @@ def ladder_chart(ladder, candles: list, *, timeframe: str) -> dict:
         ),
         "avg_entry_price": ladder.average_entry,
         "tp_price": ladder.target_index,
-        "tp_label": "TARGET HIT" if ladder.exit_reason == "target" else "TARGET (not reached)",
+        "tp_label": (
+            "TARGET HIT"
+            if ladder.exit_reason == "target"
+            else "TARGET (open — watching)"
+            if ladder.fills and ladder.exit_timestamp is None
+            else "TARGET (not reached)"
+        ),
     }
 
 

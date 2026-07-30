@@ -1200,6 +1200,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'runFibBoundaryBacktest',
   'toggleFibBoundaryBacktestChart',
   'runTestBench',
+  'toggleTestBenchChart',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -14110,13 +14111,48 @@ async function runTestBench(event, el) {
   }
 }
 
+// The last run, kept so the chart can be drawn on demand — the strip carries a
+// chart BUTTON like every other panel, rather than always painting the canvas.
+let _lastTestBenchRun = null;
+
 function _tbRender(data) {
+  _lastTestBenchRun = data;
   const results = document.getElementById('tb-results');
   if (results) results.removeAttribute('hidden');
+  const strip = document.getElementById('tb-result-strip');
+  if (strip) strip.open = true;
+  // Each fresh run starts with the chart folded away, same as the fib panel.
+  const box = document.getElementById('tb-chart-box');
+  const btn = document.getElementById('tb-chart-btn');
+  if (box) box.style.display = 'none';
+  if (btn) btn.textContent = '↗ Chart';
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+  const host = document.getElementById('tb-chart');
+  if (host) host.innerHTML = '';
   _tbRenderVerdict(data);
   _tbRenderEntries(data);
+}
+
+function toggleTestBenchChart(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  const box = document.getElementById('tb-chart-box');
+  const btn = document.getElementById('tb-chart-btn');
   const host = document.getElementById('tb-chart');
-  if (host && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(host, data.chart);
+  if (!box || !host) return;
+  if (box.style.display !== 'none') {
+    box.style.display = 'none';
+    host.innerHTML = '';
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    if (btn) btn.textContent = '↗ Chart';
+    return;
+  }
+  const chart = _lastTestBenchRun && _lastTestBenchRun.chart;
+  if (!chart) return;
+  // Visible first, then drawn: the canvas sizes itself from its host, and a
+  // display:none host measures zero.
+  box.style.display = '';
+  if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(host, chart);
+  if (btn) btn.textContent = '× Hide chart';
 }
 
 function _tbRenderVerdict(data) {
@@ -14125,29 +14161,51 @@ function _tbRenderVerdict(data) {
   const s = data.summary || {};
   const traded = Number(s.entry_count) > 0;
   const pnl = Number(s.net_pnl);
-  const tone = !traded ? 'flat' : (isFinite(pnl) && pnl >= 0 ? 'good' : 'bad');
-  const contract = traded && s.strike
-    ? `${escapeHtml(String(s.underlying || ''))} ${s.strike} ${escapeHtml(String(s.option_type || ''))} · expiry ${escapeHtml(String(s.expiry || '—'))}`
-    : 'No contract was bought';
-  const cells = [
-    ['Outcome', escapeHtml(String(s.outcome || '—'))],
-    ['Bought', contract],
-    ['First buy', _tbTime(s.entry_timestamp)],
-    ['Closed', _tbTime(s.exit_timestamp)],
-    ['Buys', traded ? String(s.entry_count) : '0'],
-    ['Spent on premium', traded ? _tbInr(s.spend_inr) : '—'],
-    ['Costs', traded ? _tbInr(s.costs_total) : '—'],
-    ['Net P&L', traded && isFinite(pnl) ? _tbInr(pnl) : '—'],
-  ];
+  const open = !!s.still_open;
+  const targetHit = String(s.exit_reason || '').toLowerCase().startsWith('target');
+  const GOOD = '#6ee7b7', BAD = '#fca5a5', WAIT = '#fbbf24';
+
+  const badge = document.getElementById('tb-outcome-badge');
+  if (badge) {
+    const text = !traded ? 'NO BUY' : open ? 'STILL OPEN' : targetHit ? 'TARGET HIT' : 'ENDED';
+    const tone = !traded ? 'var(--muted)' : open ? WAIT : targetHit ? GOOD : (isFinite(pnl) && pnl >= 0 ? GOOD : BAD);
+    badge.textContent = text;
+    badge.style.color = tone;
+    badge.style.borderColor = tone;
+  }
+  const contractEl = document.getElementById('tb-contract');
+  if (contractEl) {
+    contractEl.textContent = traded && s.strike
+      ? `${s.underlying || ''} ${s.strike} ${s.option_type || ''} · expiry ${s.expiry || '—'} · lot ${s.lot_size || '—'}`
+      : 'No contract was bought';
+  }
+  const gist = document.getElementById('tb-gist');
+  if (gist) gist.textContent = `${s.instrument || ''} · ${String(s.timeframe || '').toUpperCase()} mother ${_tbTime(s.mother_timestamp)} — ${s.outcome || ''}`;
+
+  const netColor = !traded || !isFinite(pnl) ? 'var(--muted)' : pnl > 0 ? GOOD : pnl < 0 ? BAD : 'var(--text)';
+  // Phil asked for the target numbers in colour: green once reached, amber
+  // while the trade is still watching it, muted when it never got there.
+  const targetColor = targetHit ? GOOD : open ? WAIT : 'var(--muted)';
+  el.innerHTML = [
+    _cascadeOptionsMetric('Outcome', String(s.outcome || '—'), open ? WAIT : targetHit ? GOOD : 'var(--text)'),
+    _cascadeOptionsMetric('First buy', _tbTime(s.entry_timestamp)),
+    _cascadeOptionsMetric('Closed', open ? 'OPEN — not yet' : _tbTime(s.exit_timestamp), open ? WAIT : 'var(--text)'),
+    _cascadeOptionsMetric('Target idx', s.target_index == null ? '—' : Number(s.target_index).toLocaleString('en-IN'), targetColor),
+    _cascadeOptionsMetric('Avg entry idx', s.average_spot == null ? '—' : Number(s.average_spot).toLocaleString('en-IN')),
+    _cascadeOptionsMetric('Buys', traded ? String(s.entry_count) : '0'),
+    _cascadeOptionsMetric('Spent on premium', traded ? _tbInr(s.spend_inr) : '—'),
+    _cascadeOptionsMetric('Costs', traded ? _tbInr(s.costs_total) : '—', traded ? BAD : 'var(--muted)'),
+    _cascadeOptionsMetric('Net P&L', traded && isFinite(pnl) ? _tbInr(pnl) : open ? '— still open' : '—', netColor),
+  ].join('');
+
   // A gap is stated, never averaged away: a spend total that quietly skipped an
   // unpriced leg is the one number here that would mislead without looking wrong.
-  const warning = Number(s.unpriced_entries) > 0
-    ? `<p class="tb-warn">${s.unpriced_entries} buy(s) had no price in the option history, so the money figures above cover only the priced ones.</p>`
-    : '';
-  el.className = 'tb-verdict is-' + tone;
-  el.innerHTML = `<div class="tb-verdict-grid">${
-    cells.map(([label, value]) => `<div class="tb-stat"><span>${label}</span><strong>${value}</strong></div>`).join('')
-  }</div>${warning}`;
+  const warn = document.getElementById('tb-warn');
+  if (warn) {
+    warn.innerHTML = Number(s.unpriced_entries) > 0
+      ? `<p class="tb-warn">${s.unpriced_entries} buy(s) had no price in the option history, so the money figures above cover only the priced ones.</p>`
+      : '';
+  }
 }
 
 function _tbRenderEntries(data) {

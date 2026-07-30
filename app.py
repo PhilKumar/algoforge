@@ -8523,25 +8523,33 @@ async def _test_bench_two_red(
         except Exception as exc:
             _logger.warning("[test-bench] Upstox token pre-check skipped: %s", exc)
 
+        # Two premium sources, split by whether the contract still exists.
+        # Upstox holds priced history for EXPIRED contracts only; a recent
+        # mother buys a contract that is still trading, and Dhan can serve
+        # that one's own minute candles.  Between them there is no date gap,
+        # so — unlike the fib path — this strategy never refuses a mother for
+        # being too recent.
+        upstox_expiries: list[date] = []
+        premium_source = None
         try:
             premium_source = UpstoxPremiumSource(underlying_key=underlying_key)
-            expiries = sorted(premium_source.available_expiries())
+            upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
-            raise HTTPException(status_code=503, detail=f"Upstox premium history is not available. {exc}") from exc
-        if not expiries:
-            raise HTTPException(status_code=503, detail=f"Upstox returned no expiry coverage for {instrument}.")
+            _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
 
-        newest = expiries[-1]
-        latest_mother = newest - timedelta(days=window.min_dte)
-        if mother_timestamp.date() > latest_mother:
+        live_expiries: list[date] = []
+        try:
+            live_expiries = sorted(
+                date.fromisoformat(str(value)) for value in ScripMaster.get_expiries(instrument) or []
+            )
+        except Exception as exc:
+            _logger.warning("[test-bench] ScripMaster expiries unavailable: %s", exc)
+
+        expiries = sorted(set(upstox_expiries) | set(live_expiries))
+        if not expiries:
             raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Option prices for {instrument} only go up to the {newest.strftime('%d %b %Y')} expiry, "
-                    f"and this strategy buys at least {window.min_dte} days before expiry — so the most recent "
-                    f"mother that can be priced is {latest_mother.strftime('%d %b %Y')}. "
-                    "Pick an earlier one; the limit moves forward as contracts expire."
-                ),
+                status_code=503,
+                detail=f"Neither Upstox nor Dhan could name an option expiry for {instrument}.",
             )
 
         resolver = NiftyContractResolver(
@@ -8556,17 +8564,57 @@ async def _test_bench_two_red(
                 status_code=400, detail=f"No {side} contract could be bought at that mother: {exc}"
             ) from exc
         expiry = anchor.expiry
+        upstox_covers = premium_source is not None and expiry in set(upstox_expiries)
 
         def strike_for(_timestamp, index_price) -> tuple[int, str]:
             contract = resolver.select(mother.timestamp, index_price, side, resolver_config)
             return int(contract.strike), contract.option_type
 
+        # One Dhan fetch per contract actually bought, cached; the lookup is
+        # exact-minute, same as Upstox — a missing minute stays unpriced
+        # rather than borrowing a neighbour's price.
+        dhan_minutes: dict[tuple[int, str], dict] = {}
+
+        def _dhan_series(strike: int, option_type: str) -> dict:
+            key = (int(strike), str(option_type))
+            if key not in dhan_minutes:
+                series: dict = {}
+                try:
+                    security_id = ScripMaster.lookup(instrument, int(strike), expiry.isoformat(), option_type)
+                    if security_id:
+                        frame = adapter.dhan.get_historical_data(
+                            security_id,
+                            "NSE_FNO",
+                            "OPTIDX",
+                            0,
+                            mother_timestamp.date().isoformat(),
+                            min(horizon_to, expiry).isoformat(),
+                            "1",
+                        )
+                        series = {
+                            index.to_pydatetime().replace(second=0, microsecond=0): float(row_open)
+                            for index, row_open in frame["open"].items()
+                        }
+                except Exception as exc:
+                    _logger.warning(
+                        "[test-bench] Dhan option candles unavailable for %s %s %s: %s",
+                        instrument,
+                        strike,
+                        option_type,
+                        exc,
+                    )
+                dhan_minutes[key] = series
+            return dhan_minutes[key]
+
         def premium_lookup(timestamp, strike, option_type):
-            bar = premium_source.lookup(
-                timestamp,
-                FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""),
-            )
-            return float(bar.open) if bar is not None else None
+            if upstox_covers:
+                bar = premium_source.lookup(
+                    timestamp,
+                    FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""),
+                )
+                return float(bar.open) if bar is not None else None
+            series = _dhan_series(int(strike), option_type)
+            return series.get(timestamp.replace(second=0, microsecond=0))
 
         # Same rule as the fib path: past its own expiry the contract does not
         # exist, so neither does the replay.
@@ -8578,7 +8626,10 @@ async def _test_bench_two_red(
             premium_lookup=premium_lookup,
             lot_size=lot_size,
         ).run(replay)
-        if ladder.fills and ladder.status not in {"CLOSED", "EXPIRED"} and replay:
+        # Only a window that actually REACHED the expiry may close the trade
+        # as "held to expiry".  A window that simply ran out of history —
+        # today, on a live contract — leaves the trade honestly OPEN.
+        if ladder.fills and ladder.status not in {"CLOSED", "EXPIRED"} and replay and horizon_to >= expiry:
             last = max(replay, key=lambda row: row.timestamp)
             ladder.close_at_expiry(last, last.close)
         return ladder, replay, expiry
@@ -8610,7 +8661,10 @@ async def _test_bench_two_red(
         "expiry": expiry.isoformat(),
         "horizon_to": horizon_to.isoformat(),
         "entries": reported["entries"],
-        "chart": ladder_chart(ladder, replay, timeframe=timeframe),
+        # The mother bar leads the chart candles: the replay stream itself
+        # starts strictly after the mother, so without this the one candle
+        # the whole trade is anchored to would never be drawn.
+        "chart": ladder_chart(ladder, [mother_bar, *replay], timeframe=timeframe),
     }
 
 

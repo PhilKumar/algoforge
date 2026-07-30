@@ -11,8 +11,12 @@
  *   * the CryptoForge cascade modal's restaging helper is gone — the Test
  *     Bench owns its own page chrome and never moves the canvas host.
  *
- * The drawing itself — projection, layers, viewport, axis dragging, crosshair —
- * is untouched.  Fixes belong upstream first and then here, in that order.
+ * One deliberate departure from the CryptoForge original (2026-07-30): the
+ * x-axis is BAR INDEX, not wall time.  Crypto trades around the clock so the
+ * two were the same thing; NSE does not, and on wall time every night and
+ * weekend became a void.  Timestamps still flow through the whole pipeline —
+ * the projection converts at the edge — and session gaps are drawn as
+ * translucent synthetic candles instead of empty space.
  *
  * Payload shape (built by engine/test_bench.py):
  *   { timeframe, candles:[{t,o,h,l,c,is_mother}], mother:{high,low},
@@ -168,11 +172,7 @@ function _pfChartCanvasStructures(d) {
   return { legs: legs, trendlines: tls };
 }
 
-function _pfChartCanvasBarSeconds(d, candles) {
-  if (candles.length > 1) {
-    var span = Number(candles[candles.length - 1].t) - Number(candles[0].t);
-    if (isFinite(span) && span > 0) return span / (candles.length - 1);
-  }
+function _pfChartCanvasTimeframeSeconds(d) {
   var tf = String(d.timeframe || d.campaign_timeframe || '5m').toLowerCase();
   var match = tf.match(/^(\d+)(m|h|d|w)$/);
   if (!match) return 300;
@@ -180,19 +180,107 @@ function _pfChartCanvasBarSeconds(d, candles) {
   return Math.max(Number(match[1]) * units[match[2]], 1);
 }
 
-// Initial fit is intentionally the same price rule as Classic: candles,
-// mother high, displayed leg touch highs/lows and target, then 6% breathing
-// room. Price and time are stored separately so later axis dragging is real,
-// independent scaling rather than a viewBox trick.
+// ── Bar-index axis ───────────────────────────────────────────
+// The x-axis walks BARS, not the clock.  NSE trades 09:15–15:30 and sleeps
+// nights and weekends; projected on wall time, five sessions of candles bunch
+// into thin stripes separated by voids (Phil: "connect the candles without any
+// gaps").  So x is the candle's position in the array, times are interpolated
+// only for labels, and anything between two sessions simply does not exist —
+// the same convention TradingView draws with.
+function _pfChartCanvasAxisBuild(d) {
+  var candles = d.candles || [];
+  var times = [];
+  for (var i = 0; i < candles.length; i++) times.push(Number(candles[i].t));
+  var diffs = [];
+  for (var j = 1; j < times.length; j++) {
+    var step = times[j] - times[j - 1];
+    if (step > 0) diffs.push(step);
+  }
+  diffs.sort(function (a, b) { return a - b; });
+  // Median, not mean: one weekend in the diffs would drag a mean to hours.
+  var barSec = diffs.length ? diffs[Math.floor(diffs.length / 2)] : _pfChartCanvasTimeframeSeconds(d);
+  return { source: candles, times: times, barSec: Math.max(barSec, 1) };
+}
+
+function _pfChartCanvasAxisOf(c) {
+  var candles = (c.data || {}).candles || [];
+  if (!c.axis || c.axis.source !== candles) c.axis = _pfChartCanvasAxisBuild(c.data || {});
+  return c.axis;
+}
+
+// Epoch seconds -> fractional bar index. Piecewise-linear inside the data,
+// extrapolated at one bar per barSec beyond either edge.
+function _pfChartCanvasIdxOf(axis, t) {
+  var times = axis.times;
+  if (!times.length) return 0;
+  t = Number(t);
+  if (t <= times[0]) return (t - times[0]) / axis.barSec;
+  var last = times.length - 1;
+  if (t >= times[last]) return last + (t - times[last]) / axis.barSec;
+  var lo = 0, hi = last;
+  while (hi - lo > 1) {
+    var mid = (lo + hi) >> 1;
+    if (times[mid] <= t) lo = mid; else hi = mid;
+  }
+  return lo + (t - times[lo]) / Math.max(times[hi] - times[lo], 1);
+}
+
+// Fractional bar index -> epoch seconds, for axis and crosshair labels only.
+function _pfChartCanvasTimeAt(axis, idx) {
+  var times = axis.times;
+  if (!times.length) return 0;
+  idx = Number(idx);
+  if (idx <= 0) return times[0] + idx * axis.barSec;
+  var last = times.length - 1;
+  if (idx >= last) return times[last] + (idx - last) * axis.barSec;
+  var lo = Math.floor(idx);
+  return times[lo] + (idx - lo) * (times[lo + 1] - times[lo]);
+}
+
+// How many bars of context frame the trade on either side.
+var _PF_CHART_TRADE_PAD_BARS = 25;
+
+// Initial fit: the TRADE, not the whole fetch.  With entries the window is 25
+// bars before the first buy (the mother always kept in view) to 25 past the
+// exit; without any it falls back to every candle.  The price range then fits
+// what is actually visible plus the drawn lines — fitting the whole fetch
+// squashed the trade into a sliver whenever later days fell far below it.
+// tMin/tMax are BAR INDICES; only the names are inherited.
 function _pfChartCanvasFit(c) {
   var d = c.data || {};
-  var candles = (d.candles || []).slice();
+  var candles = d.candles || [];
   if (!candles.length) return null;
-  var lo = Number(candles[0].l), hi = Number(candles[0].h);
-  candles.forEach(function (bar) {
-    lo = Math.min(lo, Number(bar.l));
-    hi = Math.max(hi, Number(bar.h));
-  });
+  var axis = _pfChartCanvasAxisOf(c);
+  var last = candles.length - 1;
+  var iMin = -0.5, iMax = last + 0.5;
+  var entries = d.entries || [], exits = d.exits || [];
+  if (entries.length) {
+    var entryIdx = Infinity;
+    entries.forEach(function (fill) {
+      if (fill && fill.t != null) entryIdx = Math.min(entryIdx, _pfChartCanvasIdxOf(axis, fill.t));
+    });
+    var exitIdx = last;
+    if (exits.length) {
+      exitIdx = 0;
+      exits.forEach(function (exit) {
+        if (exit && exit.t != null) exitIdx = Math.max(exitIdx, _pfChartCanvasIdxOf(axis, exit.t));
+      });
+    }
+    var motherIdx = 0;
+    for (var m = 0; m < candles.length; m++) {
+      if (candles[m].is_mother) { motherIdx = m; break; }
+    }
+    if (isFinite(entryIdx)) {
+      iMin = Math.max(-0.5, Math.min(motherIdx - 2, entryIdx - _PF_CHART_TRADE_PAD_BARS) - 0.5);
+      iMax = Math.min(last + 0.5, exitIdx + _PF_CHART_TRADE_PAD_BARS + 0.5);
+    }
+  }
+  var from = Math.max(Math.ceil(iMin), 0), to = Math.min(Math.floor(iMax), last);
+  var lo = Number(candles[from].l), hi = Number(candles[from].h);
+  for (var i = from; i <= to; i++) {
+    lo = Math.min(lo, Number(candles[i].l));
+    hi = Math.max(hi, Number(candles[i].h));
+  }
   if (d.mother && d.mother.high) hi = Math.max(hi, Number(d.mother.high));
   var structures = _pfChartCanvasStructures(d);
   structures.legs.forEach(function (leg) {
@@ -212,14 +300,7 @@ function _pfChartCanvasFit(c) {
   });
   var priceSpan = (hi - lo) || Math.max(Math.abs(hi) * 0.02, 1);
   var padP = priceSpan * 0.06;
-  var first = Number(candles[0].t), last = Number(candles[candles.length - 1].t);
-  var barSec = _pfChartCanvasBarSeconds(d, candles);
-  return {
-    tMin: first - barSec / 2,
-    tMax: last + barSec / 2,
-    pMin: lo - padP,
-    pMax: hi + padP
-  };
+  return { tMin: iMin, tMax: iMax, pMin: lo - padP, pMax: hi + padP };
 }
 
 // Only fields that can change Canvas pixels belong in this key. A refresh that
@@ -246,8 +327,7 @@ function _pfChartCanvasSameViewport(a, b) {
 function _pfChartCanvasRefreshState() {
   var c = _pfChartCanvas, fit = c && _pfChartCanvasFit(c);
   if (!c || !c.viewport || !fit) return null;
-  var bar = _pfChartCanvasBarSeconds(c.data || {}, (c.data || {}).candles || []);
-  var tolerance = Math.max(bar / 2, (c.viewport.tMax - c.viewport.tMin) * 0.001);
+  var tolerance = Math.max(0.5, (c.viewport.tMax - c.viewport.tMin) * 0.001);
   return {
     viewport: { tMin: c.viewport.tMin, tMax: c.viewport.tMax, pMin: c.viewport.pMin, pMax: c.viewport.pMax },
     followRight: Math.abs(c.viewport.tMax - fit.tMax) <= tolerance
@@ -285,9 +365,12 @@ function _pfChartCanvasRefresh(d, saved) {
 
 // xOf/yOf and their inverses are kept together and exposed on canvas state.
 // Phase 3 uses the inverse pair for cursor-anchored zoom and the crosshair.
+// The horizontal domain is bar indices; xOf accepts epoch seconds and converts
+// through the axis, so every draw layer keeps passing timestamps unchanged.
 function _pfChartCanvasProjection(c) {
   var v = c.viewport;
   if (!v) return null;
+  var axis = _pfChartCanvasAxisOf(c);
   // Classic's 150/62/26/34 gutters live in a 1440×660 viewBox. Scale that
   // exact geometry to the real Canvas surface (rather than retaining 150 CSS
   // pixels at every width), so both engines put the same payload in the same
@@ -303,9 +386,10 @@ function _pfChartCanvasProjection(c) {
   var p = {
     padL: padL, padR: padR, padT: padT, padB: padB, plotW: plotW, plotH: plotH,
     fontScale: Math.max(0.75, Math.min(1, c.w / 1440, c.h / 660)),
-    xOf: function (t) { return padL + ((Number(t) - v.tMin) / tSpan) * plotW; },
+    xOf: function (t) { return padL + ((_pfChartCanvasIdxOf(axis, t) - v.tMin) / tSpan) * plotW; },
     yOf: function (price) { return padT + ((v.pMax - Number(price)) / pSpan) * plotH; },
     tAt: function (x) { return v.tMin + ((Number(x) - padL) / plotW) * tSpan; },
+    timeAt: function (idx) { return _pfChartCanvasTimeAt(axis, idx); },
     pAt: function (y) { return v.pMax - ((Number(y) - padT) / plotH) * pSpan; },
     inPrice: function (price) { return Number(price) >= v.pMin && Number(price) <= v.pMax; }
   };
@@ -343,12 +427,19 @@ function _pfChartCanvasGridAxes(c, p, PAL) {
       p.padL + p.plotW + 6, y, PAL.axis, 9.5, 'left', null, p.fontScale);
     labels++;
   }
-  var ticks = Math.min(6, candles.length);
-  for (var i = 0; i < ticks; i++) {
-    var ci = Math.round((candles.length - 1) * (i / Math.max(ticks - 1, 1)));
-    _pfChartCanvasText(ctx, _pfChartIst(candles[ci].t), p.xOf(candles[ci].t), c.h - 8,
-      PAL.axis, 9.5, 'center', null, p.fontScale);
-    labels++;
+  // Ticks come from the candles actually inside the viewport — the window is
+  // usually a clipped slice of the fetch, and a tick from outside it would be
+  // painted into the gutters.
+  var from = Math.max(Math.ceil(c.viewport.tMin), 0);
+  var to = Math.min(Math.floor(c.viewport.tMax), candles.length - 1);
+  if (to >= from) {
+    var ticks = Math.min(6, to - from + 1);
+    for (var i = 0; i < ticks; i++) {
+      var ci = Math.round(from + (to - from) * (i / Math.max(ticks - 1, 1)));
+      _pfChartCanvasText(ctx, _pfChartIst(candles[ci].t), p.xOf(candles[ci].t), c.h - 8,
+        PAL.axis, 9.5, 'center', null, p.fontScale);
+      labels++;
+    }
   }
   return labels;
 }
@@ -371,6 +462,38 @@ function _pfChartCanvasMotherColumn(c, p, PAL) {
       ctx.globalAlpha = 1;
     });
   });
+}
+
+// Session-open gaps, drawn the way Phil's Pine reference draws them: a
+// translucent synthetic candle spanning the previous close to the new open,
+// sitting on the bar where the gap happened.  With the bar axis there is no
+// blank space to look at, so this block is the only trace a gap leaves.
+function _pfChartCanvasGapCandles(c, p, PAL) {
+  var ctx = c.ctx, d = c.data || {}, candles = d.candles || [];
+  var bodyW = Math.max(Math.min(_pfChartCanvasCandleWidth(d, p) * 0.65, 9), 1);
+  var count = 0;
+  _pfChartCanvasClip(ctx, p, function () {
+    for (var i = 1; i < candles.length; i++) {
+      var prev = candles[i - 1], bar = candles[i];
+      // A session break is any pause much longer than one bar; intraday
+      // consecutive NSE bars have no close->open gap to draw.
+      if (Number(bar.t) - Number(prev.t) < 4 * 3600) continue;
+      var prevClose = Number(prev.c), open = Number(bar.o);
+      if (!isFinite(prevClose) || !isFinite(open) || prevClose === open) continue;
+      var x = p.xOf(bar.t), up = open > prevClose;
+      var top = p.yOf(Math.max(prevClose, open)), bottom = p.yOf(Math.min(prevClose, open));
+      ctx.fillStyle = up ? PAL.up : PAL.down;
+      ctx.globalAlpha = 0.22;
+      ctx.fillRect(x - (bodyW + 4) / 2, top, bodyW + 4, Math.max(bottom - top, 1));
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = up ? PAL.up : PAL.down;
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(x - (bodyW + 4) / 2, top, bodyW + 4, Math.max(bottom - top, 1));
+      ctx.globalAlpha = 1;
+      count++;
+    }
+  });
+  return count;
 }
 
 function _pfChartCanvasCandles(c, p, PAL) {
@@ -403,17 +526,23 @@ function _pfChartCanvasTrendlines(c, p, PAL, labels) {
     _pfChartCanvasStructures(d).trendlines.forEach(function (tl) {
       var a1 = tl.a1, a2 = tl.a2;
       if (!a1 || !a2 || Number(a2.t) === Number(a1.t)) return;
-      var slope = (Number(a2.p) - Number(a1.p)) / (Number(a2.t) - Number(a1.t));
-      var p0 = Number(a1.p) + slope * (c.viewport.tMin - Number(a1.t));
-      var p1 = Number(a1.p) + slope * (c.viewport.tMax - Number(a1.t));
+      // The line is straight through its two anchors in BAR space (the same
+      // convention TradingView extends drawings with), so it is extended in
+      // pixels rather than re-derived from a wall-clock slope.
+      var x1 = p.xOf(a1.t), y1 = p.yOf(a1.p);
+      var x2 = p.xOf(a2.t), y2 = p.yOf(a2.p);
+      if (x2 === x1) return;
+      var slope = (y2 - y1) / (x2 - x1);
+      var xLeft = p.padL, xRight = p.padL + p.plotW;
+      var yLeft = y1 + slope * (xLeft - x1), yRight = y1 + slope * (xRight - x1);
       var color = PAL.fibs[(Math.max(1, Number(tl.id) || 1) - 1) % PAL.fibs.length];
       var noFib = tl.bears_fib === false;
       ctx.strokeStyle = color; ctx.lineWidth = tl.active ? 1.3 : 0.9;
       ctx.globalAlpha = noFib ? 0.35 : (tl.active ? 0.95 : 0.5);
       ctx.setLineDash(noFib ? [6, 4] : []);
-      ctx.beginPath(); ctx.moveTo(p.xOf(c.viewport.tMin), p.yOf(p0)); ctx.lineTo(p.xOf(c.viewport.tMax), p.yOf(p1)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xLeft, yLeft); ctx.lineTo(xRight, yRight); ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
-      if (p.inPrice(p1)) labels.push({ kind: 'right', x: p.xOf(c.viewport.tMax) - 4, y: p.yOf(p1) - 5,
+      if (yRight >= p.padT && yRight <= p.padT + p.plotH) labels.push({ kind: 'right', x: xRight - 4, y: yRight - 5,
         text: 'TL' + tl.id + (noFib ? ' (no fib)' : (tl.active ? ' ★' : '')), color: color });
       drawn++;
     });
@@ -559,6 +688,7 @@ function _pfChartCanvasDraw() {
   // refreshes can redraw only changed layers without changing the model.
   var axisLabelCount = _pfChartCanvasGridAxes(c, p, PAL);
   _pfChartCanvasMotherColumn(c, p, PAL);
+  var gapCount = _pfChartCanvasGapCandles(c, p, PAL);
   var candleCount = _pfChartCanvasCandles(c, p, PAL);
   var trendlineCount = _pfChartCanvasTrendlines(c, p, PAL, labels);
   var fibCount = _pfChartCanvasFibs(c, p, PAL, labels);
@@ -569,7 +699,7 @@ function _pfChartCanvasDraw() {
   // but silently loses candles/labels/geometry.
   c.paint = {
     candles: candleCount, trendlines: trendlineCount, fibs: fibCount, markers: markerCount,
-    labels: axisLabelCount + labelCount,
+    gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
     theme: document.documentElement.getAttribute('data-theme') || 'auto'
   };
@@ -614,8 +744,7 @@ function _pfChartCanvasZoom(factor, reset, anchor) {
   var p = c.projection || _pfChartCanvasProjection(c);
   if (!p) return;
   var oldSpan = c.viewport.tMax - c.viewport.tMin;
-  var minSpan = _pfChartCanvasBarSeconds(c.data || {}, (c.data || {}).candles || []) / 2;
-  var newSpan = Math.max(minSpan, Math.min(oldSpan * 60, oldSpan * step));
+  var newSpan = Math.max(0.5, Math.min(oldSpan * 60, oldSpan * step));
   var x = anchor && isFinite(anchor.x) ? anchor.x : p.padL + p.plotW / 2;
   var at = p.tAt(x), ratio = (at - c.viewport.tMin) / oldSpan;
   _pfChartCanvasSetViewport(c, {
@@ -638,7 +767,7 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   ctx.setLineDash([]); ctx.globalAlpha = 1;
   var priceText = Number(price).toLocaleString('en-US', { maximumFractionDigits: 2 });
   ctx.font = '9.5px monospace';
-  var priceW = Math.max(ctx.measureText(priceText).width + 10, 42), timeText = _pfChartIst(Math.round(when)) + ' IST';
+  var priceW = Math.max(ctx.measureText(priceText).width + 10, 42), timeText = _pfChartIst(Math.round(p.timeAt(when))) + ' IST';
   var timeW = Math.max(ctx.measureText(timeText).width + 10, 84);
   ctx.fillStyle = PAL.axis;
   ctx.fillRect(p.padL + p.plotW + 2, point.y - 8, priceW, 16);
@@ -706,8 +835,7 @@ function _pfChartCanvasBindInteraction(c) {
         pMax: drag.anchorPrice + (1 - priceRatio) * priceSpan
       });
     } else {
-      var timeSpan = Math.max(_pfChartCanvasBarSeconds(c.data || {}, (c.data || {}).candles || []) / 2,
-        tSpan * Math.exp((drag.x - point.x) / 160));
+      var timeSpan = Math.max(0.5, tSpan * Math.exp((drag.x - point.x) / 160));
       var timeRatio = (drag.anchorTime - start.tMin) / tSpan;
       _pfChartCanvasSetViewport(c, {
         tMin: drag.anchorTime - timeRatio * timeSpan,

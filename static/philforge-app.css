@@ -5571,23 +5571,36 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
-  padding: 4px;
+  padding: 5px;
   width: fit-content;
   max-width: 100%;
   border: 1px solid rgba(148,163,184,.16);
-  border-radius: 999px;
+  border-radius: 18px;
   background: rgba(15,23,42,.28);
 }
 #options-cascade-page .oc-tab {
   min-height: 32px;
-  padding: 6px 14px;
-  border-radius: 999px;
+  padding: 8px 16px;
+  border-radius: 14px;
   border-color: transparent;
   box-shadow: none;
+  /* Each choice explains itself in one line — the picker is Phil's "where do
+     I start?" answer, so the name alone is not enough. */
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
 }
+#options-cascade-page .oc-tab .oc-tab-name { font: 800 12px var(--font-mono); letter-spacing: .3px; }
+#options-cascade-page .oc-tab .oc-tab-sub { font: 500 10px var(--font-mono); letter-spacing: .2px; color: var(--muted); text-transform: none; white-space: normal; line-height: 1.4; }
+#options-cascade-page .oc-tab.is-active .oc-tab-sub { color: inherit; opacity: .85; }
 #options-cascade-page .oc-tab.is-active {
   border-color: rgba(56,189,248,.70);
   box-shadow: 0 4px 12px rgba(2,132,199,.24), inset 0 1px 0 rgba(255,255,255,.18);
+}
+@media (max-width: 900px) {
+  #options-cascade-page .oc-tabs { flex-direction: column; width: 100%; border-radius: 14px; }
+  #options-cascade-page .oc-tab { width: 100%; }
 }
 #options-cascade-page .oc-fib-workspace {
   grid-template-columns: minmax(330px, .72fr) minmax(500px, 1.28fr);
