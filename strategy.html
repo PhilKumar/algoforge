@@ -169,6 +169,10 @@
       <span class="tab-icon" style="color: #f59e0b;">↗</span>
       <span class="tab-label">Cascade</span>
     </button>
+    <button id="nav-test-bench" class="nav-tab" data-pf-nav-page="test-bench-page" data-pf-after-nav="initTestBenchPage" style="--accent-tab: #38bdf8;">
+      <span class="tab-icon" style="color: #38bdf8;">⎇</span>
+      <span class="tab-label">Test Bench</span>
+    </button>
     <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page">
       <span class="tab-icon" style="color: #f59e0b;" id="ico-builder"></span>
       <span class="tab-label">Strategy Builder</span>
@@ -1734,6 +1738,69 @@
   </div>
 </div>
 
+<!-- ═══ TEST BENCH · one mother candle, replayed in full ═══ -->
+<div id="test-bench-page" class="page-section">
+  <div class="card-glass tb-hero">
+    <div class="tb-kicker">Test Bench · history, one candle at a time</div>
+    <h2>What would this mother candle have done?</h2>
+    <p>Name an instrument, a strategy, a timeframe and a mother candle. The candle itself is fetched from the market — nothing is typed in by hand — and the trade comes back in full: when it entered, when it left, whether the target or the expiry ended it, which strike it bought, at what price, and what each level cost. One mother, one trade: no re-arming on a new low.</p>
+  </div>
+
+  <div class="tb-controls card">
+    <div class="tb-field">
+      <label for="tb-instrument">Instrument</label>
+      <select id="tb-instrument">
+        <option value="NIFTY" selected>NIFTY</option>
+        <option value="BANKNIFTY">BankNifty</option>
+      </select>
+    </div>
+    <div class="tb-field">
+      <label for="tb-strategy">Strategy</label>
+      <select id="tb-strategy">
+        <option value="fib" selected>Fib levels</option>
+      </select>
+    </div>
+    <div class="tb-field">
+      <label for="tb-timeframe">Timeframe</label>
+      <select id="tb-timeframe">
+        <option value="1m">1m · buys L4, L8</option>
+        <option value="5m" selected>5m · buys L4, L8</option>
+        <option value="15m">15m · buys L2, L4, L8</option>
+        <option value="1h">1H · buys L2, L4, L8</option>
+      </select>
+    </div>
+    <div class="tb-field">
+      <label for="tb-mother">Mother candle · IST</label>
+      <input id="tb-mother" type="datetime-local" step="60">
+    </div>
+    <div class="tb-field tb-field-narrow">
+      <label for="tb-rung">Per level ₹</label>
+      <input id="tb-rung" type="number" min="1000" step="1000" value="75000">
+    </div>
+    <button id="tb-run" class="btn btn-primary tb-run" type="button" data-pf-action="runTestBench">Run</button>
+  </div>
+
+  <div id="tb-status" class="tb-status" role="status"></div>
+
+  <div id="tb-results" class="tb-results" hidden>
+    <div id="tb-verdict" class="tb-verdict"></div>
+    <div class="card tb-chart-card">
+      <div class="tb-chart-head">
+        <h3>What the market did</h3>
+        <span id="pf-bench-zoom-level" class="tb-zoom">100%</span>
+      </div>
+      <div id="tb-chart" class="tb-chart"></div>
+      <p class="tb-chart-legend">Drag to pan · scroll to zoom · drag either axis to stretch it. The shaded column is the mother candle; each numbered line is a fib level, with what it cost when it traded.</p>
+    </div>
+    <div class="card tb-entries-card">
+      <h3>Every buy</h3>
+      <div class="tb-table-scroll">
+        <table class="tb-table" id="tb-entries"></table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
 <div id="options-cascade-page" class="page-section">
   <div class="card-glass oc-hero">
@@ -2504,5 +2571,6 @@
 
 <script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-flow-chart-1"></script>
 <script src="/static/philforge-cascade-scanner.js?v=__ASSET_VERSION__"></script>
+<script src="/static/philforge-bench-chart.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

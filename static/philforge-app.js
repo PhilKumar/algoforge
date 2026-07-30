@@ -967,6 +967,7 @@ const NAV_BUTTON_MAP = {
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
   'options-cascade-page': 'nav-cascade',
+  'test-bench-page': 'nav-test-bench',
   'charts-page': 'nav-charts',
 };
 
@@ -1187,6 +1188,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
   'toggleFibBoundaryBacktestChart',
+  'runTestBench',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -13913,3 +13915,156 @@ fetchRuns = async function() {
     }
   };
 })();
+
+// ══ TEST BENCH ══════════════════════════════════════════════
+// One mother candle, replayed and shown. The chart itself lives in
+// philforge-bench-chart.js (the CryptoForge Canvas renderer, ported); this is
+// only the screen around it: pick, run, read.
+
+const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 · L8', '1h': 'L2 · L4 · L8' };
+
+function initTestBenchPage() {
+  const mother = document.getElementById('tb-mother');
+  // Default to a mother that certainly has candles after it: yesterday's 10:15,
+  // which is inside a normal session and old enough to have priced history.
+  if (mother && !mother.value) {
+    const d = new Date(Date.now() - 86400000);
+    const pad = (n) => String(n).padStart(2, '0');
+    mother.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:15`;
+  }
+}
+
+function _tbStatus(message, kind) {
+  const el = document.getElementById('tb-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'tb-status' + (kind ? ' is-' + kind : '');
+}
+
+function _tbInr(value) {
+  const n = Number(value);
+  if (!isFinite(n)) return '—';
+  // Sign outside the symbol: "−₹605", not "₹-605".
+  const sign = n < 0 ? '−' : '';
+  return sign + '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+}
+
+function _tbTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+async function runTestBench(event, el) {
+  const button = el || document.getElementById('tb-run');
+  const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
+  const payload = {
+    instrument: document.getElementById('tb-instrument')?.value || 'NIFTY',
+    strategy: document.getElementById('tb-strategy')?.value || 'fib',
+    timeframe,
+    mother_timestamp: document.getElementById('tb-mother')?.value || '',
+    rung_inr: Number(document.getElementById('tb-rung')?.value || 75000),
+  };
+  if (!payload.mother_timestamp) {
+    _tbStatus('Pick a mother candle date and time first.', 'error');
+    return;
+  }
+  if (button) { button.disabled = true; button.textContent = 'Running…'; }
+  _tbStatus(`Fetching the ${payload.instrument} ${timeframe} candle and replaying it…`, 'busy');
+  try {
+    const response = await fetch('/api/test-bench/run', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    // The server wraps errors as { error: { detail, message } }, and only 4xx
+    // carry `detail` — the specific, useful sentence. Reading a top-level
+    // `data.detail` (as older code here does) finds nothing, shows
+    // "Run failed (400)" and throws away what is usually the whole answer.
+    if (!response.ok || data.status !== 'ok') {
+      throw new Error(data?.error?.detail || data?.error?.message || data?.detail || `Run failed (${response.status})`);
+    }
+    _tbRender(data);
+    _tbStatus('', '');
+  } catch (error) {
+    document.getElementById('tb-results')?.setAttribute('hidden', '');
+    _tbStatus(error.message || 'Run failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Run'; }
+  }
+}
+
+function _tbRender(data) {
+  const results = document.getElementById('tb-results');
+  if (results) results.removeAttribute('hidden');
+  _tbRenderVerdict(data);
+  _tbRenderEntries(data);
+  const host = document.getElementById('tb-chart');
+  if (host && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(host, data.chart);
+}
+
+function _tbRenderVerdict(data) {
+  const el = document.getElementById('tb-verdict');
+  if (!el) return;
+  const s = data.summary || {};
+  const traded = Number(s.entry_count) > 0;
+  const pnl = Number(s.net_pnl);
+  const tone = !traded ? 'flat' : (isFinite(pnl) && pnl >= 0 ? 'good' : 'bad');
+  const contract = traded && s.strike
+    ? `${escapeHtml(String(s.underlying || ''))} ${s.strike} ${escapeHtml(String(s.option_type || ''))} · expiry ${escapeHtml(String(s.expiry || '—'))}`
+    : 'No contract was bought';
+  const cells = [
+    ['Outcome', escapeHtml(String(s.outcome || '—'))],
+    ['Bought', contract],
+    ['First buy', _tbTime(s.entry_timestamp)],
+    ['Closed', _tbTime(s.exit_timestamp)],
+    ['Buys', traded ? String(s.entry_count) : '0'],
+    ['Spent on premium', traded ? _tbInr(s.spend_inr) : '—'],
+    ['Costs', traded ? _tbInr(s.costs_total) : '—'],
+    ['Net P&L', traded && isFinite(pnl) ? _tbInr(pnl) : '—'],
+  ];
+  // A gap is stated, never averaged away: a spend total that quietly skipped an
+  // unpriced leg is the one number here that would mislead without looking wrong.
+  const warning = Number(s.unpriced_entries) > 0
+    ? `<p class="tb-warn">${s.unpriced_entries} buy(s) had no price in the option history, so the money figures above cover only the priced ones.</p>`
+    : '';
+  el.className = 'tb-verdict is-' + tone;
+  el.innerHTML = `<div class="tb-verdict-grid">${
+    cells.map(([label, value]) => `<div class="tb-stat"><span>${label}</span><strong>${value}</strong></div>`).join('')
+  }</div>${warning}`;
+}
+
+function _tbRenderEntries(data) {
+  const table = document.getElementById('tb-entries');
+  if (!table) return;
+  const rows = data.entries || [];
+  if (!rows.length) {
+    table.innerHTML = '<tbody><tr><td class="tb-none">Nothing was bought — the index never reached a fib level for this mother.</td></tr></tbody>';
+    return;
+  }
+  const head = ['Level', 'Time', 'Index at', 'Strike', 'Price paid', 'Lots', 'Qty', 'Spent'];
+  const body = rows.map((row) => {
+    const spend = row.spend_inr == null ? '<span class="tb-gap">no price</span>' : _tbInr(row.spend_inr);
+    return `<tr>
+      <td>${row.level == null ? '—' : 'L' + row.level}</td>
+      <td>${_tbTime(row.timestamp)}</td>
+      <td>${row.spot == null ? '—' : Number(row.spot).toLocaleString('en-IN')}</td>
+      <td>${escapeHtml(String(row.strike ?? '—'))} ${escapeHtml(String(row.option_type || ''))}</td>
+      <td>${row.option_price == null ? '<span class="tb-gap">no price</span>' : _tbInr(row.option_price)}</td>
+      <td>${escapeHtml(String(row.lots ?? '—'))}</td>
+      <td>${escapeHtml(String(row.quantity ?? '—'))}</td>
+      <td>${spend}</td>
+    </tr>`;
+  }).join('');
+  table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
+}
+
+document.addEventListener('change', (event) => {
+  if (event.target && event.target.id === 'tb-timeframe') {
+    const hint = _TB_LEVELS_BY_TF[event.target.value];
+    if (hint) _tbStatus(`This timeframe buys ${hint}.`, '');
+  }
+});

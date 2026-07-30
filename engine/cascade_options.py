@@ -22,6 +22,7 @@ from cascade_costs import (
     calculate_nifty_option_basket_round_costs,
 )
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price, normalise_timeframe
+from engine.cascade_instruments import InstrumentError, index_spec
 
 
 class CascadeError(ValueError):
@@ -1063,7 +1064,6 @@ class CascadeOptionsAdapter:
     so Phase 1 cannot become live through configuration drift.
     """
 
-    NIFTY_SECURITY_ID = "13"
     POSITIONAL_PRODUCT_TYPE = "CARRYFORWARD"
 
     def __init__(self, dhan: Any, *, scrip_master: Any = None, paper_only: bool = True) -> None:
@@ -1121,29 +1121,52 @@ class CascadeOptionsAdapter:
         # the originals (the live Cascade tab uses 5m); 1m and 15m were added for
         # the fib-boundary timeframes and map to Dhan's native intervals.
         tf_interval = {"1m": ("1", 1), "5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
-        if str(symbol).upper() != "NIFTY" or normalised_tf not in tf_interval:
-            raise OptionsAdapterError("Paper options campaigns support closed NIFTY 1m, 5m, 15m or 1H index candles")
+        if normalised_tf not in tf_interval:
+            raise OptionsAdapterError("Paper options campaigns support closed 1m, 5m, 15m or 1H index candles")
+        spec = self._spec(symbol)
         interval, tf_minutes = tf_interval[normalised_tf]
         current = _as_ist(now or datetime.now(IST))
         start = from_date or current.date()
         end = to_date or current.date()
         start_text = start.isoformat() if isinstance(start, date) else str(start)
         end_text = end.isoformat() if isinstance(end, date) else str(end)
-        frame = await asyncio.to_thread(self.dhan.get_nifty_intraday, start_text, end_text, interval=interval)
+        frame = await asyncio.to_thread(
+            self.dhan.get_historical_data,
+            spec.security_id,
+            spec.exchange_segment,
+            "INDEX",
+            0,
+            start_text,
+            end_text,
+            interval,
+        )
         return self._normalise_index_frame(frame, current, timeframe_minutes=tf_minutes)
 
+    @staticmethod
+    def _spec(symbol: str):
+        """The confirmed Dhan id for an index, as an adapter-level error.
+
+        `index_spec` refuses an index whose security id was never checked against
+        a real price, which is the whole point -- a wrong id returns healthy
+        candles for some other index rather than failing.
+        """
+
+        try:
+            return index_spec(symbol)
+        except InstrumentError as exc:
+            raise OptionsAdapterError(str(exc)) from exc
+
     def get_ticker(self, symbol: str = "NIFTY") -> dict[str, float | str]:
-        if str(symbol).upper() != "NIFTY":
-            raise OptionsAdapterError("Phase 1 only supports NIFTY")
-        payload = self.dhan.get_ohlc_multi({"IDX_I": [self.NIFTY_SECURITY_ID]})
-        index_data = (payload or {}).get("IDX_I", {})
-        row = index_data.get(str(self.NIFTY_SECURITY_ID), index_data.get(int(self.NIFTY_SECURITY_ID), {}))
+        spec = self._spec(symbol)
+        payload = self.dhan.get_ohlc_multi({spec.exchange_segment: [spec.security_id]})
+        index_data = (payload or {}).get(spec.exchange_segment, {})
+        row = index_data.get(str(spec.security_id), index_data.get(int(spec.security_id), {}))
         if not isinstance(row, dict):
-            raise OptionsAdapterError("Dhan did not return a NIFTY IDX_I quote")
+            raise OptionsAdapterError(f"Dhan did not return a {spec.symbol} {spec.exchange_segment} quote")
         price = row.get("last_price", row.get("ltp"))
         if price is None:
-            raise OptionsAdapterError("Dhan NIFTY quote has no last_price")
-        return {"symbol": "NIFTY", "last_price": float(price), "mark_price": float(price)}
+            raise OptionsAdapterError(f"Dhan {spec.symbol} quote has no last_price")
+        return {"symbol": spec.symbol, "last_price": float(price), "mark_price": float(price)}
 
     def select_campaign_contract(
         self,
@@ -1153,34 +1176,44 @@ class CascadeOptionsAdapter:
         ce_offset_steps: int = -2,
         strike_step: int = 50,
         option_type: str = "CE",
+        symbol: str = "NIFTY",
     ) -> FixedCampaignOption:
         side = str(option_type).upper()
         if side not in {"CE", "PE"}:
             raise OptionsAdapterError("option_type must be CE or PE")
         if strike_step <= 0:
             raise OptionsAdapterError("strike_step must be positive")
+        underlying = self._spec(symbol).symbol
         selected_at = _as_ist(selected_at)
-        expiries = [date.fromisoformat(str(value)[:10]) for value in self.scrip_master.get_expiries("NIFTY")]
-        expiry = self._next_weekly_expiry(expiries, selected_at.date())
+        expiries = [date.fromisoformat(str(value)[:10]) for value in self.scrip_master.get_expiries(underlying)]
+        expiry = self._next_expiry(expiries, selected_at.date(), underlying)
         atm = int(math.floor(float(mother_spot) / strike_step + 0.5) * strike_step)
         # ce_offset_steps is signed toward ITM for the side: a CE goes ITM by
         # dropping strikes (negative), a PE goes ITM by raising them (positive).
         # The caller mirrors the sign per side; the maths here stays one line.
         strike = atm + int(ce_offset_steps) * strike_step
-        lot_size = int(self.scrip_master.get_lot_size("NIFTY", expiry.isoformat()))
+        lot_size = int(self.scrip_master.get_lot_size(underlying, expiry.isoformat()))
         if lot_size <= 0:
             # 0 means Dhan does not carry it.  Refuse rather than build a
             # campaign whose every quantity is derived from a zero lot.
             raise OptionsAdapterError(
-                f"ScripMaster has no lot size for NIFTY {expiry.isoformat()}; refusing to size a campaign without it"
+                f"ScripMaster has no lot size for {underlying} {expiry.isoformat()}; "
+                "refusing to size a campaign without it"
             )
-        security_id = str(self.scrip_master.lookup("NIFTY", strike, expiry.isoformat(), side) or "")
+        security_id = str(self.scrip_master.lookup(underlying, strike, expiry.isoformat(), side) or "")
         if not security_id:
-            raise OptionsAdapterError(f"ScripMaster has no NIFTY {strike}{side} for {expiry.isoformat()}")
-        return FixedCampaignOption("NIFTY", strike, expiry, side, lot_size, security_id)
+            raise OptionsAdapterError(f"ScripMaster has no {underlying} {strike}{side} for {expiry.isoformat()}")
+        return FixedCampaignOption(underlying, strike, expiry, side, lot_size, security_id)
 
     @staticmethod
-    def _next_weekly_expiry(expiries: Iterable[date], trade_date: date) -> date:
+    def _next_expiry(expiries: Iterable[date], trade_date: date, symbol: str = "NIFTY") -> date:
+        """The nearest expiry far enough out to hold a campaign.
+
+        Whether the list is weekly (NIFTY) or monthly (BankNifty) does not change
+        the rule: take the first expiry that clears the floor.  A monthly chain
+        simply has nothing inside it.
+        """
+
         eligible: list[date] = []
         for expiry in sorted(set(expiries)):
             dte = (expiry - trade_date).days
@@ -1190,7 +1223,7 @@ class CascadeOptionsAdapter:
             if dte >= min_dte:
                 eligible.append(expiry)
         if not eligible:
-            raise OptionsAdapterError("No next-weekly NIFTY expiry is available in ScripMaster")
+            raise OptionsAdapterError(f"No far-enough {symbol} expiry is available in ScripMaster")
         return eligible[0]
 
     def dte_allows_new_rungs(self, contract: FixedCampaignOption, at: datetime) -> bool:
@@ -1266,6 +1299,13 @@ class PaperCascadeConfig:
     target_fraction: float = 0.25
     ce_offset_steps: int = -2
     cost_schedule: NiftyOptionCostSchedule = field(default_factory=NiftyOptionCostSchedule)
+    # Which fib boundaries arm a buy.  The default is every level this engine has
+    # always used.  The timeframe rule -- 1m/5m buy only the two deepest lines,
+    # 15m/1h start one step earlier -- lives in `boundaries_for_timeframe`, and a
+    # caller that wants it passes it in here rather than having it imposed: the
+    # live paper campaigns were started under the (2, 4, 8) default and changing
+    # what they arm underneath them is not a side effect worth having.
+    fib_levels: tuple[int, ...] = GEOMETRY_FIB_LEVELS
     # Fib-boundary sizing: ignore the rupee budget and buy a fixed lot ladder --
     # 1 lot on the first fill, 2 on the second, 3 on the third...  The buy count
     # is the sizing (no percent, no fund allocation).  When False (the default),
@@ -1442,7 +1482,7 @@ class NiftyOptionsPaperCascade:
 
     def _sync_new_rungs(self, candle: IndexCandle) -> None:
         for leg in self.geometry.campaign.legs:
-            for level in GEOMETRY_FIB_LEVELS:
+            for level in self.config.fib_levels:
                 rung = PaperCascadeRung(
                     leg_id=leg.leg_id,
                     level=level,

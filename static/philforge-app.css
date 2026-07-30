@@ -5780,3 +5780,85 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .oc-tab { font-size: 11px; }
   #options-cascade-page .cascade-options-strip-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ══ TEST BENCH ══════════════════════════════════════════════
+   One mother candle, replayed. The screen is deliberately flat: a row of
+   pickers, a verdict you can read in one glance, the chart, then the detail.
+   Phil decides from the picture, so the chart gets the room. */
+#test-bench-page .tb-hero { padding: 22px 24px; margin-bottom: 16px; }
+#test-bench-page .tb-kicker {
+  font: 10px 'JetBrains Mono', monospace; letter-spacing: .8px; text-transform: uppercase;
+  color: #38bdf8; margin-bottom: 6px;
+}
+#test-bench-page .tb-hero h2 { margin: 0 0 8px; font-size: 20px; }
+#test-bench-page .tb-hero p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); max-width: 78ch; }
+
+#test-bench-page .tb-controls {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 16px 18px; margin-bottom: 12px;
+}
+#test-bench-page .tb-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; min-width: 130px; }
+#test-bench-page .tb-field-narrow { flex: 0 1 120px; }
+#test-bench-page .tb-field label {
+  font: 10px 'JetBrains Mono', monospace; letter-spacing: .6px; text-transform: uppercase; color: var(--muted);
+}
+#test-bench-page .tb-field select,
+#test-bench-page .tb-field input { width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; }
+#test-bench-page .tb-run { flex: 0 0 auto; min-width: 96px; padding: 9px 20px; }
+
+#test-bench-page .tb-status { min-height: 18px; font-size: 12px; margin: 0 0 12px; color: var(--muted); }
+#test-bench-page .tb-status.is-error { color: #dc2626; }
+#test-bench-page .tb-status.is-busy { color: #38bdf8; }
+
+#test-bench-page .tb-verdict { border-left: 3px solid var(--muted); padding: 14px 16px; margin-bottom: 14px; border-radius: 8px; background: var(--card-bg, rgba(148,163,184,.06)); }
+#test-bench-page .tb-verdict.is-good { border-left-color: #10b981; }
+#test-bench-page .tb-verdict.is-bad { border-left-color: #ef4444; }
+#test-bench-page .tb-verdict-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 18px;
+}
+#test-bench-page .tb-stat { display: flex; flex-direction: column; gap: 3px; }
+#test-bench-page .tb-stat span {
+  font: 10px 'JetBrains Mono', monospace; letter-spacing: .5px; text-transform: uppercase; color: var(--muted);
+}
+#test-bench-page .tb-stat strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+#test-bench-page .tb-warn { margin: 12px 0 0; font-size: 11px; color: #b45309; }
+
+#test-bench-page .tb-chart-card { padding: 16px 18px; margin-bottom: 14px; }
+#test-bench-page .tb-chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+#test-bench-page .tb-chart-head h3 { margin: 0; font-size: 14px; }
+#test-bench-page .tb-zoom { font: 11px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
+#test-bench-page .tb-chart-legend { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+
+/* The canvas host: sized by CSS, read by the renderer's ResizeObserver. The
+   aspect ratio matches CryptoForge so the drawing keeps the shape it was
+   tuned at; the two canvases stack, chart below and crosshair above. */
+#test-bench-page .pf-bench-canvas-host {
+  position: relative; width: 100%; aspect-ratio: 1440 / 660; min-height: 260px;
+  touch-action: none;  /* pan and pinch belong to the chart, not the page */
+  user-select: none;
+}
+#test-bench-page .pf-bench-canvas-host canvas {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+}
+#test-bench-page .pf-bench-canvas-host canvas + canvas { pointer-events: none; }
+#test-bench-page .pf-bench-empty { font-size: 12px; color: var(--muted); padding: 40px 0; text-align: center; }
+
+#test-bench-page .tb-entries-card { padding: 16px 18px; }
+#test-bench-page .tb-entries-card h3 { margin: 0 0 10px; font-size: 14px; }
+#test-bench-page .tb-table-scroll { overflow-x: auto; }
+#test-bench-page .tb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#test-bench-page .tb-table th {
+  text-align: left; padding: 6px 10px; font: 10px 'JetBrains Mono', monospace;
+  letter-spacing: .5px; text-transform: uppercase; color: var(--muted); white-space: nowrap;
+}
+#test-bench-page .tb-table td {
+  padding: 7px 10px; border-top: 1px solid rgba(148,163,184,.18);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+#test-bench-page .tb-table .tb-none { color: var(--muted); padding: 20px 10px; white-space: normal; }
+#test-bench-page .tb-gap { color: #b45309; font-size: 11px; }
+
+@media (max-width: 640px) {
+  #test-bench-page .tb-controls { gap: 10px; }
+  #test-bench-page .tb-field { flex: 1 1 100%; }
+  #test-bench-page .tb-run { width: 100%; }
+}

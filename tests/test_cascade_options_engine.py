@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from datetime import date, datetime, timedelta
 
@@ -8,6 +9,7 @@ from engine.cascade_options import (
     NiftyIndexCascadeGeometry,
     NiftyOptionsPaperCascade,
     OneHourCandleEntryPaper,
+    OptionsAdapterError,
     PaperCascadeConfig,
     PaperOnlyViolation,
 )
@@ -114,6 +116,95 @@ class PaperAdapterTests(unittest.TestCase):
         self.assertEqual(order.product_type, "CARRYFORWARD")
         self.assertEqual(adapter.get_order(order.order_id), order)
         self.assertFalse(adapter.dte_allows_new_rungs(contract, datetime(2026, 7, 27, 12, 0)))
+
+
+class _RecordingDhan:
+    """Records what the adapter asked Dhan for, and returns no candles."""
+
+    def __init__(self):
+        self.calls = []
+
+    def get_historical_data(
+        self, security_id, exchange_segment, instrument_type, expiry_code, from_date, to_date, candle_type
+    ):
+        self.calls.append(
+            {
+                "security_id": security_id,
+                "exchange_segment": exchange_segment,
+                "instrument_type": instrument_type,
+                "from_date": from_date,
+                "to_date": to_date,
+                "candle_type": candle_type,
+            }
+        )
+        return None
+
+
+class _BankNiftyScripMaster:
+    """BankNifty's chain: monthly expiries, a 30-unit lot, 100-point strikes."""
+
+    @classmethod
+    def get_expiries(cls, symbol):
+        assert symbol == "BANKNIFTY"
+        return ["2026-07-28", "2026-08-25", "2026-09-29"]
+
+    @classmethod
+    def get_lot_size(cls, symbol, expiry):
+        assert (symbol, expiry) == ("BANKNIFTY", "2026-08-25")
+        return 30
+
+    @classmethod
+    def lookup(cls, symbol, strike, expiry, option_type):
+        assert (symbol, strike, expiry, option_type) == ("BANKNIFTY", 57000, "2026-08-25", "CE")
+        return "998877"
+
+
+class MultiInstrumentAdapterTests(unittest.TestCase):
+    """The adapter reaches each index by its own confirmed id, not NIFTY's."""
+
+    def test_candles_come_from_the_named_index_security_id(self):
+        dhan = _RecordingDhan()
+        adapter = CascadeOptionsAdapter(dhan, scrip_master=_ScripMaster)
+        asyncio.run(
+            adapter.async_get_candles("BANKNIFTY", "15m", from_date=date(2026, 7, 20), to_date=date(2026, 7, 21))
+        )
+        call = dhan.calls[0]
+        self.assertEqual(call["security_id"], "25")
+        self.assertEqual(call["exchange_segment"], "IDX_I")
+        self.assertEqual(call["candle_type"], "15")
+
+    def test_sensex_is_not_fetched_through_the_live_feed_id(self):
+        # The live market feed reaches SENSEX through id "1", which the history
+        # API answers with a healthy series for a different index.  If this ever
+        # returns "1", every SENSEX backtest is priced off the wrong market.
+        dhan = _RecordingDhan()
+        adapter = CascadeOptionsAdapter(dhan, scrip_master=_ScripMaster)
+        asyncio.run(adapter.async_get_candles("SENSEX", "5m"))
+        self.assertEqual(dhan.calls[0]["security_id"], "51")
+
+    def test_an_unknown_index_is_refused_before_any_fetch(self):
+        dhan = _RecordingDhan()
+        adapter = CascadeOptionsAdapter(dhan, scrip_master=_ScripMaster)
+        with self.assertRaises(OptionsAdapterError):
+            asyncio.run(adapter.async_get_candles("NIFTYNEXT50", "5m"))
+        self.assertEqual(dhan.calls, [])
+
+    def test_contract_selection_follows_the_named_index_chain(self):
+        adapter = CascadeOptionsAdapter(_Dhan(), scrip_master=_BankNiftyScripMaster)
+        contract = adapter.select_campaign_contract(
+            mother_spot=57205,
+            selected_at=datetime(2026, 7, 24, 10, 0),
+            strike_step=100,
+            symbol="BANKNIFTY",
+        )
+        # Monthly chain: 28 July is only 4 days out, so the campaign rolls to the
+        # August contract -- and nothing here had to be told BankNifty is monthly.
+        # The gap between expiries is a month rather than a week, which is the
+        # whole difference, and the same "first one far enough out" rule covers it.
+        self.assertEqual(contract.underlying, "BANKNIFTY")
+        self.assertEqual(contract.expiry, date(2026, 8, 25))
+        self.assertEqual(contract.strike, 57000)
+        self.assertEqual(contract.lot_size, 30)
 
 
 class PaperRoundTests(unittest.TestCase):

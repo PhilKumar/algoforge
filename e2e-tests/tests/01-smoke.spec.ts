@@ -295,3 +295,94 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
     maxDiffPixelRatio: 0.04,
   });
 });
+
+// ── Test Bench ───────────────────────────────────────────────
+// A blank chart is the failure this catches. The renderer is hand-written
+// Canvas: a typo in a draw layer throws inside a paint loop, the surface stays
+// empty, and every Python test still passes. So this asserts the semantic paint
+// record — real candles, real geometry, real labels — not just that a canvas
+// element exists.
+const testBenchRunMock = {
+  status: 'ok',
+  strategy: 'fib',
+  summary: {
+    instrument: 'NIFTY',
+    timeframe: '15m',
+    outcome: 'Target hit',
+    entry_timestamp: '2026-07-21T12:15:00',
+    exit_timestamp: '2026-07-21T15:15:00',
+    entry_count: 2,
+    unpriced_entries: 0,
+    spend_inr: 31200,
+    net_pnl: 18400,
+    costs_total: 620,
+    strike: 24450,
+    option_type: 'CE',
+    expiry: '2026-08-04',
+    lot_size: 65,
+    underlying: 'NIFTY',
+  },
+  entries: [
+    { timestamp: '2026-07-21T12:15:00', spot: 24450, option_price: 180, lots: 1, quantity: 65, level: 4, leg_id: 1, spend_inr: 11700, strike: 24450, option_type: 'CE' },
+    { timestamp: '2026-07-21T13:15:00', spot: 24400, option_price: 150, lots: 2, quantity: 130, level: 8, leg_id: 1, spend_inr: 19500, strike: 24400, option_type: 'CE' },
+  ],
+  chart: {
+    timeframe: '15m',
+    candles: [
+      { t: 1784017500, o: 24600, h: 24650, l: 24560, c: 24580, is_mother: true },
+      { t: 1784018400, o: 24580, h: 24590, l: 24440, c: 24450, is_mother: false },
+      { t: 1784019300, o: 24450, h: 24460, l: 24390, c: 24400, is_mother: false },
+      { t: 1784020200, o: 24400, h: 24640, l: 24395, c: 24630, is_mother: false },
+    ],
+    mother: { high: 24650, low: 24560 },
+    trendlines: [{ id: 1, a1: { t: 1784017500, p: 24650 }, a2: { t: 1784018400, p: 24590 }, active: true }],
+    legs: [{
+      leg_id: 1,
+      touch_timestamp: 1784018400,
+      touch_high: 24590,
+      low: 24440,
+      levels: { '0': 24590, '1': 24440, '2': 24500, '4': 24450, '8': 24400 },
+      orders: [{ level: 4, inr_notional: 11700 }, { level: 8, inr_notional: 19500 }],
+    }],
+    entries: [{ t: 1784018400, price: 24450 }, { t: 1784019300, price: 24400 }],
+    exits: [{ t: 1784020200, price: 24630, pnl: 18400 }],
+    avg_entry_price: 24425,
+    tp_price: 24625,
+    tp_label: 'TARGET HIT',
+  },
+};
+
+test('Test Bench draws one mother candle and every level it bought', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/test-bench/run', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(testBenchRunMock) }));
+
+  await page.click('#nav-test-bench');
+  // The app upgrades every datetime-local input into its own read-only calendar
+  // widget, so the value is set the way that widget sets it.
+  await page.evaluate(() => {
+    const input = document.getElementById('tb-mother') as HTMLInputElement;
+    input.value = '2026-07-21T09:15';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.click('#tb-run');
+  await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
+
+  const paint = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { paint?: Record<string, unknown> } };
+    if (!app._pfChartCanvas || !app._pfChartCanvas.paint) throw new Error('The Test Bench canvas never painted');
+    return app._pfChartCanvas.paint;
+  });
+
+  expect(paint).toMatchObject({ candles: 4, trendlines: 1, markers: 3 });
+  const labels = paint.labelTexts as string[];
+  // The two lines that decide whether the trade worked, and what it cost.
+  expect(labels.some((text) => text.startsWith('TARGET HIT'))).toBe(true);
+  expect(labels.some((text) => text.includes('₹11,700'))).toBe(true);
+  expect(labels.some((text) => text.includes('₹19,500'))).toBe(true);
+
+  // The verdict panel reads the same run in words.
+  await expect(page.locator('#tb-verdict')).toContainText('Target hit');
+  await expect(page.locator('#tb-verdict')).toContainText('₹31,200');
+  await expect(page.locator('#tb-entries tbody tr')).toHaveCount(2);
+});

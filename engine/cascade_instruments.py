@@ -40,6 +40,23 @@ class IndexSpec:
     exchange_segment: str
     verified: bool = True
     note: str = ""
+    # Upstox's own name for the same index, used to pull expired-option premium
+    # history.  Empty means nobody has run a priced backtest against it yet --
+    # the candles work, the option prices do not, and `premium_key` refuses
+    # rather than let a backtest quietly report a trade it never priced.
+    premium_key: str = ""
+
+
+def premium_key(symbol: str) -> str:
+    """The Upstox instrument key for an index's option premiums, or a refusal."""
+    spec = index_spec(symbol)
+    if not spec.premium_key:
+        priced = ", ".join(sorted(row.symbol for row in INDEX_SPECS.values() if row.premium_key))
+        raise InstrumentError(
+            f"{spec.symbol} option premiums are not wired to Upstox yet, so a backtest of it "
+            f"would have no prices. Priced today: {priced}."
+        )
+    return spec.premium_key
 
 
 # Every id below was confirmed on 2026-07-30 by fetching daily candles from Dhan
@@ -52,9 +69,16 @@ class IndexSpec:
 #
 #   NIFTY 13 -> 24,250   BANKNIFTY 25 -> 57,206   FINNIFTY 27 -> 26,287
 #   MIDCPNIFTY 442 -> 14,683          SENSEX 51 -> 77,655
+#
+# The Upstox keys below carry the same caution.  NIFTY and BankNifty are the two
+# that have actually returned expired-option premiums (tools/fib_cascade_sweep.py
+# has run full backtests on both).  The other three are left blank on purpose:
+# a plausible-looking key that Upstox does not recognise fails as "no data",
+# which is indistinguishable from a quiet market and would silently turn every
+# trade into an unpriced gap.
 INDEX_SPECS: dict[str, IndexSpec] = {
-    "NIFTY": IndexSpec("NIFTY", "13", "IDX_I"),
-    "BANKNIFTY": IndexSpec("BANKNIFTY", "25", "IDX_I"),
+    "NIFTY": IndexSpec("NIFTY", "13", "IDX_I", premium_key="NSE_INDEX|Nifty 50"),
+    "BANKNIFTY": IndexSpec("BANKNIFTY", "25", "IDX_I", premium_key="NSE_INDEX|Nifty Bank"),
     "FINNIFTY": IndexSpec("FINNIFTY", "27", "IDX_I"),
     "MIDCPNIFTY": IndexSpec("MIDCPNIFTY", "442", "IDX_I"),
     # BSE index, but its candles come from IDX_I like the rest -- and from id 51,
