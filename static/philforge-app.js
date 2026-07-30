@@ -1718,7 +1718,7 @@ function _candleEntryReadableState(status) {
 }
 
 function _candleEntryEventDescription(event) {
-  const name = String(event?.event || 'status').replaceAll('_', ' ');
+  const name = String(event?.event || 'status').replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
   const bits = [];
   if (event?.trigger != null) bits.push(`stop ${_cascadeNumber(event.trigger)}`);
   if (event?.index_price != null) bits.push(`index ${_cascadeNumber(event.index_price)}`);
@@ -1780,7 +1780,7 @@ function _renderCandleEntryMonitor(campaign) {
   candlesEl.innerHTML = candleRow('Mother candle', mother) + candleRow('Latest closed candle', latest);
   if (updated) updated.textContent = `Last screen refresh: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST`;
   const events = Array.isArray(campaign.events) ? campaign.events : [];
-  if (eventCount) eventCount.textContent = `${events.length} recorded`;
+  if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
     const text = _candleEntryEventDescription(event);
     return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="candle-entry-muted">${escapeHtml(text.detail || 'Campaign status updated.')}</td></tr>`;
