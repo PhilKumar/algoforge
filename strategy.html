@@ -1941,10 +1941,13 @@
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
       <section id="candle-entry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
-        <div class="candle-entry-monitor-head"><div><div class="candle-entry-monitor-kicker">Live paper monitor</div><h4>Campaign status</h4></div><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated">Waiting for campaign data</div></div>
-        <div id="candle-entry-monitor-grid" class="candle-entry-monitor-grid"></div>
-        <div class="candle-entry-event-head"><span>Campaign events</span><span id="candle-entry-event-count"></span></div>
-        <div id="candle-entry-events" class="candle-entry-events">No campaign events yet.</div>
+        <div class="candle-entry-monitor-head"><div><div class="candle-entry-monitor-kicker">Live paper monitor</div><h4>Campaign overview</h4></div><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated">Waiting for campaign data</div></div>
+        <div class="candle-entry-monitor-body">
+          <div class="candle-entry-monitor-section"><div class="candle-entry-section-title">At a glance</div><div id="candle-entry-monitor-overview" class="candle-entry-overview"></div></div>
+          <div class="candle-entry-monitor-section"><div class="candle-entry-section-title">NIFTY 1H candles</div><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Candle</th><th>Time (IST)</th><th>Open</th><th>High</th><th>Low</th><th>Close</th></tr></thead><tbody id="candle-entry-monitor-candles"></tbody></table></div></div>
+        </div>
+        <div class="candle-entry-event-head"><span>Campaign activity</span><span id="candle-entry-event-count"></span></div>
+        <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
       </section>
     </div>
   </div>

@@ -1701,8 +1701,20 @@ function _renderCandleEntryStatus(payload) {
   _renderCandleEntryMonitor(campaign);
 }
 
-function _candleEntryMonitorCard(label, value, detail = '', tone = '') {
-  return `<div class="candle-entry-monitor-card"><div class="candle-entry-monitor-label">${escapeHtml(label)}</div><div class="candle-entry-monitor-value"${tone ? ` style="color:${tone};"` : ''}>${escapeHtml(value)}</div>${detail ? `<div class="candle-entry-monitor-detail">${escapeHtml(detail)}</div>` : ''}</div>`;
+function _candleEntryOverviewRow(label, value, detail = '', tone = '') {
+  return `<div class="candle-entry-overview-row"><div class="candle-entry-overview-label">${escapeHtml(label)}</div><div class="candle-entry-overview-value${tone ? ` ${tone}` : ''}">${escapeHtml(value)}</div>${detail ? `<div class="candle-entry-overview-detail">${escapeHtml(detail)}</div>` : ''}</div>`;
+}
+
+function _candleEntryReadableState(status) {
+  return ({
+    WAITING_TWO_RED: 'Waiting for two red candles',
+    ARMED: 'Entry stop armed',
+    OPEN: 'Paper position open',
+    OPEN_SIGNAL_ONLY: 'Historical entry signal open',
+    AWAITING_OPTION_QUOTE: 'Waiting for an option quote',
+    CLOSED: 'Campaign closed',
+    KILLED: 'Campaign stopped',
+  })[status] || String(status || 'WAITING').replaceAll('_', ' ').toLowerCase();
 }
 
 function _candleEntryEventDescription(event) {
@@ -1721,11 +1733,12 @@ function _candleEntryEventDescription(event) {
 
 function _renderCandleEntryMonitor(campaign) {
   const monitor = _cascadeOptionsEl('candle-entry-monitor');
-  const grid = _cascadeOptionsEl('candle-entry-monitor-grid');
+  const overview = _cascadeOptionsEl('candle-entry-monitor-overview');
+  const candlesEl = _cascadeOptionsEl('candle-entry-monitor-candles');
   const updated = _cascadeOptionsEl('candle-entry-monitor-updated');
   const eventsEl = _cascadeOptionsEl('candle-entry-events');
   const eventCount = _cascadeOptionsEl('candle-entry-event-count');
-  if (!monitor || !grid || !eventsEl) return;
+  if (!monitor || !overview || !candlesEl || !eventsEl) return;
   monitor.hidden = false;
   const mother = campaign.mother || {};
   const latest = campaign.latest_closed_candle || mother;
@@ -1733,41 +1746,45 @@ function _renderCandleEntryMonitor(campaign) {
   const openFill = campaign.open_fill;
   const rounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
   const lastRound = rounds.length ? rounds[rounds.length - 1] : null;
-  const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const stateTone = campaign.running ? '#93c5fd' : (campaign.status === 'CLOSED' ? '#6ee7b7' : '#fbbf24');
-  const recoveryValue = `${qualifying.length}/2 qualifying red close${qualifying.length === 1 ? '' : 's'}`;
-  const recoveryDetail = qualifying.length ? `Latest: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : 'A red 1H candle must close below the prior close.';
-  const stopValue = campaign.entry_stop == null ? 'Not armed' : _cascadeNumber(campaign.entry_stop);
-  const stopDetail = campaign.entry_stop_armed_at ? `Armed after ${_cascadeOptionsTimestamp(campaign.entry_stop_armed_at)}` : 'Buy-stop only activates on a later 1H recovery.';
+  const status = String(campaign.status || 'WAITING_TWO_RED');
+  const stateTone = campaign.running ? 'is-info' : (status === 'CLOSED' ? 'is-positive' : 'is-warning');
+  const recoveryValue = `${qualifying.length} of 2 qualifying red candle${qualifying.length === 1 ? '' : 's'}`;
+  const recoveryDetail = qualifying.length ? `Latest qualifying candle: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : 'A red 1H candle must close below the previous candle.';
+  const stopValue = campaign.entry_stop == null ? 'Not armed yet' : _cascadeNumber(campaign.entry_stop);
+  const stopDetail = campaign.entry_stop_armed_at ? `Armed after the ${_cascadeOptionsTimestamp(campaign.entry_stop_armed_at)} candle.` : 'It will be set after the second qualifying red candle.';
   let positionValue = 'No open paper position';
-  let positionDetail = 'No option P&L exists until a quote-backed paper fill closes.';
+  let positionDetail = 'P&L will appear once a quote-backed paper trade has closed.';
+  let nextStep = qualifying.length < 2 ? 'Waiting for another qualifying red candle' : 'Watching for a later 1H recovery above the entry stop';
   if (openFill) {
-    positionValue = `OPEN · ${openFill.quantity || '—'} qty`;
-    positionDetail = `Index entry ${_cascadeNumber(openFill.index_price)} · premium ₹${_cascadeNumber(openFill.option_premium)} · ${openFill.lots || 1} lot`;
+    positionValue = `Open · ${openFill.quantity || '—'} quantity`;
+    positionDetail = `Entered NIFTY at ${_cascadeNumber(openFill.index_price)} · option premium ₹${_cascadeNumber(openFill.option_premium)} · ${openFill.lots || 1} lot`;
+    nextStep = 'Watching the index target to close the paper position';
   } else if (campaign.signal_entry?.index_price != null) {
-    positionValue = campaign.signal_entry.exit_timestamp ? 'Signal closed' : 'OPEN SIGNAL · historical';
-    positionDetail = `Index signal ${_cascadeNumber(campaign.signal_entry.index_price)} · premium/P&L withheld`;
+    positionValue = campaign.signal_entry.exit_timestamp ? 'Historical signal closed' : 'Historical signal open';
+    positionDetail = `Index signal at ${_cascadeNumber(campaign.signal_entry.index_price)} · option premium and P&L are unavailable for replay.`;
+    nextStep = campaign.signal_entry.exit_timestamp ? 'Historical replay complete' : 'Watching the historical index target';
   } else if (lastRound) {
-    positionValue = `CLOSED · net ₹${_cascadeNumber(lastRound.net_pnl)}`;
-    positionDetail = `${String(lastRound.exit_reason || 'exit').replaceAll('_', ' ')} · exited ${_cascadeOptionsTimestamp(lastRound.closed_at)}`;
+    positionValue = `Closed · net P&L ₹${_cascadeNumber(lastRound.net_pnl)}`;
+    positionDetail = `${String(lastRound.exit_reason || 'exit').replaceAll('_', ' ')} at ${_cascadeOptionsTimestamp(lastRound.closed_at)}`;
+    nextStep = 'Campaign has completed';
   }
-  grid.innerHTML = [
-    _candleEntryMonitorCard('Campaign state', state, campaign.pricing_mode === 'signal_only_dhan' ? 'Historical index-geometry replay · paper only' : 'Quote-backed paper campaign · no live order', stateTone),
-    _candleEntryMonitorCard('Mother candle · IST', _cascadeOptionsTimestamp(mother.timestamp), `O ${_cascadeNumber(mother.open)} · H ${_cascadeNumber(mother.high)} · L ${_cascadeNumber(mother.low)} · C ${_cascadeNumber(mother.close)}`),
-    _candleEntryMonitorCard('Recovery progress', recoveryValue, recoveryDetail),
-    _candleEntryMonitorCard('Entry buy-stop', stopValue, stopDetail, campaign.entry_stop == null ? '' : '#fde68a'),
-    _candleEntryMonitorCard('Index target', campaign.target_index == null ? 'Waiting for entry' : _cascadeNumber(campaign.target_index), campaign.target_index == null ? 'Target becomes fixed at the paper/signal entry.' : 'Closes the full paper basket on a target touch.'),
-    _candleEntryMonitorCard('Paper position', positionValue, positionDetail, openFill ? '#6ee7b7' : ''),
-    _candleEntryMonitorCard('Latest closed 1H candle', _cascadeOptionsTimestamp(latest.timestamp), `O ${_cascadeNumber(latest.open)} · H ${_cascadeNumber(latest.high)} · L ${_cascadeNumber(latest.low)} · C ${_cascadeNumber(latest.close)}`),
-    _candleEntryMonitorCard('Data coverage', `${campaign.candles_reviewed || 0} candle${Number(campaign.candles_reviewed) === 1 ? '' : 's'} reviewed`, 'Dhan NIFTY 1H closed candles; this panel refreshes automatically.'),
+  overview.innerHTML = [
+    _candleEntryOverviewRow('Current status', _candleEntryReadableState(status), campaign.pricing_mode === 'signal_only_dhan' ? 'Historical replay. This checks NIFTY price movement only; no option P&L is created.' : 'Paper campaign only. No live order will be sent.', stateTone),
+    _candleEntryOverviewRow('Recovery progress', recoveryValue, recoveryDetail),
+    _candleEntryOverviewRow('Entry stop', stopValue, stopDetail, campaign.entry_stop == null ? '' : 'is-warning'),
+    _candleEntryOverviewRow('Index target', campaign.target_index == null ? 'Set after entry' : _cascadeNumber(campaign.target_index), campaign.target_index == null ? 'The target is calculated once the entry is triggered.' : 'The paper position closes when this target is reached.'),
+    _candleEntryOverviewRow('Paper position', positionValue, positionDetail, openFill ? 'is-positive' : ''),
+    _candleEntryOverviewRow('What happens next', nextStep),
   ].join('');
+  const candleRow = (name, candle) => `<tr><td class="candle-entry-strong">${escapeHtml(name)}</td><td class="candle-entry-muted">${escapeHtml(_cascadeOptionsTimestamp(candle.timestamp))}</td><td>${escapeHtml(_cascadeNumber(candle.open))}</td><td>${escapeHtml(_cascadeNumber(candle.high))}</td><td>${escapeHtml(_cascadeNumber(candle.low))}</td><td>${escapeHtml(_cascadeNumber(candle.close))}</td></tr>`;
+  candlesEl.innerHTML = candleRow('Mother candle', mother) + candleRow('Latest closed candle', latest);
   if (updated) updated.textContent = `Last screen refresh: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST`;
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} recorded`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
     const text = _candleEntryEventDescription(event);
-    return `<div class="candle-entry-event"><time>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</time> · <strong>${escapeHtml(text.name)}</strong>${text.detail ? `<div>${escapeHtml(text.detail)}</div>` : ''}</div>`;
-  }).join('') : '<div class="candle-entry-event">The monitor will add an event when a qualifying red close, entry stop, paper fill, target, quote issue, or manual close occurs.</div>';
+    return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="candle-entry-muted">${escapeHtml(text.detail || 'Campaign status updated.')}</td></tr>`;
+  }).join('') : '<tr><td colspan="3" class="candle-entry-empty">Updates will appear here when a candle qualifies, the entry stop arms, a paper trade opens or closes, or an option quote is unavailable.</td></tr>';
 }
 
 async function refreshCandleEntryStatus() {
