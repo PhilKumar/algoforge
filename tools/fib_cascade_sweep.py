@@ -347,13 +347,11 @@ def main() -> int:
         ensure_fresh_token()
     except Exception as exc:
         print(f"[upstox] token pre-check skipped: {exc}")
-    # IMPORTANT: the Upstox source caches expiries.json and contracts_<expiry>.json
-    # WITHOUT an underlying prefix, so NIFTY and BANKNIFTY would collide on a
-    # shared dir (BANKNIFTY would read NIFTY's chain). NIFTY keeps the root cache
-    # (its 244 files are already there); every other underlying gets its own dir.
+    # UpstoxPremiumSource namespaces its per-underlying caches (expiry list,
+    # option chains) internally: NIFTY keeps the root, every other underlying
+    # gets its own subdir. So all symbols can safely share this one root dir --
+    # no per-symbol cache_dir juggling needed here.
     upstox_cache = Path(os.path.dirname(os.path.abspath(__file__))) / ".upstox_cache"
-    if args.symbol != "nifty":
-        upstox_cache = upstox_cache / cfg["cache"]
     source = UpstoxPremiumSource(underlying_key=cfg["upstox_key"], cache_dir=upstox_cache)
     expiries = sorted(source.available_expiries())
     if not expiries:

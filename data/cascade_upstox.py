@@ -31,6 +31,7 @@ tools/upstox_probe.py for the live-access check.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -46,6 +47,15 @@ CACHE_DIR = REPO_ROOT / "tools" / ".upstox_cache"
 
 BASE = "https://api.upstox.com/v2"
 NIFTY_INDEX_KEY = "NSE_INDEX|Nifty 50"
+
+
+def _underlying_slug(underlying_key: str) -> str:
+    """A filesystem-safe folder name unique to one underlying, e.g.
+    "NSE_INDEX|Nifty Bank" -> "nse_index_nifty_bank". Used to namespace the
+    per-underlying caches (expiry list, option chains) so two underlyings can
+    share a root cache dir without reading each other's contracts."""
+    return re.sub(r"[^a-z0-9]+", "_", underlying_key.lower()).strip("_")
+
 
 # The endpoint returns at most 3000 one-minute bars per call. A weekly option
 # lives ~2 trading weeks (~3700 minutes at most from listing to expiry), but the
@@ -102,6 +112,19 @@ class UpstoxPremiumSource:
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # The expiry list and option chains are keyed by underlying, so they must
+        # be namespaced or a second underlying sharing this root would read the
+        # first's contracts (NIFTY weekly vs. BankNifty monthly; ~24000 vs.
+        # ~55000 strikes). The default NIFTY keeps the root so its existing
+        # cache needs no re-fetch; every other underlying gets its own subdir.
+        # Candles are NOT namespaced here -- their filename carries the globally
+        # unique instrument_key, so they stay at the root cache dir.
+        if self._underlying == NIFTY_INDEX_KEY:
+            self._meta_dir = self._cache_dir
+        else:
+            self._meta_dir = self._cache_dir / _underlying_slug(self._underlying)
+            self._meta_dir.mkdir(parents=True, exist_ok=True)
+
         # In-memory memoisation on top of the disk cache.
         self._contracts: dict[date, dict[tuple[int, str], str]] = {}
         self._series: dict[str, dict[datetime, OptionCandle]] = {}
@@ -142,7 +165,7 @@ class UpstoxPremiumSource:
         """The expiries Upstox still holds history for. Anything outside this
         set can never be priced -- the caller should know before a long run."""
         if self._expiries is None:
-            cache = self._cache_dir / "expiries.json"
+            cache = self._meta_dir / "expiries.json"
             if cache.exists():
                 raw = json.loads(cache.read_text())
             else:
@@ -159,7 +182,7 @@ class UpstoxPremiumSource:
         if expiry in self._contracts:
             return self._contracts[expiry]
 
-        cache = self._cache_dir / f"contracts_{expiry.isoformat()}.json"
+        cache = self._meta_dir / f"contracts_{expiry.isoformat()}.json"
         if cache.exists():
             raw = json.loads(cache.read_text())
         else:
