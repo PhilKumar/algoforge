@@ -14,6 +14,7 @@ import socket
 import sys
 import threading
 import time as _time
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -812,6 +813,49 @@ class ScripMaster:
         """Get all available expiry dates for a symbol."""
         cls.ensure_loaded()
         return cls._expiry_cache.get(symbol, [])
+
+    @classmethod
+    def get_strikes(cls, symbol: str, expiry: str) -> list:
+        """Every strike Dhan lists for this symbol and expiry, ascending."""
+        cls.ensure_loaded()
+        prefix = f"{symbol}_"
+        suffixes = (f"_{expiry}_CE", f"_{expiry}_PE")
+        strikes = set()
+        for key in cls._options_cache:
+            if not key.startswith(prefix):
+                continue
+            for suffix in suffixes:
+                if key.endswith(suffix):
+                    try:
+                        strikes.add(float(key[len(prefix) : -len(suffix)]))
+                    except ValueError:
+                        pass
+                    break
+        return sorted(strikes)
+
+    @classmethod
+    def get_strike_step(cls, symbol: str, expiry: str) -> float:
+        """The strike ladder gap, measured from the contracts Dhan actually lists.
+
+        Measured rather than tabulated, so a new index needs no code change and
+        an exchange changing its ladder cannot leave a stale constant behind.
+        The ladder thins out at the wings (a 50-point chain near the money often
+        goes to 100 far from it), so the most common gap is the step -- not the
+        smallest, which one stray half-strike would corrupt.
+
+        Raises when the chain is too thin to measure.  A guessed strike step
+        silently selects the wrong contract, so refusing is the safer failure.
+        """
+        strikes = cls.get_strikes(symbol, expiry)
+        if len(strikes) < 3:
+            raise ValueError(
+                f"Cannot measure a strike step for {symbol} {expiry}: Dhan lists "
+                f"{len(strikes)} strike(s). Check the symbol and that the scrip master loaded."
+            )
+        gaps = [round(later - earlier, 4) for earlier, later in zip(strikes, strikes[1:]) if later > earlier]
+        if not gaps:
+            raise ValueError(f"Cannot measure a strike step for {symbol} {expiry}: no positive gaps")
+        return float(Counter(gaps).most_common(1)[0][0])
 
     @classmethod
     def get_lot_size(cls, symbol: str, expiry: str) -> int:
