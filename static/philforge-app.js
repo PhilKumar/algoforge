@@ -1464,6 +1464,16 @@ function _renderCascadeResult(payload) {
   }).join('') || '<div style="color:var(--muted);">No qualifying sequence was armed.</div>';
   const pnl = exactContractPricing ? result.net_option_pnl : null;
   const pnlText = pnl != null && Number.isFinite(Number(pnl)) ? `₹${_cascadeNumber(pnl)}` : 'P&L incomplete';
+  const backfill = payload.data?.upstox_backfill || {};
+  const gaps = Array.isArray(result.data_gaps) ? result.data_gaps : [];
+  const backfillLabel = ({
+    cache_hit: 'All required Upstox data was already cached.',
+    backfilled: 'Missing Upstox data was refreshed and saved to the cache.',
+    still_incomplete: 'Upstox backfill ran, but some exact historical prices are still unavailable.',
+    unavailable: 'Automatic Upstox backfill could not start.',
+  })[backfill.status] || '';
+  const backfillDetails = backfill.detail || backfillLabel;
+  const gapPanel = !exactContractPricing && (gaps.length || backfillDetails) ? `<details style="margin-top:10px;border:1px solid rgba(251,191,36,.30);border-radius:7px;padding:8px 10px;"><summary style="color:#fde68a;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${escapeHtml(backfillLabel || 'Historical premium data is incomplete')} ${gaps.length ? `· ${gaps.length} missing price${gaps.length === 1 ? '' : 's'}` : ''}</summary><div style="margin-top:8px;color:var(--muted);font:10px/1.6 'JetBrains Mono',monospace;">${escapeHtml(backfillDetails)}${Number(backfill.network_requests) ? `<br>Upstox requests: ${escapeHtml(String(backfill.network_requests))}` : ''}${gaps.length ? `<br><br>${gaps.slice(0, 30).map(gap => escapeHtml(String(gap))).join('<br>')}` : ''}</div></details>` : '';
   const exitText = result.exit_timestamp
     ? `${_cascadeTimestamp(result.exit_timestamp)}${result.exit_reason === 'expiry_square_off' ? ' · expiry square-off' : ''}`
     : 'Target not reached in range';
@@ -1478,7 +1488,7 @@ function _renderCascadeResult(payload) {
     <div style="overflow-x:auto; border:1px solid var(--border); border-radius:7px; margin-bottom:14px;"><table style="border-collapse:collapse; width:100%; font-size:11px;"><thead><tr style="background:rgba(255,255,255,.025); color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:.5px;"><th style="padding:8px 6px;">Stage</th><th style="padding:8px 6px; text-align:left;">Fill IST</th><th style="padding:8px 6px; text-align:right;">NIFTY</th><th style="padding:8px 6px;">Lots (qty)</th><th style="padding:8px 6px; text-align:right;">Contract</th><th style="padding:8px 6px; text-align:left;">Expiry</th></tr></thead><tbody>${entryRows}</tbody></table></div>
     <div style="font-size:10px; font-weight:800; letter-spacing:.55px; text-transform:uppercase; color:var(--muted); margin-bottom:5px;">Signal events</div>
     <div style="font:10px/1.5 'JetBrains Mono',monospace; color:var(--muted); max-height:142px; overflow:auto;">${eventRows}</div>
-    <div style="margin-top:13px; padding:9px 10px; border-radius:6px; background:${exactContractPricing ? 'rgba(52,211,153,.07)' : 'rgba(245,158,11,.07)'}; color:${exactContractPricing ? '#bbf7d0' : '#fde68a'}; font-size:10px; line-height:1.45;">${escapeHtml(payload.pricing_warning || (exactContractPricing ? 'Contract-keyed historical pricing verified.' : 'Contract-level historical pricing is not connected.'))}</div>`;
+    <div style="margin-top:13px; padding:9px 10px; border-radius:6px; background:${exactContractPricing ? 'rgba(52,211,153,.07)' : 'rgba(245,158,11,.07)'}; color:${exactContractPricing ? '#bbf7d0' : '#fde68a'}; font-size:10px; line-height:1.45;">${escapeHtml(payload.pricing_warning || (exactContractPricing ? 'Contract-keyed historical pricing verified.' : 'Contract-level historical pricing is incomplete.'))}</div>${gapPanel}`;
 }
 
 async function runCascadeBacktest() {
@@ -1512,7 +1522,8 @@ async function runCascadeBacktest() {
     if (!response.ok || data.status !== 'ok') throw new Error(errorMessage || `Replay failed (${response.status})`);
     _renderCascadeResult(data);
     const counts = Object.values(data.data?.index_candles || {}).reduce((total, count) => total + Number(count || 0), 0);
-    const pricingStatus = data.result?.fully_priced ? 'net P&L calculated from cached Upstox candles.' : 'P&L withheld because the cache has a pricing gap.';
+    const backfillStatus = data.data?.upstox_backfill?.status;
+    const pricingStatus = data.result?.fully_priced ? (backfillStatus === 'backfilled' ? 'Upstox gaps backfilled; net P&L calculated.' : 'net P&L calculated from cached Upstox candles.') : 'P&L withheld because exact historical prices remain unavailable.';
     _cascadeSetStatus(`Backtest complete · ${counts} NIFTY candles checked · ${pricingStatus}`, data.result?.fully_priced ? 'success' : 'busy');
   } catch (error) {
     _cascadeSetStatus(error.message || 'Cascade replay failed.', 'error');

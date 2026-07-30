@@ -105,11 +105,13 @@ class UpstoxPremiumSource:
         session: Optional[requests.Session] = None,
         timeout: int = 30,
         cache_only: bool = False,
+        backfill_missing: bool = False,
     ) -> None:
         # A completed cache is useful long after Upstox's daily token expires.
         # Backtests using this mode must not silently fall through to the
         # network: a cache miss is reported as a pricing gap instead.
         self._cache_only = bool(cache_only)
+        self._backfill_missing = bool(backfill_missing) and not self._cache_only
         self._token = token or ("" if self._cache_only else _read_token())
         self._underlying = underlying_key
         self._timeout = timeout
@@ -134,6 +136,8 @@ class UpstoxPremiumSource:
         self._contracts: dict[date, dict[tuple[int, str], str]] = {}
         self._series: dict[str, dict[datetime, OptionCandle]] = {}
         self._expiries: Optional[set[date]] = None
+        self._refreshed_contracts: set[date] = set()
+        self._refreshed_series: set[str] = set()
 
         # Observability: the engine already counts gaps, but knowing *why* a run
         # is thin (strike never listed vs. minute missing) is worth keeping.
@@ -184,14 +188,15 @@ class UpstoxPremiumSource:
 
     # ── contract resolution ───────────────────────────────────────
 
-    def _contract_index(self, expiry: date) -> dict[tuple[int, str], str]:
+    def _contract_index(self, expiry: date, *, refresh: bool = False) -> dict[tuple[int, str], str]:
         """{(strike, 'CE'|'PE') -> upstox instrument key} for one expiry."""
-        if expiry in self._contracts:
+        if expiry in self._contracts and not refresh:
             return self._contracts[expiry]
 
         cache = self._meta_dir / f"contracts_{expiry.isoformat()}.json"
-        if cache.exists():
-            raw = json.loads(cache.read_text())
+        cached_raw = json.loads(cache.read_text()) if cache.exists() else None
+        if cached_raw is not None and not refresh:
+            raw = cached_raw
         elif self._cache_only:
             self._contracts[expiry] = {}
             return self._contracts[expiry]
@@ -202,9 +207,9 @@ class UpstoxPremiumSource:
                     {"instrument_key": self._underlying, "expiry_date": expiry.isoformat()},
                 )
             except UpstoxAccessError:
-                # An expiry Upstox no longer lists resolves to an empty index:
-                # every lookup against it is a clean gap, not a crash.
-                raw = {}
+                # A failed refresh must never erase previously cached history.
+                # If this is a brand-new expiry, it resolves to an honest gap.
+                raw = cached_raw if cached_raw is not None else {}
             else:
                 raw = {}
                 for contract in body.get("data") or []:
@@ -214,7 +219,7 @@ class UpstoxPremiumSource:
                     if strike is None or side not in {"CE", "PE"} or not key:
                         continue
                     raw[f"{int(round(float(strike)))}|{side}"] = key
-            cache.write_text(json.dumps(raw))
+                cache.write_text(json.dumps(raw))
 
         index = {(int(k.split("|")[0]), k.split("|")[1]): v for k, v in raw.items()}
         self._contracts[expiry] = index
@@ -222,15 +227,18 @@ class UpstoxPremiumSource:
 
     # ── 1-minute premium series ───────────────────────────────────
 
-    def _minute_series(self, instrument_key: str, expiry: date) -> dict[datetime, OptionCandle]:
+    def _minute_series(
+        self, instrument_key: str, expiry: date, *, refresh: bool = False
+    ) -> dict[datetime, OptionCandle]:
         """{naive-IST minute -> OptionCandle} for one instrument, whole life."""
-        if instrument_key in self._series:
+        if instrument_key in self._series and not refresh:
             return self._series[instrument_key]
 
         safe = instrument_key.replace("|", "_").replace("/", "_")
         cache = self._cache_dir / f"candles_{safe}.json"
-        if cache.exists():
-            rows = json.loads(cache.read_text())
+        cached_rows = json.loads(cache.read_text()) if cache.exists() else None
+        if cached_rows is not None and not refresh:
+            rows = cached_rows
         elif self._cache_only:
             self._series[instrument_key] = {}
             return self._series[instrument_key]
@@ -242,8 +250,10 @@ class UpstoxPremiumSource:
                 body = self._get(path)
                 rows = (body.get("data") or {}).get("candles") or []
             except UpstoxAccessError:
-                rows = []
-            cache.write_text(json.dumps(rows))
+                # Keep a good cached series when an attempted backfill fails.
+                rows = cached_rows if cached_rows is not None else []
+            else:
+                cache.write_text(json.dumps(rows))
 
         series: dict[datetime, OptionCandle] = {}
         for row in rows:
@@ -267,12 +277,20 @@ class UpstoxPremiumSource:
         Never fabricates a price."""
         index = self._contract_index(contract.expiry)
         instrument_key = index.get((int(round(contract.strike)), str(contract.option_type).upper()))
+        if instrument_key is None and self._backfill_missing and contract.expiry not in self._refreshed_contracts:
+            self._refreshed_contracts.add(contract.expiry)
+            index = self._contract_index(contract.expiry, refresh=True)
+            instrument_key = index.get((int(round(contract.strike)), str(contract.option_type).upper()))
         if instrument_key is None:
             self.missing_contracts += 1
             return None
 
         series = self._minute_series(instrument_key, contract.expiry)
         bar = series.get(_minute_key(timestamp))
+        if bar is None and self._backfill_missing and instrument_key not in self._refreshed_series:
+            self._refreshed_series.add(instrument_key)
+            series = self._minute_series(instrument_key, contract.expiry, refresh=True)
+            bar = series.get(_minute_key(timestamp))
         if bar is None:
             self.missing_minutes += 1
             return None

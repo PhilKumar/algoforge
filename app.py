@@ -7290,22 +7290,67 @@ def _run_cascade_feasibility(
         lot_size=config.lot_size,
         strike_step=config.strike_step,
     )
+
+    def replay_with(premium_source: UpstoxPremiumSource):
+        return OneHourCascade(config, resolver, premium_source.lookup).run(index_candles)
+
+    # First pass is cache-only, so a fully-covered backtest stays offline even
+    # when an Upstox token happens to be present on the server.
     premium_source = UpstoxPremiumSource(cache_only=True)
-    result = OneHourCascade(
-        config,
-        resolver,
-        premium_source.lookup,
-    ).run(index_candles)
+    result = replay_with(premium_source)
+    backfill = {
+        "attempted": False,
+        "status": "cache_hit" if result.fully_priced else "cache_gap",
+        "network_requests": 0,
+        "initial_gaps": list(result.data_gaps),
+        "detail": "All required historical option candles were already cached."
+        if result.fully_priced
+        else "One or more exact historical option candles are absent from the local cache.",
+    }
+    if not result.fully_priced:
+        backfill["attempted"] = True
+        try:
+            # Upstox access tokens are daily. Refresh when the server has the
+            # configured headless credentials; otherwise use a still-valid token
+            # as-is and let the premium source report its own access result.
+            try:
+                from upstox_token_manager import ensure_fresh_token
+
+                ensure_fresh_token()
+            except Exception as exc:
+                _logger.warning("[cascade-backtest] Upstox token pre-check skipped: %s", exc)
+            premium_source = UpstoxPremiumSource(backfill_missing=True)
+            result = replay_with(premium_source)
+            backfill.update(
+                {
+                    "status": "backfilled" if result.fully_priced else "still_incomplete",
+                    "network_requests": premium_source.requests_made,
+                    "detail": (
+                        "Missing Upstox history was refreshed and the replay was priced in full."
+                        if result.fully_priced
+                        else "Upstox was checked, but one or more exact contract candles are still unavailable."
+                    ),
+                }
+            )
+        except Exception as exc:
+            backfill.update(
+                {
+                    "status": "unavailable",
+                    "detail": f"Automatic Upstox backfill could not run: {exc}",
+                }
+            )
     fully_priced = result.fully_priced
     data_gaps = list(result.data_gaps)
     pricing_warning = (
-        "Exact fixed-strike premiums and net P&L are calculated from the local Upstox cache. "
-        "No live order or Upstox network request was made."
-        if fully_priced
-        else (
-            "The local Upstox cache is missing one or more exact contract candles. "
-            "The NIFTY signal is shown, but P&L is withheld rather than estimated."
+        (
+            "Missing Upstox history was backfilled, then exact fixed-strike net P&L was calculated. "
+            "No live order was sent."
+            if backfill["attempted"]
+            else "Exact fixed-strike premiums and net P&L are calculated from the local Upstox cache. "
+            "No live order or Upstox network request was made."
         )
+        if fully_priced
+        else (f"{backfill['detail']} The NIFTY signal is shown, but P&L is withheld rather than estimated.")
     )
 
     return {
@@ -7314,17 +7359,18 @@ def _run_cascade_feasibility(
         "pricing_warning": pricing_warning,
         "expiry_calendar_warning": (
             "Expiry selection follows Tuesday weekly expiry and shifts a market-holiday Tuesday to the "
-            "previous Dhan-confirmed NIFTY trading session. Exact contract premium history remains separate."
+            "previous Dhan-confirmed NIFTY trading session. Each selected contract is then priced separately."
         ),
         "data": {
-            "provider": "Dhan index candles + cached Upstox option candles",
-            "source": "Dhan NIFTY index candles; exact fixed-strike Upstox cache",
+            "provider": "Dhan index candles + cached/backfilled Upstox option candles",
+            "source": "Dhan NIFTY index candles; exact fixed-strike Upstox cache with targeted backfill",
             "index_candles": {timeframe: len(rows) for timeframe, rows in index_candles.items()},
             "option_candles": len(result.entries) + len(result.exit_option_prices),
-            "upstox_cache_only": True,
+            "upstox_cache_only": not backfill["attempted"],
             "upstox_network_requests": premium_source.requests_made,
             "missing_contracts": premium_source.missing_contracts,
             "missing_minutes": premium_source.missing_minutes,
+            "upstox_backfill": backfill,
             "from_date": from_date,
             "to_date": to_date,
             "stage_timeframes": list(config.stage_timeframes),
