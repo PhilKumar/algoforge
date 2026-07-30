@@ -165,27 +165,10 @@
       <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
       <span class="tab-label">Scalp</span>
     </button>
-    <div class="nav-item-menu" id="nav-cascade-wrap">
-      <button id="nav-cascade" class="nav-tab nav-tab-menu" type="button" data-pf-action="toggleCascadeMenu" style="--accent-tab: #f59e0b;">
-        <span class="tab-icon" style="color: #f59e0b;">↗</span>
-        <span class="tab-label">Cascade</span>
-        <span class="nav-caret">▾</span>
-      </button>
-      <div class="nav-submenu" id="nav-cascade-menu">
-        <button class="nav-subtab" type="button" data-pf-nav-page="cascade-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initCascadePage">
-          <span class="nav-subtab-icon" style="color:#fbbf24;">↗</span>
-          <span class="nav-subtab-copy"><span class="nav-subtab-title">Signal Replay</span><span class="nav-subtab-desc">Manual CE/PE cascade backtest</span></span>
-        </button>
-        <button class="nav-subtab" type="button" data-pf-nav-page="cascade-options-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initCascadeOptionsPage">
-          <span class="nav-subtab-icon" style="color:#34d399;">◈</span>
-          <span class="nav-subtab-copy"><span class="nav-subtab-title">Options Paper</span><span class="nav-subtab-desc">Current-session paper campaign</span></span>
-        </button>
-        <button class="nav-subtab" type="button" data-pf-nav-page="options-cascade-page" data-pf-nav-tab="nav-cascade" data-pf-after-nav="initOptionsCascadePage">
-          <span class="nav-subtab-icon" style="color:#38bdf8;">⑃</span>
-          <span class="nav-subtab-copy"><span class="nav-subtab-title">Options Cascade</span><span class="nav-subtab-desc">Fib-boundary &amp; Candle-entry paper</span></span>
-        </button>
-      </div>
-    </div>
+    <button id="nav-cascade" class="nav-tab" data-pf-nav-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" style="--accent-tab: #f59e0b;">
+      <span class="tab-icon" style="color: #f59e0b;">↗</span>
+      <span class="tab-label">Cascade</span>
+    </button>
     <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page">
       <span class="tab-icon" style="color: #f59e0b;" id="ico-builder"></span>
       <span class="tab-label">Strategy Builder</span>
@@ -1751,93 +1734,23 @@
   </div>
 </div>
 
-<!-- ═══ NIFTY OPTIONS CASCADE PAPER ENGINE ═══ -->
-<div id="cascade-options-page" class="page-section">
-  <div class="card-glass" style="padding:20px;margin-bottom:16px;border-color:rgba(52,211,153,.3);background:linear-gradient(110deg,rgba(6,78,59,.25),rgba(15,23,42,.15));">
-    <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
-      <div>
-        <div style="font-size:11px;color:#34d399;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px;">NIFTY 5m index geometry · fixed next-weekly CE</div>
-        <h2 style="margin:0;font-size:22px;">Options Cascade Campaign</h2>
-        <p style="margin:7px 0 0;color:var(--muted);font-size:12px;max-width:760px;line-height:1.6;">Paper execution only. The index builds the geometry; one ATM−2 CE is fixed at the mother candle and every paper rung uses that same contract. Round P&amp;L is shown net of configured charges.</p>
-      </div>
-      <div id="cascade-options-live-gate" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#fde68a;border:1px solid rgba(251,191,36,.3);background:rgba(245,158,11,.08);border-radius:8px;padding:9px 11px;line-height:1.45;max-width:290px;">LIVE LOCKED<br><span style="color:var(--muted);">Paper validation required</span></div>
-    </div>
-  </div>
-
-  <div class="cascade-options-workspace">
-    <div class="card cascade-options-setup-card" style="padding:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
-        <h3 style="margin:0;font-size:15px;">Start paper campaign</h3>
-        <span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">CE ONLY · 5m</span>
-      </div>
-      <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Choose a completed NIFTY 5m candle from the <strong style="color:var(--text);">last 14 calendar days</strong>. Its OHLC is loaded from Dhan automatically; the four fields below are only for a complete manual correction.</div>
-      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label>
-      <input id="cascade-options-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="300" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Open <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-open" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Close <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-close" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">High <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-high" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Low <span style="text-transform:none;letter-spacing:0;">(optional)</span></label><input id="cascade-options-mother-low" type="number" min="1" step="0.05" placeholder="Auto-loaded" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="cascade-options-rung-inr" type="number" min="1" step="500" value="13000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">CE offset</label><select id="cascade-options-offset" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="-2" selected>ATM − 2 strikes</option><option value="-1">ATM − 1 strike</option><option value="0">ATM</option></select></div>
-      </div>
-      <div class="pf-cascade-campaign-actions"><button id="cascade-options-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startCascadeOptionsPaper">▶ Start paper campaign</button></div>
-      <div id="cascade-options-form-status" style="min-height:18px;padding-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-    </div>
-
-    <details id="cascade-options-window" class="cascade-options-window">
-      <summary class="cascade-options-window-head">
-        <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="cascade-options-badge" class="cascade-options-state">IDLE</span></div><div id="cascade-options-contract" class="cascade-options-contract">No active campaign</div></div>
-        <div id="cascade-options-gist" class="cascade-options-gist">Choose a completed 5m mother candle to begin.</div>
-        <div class="cascade-options-strip-actions"><button id="cascade-options-load-chart" class="cascade-options-control" type="button" data-pf-action="loadCascadeOptionsChart" aria-label="Open campaign chart">↗ Chart</button><button id="cascade-options-stop" class="cascade-options-control is-warn" type="button" data-pf-action="stopCascadeOptionsPaper" style="display:none;">■ Stop</button><button id="cascade-options-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killCascadeOptionsPaper" style="display:none;">■ Kill</button></div>
-      </summary>
-      <div class="cascade-options-window-body">
-        <div id="cascade-options-summary" class="cascade-options-summary"></div>
-        <div id="cascade-options-empty" class="cascade-options-empty">Start a current-session paper campaign to see the fixed contract, index geometry, paper fills and net round P&amp;L here.</div>
-        <div id="cascade-options-active" style="display:none;margin-top:16px;">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
-          <div id="cascade-options-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Index rungs</div>
-          <div id="cascade-options-rungs" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
-        </div>
-      </div>
-    </details>
-  </div>
-
-  <div style="display:grid;grid-template-columns:minmax(430px,1.3fr) minmax(300px,.7fr);gap:16px;margin-top:16px;align-items:start;">
-    <div class="card" style="padding:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper rounds · net P&amp;L</h3><span id="cascade-options-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
-      <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Exit CE</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="cascade-options-rounds"><tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
-    </div>
-    <div class="card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span style="font:10px 'JetBrains Mono',monospace;color:#34d399;">5m CLOSED BARS</span></div><div id="cascade-options-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
-  </div>
-
-  <div id="cascade-options-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
-    <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="NIFTY 5 minute geometry chart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 style="margin:0;font-size:15px;">NIFTY 5m geometry chart</h3><div id="cascade-options-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#34d399;">■</span> gap-up &nbsp; <span style="color:#f87171;">■</span> gap-down &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideCascadeOptionsChart">Close</button></div></div>
-      <div id="cascade-options-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY 5m candles. Overnight gaps are connected visually only; paper geometry continues to use native exchange OHLC.</div></div>
-    </div>
-  </div>
-</div>
-
 <!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
 <div id="options-cascade-page" class="page-section">
   <div class="card-glass oc-hero">
     <div class="oc-hero-content">
       <div class="oc-hero-copy">
-        <div class="oc-kicker">Manual mother · deep fib boundaries · one target then done</div>
-        <h2>Options Cascade</h2>
-        <p>Two paper strategies. <strong>Fib-boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong>Candle-entry</strong> is the two-red recovery buy-stop on a single 1H mother. Paper only; no live order is sent.</p>
+        <div class="oc-kicker">NIFTY options cascade · every strategy, paper and backtest</div>
+        <h2>Cascade</h2>
+        <p>Three strategies, one place. <strong>Fib Boundary</strong> anchors a deep fib ladder to a mother candle you type by hand and buys only on those levels — 4 &amp; 8 on 1m/5m, 2/4/8 on 15m/1H — CE below support or PE above resistance, closing the whole basket on the first 0.25 target. <strong>Candle Entry</strong> is the two-red recovery buy-stop on a single 1H mother. <strong>Signal Ladder</strong> replays the 1 + 2 + 3 cascade against real historical premiums. Paper and backtest only; no live order is ever sent.</p>
       </div>
       <div id="options-cascade-live-gate" class="oc-live-gate"><strong>LIVE LOCKED</strong><span>Paper validation required</span></div>
     </div>
   </div>
 
   <div class="oc-tabs" role="tablist">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib">⑃ Fib-boundary</button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle">◧ Candle-entry</button>
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest">⑃ Fib Boundary</button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="1H two-red recovery buy-stop — paper">◧ Candle Entry</button>
+    <button id="oc-tabbtn-signal" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="signal" title="1 + 2 + 3 cascade replay — backtest">↗ Signal Ladder</button>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->
@@ -1877,15 +1790,15 @@
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
-        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest">◱ Backtest real premiums</button></div>
+        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Runs the auto-geometry engine (trendline → touch → fib), not the deep-fib ladder above">◱ Backtest · auto-geometry</button></div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
       <details id="fibx-backtest" class="cascade-options-window fibx-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Historical backtest</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike Upstox premiums</div></div>
-          <div id="fibx-backtest-gist" class="cascade-options-gist">Prices every leg off Upstox expired-option history.</div>
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Historical backtest · auto-geometry</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike Upstox premiums · CE only</div></div>
+          <div id="fibx-backtest-gist" class="cascade-options-gist">Auto trendline → touch → fib with a 1/2/3 lot ladder — <strong>not</strong> the typed deep-fib levels above. Prices every leg off Upstox expired-option history.</div>
           <div class="cascade-options-strip-actions"><button id="fibx-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button></div>
         </summary>
         <div class="cascade-options-window-body">
@@ -1953,15 +1866,14 @@
       </section>
     </div>
   </div>
-</div>
 
-<!-- ═══ CASCADE BACKTEST ═══ -->
-<div id="cascade-page" class="page-section">
+  <!-- ── TAB · Signal Ladder (the 1 + 2 + 3 replay, formerly "Signal Replay") ── -->
+  <div id="oc-tab-signal" class="oc-tab-panel" style="display:none;">
   <div class="card-glass" style="padding: 20px; margin-bottom: 16px; border-color: rgba(245,158,11,.32);">
     <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
       <div>
         <div style="font-size:11px; color:#fbbf24; font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:6px;">Backtest only · no live orders</div>
-        <h2 style="margin:0; font-size:22px;">NIFTY Options Cascade</h2>
+        <h3 style="margin:0; font-size:18px;">Signal Ladder · 1 + 2 + 3 replay</h3>
         <p style="margin:7px 0 0; color:var(--muted); font-size:12px; max-width:720px; line-height:1.55;">A manual, contract-aware replay of your 1 + 2 + 3 cascade. Dhan supplies the NIFTY signal path; exact fixed-strike premiums come from the local Upstox cache. Missing historical option data is backfilled automatically when Upstox access is available. P&amp;L is shown only when every required candle exists. No live orders are sent.</p>
       </div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#fde68a; border:1px solid rgba(245,158,11,.28); background:rgba(245,158,11,.08); border-radius:7px; padding:8px 10px; line-height:1.45;">Contract rules<br>2 ITM · 7–13 DTE · skip current week</div>
@@ -2026,6 +1938,7 @@
 
   <div class="card-glass" style="margin-top:16px; padding:14px 16px; border-color:rgba(251,191,36,.24); background:rgba(245,158,11,.045); color:#fde68a; font-size:11px; line-height:1.55;">
     <strong>Data status — exact-contract pricing with safe backfill:</strong> Dhan supplies the NIFTY signal sequence. The backtest first checks local cached Upstox 1-minute candles, then refreshes only missing strike/expiry data when Upstox access is available. If a required contract or minute still does not exist, the result shows the exact gap and withholds P&amp;L rather than estimating it.
+  </div>
   </div>
 </div>
 

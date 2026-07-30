@@ -966,8 +966,6 @@ const NAV_BUTTON_MAP = {
   'live-page': 'nav-live',
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
-  'cascade-page': 'nav-cascade',
-  'cascade-options-page': 'nav-cascade',
   'options-cascade-page': 'nav-cascade',
   'charts-page': 'nav-charts',
 };
@@ -1241,8 +1239,6 @@ async function applyNavState(state) {
   if (page === 'live-page') startLiveMonitor();
   if (page === 'stock-terminal-page') initStockTerminalPage();
   if (page === 'scalp-page') initScalpPage();
-  if (page === 'cascade-page') initCascadePage();
-  if (page === 'cascade-options-page') initCascadeOptionsPage();
   if (page === 'options-cascade-page') initOptionsCascadePage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
@@ -1304,7 +1300,6 @@ function showPage(id, btn, options = {}) {
   // Stop scalp polling when leaving scalp page
   if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   if (id !== 'scalp-page' && _scalpLTPTimer) { clearInterval(_scalpLTPTimer); _scalpLTPTimer = null; }
-  if (id !== 'cascade-options-page' && _cascadeOptionsPollTimer) { clearInterval(_cascadeOptionsPollTimer); _cascadeOptionsPollTimer = null; }
   if (id !== 'options-cascade-page' && _fibBoundaryPollTimer) { clearInterval(_fibBoundaryPollTimer); _fibBoundaryPollTimer = null; }
   if (id !== 'portfolio-page') stopPortfolioRefresh();
   // Start/stop builder preview polling
@@ -2031,14 +2026,20 @@ window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 let _fibBoundaryPollTimer = null;
 let _lastFibBoundaryStatus = null;
 
+// The three strategies live on one page now; each tab owns its own engine.
+// 'signal' is the old Signal Replay page — backtest only, so it has no poller
+// to kick, just the date default its form expects.
+const _OC_TABS = ['fib', 'candle', 'signal'];
+
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
   document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => b.classList.toggle('is-active', b.getAttribute('data-oc-tab') === tab));
-  const fib = document.getElementById('oc-tab-fib');
-  const candle = document.getElementById('oc-tab-candle');
-  if (fib) fib.style.display = tab === 'fib' ? '' : 'none';
-  if (candle) candle.style.display = tab === 'candle' ? '' : 'none';
+  _OC_TABS.forEach(name => {
+    const panel = document.getElementById(`oc-tab-${name}`);
+    if (panel) panel.style.display = name === tab ? '' : 'none';
+  });
   if (tab === 'candle') refreshCandleEntryStatus();
+  else if (tab === 'signal') initCascadePage();
   else refreshFibBoundaryStatus();
 }
 
@@ -2067,7 +2068,7 @@ function _syncFibModeHint() {
     el.textContent = '▶ Live paper: buys at real current premiums, P&L accrues live this session.';
   } else {
     el.classList.add('is-replay');
-    el.textContent = '↻ Past mother → Start runs SIGNAL-ONLY (P&L withheld). Use ◱ Backtest for real historical P&L.';
+    el.textContent = '↻ Past mother → Start runs SIGNAL-ONLY (P&L withheld). ◱ Backtest gives real historical P&L, but for the auto-geometry engine — not these typed fib levels.';
   }
 }
 
@@ -2078,6 +2079,7 @@ async function initOptionsCascadePage() {
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
   _syncFibModeHint();
+  initCascadePage();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
   if (!_fibBoundaryPollTimer) {
@@ -12487,8 +12489,8 @@ document.addEventListener('visibilitychange', () => {
   if (_isPageActive('scalp-page')) {
     try { refreshScalpStatus(); } catch(e) {}
   }
-  if (_isPageActive('cascade-options-page')) {
-    try { refreshCascadeOptionsStatus(); } catch(e) {}
+  if (_isPageActive('options-cascade-page')) {
+    try { refreshFibBoundaryStatus(); } catch(e) {}
   }
   // Tab is back in focus — check WebSocket health immediately
   const alive = _ws && _ws.readyState === 1;
