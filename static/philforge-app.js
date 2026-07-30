@@ -4316,7 +4316,6 @@ const _terminalCascadeOpenSymbols = new Set();
 let _terminalCascadeChartTimeframe = 'auto';
 let _terminalCascadeChartPayload = null;
 let _terminalCascadeChartContext = null;
-let _terminalCascadeZoom = { k: 1, x: 0, y: 0 };
 const _STOCK_TERMINAL_KEY = 'philforge_stock_terminal_symbol_v1';
 const _TERMINAL_CASCADE_CAPITAL_KEY = 'philforge_terminal_cascade_capital_v1';
 
@@ -4620,6 +4619,7 @@ function _renderTerminalCascadeStatus(payload) {
     if (flow) flow.innerHTML = _terminalCascadeEmptyWindow(selectedSymbol, referenceSymbol);
     _renderTerminalOpenPositions([]);
     _renderTerminalRoundsLedger();
+    _renderTerminalEventFeed([]);
     return;
   }
   if (badge) {
@@ -4642,6 +4642,7 @@ function _renderTerminalCascadeStatus(payload) {
   if (flow) flow.innerHTML = campaigns.map(_terminalCascadeWindow).join('');
   _renderTerminalOpenPositions(campaigns);
   _renderTerminalRoundsLedger();
+  _renderTerminalEventFeed(campaigns);
 }
 
 function _terminalCascadeEmptyWindow(symbol, reference) {
@@ -4706,6 +4707,7 @@ function _terminalCascadeWindow(campaign) {
       <div class="pf-campaign-actions">
         ${button('Chart', `loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')`)}
         ${campaign.running ? button('Stop', `stopTerminalCascadePaper('${escapeAttr(symbol)}')`) : ''}
+        ${ended ? button('New mother', `terminalCascadeNewMother('${escapeAttr(symbol)}')`) : ''}
         ${button('Delete', `deleteTerminalCascadePaper('${escapeAttr(symbol)}')`, 'btn-danger')}
       </div>
     </summary>
@@ -4830,8 +4832,40 @@ async function refreshTerminalCascadeStatus() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.detail || 'Unable to load Terminal Cascade');
     _renderTerminalCascadeStatus(data);
+    _terminalCascadePollChartRefresh();
   } catch (error) {
     _terminalCascadeSetStatus(error.message || 'Unable to load Terminal Cascade.', 'error');
+  }
+}
+
+// An open chart follows the campaign it shows: every status poll re-fetches
+// the chart payload and repaints in place, keeping the viewport. One request
+// in flight is enough — a slow chart must not race a newer poll.
+let _terminalCascadeChartPollInFlight = false;
+async function _terminalCascadePollChartRefresh() {
+  const overlayEl = _terminalCascadeEl('terminal-cascade-chart-overlay');
+  const context = _terminalCascadeChartContext;
+  if (!overlayEl?.classList.contains('is-open') || !context?.symbol || !context?.timestamp) return;
+  if (_terminalCascadeChartPollInFlight) return;
+  _terminalCascadeChartPollInFlight = true;
+  try {
+    const timeframe = _terminalCascadeCurrentChartTimeframe();
+    const url = `/api/terminal/cascade/chart?symbol=${encodeURIComponent(context.symbol)}&mother_timestamp=${encodeURIComponent(context.timestamp)}&timeframe=${encodeURIComponent(timeframe)}`;
+    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') return;
+    if (!overlayEl.classList.contains('is-open')) return;
+    const keep = _terminalCascadeCanvasViewSnapshot();
+    _terminalCascadeChartPayload = data;
+    const body = _terminalCascadeEl('terminal-cascade-chart-body');
+    if (body) {
+      body.innerHTML = _terminalCascadeChartHtml(data);
+      _terminalCascadeMountCanvas(data, keep);
+    }
+  } catch (error) {
+    // A missed refresh is fine; the next poll tries again.
+  } finally {
+    _terminalCascadeChartPollInFlight = false;
   }
 }
 
@@ -4844,11 +4878,12 @@ async function startTerminalCascadePaper() {
     _terminalCascadeSetStatus('Select a symbol, timestamp, capital and TP fraction.', 'error');
     return;
   }
+  const timeframe = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
   const payload = {
     symbol,
-    mother_timestamp: timestamp,
+    mother_timestamp: timeframe === '1d' ? `${timestamp.slice(0, 10)}T09:15` : timestamp,
     capital_inr: capital,
-    timeframe: _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m',
+    timeframe,
     target_fraction: targetPct / 100,
     product_type: _terminalCascadeEl('terminal-cascade-product')?.value || 'CNC',
   };
@@ -4987,6 +5022,45 @@ function _renderTerminalOpenPositions(campaigns) {
     const tone = totalPnl >= 0 ? '#6ee7b7' : '#fca5a5';
     meta.innerHTML = `${open.length} open · ${escapeHtml(_terminalCascadeMoney(totalCost))} invested · <strong style="color:${tone};">${totalPnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(totalPnl)))}</strong> unrealised at the last traded candle close. Each basket sells itself at its target.`;
   }
+}
+
+function _renderTerminalEventFeed(campaigns) {
+  const body = document.getElementById('terminal-events-body');
+  if (!body) return;
+  const meta = document.getElementById('terminal-events-meta');
+  const rows = [];
+  (campaigns || []).forEach(campaign => {
+    const symbol = String(campaign?.instrument?.symbol || '—');
+    (campaign.events || []).forEach(event => rows.push({ symbol, event }));
+  });
+  rows.sort((a, b) => (Date.parse(b.event?.timestamp || 0) || 0) - (Date.parse(a.event?.timestamp || 0) || 0));
+  const shown = rows.slice(0, 60);
+  if (!shown.length) {
+    body.innerHTML = '<div class="terminal-cascade-empty">No events yet.</div>';
+    if (meta) meta.textContent = 'Every campaign’s events in one feed, latest first.';
+    return;
+  }
+  body.innerHTML = shown.map(row => {
+    const event = row.event || {};
+    const bits = [];
+    if (event.rung) bits.push(event.rung);
+    if (event.quantity) bits.push(`${event.quantity} qty`);
+    if (event.trade_price) bits.push(_cascadeNumber(event.trade_price));
+    if (event.target_price) bits.push(`TP ${_cascadeNumber(event.target_price)}`);
+    if (event.net_pnl !== undefined) bits.push(`net ${_terminalCascadeMoney(event.net_pnl)}`);
+    return `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))} · ${escapeHtml(row.symbol)}</span><strong>${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong><em>${bits.length ? escapeHtml(bits.join(' · ')) : ''}</em></div>`;
+  }).join('');
+  if (meta) meta.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} across ${(campaigns || []).length} campaign${(campaigns || []).length === 1 ? '' : 's'} — showing the latest ${shown.length}.`;
+}
+
+function terminalCascadeNewMother(symbol) {
+  // A campaign that ended MOTHER_BROKEN/RETESTED continues by hand here:
+  // Phil picks the next mother candle himself.
+  try { if (typeof selectStockTerminal === 'function') selectStockTerminal(symbol); } catch (err) { /* header optional */ }
+  const input = _terminalCascadeEl('terminal-cascade-mother-timestamp');
+  if (input) input.value = '';
+  document.getElementById('terminal-cascade-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  _terminalCascadeSetStatus(`${symbol} selected — pick the new mother candle and start the next campaign.`, 'busy');
 }
 
 function _terminalLedgerRows() {
@@ -5219,8 +5293,19 @@ function _terminalCascadeMarkChartTimeframe(resolved) {
   });
 }
 
+function terminalCascadeTimeframeChanged() {
+  // A daily mother is its date: the engine identifies it by the 09:15 session
+  // open, so snap whatever time is in the picker rather than rejecting it.
+  const tf = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
+  const input = _terminalCascadeEl('terminal-cascade-mother-timestamp');
+  if (!input) return;
+  if (tf === '1d' && input.value) input.value = `${input.value.slice(0, 10)}T09:15`;
+  if (tf === '1d') { input.step = 86400; input.title = 'Daily mother: pick the date — the time is always 09:15 IST.'; }
+  else { input.step = 300; input.title = ''; }
+}
+
 function setTerminalCascadeChartTimeframe(tf) {
-  _terminalCascadeChartTimeframe = ['auto', '5m', '15m', '1h'].includes(tf) ? tf : 'auto';
+  _terminalCascadeChartTimeframe = ['auto', '5m', '15m', '1h', '1d'].includes(tf) ? tf : 'auto';
   _terminalCascadeMarkChartTimeframe(_terminalCascadeCurrentChartTimeframe());
   const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
   if (overlay?.classList.contains('is-open')) loadTerminalCascadeChart({ keepOpen: true }).catch(() => {});
@@ -5272,7 +5357,7 @@ function _terminalCascadeChartHtml(payload) {
     <span style="color:#6ee7b7;">fills</span>
     ${referenceMode ? `<em>${escapeHtml(signal)} signal chart -> ${escapeHtml(trade)} trade/TP</em>` : '<em>Own chart, own trade and TP scale</em>'}
   </div>`;
-  return legend + _terminalCascadeChartSvg(payload) + _terminalCascadeChartDetails(payload);
+  return legend + _terminalCascadeCanvasHtml() + _terminalCascadeChartDetails(payload);
 }
 
 function _terminalCascadeChartPalette() {
@@ -5296,48 +5381,166 @@ function _terminalCascadeChartPalette() {
   };
 }
 
-function _terminalCascadeChartSvg(payload) {
+// ── Canvas chart renderer ─────────────────────────────────────────────
+// The Terminal chart draws on canvas the way the CryptoForge Cascade chart
+// does: device-pixel-ratio aware, pannable, zoomable around the cursor, with
+// a draggable price axis and a crosshair on its own cheap layer. The payload
+// and the palette are the only inputs shared with the SVG renderer this
+// replaced — what the lines MEAN is unchanged.
+let _tcv = null;
+
+function _terminalCascadeCanvasHtml() {
+  return '<div class="terminal-cascade-canvas-host" id="terminal-cascade-canvas-host">'
+    + '<canvas id="terminal-cascade-canvas-main"></canvas>'
+    + '<canvas id="terminal-cascade-canvas-overlay"></canvas>'
+    + '</div>';
+}
+
+function _terminalCascadeUnmountCanvas() {
+  if (_tcv && _tcv.ro) { try { _tcv.ro.disconnect(); } catch (err) { /* detached */ } }
+  _tcv = null;
+}
+
+function _terminalCascadeCanvasViewSnapshot() {
+  if (!_tcv) return null;
+  return {
+    symbol: _terminalCascadeChartContext?.symbol || '',
+    timeframe: _terminalCascadeChartContext?.timeframe || '',
+    start: _tcv.start,
+    count: _tcv.count,
+    atRight: _tcv.start + _tcv.count >= _tcv.candles.length - 0.5,
+    yAuto: _tcv.yAuto,
+    yMin: _tcv.yMin,
+    yMax: _tcv.yMax,
+  };
+}
+
+function _terminalCascadeMountCanvas(payload, keepView = null) {
+  _terminalCascadeUnmountCanvas();
+  const host = document.getElementById('terminal-cascade-canvas-host');
+  const main = document.getElementById('terminal-cascade-canvas-main');
+  const overlay = document.getElementById('terminal-cascade-canvas-overlay');
+  if (!host || !main || !overlay) return;
+  const candles = (Array.isArray(payload?.candles) ? payload.candles : [])
+    .filter(row => [row.o, row.h, row.l, row.c].every(value => Number.isFinite(Number(value))));
+  if (!candles.length) {
+    host.innerHTML = '<div class="pf-cascade-chart-empty">No candles</div>';
+    return;
+  }
+  const n = candles.length;
+  const view = { start: 0, count: n, yAuto: true, yMin: 0, yMax: 1 };
+  const sameContext = keepView
+    && keepView.symbol === (_terminalCascadeChartContext?.symbol || '')
+    && keepView.timeframe === (_terminalCascadeChartContext?.timeframe || '');
+  if (sameContext) {
+    view.count = Math.min(Math.max(keepView.count, 10), n);
+    // Pinned to the newest candle stays pinned when the poll appends bars.
+    view.start = keepView.atRight ? n - view.count : Math.max(0, Math.min(keepView.start, n - view.count));
+    view.yAuto = keepView.yAuto;
+    view.yMin = keepView.yMin;
+    view.yMax = keepView.yMax;
+  }
+  _tcv = {
+    host, main, overlay, payload, candles,
+    start: view.start, count: view.count,
+    yAuto: view.yAuto, yMin: view.yMin, yMax: view.yMax,
+    cross: null, drag: null, ro: null,
+  };
+  _terminalCascadeCanvasBindEvents();
+  _tcv.ro = new ResizeObserver(() => { _terminalCascadeCanvasDraw(); });
+  _tcv.ro.observe(host);
+  _terminalCascadeCanvasDraw();
+}
+
+function _tcvLayout() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = _tcv.host.clientWidth || 900;
+  const h = _tcv.host.clientHeight || 480;
+  [_tcv.main, _tcv.overlay].forEach(cv => {
+    const pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    cv.style.width = `${w}px`;
+    cv.style.height = `${h}px`;
+  });
+  return { dpr, w, h, gutter: 150, padR: 64, padT: 12, padB: 24 };
+}
+
+function _tcvMillis(value) {
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? t : 0;
+}
+
+// Fractional bar index for a timestamp. Candles deliberately skip NSE
+// overnight/weekend gaps, so anchors must live on the bar sequence, not on
+// elapsed calendar time.
+function _tcvBarIndexAt(value) {
+  const c = _tcv.candles, n = c.length;
+  const t = _tcvMillis(value);
+  if (!t || t <= _tcvMillis(c[0].t)) return 0;
+  if (t >= _tcvMillis(c[n - 1].t)) return n - 1;
+  for (let i = 1; i < n; i += 1) {
+    const right = _tcvMillis(c[i].t);
+    if (t > right) continue;
+    const left = _tcvMillis(c[i - 1].t);
+    const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
+    return (i - 1) + fraction;
+  }
+  return n - 1;
+}
+
+function _tcvStamp(value, daily) {
+  const options = daily
+    ? { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' }
+    : { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false };
+  return new Intl.DateTimeFormat('en-IN', options).format(new Date(value));
+}
+
+function _terminalCascadeCanvasDraw() {
+  if (!_tcv) return;
   const PAL = _terminalCascadeChartPalette();
-  const candles = Array.isArray(payload?.candles) ? payload.candles : [];
-  if (!candles.length) return '<div class="pf-cascade-chart-empty">No candles</div>';
-  const W = 1180, H = 520, padL = 168, padR = 58, padT = 14, padB = 30;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const n = candles.length, cw = plotW / Math.max(n, 1);
-  const geometry = payload.geometry || {};
+  const L = _tcvLayout();
+  const ctx = _tcv.main.getContext('2d');
+  ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+  ctx.clearRect(0, 0, L.w, L.h);
+  ctx.fillStyle = PAL.bg;
+  ctx.fillRect(0, 0, L.w, L.h);
+
+  const c = _tcv.candles, n = c.length;
+  const x0 = L.gutter, x1 = L.w - L.padR, y0 = L.padT, y1 = L.h - L.padB;
+  const plotW = Math.max(x1 - x0, 40), plotH = Math.max(y1 - y0, 40);
+  _tcv.count = Math.max(10, Math.min(_tcv.count, n));
+  _tcv.start = Math.max(0, Math.min(_tcv.start, n - _tcv.count));
+  const barW = plotW / _tcv.count;
+  const X = index => x0 + (index - _tcv.start + 0.5) * barW;
+
+  const geometry = _tcv.payload.geometry || {};
   const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
   const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
   const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
   const campaign = campaigns.find(row => row?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0] || {};
-  const instrument = payload.instrument || campaign.instrument || {};
+  const instrument = _tcv.payload.instrument || campaign.instrument || {};
   const ownScale = instrument.reference_mode !== 'reference_index';
-  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-  const millis = value => {
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+  const mother = _tcv.payload.mother || {};
 
-  let lo = Number(candles[0].l), hi = Number(candles[0].h);
-  candles.forEach(candle => {
-    const cLo = Number(candle.l), cHi = Number(candle.h);
-    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
-    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
-  });
-  const mother = payload.mother || {};
+  // Price range: fit what is visible, plus the levels the campaign trades
+  // from, exactly as the SVG renderer scaled. Manual axis drag overrides.
+  const first = Math.max(0, Math.floor(_tcv.start));
+  const last = Math.min(n - 1, Math.ceil(_tcv.start + _tcv.count));
+  let lo = Infinity, hi = -Infinity;
+  for (let i = first; i <= last; i += 1) {
+    lo = Math.min(lo, Number(c[i].l));
+    hi = Math.max(hi, Number(c[i].h));
+  }
   if (Number.isFinite(Number(mother.h))) hi = Math.max(hi, Number(mother.h));
   if (Number.isFinite(Number(mother.l))) lo = Math.min(lo, Number(mother.l));
   legs.forEach(leg => {
-    const fibHi = Number(leg.fib_high), fibLo = Number(leg.fib_low);
-    if (Number.isFinite(fibHi)) hi = Math.max(hi, fibHi);
-    if (Number.isFinite(fibLo)) lo = Math.min(lo, fibLo);
-    const range = fibHi - fibLo;
-    if (Number.isFinite(range) && range > 0) {
-      [0, 1, 2, 4, 8].forEach(level => {
-        const price = fibHi - level * range;
-        hi = Math.max(hi, price);
-        lo = Math.min(lo, price);
-      });
-    }
+    const fibHi = Number(leg.fib_high), fibLo = Number(leg.fib_low), range = fibHi - fibLo;
+    if (!Number.isFinite(range) || range <= 0) return;
+    [0, 1, 2, 4, 8].forEach(level => {
+      const price = fibHi - level * range;
+      hi = Math.max(hi, price);
+      lo = Math.min(lo, price);
+    });
   });
   if (ownScale) {
     [campaign.target_price, campaign.average_entry_price].forEach(price => {
@@ -5346,64 +5549,90 @@ function _terminalCascadeChartSvg(payload) {
     });
   }
   const span = (hi - lo) || 1;
-  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
-  const X = index => padL + index * cw + cw / 2;
-  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
-  const Xt = value => {
-    const t = millis(value);
-    if (!t) return X(0);
-    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
-    if (t <= first) return X(0);
-    if (t >= last) return X(n - 1);
-    // Candles deliberately skip NSE overnight/weekend gaps. Anchor positions
-    // must use that same bar sequence, not elapsed calendar time.
-    for (let index = 1; index < n; index += 1) {
-      const right = millis(candles[index].t);
-      if (t > right) continue;
-      const left = millis(candles[index - 1].t);
-      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
-      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
-    }
-    return X(n - 1);
-  };
-  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
-  const colorById = id => PAL.fibs[(Math.max(1, Number(id) || 1) - 1) % PAL.fibs.length];
-  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
+  let maxP = hi + span * 0.06, minP = lo - span * 0.06;
+  if (!_tcv.yAuto && Number.isFinite(_tcv.yMin) && Number.isFinite(_tcv.yMax) && _tcv.yMax > _tcv.yMin) {
+    minP = _tcv.yMin;
+    maxP = _tcv.yMax;
+  } else {
+    _tcv.yMin = minP;
+    _tcv.yMax = maxP;
+  }
+  const Y = price => y0 + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
+  _tcv.frame = { x0, x1, y0, y1, plotW, plotH, barW, minP, maxP };
 
-  // A 1px stroke centred on a fractional coordinate is spread across two pixel
-  // columns by the rasteriser, which is what makes every line look soft. Centre
-  // strokes on a half pixel and align filled edges to whole ones instead.
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const mono = size => `${size}px "JetBrains Mono", monospace`;
   const sharp = value => Math.round(value) + 0.5;
-  const solid = value => Math.round(value);
 
+  // Grid and price axis.
+  ctx.font = mono(9.5);
+  ctx.textBaseline = 'middle';
   for (let i = 0; i <= 4; i += 1) {
     const price = minP + (maxP - minP) * (i / 4);
-    const y = Y(price);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
-  }
-  const tickCount = Math.min(6, n);
-  for (let i = 0; i < tickCount; i += 1) {
-    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
-    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
+    const y = sharp(Y(price));
+    ctx.strokeStyle = PAL.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.fillStyle = PAL.axis;
+    ctx.textAlign = 'left';
+    ctx.fillText(number(price), x1 + 6, y);
   }
 
-  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
-  candles.forEach((candle, index) => {
-    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
-    if (![o, h, l, c].every(Number.isFinite)) return;
-    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
-    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
-    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
-    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
+  // Time axis.
+  const daily = String(_terminalCascadeChartContext?.timeframe || '') === '1d';
+  const ticks = Math.min(6, Math.max(2, Math.floor(plotW / 130)));
+  ctx.fillStyle = PAL.axis;
+  ctx.textAlign = 'center';
+  for (let i = 0; i < ticks; i += 1) {
+    const at = Math.round(_tcv.start + (_tcv.count - 1) * (i / Math.max(ticks - 1, 1)));
+    if (at < 0 || at >= n) continue;
+    ctx.fillText(_tcvStamp(c[at].t, daily), X(at), L.h - 10);
+  }
+
+  // Everything price-anchored clips to the plot; labels live in the gutter.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y0, plotW, plotH);
+  ctx.clip();
+
+  const bodyW = Math.max(Math.min(barW * 0.65, 9), 1);
+  for (let i = first; i <= last; i += 1) {
+    const candle = c[i];
+    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), close = Number(candle.c);
+    const x = X(i), up = close >= o;
+    ctx.strokeStyle = ctx.fillStyle = up ? PAL.up : PAL.down;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sharp(x), Math.round(Y(h)));
+    ctx.lineTo(sharp(x), Math.round(Y(l)));
+    ctx.stroke();
+    const top = Math.round(Y(Math.max(o, close)));
+    const bottom = Math.round(Y(Math.min(o, close)));
+    const left = Math.round(x - bodyW / 2);
+    ctx.fillRect(left, top, Math.max(Math.round(x + bodyW / 2) - left, 1), Math.max(bottom - top, 1));
     if (candle.is_mother) {
-      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
-      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
-      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
+      const bandW = Math.max(bodyW, 6) + 6;
+      ctx.save();
+      ctx.globalAlpha = 0.09;
+      ctx.fillStyle = PAL.mother;
+      ctx.fillRect(x - bandW / 2, y0 + 1, bandW, plotH - 2);
+      ctx.restore();
+      ctx.strokeStyle = PAL.mother;
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(x - bodyW / 2 - 1, Y(h) - 1, bodyW + 2, Math.max(Y(l) - Y(h) + 2, 4));
+      ctx.fillStyle = PAL.mother;
+      ctx.font = `700 ${mono(9.5)}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('MC', x, Math.max(Y(h) - 10, y0 + 8));
+      ctx.font = mono(9.5);
     }
-  });
+  }
 
+  // Horizontal levels: draw inside the clip, remember labels for the gutter.
+  const labels = [];
   const labelSlots = [];
   const label = (y, text, color) => {
     let ly = y;
@@ -5414,41 +5643,71 @@ function _terminalCascadeChartSvg(payload) {
       }
     }
     labelSlots.push(ly);
-    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
+    labels.push({ y: ly, text, color });
   };
+  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
   const hline = (price, color, text, dash, width, opacity) => {
     const p = Number(price);
     if (!inView(p)) return;
-    const y = Y(p);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
+    const y = sharp(Y(p));
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width || 1;
+    ctx.globalAlpha = opacity || 1;
+    ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.restore();
     if (text) label(y, text, color);
   };
+  const colorById = id => PAL.fibs[(Math.max(1, Number(id) || 1) - 1) % PAL.fibs.length];
 
-  if (Number.isFinite(Number(mother.h))) hline(Number(mother.h), PAL.mother, `MOTHER (${number(mother.h)})`, '5 3', 1.1);
+  if (Number.isFinite(Number(mother.h))) hline(Number(mother.h), PAL.mother, `MOTHER (${number(mother.h)})`, [5, 3], 1.1);
 
   trendlines.forEach(line => {
-    const a1t = millis(line.anchor1_timestamp), a2t = millis(line.anchor2_timestamp);
-    if (!a1t || !a2t || a1t === a2t) return;
-    const a1p = Number(line.anchor1_price);
-    const a2p = Number(line.anchor2_price);
+    const a1p = Number(line.anchor1_price), a2p = Number(line.anchor2_price);
     if (!Number.isFinite(a1p) || !Number.isFinite(a2p)) return;
+    const b1 = _tcvBarIndexAt(line.anchor1_timestamp), b2 = _tcvBarIndexAt(line.anchor2_timestamp);
+    if (b1 === b2) return;
+    const px1 = X(b1), px2 = X(b2);
     const color = colorById(line.id);
     const noFib = line.bears_fib === false;
-    const x1 = Xt(line.anchor1_timestamp), y1 = Y(a1p);
-    const x2 = Xt(line.anchor2_timestamp), y2 = Y(a2p);
-    // Match CryptoForge: project the validated line across the current chart,
-    // but calculate that projection from its two bar-axis anchors. This keeps
-    // it exactly on the mother high and the selected red-candle open even when
-    // the visible NSE candles span overnight or weekend gaps.
-    const visualSlope = x2 === x1 ? 0 : (a2p - a1p) / (x2 - x1);
-    const yStart = Y(a1p + visualSlope * (padL - x1));
-    const yEnd = Y(a1p + visualSlope * (padL + plotW - x1));
-    parts.push(`<line x1="${padL}" y1="${yStart.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${yEnd.toFixed(1)}" stroke="${color}" stroke-width="${noFib ? .8 : 1.5}" opacity="${noFib ? .35 : .96}" stroke-linecap="round"${noFib ? ' stroke-dasharray="6 4"' : ''}/>`);
-    if (inView(a1p)) parts.push(`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.3" fill="${color}"/>`);
+    const visualSlope = px2 === px1 ? 0 : (a2p - a1p) / (px2 - px1);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = noFib ? 0.8 : 1.5;
+    ctx.globalAlpha = noFib ? 0.35 : 0.96;
+    ctx.setLineDash(noFib ? [6, 4] : []);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, Y(a1p + visualSlope * (x0 - px1)));
+    ctx.lineTo(x1, Y(a1p + visualSlope * (x1 - px1)));
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = color;
+    if (inView(a1p)) {
+      ctx.beginPath();
+      ctx.arc(px1, Y(a1p), 2.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (inView(a2p)) {
-      parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="4.2" fill="${PAL.bg}" stroke="${color}" stroke-width="1.8"/>`);
-      parts.push(`<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="1.9" fill="${color}"/>`);
-      parts.push(`<text x="${(x2 + 6).toFixed(1)}" y="${(y2 - 7).toFixed(1)}" fill="${color}" font-size="9.5" font-family="monospace" font-weight="700">TL${escapeHtml(line.id)} red open</text>`);
+      ctx.beginPath();
+      ctx.arc(px2, Y(a2p), 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = PAL.bg;
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(px2, Y(a2p), 1.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = `700 ${mono(9.5)}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(`TL${line.id} red open`, px2 + 6, Y(a2p) - 8);
+      ctx.font = mono(9.5);
     }
   });
 
@@ -5456,121 +5715,212 @@ function _terminalCascadeChartSvg(payload) {
     const trendline = trendlines.find(line => Number(line.id) === Number(leg.trendline_id));
     if (trendline?.bears_fib === false) return;
     const color = colorById(leg.trendline_id || leg.leg_id);
-    const hiP = Number(leg.fib_high), loP = Number(leg.fib_low), range = hiP - loP;
+    const fibHi = Number(leg.fib_high), fibLo = Number(leg.fib_low), range = fibHi - fibLo;
     if (!Number.isFinite(range) || range <= 0) return;
-    hline(hiP, color, `0 (${number(hiP)})`, null, .8, .4);
-    hline(loP, color, `1 (${number(loP)})`, null, .8, .4);
+    hline(fibHi, color, `0 (${number(fibHi)})`, null, 0.8, 0.4);
+    hline(fibLo, color, `1 (${number(fibLo)})`, null, 0.8, 0.4);
     [2, 4, 8].forEach(level => {
-      const price = hiP - level * range;
+      const price = fibHi - level * range;
       const rung = (campaign.rungs || []).find(row => Number(row.leg_id) === Number(leg.leg_id) && Number(row.level) === level) || {};
       const budget = Number(rung.budget_inr || 0);
-      hline(price, color, `L${level} (${number(price)})${budget > 0 ? `  ${_terminalCascadeMoney(budget)}` : ''}`, null, 1.1, .9);
+      hline(price, color, `L${level} (${number(price)})${budget > 0 ? ` ${_terminalCascadeMoney(budget)}` : ''}`, null, 1.1, 0.9);
     });
-    if (leg.touch_timestamp && inView(hiP)) {
-      parts.push(`<circle cx="${Xt(leg.touch_timestamp).toFixed(1)}" cy="${Y(hiP).toFixed(1)}" r="3.5" fill="none" stroke="${color}" stroke-width="1.5"/>`);
+    if (leg.touch_timestamp && inView(fibHi)) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(X(_tcvBarIndexAt(leg.touch_timestamp)), Y(fibHi), 3.5, 0, Math.PI * 2);
+      ctx.stroke();
     }
   });
 
   (campaign.open_fills || []).forEach(fill => {
     const price = Number(fill.signal_price);
     if (!inView(price)) return;
-    parts.push(`<circle cx="${Xt(fill.timestamp).toFixed(1)}" cy="${Y(price).toFixed(1)}" r="3.5" fill="${PAL.fill}" stroke="${PAL.fillRing}" stroke-width="1"/>`);
+    ctx.beginPath();
+    ctx.arc(X(_tcvBarIndexAt(fill.timestamp)), Y(price), 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = PAL.fill;
+    ctx.fill();
+    ctx.strokeStyle = PAL.fillRing;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   });
   if (ownScale) {
-    if (inView(Number(campaign.target_price))) hline(Number(campaign.target_price), PAL.tp, `TARGET (${number(campaign.target_price)})`, '6 3', 1.2);
-    if (inView(Number(campaign.average_entry_price))) hline(Number(campaign.average_entry_price), PAL.avg, `AVG ENTRY (${number(campaign.average_entry_price)})`, '4 4', 1.1);
+    hline(Number(campaign.target_price), PAL.tp, `TARGET (${number(campaign.target_price)})`, [6, 3], 1.2);
+    hline(Number(campaign.average_entry_price), PAL.avg, `AVG ENTRY (${number(campaign.average_entry_price)})`, [4, 4], 1.1);
   }
-  const chartLabel = payload?.instrument?.signal_symbol || 'Signal';
-  // geometricPrecision is the right default for the diagonals and circles; the
-  // axis-aligned pieces opt into crispEdges individually above.
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} Cascade chart">${parts.join('')}</svg>`;
+  ctx.restore();
+
+  // Gutter labels, outside the clip so long ones never smear the candles.
+  ctx.font = mono(10);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  labels.forEach(item => {
+    ctx.fillStyle = item.color;
+    ctx.fillText(item.text, x0 - 6, item.y);
+  });
+
+  const readout = _terminalCascadeEl('terminal-cascade-zoom-level');
+  if (readout) readout.textContent = `${Math.round((n / _tcv.count) * 100)}%`;
+  _terminalCascadeCanvasDrawOverlay();
 }
 
-function _terminalCascadeChartSvgEl() {
-  return _terminalCascadeEl('terminal-cascade-chart-body')?.querySelector('svg') || null;
+function _terminalCascadeCanvasDrawOverlay() {
+  if (!_tcv || !_tcv.frame) return;
+  const PAL = _terminalCascadeChartPalette();
+  const L = _tcvLayout();
+  const ctx = _tcv.overlay.getContext('2d');
+  ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+  ctx.clearRect(0, 0, L.w, L.h);
+  const cross = _tcv.cross;
+  if (!cross) return;
+  const F = _tcv.frame;
+  const c = _tcv.candles, n = c.length;
+  const index = Math.floor(_tcv.start + (cross.x - F.x0) / F.barW);
+  if (index < 0 || index >= n || cross.x < F.x0 || cross.x > F.x1 || cross.y < F.y0 || cross.y > F.y1) return;
+  const snapX = F.x0 + (index - _tcv.start + 0.5) * F.barW;
+  const price = F.maxP - ((cross.y - F.y0) / F.plotH) * (F.maxP - F.minP);
+  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+  ctx.strokeStyle = PAL.axis;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(snapX, F.y0);
+  ctx.lineTo(snapX, F.y1);
+  ctx.moveTo(F.x0, cross.y);
+  ctx.lineTo(F.x1, cross.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.textBaseline = 'middle';
+  const priceText = number(price);
+  const pw = ctx.measureText(priceText).width + 10;
+  ctx.fillStyle = PAL.bg;
+  ctx.fillRect(F.x1 + 1, cross.y - 8, Math.max(pw, L.padR - 2), 16);
+  ctx.fillStyle = PAL.axis;
+  ctx.textAlign = 'left';
+  ctx.fillText(priceText, F.x1 + 6, cross.y);
+
+  const daily = String(_terminalCascadeChartContext?.timeframe || '') === '1d';
+  const candle = c[index];
+  const stampText = _tcvStamp(candle.t, daily);
+  const sw = ctx.measureText(stampText).width + 10;
+  ctx.fillStyle = PAL.bg;
+  ctx.fillRect(snapX - sw / 2, L.h - 18, sw, 14);
+  ctx.fillStyle = PAL.axis;
+  ctx.textAlign = 'center';
+  ctx.fillText(stampText, snapX, L.h - 11);
+
+  const ohlc = `O ${number(candle.o)}  H ${number(candle.h)}  L ${number(candle.l)}  C ${number(candle.c)}`;
+  ctx.textAlign = 'left';
+  const ow = ctx.measureText(ohlc).width + 12;
+  ctx.fillStyle = PAL.bg;
+  ctx.fillRect(F.x0 + 4, F.y0 + 2, ow, 16);
+  ctx.fillStyle = Number(candle.c) >= Number(candle.o) ? PAL.up : PAL.down;
+  ctx.fillText(ohlc, F.x0 + 10, F.y0 + 10);
 }
 
-function _terminalCascadeApplyZoom() {
-  const svg = _terminalCascadeChartSvgEl();
-  if (!svg) return;
-  if (!svg.dataset.baseViewbox) svg.dataset.baseViewbox = svg.getAttribute('viewBox') || '';
-  const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
-  if (base.length !== 4 || !Number.isFinite(base[2])) return;
-  const z = _terminalCascadeZoom;
-  const w = base[2] / z.k, h = base[3] / z.k;
-  z.x = Math.max(base[0], Math.min(z.x, base[0] + base[2] - w));
-  z.y = Math.max(base[1], Math.min(z.y, base[1] + base[3] - h));
-  svg.setAttribute('viewBox', `${z.x} ${z.y} ${w} ${h}`);
-  svg.style.cursor = z.k > 1 ? 'grab' : '';
-  const label = _terminalCascadeEl('terminal-cascade-zoom-level');
-  if (label) label.textContent = `${Math.round(z.k * 100)}%`;
+function _terminalCascadeCanvasBindEvents() {
+  const ov = _tcv.overlay;
+  ov.style.touchAction = 'none';
+  ov.addEventListener('pointerdown', event => {
+    if (!_tcv || !_tcv.frame) return;
+    const rect = ov.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    _tcv.drag = {
+      x, y,
+      start: _tcv.start,
+      yMin: _tcv.yMin,
+      yMax: _tcv.yMax,
+      axis: x > _tcv.frame.x1,
+      yAutoWas: _tcv.yAuto,
+    };
+    ov.style.cursor = _tcv.drag.axis ? 'ns-resize' : 'grabbing';
+    try { ov.setPointerCapture(event.pointerId); } catch (err) { /* fine */ }
+  });
+  ov.addEventListener('pointermove', event => {
+    if (!_tcv || !_tcv.frame) return;
+    const rect = ov.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    const drag = _tcv.drag;
+    if (drag) {
+      if (drag.axis) {
+        // Dragging the price axis down stretches the range (zooms out),
+        // up compresses it — around the range centre, TradingView-style.
+        const factor = Math.exp((y - drag.y) / 240);
+        const centre = (drag.yMin + drag.yMax) / 2;
+        const half = ((drag.yMax - drag.yMin) / 2) * factor;
+        _tcv.yMin = centre - half;
+        _tcv.yMax = centre + half;
+        _tcv.yAuto = false;
+      } else {
+        _tcv.start = drag.start - (x - drag.x) / _tcv.frame.barW;
+        if (!drag.yAutoWas) {
+          const perPx = (drag.yMax - drag.yMin) / _tcv.frame.plotH;
+          _tcv.yMin = drag.yMin + (y - drag.y) * perPx;
+          _tcv.yMax = drag.yMax + (y - drag.y) * perPx;
+        }
+      }
+      _terminalCascadeCanvasDraw();
+      return;
+    }
+    _tcv.cross = { x, y };
+    _terminalCascadeCanvasDrawOverlay();
+  });
+  const release = () => {
+    if (!_tcv) return;
+    _tcv.drag = null;
+    ov.style.cursor = 'crosshair';
+  };
+  ov.addEventListener('pointerup', release);
+  ov.addEventListener('pointercancel', release);
+  ov.addEventListener('pointerleave', () => {
+    if (!_tcv) return;
+    _tcv.cross = null;
+    _terminalCascadeCanvasDrawOverlay();
+  });
+  ov.addEventListener('wheel', event => {
+    if (!_tcv || !_tcv.frame) return;
+    event.preventDefault();
+    const rect = ov.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const F = _tcv.frame;
+    const anchor = _tcv.start + (x - F.x0) / F.barW;
+    const n = _tcv.candles.length;
+    const factor = event.deltaY < 0 ? 1 / 1.15 : 1.15;
+    _tcv.count = Math.max(10, Math.min(_tcv.count * factor, n));
+    _tcv.start = anchor - (x - F.x0) / (F.plotW / _tcv.count);
+    _terminalCascadeCanvasDraw();
+  }, { passive: false });
+  ov.addEventListener('dblclick', () => {
+    if (!_tcv) return;
+    _tcv.start = 0;
+    _tcv.count = _tcv.candles.length;
+    _tcv.yAuto = true;
+    _terminalCascadeCanvasDraw();
+  });
 }
 
 function terminalCascadeZoom(factor, resetPan = false) {
-  const svg = _terminalCascadeChartSvgEl();
-  if (!svg) return;
-  if (!svg.dataset.baseViewbox) svg.dataset.baseViewbox = svg.getAttribute('viewBox') || '';
-  const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
-  const previous = Number(_terminalCascadeZoom.k) || 1;
-  const step = Number(factor);
-  if (!Number.isFinite(step)) return;
-  _terminalCascadeZoom.k = Math.max(1, Math.min(12, step === 0 ? 1 : previous * step));
-  if (step === 0 || resetPan || _terminalCascadeZoom.k === 1 || base.length !== 4) {
-    _terminalCascadeZoom.x = base[0] || 0;
-    _terminalCascadeZoom.y = base[1] || 0;
+  if (!_tcv) return;
+  const n = _tcv.candles.length;
+  if (resetPan || !factor) {
+    _tcv.start = 0;
+    _tcv.count = n;
+    _tcv.yAuto = true;
   } else {
-    const cx = _terminalCascadeZoom.x + (base[2] / previous) / 2;
-    const cy = _terminalCascadeZoom.y + (base[3] / previous) / 2;
-    _terminalCascadeZoom.x = cx - (base[2] / _terminalCascadeZoom.k) / 2;
-    _terminalCascadeZoom.y = cy - (base[3] / _terminalCascadeZoom.k) / 2;
+    const centre = _tcv.start + _tcv.count / 2;
+    _tcv.count = Math.max(10, Math.min(_tcv.count / factor, n));
+    _tcv.start = centre - _tcv.count / 2;
   }
-  _terminalCascadeApplyZoom();
+  _terminalCascadeCanvasDraw();
 }
 
 function terminalCascadeZoomIn() { terminalCascadeZoom(1.4); }
 function terminalCascadeZoomOut() { terminalCascadeZoom(1 / 1.4); }
 function terminalCascadeZoomReset() { terminalCascadeZoom(0, true); }
-
-function _terminalCascadeBindZoom() {
-  const body = _terminalCascadeEl('terminal-cascade-chart-body');
-  if (!body || body.dataset.zoomBound === '1') return;
-  body.dataset.zoomBound = '1';
-  body.addEventListener('wheel', (event) => {
-    const svg = _terminalCascadeChartSvgEl();
-    if (!svg) return;
-    const overChart = svg === event.target || svg.contains(event.target);
-    if (!overChart && !event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    terminalCascadeZoom(event.deltaY < 0 ? 1.15 : 1 / 1.15);
-  }, { passive: false });
-  let drag = null;
-  body.addEventListener('pointerdown', (event) => {
-    const svg = _terminalCascadeChartSvgEl();
-    if (!svg || _terminalCascadeZoom.k <= 1) return;
-    drag = { x: event.clientX, y: event.clientY, vx: _terminalCascadeZoom.x, vy: _terminalCascadeZoom.y, w: svg.clientWidth || 1, h: svg.clientHeight || 1 };
-    svg.style.cursor = 'grabbing';
-    try { body.setPointerCapture(event.pointerId); } catch (err) {}
-  });
-  body.addEventListener('pointermove', (event) => {
-    if (!drag) return;
-    const svg = _terminalCascadeChartSvgEl();
-    if (!svg) return;
-    const base = (svg.dataset.baseViewbox || '').split(/\s+/).map(Number);
-    if (base.length !== 4) return;
-    _terminalCascadeZoom.x = drag.vx - (event.clientX - drag.x) * (base[2] / _terminalCascadeZoom.k) / drag.w;
-    _terminalCascadeZoom.y = drag.vy - (event.clientY - drag.y) * (base[3] / _terminalCascadeZoom.k) / drag.h;
-    _terminalCascadeApplyZoom();
-  });
-  const endDrag = (event) => {
-    if (!drag) return;
-    drag = null;
-    const svg = _terminalCascadeChartSvgEl();
-    if (svg) svg.style.cursor = _terminalCascadeZoom.k > 1 ? 'grab' : '';
-    try { body.releasePointerCapture(event.pointerId); } catch (err) {}
-  };
-  body.addEventListener('pointerup', endDrag);
-  body.addEventListener('pointercancel', endDrag);
-}
 
 function toggleTerminalCascadeFullscreen(force) {
   const panel = _terminalCascadeEl('terminal-cascade-chart-panel');
@@ -5608,6 +5958,7 @@ async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timef
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('terminal-cascade-chart-open');
   }
+  const keepViewSnapshot = _terminalCascadeCanvasViewSnapshot();
   if (body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading chart...</div>';
   _terminalCascadeMarkChartTimeframe(timeframe);
   try {
@@ -5623,8 +5974,7 @@ async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timef
     const cands = Array.isArray(data.candles) ? data.candles.length : 0;
     if (meta) meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${(data.geometry?.legs || []).length} fib(s), ${(data.geometry?.trendlines || []).length} trendline(s)`;
     _terminalCascadeSetStatus(`${data.instrument?.signal_symbol || symbol} chart loaded.`, 'success');
-    _terminalCascadeBindZoom();
-    terminalCascadeZoomReset();
+    _terminalCascadeMountCanvas(data, keepViewSnapshot);
     _terminalCascadeMarkChartTimeframe(data.timeframe || timeframe);
   } catch (error) {
     if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
@@ -5637,6 +5987,7 @@ function refreshTerminalCascadeChart() {
 }
 
 function hideTerminalCascadeChart() {
+  _terminalCascadeUnmountCanvas();
   toggleTerminalCascadeFullscreen(false);
   const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
   if (overlay) {

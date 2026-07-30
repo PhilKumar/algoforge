@@ -5363,6 +5363,11 @@
 .terminal-cascade-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .terminal-cascade-pager span { color: var(--muted); font: 11px var(--font-mono); }
 .terminal-cascade-round-dialog { max-width: 760px; width: min(760px, 94vw); margin: auto; }
+/* Canvas chart host: two stacked canvases, crosshair layer on top. */
+.terminal-cascade-canvas-host { position: relative; width: 100%; height: min(60vh, 540px); border-radius: 8px; overflow: hidden; }
+.terminal-cascade-canvas-host canvas { position: absolute; inset: 0; display: block; }
+#terminal-cascade-canvas-overlay { cursor: crosshair; }
+#terminal-cascade-chart-panel.is-fullscreen .terminal-cascade-canvas-host { height: calc(100vh - 230px); }
 .terminal-cascade-round-body { padding: 12px 14px; overflow: auto; }
 .terminal-cascade-round-body .terminal-cascade-ladder-table { min-width: 560px; }
 .terminal-cascade-log-body { max-height: 220px; overflow: auto; padding: 5px 13px 10px; font: 12px var(--font-mono); }

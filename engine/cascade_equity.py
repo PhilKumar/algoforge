@@ -420,15 +420,24 @@ class CashCascadePaperEngine:
         self.status = "WAITING"
         self.events: list[dict[str, Any]] = []
 
+    # A daily bar spans the whole NSE session: 09:15 + 375 minutes = 15:30.
+    DAILY_BAR_MINUTES = 375
+
     @staticmethod
     def normalise_frame(frame: Any, now: Optional[datetime] = None, *, timeframe_minutes: int = 5) -> list[IndexCandle]:
         if frame is None or getattr(frame, "empty", False):
             return []
         now_ist = _as_ist(now or datetime.now(IST))
+        daily = timeframe_minutes >= CashCascadePaperEngine.DAILY_BAR_MINUTES
         closed: list[IndexCandle] = []
         for timestamp, row in frame.iterrows():
             candle_time = timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp
             candle_time = _as_ist(candle_time)
+            if daily:
+                # Dhan stamps daily bars at whatever epoch its feed carries;
+                # restamp to the session open so the geometry's session guard
+                # and mother matching see one canonical time per date.
+                candle_time = candle_time.replace(hour=9, minute=15, second=0, microsecond=0)
             bar_minutes = 15 if timeframe_minutes == 60 and candle_time.time().hour == 15 else timeframe_minutes
             if candle_time + timedelta(minutes=bar_minutes) > now_ist:
                 continue

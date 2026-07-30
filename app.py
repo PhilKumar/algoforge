@@ -6352,7 +6352,23 @@ _TERMINAL_CASCADE_REFERENCE_INDEX = {
         "instrument_type": "INDEX",
     },
 }
-_TERMINAL_CASCADE_TIMEFRAMES = {"5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
+_TERMINAL_CASCADE_TIMEFRAMES = {
+    "5m": ("5", 5),
+    "15m": ("15", 15),
+    "1h": ("60", 60),
+    "1d": ("D", CashCascadePaperEngine.DAILY_BAR_MINUTES),
+}
+# How far back a mother may sit is a bar budget, not a calendar rule: the same
+# replay cost buys ~2 weeks of 5m or a year of daily. Sessions per timeframe
+# times 7/5 turns the budget into calendar days, capped at a year for sanity.
+_TERMINAL_CASCADE_BARS_PER_SESSION = {"5m": 75, "15m": 25, "1h": 7, "1d": 1}
+_TERMINAL_CASCADE_REPLAY_BAR_BUDGET = 800
+
+
+def _terminal_cascade_max_mother_age_days(timeframe: str) -> int:
+    _interval, _minutes, normalised = _terminal_cascade_timeframe_parts(timeframe)
+    sessions = _TERMINAL_CASCADE_REPLAY_BAR_BUDGET / _TERMINAL_CASCADE_BARS_PER_SESSION[normalised]
+    return min(365, int(sessions * 7 / 5) + 3)
 
 
 def _resolve_terminal_stock(symbol: str) -> dict:
@@ -6429,7 +6445,7 @@ def _terminal_cascade_live_gate_status() -> dict:
 def _terminal_cascade_timeframe_parts(timeframe: str) -> tuple[str, int, str]:
     normalised = str(timeframe or "5m").lower()
     if normalised not in _TERMINAL_CASCADE_TIMEFRAMES:
-        raise HTTPException(status_code=400, detail="Terminal Cascade timeframe must be 5m, 15m, or 1h.")
+        raise HTTPException(status_code=400, detail="Terminal Cascade timeframe must be 5m, 15m, 1h, or 1d.")
     interval, minutes = _TERMINAL_CASCADE_TIMEFRAMES[normalised]
     return interval, minutes, normalised
 
@@ -6475,15 +6491,35 @@ async def _terminal_cascade_load_candles(
     to_date: date,
 ) -> list[IndexCandle]:
     interval, minutes, _normalised = _terminal_cascade_timeframe_parts(timeframe)
-    frame = await asyncio.to_thread(
-        broker.get_historical_data,
-        security_id=str(instrument["security_id"]),
-        exchange_segment=str(instrument["exchange_segment"]),
-        instrument_type=str(instrument["instrument_type"]),
-        from_date=from_date.isoformat(),
-        to_date=to_date.isoformat(),
-        candle_type=interval,
-    )
+
+    def _fetch(chunk_from: date, chunk_to: date):
+        return broker.get_historical_data(
+            security_id=str(instrument["security_id"]),
+            exchange_segment=str(instrument["exchange_segment"]),
+            instrument_type=str(instrument["instrument_type"]),
+            from_date=chunk_from.isoformat(),
+            to_date=chunk_to.isoformat(),
+            candle_type=interval,
+        )
+
+    # Dhan's intraday endpoint serves a bounded range per request; the daily
+    # endpoint takes years in one call. Chunk intraday spans the same way the
+    # backtest data path does (INTRADAY_CHUNK_DAYS) and stitch the frames.
+    if interval == "D" or (to_date - from_date).days <= INTRADAY_CHUNK_DAYS:
+        frame = await asyncio.to_thread(_fetch, from_date, to_date)
+    else:
+        frames = []
+        cursor = from_date
+        while cursor <= to_date:
+            chunk_end = min(cursor + timedelta(days=INTRADAY_CHUNK_DAYS), to_date)
+            chunk = await asyncio.to_thread(_fetch, cursor, chunk_end)
+            if chunk is not None and not getattr(chunk, "empty", True):
+                frames.append(chunk)
+            cursor = chunk_end + timedelta(days=1)
+        if not frames:
+            return []
+        frame = pd.concat(frames)
+        frame = frame[~frame.index.duplicated(keep="last")].sort_index()
     return CashCascadePaperEngine.normalise_frame(frame, datetime.now(IST), timeframe_minutes=minutes)
 
 
@@ -10776,8 +10812,12 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(timeframe)
     now = datetime.now(IST)
-    if mother.date() > now.date() or (now.date() - mother.date()).days > 14:
-        raise HTTPException(status_code=400, detail="Chart is available for mothers in the last 14 calendar days.")
+    max_age_days = _terminal_cascade_max_mother_age_days(timeframe)
+    if mother.date() > now.date() or (now.date() - mother.date()).days > max_age_days:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Chart is available for {normalised_tf} mothers in the last {max_age_days} calendar days.",
+        )
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load the Terminal Cascade chart.")
@@ -10815,13 +10855,23 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
     now = datetime.now(IST)
     if mother_timestamp.date() > now.date():
         raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future.")
-    if (now.date() - mother_timestamp.date()).days > 14:
-        raise HTTPException(status_code=400, detail="Mother candle is outside the 14-day paper replay window.")
+    max_age_days = _terminal_cascade_max_mother_age_days(payload.timeframe)
+    if (now.date() - mother_timestamp.date()).days > max_age_days:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Mother candle is outside the {normalised_tf} replay window "
+                f"({max_age_days} days — the window is a bar budget, so higher timeframes reach further back)."
+            ),
+        )
     if mother_timestamp + timedelta(minutes=minutes) > now or mother_timestamp.second or mother_timestamp.microsecond:
         raise HTTPException(
             status_code=400, detail="Mother timestamp must be a completed Terminal Cascade candle open."
         )
-    if normalised_tf == "1h":
+    if normalised_tf == "1d":
+        if mother_timestamp.time() != dt_time(9, 15):
+            raise HTTPException(status_code=400, detail="1D mother timestamp must be the 09:15 IST session open.")
+    elif normalised_tf == "1h":
         if mother_timestamp.minute != 15:
             raise HTTPException(status_code=400, detail="1H mother timestamp must be NSE aligned at :15 IST.")
     elif mother_timestamp.minute % minutes:

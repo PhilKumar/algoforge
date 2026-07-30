@@ -102,6 +102,26 @@ class CashCascadePaperEngineTests(unittest.TestCase):
         # 100 must not participate in this BEES target.
         self.assertAlmostEqual(engine.target_price, 242.5)
 
+    def test_daily_frames_restamp_to_the_session_open(self):
+        """Dhan stamps daily bars off its feed epoch; the engine reads them as
+        09:15 session opens and holds back today's bar until 15:30."""
+        import pandas as pd
+
+        idx = pd.to_datetime(["2026-07-28 05:30", "2026-07-29 05:30", "2026-07-30 05:30"])
+        frame = pd.DataFrame(
+            {"open": [100.0] * 3, "high": [102.0] * 3, "low": [99.0] * 3, "close": [101.0] * 3}, index=idx
+        )
+        mid_session = datetime(2026, 7, 30, 11, 0)
+        rows = CashCascadePaperEngine.normalise_frame(
+            frame, mid_session, timeframe_minutes=CashCascadePaperEngine.DAILY_BAR_MINUTES
+        )
+        self.assertEqual([row.timestamp.strftime("%d %H:%M") for row in rows], ["28 09:15", "29 09:15"])
+        after_close = datetime(2026, 7, 30, 15, 30)
+        rows = CashCascadePaperEngine.normalise_frame(
+            frame, after_close, timeframe_minutes=CashCascadePaperEngine.DAILY_BAR_MINUTES
+        )
+        self.assertEqual(len(rows), 3)
+
     def test_roundtrip_persists_open_cash_campaign(self):
         engine = CashCascadePaperEngine(
             candle(0, 100, 100, 99, 99.5),

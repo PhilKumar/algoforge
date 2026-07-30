@@ -1487,10 +1487,11 @@
           </div>
           <div class="terminal-cascade-field">
             <label>Timeframe</label>
-            <select id="terminal-cascade-timeframe">
+            <select id="terminal-cascade-timeframe" onchange="terminalCascadeTimeframeChanged()">
               <option value="5m" selected>5m</option>
               <option value="15m">15m</option>
               <option value="1h">1H</option>
+              <option value="1d">1D</option>
             </select>
           </div>
           <input id="terminal-cascade-target-pct" type="hidden" value="25">
@@ -1537,6 +1538,7 @@
             <button type="button" class="terminal-cascade-tf-option" data-tf="5m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('5m')">5m</button>
             <button type="button" class="terminal-cascade-tf-option" data-tf="15m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('15m')">15m</button>
             <button type="button" class="terminal-cascade-tf-option" data-tf="1h" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('1h')">1H</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="1d" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('1d')">1D</button>
           </div>
           <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
             <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomOut()" title="Zoom out" aria-label="Zoom out">-</button>
@@ -1567,6 +1569,19 @@
       </div>
       <div id="terminal-cascade-round-body" class="terminal-cascade-round-body"></div>
     </section>
+  </div>
+
+  <div class="card terminal-cascade-shell" id="terminal-events-panel">
+    <div class="terminal-cascade-head">
+      <div class="terminal-cascade-title-block">
+        <div class="terminal-cascade-eyebrow">Cash Cascade</div>
+        <h3>Engine Events</h3>
+        <div id="terminal-events-meta" class="terminal-cascade-reference">Every campaign&#39;s events in one feed, latest first.</div>
+      </div>
+    </div>
+    <div id="terminal-events-body" class="terminal-cascade-log-body" style="max-height:280px;">
+      <div class="terminal-cascade-empty">No events yet.</div>
+    </div>
   </div>
 
   <div class="card terminal-cascade-shell" id="terminal-closed-campaigns-panel">
