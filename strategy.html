@@ -173,9 +173,9 @@
       <span class="tab-icon" style="color: #38bdf8;">⎇</span>
       <span class="tab-label">Test Bench</span>
     </button>
-    <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page">
+    <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page" title="Strategy Builder">
       <span class="tab-icon" style="color: #f59e0b;" id="ico-builder"></span>
-      <span class="tab-label">Strategy Builder</span>
+      <span class="tab-label">Builder</span>
     </button>
     <button id="nav-charts" class="nav-tab" data-pf-nav-page="charts-page" data-pf-after-nav="initChartsPage" style="--accent-tab: #a78bfa;">
       <span class="tab-icon" style="color: #a78bfa;" id="ico-charts"></span>
@@ -1822,7 +1822,7 @@
 
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">You type the mother's high &amp; low · buys the deep fib levels under it</span></button>
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Pick a mother candle · buys the deep fib levels under it</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
   </div>
 
@@ -1834,7 +1834,7 @@
           <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
           <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L4 · L8</span>
         </div>
-        <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Type the mother candle's <strong style="color:var(--text);">high and low</strong> by hand — they anchor the fib ladder directly. The timeframe decides which deep levels trade. Today starts a quote-backed paper campaign; an earlier date replays the index geometry only.</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">Pick the mother candle — its <strong style="color:var(--text);">high and low come from Dhan</strong> and anchor the fib ladder directly. The timeframe decides which deep levels trade. Today starts a quote-backed paper campaign; an earlier date replays the index geometry only.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
@@ -1857,10 +1857,7 @@
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->
         <input id="fibx-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother high <span style="color:#f87171;">*</span></label><input id="fibx-mother-high" type="number" min="1" step="0.05" placeholder="e.g. 24,180.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother low <span style="color:#f87171;">*</span></label><input id="fibx-mother-low" type="number" min="1" step="0.05" placeholder="e.g. 24,050.00" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-        </div>
+        <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">The candle's high &amp; low are fetched from Dhan — nothing typed by hand.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
@@ -1889,7 +1886,7 @@
       <details id="fibx-window" class="cascade-options-window fibx-monitor-window" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
-          <div id="fibx-gist" class="cascade-options-gist">Type a mother high &amp; low and pick a side to begin.</div>
+          <div id="fibx-gist" class="cascade-options-gist">Pick a mother candle and a side to begin — its high &amp; low come from Dhan.</div>
           <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
         </summary>
         <div class="cascade-options-window-body">

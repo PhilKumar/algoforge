@@ -2055,7 +2055,7 @@ function _renderFibBoundaryStatus(payload) {
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
     if (active) active.style.display = 'none';
-    if (gist) gist.textContent = 'Type a mother high & low and pick a side to begin.';
+    if (gist) gist.textContent = 'Pick a mother candle and a side to begin — its high & low come from Dhan.';
     if (win) win.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (killBtn) killBtn.style.display = 'none';
@@ -2155,22 +2155,20 @@ async function refreshFibBoundaryStatus() {
 
 async function startFibBoundaryPaper() {
   const el = id => document.getElementById(id);
+  // The mother's high/low are fetched from Dhan on the server — nothing is
+  // typed by hand here anymore.
   const payload = {
     mother_timestamp: el('fibx-mother-timestamp')?.value,
-    mother_high: Number(el('fibx-mother-high')?.value),
-    mother_low: Number(el('fibx-mother-low')?.value),
     side: el('fibx-side')?.value || 'CE',
     timeframe: el('fibx-timeframe')?.value || '5m',
     rung_inr: Number(el('fibx-rung-inr')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
-  if (!Number.isFinite(payload.mother_high) || !Number.isFinite(payload.mother_low)) { _fibSetFormStatus('Enter both the mother high and low by hand.', 'error'); return; }
-  if (payload.mother_high <= payload.mother_low) { _fibSetFormStatus('Mother high must exceed mother low.', 'error'); return; }
   if (!Number.isFinite(payload.rung_inr) || payload.rung_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ per rung.', 'error'); return; }
   const button = el('fibx-start');
-  if (button) { button.disabled = true; button.textContent = 'Selecting fixed contract and starting paper monitor…'; }
-  _fibSetFormStatus(`Selecting next-weekly ${payload.side} from the ScripMaster. No order will be sent.`, 'busy');
+  if (button) { button.disabled = true; button.textContent = 'Fetching the mother candle and starting paper monitor…'; }
+  _fibSetFormStatus(`Fetching the mother from Dhan and selecting next-weekly ${payload.side}. No order will be sent.`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
@@ -2364,18 +2362,20 @@ async function loadFibBoundaryChart() {
   const el = id => document.getElementById(id);
   const timestamp = el('fibx-mother-timestamp')?.value || _lastFibBoundaryStatus?.campaign?.mother?.timestamp;
   const campaign = _lastFibBoundaryStatus?.campaign;
-  const high = Number(el('fibx-mother-high')?.value) || Number(campaign?.mother?.high);
-  const low = Number(el('fibx-mother-low')?.value) || Number(campaign?.mother?.low);
+  // Campaign values first; otherwise the server reads the bar from Dhan.
+  const high = Number(campaign?.mother?.high);
+  const low = Number(campaign?.mother?.low);
   const side = el('fibx-side')?.value || campaign?.side || 'CE';
   const timeframe = el('fibx-timeframe')?.value || campaign?.timeframe || '5m';
   const chart = el('fibx-chart');
   const meta = el('fibx-chart-meta');
   const overlay = el('fibx-chart-overlay');
-  if (!timestamp || !Number.isFinite(high) || !Number.isFinite(low)) { _fibSetFormStatus('Enter a mother timestamp, high and low first.', 'error'); return; }
+  if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
   if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading actual closed NIFTY ${escapeHtml(String(timeframe))} candles…</div>`;
   try {
-    const query = new URLSearchParams({ mother_timestamp: timestamp, high: String(high), low: String(low), side, timeframe });
+    const query = new URLSearchParams({ mother_timestamp: timestamp, side, timeframe });
+    if (Number.isFinite(high) && Number.isFinite(low)) { query.set('high', String(high)); query.set('low', String(low)); }
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
@@ -2394,19 +2394,15 @@ function hideFibBoundaryChart() {
 
 async function runFibBoundaryBacktest() {
   const el = id => document.getElementById(id);
+  // The mother's high/low come from Dhan on the server, same as the Test Bench.
   const payload = {
     mother_timestamp: el('fibx-mother-timestamp')?.value,
-    mother_high: Number(el('fibx-mother-high')?.value),
-    mother_low: Number(el('fibx-mother-low')?.value),
     side: el('fibx-side')?.value || 'CE',
     timeframe: el('fibx-timeframe')?.value || '5m',
     rung_inr: Number(el('fibx-rung-inr')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
-  if (!Number.isFinite(payload.mother_high) || !Number.isFinite(payload.mother_low) || payload.mother_high <= payload.mother_low) {
-    _fibSetFormStatus('Enter a mother high above the mother low.', 'error'); return;
-  }
   const button = el('fibx-backtest-btn');
   if (button) { button.disabled = true; button.textContent = 'Pricing legs off Upstox history…'; }
   _fibSetFormStatus('Replaying the index geometry and pricing every leg with real Upstox premiums…', 'busy');
@@ -2430,10 +2426,10 @@ function _renderFibBoundaryBacktest(data) {
   // Stash for the journal chart toggle; reset the chart to hidden on each run.
   _lastFibBacktest = { result, meta: data };
   const chartBox = document.getElementById('fibx-backtest-chart');
-  const hasGeometry = !!(result.geometry && Array.isArray(result.geometry.candles) && result.geometry.candles.length);
+  const hasChart = !!(data.chart && Array.isArray(data.chart.candles) && data.chart.candles.length);
   if (chartBox) { chartBox.style.display = 'none'; chartBox.innerHTML = ''; }
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
-  if (chartBtn) { chartBtn.style.display = hasGeometry ? '' : 'none'; chartBtn.textContent = '↗ Journal chart'; }
+  if (chartBtn) { chartBtn.style.display = hasChart ? '' : 'none'; chartBtn.textContent = '↗ Journal chart'; }
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
     const priced = !!result.fully_priced;
@@ -2493,209 +2489,20 @@ function toggleFibBoundaryBacktestChart() {
   if (box.style.display !== 'none' && box.innerHTML) {
     box.style.display = 'none';
     box.innerHTML = '';
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
     if (btn) btn.textContent = '↗ Journal chart';
     return;
   }
-  const result = _lastFibBacktest && _lastFibBacktest.result;
-  if (!result || !result.geometry) return;
-  box.innerHTML = _fibBoundaryBacktestChartSvg(result, _lastFibBacktest.meta || {});
+  // The same Canvas renderer the Test Bench draws with — bar-index axis, gap
+  // blocks, trade markers — instead of the old wall-clock SVG.  Visible
+  // first, then drawn: a display:none host measures zero.
+  const chart = _lastFibBacktest && _lastFibBacktest.meta && _lastFibBacktest.meta.chart;
+  if (!chart) return;
   box.style.display = '';
+  if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(box, chart);
   if (btn) btn.textContent = '× Hide chart';
 }
 
-// A journal-freeze chart of the backtest: the same auto trendline → touch → fib
-// geometry the fills came from, drawn over the replayed index candles. It shares
-// PhilForge's `_terminalCascadeChartPalette` so it reads like the live cascade
-// chart — theme-aware, half-pixel-sharpened, IST axis, collision-nudged labels.
-function _fibBoundaryBacktestChartSvg(result, meta) {
-  const PAL = _terminalCascadeChartPalette();
-  const geo = result.geometry || {};
-  const candles = Array.isArray(geo.candles) ? geo.candles : [];
-  if (!candles.length) return '<div class="pf-cascade-chart-empty" style="padding:24px;text-align:center;color:var(--muted);">No candles to chart.</div>';
-  const entries = Array.isArray(result.entries) ? result.entries : [];
-  const trendlines = Array.isArray(geo.trendlines) ? geo.trendlines : [];
-  const legs = Array.isArray(geo.legs) ? geo.legs : [];
-  const rounds = Array.isArray(geo.rounds) ? geo.rounds : [];
-  const mother = geo.mother || {};
-
-  const W = 1180, H = 560, padL = 176, padR = 62, padT = 16, padB = 30;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const n = candles.length, cw = plotW / Math.max(n, 1);
-  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-  const millis = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
-  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-
-  // Scale to the candles plus the things that must always be readable — the
-  // mother frame, the entries, each round target — but NOT the deep fib prices
-  // (level 8 sits far below), so those draw only when they fall in view.
-  let lo = Number(candles[0].l), hi = Number(candles[0].h);
-  candles.forEach(candle => {
-    const cLo = Number(candle.l), cHi = Number(candle.h);
-    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
-    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
-  });
-  [Number(mother.high), Number(mother.low)]
-    .concat(entries.map(e => Number(e.spot)))
-    .concat(rounds.map(r => Number(r.target_index)))
-    .forEach(price => { const p = Number(price); if (Number.isFinite(p)) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
-  const span = (hi - lo) || 1;
-  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
-  const X = index => padL + index * cw + cw / 2;
-  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
-  const Xt = value => {
-    const t = millis(value);
-    if (!t) return X(0);
-    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
-    if (t <= first) return X(0);
-    if (t >= last) return X(n - 1);
-    for (let index = 1; index < n; index += 1) {
-      const right = millis(candles[index].t);
-      if (t > right) continue;
-      const left = millis(candles[index - 1].t);
-      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
-      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
-    }
-    return X(n - 1);
-  };
-  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
-  const sharp = value => Math.round(value) + 0.5;
-  const solid = value => Math.round(value);
-  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
-
-  for (let i = 0; i <= 4; i += 1) {
-    const price = minP + (maxP - minP) * (i / 4);
-    const y = Y(price);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
-  }
-  const tickCount = Math.min(7, n);
-  for (let i = 0; i < tickCount; i += 1) {
-    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
-    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
-  }
-
-  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
-  candles.forEach((candle, index) => {
-    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
-    if (![o, h, l, c].every(Number.isFinite)) return;
-    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
-    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
-    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
-    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
-    if (candle.is_mother) {
-      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
-      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
-      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
-    }
-  });
-
-  const labelSlots = [];
-  const label = (y, text, color) => {
-    let ly = y;
-    for (let pass = 0, moved = true; moved && pass <= labelSlots.length; pass += 1) {
-      moved = false;
-      for (let i = 0; i < labelSlots.length; i += 1) {
-        if (Math.abs(labelSlots[i] - ly) < 10) { ly = labelSlots[i] + 10.5; moved = true; break; }
-      }
-    }
-    labelSlots.push(ly);
-    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
-  };
-  const hline = (price, color, text, dash, width, opacity) => {
-    const p = Number(price);
-    if (!inView(p)) return;
-    const y = Y(p);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
-    if (text) label(y, text, color);
-  };
-
-  // Colour is keyed to structure order — 1st blue, 2nd green, 3rd red — so each
-  // trendline and its fib share a hue. Only the newest three are drawn (past
-  // three the lines overlap into an unreadable mesh); the engine still traded
-  // them all. This is the CryptoForge cascade chart's exact scheme.
-  const cyc = PAL.fibs; // [blue, green, red]
-  const MAX_STRUCT = 3;
-  const tlOrder = {};
-  trendlines.forEach((tl, i) => { tlOrder[tl.id] = i; });
-  const hueFor = id => cyc[((tlOrder[id] != null ? tlOrder[id] : 0)) % cyc.length];
-  const shownTls = trendlines.slice(-MAX_STRUCT);
-  const shownLegs = legs.slice(-MAX_STRUCT);
-
-  // Clip the trendlines to the plot so a steep line extended across weeks can't
-  // bleed into the gutters. One chart is mounted at a time, so a fixed id is ok.
-  parts.push(`<clipPath id="fibxBtClip"><rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}"/></clipPath>`);
-  parts.push(`<g clip-path="url(#fibxBtClip)">`);
-  shownTls.forEach(tl => {
-    const t1 = millis(tl.a1t), t2 = millis(tl.a2t);
-    const p1 = Number(tl.a1p), p2 = Number(tl.a2p);
-    if (![p1, p2].every(Number.isFinite) || !t1 || !t2 || t2 === t1) return;
-    const slope = (p2 - p1) / (t2 - t1);
-    const t0 = millis(candles[0].t), tN = millis(candles[n - 1].t);
-    // One continuous line, mother_high → touch anchor, extended full-width.
-    parts.push(`<line x1="${X(0).toFixed(1)}" y1="${Y(p1 + slope * (t0 - t1)).toFixed(1)}" x2="${X(n - 1).toFixed(1)}" y2="${Y(p1 + slope * (tN - t1)).toFixed(1)}" stroke="${hueFor(tl.id)}" stroke-width="1.3" opacity="0.9"/>`);
-  });
-  parts.push(`</g>`);
-  // TL labels ride the right end, outside the clip so they're never cut off.
-  shownTls.forEach(tl => {
-    const t1 = millis(tl.a1t), t2 = millis(tl.a2t);
-    const p1 = Number(tl.a1p), p2 = Number(tl.a2p);
-    if (![p1, p2].every(Number.isFinite) || !t1 || !t2 || t2 === t1) return;
-    const pEnd = p1 + ((p2 - p1) / (t2 - t1)) * (millis(candles[n - 1].t) - t1);
-    if (!inView(pEnd)) return;
-    parts.push(`<text x="${(X(n - 1) - 4).toFixed(1)}" y="${(Y(pEnd) - 5).toFixed(1)}" fill="${hueFor(tl.id)}" font-size="9.5" font-family="monospace" text-anchor="end" opacity="0.9">TL${escapeHtml(String(tl.id))}</text>`);
-  });
-
-  // Mother — the high line only, dashed.
-  hline(Number(mother.high), PAL.mother, `MOTHER (${number(mother.high)})`, '5 3', 1.1);
-
-  // Fibs: 0/1 anchors quiet, 2/4/8 buy levels solid at full strength. No "L"
-  // prefix — the number and bracketed price are all the gutter carries; the
-  // COLOUR tells which fib. Levels below view are silently skipped.
-  shownLegs.forEach(leg => {
-    const lv = leg.levels || {};
-    const col = hueFor(leg.trendline_id);
-    ['0', '1'].forEach(k => {
-      const price = Number(lv[k]);
-      if (Number.isFinite(price)) hline(price, col, `${k} (${number(price)})`, null, 0.8, 0.4);
-    });
-    ['2', '4', '8'].forEach(k => {
-      const price = Number(lv[k]);
-      if (Number.isFinite(price)) hline(price, col, `${k} (${number(price)})`, null, 1.1, 0.9);
-    });
-    const th = Number(leg.touch_high);
-    if (leg.touch_t && inView(th)) {
-      parts.push(`<circle cx="${Xt(leg.touch_t).toFixed(1)}" cy="${Y(th).toFixed(1)}" r="3.5" fill="none" stroke="${col}" stroke-width="1.5"/>`);
-    }
-  });
-
-  // Avg entry + per-round targets — the only dashed horizontals besides mother.
-  if (Number.isFinite(Number(result.average_spot))) hline(Number(result.average_spot), PAL.avg, `AVG ENTRY (${number(result.average_spot)})`, '4 4', 1.1);
-  rounds.forEach(r => hline(Number(r.target_index), PAL.tp, `TARGET (${number(r.target_index)})`, '6 3', 1.2));
-
-  // Buy arrows: up, below the candle it filled on — level (no "L"), strike, lots.
-  entries.forEach(e => {
-    const price = Number(e.spot);
-    if (!inView(price)) return;
-    const x = Xt(e.timestamp), y = Y(price) + 10;
-    parts.push(`<path d="M${x.toFixed(1)} ${(y - 9).toFixed(1)}L${(x - 5).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${y.toFixed(1)}L${(x + 5).toFixed(1)} ${y.toFixed(1)}Z" fill="${PAL.fill}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
-    parts.push(`<text x="${x.toFixed(1)}" y="${(y + 17).toFixed(1)}" fill="${PAL.fill}" font-size="8.5" font-family="monospace" text-anchor="middle">${escapeHtml(String(e.level))} · ${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ×${escapeHtml(String(e.lots))}</text>`);
-  });
-
-  // Target-hit exits: a down arrow above the exit candle, labelled net P&L.
-  rounds.forEach(r => {
-    const price = Number(r.exit_index_price);
-    if (!inView(price)) return;
-    const cx = Xt(r.closed_at), cy = Y(price) - 10;
-    const pnl = Number(r.net_pnl) || 0;
-    parts.push(`<path d="M${cx.toFixed(1)} ${(cy + 9).toFixed(1)}L${(cx - 5).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${cy.toFixed(1)}L${(cx + 5).toFixed(1)} ${cy.toFixed(1)}Z" fill="${PAL.down}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
-    parts.push(`<text x="${cx.toFixed(1)}" y="${(cy - 9).toFixed(1)}" fill="${PAL.down}" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(String(r.exit_reason || 'exit').replaceAll('_', ' '))} · ${pnl >= 0 ? '+' : '−'}${escapeHtml(_cascadeOptionsMoney(Math.abs(pnl)))}</text>`);
-  });
-
-  const title = `${escapeHtml(String(meta.side || 'CE'))} · ${escapeHtml(String(meta.timeframe || '').toUpperCase())} · auto trendline → touch → fib`;
-  parts.push(`<text x="${padL}" y="${(padT + 11).toFixed(1)}" fill="${PAL.axis}" font-size="10" font-family="monospace">${title}</text>`);
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:920px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="fib-boundary backtest journal chart">${parts.join('')}</svg>`;
-}
 
 window.initOptionsCascadePage = initOptionsCascadePage;
 window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;

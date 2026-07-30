@@ -2736,17 +2736,19 @@ class CandleEntryPaperStartPayload(BaseModel):
 
 
 class FibBoundaryPaperStartPayload(BaseModel):
-    """A manually-typed mother candle for the fib-boundary paper campaign.
+    """A named mother candle for the fib-boundary paper campaign.
 
-    Unlike the auto-geometry cascade, the mother's high and low are ALWAYS given
-    by hand: they anchor the deep fib ladder directly.  The timeframe decides
-    which levels trade -- (4, 8) on 1m/5m, (2, 4, 8) on 15m/1h -- and the side
-    (CE below support, PE above resistance) is chosen per mother.
+    The candle's high and low come from Dhan — the same "nothing typed by
+    hand" rule as the Test Bench, per Phil (2026-07-30).  The optional typed
+    values remain only as an explicit override for a bar Dhan cannot serve.
+    The timeframe decides which levels trade -- (4, 8) on 1m/5m, (2, 4, 8) on
+    15m/1h -- and the side (CE below support, PE above resistance) is chosen
+    per mother.
     """
 
     mother_timestamp: str
-    mother_high: float = Field(gt=0)
-    mother_low: float = Field(gt=0)
+    mother_high: Optional[float] = Field(default=None, gt=0)
+    mother_low: Optional[float] = Field(default=None, gt=0)
     side: str = Field(default="CE")
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
@@ -2782,8 +2784,8 @@ class FibBoundaryBacktestPayload(BaseModel):
     """
 
     mother_timestamp: str
-    mother_high: float = Field(gt=0)
-    mother_low: float = Field(gt=0)
+    mother_high: Optional[float] = Field(default=None, gt=0)
+    mother_low: Optional[float] = Field(default=None, gt=0)
     side: str = Field(default="CE")
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
@@ -7949,7 +7951,8 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
     timeframe = str(payload.timeframe).lower()
     if timeframe not in _FIB_TIMEFRAME_MINUTES:
         raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    if payload.mother_high <= payload.mother_low:
+    typed = payload.mother_high is not None and payload.mother_low is not None
+    if typed and payload.mother_high <= payload.mother_low:
         raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
@@ -7989,10 +7992,21 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     candles = await adapter.async_get_candles("NIFTY", timeframe, from_date=mother_timestamp.date(), to_date=now.date())
     mother_row = next((row for row in candles if row.timestamp == mother_timestamp), None)
-    # The typed high/low anchor the fib geometry; the loaded (or midpoint) spot
-    # only picks the ATM-N strike.  Open/close are never used by the geometry.
-    spot = float(mother_row.close) if mother_row is not None else (payload.mother_high + payload.mother_low) / 2.0
-    mother = IndexCandle(mother_timestamp, spot, float(payload.mother_high), float(payload.mother_low), spot)
+    # The mother's high/low come from the market bar, exactly like the Test
+    # Bench; a typed pair is only an explicit override.  Nothing is invented:
+    # no bar and no override is an error, not a guess.
+    if mother_row is None and not typed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dhan has no NIFTY {timeframe} candle opening at "
+                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
+            ),
+        )
+    mother_high = float(payload.mother_high) if typed else float(mother_row.high)
+    mother_low = float(payload.mother_low) if typed else float(mother_row.low)
+    spot = float(mother_row.close) if mother_row is not None else (mother_high + mother_low) / 2.0
+    mother = IndexCandle(mother_timestamp, spot, mother_high, mother_low, spot)
     is_historical_replay = mother_timestamp.date() != now.date()
     try:
         contract = (
@@ -8068,13 +8082,17 @@ async def fib_boundary_paper_kill(request: Request):
 @app.get("/api/fib-boundary/paper/chart")
 async def fib_boundary_paper_chart(
     mother_timestamp: str,
-    high: float,
-    low: float,
     request: Request,
+    high: Optional[float] = None,
+    low: Optional[float] = None,
     timeframe: str = "5m",
     side: str = "CE",
 ):
-    """Serve the fib-boundary window: real candles + the typed-mother deep boundaries."""
+    """Serve the fib-boundary window: real candles + the mother's deep boundaries.
+
+    High/low are optional overrides — without them, the mother bar Dhan
+    returns owns the geometry, same as everywhere else since 2026-07-30.
+    """
 
     side = str(side).upper()
     timeframe = str(timeframe).lower()
@@ -8082,7 +8100,8 @@ async def fib_boundary_paper_chart(
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
     if timeframe not in _FIB_TIMEFRAME_MINUTES:
         raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    if high <= low:
+    typed = high is not None and low is not None
+    if typed and high <= low:
         raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     now = datetime.now(IST)
@@ -8100,12 +8119,21 @@ async def fib_boundary_paper_chart(
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
     rows = _cascade_gap_adjusted_candles(candles, mother)
-    mother_row = next(
-        (row for row in rows if row["is_mother"]),
-        # The typed high/low own the geometry even when Dhan's bar differs, so
-        # synthesise a marker if the exact candle was not returned.
-        {"t": mother.isoformat(), "h": float(high), "l": float(low), "is_mother": True},
-    )
+    found = next((row for row in rows if row["is_mother"]), None)
+    if not typed:
+        if found is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Dhan has no NIFTY {timeframe} candle opening at "
+                    f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
+                ),
+            )
+        # The chart shows gap-adjusted candles, but the GEOMETRY must use the
+        # bar's native prices.
+        high = float(found.get("native_high", found["h"]))
+        low = float(found.get("native_low", found["l"]))
+    mother_row = found or {"t": mother.isoformat(), "h": float(high), "l": float(low), "is_mother": True}
     boundaries = [
         {"level": level, "price": round(boundary_price(side, float(high), float(low), level), 2)}
         for level in boundaries_for_timeframe(timeframe)
@@ -8327,7 +8355,8 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     timeframe = str(payload.timeframe).lower()
     if timeframe not in _FIB_TIMEFRAME_MINUTES:
         raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    if payload.mother_high <= payload.mother_low:
+    typed = payload.mother_high is not None and payload.mother_low is not None
+    if typed and payload.mother_high <= payload.mother_low:
         raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
@@ -8354,14 +8383,22 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
 
     # The mother candle comes from the real market data -- its high/low anchor the
-    # trendline and the mother-break exactly like CryptoForge.  The typed values
-    # are only a fallback when Dhan didn't return that exact bar.
+    # trendline and the mother-break exactly like CryptoForge.  A typed pair is
+    # only an explicit override; with neither, the mother is wrong, not guessed.
     mother_row = next((row for row in index_candles if row.timestamp == mother_timestamp), None)
-    if mother_row is not None:
+    if mother_row is not None and not typed:
         mother = mother_row
-    else:
+    elif typed:
         spot = (float(payload.mother_high) + float(payload.mother_low)) / 2.0
         mother = IndexCandle(mother_timestamp, spot, float(payload.mother_high), float(payload.mother_low), spot)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dhan has no NIFTY {timeframe} candle opening at "
+                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
+            ),
+        )
     forward = [row for row in index_candles if row.timestamp > mother_timestamp]
     if not forward:
         raise HTTPException(status_code=400, detail="No NIFTY candles after the mother in that window.")
@@ -8391,20 +8428,21 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         except Exception as exc:  # never let the refresher's failure mask the real error
             _logger.warning("[fib-backtest] Upstox token pre-check skipped: %s", exc)
 
+        # Upstox for expired contracts, Dhan's own candles for a contract that
+        # is still listed — so "too recent for Upstox" is no longer a refusal.
+        upstox_expiries: list = []
+        premium_source = None
         try:
             premium_source = UpstoxPremiumSource()
-            expiries = sorted(premium_source.available_expiries())
+            upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Upstox premium history is not available (UPSTOX_ACCESS_TOKEN missing or expired, "
-                    "and headless auto-login is not configured). Real-premium backtest needs it. "
-                    f"{exc}"
-                ),
-            ) from exc
+            _logger.warning("[fib-backtest] Upstox premium history unavailable, using Dhan only: %s", exc)
+
+        expiries = _known_option_expiries("NIFTY", upstox_expiries)
         if not expiries:
-            raise HTTPException(status_code=503, detail="Upstox returned no expiry coverage for NIFTY.")
+            raise HTTPException(
+                status_code=503, detail="Neither Upstox nor Dhan could name an option expiry for NIFTY."
+            )
         resolver = NiftyContractResolver(
             expiries=expiries, strike_step=50.0, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
         )
@@ -8422,9 +8460,14 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             # ages and eventually find none Upstox has priced.
             return to_fixed(resolver.select(mother.timestamp, index_price, side, resolver_config))
 
-        def premium_lookup(timestamp, contract):
-            bar = premium_source.lookup(timestamp, contract)
-            return float(bar.open) if bar is not None else None
+        premium_lookup = _hybrid_premium_lookup(
+            broker_client,
+            "NIFTY",
+            premium_source,
+            set(upstox_expiries),
+            mother_timestamp.date(),
+            horizon_to,
+        )
 
         try:
             initial = select(mother.timestamp, mother.close)
@@ -8456,6 +8499,8 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
 
+    from engine.test_bench import bench_chart
+
     return {
         "status": "ok",
         "mode": "backtest",
@@ -8467,11 +8512,88 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         "horizon_to": horizon_to.isoformat(),
         "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
         "result": backtest,
+        # The same Canvas payload the Test Bench draws — bar-index axis, gap
+        # blocks, trade markers — so this panel stops using the old wall-clock
+        # SVG that let a weekend fling the trendline off the chart.
+        "chart": bench_chart(backtest.get("geometry") or {}, backtest, timeframe=timeframe),
         "note": (
             "CryptoForge geometry (auto trendline -> touch -> fib); 1/2/3 lot ladder; each entry buys ATM-2 "
             "against the index at that level. Every premium is a real Upstox bar or a recorded gap."
         ),
     }
+
+
+def _hybrid_premium_lookup(
+    broker: DhanClient,
+    instrument: str,
+    upstox_source,
+    upstox_expiries: set,
+    from_day: date,
+    to_day: date,
+):
+    """Upstox bar first, Dhan's own option candles when Upstox has nothing.
+
+    Upstox records a contract's minutes only after it EXPIRES; Dhan can serve
+    a still-listed contract's minutes right now.  Between them a replay can
+    price any contract the resolver picks — and a minute neither source
+    recorded stays None rather than borrowing a neighbour's price.  One Dhan
+    fetch per contract, cached for the whole replay.
+    """
+
+    dhan_minutes: dict[tuple, dict] = {}
+
+    def _dhan_series(contract) -> dict:
+        key = (int(contract.strike), contract.expiry, str(contract.option_type))
+        if key not in dhan_minutes:
+            series: dict = {}
+            try:
+                security_id = ScripMaster.lookup(
+                    instrument, int(contract.strike), contract.expiry.isoformat(), contract.option_type
+                )
+                if security_id:
+                    frame = broker.get_historical_data(
+                        security_id,
+                        "NSE_FNO",
+                        "OPTIDX",
+                        0,
+                        from_day.isoformat(),
+                        min(to_day, contract.expiry).isoformat(),
+                        "1",
+                    )
+                    series = {
+                        index.to_pydatetime().replace(second=0, microsecond=0): float(row_open)
+                        for index, row_open in frame["open"].items()
+                    }
+            except Exception as exc:
+                _logger.warning(
+                    "[premiums] Dhan option candles unavailable for %s %s %s %s: %s",
+                    instrument,
+                    contract.strike,
+                    contract.expiry,
+                    contract.option_type,
+                    exc,
+                )
+            dhan_minutes[key] = series
+        return dhan_minutes[key]
+
+    def lookup(timestamp, contract):
+        if upstox_source is not None and contract.expiry in upstox_expiries:
+            bar = upstox_source.lookup(timestamp, contract)
+            if bar is not None:
+                return float(bar.open)
+        return _dhan_series(contract).get(timestamp.replace(second=0, microsecond=0))
+
+    return lookup
+
+
+def _known_option_expiries(instrument: str, upstox_expiries: list) -> list:
+    """Every expiry either source can price: Upstox's expired ∪ ScripMaster's live."""
+    live: list = []
+    try:
+        live = [date.fromisoformat(str(value)) for value in ScripMaster.get_expiries(instrument) or []]
+    except Exception as exc:
+        _logger.warning("[premiums] ScripMaster expiries unavailable for %s: %s", instrument, exc)
+    return sorted(set(upstox_expiries) | set(live))
 
 
 async def _test_bench_two_red(
@@ -8543,15 +8665,7 @@ async def _test_bench_two_red(
         except UpstoxAccessError as exc:
             _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
 
-        live_expiries: list[date] = []
-        try:
-            live_expiries = sorted(
-                date.fromisoformat(str(value)) for value in ScripMaster.get_expiries(instrument) or []
-            )
-        except Exception as exc:
-            _logger.warning("[test-bench] ScripMaster expiries unavailable: %s", exc)
-
-        expiries = sorted(set(upstox_expiries) | set(live_expiries))
+        expiries = _known_option_expiries(instrument, upstox_expiries)
         if not expiries:
             raise HTTPException(
                 status_code=503,
@@ -8570,57 +8684,22 @@ async def _test_bench_two_red(
                 status_code=400, detail=f"No {side} contract could be bought at that mother: {exc}"
             ) from exc
         expiry = anchor.expiry
-        upstox_covers = premium_source is not None and expiry in set(upstox_expiries)
 
         def strike_for(_timestamp, index_price) -> tuple[int, str]:
             contract = resolver.select(mother.timestamp, index_price, side, resolver_config)
             return int(contract.strike), contract.option_type
 
-        # One Dhan fetch per contract actually bought, cached; the lookup is
-        # exact-minute, same as Upstox — a missing minute stays unpriced
-        # rather than borrowing a neighbour's price.
-        dhan_minutes: dict[tuple[int, str], dict] = {}
-
-        def _dhan_series(strike: int, option_type: str) -> dict:
-            key = (int(strike), str(option_type))
-            if key not in dhan_minutes:
-                series: dict = {}
-                try:
-                    security_id = ScripMaster.lookup(instrument, int(strike), expiry.isoformat(), option_type)
-                    if security_id:
-                        frame = adapter.dhan.get_historical_data(
-                            security_id,
-                            "NSE_FNO",
-                            "OPTIDX",
-                            0,
-                            mother_timestamp.date().isoformat(),
-                            min(horizon_to, expiry).isoformat(),
-                            "1",
-                        )
-                        series = {
-                            index.to_pydatetime().replace(second=0, microsecond=0): float(row_open)
-                            for index, row_open in frame["open"].items()
-                        }
-                except Exception as exc:
-                    _logger.warning(
-                        "[test-bench] Dhan option candles unavailable for %s %s %s: %s",
-                        instrument,
-                        strike,
-                        option_type,
-                        exc,
-                    )
-                dhan_minutes[key] = series
-            return dhan_minutes[key]
+        hybrid = _hybrid_premium_lookup(
+            adapter.dhan,
+            instrument,
+            premium_source,
+            set(upstox_expiries),
+            mother_timestamp.date(),
+            horizon_to,
+        )
 
         def premium_lookup(timestamp, strike, option_type):
-            if upstox_covers:
-                bar = premium_source.lookup(
-                    timestamp,
-                    FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""),
-                )
-                return float(bar.open) if bar is not None else None
-            series = _dhan_series(int(strike), option_type)
-            return series.get(timestamp.replace(second=0, microsecond=0))
+            return hybrid(timestamp, FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""))
 
         # Same rule as the fib path: past its own expiry the contract does not
         # exist, so neither does the replay.
@@ -8800,36 +8879,23 @@ async def test_bench_run(payload: TestBenchPayload, request: Request):
         except Exception as exc:  # a dead refresher must not mask the real error
             _logger.warning("[test-bench] Upstox token pre-check skipped: %s", exc)
 
+        # Upstox only prices EXPIRED contracts, and a recent mother buys one
+        # that is still trading — that one Dhan prices from its own candles.
+        # Union the expiry calendars, split the pricing per contract, and no
+        # mother is ever too recent to run.
+        upstox_expiries: list[date] = []
+        premium_source = None
         try:
             premium_source = UpstoxPremiumSource(underlying_key=underlying_key)
-            expiries = sorted(premium_source.available_expiries())
+            upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
+            _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
+
+        expiries = _known_option_expiries(instrument, upstox_expiries)
+        if not expiries:
             raise HTTPException(
                 status_code=503,
-                detail=(
-                    "Upstox premium history is not available (UPSTOX_ACCESS_TOKEN missing or expired, "
-                    f"and headless auto-login is not configured). {exc}"
-                ),
-            ) from exc
-        if not expiries:
-            raise HTTPException(status_code=503, detail=f"Upstox returned no expiry coverage for {instrument}.")
-
-        # Upstox lists EXPIRED contracts, so its newest expiry trails today by a
-        # week or so.  A mother close to the present has no priced contract to
-        # buy and would otherwise fail as the unhelpful "no expiry in 10-16 DTE".
-        # Name the actual boundary instead: it moves forward on its own as
-        # contracts expire, and this is the one limit a user will hit repeatedly.
-        newest = expiries[-1]
-        latest_mother = newest - timedelta(days=window.min_dte)
-        if mother_timestamp.date() > latest_mother:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Option prices for {instrument} only go up to the {newest.strftime('%d %b %Y')} expiry, "
-                    f"and this strategy buys at least {window.min_dte} days before expiry — so the most recent "
-                    f"mother that can be priced is {latest_mother.strftime('%d %b %Y')}. "
-                    "Pick an earlier one; the limit moves forward as contracts expire."
-                ),
+                detail=f"Neither Upstox nor Dhan could name an option expiry for {instrument}.",
             )
 
         resolver = NiftyContractResolver(
@@ -8846,9 +8912,14 @@ async def test_bench_run(payload: TestBenchPayload, request: Request):
                 instrument, int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
             )
 
-        def premium_lookup(timestamp, contract):
-            bar = premium_source.lookup(timestamp, contract)
-            return float(bar.open) if bar is not None else None
+        premium_lookup = _hybrid_premium_lookup(
+            broker_client,
+            instrument,
+            premium_source,
+            set(upstox_expiries),
+            mother_timestamp.date(),
+            horizon_to,
+        )
 
         try:
             initial = select(mother.timestamp, mother.close)
