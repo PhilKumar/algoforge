@@ -1940,6 +1940,12 @@
       <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">1H mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="3600" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start 1H paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
+      <section id="candle-entry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
+        <div class="candle-entry-monitor-head"><div><div class="candle-entry-monitor-kicker">Live paper monitor</div><h4>Campaign status</h4></div><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated">Waiting for campaign data</div></div>
+        <div id="candle-entry-monitor-grid" class="candle-entry-monitor-grid"></div>
+        <div class="candle-entry-event-head"><span>Campaign events</span><span id="candle-entry-event-count"></span></div>
+        <div id="candle-entry-events" class="candle-entry-events">No campaign events yet.</div>
+      </section>
     </div>
   </div>
 </div>

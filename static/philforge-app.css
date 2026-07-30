@@ -5431,6 +5431,26 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .oc-tab.is-active { border-color: rgba(2,132,199,.5); color: #075985; background: linear-gradient(180deg, #e0f2fe, #bae6fd); box-shadow: 0 3px 8px rgba(2,132,199,.16), inset 0 1px 0 rgba(255,255,255,.8); }
 [data-theme="light"] #options-cascade-page > .card-glass:first-child { border-color: rgba(2,132,199,.24) !important; background: linear-gradient(110deg, rgba(240,249,255,.95), rgba(248,250,252,.96)) !important; }
 [data-theme="light"] #fibx-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
+.candle-entry-monitor { margin-top: 14px; border: 1px solid rgba(96,165,250,.26); border-radius: 12px; overflow: hidden; background: linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
+.candle-entry-monitor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 13px 10px; border-bottom: 1px solid rgba(148,163,184,.14); }
+.candle-entry-monitor-kicker { color: #7dd3fc; font: 800 9px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+.candle-entry-monitor h4 { margin: 3px 0 0; font-size: 13px; }
+.candle-entry-monitor-updated { max-width: 300px; color: var(--muted); font: 10px/1.45 var(--font-mono); text-align: right; }
+.candle-entry-monitor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 11px 12px; }
+.candle-entry-monitor-card { min-width: 0; padding: 10px; border: 1px solid rgba(148,163,184,.15); border-radius: 8px; background: rgba(2,6,23,.24); }
+.candle-entry-monitor-label { margin-bottom: 6px; color: #94a3b8; font: 800 9px var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.candle-entry-monitor-value { color: var(--text); font: 800 12px/1.42 var(--font-mono); overflow-wrap: anywhere; }
+.candle-entry-monitor-detail { margin-top: 4px; color: var(--muted); font: 10px/1.45 var(--font-mono); overflow-wrap: anywhere; }
+.candle-entry-event-head { display: flex; justify-content: space-between; gap: 12px; padding: 9px 13px; border-top: 1px solid rgba(148,163,184,.14); color: #94a3b8; font: 800 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.candle-entry-events { max-height: 225px; overflow: auto; padding: 0 13px 5px; color: var(--muted); font: 10px/1.45 var(--font-mono); }
+.candle-entry-event { padding: 7px 0; border-top: 1px solid rgba(148,163,184,.10); }
+.candle-entry-event time { color: #64748b; }
+.candle-entry-event strong { color: var(--text); font-weight: 800; }
+[data-theme="light"] .candle-entry-monitor { border-color: rgba(37,99,235,.23); background: linear-gradient(145deg, rgba(239,246,255,.92), rgba(248,250,252,.94)); }
+[data-theme="light"] .candle-entry-monitor-card { border-color: rgba(15,23,42,.13); background: rgba(255,255,255,.72); }
+[data-theme="light"] .candle-entry-event { border-top-color: rgba(15,23,42,.08); }
+@media (max-width: 900px) { .candle-entry-monitor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .candle-entry-monitor-head { flex-direction: column; } .candle-entry-monitor-updated { max-width: none; text-align: left; } .candle-entry-monitor-grid { grid-template-columns: 1fr; } }
 .terminal-cascade-chart-dialog.is-fullscreen { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-toolbar { position: sticky; top: 0; z-index: 3; background: #0b1220; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-body { padding: 0; display: grid; place-items: center; touch-action: none; user-select: none; }

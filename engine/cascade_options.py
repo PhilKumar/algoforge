@@ -2270,8 +2270,10 @@ class OneHourCandleEntryPaper:
             "replay_complete": self.replay_complete,
             "mother": {
                 "timestamp": self.mother.timestamp.isoformat(),
+                "open": self.mother.open,
                 "high": self.mother.high,
                 "low": self.mother.low,
+                "close": self.mother.close,
             },
             "contract": {
                 "underlying": self.contract.underlying,
@@ -2281,8 +2283,11 @@ class OneHourCandleEntryPaper:
                 "lot_size": self.contract.lot_size,
             },
             "entry_stop": self.pending_stop,
+            "entry_stop_armed_at": self.pending_stop_timestamp.isoformat() if self.pending_stop_timestamp else None,
             "target_index": self.target_index,
             "qualifying_reds": [row.timestamp.isoformat() for row in self.qualifying_reds],
+            "latest_closed_candle": NiftyOptionsPaperCascade._candle_to_dict(self.history[-1]),
+            "candles_reviewed": len(self.history),
             "open_fill": NiftyOptionsPaperCascade._fill_to_dict(self.fill) if self.fill else None,
             "signal_entry": (
                 {
@@ -2294,7 +2299,17 @@ class OneHourCandleEntryPaper:
                 else None
             ),
             "rounds": [
-                {"round_id": row.round_id, "net_pnl": row.net_pnl, "exit_reason": row.exit_reason}
+                {
+                    "round_id": row.round_id,
+                    "opened_at": row.opened_at.isoformat(),
+                    "closed_at": row.closed_at.isoformat(),
+                    "exit_index_price": row.exit_index_price,
+                    "exit_option_premium": row.exit_option_premium,
+                    "gross_pnl": row.gross_pnl,
+                    "costs": {"total": row.costs.total},
+                    "net_pnl": row.net_pnl,
+                    "exit_reason": row.exit_reason,
+                }
                 for row in self.rounds
             ],
             "events": self.events[-100:],
