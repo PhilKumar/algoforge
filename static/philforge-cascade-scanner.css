@@ -161,9 +161,17 @@
 .pf-campaign-card[open] > .pf-campaign-head::before { transform: rotate(90deg); }
 .pf-campaign-card[open] > .pf-campaign-head { border-bottom: 1px solid rgba(148, 163, 184, .12); }
 
+/* One line, always: pills stay beside the symbol and the gist ellipsizes
+   instead of wrapping under and pushing the action buttons down a row.
+   Narrow screens get the wrap back so nothing becomes unreachable. */
 .pf-campaign-title {
   display: flex; align-items: center; gap: 7px;
-  flex: 1 1 auto; min-width: 0; flex-wrap: wrap;
+  flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden;
+}
+.pf-campaign-title .pf-campaign-pill { flex: 0 0 auto; }
+.pf-campaign-gist { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) {
+  .pf-campaign-title { flex-wrap: wrap; overflow: visible; }
 }
 .pf-campaign-title strong {
   font: 800 13px var(--font-mono); color: var(--text); letter-spacing: .01em;

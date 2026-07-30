@@ -5415,6 +5415,12 @@ function _terminalCascadeCanvasViewSnapshot() {
   };
 }
 
+function _tcvMinCount(total) {
+  // A young campaign has only a handful of bars; a 10-bar floor made zoom a
+  // no-op there (9 candles could never dip under it, freezing the readout).
+  return Math.min(5, total);
+}
+
 function _terminalCascadeMountCanvas(payload, keepView = null) {
   _terminalCascadeUnmountCanvas();
   const host = document.getElementById('terminal-cascade-canvas-host');
@@ -5433,7 +5439,7 @@ function _terminalCascadeMountCanvas(payload, keepView = null) {
     && keepView.symbol === (_terminalCascadeChartContext?.symbol || '')
     && keepView.timeframe === (_terminalCascadeChartContext?.timeframe || '');
   if (sameContext) {
-    view.count = Math.min(Math.max(keepView.count, 10), n);
+    view.count = Math.min(Math.max(keepView.count, _tcvMinCount(n)), n);
     // Pinned to the newest candle stays pinned when the poll appends bars.
     view.start = keepView.atRight ? n - view.count : Math.max(0, Math.min(keepView.start, n - view.count));
     view.yAuto = keepView.yAuto;
@@ -5508,7 +5514,7 @@ function _terminalCascadeCanvasDraw() {
   const c = _tcv.candles, n = c.length;
   const x0 = L.gutter, x1 = L.w - L.padR, y0 = L.padT, y1 = L.h - L.padB;
   const plotW = Math.max(x1 - x0, 40), plotH = Math.max(y1 - y0, 40);
-  _tcv.count = Math.max(10, Math.min(_tcv.count, n));
+  _tcv.count = Math.max(_tcvMinCount(n), Math.min(_tcv.count, n));
   _tcv.start = Math.max(0, Math.min(_tcv.start, n - _tcv.count));
   const barW = plotW / _tcv.count;
   const X = index => x0 + (index - _tcv.start + 0.5) * barW;
@@ -5890,7 +5896,7 @@ function _terminalCascadeCanvasBindEvents() {
     const anchor = _tcv.start + (x - F.x0) / F.barW;
     const n = _tcv.candles.length;
     const factor = event.deltaY < 0 ? 1 / 1.15 : 1.15;
-    _tcv.count = Math.max(10, Math.min(_tcv.count * factor, n));
+    _tcv.count = Math.max(_tcvMinCount(n), Math.min(_tcv.count * factor, n));
     _tcv.start = anchor - (x - F.x0) / (F.plotW / _tcv.count);
     _terminalCascadeCanvasDraw();
   }, { passive: false });
@@ -5912,7 +5918,7 @@ function terminalCascadeZoom(factor, resetPan = false) {
     _tcv.yAuto = true;
   } else {
     const centre = _tcv.start + _tcv.count / 2;
-    _tcv.count = Math.max(10, Math.min(_tcv.count / factor, n));
+    _tcv.count = Math.max(_tcvMinCount(n), Math.min(_tcv.count / factor, n));
     _tcv.start = centre - _tcv.count / 2;
   }
   _terminalCascadeCanvasDraw();
