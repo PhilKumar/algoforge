@@ -729,6 +729,21 @@ class OneHourCascade:
 
 IST = ZoneInfo("Asia/Kolkata")
 GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT = 0.00045
+# How much a close may poke above a candidate trendline before that line is
+# rejected, expressed in TYPICAL CANDLES rather than percent of price.
+#
+# The percentage above came from CryptoForge, where a 5m BTC candle spans
+# hundreds of dollars and 0.045% of price is a fraction of one candle.  On
+# NIFTY 1m the same 0.045% is 10.9 points against a ~6.6-point median candle --
+# 1.6 whole candles of slack -- so the backward search accepted anchors whose
+# line cut clean through the rally it was supposed to sit on.  Measured on
+# Phil's 15 Jul 2026 10:25 mother: 22 of 127 highs poked above the chosen line,
+# the worst by 13.6 points, and the anchor landed at 12:26 instead of the
+# 11:35 swing high he expected.
+#
+# The allowance is the SMALLER of the two, so this can only ever tighten the
+# old behaviour, never loosen it.
+GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES = 0.2
 GEOMETRY_MIN_FIB_RANGE_PCT = 0.001
 GEOMETRY_DECISIVE_BREAK_PCT = 0.0002
 GEOMETRY_MIN_LEG_SEPARATION_PCT = 0.0003
@@ -818,14 +833,23 @@ def find_index_valid_anchor2(
     *,
     epsilon: float = 1e-9,
 ) -> tuple[Optional[float], Optional[datetime]]:
-    """Byte-for-byte rule equivalent to CryptoForge's anchor search.
+    """CryptoForge's anchor search, with the slack measured in candles.
 
     It searches backward through red candle opens and accepts the tightest
-    descending line that earlier *closes* did not cross (with the same 0.045%
-    tolerance).  Wick-only crossings are intentionally allowed.
+    descending line that earlier *closes* did not cross.  Wick-only crossings
+    are intentionally allowed -- a trendline is drawn on bodies.
+
+    The one departure from the CryptoForge original is the size of the slack:
+    see :data:`GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES`.  A percentage of price
+    is a crypto-sized allowance and on a NIFTY 1m chart it is wider than a whole
+    candle, which let the search walk past the swing high the line belongs on.
     """
 
     candles = list(candles_between)
+    ranges = sorted(float(c.high) - float(c.low) for c in candles)
+    # Median, not mean: one opening-minute spike should not widen the slack for
+    # the whole window.
+    typical = ranges[len(ranges) // 2] if ranges else 0.0
     for candidate in reversed([c for c in candles if c.is_red]):
         if candidate.timestamp == anchor1_timestamp:
             continue
@@ -838,6 +862,8 @@ def find_index_valid_anchor2(
             if candle.timestamp < candidate.timestamp:
                 line_price = anchor1_price + slope * (candle.timestamp - anchor1_timestamp).total_seconds()
                 allowance = abs(line_price) * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT
+                if typical > 0:
+                    allowance = min(allowance, typical * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES)
                 if candle.close > line_price + allowance + epsilon:
                     violated = True
                     break

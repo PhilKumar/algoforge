@@ -3106,10 +3106,19 @@
   }
 
   /* ═══ NAV TABS ═══ */
+  /* One row, always.  It scrolls sideways rather than wrapping to a second
+     row (Phil, 2026-07-30).  Both dropdowns portal to <body> and position
+     themselves fixed, so the scroll container cannot clip them. */
   .nav-bar {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 12px;
     padding: 0 16px;
     background: rgba(11,16,30,0.97);
     border: 1px solid var(--border);
@@ -3120,29 +3129,33 @@
     margin-bottom: 0;
     position: relative;
     z-index: 70;
-    overflow: visible;
     isolation: isolate;
   }
+  .nav-bar::-webkit-scrollbar { display: none; }
   .nav-bar::before { display: none; }
   .nav-tabs {
     display: flex;
+    flex-wrap: nowrap;
     gap: 0;
     position: relative;
     z-index: 1;
-    overflow: visible;
+    /* max-content + auto margins: centred while the tabs fit, and the left
+       edge stays reachable once they overflow. */
+    min-width: max-content;
+    margin: 0 auto;
   }
+  .nav-tabs > * { flex-shrink: 0; }
   /* Keep execution tools directly after Portfolio in every viewport. */
   .nav-tabs > #nav-dashboard { order: 1; }
   .nav-tabs > #nav-portfolio { order: 2; }
   .nav-tabs > #nav-terminal { order: 3; }
   .nav-tabs > #nav-scalp { order: 4; }
   .nav-tabs > #nav-cascade { order: 5; }
-  .nav-tabs > #nav-test-bench { order: 6; }
-  .nav-tabs > #nav-insights-wrap { order: 7; }
-  .nav-tabs > #nav-live { order: 8; }
-  .nav-tabs > #nav-builder { order: 9; }
-  .nav-tabs > #nav-charts { order: 10; }
-  .nav-tabs > #nav-results { order: 11; }
+  .nav-tabs > #nav-insights-wrap { order: 6; }
+  .nav-tabs > #nav-live { order: 7; }
+  .nav-tabs > #nav-builder { order: 8; }
+  .nav-tabs > #nav-charts { order: 9; }
+  .nav-tabs > #nav-results { order: 10; }
   .nav-tab {
     background: none;
     border: none;
@@ -3317,12 +3330,9 @@
     animation: none;
   }
 
-  /* Keep the complete navigation inside the viewport before mobile mode.
-     With "Builder" (not "Strategy Builder") and 16px tab padding, eleven
-     tabs hold one row down to ~1380px; below that they wrap. */
+  /* Below this the tabs simply scroll; nothing wraps. */
   @media (max-width: 1380px) and (min-width: 481px) {
     .nav-bar { padding: 0 8px; }
-    .nav-tabs { flex-wrap: wrap; justify-content: center; row-gap: 2px; }
     .nav-tab { padding: 10px 12px; font-size: 12px; gap: 6px; }
   }
   @keyframes livePulse {
@@ -5602,7 +5612,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 }
 @media (max-width: 900px) {
   #options-cascade-page .oc-tabs { flex-direction: column; width: 100%; border-radius: 14px; }
-  #options-cascade-page .oc-tab { width: 100%; }
+  /* Stacked, each choice gets room for its own two lines — min-height 32px
+     was squashing the subtitle into the title on a phone. */
+  #options-cascade-page .oc-tab { width: 100%; min-height: 0; padding: 10px 14px; }
+  #options-cascade-page .oc-tab .oc-tab-sub { line-height: 1.5; }
 }
 #options-cascade-page .oc-fib-workspace {
   grid-template-columns: minmax(330px, .72fr) minmax(500px, 1.28fr);
@@ -5803,53 +5816,56 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    One mother candle, replayed. The screen is deliberately flat: a row of
    pickers, a verdict you can read in one glance, the chart, then the detail.
    Phil decides from the picture, so the chart gets the room. */
-#test-bench-page .tb-hero { padding: 22px 24px; margin-bottom: 16px; }
-#test-bench-page .tb-kicker {
+#oc-tab-bench .tb-hero { padding: 22px 24px; margin-bottom: 16px; }
+#oc-tab-bench .tb-kicker {
   font: 10px 'JetBrains Mono', monospace; letter-spacing: .8px; text-transform: uppercase;
   color: #38bdf8; margin-bottom: 6px;
 }
-#test-bench-page .tb-hero h2 { margin: 0 0 8px; font-size: 20px; }
-#test-bench-page .tb-hero p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); max-width: 78ch; }
+#oc-tab-bench .tb-hero h2 { margin: 0 0 8px; font-size: 20px; }
+#oc-tab-bench .tb-hero p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); max-width: 78ch; }
 
-#test-bench-page .tb-controls {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 16px 18px; margin-bottom: 12px;
+/* Six controls in a fixed 3-column grid = exactly two rows, at every desktop
+   width.  The old flex-wrap gave three ragged rows on Phil's screen. */
+#oc-tab-bench .tb-controls {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end; gap: 12px 14px; padding: 16px 18px; margin-bottom: 12px;
 }
-#test-bench-page .tb-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; min-width: 130px; }
-#test-bench-page .tb-field-narrow { flex: 0 1 120px; }
-#test-bench-page .tb-field label {
+#oc-tab-bench .tb-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#oc-tab-bench .tb-field-narrow { min-width: 0; }
+#oc-tab-bench .tb-field label {
   font: 10px 'JetBrains Mono', monospace; letter-spacing: .6px; text-transform: uppercase; color: var(--muted);
 }
-#test-bench-page .tb-field select,
-#test-bench-page .tb-field input { width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; }
-#test-bench-page .tb-run { flex: 0 0 auto; min-width: 96px; padding: 9px 20px; }
+#oc-tab-bench .tb-field select,
+#oc-tab-bench .tb-field input { width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; }
+#oc-tab-bench .tb-run { align-self: end; width: 100%; padding: 10px 20px; }
 
-#test-bench-page .tb-status { min-height: 18px; font-size: 12px; margin: 0 0 12px; color: var(--muted); }
-#test-bench-page .tb-status.is-error { color: #dc2626; }
-#test-bench-page .tb-status.is-busy { color: #38bdf8; }
+#oc-tab-bench .tb-status { min-height: 18px; font-size: 12px; margin: 0 0 12px; color: var(--muted); }
+#oc-tab-bench .tb-status.is-error { color: #dc2626; }
+#oc-tab-bench .tb-status.is-busy { color: #38bdf8; }
 
-#test-bench-page .tb-verdict { border-left: 3px solid var(--muted); padding: 14px 16px; margin-bottom: 14px; border-radius: 8px; background: var(--card-bg, rgba(148,163,184,.06)); }
-#test-bench-page .tb-verdict.is-good { border-left-color: #10b981; }
-#test-bench-page .tb-verdict.is-bad { border-left-color: #ef4444; }
-#test-bench-page .tb-verdict-grid {
+#oc-tab-bench .tb-verdict { border-left: 3px solid var(--muted); padding: 14px 16px; margin-bottom: 14px; border-radius: 8px; background: var(--card-bg, rgba(148,163,184,.06)); }
+#oc-tab-bench .tb-verdict.is-good { border-left-color: #10b981; }
+#oc-tab-bench .tb-verdict.is-bad { border-left-color: #ef4444; }
+#oc-tab-bench .tb-verdict-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 18px;
 }
-#test-bench-page .tb-stat { display: flex; flex-direction: column; gap: 3px; }
-#test-bench-page .tb-stat span {
+#oc-tab-bench .tb-stat { display: flex; flex-direction: column; gap: 3px; }
+#oc-tab-bench .tb-stat span {
   font: 10px 'JetBrains Mono', monospace; letter-spacing: .5px; text-transform: uppercase; color: var(--muted);
 }
-#test-bench-page .tb-stat strong { font-size: 13px; font-variant-numeric: tabular-nums; }
-#test-bench-page .tb-warn { margin: 12px 0 0; font-size: 11px; color: #b45309; }
+#oc-tab-bench .tb-stat strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+#oc-tab-bench .tb-warn { margin: 12px 0 0; font-size: 11px; color: #b45309; }
 
-#test-bench-page .tb-chart-card { padding: 16px 18px; margin-bottom: 14px; }
-#test-bench-page .tb-chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-#test-bench-page .tb-chart-head h3 { margin: 0; font-size: 14px; }
-#test-bench-page .tb-zoom { font: 11px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
-#test-bench-page .tb-chart-legend { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+#oc-tab-bench .tb-chart-card { padding: 16px 18px; margin-bottom: 14px; }
+#oc-tab-bench .tb-chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+#oc-tab-bench .tb-chart-head h3 { margin: 0; font-size: 14px; }
+#oc-tab-bench .tb-zoom { font: 11px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
+#oc-tab-bench .tb-chart-legend { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
 
 /* The canvas host: sized by CSS, read by the renderer's ResizeObserver. The
    aspect ratio matches CryptoForge so the drawing keeps the shape it was
    tuned at; the two canvases stack, chart below and crosshair above.
-   Unscoped from #test-bench-page on purpose: the Cascade backtest panel
+   Unscoped from #oc-tab-bench on purpose: the Cascade backtest panel
    draws with the same renderer. */
 .pf-bench-canvas-host {
   position: relative; width: 100%; aspect-ratio: 1440 / 660; min-height: 260px;
@@ -5862,26 +5878,36 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .pf-bench-canvas-host canvas + canvas { pointer-events: none; }
 .pf-bench-empty { font-size: 12px; color: var(--muted); padding: 40px 0; text-align: center; }
 
-#test-bench-page .tb-entries-card { padding: 16px 18px; }
-#test-bench-page .tb-entries-card h3 { margin: 0 0 10px; font-size: 14px; }
-#test-bench-page .tb-table-scroll { overflow-x: auto; }
-#test-bench-page .tb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-#test-bench-page .tb-table th {
+#oc-tab-bench .tb-entries-card { padding: 16px 18px; }
+#oc-tab-bench .tb-entries-card h3 { margin: 0 0 10px; font-size: 14px; }
+#oc-tab-bench .tb-table-scroll { overflow-x: auto; }
+#oc-tab-bench .tb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#oc-tab-bench .tb-table th {
   text-align: left; padding: 6px 10px; font: 10px 'JetBrains Mono', monospace;
   letter-spacing: .5px; text-transform: uppercase; color: var(--muted); white-space: nowrap;
 }
-#test-bench-page .tb-table td {
+#oc-tab-bench .tb-table td {
   padding: 7px 10px; border-top: 1px solid rgba(148,163,184,.18);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-#test-bench-page .tb-table .tb-none { color: var(--muted); padding: 20px 10px; white-space: normal; }
-#test-bench-page .tb-gap { color: #b45309; font-size: 11px; }
+#oc-tab-bench .tb-table .tb-none { color: var(--muted); padding: 20px 10px; white-space: normal; }
+#oc-tab-bench .tb-gap { color: #b45309; font-size: 11px; }
 
-@media (max-width: 640px) {
-  #test-bench-page .tb-controls { gap: 10px; }
-  #test-bench-page .tb-field { flex: 1 1 100%; }
-  #test-bench-page .tb-run { width: 100%; }
+@media (max-width: 860px) {
+  #oc-tab-bench .tb-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 }
-#test-bench-page .tb-explainer {
+@media (max-width: 560px) {
+  #oc-tab-bench .tb-controls { grid-template-columns: 1fr; }
+}
+#oc-tab-bench .tb-explainer {
   margin: 0 0 12px; font-size: 12px; line-height: 1.6; color: var(--muted); max-width: 88ch;
 }
+
+/* Saved Test Bench runs: pager row under the table. */
+#oc-tab-bench .tb-pager {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-top: 10px; font: 11px 'JetBrains Mono', monospace; color: var(--muted);
+}
+#oc-tab-bench .tb-pager button[disabled] { opacity: .4; cursor: default; }
+#oc-tab-bench #tb-saved-table a { text-decoration: none; }
+#oc-tab-bench #tb-saved-table a:hover { text-decoration: underline; }

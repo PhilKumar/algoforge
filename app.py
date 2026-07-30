@@ -2768,8 +2768,10 @@ class TestBenchPayload(BaseModel):
     timeframe: str = Field(default="5m")
     mother_timestamp: str
     side: str = Field(default="CE")
-    rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
+    rung_inr: float = Field(default=25000, gt=0, le=1_000_000)
     itm_steps: int = Field(default=2, ge=0, le=10)
+    # Replay even when this exact question already has a stored answer.
+    force: bool = Field(default=False)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -8755,6 +8757,78 @@ async def _test_bench_two_red(
 
 @app.post("/api/test-bench/run")
 async def test_bench_run(payload: TestBenchPayload, request: Request):
+    """Replay one mother candle, or hand back the run already stored for it.
+
+    Every distinct question -- instrument, strategy, timeframe, mother,
+    rupees per level, ITM steps -- is stored once.  Asking it again returns
+    the stored answer with ``duplicate: true`` rather than spending another
+    minute of Dhan and Upstox calls on a result that cannot have changed.
+    ``force`` replays anyway and overwrites, which is what a run that had
+    premium gaps at the time needs.
+    """
+
+    user_id = _request_user_id(request)
+    query_key = _db_mod.test_bench_query_key(
+        instrument=payload.instrument,
+        strategy=payload.strategy,
+        timeframe=payload.timeframe,
+        mother_timestamp=payload.mother_timestamp,
+        rung_inr=payload.rung_inr,
+        itm_steps=payload.itm_steps,
+    )
+    if not payload.force:
+        stored = await _db_mod.find_test_bench_run(user_id, query_key)
+        if stored and isinstance(stored.get("payload"), dict) and stored["payload"]:
+            return {
+                **stored["payload"],
+                "duplicate": True,
+                "run_id": stored["id"],
+                "stored_at": stored["created_at"],
+            }
+
+    result = await _test_bench_execute(payload, request)
+    summary = result.get("summary") or {}
+    run_id = await _db_mod.save_test_bench_run(
+        user_id,
+        query_key,
+        {
+            **summary,
+            "strategy": result.get("strategy") or payload.strategy,
+            "rung_inr": payload.rung_inr,
+            "itm_steps": payload.itm_steps,
+        },
+        result,
+    )
+    return {**result, "duplicate": False, "run_id": run_id}
+
+
+@app.get("/api/test-bench/results")
+async def test_bench_results(request: Request, search: str = "", page: int = 1, per_page: int = 10):
+    """One page of stored Test Bench runs, newest mother first."""
+    return {
+        "status": "ok",
+        **(await _db_mod.list_test_bench_runs(_request_user_id(request), search=search, page=page, per_page=per_page)),
+    }
+
+
+@app.get("/api/test-bench/results/{run_id}")
+async def test_bench_result(run_id: int, request: Request):
+    """Reopen one stored run in full, without replaying it."""
+    stored = await _db_mod.get_test_bench_run(_request_user_id(request), run_id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="That saved run no longer exists.")
+    payload = stored.get("payload") or {}
+    return {**payload, "duplicate": True, "run_id": stored["id"], "stored_at": stored["created_at"]}
+
+
+@app.delete("/api/test-bench/results/{run_id}")
+async def test_bench_result_delete(run_id: int, request: Request):
+    if not await _db_mod.delete_test_bench_run(_request_user_id(request), run_id):
+        raise HTTPException(status_code=404, detail="That saved run no longer exists.")
+    return {"status": "ok", "deleted": run_id}
+
+
+async def _test_bench_execute(payload: TestBenchPayload, request: Request):
     """Replay ONE mother candle and report everything that happened to it.
 
     This is the Test Bench: the caller names an instrument, a strategy, a

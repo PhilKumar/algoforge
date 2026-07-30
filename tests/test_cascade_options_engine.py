@@ -13,6 +13,7 @@ from engine.cascade_options import (
     OptionsAdapterError,
     PaperCascadeConfig,
     PaperOnlyViolation,
+    find_index_valid_anchor2,
 )
 
 
@@ -611,6 +612,80 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         self.assertEqual(engine.status, "KILLED")
         self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY", "SELL"])
         self.assertEqual(engine.open_quantity, 0)
+
+
+class AnchorToleranceTests(unittest.TestCase):
+    """The trendline's slack is measured in candles, not percent of price.
+
+    Phil, 2026-07-30, on a NIFTY 1m chart: the drawn line "is not touching the
+    highest red open before the later fall".  The cause was the inherited
+    CryptoForge tolerance -- 0.045% of price, which is a slice of one BTC 5m
+    candle but 1.6 whole NIFTY 1m candles.  With that much slack the backward
+    anchor search walked straight past the swing high and anchored to a much
+    later, lower red open, leaving the line cutting through the rally.
+    """
+
+    ANCHOR1_PRICE = 24205.0
+    ANCHOR1_AT = datetime(2026, 7, 15, 9, 59)
+
+    @staticmethod
+    def _bar(minute, o, h, low, c):
+        return IndexCandle(datetime(2026, 7, 15, 10, 0) + timedelta(minutes=minute), o, h, low, c)
+
+    def _series(self):
+        """NIFTY-scale bars: ~24,190 with ~6-point ranges.
+
+        Bar 10 is the swing-high red (opens 24,196) and the market then walks
+        down to ~24,156.  Every later red open makes a steeper line that bar
+        10's own close breaks -- by less than half a candle, which is exactly
+        the margin the old percentage allowance used to wave through.
+        """
+        bars = [self._bar(i, 24190, 24193, 24187, 24190) for i in range(10)]
+        bars.append(self._bar(10, 24196, 24199, 24193, 24195.5))  # the swing-high red
+        for i in range(11, 30):
+            base = 24188 - (i - 11) * 1.2
+            bars.append(self._bar(i, base, base + 3, base - 3, base - 1.0))
+        return bars
+
+    def test_the_anchor_is_the_swing_high_red_open_not_a_later_lower_one(self):
+        price, timestamp = find_index_valid_anchor2(self.ANCHOR1_PRICE, self.ANCHOR1_AT, self._series())
+        self.assertEqual(price, 24196)
+        self.assertEqual(timestamp, datetime(2026, 7, 15, 10, 10))
+
+    def test_the_old_percentage_slack_would_have_picked_a_later_lower_anchor(self):
+        # Not a hypothetical: this is the regression itself.  Widen the
+        # allowance back to a crypto-sized 0.045% of price and the search walks
+        # past the swing high, which is what Phil saw on his chart.
+        import engine.cascade_options as geometry
+
+        original = geometry.GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES
+        geometry.GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES = 999.0  # percentage wins again
+        try:
+            price, _ = find_index_valid_anchor2(self.ANCHOR1_PRICE, self.ANCHOR1_AT, self._series())
+        finally:
+            geometry.GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES = original
+        self.assertIsNotNone(price)
+        self.assertLess(price, 24196)
+
+    def test_a_close_above_the_line_by_half_a_candle_still_invalidates_it(self):
+        # 2 points above the line on a 6-point candle is a real breach, and the
+        # swing-high anchor must become unreachable because of it.
+        bars = self._series()
+        bars[5] = self._bar(5, 24196, 24204, 24194, 24202)
+        price, _ = find_index_valid_anchor2(self.ANCHOR1_PRICE, self.ANCHOR1_AT, bars)
+        self.assertNotEqual(price, 24196)
+
+    def test_the_allowance_never_widens_beyond_the_old_percentage(self):
+        # On a crypto-scale series the percentage still caps it, so this change
+        # can only ever tighten the inherited behaviour, never loosen it.
+        from engine.cascade_options import (
+            GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES,
+            GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT,
+        )
+
+        by_pct = 65000.0 * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_PCT
+        by_candles = 400.0 * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES
+        self.assertLessEqual(min(by_pct, by_candles), by_pct)
 
 
 if __name__ == "__main__":

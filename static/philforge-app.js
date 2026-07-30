@@ -977,7 +977,6 @@ const NAV_BUTTON_MAP = {
   'stock-terminal-page': 'nav-terminal',
   'scalp-page': 'nav-scalp',
   'options-cascade-page': 'nav-cascade',
-  'test-bench-page': 'nav-test-bench',
   'charts-page': 'nav-charts',
 };
 
@@ -1006,7 +1005,9 @@ function positionInsightsMenu() {
   const wrap = document.getElementById('nav-insights-wrap');
   const trigger = document.getElementById('nav-insights');
   const menu = document.getElementById('nav-insights-menu');
-  if (!wrap || !trigger || !menu || window.innerWidth > 767 || !wrap.classList.contains('menu-open')) {
+  // Every width, not just mobile: the nav row is a horizontal scroller, and
+  // an absolutely-positioned menu inside it would be clipped by the scroll.
+  if (!wrap || !trigger || !menu || !wrap.classList.contains('menu-open')) {
     return;
   }
   const rect = trigger.getBoundingClientRect();
@@ -1037,9 +1038,7 @@ function toggleInsightsMenu(event) {
   if (shouldOpen) {
     wrap.classList.add('menu-open');
     document.body.classList.add('insights-menu-open');
-    if (window.innerWidth <= 767) {
-      requestAnimationFrame(positionInsightsMenu);
-    }
+    requestAnimationFrame(positionInsightsMenu);
   }
 }
 
@@ -1200,6 +1199,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   'toggleFibBoundaryBacktestChart',
   'runTestBench',
   'toggleTestBenchChart',
+  'openSavedTestBenchRun',
+  'deleteSavedTestBenchRun',
+  'pageSavedTestBenchRuns',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -1954,10 +1956,11 @@ window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 let _fibBoundaryPollTimer = null;
 let _lastFibBoundaryStatus = null;
 
-// Two strategies live on one page now; each tab owns its own engine.  The
-// old Signal Ladder replay tab was retired 2026-07-30 on Phil's call — history
-// belongs to the Test Bench.
-const _OC_TABS = ['fib', 'candle'];
+// Everything options lives on one page now; each tab owns its own engine.
+// The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
+// moved in beside the two paper strategies the same day — both on Phil's call,
+// so the top nav stays one row.
+const _OC_TABS = ['fib', 'candle', 'bench'];
 
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
@@ -1967,6 +1970,7 @@ function showOptionsCascadeTab(event, el) {
     if (panel) panel.style.display = name === tab ? '' : 'none';
   });
   if (tab === 'candle') refreshCandleEntryStatus();
+  else if (tab === 'bench') initTestBenchPage();
   else refreshFibBoundaryStatus();
 }
 
@@ -13719,6 +13723,7 @@ function initTestBenchPage() {
   }
   _tbRenderTimeframes();
   _tbSyncCalendarToTimeframe();
+  _tbLoadSaved(1);
 }
 
 function _tbStatus(message, kind) {
@@ -13747,11 +13752,12 @@ async function runTestBench(event, el) {
   const button = el || document.getElementById('tb-run');
   const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
   const payload = {
+    force: _tbForceNextRun,
     instrument: document.getElementById('tb-instrument')?.value || 'NIFTY',
     strategy: document.getElementById('tb-strategy')?.value || 'fib',
     timeframe,
     mother_timestamp: document.getElementById('tb-mother')?.value || '',
-    rung_inr: Number(document.getElementById('tb-rung')?.value || 75000),
+    rung_inr: Number(document.getElementById('tb-rung')?.value || 25000),
   };
   if (!payload.mother_timestamp) {
     _tbStatus('Pick a mother candle date and time first.', 'error');
@@ -13775,7 +13781,14 @@ async function runTestBench(event, el) {
       throw new Error(data?.error?.detail || data?.error?.message || data?.detail || `Run failed (${response.status})`);
     }
     _tbRender(data);
-    _tbStatus('', '');
+    if (data.duplicate) {
+      _tbStatus(`Already in your saved runs (replayed ${_tbTime(data.stored_at)}). Showing the stored result — press Run again to replay it fresh.`, 'busy');
+      _tbForceNextRun = true;
+    } else {
+      _tbStatus('', '');
+      _tbForceNextRun = false;
+    }
+    _tbLoadSaved();
   } catch (error) {
     document.getElementById('tb-results')?.setAttribute('hidden', '');
     _tbStatus(error.message || 'Run failed.', 'error');
@@ -13911,6 +13924,99 @@ function _tbRenderEntries(data) {
   table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
 }
 
+// Pressing Run on a question that already has a stored answer shows the
+// stored one; pressing Run again replays it for real.
+let _tbForceNextRun = false;
+let _tbSavedPage = 1;
+let _tbSearchTimer = null;
+
+async function _tbLoadSaved(page) {
+  const table = document.getElementById('tb-saved-table');
+  const pager = document.getElementById('tb-pager');
+  const count = document.getElementById('tb-saved-count');
+  if (!table) return;
+  if (page) _tbSavedPage = page;
+  const search = document.getElementById('tb-search')?.value || '';
+  let data;
+  try {
+    const query = new URLSearchParams({ search, page: String(_tbSavedPage), per_page: '10' });
+    const response = await fetch(`/api/test-bench/results?${query}`, { credentials: 'same-origin' });
+    data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error('could not load');
+  } catch (error) {
+    table.innerHTML = '<tbody><tr><td class="tb-none">Saved runs are unavailable right now.</td></tr></tbody>';
+    if (pager) pager.innerHTML = '';
+    return;
+  }
+  if (count) count.textContent = String(data.total);
+  const rows = data.rows || [];
+  if (!rows.length) {
+    table.innerHTML = `<tbody><tr><td class="tb-none">${search ? 'Nothing matches that search.' : 'Runs you make are saved here automatically.'}</td></tr></tbody>`;
+    if (pager) pager.innerHTML = '';
+    return;
+  }
+  const head = ['Mother', 'Instrument', 'Strategy', 'Chart', 'Per level', 'Outcome', 'Buys', 'Net P&L', ''];
+  const body = rows.map((row) => {
+    const pnl = Number(row.net_pnl);
+    const tone = !isFinite(pnl) ? '' : pnl > 0 ? ' style="color:#6ee7b7;"' : pnl < 0 ? ' style="color:#fca5a5;"' : '';
+    const open = String(row.outcome || '').toUpperCase().includes('OPEN');
+    return `<tr>
+      <td><a href="#" data-pf-action="openSavedTestBenchRun" data-tb-run="${row.id}" style="color:#38bdf8;">${_tbTime(row.mother_timestamp)}</a></td>
+      <td>${escapeHtml(String(row.instrument || ''))}</td>
+      <td>${escapeHtml(row.strategy === 'two_red' ? 'Two red' : 'Fib levels')}</td>
+      <td>${escapeHtml(_TB_TF_LABEL[row.timeframe] || row.timeframe || '')}</td>
+      <td>${_tbInr(row.rung_inr)}</td>
+      <td${open ? ' style="color:#fbbf24;"' : ''}>${escapeHtml(String(row.outcome || '—'))}</td>
+      <td>${escapeHtml(String(row.entry_count ?? 0))}</td>
+      <td${tone}>${isFinite(pnl) ? _tbInr(pnl) : '—'}</td>
+      <td><button class="btn btn-sm cascade-options-control" type="button" data-pf-action="deleteSavedTestBenchRun" data-tb-run="${row.id}" aria-label="Delete this saved run">×</button></td>
+    </tr>`;
+  }).join('');
+  table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
+  if (pager) {
+    pager.innerHTML = data.pages <= 1 ? '' : `
+      <button class="btn btn-sm cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? 'disabled' : ''}>‹ Prev</button>
+      <span>Page ${data.page} of ${data.pages} · ${data.total} run${data.total === 1 ? '' : 's'}</span>
+      <button class="btn btn-sm cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.min(data.pages, data.page + 1)}" ${data.page >= data.pages ? 'disabled' : ''}>Next ›</button>`;
+  }
+}
+
+function pageSavedTestBenchRuns(event, el) {
+  _tbLoadSaved(Number(el?.getAttribute('data-tb-page')) || 1);
+}
+
+async function openSavedTestBenchRun(event, el) {
+  const id = el?.getAttribute('data-tb-run');
+  if (!id) return;
+  _tbStatus('Opening the saved run…', 'busy');
+  try {
+    const response = await fetch(`/api/test-bench/results/${id}`, { credentials: 'same-origin' });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.error?.detail || 'Could not open that run.');
+    _tbRender(data);
+    _tbStatus(`Saved run from ${_tbTime(data.stored_at)}.`, '');
+    _tbForceNextRun = true;
+  } catch (error) {
+    _tbStatus(error.message || 'Could not open that run.', 'error');
+  }
+}
+
+async function deleteSavedTestBenchRun(event, el) {
+  const id = el?.getAttribute('data-tb-run');
+  if (!id) return;
+  const ok = await customConfirm('Delete this saved run? The mother candle can always be replayed again.', { title: 'Delete saved run', icon: ICO.warn(28), okText: 'Delete', danger: true });
+  if (!ok) return;
+  await fetch(`/api/test-bench/results/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+  _tbLoadSaved();
+}
+
+document.addEventListener('input', (event) => {
+  if (event.target && event.target.id === 'tb-search') {
+    clearTimeout(_tbSearchTimer);
+    _tbSearchTimer = setTimeout(() => _tbLoadSaved(1), 250);
+  }
+});
+
 document.addEventListener('change', (event) => {
   const id = event.target && event.target.id;
   if (id === 'tb-timeframe') {
@@ -13920,5 +14026,8 @@ document.addEventListener('change', (event) => {
     _tbRenderTimeframes();
   } else if (id === 'candle-entry-timeframe') {
     _ceRenderTimeframes();
+  }
+  if (['tb-instrument', 'tb-strategy', 'tb-timeframe', 'tb-mother', 'tb-rung'].includes(id)) {
+    _tbForceNextRun = false;
   }
 });

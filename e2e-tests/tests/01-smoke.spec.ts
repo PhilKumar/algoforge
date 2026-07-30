@@ -118,6 +118,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/cascade/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_gate: { enabled: false } } });
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
@@ -361,7 +362,8 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
   await page.route('**/api/test-bench/run', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(testBenchRunMock) }));
 
-  await page.click('#nav-test-bench');
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-bench');
   // The app upgrades every datetime-local input into its own read-only calendar
   // widget, so the value is set the way that widget sets it.
   await page.evaluate(() => {
@@ -401,7 +403,8 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
 
 test('Test Bench calendar offers only the minutes its timeframe can open on', async ({ page }) => {
   await login(page);
-  await page.click('#nav-test-bench');
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-bench');
 
   // A 5-minute picker cannot express a 1m mother at all, and an every-minute
   // list on 1H is 59 choices that all fail with "no candle at that time".
@@ -432,7 +435,8 @@ test('Test Bench calendar offers only the minutes its timeframe can open on', as
 
 test('Test Bench switches cleanly between the two strategies', async ({ page }) => {
   await login(page);
-  await page.click('#nav-test-bench');
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-bench');
 
   // Fib names the levels it buys; Two Red names the charts it climbs through.
   await page.selectOption('#tb-strategy', 'fib');
@@ -448,32 +452,36 @@ test('Test Bench switches cleanly between the two strategies', async ({ page }) 
   await expect(page.locator('#tb-explainer')).toContainText('two red candles');
 });
 
-test('Desktop nav keeps every tab visible and Test Bench in its slot', async ({ page }) => {
-  // The nav positions tabs with per-id CSS order rules; a tab without one
-  // lands at order 0 and renders on top of the brand panel. This is exactly
-  // how the Test Bench tab shipped broken, so the desktop row is asserted
-  // here the way a user sees it: positions, not markup.
+test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
+  // The nav positions tabs with per-id CSS order rules and used to wrap to a
+  // second row when they stopped fitting — which is how the Test Bench tab
+  // once landed on top of the brand panel. One row is now the invariant at
+  // every width; overflow scrolls sideways instead.
   await page.setViewportSize({ width: 1600, height: 900 });
   await login(page);
 
-  const box = async (selector: string) => {
-    const b = await page.locator(selector).boundingBox();
-    if (!b) throw new Error(`${selector} is not visible`);
-    return b;
+  const rowsAt = async (width: number) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(150);
+    return page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('.nav-tabs > *')) as HTMLElement[];
+      const visible = tabs.filter((el) => el.offsetParent !== null);
+      return new Set(visible.map((el) => Math.round(el.getBoundingClientRect().top))).size;
+    });
   };
-  const brand = await box('.header-brand-panel');
-  const cascade = await box('#nav-cascade');
-  const bench = await box('#nav-test-bench');
-  const insights = await box('#nav-insights-wrap');
-  const results = await box('#nav-results');
 
-  // Between Cascade and Insights, on the same row, clear of the brand panel.
-  expect(bench.x).toBeGreaterThan(cascade.x + cascade.width - 1);
-  expect(bench.x + bench.width).toBeLessThanOrEqual(insights.x + 1);
-  expect(Math.abs(bench.y - cascade.y)).toBeLessThan(2);
-  expect(bench.x).toBeGreaterThan(brand.x + brand.width - 1);
-  // And the far end of the row must not run off the screen.
-  expect(results.x + results.width).toBeLessThanOrEqual(1600);
+  expect(await rowsAt(1600)).toBe(1);
+  expect(await rowsAt(1280)).toBe(1);
+  expect(await rowsAt(1024)).toBe(1);
+
+  // And the row is genuinely scrollable rather than clipping tabs away.
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.waitForTimeout(150);
+  const scrollable = await page.evaluate(() => {
+    const bar = document.querySelector('.nav-bar') as HTMLElement;
+    return bar.scrollWidth > bar.clientWidth + 1;
+  });
+  expect(scrollable).toBe(true);
 });
 
 test('Candle Entry tab offers the full ladder of starting charts', async ({ page }) => {
