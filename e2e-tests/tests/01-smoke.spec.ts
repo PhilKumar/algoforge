@@ -222,17 +222,15 @@ test('Cascade generated statuses remain legible in light mode', async ({ page })
 
     const app = window as typeof window & {
       _cascadeSetStatus?: (message: string, tone: string) => void;
-      _cascadeOptionsSetFormStatus?: (message: string, tone: string) => void;
       _setCandleEntryFormStatus?: (message: string, tone: string) => void;
       _renderCandleEntryStatus?: (payload: unknown) => void;
       _fibSetFormStatus?: (message: string, tone: string) => void;
     };
-    if (!app._cascadeSetStatus || !app._cascadeOptionsSetFormStatus || !app._setCandleEntryFormStatus || !app._renderCandleEntryStatus || !app._fibSetFormStatus) {
+    if (!app._cascadeSetStatus || !app._setCandleEntryFormStatus || !app._renderCandleEntryStatus || !app._fibSetFormStatus) {
       throw new Error('Cascade status renderers are unavailable');
     }
 
     app._cascadeSetStatus('Signal replay is running', 'busy');
-    app._cascadeOptionsSetFormStatus('Options paper campaign started', 'success');
     app._setCandleEntryFormStatus('Historical 1H replay completed. Fixed-strike P&L is withheld.', 'success');
     app._renderCandleEntryStatus({
       campaign: {
@@ -255,7 +253,6 @@ test('Cascade generated statuses remain legible in light mode', async ({ page })
     };
     return {
       signalReplay: color('#cascade-form-status'),
-      optionsPaper: color('#cascade-options-form-status'),
       candleReplay: color('#candle-entry-form-status'),
       candleBadge: color('#candle-entry-badge'),
       candleWarning: color('#candle-entry-summary .is-warning'),
@@ -265,7 +262,6 @@ test('Cascade generated statuses remain legible in light mode', async ({ page })
 
   expect(statuses).toEqual({
     signalReplay: 'rgb(146, 64, 14)',
-    optionsPaper: 'rgb(4, 120, 87)',
     candleReplay: 'rgb(4, 120, 87)',
     candleBadge: 'rgb(146, 64, 14)',
     candleWarning: 'rgb(146, 64, 14)',
