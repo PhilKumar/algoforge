@@ -5862,3 +5862,6 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #test-bench-page .tb-field { flex: 1 1 100%; }
   #test-bench-page .tb-run { width: 100%; }
 }
+#test-bench-page .tb-explainer {
+  margin: 0 0 12px; font-size: 12px; line-height: 1.6; color: var(--muted); max-width: 88ch;
+}

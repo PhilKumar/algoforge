@@ -203,6 +203,13 @@ function _pfChartCanvasFit(c) {
     hi = Math.max(hi, Number(d.tp_price));
     lo = Math.min(lo, Number(d.tp_price));
   }
+  // A rung that never filled can sit outside the candles it was measured from.
+  // Leaving it out of the fit draws it off-screen, which reads as "no rung".
+  (d.lines || []).forEach(function (line) {
+    if (!line || line.price == null) return;
+    hi = Math.max(hi, Number(line.price));
+    lo = Math.min(lo, Number(line.price));
+  });
   var priceSpan = (hi - lo) || Math.max(Math.abs(hi) * 0.02, 1);
   var padP = priceSpan * 0.06;
   var first = Number(candles[0].t), last = Number(candles[candles.length - 1].t);
@@ -222,7 +229,7 @@ function _pfChartCanvasPaintKey(d) {
   d = d || {};
   return JSON.stringify({
     candles: d.candles || [], mother: d.mother || null,
-    legs: d.legs || [], trendlines: d.trendlines || [],
+    legs: d.legs || [], trendlines: d.trendlines || [], lines: d.lines || [],
     fills: d.fills || [], entries: d.entries || [], exits: d.exits || [],
     avg_entry_price: d.avg_entry_price, tp_price: d.tp_price,
     tp_label: d.tp_label || '', timeframe: d.timeframe
@@ -427,11 +434,28 @@ function _pfChartCanvasHline(c, p, labels, price, color, text, dash, width, opac
   return true;
 }
 
+// Plain labelled price lines, for strategies that have no fib ladder to draw.
+// The two-red ladder's rungs are buy-stops read off candle closes, not levels
+// measured from a mother — same picture, different arithmetic behind it.
+function _pfChartCanvasLines(c, p, PAL, labels) {
+  var d = c.data || {}, count = 0;
+  (d.lines || []).forEach(function (line, index) {
+    if (line == null || line.price == null) return;
+    var color = PAL.fibs[index % PAL.fibs.length];
+    var spent = Number(line.inr_notional) || 0;
+    var text = String(line.label || '') + ' (' + Number(line.price).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ')'
+      + (spent > 0 ? '  ' + _pfChartInr(spent) : '');
+    count += _pfChartCanvasHline(c, p, labels, Number(line.price), color, text, line.filled ? [] : [4, 3], line.filled ? 1.1 : 0.8, line.filled ? 0.9 : 0.45) ? 1 : 0;
+  });
+  return count;
+}
+
 function _pfChartCanvasFibs(c, p, PAL, labels) {
   var d = c.data || {}, count = 0;
   function fmt(v) { return Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
   if (d.mother && d.mother.high) count += _pfChartCanvasHline(c, p, labels, Number(d.mother.high), PAL.mother,
     'MOTHER (' + fmt(d.mother.high) + ')', [5, 3], 1.1) ? 1 : 0;
+  count += _pfChartCanvasLines(c, p, PAL, labels);
   _pfChartCanvasStructures(d).legs.forEach(function (leg) {
     var color = PAL.fibs[(Math.max(1, Number(leg.leg_id) || 1) - 1) % PAL.fibs.length];
     count += _pfChartCanvasHline(c, p, labels, Number(leg.touch_high), color,

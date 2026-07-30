@@ -156,6 +156,7 @@ def replay_one_fib(
     single_shot: bool,
     max_rounds: Optional[int],
     max_round_premium_inr: Optional[float],
+    exit_days_before_expiry: int,
     label: str,
 ) -> FibOutcome:
     # Feed from the mother pivot itself: the fib geometry needs the bars right
@@ -214,6 +215,7 @@ def replay_one_fib(
             single_shot=single_shot,
             max_rounds=max_rounds,
             max_round_premium_inr=max_round_premium_inr,
+            exit_days_before_expiry=exit_days_before_expiry,
         ),
         contract_selector=select,
     ).run(forward)
@@ -268,6 +270,7 @@ def run_sweep(
     single_shot: bool,
     max_rounds: Optional[int],
     max_round_premium_inr: Optional[float],
+    exit_days_before_expiry: int,
 ) -> tuple[list[FibOutcome], list[MotherCandidate]]:
     mothers = find_mother_candles(index_series, **scanner_kwargs)
     outcomes: list[FibOutcome] = []
@@ -291,6 +294,7 @@ def run_sweep(
             single_shot=single_shot,
             max_rounds=max_rounds,
             max_round_premium_inr=max_round_premium_inr,
+            exit_days_before_expiry=exit_days_before_expiry,
             label=f"#{number} {mother.timestamp:%Y-%m-%d %H:%M}",
         )
         outcomes.append(outcome)
@@ -377,6 +381,20 @@ def main() -> int:
     ap.add_argument("--left-bars", type=int, default=3)
     ap.add_argument("--right-bars", type=int, default=3)
     ap.add_argument("--min-range-atr", type=float, default=0.8)
+    ap.add_argument(
+        "--min-separation-bars",
+        type=int,
+        default=0,
+        help="minimum bars between accepted mothers, so one swing spawns one campaign "
+        "instead of a cluster of adjacent local highs. Default: 0 (no separation).",
+    )
+    ap.add_argument(
+        "--exit-days-before-expiry",
+        type=int,
+        default=0,
+        help="time-stop: square off this many calendar days before expiry to cut late "
+        "theta on legs that never hit target. Default: 0 (square off at expiry).",
+    )
     ap.add_argument("--refetch", action="store_true")
     args = ap.parse_args()
 
@@ -424,7 +442,12 @@ def main() -> int:
         def premium_lookup(_timestamp, _contract):
             return 100.0  # flat: drives the geometry, prices nothing
 
-    scanner_kwargs = dict(left_bars=args.left_bars, right_bars=args.right_bars, min_range_atr=args.min_range_atr)
+    scanner_kwargs = dict(
+        left_bars=args.left_bars,
+        right_bars=args.right_bars,
+        min_range_atr=args.min_range_atr,
+        min_separation_bars=args.min_separation_bars,
+    )
     outcomes, mothers = run_sweep(
         index_series,
         cfg,
@@ -438,6 +461,7 @@ def main() -> int:
         single_shot=args.single_shot,
         max_rounds=args.max_rounds,
         max_round_premium_inr=args.max_round_premium,
+        exit_days_before_expiry=args.exit_days_before_expiry,
     )
     layer = "Layer 2 (real Upstox premiums)" if args.premium else "Layer 1 (signal geometry, no P&L)"
     if args.single_shot:

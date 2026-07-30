@@ -116,6 +116,140 @@ def bench_summary(backtest: dict, *, instrument: str, timeframe: str, mother_tim
     }
 
 
+def ladder_result(ladder, *, instrument: str, timeframe: str, mother_timestamp: str, lot_size: int) -> dict:
+    """A two-red ladder, in the same shape the fib strategy reports.
+
+    One screen reads both strategies, so they have to answer the same questions
+    in the same words -- "what did it buy, when, at what, and how did it end".
+    """
+
+    fills = list(ladder.fills)
+    entries = [
+        {
+            "timestamp": fill.timestamp.isoformat(),
+            "spot": fill.index_price,
+            "option_price": fill.option_premium,
+            "lots": fill.lots,
+            "quantity": fill.quantity,
+            # The rung's own chart is what a reader needs here, not a fib level.
+            "level": fill.rung,
+            "timeframe": fill.timeframe,
+            "leg_id": fill.rung,
+            "spend_inr": (
+                round(float(fill.option_premium) * int(fill.quantity), 2) if fill.option_premium is not None else None
+            ),
+            "strike": fill.strike,
+            "option_type": fill.option_type,
+        }
+        for fill in fills
+    ]
+    priced = [entry for entry in entries if entry["spend_inr"] is not None]
+    outcome = (
+        "No buy — the two-red setup never completed"
+        if not fills
+        else outcome_label(ladder.exit_reason or ("open" if ladder.status not in {"CLOSED", "EXPIRED"} else None))
+    )
+    return {
+        "summary": {
+            "instrument": instrument,
+            "timeframe": timeframe,
+            "mother_timestamp": mother_timestamp,
+            "outcome": outcome,
+            "exit_reason": ladder.exit_reason,
+            "entry_timestamp": entries[0]["timestamp"] if entries else None,
+            "exit_timestamp": ladder.exit_timestamp.isoformat() if ladder.exit_timestamp else None,
+            "entry_count": len(entries),
+            "unpriced_entries": len(entries) - len(priced),
+            "spend_inr": round(sum(float(row["spend_inr"]) for row in priced), 2) if priced else 0.0,
+            "net_pnl": ladder.net_pnl,
+            "costs_total": round(ladder.costs.total, 2) if ladder.costs else 0.0,
+            "fully_priced": bool(fills) and len(priced) == len(fills) and ladder.net_pnl is not None,
+            "strike": entries[0]["strike"] if entries else None,
+            "option_type": entries[0]["option_type"] if entries else None,
+            "expiry": None,
+            "lot_size": lot_size,
+            "underlying": instrument,
+            "target_index": ladder.target_index,
+            "average_spot": ladder.average_entry,
+            "data_gaps": [
+                f"missing premium for rung {row['level']} at {row['timestamp']}"
+                for row in entries
+                if row["spend_inr"] is None
+            ],
+        },
+        "entries": entries,
+    }
+
+
+def ladder_chart(ladder, candles: list, *, timeframe: str) -> dict:
+    """Draw the ladder on the chart Phil chose to read it on.
+
+    Rungs are plain labelled price lines rather than fib levels -- an armed stop
+    is dashed and faint, a filled one solid and carrying what it cost, so which
+    rungs actually traded is readable without the table.
+    """
+
+    rows = [
+        {
+            "t": int(row.timestamp.timestamp()),
+            "o": row.open,
+            "h": row.high,
+            "l": row.low,
+            "c": row.close,
+            "is_mother": row.timestamp == ladder.mother.timestamp and row.timeframe == ladder.mother.timeframe,
+        }
+        for row in candles
+        if row.timeframe == timeframe
+    ]
+    lines = []
+    for fill in ladder.fills:
+        lines.append(
+            {
+                "price": fill.index_price,
+                "label": f"BUY {fill.rung} · {fill.timeframe}",
+                "inr_notional": (
+                    round(float(fill.option_premium) * int(fill.quantity), 2) if fill.option_premium is not None else 0
+                ),
+                "filled": True,
+            }
+        )
+    # A rung that armed but never filled is still worth seeing: it says the
+    # setup was there and the recovery never came.
+    for stage in ladder.stages:
+        if stage.stop is not None:
+            lines.append(
+                {
+                    "price": stage.stop,
+                    "label": f"ARMED {stage.rung} · {stage.timeframe}",
+                    "inr_notional": 0,
+                    "filled": False,
+                }
+            )
+    return {
+        "timeframe": timeframe,
+        "candles": rows,
+        "mother": {"high": ladder.mother.high, "low": ladder.mother.low},
+        "trendlines": [],
+        "legs": [],
+        "lines": lines,
+        "entries": [{"t": int(fill.timestamp.timestamp()), "price": fill.index_price} for fill in ladder.fills],
+        "exits": (
+            [
+                {
+                    "t": int(ladder.exit_timestamp.timestamp()),
+                    "price": ladder.exit_index_price,
+                    "pnl": ladder.net_pnl or 0,
+                }
+            ]
+            if ladder.exit_timestamp and ladder.exit_index_price is not None
+            else []
+        ),
+        "avg_entry_price": ladder.average_entry,
+        "tp_price": ladder.target_index,
+        "tp_label": "TARGET HIT" if ladder.exit_reason == "target" else "TARGET (not reached)",
+    }
+
+
 def _spend_by_rung(backtest: dict) -> dict[tuple[int, int], float]:
     """Premium spent, keyed by the (leg, fib level) the buy fired on."""
     totals: dict[tuple[int, int], float] = {}

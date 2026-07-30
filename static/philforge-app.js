@@ -13934,6 +13934,42 @@ fetchRuns = async function() {
 
 const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 · L8', '1h': 'L2 · L4 · L8' };
 
+// What each strategy does with the timeframe you pick. Fib reads levels off the
+// mother; Two Red starts on that chart and climbs to the next one after every
+// buy — so a 1H start has nowhere left to climb and is a single trade.
+const _TB_LADDER = ['1m', '5m', '15m', '1h'];
+const _TB_TF_LABEL = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H' };
+
+function _tbLadderFrom(timeframe) {
+  const start = _TB_LADDER.indexOf(timeframe);
+  return start < 0 ? [] : _TB_LADDER.slice(start, start + 4);
+}
+
+const _TB_STRATEGY_COPY = {
+  fib: 'Draws the trendline and fib levels from the mother candle, then buys each deep level the market falls through. The whole basket leaves on the first target, or at expiry.',
+  two_red: 'Waits for two red candles to close, then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs to the next timeframe and waits for two reds again — 1, 2, 3 then 4 lots. One mother, one trade.',
+};
+
+function _tbRenderTimeframes() {
+  const select = document.getElementById('tb-timeframe');
+  if (!select) return;
+  const strategy = document.getElementById('tb-strategy')?.value || 'fib';
+  const chosen = select.value || '5m';
+  select.innerHTML = _TB_LADDER.map((tf) => {
+    const detail = strategy === 'two_red'
+      ? _tbLadderFrom(tf).map((step) => _TB_TF_LABEL[step]).join(' → ')
+      : `buys ${_TB_LEVELS_BY_TF[tf]}`;
+    return `<option value="${tf}"${tf === chosen ? ' selected' : ''}>${_TB_TF_LABEL[tf]} · ${detail}</option>`;
+  }).join('');
+  select.value = chosen;
+  // The rupee-per-level budget is a fib idea. The ladder sizes itself 1/2/3/4
+  // lots, so showing a cash box there would imply a control that does nothing.
+  const rung = document.getElementById('tb-rung-field');
+  if (rung) rung.style.display = strategy === 'two_red' ? 'none' : '';
+  const explainer = document.getElementById('tb-explainer');
+  if (explainer) explainer.textContent = _TB_STRATEGY_COPY[strategy] || '';
+}
+
 // The minutes a candle of each timeframe can actually open on. NSE sessions
 // start at 09:15, so every bar is offset by 15: a 1H bar opens at :15 and
 // nothing else, a 15m bar at :00/:15/:30/:45. Offering a minute that can never
@@ -13960,6 +13996,7 @@ function initTestBenchPage() {
     const pad = (n) => String(n).padStart(2, '0');
     mother.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:15`;
   }
+  _tbRenderTimeframes();
   _tbSyncCalendarToTimeframe();
 }
 
@@ -14074,11 +14111,16 @@ function _tbRenderEntries(data) {
     table.innerHTML = '<tbody><tr><td class="tb-none">Nothing was bought — the index never reached a fib level for this mother.</td></tr></tbody>';
     return;
   }
-  const head = ['Level', 'Time', 'Index at', 'Strike', 'Price paid', 'Lots', 'Qty', 'Spent'];
+  const ladder = data.strategy === 'two_red';
+  const head = [ladder ? 'Buy' : 'Level', 'Time', 'Index at', 'Strike', 'Price paid', 'Lots', 'Qty', 'Spent'];
   const body = rows.map((row) => {
     const spend = row.spend_inr == null ? '<span class="tb-gap">no price</span>' : _tbInr(row.spend_inr);
+    // A ladder rung is named by the chart it was read on, which is the whole
+    // point of the strategy; a fib entry is named by the level it sat on.
+    const label = row.level == null ? '—'
+      : (ladder ? `#${row.level} · ${_TB_TF_LABEL[row.timeframe] || row.timeframe || ''}` : 'L' + row.level);
     return `<tr>
-      <td>${row.level == null ? '—' : 'L' + row.level}</td>
+      <td>${escapeHtml(label)}</td>
       <td>${_tbTime(row.timestamp)}</td>
       <td>${row.spot == null ? '—' : Number(row.spot).toLocaleString('en-IN')}</td>
       <td>${escapeHtml(String(row.strike ?? '—'))} ${escapeHtml(String(row.option_type || ''))}</td>
@@ -14092,9 +14134,11 @@ function _tbRenderEntries(data) {
 }
 
 document.addEventListener('change', (event) => {
-  if (event.target && event.target.id === 'tb-timeframe') {
+  const id = event.target && event.target.id;
+  if (id === 'tb-timeframe') {
     _tbSyncCalendarToTimeframe();
-    const hint = _TB_LEVELS_BY_TF[event.target.value];
-    if (hint) _tbStatus(`This timeframe buys ${hint}.`, '');
+    _tbRenderTimeframes();
+  } else if (id === 'tb-strategy') {
+    _tbRenderTimeframes();
   }
 });

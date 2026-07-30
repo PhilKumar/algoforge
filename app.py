@@ -8433,6 +8433,152 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     }
 
 
+async def _test_bench_two_red(
+    *,
+    instrument: str,
+    timeframe: str,
+    side: str,
+    mother,
+    mother_timestamp: datetime,
+    horizon_to: date,
+    adapter,
+    resolver_config,
+    underlying_key: str,
+    lot_size: int,
+    strike_step: float,
+    window,
+) -> dict:
+    """Replay the two-red ladder: buy, climb a timeframe, buy again.
+
+    Unlike the fib strategy this needs the index on SEVERAL charts at once --
+    rung 1 watches 1m while rung 2 watches 5m -- so every timeframe in the
+    ladder is fetched and the bars are merged into one stream ordered by when
+    each closed.  Deriving the slower bars from the 1m series would be cheaper
+    but would also mean this screen disagrees with Dhan's own 5m candle, which
+    is the thing the live engine will actually trade off.
+    """
+
+    from engine.candle_ladder import LadderCandle, TwoRedLadder, ladder_from
+    from engine.test_bench import ladder_chart, ladder_result
+
+    stages = ladder_from(timeframe, 4)
+    stream: list = []
+    for stage_tf in stages:
+        try:
+            rows = await adapter.async_get_candles(
+                instrument, stage_tf, from_date=mother_timestamp.date(), to_date=horizon_to
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Unable to load {instrument} {stage_tf} candles: {exc}"
+            ) from exc
+        stream.extend(LadderCandle(stage_tf, row.timestamp, row.open, row.high, row.low, row.close) for row in rows)
+    if not stream:
+        raise HTTPException(status_code=400, detail=f"No {instrument} candles after that mother.")
+
+    mother_bar = LadderCandle(timeframe, mother.timestamp, mother.open, mother.high, mother.low, mother.close)
+
+    def _run() -> tuple:
+        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+
+        try:
+            from upstox_token_manager import ensure_fresh_token
+
+            ensure_fresh_token()
+        except Exception as exc:
+            _logger.warning("[test-bench] Upstox token pre-check skipped: %s", exc)
+
+        try:
+            premium_source = UpstoxPremiumSource(underlying_key=underlying_key)
+            expiries = sorted(premium_source.available_expiries())
+        except UpstoxAccessError as exc:
+            raise HTTPException(status_code=503, detail=f"Upstox premium history is not available. {exc}") from exc
+        if not expiries:
+            raise HTTPException(status_code=503, detail=f"Upstox returned no expiry coverage for {instrument}.")
+
+        newest = expiries[-1]
+        latest_mother = newest - timedelta(days=window.min_dte)
+        if mother_timestamp.date() > latest_mother:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Option prices for {instrument} only go up to the {newest.strftime('%d %b %Y')} expiry, "
+                    f"and this strategy buys at least {window.min_dte} days before expiry — so the most recent "
+                    f"mother that can be priced is {latest_mother.strftime('%d %b %Y')}. "
+                    "Pick an earlier one; the limit moves forward as contracts expire."
+                ),
+            )
+
+        resolver = NiftyContractResolver(
+            expiries=expiries, strike_step=strike_step, lot_size=lot_size, symbol=instrument
+        )
+        try:
+            # The expiry is fixed at the mother for the whole ladder; only the
+            # strike follows the index down as later rungs buy lower.
+            anchor = resolver.select(mother.timestamp, mother.close, side, resolver_config)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"No {side} contract could be bought at that mother: {exc}"
+            ) from exc
+        expiry = anchor.expiry
+
+        def strike_for(_timestamp, index_price) -> tuple[int, str]:
+            contract = resolver.select(mother.timestamp, index_price, side, resolver_config)
+            return int(contract.strike), contract.option_type
+
+        def premium_lookup(timestamp, strike, option_type):
+            bar = premium_source.lookup(
+                timestamp,
+                FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""),
+            )
+            return float(bar.open) if bar is not None else None
+
+        # Same rule as the fib path: past its own expiry the contract does not
+        # exist, so neither does the replay.
+        replay = [row for row in stream if row.timestamp.date() <= expiry and row.timestamp > mother_timestamp]
+        ladder = TwoRedLadder(
+            mother_bar,
+            stages=stages,
+            strike_for=strike_for,
+            premium_lookup=premium_lookup,
+            lot_size=lot_size,
+        ).run(replay)
+        if ladder.fills and ladder.status not in {"CLOSED", "EXPIRED"} and replay:
+            last = max(replay, key=lambda row: row.timestamp)
+            ladder.close_at_expiry(last, last.close)
+        return ladder, replay, expiry
+
+    try:
+        ladder, replay, expiry = await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Test Bench run failed: {exc}") from exc
+
+    reported = ladder_result(
+        ladder,
+        instrument=instrument,
+        timeframe=timeframe,
+        mother_timestamp=mother_timestamp.isoformat(),
+        lot_size=lot_size,
+    )
+    reported["summary"]["expiry"] = expiry.isoformat()
+    return {
+        "status": "ok",
+        "strategy": "two_red",
+        "summary": reported["summary"],
+        "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
+        "ladder": list(stages),
+        "lot_size": lot_size,
+        "strike_step": strike_step,
+        "candles_replayed": len(replay),
+        "expiry": expiry.isoformat(),
+        "horizon_to": horizon_to.isoformat(),
+        "entries": reported["entries"],
+        "chart": ladder_chart(ladder, replay, timeframe=timeframe),
+    }
+
+
 @app.post("/api/test-bench/run")
 async def test_bench_run(payload: TestBenchPayload, request: Request):
     """Replay ONE mother candle and report everything that happened to it.
@@ -8460,11 +8606,8 @@ async def test_bench_run(payload: TestBenchPayload, request: Request):
     from engine.test_bench import CONTRACT_WINDOWS, bench_chart, bench_summary
 
     strategy = str(payload.strategy).strip().lower()
-    if strategy != "fib":
-        raise HTTPException(
-            status_code=400,
-            detail="Only the fib-levels strategy runs on the Test Bench so far; two-red candle entry is next.",
-        )
+    if strategy not in {"fib", "two_red"}:
+        raise HTTPException(status_code=400, detail="strategy must be 'fib' or 'two_red'.")
     side = str(payload.side).upper()
     if side != "CE":
         raise HTTPException(status_code=400, detail="The Test Bench replays CE campaigns only for now.")
@@ -8531,6 +8674,22 @@ async def test_bench_run(payload: TestBenchPayload, request: Request):
         min_dte=window.min_dte,
         max_dte=window.max_dte,
     )
+    if strategy == "two_red":
+        return await _test_bench_two_red(
+            instrument=instrument,
+            timeframe=timeframe,
+            side=side,
+            mother=mother,
+            mother_timestamp=mother_timestamp,
+            horizon_to=horizon_to,
+            adapter=adapter,
+            resolver_config=resolver_config,
+            underlying_key=underlying_key,
+            lot_size=lot_size,
+            strike_step=strike_step,
+            window=window,
+        )
+
     # Phil's timeframe rule: a 1m or 5m mother buys only the two deepest lines,
     # because a shallow bounce on a fast chart is noise; 15m and 1h are
     # structural enough to start one level earlier.

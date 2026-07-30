@@ -1758,27 +1758,25 @@
       <label for="tb-strategy">Strategy</label>
       <select id="tb-strategy">
         <option value="fib" selected>Fib levels</option>
+        <option value="two_red">Two red candles</option>
       </select>
     </div>
     <div class="tb-field">
       <label for="tb-timeframe">Timeframe</label>
-      <select id="tb-timeframe">
-        <option value="1m">1m · buys L4, L8</option>
-        <option value="5m" selected>5m · buys L4, L8</option>
-        <option value="15m">15m · buys L2, L4, L8</option>
-        <option value="1h">1H · buys L2, L4, L8</option>
-      </select>
+      <select id="tb-timeframe"></select>
     </div>
     <div class="tb-field">
       <label for="tb-mother">Mother candle · IST</label>
       <input id="tb-mother" type="datetime-local" step="60">
     </div>
-    <div class="tb-field tb-field-narrow">
+    <div class="tb-field tb-field-narrow" id="tb-rung-field">
       <label for="tb-rung">Per level ₹</label>
       <input id="tb-rung" type="number" min="1000" step="1000" value="75000">
     </div>
     <button id="tb-run" class="btn btn-primary tb-run" type="button" data-pf-action="runTestBench">Run</button>
   </div>
+
+  <p id="tb-explainer" class="tb-explainer"></p>
 
   <div id="tb-status" class="tb-status" role="status"></div>
 

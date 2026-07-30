@@ -417,3 +417,21 @@ test('Test Bench calendar offers only the minutes its timeframe can open on', as
   await page.click('[data-pf-calendar-apply]');
   expect(await page.inputValue('#tb-mother')).toMatch(/T10:37$/);
 });
+
+test('Test Bench switches cleanly between the two strategies', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-test-bench');
+
+  // Fib names the levels it buys; Two Red names the charts it climbs through.
+  await page.selectOption('#tb-strategy', 'fib');
+  await expect(page.locator('#tb-timeframe option[value="1m"]')).toHaveText(/L4/);
+  await expect(page.locator('#tb-rung-field')).toBeVisible();
+
+  await page.selectOption('#tb-strategy', 'two_red');
+  await expect(page.locator('#tb-timeframe option[value="1m"]')).toHaveText(/1m → 5m → 15m → 1H/);
+  // A 1H start has nothing above it, so it is a single trade and says so.
+  await expect(page.locator('#tb-timeframe option[value="1h"]')).toHaveText(/^1H · 1H$/);
+  // The rupee-per-level box is a fib control; the ladder sizes itself in lots.
+  await expect(page.locator('#tb-rung-field')).toBeHidden();
+  await expect(page.locator('#tb-explainer')).toContainText('two red candles');
+});
