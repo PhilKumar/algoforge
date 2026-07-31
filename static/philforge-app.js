@@ -2241,9 +2241,12 @@ function _fibBoundaryChartSvg(payload) {
     if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
   });
   const motherHigh = Number(payload.mother_high), motherLow = Number(payload.mother_low);
+  // 0 means "no fills yet", not a price. Folding it into the range dragged
+  // the axis to zero and crushed 44 real candles into a sliver under the
+  // mother line.
   [motherHigh, motherLow, campaign.target_index, campaign.average_index_entry]
     .concat(boundaries.map(b => Number(b.price)))
-    .forEach(price => { const p = Number(price); if (Number.isFinite(p)) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
+    .forEach(price => { const p = Number(price); if (Number.isFinite(p) && p > 0) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
   const span = (hi - lo) || 1;
   const maxP = hi + span * 0.06, minP = lo - span * 0.06;
   const X = index => padL + index * cw + cw / 2;
@@ -2332,8 +2335,8 @@ function _fibBoundaryChartSvg(payload) {
     hline(Number(b.price), color, `L${escapeHtml(String(level))} (${number(b.price)})${suffix}`, null, 1.1, status === 'PENDING' ? .85 : 1);
   });
 
-  if (Number.isFinite(Number(campaign.target_index))) hline(Number(campaign.target_index), PAL.tp, `TARGET (${number(campaign.target_index)})`, '6 3', 1.2);
-  if (Number.isFinite(Number(campaign.average_index_entry))) hline(Number(campaign.average_index_entry), PAL.avg, `AVG ENTRY (${number(campaign.average_index_entry)})`, '4 4', 1.1);
+  if (Number(campaign.target_index) > 0) hline(Number(campaign.target_index), PAL.tp, `TARGET (${number(campaign.target_index)})`, '6 3', 1.2);
+  if (Number(campaign.average_index_entry) > 0) hline(Number(campaign.average_index_entry), PAL.avg, `AVG ENTRY (${number(campaign.average_index_entry)})`, '4 4', 1.1);
 
   // Buy arrows point UP and sit below the candle they filled on — priced paper
   // fills in green, signal-only replay fills dimmed amber. Closed-round entries
