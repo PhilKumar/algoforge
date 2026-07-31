@@ -6681,9 +6681,28 @@ async def _restore_terminal_cascade_open_state(
         return {}
 
 
+def _terminal_cascade_offsession_sleep_sec() -> float:
+    """Seconds to idle when the NSE cash session is closed; 0 while it is open.
+
+    The paper loop was polling Dhan for new candles every 12 seconds all
+    night, every night — two history calls per campaign per tick. Nothing can
+    change outside the session, and that standing load is what earned the
+    account sustained 429s. A small margin around 09:15–15:30 keeps the first
+    and last bars prompt.
+    """
+    now = datetime.now(IST)
+    if now.weekday() < 5 and dt_time(9, 10) <= now.time() <= dt_time(15, 35):
+        return 0.0
+    return 300.0
+
+
 async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCascadeRuntime) -> None:
     symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
     while runtime.running and _terminal_cascade_engines.get(int(user_id), {}).get(symbol) is runtime:
+        idle = _terminal_cascade_offsession_sleep_sec()
+        if idle:
+            await asyncio.sleep(idle)
+            continue
         try:
             today = datetime.now(IST).date()
             start = runtime.last_candle_timestamp.date()

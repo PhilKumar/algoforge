@@ -4306,6 +4306,7 @@ let _stockTerminalSelected = null;
 let _stockTerminalQuoteTimer = null;
 let _stockTerminalOrdersTimer = null;
 let _stockTerminalOrderWatchTimer = null;
+let _stockTerminalQuoteTick = 0;
 let _stockTerminalOrderInFlight = false;
 let _stockTerminalLastLtp = 0;
 let _stockTerminalValueListenersAttached = false;
@@ -4343,6 +4344,9 @@ async function initStockTerminalPage(force = false) {
   if (!_stockTerminalQuoteTimer) {
     _stockTerminalQuoteTimer = setInterval(() => {
       if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      // Off-session the LTP cannot move; one refresh every 2 minutes keeps
+      // the number honest without spending Dhan's rate limit all night.
+      if (!_nseSessionLikelyOpen() && (_stockTerminalQuoteTick++ % 24 !== 0)) return;
       refreshStockTerminalQuote(false);
     }, 5000);
   }
@@ -4838,15 +4842,32 @@ async function refreshTerminalCascadeStatus() {
   }
 }
 
-// An open chart follows the campaign it shows: every status poll re-fetches
-// the chart payload and repaints in place, keeping the viewport. One request
-// in flight is enough — a slow chart must not race a newer poll.
+// True while the NSE cash session (with a small margin) could be printing
+// candles. Off-hours, Dhan-backed polling is pure rate-limit spend: nothing
+// it returns can change until 09:15.
+function _nseSessionLikelyOpen() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
+  const day = ist.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = ist.getHours() * 60 + ist.getMinutes();
+  return minutes >= 550 && minutes <= 935; // 09:10-15:35 IST
+}
+
+// An open chart follows the campaign it shows: while the session is open it
+// re-fetches at most once a minute (the chart endpoint replays the campaign
+// from Dhan, so each refresh is real API spend). One request in flight is
+// enough — a slow chart must not race a newer poll.
 let _terminalCascadeChartPollInFlight = false;
+let _terminalCascadeChartPollLast = 0;
 async function _terminalCascadePollChartRefresh() {
   const overlayEl = _terminalCascadeEl('terminal-cascade-chart-overlay');
   const context = _terminalCascadeChartContext;
   if (!overlayEl?.classList.contains('is-open') || !context?.symbol || !context?.timestamp) return;
   if (_terminalCascadeChartPollInFlight) return;
+  if (!_nseSessionLikelyOpen()) return;
+  if (Date.now() - _terminalCascadeChartPollLast < 60000) return;
+  _terminalCascadeChartPollLast = Date.now();
   _terminalCascadeChartPollInFlight = true;
   try {
     const timeframe = _terminalCascadeCurrentChartTimeframe();
