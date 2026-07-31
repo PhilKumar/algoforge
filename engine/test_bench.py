@@ -27,11 +27,12 @@ from typing import Optional
 class ContractWindow:
     """How far out the contract sits, and how long the mother gets to work.
 
-    Phil's rule, per instrument: NIFTY buys the next weekly with **at least 10
-    days** left, which in practice lands between 10 and 16 depending on the
-    weekday it is bought on.  BankNifty is monthly-only, so "the next expiry" is
-    up to a month and a half away and the campaign is given proportionally
-    longer to reach its target before expiry ends it.
+    Monthly contracts only (Phil, 2026-07-30), so both instruments share the
+    measured 15-45 DTE window from the Oct 2024 - Jul 2026 sweep. NIFTY's old
+    weekly 10-16 window survived here after the monthly switch and made most
+    mothers unbuyable: a monthly expiry only falls inside a 7-day window for
+    about one week per month, so the bench alerted "no monthly CE expiry in
+    10-16 DTE" on dates the strategy itself trades happily.
     """
 
     min_dte: int
@@ -40,8 +41,10 @@ class ContractWindow:
 
 
 CONTRACT_WINDOWS: dict[str, ContractWindow] = {
-    "NIFTY": ContractWindow(min_dte=10, max_dte=16, horizon_days=20),
-    "BANKNIFTY": ContractWindow(min_dte=5, max_dte=45, horizon_days=35),
+    # Horizons match the contract: a monthly bought 15-45 days out needs the
+    # BankNifty-style 35-day replay to resolve instead of reading "Still OPEN".
+    "NIFTY": ContractWindow(min_dte=15, max_dte=45, horizon_days=35),
+    "BANKNIFTY": ContractWindow(min_dte=15, max_dte=45, horizon_days=35),
 }
 
 # Only the deep boundaries are drawn as buy lines.  0 and 1 are the two anchors
