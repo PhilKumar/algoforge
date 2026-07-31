@@ -122,6 +122,24 @@ class CashCascadePaperEngineTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 3)
 
+    def test_mother_break_with_nothing_held_ends_the_campaign(self):
+        """PHOENIXLTD 17 Jul: mother broke in 40 minutes with no entry, and the
+        campaign read WAITING forever on a chart frozen at the break."""
+        engine = CashCascadePaperEngine(
+            candle(0, 100, 102, 99, 100.5),
+            candle(0, 2060, 2071.1, 2058, 2061),
+            instrument("PHOENIXLTD"),
+            CashCascadePaperConfig(capital_inr=50000),
+        )
+        engine.on_candle(candle(1, 100.5, 101, 100, 100.8), candle(1, 2061, 2065, 2060, 2064))
+        self.assertEqual(engine.status, "WAITING")
+        # Signal high pierces the signal mother high -> geometry MOTHER_BROKEN.
+        engine.on_candle(candle(2, 100.8, 102.5, 100.5, 102.2), candle(2, 2064, 2072.5, 2063, 2072))
+        self.assertEqual(engine.geometry.campaign.state, "MOTHER_BROKEN")
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertFalse(engine.get_status()["running"])
+        self.assertEqual(engine.events[-1]["event"], "campaign_ended")
+
     def test_roundtrip_persists_open_cash_campaign(self):
         engine = CashCascadePaperEngine(
             candle(0, 100, 100, 99, 99.5),

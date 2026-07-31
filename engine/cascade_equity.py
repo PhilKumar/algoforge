@@ -722,6 +722,20 @@ class CashCascadePaperEngine:
         self._release_closed_rungs(signal_candle)
         self._collect_crossed_rungs(signal_candle, trade_candle)
         self._advance_stop(signal_candle)
+        # A broken or retested mother ends the geometry: no new legs can ever
+        # form. Once nothing is held and nothing is mid-entry, the campaign is
+        # over — without this it reads WAITING forever on a chart frozen at
+        # the break.
+        geometry_state = self.geometry.campaign.state
+        if (
+            geometry_state in {"MOTHER_BROKEN", "MOTHER_RETESTED"}
+            and self.status not in {"MOTHER_BROKEN", "MOTHER_RETESTED", "KILLED", "STOPPED"}
+            and not self.open_fills
+            and self.pending_stop is None
+            and not self.pending_rung_keys
+        ):
+            self.status = geometry_state
+            self._log(signal_candle, "campaign_ended", reason=geometry_state.lower())
 
     def run(self, pairs: Iterable[tuple[IndexCandle, IndexCandle]]) -> "CashCascadePaperEngine":
         for signal_candle, trade_candle in sorted(pairs, key=lambda row: row[0].timestamp):

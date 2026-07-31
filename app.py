@@ -6729,6 +6729,14 @@ async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCasca
                 runtime.engine.on_candle(signal, trade)
                 await _save_terminal_cascade_open_state(user_id, runtime)
                 await _notify_terminal_cascade_ws(user_id)
+            # An ended campaign (mother broken/retested with nothing held) has
+            # no further use for this loop — leave the record on the page and
+            # stop polling Dhan for it.
+            if not runtime.engine.get_status()["running"]:
+                runtime.running = False
+                await _save_terminal_cascade_open_state(user_id, runtime, force=True)
+                await _notify_terminal_cascade_ws(user_id)
+                return
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -6762,6 +6770,34 @@ async def _terminal_cascade_replay_to_now(
         engine.on_candle(signal, trade)
         last = signal.timestamp
     return last
+
+
+async def _terminal_cascade_replay_with_candles(
+    broker: DhanClient,
+    engine: CashCascadePaperEngine,
+    signal_instrument: Mapping[str, Any],
+    trade_instrument: Mapping[str, Any],
+    mother_timestamp: datetime,
+) -> list[IndexCandle]:
+    """Replay to now and return every signal candle from the mother onward.
+
+    The chart draws from this list rather than ``engine.geometry.history``:
+    the geometry stops recording the moment the mother breaks or retests, and
+    a chart built from it freezes at that candle forever — which reads as
+    "the chart is not refreshing" when the campaign is simply over.
+    """
+    today = datetime.now(IST).date()
+    signal_candles, trade_candles = await asyncio.gather(
+        _terminal_cascade_load_candles(
+            broker, signal_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
+        ),
+        _terminal_cascade_load_candles(
+            broker, trade_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
+        ),
+    )
+    for signal, trade in _terminal_cascade_pair_candles(signal_candles, trade_candles, mother_timestamp):
+        engine.on_candle(signal, trade)
+    return [row for row in signal_candles if row.timestamp >= mother_timestamp]
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
@@ -10852,8 +10888,10 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
     engine = CashCascadePaperEngine(
         mother_signal, mother_trade, instrument, CashCascadePaperConfig(capital_inr=100000, timeframe=normalised_tf)
     )
-    await _terminal_cascade_replay_to_now(broker_client, engine, signal_instrument, trade_instrument, mother)
-    rows = _cascade_native_candles(list(engine.geometry.history), mother)
+    chart_candles = await _terminal_cascade_replay_with_candles(
+        broker_client, engine, signal_instrument, trade_instrument, mother
+    )
+    rows = _cascade_native_candles(chart_candles, mother)
     mother_row = next((row for row in rows if row["is_mother"]), None)
     if mother_row is None:
         raise HTTPException(status_code=404, detail="The selected mother candle was not returned by Dhan.")
@@ -10866,6 +10904,7 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
         "candles": rows,
         "mother": mother_row,
         "geometry": engine.get_status()["geometry"],
+        "geometry_state": engine.geometry.campaign.state,
         "note": "Terminal Cascade charts use native Dhan OHLC; paper geometry uses the same exchange candles.",
     }
 

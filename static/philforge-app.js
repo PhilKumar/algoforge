@@ -5999,7 +5999,13 @@ async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timef
     const meta = _terminalCascadeEl('terminal-cascade-chart-meta');
     const instrument = data.instrument || {};
     const cands = Array.isArray(data.candles) ? data.candles.length : 0;
-    if (meta) meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${(data.geometry?.legs || []).length} fib(s), ${(data.geometry?.trendlines || []).length} trendline(s)`;
+    if (meta) {
+      const state = String(data.geometry_state || '');
+      const endedNote = state === 'MOTHER_BROKEN' ? ' · MOTHER BROKEN — campaign over, structure frozen at the break'
+        : state === 'MOTHER_RETESTED' ? ' · MOTHER RETESTED — campaign over, structure frozen at the retest'
+        : '';
+      meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${(data.geometry?.legs || []).length} fib(s), ${(data.geometry?.trendlines || []).length} trendline(s)${endedNote}`;
+    }
     _terminalCascadeSetStatus(`${data.instrument?.signal_symbol || symbol} chart loaded.`, 'success');
     _terminalCascadeMountCanvas(data, keepViewSnapshot);
     _terminalCascadeMarkChartTimeframe(data.timeframe || timeframe);
