@@ -1164,6 +1164,13 @@ class CascadeOptionsAdapter:
         for timestamp, row in frame.iterrows():
             candle_time = timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp
             candle_time = _as_ist(candle_time)
+            # Dhan's index history occasionally carries a bar stamped outside
+            # 09:15-15:30 -- a settlement print, or a row whose epoch arrived in
+            # a different zone and landed hours past the close.  Nothing trades
+            # there, so it is neither a candle to draw nor a bar the geometry may
+            # read: one such row put a flat 20:55 candle on the fib chart.
+            if not is_nse_cash_session(candle_time):
+                continue
             # The Dhan historical endpoint can include the candle currently
             # forming.  Geometry is only ever allowed to see closed candles.
             # The final NSE "1H" bar is 15:15–15:30, rather than a full hour.

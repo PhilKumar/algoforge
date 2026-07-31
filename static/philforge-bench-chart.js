@@ -282,6 +282,7 @@ function _pfChartCanvasFit(c) {
     hi = Math.max(hi, Number(candles[i].h));
   }
   if (d.mother && d.mother.high) hi = Math.max(hi, Number(d.mother.high));
+  if (d.mother && d.mother.low) lo = Math.min(lo, Number(d.mother.low));
   var structures = _pfChartCanvasStructures(d);
   structures.legs.forEach(function (leg) {
     if (leg.touch_high) hi = Math.max(hi, Number(leg.touch_high));
@@ -584,6 +585,11 @@ function _pfChartCanvasFibs(c, p, PAL, labels) {
   function fmt(v) { return Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
   if (d.mother && d.mother.high) count += _pfChartCanvasHline(c, p, labels, Number(d.mother.high), PAL.mother,
     'MOTHER (' + fmt(d.mother.high) + ')', [5, 3], 1.1) ? 1 : 0;
+  // The low half of the mother band. Every caller already sends it and the
+  // renderer used to drop it on the floor, which on a fib chart hides the
+  // measuring stick the whole ladder is stepped off.
+  if (d.mother && d.mother.low) count += _pfChartCanvasHline(c, p, labels, Number(d.mother.low), PAL.mother,
+    'MOTHER LOW (' + fmt(d.mother.low) + ')', [5, 3], 1.1, 0.7) ? 1 : 0;
   count += _pfChartCanvasLines(c, p, PAL, labels);
   _pfChartCanvasStructures(d).legs.forEach(function (leg) {
     var color = PAL.fibs[(Math.max(1, Number(leg.leg_id) || 1) - 1) % PAL.fibs.length];
@@ -662,7 +668,14 @@ function _pfChartCanvasLabels(c, p, labels) {
         }
       }
       slots.push(y);
-      _pfChartCanvasText(ctx, label.text, p.padL - 6, y + 3, label.color, 10, 'right', null, p.fontScale);
+      // Gutter labels are right-aligned against the price lane, so a long one
+      // ("TARGET (not reached) (24,412.7)") runs off the left edge and loses its
+      // first word. When it cannot fit the gutter, start it just inside the plot
+      // instead: overlapping a candle is recoverable, a cut-off label is not.
+      ctx.font = '400 ' + (10 * (p.fontScale || 1)) + 'px monospace';
+      var fits = ctx.measureText(String(label.text)).width <= p.padL - 8;
+      _pfChartCanvasText(ctx, label.text, fits ? p.padL - 6 : p.padL + 6, y + 3,
+        label.color, 10, fits ? 'right' : 'left', null, p.fontScale);
     } else if (label.kind === 'right') {
       _pfChartCanvasText(ctx, label.text, label.x, label.y, label.color, 9.5, 'right', null, p.fontScale);
     } else {

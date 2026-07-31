@@ -776,5 +776,64 @@ class AnchorToleranceTests(unittest.TestCase):
         self.assertLessEqual(min(by_pct, by_candles), by_pct)
 
 
+class IndexFrameSessionTests(unittest.TestCase):
+    """Only bars inside 09:15-15:30 are candles; the rest is not market data."""
+
+    class _Frame:
+        """The minimum of a pandas frame that `_normalise_index_frame` reads."""
+
+        empty = False
+
+        def __init__(self, rows):
+            self.rows = rows
+
+        def iterrows(self):
+            for timestamp, price in self.rows:
+                yield timestamp, {"open": price, "high": price, "low": price, "close": price}
+
+    def _normalise(self, rows, *, now):
+        return CascadeOptionsAdapter._normalise_index_frame(self._Frame(rows), now, timeframe_minutes=5)
+
+    def test_a_bar_stamped_after_the_close_is_not_a_candle(self):
+        # Dhan has handed back a row stamped hours past 15:30 -- a settlement
+        # print, or an epoch that arrived in the wrong zone.  It drew a flat
+        # 20:55 candle on the fib chart and, worse, the geometry read it as a
+        # real bar.
+        session_end = datetime(2026, 7, 31, 15, 25)
+        candles = self._normalise(
+            [
+                (datetime(2026, 7, 31, 9, 15), 24362.0),
+                (session_end, 24295.0),
+                (datetime(2026, 7, 31, 20, 55), 24410.0),
+            ],
+            now=datetime(2026, 7, 31, 22, 0),
+        )
+        self.assertEqual([candle.timestamp.hour for candle in candles], [9, 15])
+        self.assertEqual(candles[-1].timestamp.replace(tzinfo=None), session_end)
+
+    def test_a_pre_open_bar_is_dropped_too(self):
+        candles = self._normalise(
+            [
+                (datetime(2026, 7, 31, 9, 0), 24300.0),
+                (datetime(2026, 7, 31, 9, 15), 24362.0),
+            ],
+            now=datetime(2026, 7, 31, 22, 0),
+        )
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(candles[0].timestamp.replace(tzinfo=None), datetime(2026, 7, 31, 9, 15))
+
+    def test_a_weekend_bar_is_dropped(self):
+        # 2026-08-01 is a Saturday.
+        candles = self._normalise(
+            [
+                (datetime(2026, 7, 31, 15, 25), 24295.0),
+                (datetime(2026, 8, 1, 11, 0), 24400.0),
+            ],
+            now=datetime(2026, 8, 3, 9, 0),
+        )
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(candles[0].timestamp.date(), date(2026, 7, 31))
+
+
 if __name__ == "__main__":
     unittest.main()

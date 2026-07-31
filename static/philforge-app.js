@@ -2205,164 +2205,85 @@ async function killFibBoundaryPaper() {
   }
 }
 
-// A full-fidelity port of the CryptoForge cascade chart, sharing PhilForge's
-// own `_terminalCascadeChartPalette` so the two charts read identically:
-// theme-aware, half-pixel-sharpened, mother column + MC tag, IST time axis,
-// left-gutter labels that nudge apart on collision. It draws the fib-boundary
-// world — the typed mother, the deep boundary ladder tinted by its live status,
-// avg-entry and target lines, buy arrows for every fill, and a target-hit exit
-// arrow with the round's net P&L — rather than the auto-trendline geometry the
-// terminal chart carries. The status data rides in on `_lastFibBoundaryStatus`;
-// the candles and boundary prices come from the chart route payload.
-function _fibBoundaryChartSvg(payload) {
-  const PAL = _terminalCascadeChartPalette();
-  const candles = Array.isArray(payload?.candles) ? payload.candles : [];
-  if (!candles.length) return '<div class="pf-cascade-chart-empty">No candles</div>';
-  const boundaries = Array.isArray(payload?.boundaries) ? payload.boundaries : [];
+// The fib-boundary overlay draws with the SAME Canvas renderer the Test Bench
+// and the backtest journal already use -- the CryptoForge chart, ported once in
+// philforge-bench-chart.js. It used to carry its own SVG, and that is precisely
+// how it drifted: a wall-clock x-axis that stretched a single stray bar across
+// the whole afternoon, no session-gap blocks, no pan/zoom/crosshair, and a fixed
+// 1180x520 viewBox stretched to whatever width the dialog happened to be. A
+// second implementation of the same drawing is a second set of bugs.
+//
+// This function is now only a translator: it reshapes the chart route's payload
+// (plus the live campaign on `_lastFibBoundaryStatus`) into the renderer's
+// vocabulary. Every pixel decision lives in philforge-bench-chart.js.
+function _fibBoundaryCanvasPayload(payload) {
   const campaign = _lastFibBoundaryStatus?.campaign || {};
-  const side = String(payload?.side || campaign.side || 'CE').toUpperCase();
-  // Status per level, so a boundary line carries the same colour as its chip in
-  // the monitor — pending is quiet, armed amber, filled green, closed purple.
+  // The renderer does arithmetic on `t`, so every timestamp crosses as epoch
+  // SECONDS -- never the ISO string the route speaks.
+  const epoch = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null; };
+  const price = value => { const n = Number(value); return Number.isFinite(n) && n > 0 ? n : null; };
+
+  // Native OHLC, not the route's gap-adjusted display prices. The Canvas draws
+  // an overnight gap as its own translucent block, so pre-joining the bars would
+  // both hide the gap and paint candles the paper engine never saw.
+  const candles = (Array.isArray(payload?.candles) ? payload.candles : [])
+    .map(row => ({
+      t: epoch(row.t),
+      o: Number(row.native_open ?? row.o),
+      h: Number(row.native_high ?? row.h),
+      l: Number(row.native_low ?? row.l),
+      c: Number(row.native_close ?? row.c),
+      is_mother: !!row.is_mother,
+    }))
+    .filter(row => row.t !== null && [row.o, row.h, row.l, row.c].every(Number.isFinite));
+
+  // Each boundary carries its live status in its own label, because `lines` are
+  // coloured by position in the ladder rather than by state -- and on this chart
+  // the ladder position (L4 before L8) is the thing worth colouring.
   const statusByLevel = {};
   (campaign.boundaries || []).forEach(b => { statusByLevel[Number(b.level)] = String(b.status || 'PENDING'); });
-  const statusColor = { PENDING: PAL.fibs[0], ARMED: '#fbbf24', FILLED: PAL.fill, CLOSED: '#a78bfa', CANCELLED: PAL.down };
-
-  const W = 1180, H = 520, padL = 168, padR = 58, padT = 14, padB = 30;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const n = candles.length, cw = plotW / Math.max(n, 1);
-  const number = value => Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-  const millis = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
-  const stamp = value => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-
-  let lo = Number(candles[0].l), hi = Number(candles[0].h);
-  candles.forEach(candle => {
-    const cLo = Number(candle.l), cHi = Number(candle.h);
-    if (Number.isFinite(cLo)) lo = Math.min(lo, cLo);
-    if (Number.isFinite(cHi)) hi = Math.max(hi, cHi);
-  });
-  const motherHigh = Number(payload.mother_high), motherLow = Number(payload.mother_low);
-  // 0 means "no fills yet", not a price. Folding it into the range dragged
-  // the axis to zero and crushed 44 real candles into a sliver under the
-  // mother line.
-  [motherHigh, motherLow, campaign.target_index, campaign.average_index_entry]
-    .concat(boundaries.map(b => Number(b.price)))
-    .forEach(price => { const p = Number(price); if (Number.isFinite(p) && p > 0) { hi = Math.max(hi, p); lo = Math.min(lo, p); } });
-  const span = (hi - lo) || 1;
-  const maxP = hi + span * 0.06, minP = lo - span * 0.06;
-  const X = index => padL + index * cw + cw / 2;
-  const Y = price => padT + ((maxP - price) / ((maxP - minP) || 1)) * plotH;
-  const Xt = value => {
-    const t = millis(value);
-    if (!t) return X(0);
-    const first = millis(candles[0].t), last = millis(candles[n - 1].t);
-    if (t <= first) return X(0);
-    if (t >= last) return X(n - 1);
-    // Candles skip NSE overnight/weekend gaps; anchor to the bar sequence, not
-    // elapsed calendar time, so a fill lands on the candle it happened on.
-    for (let index = 1; index < n; index += 1) {
-      const right = millis(candles[index].t);
-      if (t > right) continue;
-      const left = millis(candles[index - 1].t);
-      const fraction = right === left ? 1 : Math.max(0, Math.min(1, (t - left) / (right - left)));
-      return X(index - 1) + (X(index) - X(index - 1)) * fraction;
-    }
-    return X(n - 1);
-  };
-  const inView = price => Number.isFinite(Number(price)) && Number(price) >= minP && Number(price) <= maxP;
-  const sharp = value => Math.round(value) + 0.5;
-  const solid = value => Math.round(value);
-  const parts = [`<rect x="0" y="0" width="${W}" height="${H}" fill="${PAL.bg}"/>`];
-
-  for (let i = 0; i <= 4; i += 1) {
-    const price = minP + (maxP - minP) * (i / 4);
-    const y = Y(price);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${PAL.grid}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    parts.push(`<text x="${padL + plotW + 6}" y="${(y + 3).toFixed(1)}" fill="${PAL.axis}" font-size="9.5" font-family="monospace">${number(price)}</text>`);
-  }
-  const tickCount = Math.min(6, n);
-  for (let i = 0; i < tickCount; i += 1) {
-    const at = Math.round((n - 1) * (i / Math.max(tickCount - 1, 1)));
-    parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 8}" fill="${PAL.axis}" font-size="9.5" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
-  }
-
-  const bodyW = Math.max(Math.min(cw * .65, 9), 1);
-  candles.forEach((candle, index) => {
-    const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), c = Number(candle.c);
-    if (![o, h, l, c].every(Number.isFinite)) return;
-    const x = X(index), up = c >= o, color = up ? PAL.up : PAL.down;
-    parts.push(`<line x1="${sharp(x)}" y1="${solid(Y(h))}" x2="${sharp(x)}" y2="${solid(Y(l))}" stroke="${color}" stroke-width="1" shape-rendering="crispEdges"/>`);
-    const top = solid(Y(Math.max(o, c))), bottom = solid(Y(Math.min(o, c)));
-    const left = solid(x - bodyW / 2), right = Math.max(solid(x + bodyW / 2), left + 1);
-    parts.push(`<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(bottom - top, 1)}" fill="${color}" shape-rendering="crispEdges"/>`);
-    if (candle.is_mother) {
-      parts.push(`<rect x="${(x - Math.max(bodyW, 6) / 2 - 3).toFixed(1)}" y="${padT + 1}" width="${(Math.max(bodyW, 6) + 6).toFixed(1)}" height="${(plotH - 2).toFixed(1)}" fill="${PAL.mother}" opacity=".09"/>`);
-      parts.push(`<rect x="${(x - bodyW / 2 - 1).toFixed(1)}" y="${(Y(h) - 1).toFixed(1)}" width="${(bodyW + 2).toFixed(1)}" height="${Math.max(Y(l) - Y(h) + 2, 4).toFixed(1)}" fill="none" stroke="${PAL.mother}" stroke-width="1.4"/>`);
-      parts.push(`<text x="${x.toFixed(1)}" y="${Math.max(Y(h) - 8, padT + 10).toFixed(1)}" fill="${PAL.mother}" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>`);
-    }
-  });
-
-  const labelSlots = [];
-  const label = (y, text, color) => {
-    let ly = y;
-    for (let pass = 0, moved = true; moved && pass <= labelSlots.length; pass += 1) {
-      moved = false;
-      for (let i = 0; i < labelSlots.length; i += 1) {
-        if (Math.abs(labelSlots[i] - ly) < 10) { ly = labelSlots[i] + 10.5; moved = true; break; }
-      }
-    }
-    labelSlots.push(ly);
-    parts.push(`<text x="${padL - 6}" y="${(ly + 3).toFixed(1)}" fill="${color}" font-size="10" font-family="monospace" text-anchor="end">${escapeHtml(text)}</text>`);
-  };
-  const hline = (price, color, text, dash, width, opacity) => {
-    const p = Number(price);
-    if (!inView(p)) return;
-    const y = Y(p);
-    parts.push(`<line x1="${padL}" y1="${sharp(y)}" x2="${padL + plotW}" y2="${sharp(y)}" stroke="${color}" stroke-width="${width || 1}"${opacity ? ` opacity="${opacity}"` : ''}${dash ? ` stroke-dasharray="${dash}"` : ''} shape-rendering="crispEdges"/>`);
-    if (text) label(y, text, color);
-  };
-
-  // The mother frame: high and low are both typed by hand and anchor the ladder.
-  hline(motherHigh, PAL.mother, `MOTHER HIGH (${number(motherHigh)})`, '5 3', 1.1);
-  hline(motherLow, PAL.mother, `MOTHER LOW (${number(motherLow)})`, '5 3', 1.1, .7);
-
-  // The deep boundary ladder. Every line is drawn alike; its colour tells the
-  // live status (pending/armed/filled/closed), matching the boundary chips.
-  boundaries.forEach(b => {
+  const lines = (Array.isArray(payload?.boundaries) ? payload.boundaries : []).map(b => {
     const level = Number(b.level);
     const status = statusByLevel[level] || 'PENDING';
-    const color = statusColor[status] || PAL.fibs[0];
-    const suffix = status !== 'PENDING' ? `  ${status}` : '';
-    hline(Number(b.price), color, `L${escapeHtml(String(level))} (${number(b.price)})${suffix}`, null, 1.1, status === 'PENDING' ? .85 : 1);
-  });
+    return {
+      price: Number(b.price),
+      label: `L${level} ${status}`,
+      filled: status === 'FILLED' || status === 'CLOSED',
+      inr_notional: 0,
+    };
+  }).filter(line => Number.isFinite(line.price));
 
-  if (Number(campaign.target_index) > 0) hline(Number(campaign.target_index), PAL.tp, `TARGET (${number(campaign.target_index)})`, '6 3', 1.2);
-  if (Number(campaign.average_index_entry) > 0) hline(Number(campaign.average_index_entry), PAL.avg, `AVG ENTRY (${number(campaign.average_index_entry)})`, '4 4', 1.1);
-
-  // Buy arrows point UP and sit below the candle they filled on — priced paper
-  // fills in green, signal-only replay fills dimmed amber. Closed-round entries
-  // ride in from `rounds` because open_fills is emptied the moment a TP lands.
-  const buyMark = (t, price, color, opacity) => {
-    if (!inView(price)) return;
-    const x = Xt(t), y = Y(price) + 10;
-    parts.push(`<path d="M${x.toFixed(1)} ${(y - 9).toFixed(1)}L${(x - 5).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${y.toFixed(1)}L${(x - 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${(y + 6).toFixed(1)}L${(x + 2).toFixed(1)} ${y.toFixed(1)}L${(x + 5).toFixed(1)} ${y.toFixed(1)}Z" fill="${color}" stroke="${PAL.fillRing}" stroke-width="0.9"${opacity ? ` opacity="${opacity}"` : ''}/>`);
+  // Buy arrows: closed rounds first (dimmer in the ladder's own story, but the
+  // renderer draws one mark per fill), then whatever is still open, then a
+  // signal-only replay's fills.
+  const entries = [];
+  const addFill = fill => {
+    const at = epoch(fill?.timestamp), p = price(fill?.index_price);
+    if (at !== null && p !== null) entries.push({ t: at, price: p });
   };
-  (campaign.rounds || []).forEach(round => (round.fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), PAL.fill, .55)));
-  (campaign.open_fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), PAL.fill));
-  (campaign.signal_fills || []).forEach(fill => buyMark(fill.timestamp, Number(fill.index_price), '#fbbf24'));
+  (campaign.rounds || []).forEach(round => (round.fills || []).forEach(addFill));
+  (campaign.open_fills || []).forEach(addFill);
+  (campaign.signal_fills || []).forEach(addFill);
 
-  // Target-hit exits: a down arrow above the exit candle, labelled with the
-  // round's net P&L — the one number the record is kept for.
-  (campaign.rounds || []).forEach(round => {
-    const price = Number(round.exit_index_price);
-    if (!inView(price)) return;
-    const cx = Xt(round.closed_at), cy = Y(price) - 10;
-    const pnl = Number(round.net_pnl) || 0;
-    parts.push(`<path d="M${cx.toFixed(1)} ${(cy + 9).toFixed(1)}L${(cx - 5).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${cy.toFixed(1)}L${(cx - 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${(cy - 6).toFixed(1)}L${(cx + 2).toFixed(1)} ${cy.toFixed(1)}L${(cx + 5).toFixed(1)} ${cy.toFixed(1)}Z" fill="${PAL.down}" stroke="${PAL.fillRing}" stroke-width="0.9"/>`);
-    parts.push(`<text x="${cx.toFixed(1)}" y="${(cy - 9).toFixed(1)}" fill="${PAL.down}" font-size="9.5" font-family="monospace" text-anchor="middle">TARGET ${number(price)} · ${pnl >= 0 ? '+' : '−'}${escapeHtml(_cascadeOptionsMoney(Math.abs(pnl)))}</text>`);
-  });
+  const exits = (campaign.rounds || [])
+    .map(round => ({ t: epoch(round.closed_at), price: price(round.exit_index_price), pnl: Number(round.net_pnl) || 0 }))
+    .filter(row => row.t !== null && row.price !== null);
 
-  const chartLabel = `${side} fib-boundary`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:900px;display:block;" shape-rendering="geometricPrecision" text-rendering="optimizeLegibility" xmlns="http://www.w3.org/2000/svg" aria-label="${escapeAttr(chartLabel)} chart">${parts.join('')}</svg>`;
+  return {
+    timeframe: payload?.timeframe || campaign.timeframe || '5m',
+    candles,
+    mother: { high: price(payload?.mother_high), low: price(payload?.mother_low) },
+    trendlines: [],
+    legs: [],
+    lines,
+    entries,
+    exits,
+    avg_entry_price: price(campaign.average_index_entry),
+    tp_price: price(campaign.target_index),
+    // A mother held to expiry never traded here, so the target line must not
+    // claim it was sold at.
+    tp_label: exits.length ? 'TARGET HIT' : entries.length ? 'TARGET (open — watching)' : 'TARGET (not reached)',
+  };
 }
 
 async function loadFibBoundaryChart() {
@@ -2386,17 +2307,36 @@ async function loadFibBoundaryChart() {
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
-    if (chart) chart.innerHTML = _fibBoundaryChartSvg(data);
-    if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${(data.boundaries || []).length} deep boundaries · paper geometry uses native OHLC`;
+    // Only one canvas chart can be mounted at a time -- the renderer finds its
+    // surfaces by a fixed id. Fold the backtest journal chart away first so the
+    // overlay does not mount behind a duplicate host.
+    _fibBoundaryCollapseBacktestChart();
+    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data));
+    if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${(data.boundaries || []).length} deep boundaries · drag to pan, wheel to zoom, double-click to reset`;
   } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
     if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
     if (meta) meta.textContent = 'Chart unavailable';
   }
 }
 
+// Shared by the overlay and the journal toggle: both draw with the one Canvas
+// renderer, so opening either has to put the other away.
+function _fibBoundaryCollapseBacktestChart() {
+  const box = document.getElementById('fibx-backtest-chart');
+  const btn = document.getElementById('fibx-backtest-chart-btn');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  if (btn) btn.textContent = '↗ Journal chart';
+}
+
 function hideFibBoundaryChart() {
   const overlay = document.getElementById('fibx-chart-overlay');
   if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  // A hidden host still holds pointer bindings, a ResizeObserver and a theme
+  // MutationObserver. Closing the dialog has to release them.
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+  const chart = document.getElementById('fibx-chart');
+  if (chart) chart.innerHTML = '';
 }
 
 async function runFibBoundaryBacktest() {
@@ -2432,11 +2372,10 @@ function _renderFibBoundaryBacktest(data) {
   const result = data.result || {};
   // Stash for the journal chart toggle; reset the chart to hidden on each run.
   _lastFibBacktest = { result, meta: data };
-  const chartBox = document.getElementById('fibx-backtest-chart');
   const hasChart = !!(data.chart && Array.isArray(data.chart.candles) && data.chart.candles.length);
-  if (chartBox) { chartBox.style.display = 'none'; chartBox.innerHTML = ''; }
+  _fibBoundaryCollapseBacktestChart();
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
-  if (chartBtn) { chartBtn.style.display = hasChart ? '' : 'none'; chartBtn.textContent = '↗ Journal chart'; }
+  if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
     const priced = !!result.fully_priced;
