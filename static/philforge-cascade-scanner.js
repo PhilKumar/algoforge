@@ -67,7 +67,7 @@
 
     if (!lastRows.length) {
       var why = (payload.rejected_sample || [])
-        .map(function (row) { return '<li><strong>' + row.symbol + '</strong> — ' + row.reason + '</li>'; })
+        .map(function (row) { return '<li><strong>' + esc(row.symbol) + '</strong> — ' + esc(row.reason) + '</li>'; })
         .join('');
       els.body.innerHTML =
         '<div class="cascade-scan-empty">' +
@@ -85,9 +85,9 @@
     var rows = pageRows.map(function (row, offset) {
       var index = start + offset;
       return '' +
-        '<tr data-symbol="' + row.symbol + '">' +
+        '<tr data-symbol="' + esc(row.symbol) + '">' +
         '<td class="cascade-scan-rank">' + (index + 1) + '</td>' +
-        '<td><strong>' + row.symbol + '</strong>' + (row.etf ? ' <span class="cascade-scan-etf">ETF</span>' : '') + '<span class="cascade-scan-name">' + (row.name || '') + '</span></td>' +
+        '<td><strong>' + esc(row.symbol) + '</strong>' + (row.etf ? ' <span class="cascade-scan-etf">ETF</span>' : '') + '<span class="cascade-scan-name">' + esc(row.name || '') + '</span></td>' +
         '<td class="num">' + money(row.last_price) + '</td>' +
         '<td class="num cascade-scan-pullback">-' + row.pullback_pct.toFixed(1) + '%</td>' +
         '<td class="num">+' + row.strength_pct.toFixed(1) + '%</td>' +
@@ -96,8 +96,8 @@
         '<td class="cascade-scan-row-actions">' +
         // Same classes as "Open Chart" in the instrument panel, so the two are
         // the same control rather than two that merely resemble each other.
-        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-chart-btn" data-symbol="' + row.symbol + '">Chart</button>' +
-        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-pick" data-symbol="' + row.symbol + '">Use</button>' +
+        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-chart-btn" data-symbol="' + esc(row.symbol) + '">Chart</button>' +
+        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-pick" data-symbol="' + esc(row.symbol) + '">Use</button>' +
         '</td>' +
         '</tr>';
     }).join('');

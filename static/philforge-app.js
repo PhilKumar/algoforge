@@ -342,6 +342,15 @@ function escapeJsSingleQuoted(value) {
     .replace(/\u2029/g, '\\u2029');
 }
 
+// A value dropped into a JS single-quoted string that itself lives inside an
+// HTML attribute (onclick="fn('HERE')") needs BOTH layers: the browser decodes
+// HTML entities in the attribute BEFORE the JS runs, so escaping only the JS
+// (or only the HTML) leaves a way out of the string. JS-escape first, then
+// HTML-escape the result so no decoded quote can survive.
+function escapeJsAttr(value) {
+  return escapeHtml(escapeJsSingleQuoted(value));
+}
+
 function formatDateTimeLabel(value) {
   if (!value) return '—';
   const dt = new Date(value);
@@ -4379,6 +4388,7 @@ let _stockTerminalQuoteTimer = null;
 let _stockTerminalOrdersTimer = null;
 let _stockTerminalOrderWatchTimer = null;
 let _stockTerminalQuoteTick = 0;
+let _stockTerminalOrdersTick = 0;
 let _stockTerminalOrderInFlight = false;
 let _stockTerminalLastLtp = 0;
 let _stockTerminalValueListenersAttached = false;
@@ -4425,6 +4435,11 @@ async function initStockTerminalPage(force = false) {
   if (!_stockTerminalOrdersTimer) {
     _stockTerminalOrdersTimer = setInterval(() => {
       if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      // Off-session the order book cannot change on a fresh action, and the
+      // Dhan rate budget is account-wide — the same trap behind the 4AM 429
+      // storm. GTT/AMO can still move outside cash hours, so don't stop, just
+      // slow to one refresh every ~10 minutes (every 30th 20s tick).
+      if (!_nseSessionLikelyOpen() && (_stockTerminalOrdersTick++ % 30 !== 0)) return;
       refreshStockTerminalOrders();
     }, 20000);
   }
@@ -4484,7 +4499,7 @@ async function loadStockTerminalStocks() {
   try {
     const res = await fetch('/api/terminal/nifty200', { cache: 'no-store' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to load stocks');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to load stocks'));
     _stockTerminalStocks = Array.isArray(data.data) ? data.data : [];
     const countEl = document.getElementById('stock-terminal-count');
     if (countEl) countEl.textContent = String(_stockTerminalStocks.length);
@@ -4518,9 +4533,9 @@ function renderStockTerminalList() {
     const tradable = !!s.tradable;
     const bg = active ? 'background:rgba(34,197,94,0.10);' : '';
     const status = tradable
-      ? '<span style="color:var(--success);font-weight:700;">OK</span>'
-      : '<span style="color:var(--warn);font-weight:700;">ID</span>';
-    return `<tr onclick="selectStockTerminal('${escapeJsSingleQuoted(s.symbol)}')" style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;${bg}">
+      ? '<span style="color:var(--success);font-weight:700;" title="Tradable — Dhan security ID resolved">OK</span>'
+      : '<span style="color:var(--warn);font-weight:700;" title="No Dhan security ID — quote and orders unavailable">NO ID</span>';
+    return `<tr onclick="selectStockTerminal('${escapeJsAttr(s.symbol)}')" style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;${bg}">
       <td style="padding:8px 10px;font-family:'JetBrains Mono',monospace;font-weight:700;color:${active ? 'var(--success)' : 'var(--text)'};">${escapeHtml(s.symbol || '')}</td>
       <td style="padding:8px 10px;color:var(--muted);">${escapeHtml(s.name || '')}</td>
       <td style="padding:8px 10px;text-align:center;">${status}</td>
@@ -4724,7 +4739,7 @@ function _renderTerminalCascadeStatus(payload) {
 function _terminalCascadeEmptyWindow(symbol, reference) {
   const subtitle = reference && reference !== symbol ? `${reference} signal -> ${symbol} trade/TP` : 'Choose a scrip, then start a paper campaign.';
   const open = _terminalCascadeOpenSymbols.has(String(symbol)) ? ' open' : '';
-  return `<details class="terminal-cascade-scrip-window" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}><summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></summary><div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></div></details>`;
+  return `<details class="terminal-cascade-scrip-window" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeJsAttr(symbol)}', this.open)"${open}><summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></summary><div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></div></details>`;
 }
 
 function _terminalCascadeWindow(campaign) {
@@ -4769,7 +4784,7 @@ function _terminalCascadeWindow(campaign) {
   const button = (label, handler, kind) =>
     `<button class="btn btn-sm ${kind || 'btn-outline'}" onclick="event.preventDefault();event.stopPropagation();${handler}">${escapeHtml(label)}</button>`;
 
-  return `<details class="terminal-cascade-scrip-window pf-campaign-card${cardClass}${ended ? ' is-ended' : ''}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeAttr(symbol)}', this.open)"${open}>
+  return `<details class="terminal-cascade-scrip-window pf-campaign-card${cardClass}${ended ? ' is-ended' : ''}" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeJsAttr(symbol)}', this.open)"${open}>
     <summary class="pf-campaign-head">
       <div class="pf-campaign-title">
         <strong>${escapeHtml(symbol)}</strong>
@@ -4781,10 +4796,10 @@ function _terminalCascadeWindow(campaign) {
         <span class="pf-campaign-gist">${escapeHtml(gist)}</span>
       </div>
       <div class="pf-campaign-actions">
-        ${button('Chart', `loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')`)}
-        ${campaign.running ? button('Stop', `stopTerminalCascadePaper('${escapeAttr(symbol)}')`) : ''}
-        ${ended ? button('New mother', `terminalCascadeNewMother('${escapeAttr(symbol)}')`) : ''}
-        ${button('Delete', `deleteTerminalCascadePaper('${escapeAttr(symbol)}')`, 'btn-danger')}
+        ${button('Chart', `loadTerminalCascadeChart('${escapeJsAttr(symbol)}','${escapeJsAttr(mother)}','${escapeJsAttr(timeframe)}')`)}
+        ${campaign.running ? button('Stop', `stopTerminalCascadePaper('${escapeJsAttr(symbol)}')`) : ''}
+        ${ended ? button('New mother', `terminalCascadeNewMother('${escapeJsAttr(symbol)}')`) : ''}
+        ${button('Delete', `deleteTerminalCascadePaper('${escapeJsAttr(symbol)}')`, 'btn-danger')}
       </div>
     </summary>
     <div class="terminal-cascade-scrip-window-body">
@@ -5106,7 +5121,7 @@ function _renderTerminalOpenPositions(campaigns) {
       <td class="num">${escapeHtml(_terminalCascadeMoney(cost))}</td>
       <td class="num" style="color:${tone};font-weight:700;">${last ? `${pnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(pnl)))}` : '—'}<small style="color:${tone};">${last ? `${pnl >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%` : ''}</small></td>
       <td class="num">${tp ? escapeHtml(_cascadeNumber(tp)) : '—'}${toTp !== null ? `<small>${toTp.toFixed(2)}% away</small>` : ''}</td>
-      <td><button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart('${escapeAttr(symbol)}','${escapeAttr(mother)}','${escapeAttr(timeframe)}')">Chart</button> <button class="btn btn-sm btn-danger" onclick="killTerminalCascadePaper('${escapeAttr(symbol)}')">Kill</button></td>
+      <td><button class="btn btn-sm btn-outline" onclick="loadTerminalCascadeChart('${escapeJsAttr(symbol)}','${escapeJsAttr(mother)}','${escapeJsAttr(timeframe)}')">Chart</button> <button class="btn btn-sm btn-danger" onclick="killTerminalCascadePaper('${escapeJsAttr(symbol)}')">Kill</button></td>
     </tr>`;
   }).join('');
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Scrip</th><th>Opened</th><th class="num">Avg entry</th><th class="num">Last</th><th class="num">Invested</th><th class="num">Unrealised</th><th class="num">Target</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -5199,7 +5214,7 @@ function _renderTerminalRoundsLedger() {
     } else {
       filters.innerHTML = ['ALL'].concat(scrips).map(name => {
         const on = name === _terminalLedgerScrip;
-        return `<button type="button" class="terminal-cascade-tf-option${on ? ' is-active' : ''}" role="radio" aria-checked="${on}" onclick="terminalLedgerSetFilter('${escapeAttr(name)}')">${escapeHtml(name === 'ALL' ? 'All' : name)}</button>`;
+        return `<button type="button" class="terminal-cascade-tf-option${on ? ' is-active' : ''}" role="radio" aria-checked="${on}" onclick="terminalLedgerSetFilter('${escapeJsAttr(name)}')">${escapeHtml(name === 'ALL' ? 'All' : name)}</button>`;
       }).join('');
     }
   }
@@ -5238,7 +5253,7 @@ function _renderTerminalRoundsLedger() {
       <td class="num">${escapeHtml(_terminalCascadeMoney(costs))}</td>
       <td class="num" style="color:${tone};font-weight:700;">${pnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(pnl)))}<small style="color:${tone};">${inv > 0 ? `${(pnl / inv * 100).toFixed(2)}%` : ''}</small></td>
       <td>${escapeHtml(_terminalHeldFor(round.opened_at, round.closed_at))}</td>
-      <td><button class="btn btn-sm btn-outline" onclick="terminalCascadeShowRoundLog('${escapeAttr(row.source)}','${escapeAttr(row.sourceKey)}',${Number(round.round_id) || 0})"${buys ? '' : ' disabled title="No per-buy detail recorded for this round"'}>Log${buys ? ` (${buys})` : ''}</button></td>
+      <td><button class="btn btn-sm btn-outline" onclick="terminalCascadeShowRoundLog('${escapeJsAttr(row.source)}','${escapeJsAttr(row.sourceKey)}',${Number(round.round_id) || 0})"${buys ? '' : ' disabled title="No per-buy detail recorded for this round"'}>Log${buys ? ` (${buys})` : ''}</button></td>
     </tr>`;
   }).join('');
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Closed</th><th>Scrip</th><th>Round</th><th class="num">Avg entry</th><th class="num">Exit</th><th class="num">Invested</th><th class="num">Costs</th><th class="num">Net</th><th>Held</th><th></th></tr></thead><tbody>${html}</tbody></table></div>`;
@@ -5296,13 +5311,24 @@ function terminalCascadeShowRoundLog(source, sourceKey, roundId) {
   }
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
+  // Move focus into the dialog so keyboard and screen-reader users land inside
+  // it, and remember where they came from to restore focus on close.
+  _terminalCascadeRoundOpener = document.activeElement;
+  const closeBtn = overlay.querySelector('.terminal-cascade-chart-control');
+  if (closeBtn) closeBtn.focus();
 }
+
+let _terminalCascadeRoundOpener = null;
 
 function terminalCascadeHideRoundLog() {
   const overlay = document.getElementById('terminal-cascade-round-overlay');
   if (!overlay) return;
   overlay.classList.remove('is-open');
   overlay.setAttribute('aria-hidden', 'true');
+  if (_terminalCascadeRoundOpener && typeof _terminalCascadeRoundOpener.focus === 'function') {
+    _terminalCascadeRoundOpener.focus();
+  }
+  _terminalCascadeRoundOpener = null;
 }
 
 function terminalCascadeRoundBackdrop(event) {
@@ -5358,7 +5384,7 @@ function _renderTerminalClosedCampaigns() {
       <td>${escapeHtml(String(archive.status || '—').replaceAll('_', ' '))}${heldQty ? `<small style="color:#fbbf24;">deleted holding ${heldQty} qty</small>` : ''}</td>
       <td class="num">${rounds.length}</td>
       <td class="num" style="color:${tone};font-weight:700;">${net >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(net)))}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="purgeTerminalClosedCampaign('${escapeAttr(String(archive.archive_id || ''))}')">Purge</button></td>
+      <td><button class="btn btn-sm btn-danger" onclick="purgeTerminalClosedCampaign('${escapeJsAttr(String(archive.archive_id || ''))}')">Purge</button></td>
     </tr>`;
   }).join('');
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Deleted</th><th>Scrip</th><th>TF</th><th class="num">Capital</th><th class="num">Mother high</th><th>Ended as</th><th class="num">Rounds</th><th class="num">Realised</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -6108,6 +6134,8 @@ function terminalCascadeChartBackdrop(event) {
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
+  const roundOverlay = _terminalCascadeEl('terminal-cascade-round-overlay');
+  if (roundOverlay?.classList.contains('is-open')) { terminalCascadeHideRoundLog(); return; }
   const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
   const panel = _terminalCascadeEl('terminal-cascade-chart-panel');
   if (!overlay?.classList.contains('is-open')) return;
@@ -6124,12 +6152,29 @@ function toggleStockOrderMode() {
   if (gtt) gtt.style.display = mode === 'gtt' ? '' : 'none';
   const product = document.getElementById('stock-product-type');
   const orderType = document.getElementById('stock-order-type');
-  if (mode === 'gtt') {
-    if (product && !['CNC', 'MTF'].includes(product.value)) product.value = 'CNC';
-    if (orderType && !['MARKET', 'LIMIT'].includes(orderType.value)) orderType.value = 'LIMIT';
-  }
+  // GTT/Forever only accepts CNC/MTF products and MARKET/LIMIT order types
+  // (see the /api/terminal/gtt validators). Hide the rest in GTT mode instead
+  // of silently coercing them after the user has already picked one — a hidden
+  // swap places a different order than the one on screen.
+  const gttProducts = ['CNC', 'MTF'];
+  const gttOrderTypes = ['MARKET', 'LIMIT'];
+  _setSelectOptionsAllowed(orderType, mode === 'gtt' ? gttOrderTypes : null, 'LIMIT');
+  _setSelectOptionsAllowed(product, mode === 'gtt' ? gttProducts : null, 'CNC');
   toggleStockOrderFields();
   updateStockOrderValue();
+}
+
+// Show/enable only the allowed option values on a <select>; disable+hide the
+// rest. Passing allowed=null clears the restriction (all options usable). If
+// the current value falls outside the allowed set, snap to `fallback`.
+function _setSelectOptionsAllowed(select, allowed, fallback) {
+  if (!select) return;
+  Array.from(select.options).forEach(opt => {
+    const ok = !allowed || allowed.includes(opt.value);
+    opt.disabled = !ok;
+    opt.hidden = !ok;
+  });
+  if (allowed && !allowed.includes(select.value)) select.value = fallback;
 }
 
 function toggleStockOrderFields() {
@@ -6414,14 +6459,22 @@ async function refreshStockTerminalOrders() {
     ]);
     const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
     const gtt = Array.isArray(gttRes.data) ? gttRes.data : [];
-    if (ordersBody) {
+    // A live terminal must never dress "can't see orders" up as "no orders" —
+    // that invites a duplicate order. Only status:"success" means the empty
+    // list is real; anything else is a broker/token fault worth showing loud.
+    const ordersOk = ordersRes.status === 'success';
+    const gttOk = gttRes.status === 'success';
+    if (ordersBody && !ordersOk) {
+      const msg = _apiErrorMessage(ordersRes, 'Broker unavailable — orders could not be loaded');
+      ordersBody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--danger);">${escapeHtml(msg)}</td></tr>`;
+    } else if (ordersBody) {
       const latest = orders.slice().reverse().slice(0, 12);
       ordersBody.innerHTML = latest.length ? latest.map(o => {
         const status = o.orderStatus || o.status || '';
         const reason = _stockBrokerOrderReason(o);
         const orderId = _stockTerminalOrderId(o);
         const cancelBtn = _canCancelBrokerOrder(status) && orderId
-          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsAttr(orderId)}','regular')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
         return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
           <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>
@@ -6434,19 +6487,22 @@ async function refreshStockTerminalOrders() {
         </tr>`;
       }).join('') : '<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--muted);">No orders today</td></tr>';
     }
-    if (gttBody) {
+    if (gttBody && !gttOk) {
+      const msg = _apiErrorMessage(gttRes, 'Broker unavailable — GTT orders could not be loaded');
+      gttBody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--danger);">${escapeHtml(msg)}</td></tr>`;
+    } else if (gttBody) {
       const latestGtt = gtt.slice().reverse().slice(0, 12);
       gttBody.innerHTML = latestGtt.length ? latestGtt.map(o => {
         const status = o.orderStatus || o.status || '';
         const reason = _stockBrokerOrderReason(o);
         const orderId = _stockTerminalOrderId(o);
         const cancelBtn = _canCancelBrokerOrder(status) && orderId
-          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsSingleQuoted(orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
+          ? `<button class="btn btn-danger btn-sm" onclick="cancelStockTerminalOrder('${escapeJsAttr(orderId)}','gtt')" style="padding:2px 8px;font-size:10px;">Cancel</button>`
           : '<span style="color:var(--muted);">—</span>';
         return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
           <td style="padding:7px 8px;font-family:'JetBrains Mono',monospace;">${escapeHtml(o.tradingSymbol || o.securityId || '-')}</td>
           <td style="padding:7px 8px;text-align:center;color:${o.transactionType === 'SELL' ? 'var(--danger)' : 'var(--success)'};">${escapeHtml(o.transactionType || '')}</td>
-          <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderType || o.orderFlag || '')}</td>
+          <td style="padding:7px 8px;text-align:center;">${escapeHtml(o.orderFlag || o.orderType || '')}</td>
           <td style="padding:7px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${Number(o.triggerPrice || 0).toFixed(2)}</td>
           <td style="padding:7px 8px;text-align:center;color:${_stockOrderStatusTone(status)};">${escapeHtml(status)}</td>
           <td title="${escapeAttr(reason || '')}" style="padding:7px 8px;max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${reason ? 'var(--text-dim)' : 'var(--muted)'};">${escapeHtml(reason || '—')}</td>
@@ -6467,7 +6523,7 @@ async function cancelStockTerminalOrder(orderId, mode) {
     const url = mode === 'gtt' ? '/api/terminal/forever/' + encodeURIComponent(orderId) : '/api/orders/' + encodeURIComponent(orderId);
     const res = await fetch(url, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || data.message || 'Cancel failed');
+    if (!res.ok) throw new Error(_apiErrorMessage(data, 'Cancel failed'));
     toast('Order cancelled', 'success');
     refreshStockTerminalOrders();
   } catch (e) {

@@ -7,14 +7,15 @@ Fixed:
 """
 
 import asyncio
+import base64
 import hashlib
 import inspect
+import io
 import json
 import re
 import shutil
 from copy import deepcopy
 from html import escape as _escape_html
-from urllib.parse import quote as _url_quote
 from urllib.parse import urlparse as _urlparse
 
 try:
@@ -169,9 +170,12 @@ def _generate_startup_token_once():
 # Initialize FastAPI app
 app = FastAPI(title="PhilForge", version="1.0.0")
 _CORS_ALLOWED_ORIGINS = [
-    "https://philipalgo.github.io",
-    "http://philforge.local",
-    "http://65.1.213.207",
+    "https://philforge.in",
+    "https://www.philforge.in",
+    # Local dev only — the loopback UI. Plain-HTTP and third-party-hosted
+    # origins were dropped: an unencrypted origin carries no identity an
+    # on-path attacker can't forge, and a credentialed CORS grant to a page
+    # hosted elsewhere is a standing account-access handoff.
     "http://127.0.0.1:8000",
     "http://localhost:8000",
 ]
@@ -179,8 +183,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Request-ID"],
 )
 
 from error_handlers import register_error_handlers
@@ -2859,20 +2863,42 @@ class OhlcvExportPayload(BaseModel):
     export_name: str = ""
 
 
+def _referral_qr_data_uri(referral_url: str) -> str:
+    """Render the Dhan invite QR ourselves as an inline SVG data URI.
+
+    Previously the login page pointed an <img> at api.qrserver.com, which handed
+    the referral URL — and every unlock-page viewer's IP — to a third party on
+    each render. Generating it in-process keeps it entirely first-party. If the
+    QR library is missing or generation fails, return "" so the caller hides the
+    QR (the text link still works) rather than falling back to a leaky host.
+    """
+    if not referral_url:
+        return ""
+    try:
+        import segno
+
+        buf = io.BytesIO()
+        segno.make(referral_url, error="m").save(buf, kind="svg", scale=4, border=1)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/svg+xml;base64,{b64}"
+    except Exception:
+        return ""
+
+
 def _render_login_page() -> HTMLResponse:
     login_path = os.path.join(_HERE, "login.html")
     if not os.path.exists(login_path):
         return HTMLResponse("<h2>login.html not found</h2>")
     login_html = _read_frontend_template(login_path)
     referral_url = config.DHAN_REFERRAL_URL
-    referral_qr_url = (
-        f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={_url_quote(referral_url, safe='')}"
-        if referral_url
-        else ""
-    )
+    referral_qr_url = _referral_qr_data_uri(referral_url)
+    # The block (with its text link) shows whenever a referral URL exists; the
+    # QR sub-div hides on its own if we couldn't render a first-party image, so
+    # a QR failure never costs the working link.
     login_html = login_html.replace("__DHAN_REFERRAL_URL__", _escape_html(referral_url or "#", quote=True))
     login_html = login_html.replace("__DHAN_REFERRAL_QR_URL__", _escape_html(referral_qr_url, quote=True))
     login_html = login_html.replace("__DHAN_REFERRAL_HIDDEN_CLASS__", "" if referral_url else " hidden")
+    login_html = login_html.replace("__DHAN_REFERRAL_QR_HIDDEN_CLASS__", "" if referral_qr_url else " hidden")
     return HTMLResponse(login_html)
 
 

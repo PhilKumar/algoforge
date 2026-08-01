@@ -275,7 +275,8 @@
     position: relative;
     z-index: 1;
   }
-  .unlock-referral.hidden {
+  .unlock-referral.hidden,
+  .unlock-referral-qr.hidden {
     display: none;
   }
   .unlock-referral-link {
