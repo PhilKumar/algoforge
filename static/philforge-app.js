@@ -5132,6 +5132,72 @@ function _renderTerminalOpenPositions(campaigns) {
   }
 }
 
+// Every event the cash engine emits, said in words. The feed used to print a
+// generic five-field guess, so a `rung_created` read as a bare "6:2" and
+// `stop_armed` / `await_second_red` / `new_low_restart` said nothing at all —
+// the engine had the price, the budget and the trigger in the payload the
+// whole time. Each case below names what actually happened and why.
+function _terminalEventDetail(event) {
+  const price = value => (Number.isFinite(Number(value)) ? _cascadeNumber(value) : '—');
+  const money = value => (Number.isFinite(Number(value)) ? _terminalCascadeMoney(value) : '—');
+  const pct = value => (Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : '');
+  const bits = [];
+  switch (String(event.event || '')) {
+    case 'rung_created':
+      bits.push(`rung ${event.rung}`, `buys at ${price(event.signal_price)}`, `budget ${money(event.budget_inr)}`);
+      if (pct(event.allocation_pct)) bits.push(`${pct(event.allocation_pct)} of the fall`);
+      break;
+    case 'rung_collected':
+      bits.push(`rung ${event.rung}`, `price hit ${price(event.signal_price)}`,
+        `pot ${money(event.pending_inr)}${Number(event.carry_inr) ? ` + ${money(event.carry_inr)} carry` : ''}`,
+        `still under the ${money(event.minimum_inr)} minimum`);
+      break;
+    case 'cash_placeable':
+      bits.push(`rung ${event.rung}`, `line ${price(event.signal_price)}`,
+        `pot ${money(event.pending_inr)}${Number(event.carry_inr) ? ` + ${money(event.carry_inr)} carry` : ''}`,
+        `can buy near ${price(event.estimated_trade_price)}`);
+      break;
+    case 'await_second_red':
+      bits.push(`first red close ${price(event.close)} under the ${price(event.line)} line`, 'waiting for a second');
+      break;
+    case 'stop_armed':
+      bits.push(`buy-stop set at ${price(event.trigger)}`, 'fills when price trades back above it');
+      break;
+    case 'stop_moved':
+      bits.push(`buy-stop lowered to ${price(event.trigger)}`, 'the fall kept going');
+      break;
+    case 'cash_below_one_share':
+      bits.push(`pot ${money(event.pending_inr)}${Number(event.carry_inr) ? ` + ${money(event.carry_inr)} carry` : ''}`,
+        `cannot buy one share at ${price(event.trade_price)}`, 'carried forward');
+      break;
+    case 'paper_cash_fill':
+      bits.push(`bought ${event.quantity} @ ${price(event.trade_price)}`, `spent ${money(event.spent_inr)}`);
+      if (Number.isFinite(Number(event.target_price))) bits.push(`target ${price(event.target_price)}`);
+      if (Number(event.carry_inr)) bits.push(`${money(event.carry_inr)} carried`);
+      break;
+    case 'new_low_restart':
+      bits.push(`new low ${price(event.low)}`,
+        `${(event.rungs || []).length} rung${(event.rungs || []).length === 1 ? '' : 's'} armed again`);
+      break;
+    case 'round_closed':
+      bits.push(`sold at ${price(event.exit_price)}`, `${String(event.reason || '').replaceAll('_', ' ')}`,
+        `gross ${money(event.gross_pnl)}`, `costs ${money(event.costs)}`, `net ${money(event.net_pnl)}`);
+      break;
+    case 'campaign_killed':
+      bits.push(`${(event.cancelled_rungs || []).length} pending rung${(event.cancelled_rungs || []).length === 1 ? '' : 's'} cancelled`);
+      break;
+    case 'campaign_ended':
+      bits.push(`${String(event.reason || '').replaceAll('_', ' ')} — no new legs can form`);
+      break;
+    default:
+      if (event.rung) bits.push(`rung ${event.rung}`);
+      if (event.quantity) bits.push(`${event.quantity} qty`);
+      if (event.trade_price) bits.push(price(event.trade_price));
+      if (event.net_pnl !== undefined) bits.push(`net ${money(event.net_pnl)}`);
+  }
+  return bits.filter(Boolean).join(' · ');
+}
+
 function _renderTerminalEventFeed(campaigns) {
   const body = document.getElementById('terminal-events-body');
   if (!body) return;
@@ -5148,16 +5214,20 @@ function _renderTerminalEventFeed(campaigns) {
     if (meta) meta.textContent = 'Every campaign’s events in one feed, latest first.';
     return;
   }
-  body.innerHTML = shown.map(row => {
+  const markup = shown.map(row => {
     const event = row.event || {};
-    const bits = [];
-    if (event.rung) bits.push(event.rung);
-    if (event.quantity) bits.push(`${event.quantity} qty`);
-    if (event.trade_price) bits.push(_cascadeNumber(event.trade_price));
-    if (event.target_price) bits.push(`TP ${_cascadeNumber(event.target_price)}`);
-    if (event.net_pnl !== undefined) bits.push(`net ${_terminalCascadeMoney(event.net_pnl)}`);
-    return `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))} · ${escapeHtml(row.symbol)}</span><strong>${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong><em>${bits.length ? escapeHtml(bits.join(' · ')) : ''}</em></div>`;
+    const detail = _terminalEventDetail(event);
+    return `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))} · ${escapeHtml(row.symbol)}</span><strong>${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong><em>${escapeHtml(detail)}</em></div>`;
   }).join('');
+  // The status poll repaints this panel every few seconds. Replacing innerHTML
+  // wholesale resets scrollTop, so reading anything below the fold was a fight
+  // against the clock. Skip the write when nothing changed, and restore the
+  // scroll position when it did.
+  if (body.dataset.pfFeedKey === markup) return;
+  body.dataset.pfFeedKey = markup;
+  const keepTop = body.scrollTop;
+  body.innerHTML = markup;
+  body.scrollTop = keepTop;
   if (meta) meta.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} across ${(campaigns || []).length} campaign${(campaigns || []).length === 1 ? '' : 's'} — showing the latest ${shown.length}.`;
 }
 
@@ -5647,8 +5717,17 @@ function _terminalCascadeCanvasDraw() {
   const ownScale = instrument.reference_mode !== 'reference_index';
   const mother = _tcv.payload.mother || {};
 
-  // Price range: fit what is visible, plus the levels the campaign trades
-  // from, exactly as the SVG renderer scaled. Manual axis drag overrides.
+  // Price range: fit the price action and the geometry it is actually made of
+  // — the visible candles, the mother, each leg's real swing high and low, and
+  // where an open basket is heading (avg entry, target).
+  //
+  // It must NOT fit the extrapolated fib rungs. L8 sits eight leg-ranges below
+  // the swing high, so on a wide leg it lands hundreds of rupees under any
+  // price ever traded; forcing it into the axis squashed every candle into the
+  // top fifth of the chart and left the rest of the pane empty. The CryptoForge
+  // cascade chart scales off leg.touch_high/leg.low for exactly this reason.
+  // Deep rungs still draw — hline() simply skips whatever is off-screen, and
+  // zooming out brings them back.
   const first = Math.max(0, Math.floor(_tcv.start));
   const last = Math.min(n - 1, Math.ceil(_tcv.start + _tcv.count));
   let lo = Infinity, hi = -Infinity;
@@ -5659,10 +5738,11 @@ function _terminalCascadeCanvasDraw() {
   if (Number.isFinite(Number(mother.h))) hi = Math.max(hi, Number(mother.h));
   if (Number.isFinite(Number(mother.l))) lo = Math.min(lo, Number(mother.l));
   legs.forEach(leg => {
-    const fibHi = Number(leg.fib_high), fibLo = Number(leg.fib_low), range = fibHi - fibLo;
-    if (!Number.isFinite(range) || range <= 0) return;
-    [0, 1, 2, 4, 8].forEach(level => {
-      const price = fibHi - level * range;
+    // fib_high is the leg's touch high and fib_low its swing low: both are
+    // prices the market actually printed, so both belong on the axis.
+    [leg.fib_high, leg.fib_low].forEach(value => {
+      const price = Number(value);
+      if (!Number.isFinite(price) || price <= 0) return;
       hi = Math.max(hi, price);
       lo = Math.min(lo, price);
     });
