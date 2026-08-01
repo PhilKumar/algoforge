@@ -8293,9 +8293,25 @@ async def fib_boundary_paper_chart(
     }
 
 
-# NIFTY's lot size has stepped over the years; the backtest surfaces whichever
-# it used so an old mother's P&L magnitude is never silently wrong.
-_NIFTY_BACKTEST_LOT_SIZE = 75
+def _nifty_lot_size_on(day: date) -> int:
+    """NIFTY's lot size as it stood on a given trade date.
+
+    This constant used to be a hardcoded 75 sitting under a comment promising
+    "whichever it used, so an old mother's P&L magnitude is never silently
+    wrong" -- the intent was right and the implementation never followed it.
+    NIFTY stepped 50 -> 75 on 2024-11-20 and 75 -> 65 on 2026-01-01, so one
+    number cannot be correct for a replay that crosses either boundary: every
+    2026 mother was being sized 15% too large.
+
+    The date is the mother's, not the expiry's: a lot-size revision applies to
+    contracts introduced after it, so a December 2025 mother holding a January
+    2026 expiry still traded 75s.  `engine.backtest.LOT_SIZES` is the one table
+    (the Test Bench already reads it) -- add new steps there, never here.
+    """
+
+    from engine.backtest import get_lot_size
+
+    return int(get_lot_size("NIFTY", day))
 
 
 def _serialize_cascade_backtest(engine: NiftyOptionsPaperCascade) -> dict:
@@ -8603,6 +8619,9 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     if not forward:
         raise HTTPException(status_code=400, detail="No NIFTY candles after the mother in that window.")
 
+    # Sized at the lot that was real when this mother printed, not today's.
+    lot_size = _nifty_lot_size_on(mother_timestamp.date())
+
     # The ladder is the two typed numbers, nothing else: no trendline, no leg
     # detection, no swing. Exactly what FibBoundaryPaper measures live, so this
     # replay proves the geometry the Start button actually trades.
@@ -8615,7 +8634,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         rung_inr=float(payload.rung_inr),
         itm_steps=int(payload.itm_steps),
         strike_step=50.0,
-        lot_size=_NIFTY_BACKTEST_LOT_SIZE,
+        lot_size=lot_size,
         target_fraction=0.25,
     )
 
@@ -8650,9 +8669,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             raise HTTPException(
                 status_code=503, detail="Neither Upstox nor Dhan could name an option expiry for NIFTY."
             )
-        resolver = NiftyContractResolver(
-            expiries=expiries, strike_step=50.0, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
-        )
+        resolver = NiftyContractResolver(expiries=expiries, strike_step=50.0, lot_size=lot_size, symbol="NIFTY")
         premium_lookup = _hybrid_premium_lookup(
             broker_client,
             "NIFTY",
@@ -8672,7 +8689,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             return OptionCandle(timestamp, float(price), float(price), float(price), float(price))
 
         result = FibBoundaryCascade(fib_config, resolver, option_lookup).run(forward)
-        serialized = _serialize_fib_boundary_backtest(result, _NIFTY_BACKTEST_LOT_SIZE)
+        serialized = _serialize_fib_boundary_backtest(result, lot_size)
         serialized["_chart"] = fib_boundary_chart(fib_config, result, forward, timeframe=timeframe)
         return serialized
 
@@ -8693,7 +8710,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
         "candles_replayed": len(forward),
         "horizon_to": horizon_to.isoformat(),
-        "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
+        "lot_size": lot_size,
         "result": backtest,
         "chart": chart,
         "note": (

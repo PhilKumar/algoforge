@@ -18,7 +18,7 @@ from datetime import date, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import _serialize_fib_boundary_backtest  # noqa: E402
+from app import _nifty_lot_size_on, _serialize_fib_boundary_backtest  # noqa: E402
 from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig  # noqa: E402
 from engine.cascade_options import Candle, NiftyContractResolver, OptionCandle  # noqa: E402
 from engine.test_bench import fib_boundary_chart  # noqa: E402
@@ -113,6 +113,39 @@ class FibBoundarySerializerTests(unittest.TestCase):
         self.assertEqual(payload["entries"], [])
         self.assertIsNone(payload["contract"])
         self.assertIsNone(payload["net_pnl"])
+
+
+class NiftyLotSizeTests(unittest.TestCase):
+    """One hardcoded lot size cannot be right for a replay that spans a change.
+
+    NIFTY stepped 50 -> 75 on 2024-11-20 and 75 -> 65 on 2026-01-01. The fib
+    backtest pinned 75, so every 2026 mother was sized 15% too large and every
+    pre-2024 one 50% too small -- a silent scale error on the P&L, which is the
+    exact failure the constant's own comment promised to prevent.
+    """
+
+    def test_the_lot_size_follows_the_mother_date(self):
+        self.assertEqual(_nifty_lot_size_on(date(2024, 11, 19)), 50)
+        self.assertEqual(_nifty_lot_size_on(date(2024, 11, 20)), 75)
+        self.assertEqual(_nifty_lot_size_on(date(2025, 12, 31)), 75)
+        self.assertEqual(_nifty_lot_size_on(date(2026, 1, 1)), 65)
+
+    def test_todays_lot_is_the_one_phil_confirmed(self):
+        self.assertEqual(_nifty_lot_size_on(date(2026, 8, 1)), 65)
+
+    def test_quantity_is_the_dated_lot_times_the_ladder(self):
+        # The whole point of getting the lot right: it multiplies straight into
+        # quantity, and quantity multiplies straight into rupees.
+        config = FibBoundaryConfig(MOTHER_AT, 24180.0, 24050.0, timeframe="5m", lot_size=65)
+        resolver = NiftyContractResolver(EXPIRIES, strike_step=50.0, lot_size=65)
+
+        def lookup(timestamp, _contract):
+            value = PREMIUMS.get((timestamp.hour, timestamp.minute))
+            return None if value is None else OptionCandle(timestamp, value, value, value, value)
+
+        result = FibBoundaryCascade(config, resolver, lookup).run(CANDLES)
+        payload = _serialize_fib_boundary_backtest(result, 65)
+        self.assertEqual([row["quantity"] for row in payload["entries"]], [65, 130])
 
 
 class FibBoundaryChartTests(unittest.TestCase):
