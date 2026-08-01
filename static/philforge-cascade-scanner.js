@@ -218,6 +218,21 @@
     var sharp = function (v) { return Math.round(v) + 0.5; };
     var solid = function (v) { return Math.round(v); };
 
+    // Overnight gaps, as synthetic candles spanning prev close -> new open.
+    // These are daily bars, so every one of them opens a session: any
+    // close != open is a real gap and gets drawn. Behind the real candles.
+    rows.forEach(function (row, i) {
+      if (i === 0) return;
+      var prevClose = Number(rows[i - 1].c), openPrice = Number(row.o);
+      if (!isFinite(prevClose) || !isFinite(openPrice) || prevClose === openPrice) return;
+      var gTop = Y(Math.max(prevClose, openPrice)), gBot = Y(Math.min(prevClose, openPrice));
+      var gw = Math.max(1, cw * 0.62) + 4, gx = X(i) - gw / 2;
+      var gColour = openPrice > prevClose ? PAL.up : PAL.down;
+      out.push('<rect x="' + gx.toFixed(1) + '" y="' + gTop.toFixed(1) + '" width="' + gw.toFixed(1) +
+        '" height="' + Math.max(gBot - gTop, 1).toFixed(1) + '" fill="' + gColour +
+        '" opacity=".22" stroke="' + gColour + '" stroke-opacity=".6" stroke-width="0.8"/>');
+    });
+
     rows.forEach(function (row, i) {
       var up = row.c >= row.o;
       var colour = up ? PAL.up : PAL.down;

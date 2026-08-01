@@ -1821,6 +1821,19 @@ function _cascadeOptionsChartSvg(payload) {
     parts.push(`<text x="${X(at).toFixed(1)}" y="${H - 10}" fill="#94a3b8" font-size="9" font-family="monospace" text-anchor="middle">${escapeHtml(stamp(candles[at].t))}</text>`);
   }
   const bodyW = Math.max(Math.min(cw * .66, 9), 1);
+  // Overnight gap as a synthetic candle spanning prev close -> new open. Drawn
+  // before the real candles so it sits behind them. See the Terminal canvas for
+  // the full reasoning; NSE only gaps across a session break.
+  const GAP_BREAK_MS = 4 * 3600 * 1000;
+  for (let i = 1; i < n; i += 1) {
+    const prevC = Number(candles[i - 1].c), openP = Number(candles[i].o);
+    if (Date.parse(candles[i].t) - Date.parse(candles[i - 1].t) < GAP_BREAK_MS) continue;
+    if (!Number.isFinite(prevC) || !Number.isFinite(openP) || prevC === openP) continue;
+    const gTop = Y(Math.max(prevC, openP)), gBot = Y(Math.min(prevC, openP));
+    const gw = bodyW + 4, gx = X(i) - gw / 2;
+    const gColor = openP > prevC ? '#34d399' : '#f87171';
+    parts.push(`<rect x="${gx.toFixed(1)}" y="${gTop.toFixed(1)}" width="${gw.toFixed(1)}" height="${Math.max(gBot - gTop, 1).toFixed(1)}" fill="${gColor}" opacity=".22" stroke="${gColor}" stroke-opacity=".6" stroke-width="0.8"/>`);
+  }
   candles.forEach((candle, i) => {
     const isGap = candle.gap_direction === 'up' || candle.gap_direction === 'down';
     const up = Number(candle.c) >= Number(candle.o);
@@ -4596,6 +4609,11 @@ async function refreshStockTerminalQuote(force) {
         ltpEl.style.color = '#4ade80';
       }
       updateStockOrderValue();
+      // Open Positions marks the selected scrip at this tick, so repaint it on
+      // the quote rather than waiting for the slower status poll to come round.
+      if (_lastTerminalCascadeStatus?.campaigns) {
+        try { _renderTerminalOpenPositions(_lastTerminalCascadeStatus.campaigns); } catch (err) { /* panel optional */ }
+      }
     } else if (ltpEl && force) {
       ltpEl.textContent = data.message ? 'N/A' : '—';
       ltpEl.style.color = 'var(--muted)';
@@ -4750,6 +4768,54 @@ function _terminalCascadeEmptyWindow(symbol, reference) {
   return `<details class="terminal-cascade-scrip-window" data-terminal-cascade-symbol="${escapeAttr(symbol)}" ontoggle="setTerminalCascadeScripOpen('${escapeJsAttr(symbol)}', this.open)"${open}><summary class="terminal-cascade-scrip-window-head"><div><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(subtitle)}</strong></div></summary><div class="terminal-cascade-scrip-window-body"><div class="terminal-cascade-empty">No paper campaign for this scrip.</div></div></details>`;
 }
 
+// One sentence for "so why is nothing happening?". A campaign can sit at
+// WAITING for an hour for half a dozen different reasons — no rung reached yet,
+// cash pooled but no second red close, a stop armed and not yet crossed, a pot
+// too small to buy one share, or a closed round that may only re-arm under the
+// previous low. The engine knows which; the card never said.
+function _terminalCampaignWaitingFor(campaign) {
+  const status = String(campaign.status || '').toUpperCase();
+  const money = _terminalCascadeMoney;
+  const price = _cascadeNumber;
+  const pot = (Number(campaign.pending_inr) || 0) + (Number(campaign.cash_carry_inr) || 0);
+  const last = Number(campaign.last_trade_close) || 0;
+
+  if (status === 'MOTHER_BROKEN') return 'Mother broken — no new legs can form. Start a new mother to continue.';
+  if (status === 'MOTHER_RETESTED') return 'Mother retested — the geometry is finished. Start a new mother to continue.';
+  if (status === 'KILLED') return 'Killed — the basket was closed by hand and nothing manages this scrip now.';
+  if (status === 'STOPPED') return 'Stopped — nothing is watching this scrip. Any holding is unmanaged.';
+
+  if ((Number(campaign.open_quantity) || 0) > 0) {
+    const target = Number(campaign.target_price) || 0;
+    if (target && last) {
+      const away = ((target - last) / last) * 100;
+      return `Holding ${campaign.open_quantity} share${campaign.open_quantity === 1 ? '' : 's'} — sells itself at ${price(target)}, ${away.toFixed(2)}% above the last mark.`;
+    }
+    return `Holding ${campaign.open_quantity} share${campaign.open_quantity === 1 ? '' : 's'} — waiting for the target.`;
+  }
+
+  const stop = Number(campaign.pending_stop) || 0;
+  if (stop > 0) return `${money(pot)} pooled — buys when price trades back above ${price(stop)}.`;
+
+  if (status === 'AWAITING_CASH') {
+    return `${money(pot)} pooled, still short of one share near ${price(last)} — it carries forward until a deeper rung adds to it.`;
+  }
+  if (pot > 0) return `${money(pot)} pooled — waiting for two red closes to set the buy-stop.`;
+
+  const reuse = Number(campaign.reuse_below) || 0;
+  if (reuse > 0) return `Round closed. The ladder only re-arms once price prints a new low under ${price(reuse)}.`;
+
+  const pending = (campaign.rungs || [])
+    .filter(row => String(row.status || '').toUpperCase() === 'PENDING' && Number(row.signal_price) > 0)
+    .sort((a, b) => Number(b.signal_price) - Number(a.signal_price));
+  if (pending.length) {
+    const nearest = pending[0];
+    const away = last ? ((last - Number(nearest.signal_price)) / last) * 100 : 0;
+    return `Watching for the fall to reach ${price(nearest.signal_price)}${last ? ` — ${away.toFixed(2)}% below the last mark` : ''}.`;
+  }
+  return 'Watching for a fresh leg to form off the mother.';
+}
+
 function _terminalCascadeWindow(campaign) {
   const inst = campaign.instrument || {};
   const config = campaign.config || {};
@@ -4801,7 +4867,7 @@ function _terminalCascadeWindow(campaign) {
         ${pill(timeframe)}
         ${inst.reference_mode === 'reference_index' ? pill(`${signal} signal`, 'info') : ''}
         ${halted ? pill('HALTED', 'danger') : ''}
-        <span class="pf-campaign-gist">${escapeHtml(gist)}</span>
+        <span class="pf-campaign-gist" title="${escapeAttr(_terminalCampaignWaitingFor(campaign))}">${escapeHtml(gist)}</span>
       </div>
       <div class="pf-campaign-actions">
         ${button('Chart', `loadTerminalCascadeChart('${escapeJsAttr(symbol)}','${escapeJsAttr(mother)}','${escapeJsAttr(timeframe)}')`)}
@@ -4811,6 +4877,7 @@ function _terminalCascadeWindow(campaign) {
       </div>
     </summary>
     <div class="terminal-cascade-scrip-window-body">
+      <div class="pf-campaign-waiting">${escapeHtml(_terminalCampaignWaitingFor(campaign))}</div>
       <div class="pf-campaign-stats">${stats}</div>
     <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
     <div class="terminal-cascade-bottom-grid">
@@ -5107,7 +5174,16 @@ function _renderTerminalOpenPositions(campaigns) {
     const symbol = String(inst.symbol || '—');
     const qty = Number(campaign.open_quantity) || 0;
     const avg = Number(campaign.average_entry_price) || 0;
-    const last = Number(campaign.last_trade_close) || 0;
+    // The engine marks a basket at the last CLOSED candle, which can be minutes
+    // stale. The header already polls a real LTP, but only for the symbol on
+    // screen — quoting every open scrip would spend the account-wide Dhan
+    // budget. So use the live tick where we genuinely have one, and say which
+    // number each row is showing rather than passing a candle close off as live.
+    const quoted = (_stockTerminalSelected?.symbol === symbol && Number(_stockTerminalLastLtp) > 0)
+      ? Number(_stockTerminalLastLtp)
+      : 0;
+    const last = quoted || Number(campaign.last_trade_close) || 0;
+    const liveMark = quoted ? '<small style="color:#6ee7b7;">live</small>' : '<small>at candle close</small>';
     const cost = Number(campaign.open_invested_inr) || avg * qty;
     const now = last ? last * qty : cost;
     totalCost += cost; totalNow += now;
@@ -5125,7 +5201,7 @@ function _renderTerminalOpenPositions(campaigns) {
       <td><strong>${escapeHtml(symbol)}</strong><small>${escapeHtml(String(campaign.status || '').replaceAll('_', ' '))}${running ? '' : ' · stopped — nothing manages this basket'}</small></td>
       <td>${escapeHtml(_cascadeOptionsTimestamp(opened))}<small>${fills.length} buy${fills.length === 1 ? '' : 's'}</small></td>
       <td class="num">${escapeHtml(_cascadeNumber(avg))}<small>${qty} qty</small></td>
-      <td class="num">${last ? escapeHtml(_cascadeNumber(last)) : '—'}</td>
+      <td class="num">${last ? escapeHtml(_cascadeNumber(last)) : '—'}${last ? liveMark : ''}</td>
       <td class="num">${escapeHtml(_terminalCascadeMoney(cost))}</td>
       <td class="num" style="color:${tone};font-weight:700;">${last ? `${pnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(pnl)))}` : '—'}<small style="color:${tone};">${last ? `${pnl >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%` : ''}</small></td>
       <td class="num">${tp ? escapeHtml(_cascadeNumber(tp)) : '—'}${toTp !== null ? `<small>${toTp.toFixed(2)}% away</small>` : ''}</td>
@@ -5136,7 +5212,7 @@ function _renderTerminalOpenPositions(campaigns) {
   if (meta) {
     const totalPnl = totalNow - totalCost;
     const tone = totalPnl >= 0 ? '#6ee7b7' : '#fca5a5';
-    meta.innerHTML = `${open.length} open · ${escapeHtml(_terminalCascadeMoney(totalCost))} invested · <strong style="color:${tone};">${totalPnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(totalPnl)))}</strong> unrealised at the last traded candle close. Each basket sells itself at its target.`;
+    meta.innerHTML = `${open.length} open · ${escapeHtml(_terminalCascadeMoney(totalCost))} invested · <strong style="color:${tone};">${totalPnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(totalPnl)))}</strong> unrealised. The selected scrip marks at its live tick; the rest mark at their last candle close. Each basket sells itself at its target.`;
   }
 }
 
@@ -5206,15 +5282,43 @@ function _terminalEventDetail(event) {
   return bits.filter(Boolean).join(' · ');
 }
 
+let _terminalEventsScrip = 'ALL';
+
+function terminalEventsSetFilter(name) {
+  _terminalEventsScrip = String(name || 'ALL');
+  const body = document.getElementById('terminal-events-body');
+  // A different scrip is a different list, so start it at the top rather than
+  // wherever the previous one happened to be scrolled to.
+  if (body) { body.dataset.pfFeedKey = ''; body.scrollTop = 0; }
+  _renderTerminalEventFeed(_lastTerminalCascadeStatus?.campaigns || []);
+}
+
 function _renderTerminalEventFeed(campaigns) {
   const body = document.getElementById('terminal-events-body');
   if (!body) return;
   const meta = document.getElementById('terminal-events-meta');
-  const rows = [];
+  const all = [];
   (campaigns || []).forEach(campaign => {
     const symbol = String(campaign?.instrument?.symbol || '—');
-    (campaign.events || []).forEach(event => rows.push({ symbol, event }));
+    (campaign.events || []).forEach(event => all.push({ symbol, event }));
   });
+
+  // One shared 60-row cap across every campaign meant a busy scrip silently
+  // pushed a quieter one's history off the end. Filtering by scrip gives each
+  // campaign the whole budget when you actually need to read it.
+  const scrips = [...new Set(all.map(row => row.symbol))].sort();
+  if (_terminalEventsScrip !== 'ALL' && !scrips.includes(_terminalEventsScrip)) _terminalEventsScrip = 'ALL';
+  const filters = document.getElementById('terminal-events-filters');
+  if (filters) {
+    filters.innerHTML = scrips.length > 1
+      ? ['ALL', ...scrips].map(name => {
+        const on = name === _terminalEventsScrip;
+        return `<button type="button" class="terminal-cascade-tf-option${on ? ' is-active' : ''}" role="radio" aria-checked="${on}" onclick="terminalEventsSetFilter('${escapeJsAttr(name)}')">${escapeHtml(name === 'ALL' ? 'All' : name)}</button>`;
+      }).join('')
+      : '';
+  }
+
+  const rows = _terminalEventsScrip === 'ALL' ? all : all.filter(row => row.symbol === _terminalEventsScrip);
   rows.sort((a, b) => (Date.parse(b.event?.timestamp || 0) || 0) - (Date.parse(a.event?.timestamp || 0) || 0));
   const shown = rows.slice(0, 60);
   if (!shown.length) {
@@ -5236,7 +5340,15 @@ function _renderTerminalEventFeed(campaigns) {
   const keepTop = body.scrollTop;
   body.innerHTML = markup;
   body.scrollTop = keepTop;
-  if (meta) meta.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} across ${(campaigns || []).length} campaign${(campaigns || []).length === 1 ? '' : 's'} — showing the latest ${shown.length}.`;
+  if (meta) {
+    const scope = _terminalEventsScrip === 'ALL'
+      ? `across ${(campaigns || []).length} campaign${(campaigns || []).length === 1 ? '' : 's'}`
+      : `for ${_terminalEventsScrip}`;
+    const truncated = rows.length > shown.length
+      ? ` — showing the latest ${shown.length}${_terminalEventsScrip === 'ALL' ? ', filter by scrip to see more of one' : ''}.`
+      : ' — all of them.';
+    meta.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} ${scope}${truncated}`;
+  }
 }
 
 function terminalCascadeNewMother(symbol) {
@@ -5698,6 +5810,20 @@ function _tcvStamp(value, daily) {
   return new Intl.DateTimeFormat('en-IN', options).format(new Date(value));
 }
 
+// How a fib rung's line is drawn for each engine status. FILLED is the one that
+// spent money, so it is the heaviest and solid; PENDING is merely a plan, so it
+// is thin and dashed; a retired rung fades rather than disappearing, because
+// where the ladder has already been is still worth seeing.
+function _terminalRungLineStyle(status) {
+  switch (String(status || 'PENDING').toUpperCase()) {
+    case 'FILLED':    return { dash: null,   width: 2.0, opacity: 1.00, tag: ' · filled' };
+    case 'COLLECTED': return { dash: [7, 3], width: 1.5, opacity: 0.95, tag: ' · armed' };
+    case 'CLOSED':    return { dash: [2, 4], width: 1.0, opacity: 0.40, tag: ' · closed' };
+    case 'CANCELLED': return { dash: [2, 4], width: 1.0, opacity: 0.28, tag: ' · cancelled' };
+    default:          return { dash: [4, 4], width: 1.1, opacity: 0.65, tag: '' };
+  }
+}
+
 function _terminalCascadeCanvasDraw() {
   if (!_tcv) return;
   const PAL = _terminalCascadeChartPalette();
@@ -5963,7 +6089,14 @@ function _terminalCascadeCanvasDraw() {
       const price = fibHi - level * range;
       const rung = (campaign.rungs || []).find(row => Number(row.leg_id) === Number(leg.leg_id) && Number(row.level) === level) || {};
       const budget = Number(rung.budget_inr || 0);
-      hline(price, color, `L${level} (${number(price)})${budget > 0 ? ` ${_terminalCascadeMoney(budget)}` : ''}`, null, 1.1, 0.9);
+      // Status is drawn, not just tabled: which rungs are still waiting, which
+      // have pooled their cash, and which actually bought is the whole state of
+      // the ladder, and it used to live only inside the details panel. The line
+      // keeps its leg colour so a rung stays traceable to the fall it came from;
+      // weight, dash and opacity carry the status.
+      const style = _terminalRungLineStyle(rung.status);
+      hline(price, color, `L${level} (${number(price)})${budget > 0 ? ` ${_terminalCascadeMoney(budget)}` : ''}${style.tag}`,
+        style.dash, style.width, style.opacity);
     });
     if (leg.touch_timestamp && inView(fibHi)) {
       ctx.strokeStyle = color;

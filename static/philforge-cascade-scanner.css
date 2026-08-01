@@ -213,6 +213,18 @@
   border-color: rgba(252, 165, 165, .38); color: #fee2e2;
 }
 
+/* The "so why is nothing happening?" line — the first thing to read on an open
+   card, so it sits above the stat tiles and reads as prose, not as a metric. */
+.pf-campaign-waiting {
+  margin-bottom: 12px; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, .22);
+  background: rgba(56, 189, 248, .07);
+  color: var(--text); font-size: 12.5px; line-height: 1.5;
+}
+.pf-campaign-card.is-ended .pf-campaign-waiting {
+  border-color: rgba(148, 163, 184, .22); background: rgba(148, 163, 184, .07);
+}
+
 .pf-campaign-stats {
   display: grid; gap: 10px; margin-bottom: 14px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
