@@ -31,6 +31,7 @@ tools/upstox_probe.py for the live-access check.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -58,11 +59,20 @@ def _underlying_slug(underlying_key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", underlying_key.lower()).strip("_")
 
 
-# The endpoint returns at most 3000 one-minute bars per call. A weekly option
-# lives ~2 trading weeks (~3700 minutes at most from listing to expiry), but the
-# cascade only trades it inside a 7-13 DTE window, so a 20-calendar-day lookback
-# from expiry comfortably covers every minute the engine can ask about.
-_HISTORY_LOOKBACK_DAYS = 20
+# How far back from expiry one contract's minute history is fetched.
+#
+# This was 20 days, sized for the WEEKLY cascade's 7-13 DTE window, and it
+# silently truncated every MONTHLY 15-45 DTE replay: an entry 34 days before
+# expiry fell outside the fetched range, so the leg came back unpriceable even
+# though the strike was listed and liquid.  That alone made ~75% of the
+# converging-space grid unpriceable (2026-08-02), and the failure looked like
+# "no bar at that minute" rather than "we never asked for that date".
+#
+# The 3000-bar-per-call limit the old comment cited does not hold: measured
+# against 24050CE/28-11-2024, a 20-day call returns 4,872 bars and a 60-day
+# call returns 9,320 back to 2024-09-30.  60 days covers the whole 15-45 DTE
+# window with room to spare; a contract with less history simply returns less.
+_HISTORY_LOOKBACK_DAYS = int(os.environ.get("UPSTOX_HISTORY_LOOKBACK_DAYS", "60"))
 
 
 class UpstoxAccessError(RuntimeError):

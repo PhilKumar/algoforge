@@ -34,16 +34,34 @@ from engine.fib_space_cascade import SpaceCascadeConfig, run_space_campaign  # n
 from engine.fib_space_geometry import Bar  # noqa: E402
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nifty_cache")
-# How far past its mother one campaign may run before it is abandoned.  A
-# monthly option bought 15-45 DTE has this much road and no more.
-DEFAULT_HORIZON_BARS = 25 * 30  # ~30 sessions of 15m bars
+
+# Per-underlying contract facts, matching tools/fib_cascade_sweep.py.  The DTE
+# window here is Phil's locked one -- MONTHLY contracts at 15-45 days -- for
+# both underlyings, so the two are compared on the same footing.
+SYMBOLS = {
+    "nifty": dict(cache="NIFTY", upstox_key="NSE_INDEX|Nifty 50", strike_step=50.0),
+    "banknifty": dict(cache="BANKNIFTY", upstox_key="NSE_INDEX|Nifty Bank", strike_step=100.0),
+}
+
+# NSE trades 09:15-15:30, so a session is 6.25 hours.  Horizons and time stops
+# are expressed in SESSIONS and converted here, otherwise "50 bars" means two
+# days on 15m and seven weeks on 1H and the timeframes cannot be compared.
+BARS_PER_SESSION = {"5m": 75, "15m": 25, "1h": 7}
+DEFAULT_HORIZON_SESSIONS = 30
+# Kept for callers that still think in bars (the original 15m default).
+DEFAULT_HORIZON_BARS = BARS_PER_SESSION["15m"] * DEFAULT_HORIZON_SESSIONS
 
 
-def load_bars(timeframe: str) -> list[Bar]:
-    """Every cached NIFTY bar for a timeframe, as indexed geometry bars."""
-    names = [n for n in os.listdir(CACHE_DIR) if n.startswith(f"NIFTY_{timeframe}_") and n.endswith(".json")]
+def horizon_bars(timeframe: str, sessions: int = DEFAULT_HORIZON_SESSIONS) -> int:
+    return BARS_PER_SESSION[timeframe] * sessions
+
+
+def load_bars(timeframe: str, symbol: str = "nifty") -> list[Bar]:
+    """Every cached bar for one underlying and timeframe, as geometry bars."""
+    prefix = f"{SYMBOLS[symbol]['cache']}_{timeframe}_"
+    names = [n for n in os.listdir(CACHE_DIR) if n.startswith(prefix) and n.endswith(".json")]
     if not names:
-        raise SystemExit(f"No cached NIFTY {timeframe} candles under {CACHE_DIR}")
+        raise SystemExit(f"No cached {symbol} {timeframe} candles under {CACHE_DIR}")
     # The widest cache file wins.
     best, rows = None, []
     for name in names:
@@ -60,20 +78,22 @@ def load_bars(timeframe: str) -> list[Bar]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tf", default="15m")
+    parser.add_argument("--tf", default="15m", choices=("5m", "15m", "1h"))
+    parser.add_argument("--symbol", default="nifty", choices=sorted(SYMBOLS))
     parser.add_argument("--target-mode", default="avg_entry", choices=("avg_entry", "structure"))
-    parser.add_argument("--horizon-bars", type=int, default=DEFAULT_HORIZON_BARS)
+    parser.add_argument("--horizon-sessions", type=int, default=DEFAULT_HORIZON_SESSIONS)
     parser.add_argument("--limit", type=int, default=0, help="only the first N mothers")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    bars = load_bars(args.tf)
+    bars = load_bars(args.tf, args.symbol)
+    span = horizon_bars(args.tf, args.horizon_sessions)
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
     mothers = find_mother_candles(index_candles)
     if args.limit:
         mothers = mothers[: args.limit]
-    print(f"[mothers] {len(mothers)} swing-high mothers on {args.tf}")
-    print(f"[config] target-mode={args.target_mode} horizon={args.horizon_bars} bars\n")
+    print(f"[mothers] {len(mothers)} swing-high mothers on {args.symbol} {args.tf}")
+    print(f"[config] target-mode={args.target_mode} horizon={args.horizon_sessions} sessions ({span} bars)\n")
 
     config = SpaceCascadeConfig(target_mode=args.target_mode)
     results = []
@@ -81,7 +101,7 @@ def main() -> None:
         start = mother.index
         if start + 10 >= len(bars):
             continue
-        window = bars[start : start + args.horizon_bars + 1]
+        window = bars[start : start + span + 1]
         result = run_space_campaign(bars[start], window, config, arm_from_index=mother.confirmed_index)
         results.append(result)
         if args.verbose and result.fills:
@@ -98,7 +118,7 @@ def main() -> None:
     with_spaces = [r for r in results if r.space_count > 0]
 
     print("\n" + "=" * 64)
-    print(f"CONVERGING-FIB SPACE BACKTEST -- NIFTY {args.tf}, index space")
+    print(f"CONVERGING-FIB SPACE BACKTEST -- {args.symbol.upper()} {args.tf}, index space")
     print("=" * 64)
     print(f"mothers scanned         {len(results)}")
     print(f"  drew >=1 fib          {len(with_geometry)}")

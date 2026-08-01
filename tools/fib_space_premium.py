@@ -21,7 +21,7 @@ import os
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from statistics import mean, median
 from typing import Optional
@@ -33,7 +33,12 @@ from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource  # noqa: 
 from engine.cascade_mothers import find_mother_candles  # noqa: E402
 from engine.cascade_options import IndexCandle, NiftyContractResolver  # noqa: E402
 from engine.fib_space_cascade import SpaceCascadeConfig, run_space_campaign  # noqa: E402
-from tools.fib_space_sweep import DEFAULT_HORIZON_BARS, load_bars  # noqa: E402
+from tools.fib_space_sweep import (  # noqa: E402
+    DEFAULT_HORIZON_SESSIONS,
+    SYMBOLS,
+    horizon_bars,
+    load_bars,
+)
 
 CACHE_ONLY = os.environ.get("FIB_SPACE_CACHE_ONLY", "1") != "0"
 
@@ -42,7 +47,16 @@ CACHE_ONLY = os.environ.get("FIB_SPACE_CACHE_ONLY", "1") != "0"
 _LOT_HISTORY = ((date(2026, 1, 1), 65), (date(2024, 11, 20), 75), (date(1900, 1, 1), 50))
 
 
-def lot_size_on(day: date) -> int:
+def lot_size_on(day: date, symbol: str = "nifty") -> int:
+    """Contract lot as it stood on a trade date.
+
+    NIFTY's steps are documented and dated.  BANKNIFTY is carried at the repo's
+    flat 30 (tools/fib_cascade_sweep.py) because no dated table for it exists
+    here -- a constant scales that symbol's rupees uniformly and so cannot
+    change which timeframe wins, but it is not a precise cash figure.
+    """
+    if symbol != "nifty":
+        return 30
     for start, size in _LOT_HISTORY:
         if day >= start:
             return size
@@ -73,8 +87,46 @@ class PricedCampaign:
     bars_held: int = 0
 
 
-def price_campaign(result, bars_by_index, source, resolver, view) -> PricedCampaign:
-    """Price one campaign's legs on real premium bars, settling at expiry."""
+# A deep-ITM strike does not print every minute -- 83 of 114 NIFTY 15m campaigns
+# were unpriceable purely because the exact minute had no bar, while the strike
+# itself was listed in the chain.  So the same rule the live backtest route
+# ships is used here: take the option's next real trade inside the fill's own
+# candle, else its last real trade up to 10 minutes back.  Every price is a
+# genuine print; nothing is interpolated.
+_FORWARD_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
+_STALE_LIMIT_MINUTES = 10
+
+
+def _premium_at(source, contract, when: datetime, forward_minutes: int) -> Optional[float]:
+    bar = source.lookup(when, contract)
+    if bar is not None:
+        return float(bar.open)
+    for ahead in range(1, max(int(forward_minutes), 1)):
+        later = when + timedelta(minutes=ahead)
+        if later.date() != when.date():
+            break
+        bar = source.lookup(later, contract)
+        if bar is not None:
+            return float(bar.open)
+    for back in range(1, _STALE_LIMIT_MINUTES + 1):
+        earlier = when - timedelta(minutes=back)
+        if earlier.date() != when.date():
+            break
+        bar = source.lookup(earlier, contract)
+        if bar is not None:
+            return float(bar.open)
+    return None
+
+
+def price_campaign(
+    result, bars_by_index, source, resolver, view, settle_bars=None, timeframe: str = "15m"
+) -> PricedCampaign:
+    """Price one campaign's legs on real premium bars, settling at expiry.
+
+    ``settle_bars`` is the FULL index series; expiry settlement is read from it
+    rather than from the campaign's replay window (see below).
+    """
+    forward = _FORWARD_MINUTES.get(timeframe, 15)
     priced = PricedCampaign(mother=result.mother_timestamp, status=result.status, bars_held=result.bars_held)
     if not result.fills:
         priced.status = "no_trade"
@@ -88,12 +140,12 @@ def price_campaign(result, bars_by_index, source, resolver, view) -> PricedCampa
             priced.gap = f"no contract at {fill.timestamp:%Y-%m-%d %H:%M}: {exc}"
             priced.status = "gap"
             return priced
-        bar = source.lookup(fill.timestamp, contract)
-        if bar is None:
+        entry_premium = _premium_at(source, contract, fill.timestamp, forward)
+        if entry_premium is None:
             priced.gap = f"no entry bar {int(contract.strike)}CE {contract.expiry} @ {fill.timestamp:%Y-%m-%d %H:%M}"
             priced.status = "gap"
             return priced
-        legs.append((fill, contract, float(bar.open)))
+        legs.append((fill, contract, entry_premium))
 
     expiry = min(c.expiry for _f, c, _p in legs)
     # The trade cannot outlive its contract.  A campaign still open when the
@@ -109,10 +161,18 @@ def price_campaign(result, bars_by_index, source, resolver, view) -> PricedCampa
 
     settle_index = None
     if exit_reason == "expiry_square_off":
-        candidates = [b for b in bars_by_index if b.timestamp <= expiry_close]
+        # Settlement must be read from the FULL series, never the campaign's
+        # replay window: a monthly bought at 45 DTE expires after a 30-session
+        # window ends, and taking that window's last bar prices the settlement
+        # on the wrong day at the wrong price -- silently, on the one term that
+        # dominates this strategy's P&L.
+        series = settle_bars if settle_bars is not None else bars_by_index
+        candidates = [b for b in series if b.timestamp <= expiry_close]
         settle_index = candidates[-1].close if candidates else None
-        if settle_index is None:
-            priced.gap = "no index bar at expiry"
+        if settle_index is None or candidates[-1].timestamp.date() < expiry:
+            # The data ends before this contract expires: its outcome is
+            # genuinely unknown, so it is a gap, not a loss we invented.
+            priced.gap = f"index data ends before expiry {expiry}"
             priced.status = "gap"
             return priced
 
@@ -121,12 +181,11 @@ def price_campaign(result, bars_by_index, source, resolver, view) -> PricedCampa
         if exit_reason == "expiry_square_off":
             exit_premium = max(float(settle_index) - float(contract.strike), 0.0)
         else:
-            bar = source.lookup(exit_at, contract)
-            if bar is None:
+            exit_premium = _premium_at(source, contract, exit_at, forward)
+            if exit_premium is None:
                 priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {exit_at:%Y-%m-%d %H:%M}"
                 priced.status = "gap"
                 return priced
-            exit_premium = float(bar.open)
         buys.append(OptionCostFill(price=entry_premium, quantity=fill.quantity, lots=fill.lots))
         sell_value += exit_premium * fill.quantity
         quantity += fill.quantity
@@ -150,35 +209,44 @@ def price_campaign(result, bars_by_index, source, resolver, view) -> PricedCampa
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tf", default="15m")
+    parser.add_argument("--tf", default="15m", choices=("5m", "15m", "1h"))
+    parser.add_argument("--symbol", default="nifty", choices=sorted(SYMBOLS))
     parser.add_argument("--target-mode", default="avg_entry", choices=("avg_entry", "structure"))
-    parser.add_argument("--horizon-bars", type=int, default=DEFAULT_HORIZON_BARS)
+    parser.add_argument("--horizon-sessions", type=int, default=DEFAULT_HORIZON_SESSIONS)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-bars-held", type=int, default=0, help="time stop, in bars (0=none)")
     args = parser.parse_args()
 
-    bars = load_bars(args.tf)
+    cfg = SYMBOLS[args.symbol]
+    bars = load_bars(args.tf, args.symbol)
+    span = horizon_bars(args.tf, args.horizon_sessions)
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
     mothers = find_mother_candles(index_candles)
     if args.limit:
         mothers = mothers[: args.limit]
 
     try:
-        source = UpstoxPremiumSource(cache_only=CACHE_ONLY)
+        source = UpstoxPremiumSource(
+            cache_only=CACHE_ONLY,
+            underlying_key=cfg["upstox_key"],
+            # Stale 20-day cache files must be re-fetched under the wider window,
+            # otherwise the lookback fix changes nothing on an already-warm cache.
+            backfill_missing=not CACHE_ONLY,
+        )
         expiries = sorted(source.available_expiries())
     except UpstoxAccessError as exc:
         raise SystemExit(f"Upstox cache unusable: {exc}")
     print(f"[premiums] cache-only, {len(expiries)} expiries on disk")
 
-    view = _ResolverView()
+    view = _ResolverView(strike_step=cfg["strike_step"])
     config = SpaceCascadeConfig(target_mode=args.target_mode)
     rows = []
     for mother in mothers:
         start = mother.index
         if start + 10 >= len(bars):
             continue
-        window = bars[start : start + args.horizon_bars + 1]
-        lot = lot_size_on(mother.timestamp.date())
+        window = bars[start : start + span + 1]
+        lot = lot_size_on(mother.timestamp.date(), args.symbol)
         result = run_space_campaign(
             bars[start],
             window,
@@ -187,15 +255,17 @@ def main() -> None:
         )
         if not result.fills:
             continue
-        resolver = NiftyContractResolver(expiries=expiries, strike_step=50.0, lot_size=lot, symbol="NIFTY")
-        rows.append(price_campaign(result, window, source, resolver, view))
+        resolver = NiftyContractResolver(
+            expiries=expiries, strike_step=cfg["strike_step"], lot_size=lot, symbol=cfg["cache"]
+        )
+        rows.append(price_campaign(result, window, source, resolver, view, settle_bars=bars, timeframe=args.tf))
 
     priced = [r for r in rows if r.status == "priced"]
     gaps = [r for r in rows if r.status == "gap"]
 
     print("\n" + "=" * 64)
     stop = f", time-stop {args.max_bars_held} bars" if args.max_bars_held else ", no time stop"
-    print(f"CONVERGING-FIB SPACE -- REAL PREMIUMS, NIFTY {args.tf} ({args.target_mode}{stop})")
+    print(f"CONVERGING-FIB SPACE -- REAL PREMIUMS, {args.symbol.upper()} {args.tf} ({args.target_mode}{stop})")
     print("=" * 64)
     print(f"campaigns that traded   {len(rows)}")
     print(f"  priced in full        {len(priced)}")
