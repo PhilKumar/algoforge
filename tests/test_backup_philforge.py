@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "backup_philforge.py"
+VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_backup.py"
 
 
 class BackupPhilForgeTests(unittest.TestCase):
@@ -64,7 +65,10 @@ class BackupPhilForgeTests(unittest.TestCase):
             archive_path = Path(payload["archive"])
             self.assertTrue(archive_path.exists())
             self.assertTrue((backup_root / "latest.tar.gz").exists())
+            self.assertTrue(archive_path.with_suffix(archive_path.suffix + ".sha256").exists())
+            self.assertTrue((backup_root / "latest.sha256").exists())
             self.assertGreaterEqual(payload["included_legacy"], 2)
+            self.assertEqual(payload["offsite"]["status"], "not_configured")
 
             with tarfile.open(archive_path, "r:gz") as tf:
                 names = set(tf.getnames())
@@ -74,6 +78,18 @@ class BackupPhilForgeTests(unittest.TestCase):
             self.assertIn("philforge-backup/user-data/1/charts/shot.txt", names)
             self.assertIn("philforge-backup/legacy/strategies.json", names)
             self.assertIn("philforge-backup/legacy/journals/2026-03-19.json", names)
+
+            verified = subprocess.run(
+                [sys.executable, str(VERIFY_SCRIPT), "--archive", str(archive_path)],
+                cwd=str(REPO_ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            verify_payload = json.loads(verified.stdout)
+            self.assertEqual(verify_payload["status"], "ok")
+            self.assertEqual(verify_payload["db_quick_check"], "ok")
 
     def test_backup_archive_allows_legacy_only_when_db_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

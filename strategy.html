@@ -1005,15 +1005,6 @@
 
     <div class="modal-grid">
       <div>
-        <label>Chart Type</label>
-        <div style="display: flex; gap: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
-          <button type="button" class="chart-type-btn active" onclick="selectChartType(this)" style="flex:1; padding: 8px 4px; background: var(--accent2); color: white; border: none; font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer;">Candle</button>
-          <button type="button" class="chart-type-btn" onclick="selectChartType(this)" style="flex:1; padding: 8px 4px; background: var(--card2); color: var(--muted); border: none; border-left: 1px solid var(--border); font-family: 'Outfit', sans-serif; font-size: 12px; cursor: pointer;">Heikin Ashi</button>
-          <button type="button" class="chart-type-btn" onclick="selectChartType(this)" style="flex:1; padding: 8px 4px; background: var(--card2); color: var(--muted); border: none; border-left: 1px solid var(--border); font-family: 'Outfit', sans-serif; font-size: 12px; cursor: pointer;">Open Interest</button>
-          <button type="button" class="chart-type-btn" onclick="selectChartType(this)" style="flex:1; padding: 8px 4px; background: var(--card2); color: var(--muted); border: none; border-left: 1px solid var(--border); font-family: 'Outfit', sans-serif; font-size: 12px; cursor: pointer;">Volume</button>
-        </div>
-      </div>
-      <div>
         <label>Time Frame</label>
         <select id="cpr-timeframe">
           <option value="D" selected>Daily</option>
@@ -1022,6 +1013,7 @@
           <option value="M">Monthly</option>
         </select>
       </div>
+      <div></div>
     </div>
 
     <div class="modal-grid">
@@ -1880,7 +1872,7 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Historical backtest · typed fib ladder</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike premiums · CE and PE</div></div>
           <div id="fibx-backtest-gist" class="cascade-options-gist">Auto trendline → touch → fib with a 1/2/3 lot ladder — <strong>not</strong> the typed deep-fib levels above. Prices every leg off Upstox expired-option history.</div>
-          <div class="cascade-options-strip-actions"><button id="fibx-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button></div>
+          <div class="cascade-options-strip-actions"><a id="fibx-backtest-csv" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ CSV</a><a id="fibx-backtest-json" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ JSON</a><button id="fibx-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="fibx-backtest-summary" class="cascade-options-summary"></div>

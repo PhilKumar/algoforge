@@ -112,6 +112,14 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/paper/status') await route.fulfill({ json: paperStatusMock });
     else if (path === '/api/live/status') await route.fulfill({ json: liveStatusMock });
     else if (path === '/api/scalp/status') await route.fulfill({ json: scalpStatusMock });
+    else if (path === '/api/engine-control/status') await route.fulfill({ json: { status: 'ok', any_running: false, users: [] } });
+    else if (path === '/api/terminal/nifty200') await route.fulfill({ json: { status: 'ok', symbols: [] } });
+    else if (path === '/api/terminal/cascade/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/terminal/cascade/closed') await route.fulfill({ json: { status: 'ok', campaigns: [] } });
+    else if (path === '/api/terminal/forever') await route.fulfill({ json: { status: 'success', data: [] } });
+    else if (path === '/api/charts/tree') await route.fulfill({ json: { years: {} } });
+    else if (path === '/api/financial-plan') await route.fulfill({ json: { status: 'ok', plan: {} } });
+    else if (path === '/api/journal/list') await route.fulfill({ json: { status: 'ok', entries: [] } });
     else if (path === '/api/terminal/cascade/scan') {
       await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
     }
@@ -170,6 +178,35 @@ test('Auth status returns authenticated after login', async ({ page }) => {
   expect(resp.status()).toBe(200);
   const body = await resp.json();
   expect(body.authenticated).toBe(true);
+});
+
+test('Every primary navigation surface has a working owner and active page', async ({ page }) => {
+  await login(page);
+  const surfaces = [
+    ['#nav-dashboard', '#dashboard-page'],
+    ['#nav-portfolio', '#portfolio-page'],
+    ['#nav-live', '#live-page'],
+    ['#nav-terminal', '#stock-terminal-page'],
+    ['#nav-scalp', '#scalp-page'],
+    ['#nav-cascade', '#options-cascade-page'],
+    ['#nav-builder', '#builder-page'],
+    ['#nav-charts', '#charts-page'],
+    ['#nav-results', '#results-page'],
+  ];
+  for (const [control, pageSection] of surfaces) {
+    await page.click(control);
+    await expect(page.locator(pageSection)).toHaveClass(/active-page/);
+  }
+
+  await page.click('#nav-insights');
+  await expect(page.locator('#nav-insights-wrap')).toHaveClass(/menu-open/);
+  for (const target of ['/market-movers', '/study-lounge']) {
+    const response = await page.request.get(target);
+    expect(response.status()).toBe(200);
+  }
+
+  // The retired chart-type choices had no calculation or backend owner.
+  await expect(page.locator('#cpr-modal .chart-type-btn')).toHaveCount(0);
 });
 
 test('Appearance presets switch and persist after reload', async ({ page }) => {

@@ -119,6 +119,10 @@ async function tryUnlock() {
       body: JSON.stringify(username ? { username, password: secret } : { password: secret, pin: secret })
     });
     if (res.ok) {
+      if ('caches' in window) {
+        const keys = await caches.keys().catch(() => []);
+        await Promise.all(keys.filter(key => key.startsWith('philforge-shell-')).map(key => caches.delete(key)));
+      }
       setSuccess();
       setTimeout(() => { window.location.href = '/'; }, 400);
     } else {

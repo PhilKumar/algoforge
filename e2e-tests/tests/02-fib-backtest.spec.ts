@@ -121,6 +121,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/paper/status') await route.fulfill({ json: { running: false, in_trade: false, total_pnl: 0, trades_today: 0, positions: [], closed_trades: [], event_log: [] } });
     else if (path === '/api/live/status') await route.fulfill({ json: { running: false, in_trade: false, total_pnl: 0, trades_today: 0, positions: [], closed_trades: [], event_log: [] } });
     else if (path === '/api/scalp/status') await route.fulfill({ json: { running: false, open_trades: [], closed_trades: [], events: [], session_pnl: 0 } });
+    else if (path === '/api/engine-control/status') await route.fulfill({ json: { status: 'ok', any_running: false, users: [] } });
     else if (path === '/api/terminal/cascade/scan') await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
     else if (path === '/api/cascade/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_gate: { enabled: false } } });
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: paperStatus ?? { status: 'not_started', mode: 'paper' } });

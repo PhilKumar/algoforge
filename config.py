@@ -121,4 +121,10 @@ BACKUP_ROOT = _env_first(
 )
 BACKUP_RETENTION_DAYS = int(_env_first("PHILFORGE_BACKUP_RETENTION_DAYS", default="14"))
 BACKUP_MIN_FREE_MB = int(_env_first("PHILFORGE_BACKUP_MIN_FREE_MB", default="1024"))
+BACKUP_S3_URI = _env_first("PHILFORGE_BACKUP_S3_URI", default="").rstrip("/")
+BACKUP_S3_KMS_KEY_ID = _env_first("PHILFORGE_BACKUP_S3_KMS_KEY_ID", default="")
+OPTION_ARCHIVE_ROOT = _env_first(
+    "PHILFORGE_OPTION_ARCHIVE_ROOT",
+    default=os.path.join(_CONFIG_ROOT, "data", "option_archive"),
+)
 DHAN_REFERRAL_URL = (os.getenv("DHAN_REFERRAL_URL", "") or "").strip()

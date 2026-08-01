@@ -1472,6 +1472,8 @@ _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
 _fib_boundary_engines: Dict[int, _CascadeRuntime] = {}
 _terminal_cascade_engines: Dict[int, Dict[str, _TerminalCascadeRuntime]] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
+_candle_entry_open_state_last_save: Dict[int, float] = defaultdict(float)
+_fib_boundary_open_state_last_save: Dict[int, float] = defaultdict(float)
 _terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _TERMINAL_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
@@ -1496,6 +1498,14 @@ def _cascade_open_state_key(user_id: int) -> str:
 
 def _terminal_cascade_open_state_key(user_id: int) -> str:
     return f"terminal_cash_cascade_open:{int(user_id)}"
+
+
+def _candle_entry_open_state_key(user_id: int) -> str:
+    return f"candle_entry_open:{int(user_id)}"
+
+
+def _fib_boundary_open_state_key(user_id: int) -> str:
+    return f"fib_boundary_open:{int(user_id)}"
 
 
 def _cascade_premium_lookup(broker: DhanClient):
@@ -1585,11 +1595,117 @@ async def _restore_cascade_open_state(user_id: int, broker: DhanClient | None) -
             running=bool(payload.get("running")),
         )
         _cascade_engines[int(user_id)] = runtime
-        if runtime.running:
+        if runtime.running and _engine_restore_owner_is_active_instance():
             runtime.task = asyncio.create_task(_run_cascade_paper_loop(int(user_id), runtime))
         return runtime
     except Exception as exc:
         _logger.warning("[CASCADE] Skipping invalid persisted paper campaign for user %s: %s", user_id, exc)
+        return None
+
+
+async def _save_specialized_cascade_state(
+    user_id: int,
+    registry: Dict[int, _CascadeRuntime],
+    state_key: str,
+    last_save: Dict[int, float],
+    *,
+    force: bool = False,
+) -> None:
+    runtime = registry.get(int(user_id))
+    if runtime is None:
+        return
+    now = time.time()
+    if not force and now - last_save[int(user_id)] < _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC:
+        return
+    payload = {
+        "running": bool(runtime.running),
+        "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
+        "saved_at": datetime.now(IST).isoformat(),
+        "engine": runtime.engine.to_dict(),
+    }
+    await _db_mod.set_app_state(state_key, json.dumps(payload, default=str))
+    last_save[int(user_id)] = now
+
+
+async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) -> None:
+    await _save_specialized_cascade_state(
+        user_id,
+        _candle_entry_engines,
+        _candle_entry_open_state_key(user_id),
+        _candle_entry_open_state_last_save,
+        force=force,
+    )
+
+
+async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
+    await _save_specialized_cascade_state(
+        user_id,
+        _fib_boundary_engines,
+        _fib_boundary_open_state_key(user_id),
+        _fib_boundary_open_state_last_save,
+        force=force,
+    )
+
+
+async def _restore_candle_entry_open_state(
+    user_id: int, broker: DhanClient | None, *, activate: bool = True
+) -> _CascadeRuntime | None:
+    existing = _candle_entry_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    raw = await _db_mod.get_app_state(_candle_entry_open_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        engine = LadderCandleEntryPaper.from_dict(
+            payload["engine"], adapter=adapter, option_premium_lookup=_cascade_premium_lookup(broker)
+        )
+        last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
+        runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
+        _candle_entry_engines[int(user_id)] = runtime
+        if running and activate and _engine_restore_owner_is_active_instance():
+            runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[CANDLE ENTRY] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
+        return None
+
+
+async def _restore_fib_boundary_open_state(
+    user_id: int, broker: DhanClient | None, *, activate: bool = True
+) -> _CascadeRuntime | None:
+    existing = _fib_boundary_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    raw = await _db_mod.get_app_state(_fib_boundary_open_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        engine = FibBoundaryPaper.from_dict(
+            payload["engine"], adapter=adapter, option_premium_lookup=_cascade_premium_lookup(broker)
+        )
+        last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "KILLED"}
+        runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
+        _fib_boundary_engines[int(user_id)] = runtime
+        if running and activate and _engine_restore_owner_is_active_instance():
+            runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[FIB BOUNDARY] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
         return None
 
 
@@ -1719,7 +1835,7 @@ async def _restore_scalp_open_state(user_id: int, eng) -> bool:
         return False
     if isinstance(payload.get("event_log"), list):
         eng.event_log = payload.get("event_log", [])[-100:]
-    if bool(payload.get("running")) and all(str(t.mode).lower() != "live" for t in eng.open_trades.values()):
+    if bool(payload.get("running")) and _engine_restore_owner_is_active_instance():
         eng.start()
     print(f"[SCALP] Restored {restored} open scalp trade(s) for user {user_id}")
     return True
@@ -1789,6 +1905,36 @@ def _is_loopback_request(request: Request) -> bool:
     # calls have no such header and remain allowed.
     real_ip = str(request.headers.get("x-real-ip", "") or "").strip()
     return not real_ip or real_ip in {"127.0.0.1", "::1"}
+
+
+async def _restore_auxiliary_engines() -> dict[str, int]:
+    """Restore every non-main runtime only on the active blue/green worker."""
+    restored = {"scalp": 0, "cascade": 0, "candle_entry": 0, "fib_boundary": 0, "terminal_cascade": 0}
+    if not _engine_restore_owner_is_active_instance():
+        return restored
+    for user in await _db_mod.list_users():
+        user_id = int(user["id"])
+        broker_client, _source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+        if broker_client is None:
+            continue
+        try:
+            scalp_raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
+            if scalp_raw:
+                scalp = _get_scalp_engine(user_id, broker_client)
+                if await _restore_scalp_open_state(user_id, scalp):
+                    restored["scalp"] += 1
+            if await _restore_cascade_open_state(user_id, broker_client) is not None:
+                restored["cascade"] += 1
+            if await _restore_candle_entry_open_state(user_id, broker_client, activate=True) is not None:
+                restored["candle_entry"] += 1
+            if await _restore_fib_boundary_open_state(user_id, broker_client, activate=True) is not None:
+                restored["fib_boundary"] += 1
+            terminal = await _restore_terminal_cascade_open_state(user_id, broker_client)
+            if terminal:
+                restored["terminal_cascade"] += len(terminal)
+        except Exception as exc:
+            _logger.warning("[Restore] Auxiliary engine restore failed for user %s: %s", user_id, exc)
+    return restored
 
 
 ws_clients: Dict[int, List[WebSocket]] = defaultdict(list)
@@ -4555,12 +4701,75 @@ async def clear_own_broker_settings(request: Request):
     }
 
 
+def _runtime_owner_ids() -> set[int]:
+    return (
+        set(paper_engines)
+        | set(live_engines)
+        | set(_scalp_engines)
+        | set(_cascade_engines)
+        | set(_candle_entry_engines)
+        | set(_fib_boundary_engines)
+        | set(_terminal_cascade_engines)
+    )
+
+
+def _runtime_control_summary(owner_id: int) -> dict:
+    paper_running = sum(
+        1 for engine in _registry_bucket(paper_engines, owner_id).values() if getattr(engine, "running", False)
+    )
+    live_running = sum(
+        1 for engine in _registry_bucket(live_engines, owner_id).values() if getattr(engine, "running", False)
+    )
+    scalp = _scalp_engines.get(owner_id)
+    scalp_open = list(getattr(scalp, "open_trades", {}).values()) if scalp else []
+    scalp_running = bool(scalp and getattr(scalp, "_running", False))
+    cascade_running = bool(_cascade_engines.get(owner_id) and _cascade_engines[owner_id].running)
+    candle_running = bool(_candle_entry_engines.get(owner_id) and _candle_entry_engines[owner_id].running)
+    fib_running = bool(_fib_boundary_engines.get(owner_id) and _fib_boundary_engines[owner_id].running)
+    terminal_running = sum(1 for runtime in _terminal_cascade_engines.get(owner_id, {}).values() if runtime.running)
+    any_running = bool(
+        paper_running
+        or live_running
+        or scalp_running
+        or scalp_open
+        or cascade_running
+        or candle_running
+        or fib_running
+        or terminal_running
+    )
+    return {
+        "user_id": owner_id,
+        "paper_running": paper_running,
+        "live_running": live_running,
+        "scalp_running": scalp_running,
+        "scalp_open_trades": len(scalp_open),
+        "scalp_live_open_trades": sum(1 for trade in scalp_open if _trade_mode_value(trade) == "live"),
+        "cascade_running": cascade_running,
+        "candle_entry_running": candle_running,
+        "fib_boundary_running": fib_running,
+        "terminal_cascade_running": terminal_running,
+        "any_running": any_running,
+    }
+
+
+@app.get("/api/engine-control/status")
+async def engine_control_status(request: Request):
+    """Pure, canonical kill-switch visibility status across every runtime family."""
+    user = getattr(request.state, "current_user", {}) or {}
+    caller_id = _request_user_id(request)
+    owner_ids = sorted(_runtime_owner_ids()) if user.get("role") == "admin" else [caller_id]
+    if caller_id not in owner_ids:
+        owner_ids.append(caller_id)
+    users = [_runtime_control_summary(owner_id) for owner_id in sorted(owner_ids)]
+    return {"status": "ok", "any_running": any(row["any_running"] for row in users), "users": users}
+
+
 @app.get("/api/admin/engines")
 async def admin_list_engine_status(request: Request):
     """Summarize running engines across users (admin only)."""
     await _auth_mod.require_admin(request)
     known_users = {int(user["id"]): user for user in await _db_mod.list_users()}
-    owner_ids = sorted(set(known_users) | set(paper_engines) | set(live_engines) | set(_scalp_engines))
+    owner_ids = sorted(set(known_users) | _runtime_owner_ids())
     rows: list[dict] = []
 
     for owner_id in owner_ids:
@@ -4583,6 +4792,7 @@ async def admin_list_engine_status(request: Request):
         scalp_engine = _scalp_engines.get(owner_id)
         scalp_open = list(getattr(scalp_engine, "open_trades", {}).values()) if scalp_engine else []
         scalp_live_open = sum(1 for trade in scalp_open if _trade_mode_value(trade) == "live")
+        control = _runtime_control_summary(owner_id)
         rows.append(
             {
                 "user_id": owner_id,
@@ -4594,6 +4804,11 @@ async def admin_list_engine_status(request: Request):
                 "scalp_running": bool(scalp_engine and getattr(scalp_engine, "_running", False)),
                 "scalp_open_trades": len(scalp_open),
                 "scalp_live_open_trades": scalp_live_open,
+                "cascade_running": control["cascade_running"],
+                "candle_entry_running": control["candle_entry_running"],
+                "fib_boundary_running": control["fib_boundary_running"],
+                "terminal_cascade_running": control["terminal_cascade_running"],
+                "any_running": control["any_running"],
                 "paper_runs": paper_runs,
                 "live_runs": live_runs,
             }
@@ -4615,7 +4830,7 @@ async def emergency_stop(request: Request):
     user = getattr(request.state, "current_user", {}) or {}
     caller_id = _request_user_id(request)
     if user.get("role") == "admin":
-        target_user_ids = sorted(set(paper_engines) | set(live_engines) | set(_scalp_engines))
+        target_user_ids = sorted(_runtime_owner_ids())
     else:
         target_user_ids = [caller_id]
 
@@ -4663,7 +4878,8 @@ async def emergency_stop(request: Request):
         if not eng:
             continue
         try:
-            if getattr(eng, "_running", False):
+            had_open_trades = bool(getattr(eng, "open_trades", {}) or {})
+            if getattr(eng, "_running", False) or had_open_trades:
                 sqoff = await _square_off_scalp_engine_trades(eng)
                 if not sqoff.get("ok"):
                     results[f"scalp:{owner_id}"] = {
@@ -4671,14 +4887,106 @@ async def emergency_stop(request: Request):
                         "message": "Emergency stop could not confirm scalp broker exits. Engine left running.",
                         "square_off": sqoff,
                     }
+                    await _save_scalp_open_state(owner_id, eng, force=True)
                     continue
                 eng.stop()
+                await _save_scalp_open_state(owner_id, eng, force=True)
                 results[f"scalp:{owner_id}"] = {"status": "stopped", "square_off": sqoff}
                 stopped_count += 1
             else:
                 results[f"scalp:{owner_id}"] = "not_running"
         except Exception as e:
             results[f"scalp:{owner_id}"] = f"error: {str(e)}"
+
+    # Stop every paper-only Cascade family. A missing exit quote must leave an
+    # open paper basket monitored instead of reporting a false successful kill.
+    for owner_id in target_user_ids:
+        runtime = _cascade_engines.get(owner_id)
+        if runtime and runtime.running:
+            try:
+                try:
+                    ticker = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
+                    index_price = float(ticker["last_price"])
+                except Exception:
+                    index_price = float(runtime.engine.geometry.history[-1].close)
+                now = datetime.now(IST)
+                outcome = runtime.engine.kill_and_close(
+                    IndexCandle(now, index_price, index_price, index_price, index_price)
+                )
+                if not outcome.get("closed"):
+                    results[f"cascade:{owner_id}"] = "exit_quote_unavailable_engine_left_running"
+                else:
+                    runtime.running = False
+                    if runtime.task and not runtime.task.done():
+                        runtime.task.cancel()
+                    stopped_count += 1
+                    results[f"cascade:{owner_id}"] = "stopped"
+                await _save_cascade_open_state(owner_id, runtime, force=True)
+            except Exception as exc:
+                results[f"cascade:{owner_id}"] = f"error: {exc}"
+
+        candle = _candle_entry_engines.get(owner_id)
+        if candle and candle.running:
+            try:
+                now = datetime.now(IST)
+                try:
+                    ticker = await asyncio.to_thread(candle.adapter.get_ticker, "NIFTY")
+                    index_price = float(ticker["last_price"])
+                except Exception:
+                    index_price = float(candle.engine.last_index_close)
+                if candle.engine.kill_and_close(IndexCandle(now, index_price, index_price, index_price, index_price)):
+                    candle.running = False
+                    if candle.task and not candle.task.done():
+                        candle.task.cancel()
+                    stopped_count += 1
+                    results[f"candle-entry:{owner_id}"] = "stopped"
+                else:
+                    results[f"candle-entry:{owner_id}"] = "exit_quote_unavailable_engine_left_running"
+                await _save_candle_entry_open_state(owner_id, force=True)
+            except Exception as exc:
+                results[f"candle-entry:{owner_id}"] = f"error: {exc}"
+
+        fib = _fib_boundary_engines.get(owner_id)
+        if fib and fib.running:
+            try:
+                now = datetime.now(IST)
+                try:
+                    ticker = await asyncio.to_thread(fib.adapter.get_ticker, "NIFTY")
+                    index_price = float(ticker["last_price"])
+                except Exception:
+                    index_price = float(fib.engine.history[-1].close)
+                if fib.engine.kill_and_close(IndexCandle(now, index_price, index_price, index_price, index_price)):
+                    fib.running = False
+                    if fib.task and not fib.task.done():
+                        fib.task.cancel()
+                    stopped_count += 1
+                    results[f"fib-boundary:{owner_id}"] = "stopped"
+                else:
+                    results[f"fib-boundary:{owner_id}"] = "exit_quote_unavailable_engine_left_running"
+                await _save_fib_boundary_open_state(owner_id, force=True)
+            except Exception as exc:
+                results[f"fib-boundary:{owner_id}"] = f"error: {exc}"
+
+        terminal = _terminal_cascade_engines.get(owner_id, {})
+        for symbol, terminal_runtime in list(terminal.items()):
+            if not terminal_runtime.running:
+                continue
+            try:
+                signal, trade = await _terminal_cascade_quote_pair(terminal_runtime)
+                terminal_runtime.engine.kill_and_close(signal, trade)
+                terminal_runtime.running = False
+                if terminal_runtime.task and not terminal_runtime.task.done():
+                    terminal_runtime.task.cancel()
+                stopped_count += 1
+                results[f"terminal-cascade:{owner_id}:{symbol}"] = "stopped"
+            except Exception as exc:
+                results[f"terminal-cascade:{owner_id}:{symbol}"] = {
+                    "status": "error",
+                    "message": "Exit quote unavailable; campaign left running.",
+                    "detail": str(exc),
+                }
+        if terminal:
+            await _save_terminal_cascade_open_state(owner_id, force=True)
 
     # Cancel background tasks and clear stopped registries for target users
     for owner_id in target_user_ids:
@@ -4702,7 +5010,11 @@ async def emergency_stop(request: Request):
                 if not getattr(engine, "running", False):
                     bucket.pop(run_id, None)
         scalp_engine = _scalp_engines.get(owner_id)
-        if scalp_engine and not getattr(scalp_engine, "_running", False):
+        if (
+            scalp_engine
+            and not getattr(scalp_engine, "_running", False)
+            and not (getattr(scalp_engine, "open_trades", {}) or {})
+        ):
             _scalp_engines.pop(owner_id, None)
 
     return {
@@ -5622,6 +5934,7 @@ async def get_strategy_versions(sid: int, request: Request):
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
+    runtime_running = any(_runtime_control_summary(owner_id)["any_running"] for owner_id in _runtime_owner_ids())
     return {
         "status": "ok",
         "time": str(datetime.now()),
@@ -5629,6 +5942,7 @@ async def health():
             config.DHAN_CLIENT_ID != "YOUR_CLIENT_ID_HERE" and config.DHAN_ACCESS_TOKEN != "YOUR_ACCESS_TOKEN_HERE"
         ),
         "live_running": _any_running(live_engines),
+        "runtime_running": runtime_running,
     }
 
 
@@ -5649,6 +5963,18 @@ async def save_state(request: Request):
     for owner_id, runtime in list(_cascade_engines.items()):
         await _save_cascade_open_state(owner_id, runtime, force=True)
         saved.append(f"cascade-paper:{owner_id}")
+    for owner_id, engine in list(_scalp_engines.items()):
+        await _save_scalp_open_state(owner_id, engine, force=True)
+        saved.append(f"scalp:{owner_id}")
+    for owner_id in list(_candle_entry_engines):
+        await _save_candle_entry_open_state(owner_id, force=True)
+        saved.append(f"candle-entry:{owner_id}")
+    for owner_id in list(_fib_boundary_engines):
+        await _save_fib_boundary_open_state(owner_id, force=True)
+        saved.append(f"fib-boundary:{owner_id}")
+    for owner_id in list(_terminal_cascade_engines):
+        await _save_terminal_cascade_open_state(owner_id, force=True)
+        saved.append(f"terminal-cascade:{owner_id}")
     return {"status": "ok", "saved": saved}
 
 
@@ -5661,10 +5987,12 @@ async def restore_engines_after_handover(request: Request):
         return JSONResponse(status_code=409, content={"error": "this worker is not the active instance"})
     await _restore_live_engines()
     await _restore_paper_engines()
+    auxiliary = await _restore_auxiliary_engines()
     return {
         "status": "ok",
         "live_running": _any_running(live_engines),
         "paper_running": _any_running(paper_engines),
+        "auxiliary": auxiliary,
     }
 
 
@@ -6744,7 +7072,7 @@ async def _restore_terminal_cascade_open_state(
             return {}
         _terminal_cascade_engines[int(user_id)] = runtimes
         for runtime in runtimes.values():
-            if runtime.running:
+            if runtime.running and _engine_restore_owner_is_active_instance():
                 runtime.task = asyncio.create_task(_run_terminal_cascade_paper_loop(int(user_id), runtime))
         return runtimes
     except Exception as exc:
@@ -7839,8 +8167,9 @@ async def _load_cascade_mother_candle(adapter: CascadeOptionsAdapter, mother_tim
 @app.get("/api/cascade/paper/status")
 async def cascade_paper_status(request: Request):
     user_id = _request_user_id(request)
-    _user, broker_client, _source = await _request_broker_context(request)
-    runtime = await _restore_cascade_open_state(user_id, broker_client)
+    # Status is deliberately side-effect free. Recovery happens only during
+    # active-worker startup/handover or an explicit mutating action.
+    runtime = _cascade_engines.get(user_id)
     if runtime is None:
         return {"status": "not_started", "mode": "paper", "live_gate": _cascade_live_gate_status()}
     return {
@@ -7900,6 +8229,7 @@ async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             runtime.engine.ingest(batches)
             if runtime.engine.status in {"CLOSED", "EXPIRED", "KILLED"}:
                 runtime.running = False
+            await _save_candle_entry_open_state(user_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -7950,7 +8280,7 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account before starting the Candle Entry campaign.")
-    old = _candle_entry_engines.get(user_id)
+    old = await _restore_candle_entry_open_state(user_id, broker_client, activate=True)
     if old is not None and old.running:
         raise HTTPException(
             status_code=409,
@@ -8014,6 +8344,7 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     _candle_entry_engines[user_id] = runtime
     if runtime.running:
         runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(user_id, runtime))
+    await _save_candle_entry_open_state(user_id, force=True)
     return {
         "status": "replayed" if is_historical_replay else "started",
         "mode": "paper",
@@ -8039,6 +8370,7 @@ async def candle_entry_paper_kill(request: Request):
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
+    await _save_candle_entry_open_state(_request_user_id(request), force=True)
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
 
 
@@ -8093,6 +8425,7 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
                 engine.on_candle(candle)
             if engine.status in {"CLOSED", "KILLED"}:
                 runtime.running = False
+            await _save_fib_boundary_open_state(user_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -8150,7 +8483,7 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
         raise HTTPException(
             status_code=400, detail="Connect a Dhan account before starting a fib-boundary paper campaign."
         )
-    old = _fib_boundary_engines.get(user_id)
+    old = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
     if old is not None and old.running:
         raise HTTPException(
             status_code=409,
@@ -8235,6 +8568,7 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
     _fib_boundary_engines[user_id] = runtime
     if runtime.running:
         runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
+    await _save_fib_boundary_open_state(user_id, force=True)
     return {
         "status": "replayed" if is_historical_replay else "started",
         "mode": "paper",
@@ -8260,6 +8594,7 @@ async def fib_boundary_paper_kill(request: Request):
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
+    await _save_fib_boundary_open_state(_request_user_id(request), force=True)
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
 
 
@@ -8702,7 +9037,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         upstox_expiries: list = []
         premium_source = None
         try:
-            premium_source = UpstoxPremiumSource()
+            premium_source = UpstoxPremiumSource(backfill_missing=True)
             upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
             _logger.warning("[fib-backtest] Upstox premium history unavailable, using Dhan only: %s", exc)
@@ -8751,7 +9086,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
 
     chart = backtest.pop("_chart", None)
-    return {
+    response_payload = {
         "status": "ok",
         "mode": "backtest",
         "pricing": "upstox_real_premiums",
@@ -8770,6 +9105,149 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             "monthly expiry at 15-45 DTE. Every premium is a real Upstox or Dhan bar, or a recorded gap."
         ),
     }
+    run_id = await _db_mod.save_fib_backtest_run(_request_user_id(request), response_payload)
+    response_payload["run_id"] = run_id
+    response_payload["downloads"] = {
+        "json": f"/api/fib-boundary/backtests/{run_id}/export.json",
+        "csv": f"/api/fib-boundary/backtests/{run_id}/export.csv",
+    }
+    return response_payload
+
+
+@app.get("/api/fib-boundary/backtests")
+async def list_fib_boundary_backtests(request: Request, limit: int = 50):
+    return {"status": "ok", "runs": await _db_mod.list_fib_backtest_runs(_request_user_id(request), limit)}
+
+
+async def _owned_fib_backtest(request: Request, run_id: int) -> dict:
+    run = await _db_mod.get_fib_backtest_run(_request_user_id(request), run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Fib Boundary backtest not found.")
+    return run
+
+
+@app.get("/api/fib-boundary/backtests/{run_id}/export.json")
+async def export_fib_boundary_backtest_json(run_id: int, request: Request):
+    run = await _owned_fib_backtest(request, run_id)
+    body = json.dumps(run["payload"], ensure_ascii=False, indent=2, default=str)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="fib-boundary-{run_id}.json"'},
+    )
+
+
+@app.get("/api/fib-boundary/backtests/{run_id}/export.csv")
+async def export_fib_boundary_backtest_csv(run_id: int, request: Request):
+    import csv
+
+    run = await _owned_fib_backtest(request, run_id)
+    payload = run["payload"]
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    output = io.StringIO()
+    fields = [
+        "row_type",
+        "mother_timestamp",
+        "side",
+        "timeframe",
+        "timestamp",
+        "level",
+        "index_price",
+        "strike",
+        "option_type",
+        "expiry",
+        "option_price",
+        "lots",
+        "quantity",
+        "net_pnl",
+        "gap",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    common = {
+        "mother_timestamp": (payload.get("mother") or {}).get("timestamp"),
+        "side": payload.get("side"),
+        "timeframe": payload.get("timeframe"),
+        "net_pnl": result.get("net_pnl"),
+    }
+    for entry in result.get("entries") or []:
+        writer.writerow(
+            {
+                **common,
+                "row_type": "priced_leg",
+                "timestamp": entry.get("timestamp"),
+                "level": entry.get("level"),
+                "index_price": entry.get("spot"),
+                "strike": entry.get("strike"),
+                "option_type": entry.get("option_type"),
+                "expiry": entry.get("expiry"),
+                "option_price": entry.get("option_price"),
+                "lots": entry.get("lots"),
+                "quantity": entry.get("quantity"),
+            }
+        )
+    for gap in result.get("data_gaps") or []:
+        writer.writerow({**common, "row_type": "premium_gap", "gap": gap})
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="fib-boundary-{run_id}.csv"'},
+    )
+
+
+@app.get("/api/options/archive")
+async def option_archive_inventory(request: Request, provider: str = "", underlying: str = "", limit: int = 500):
+    _request_user_id(request)
+    from data.option_archive import OptionDataArchive
+
+    rows = await asyncio.to_thread(
+        OptionDataArchive().inventory,
+        provider=provider,
+        underlying=underlying,
+        limit=limit,
+    )
+    return {"status": "ok", "contracts": rows, "count": len(rows)}
+
+
+@app.get("/api/options/archive/export.csv")
+async def option_archive_export_csv(
+    request: Request,
+    provider: str,
+    underlying: str,
+    expiry: date,
+    strike: int,
+    option_type: str,
+):
+    _request_user_id(request)
+    from data.option_archive import OptionDataArchive
+
+    side = str(option_type).upper()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="option_type must be CE or PE.")
+    rows = await asyncio.to_thread(
+        OptionDataArchive().export_rows,
+        provider=provider,
+        underlying=underlying,
+        expiry=expiry,
+        strike=strike,
+        option_type=side,
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="No archived bars found for that exact contract.")
+    import csv
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["timestamp", "open", "high", "low", "close"])
+    writer.writeheader()
+    writer.writerows({key: row.get(key) for key in writer.fieldnames} for row in rows)
+    safe_provider = re.sub(r"[^A-Za-z0-9_-]+", "-", provider).strip("-") or "provider"
+    safe_underlying = re.sub(r"[^A-Za-z0-9_-]+", "-", underlying).strip("-") or "option"
+    filename = f"{safe_provider}-{safe_underlying}-{expiry.isoformat()}-{int(strike)}{side}.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _premium_minute(moment: datetime) -> datetime:
@@ -8817,6 +9295,9 @@ def _hybrid_premium_lookup(
     the caller can say what actually broke instead of "minute has no bar".
     """
 
+    from data.option_archive import OptionDataArchive
+
+    archive = OptionDataArchive()
     dhan_minutes: dict[tuple, dict] = {}
     source_failures: list[str] = []
     stale_fills: list[str] = []
@@ -8826,28 +9307,62 @@ def _hybrid_premium_lookup(
         if key not in dhan_minutes:
             label = f"{instrument} {int(contract.strike)}{contract.option_type} {contract.expiry.isoformat()}"
             series: dict = {}
+            archived = archive.load(
+                provider="dhan",
+                underlying=instrument,
+                expiry=contract.expiry,
+                strike=contract.strike,
+                option_type=contract.option_type,
+            )
+            archive_start = min(archived, default=None)
+            archive_end = max(archived, default=None)
+            required_end = min(to_day, contract.expiry)
+            if (
+                archive_start is not None
+                and archive_start.date() <= from_day
+                and archive_end is not None
+                and archive_end.date() >= required_end
+            ):
+                series = {minute: float(row["open"]) for minute, row in archived.items()}
             try:
-                security_id = ScripMaster.lookup(
-                    instrument, int(contract.strike), contract.expiry.isoformat(), contract.option_type
-                )
-                if security_id:
-                    frame = broker.get_historical_data(
-                        security_id,
-                        "NSE_FNO",
-                        "OPTIDX",
-                        0,
-                        from_day.isoformat(),
-                        min(to_day, contract.expiry).isoformat(),
-                        "1",
+                if not series:
+                    security_id = ScripMaster.lookup(
+                        instrument, int(contract.strike), contract.expiry.isoformat(), contract.option_type
                     )
-                    series = {
-                        _premium_minute(index.to_pydatetime()): float(row_open)
-                        for index, row_open in frame["open"].items()
-                    }
-                    if not series:
-                        source_failures.append(f"Dhan returned no candles at all for {label}")
-                else:
-                    source_failures.append(f"Dhan's scrip master has no security id for {label}")
+                    if security_id:
+                        frame = broker.get_historical_data(
+                            security_id,
+                            "NSE_FNO",
+                            "OPTIDX",
+                            0,
+                            from_day.isoformat(),
+                            required_end.isoformat(),
+                            "1",
+                        )
+                        raw_bars = {
+                            _premium_minute(index.to_pydatetime()): {
+                                "open": float(row["open"]),
+                                "high": float(row.get("high", row["open"])),
+                                "low": float(row.get("low", row["open"])),
+                                "close": float(row.get("close", row["open"])),
+                            }
+                            for index, row in frame.iterrows()
+                        }
+                        series = {minute: float(row["open"]) for minute, row in raw_bars.items()}
+                        if raw_bars:
+                            archive.store(
+                                provider="dhan",
+                                underlying=instrument,
+                                expiry=contract.expiry,
+                                strike=contract.strike,
+                                option_type=contract.option_type,
+                                bars=raw_bars,
+                                instrument_key=str(security_id),
+                            )
+                        else:
+                            source_failures.append(f"Dhan returned no candles at all for {label}")
+                    else:
+                        source_failures.append(f"Dhan's scrip master has no security id for {label}")
             except Exception as exc:
                 source_failures.append(f"Dhan option candles unavailable for {label}: {exc}")
                 _logger.warning("[premiums] Dhan option candles unavailable for %s: %s", label, exc)
@@ -8917,7 +9432,7 @@ def _fib_replay_premium_lookup(broker: DhanClient, from_day: date, to_day: date,
         premium_source = None
         upstox_expiries: list = []
         try:
-            premium_source = UpstoxPremiumSource()
+            premium_source = UpstoxPremiumSource(backfill_missing=True)
             upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
             _logger.warning("[fib-replay] Upstox premium history unavailable, using Dhan only: %s", exc)
@@ -9009,7 +9524,7 @@ async def _test_bench_two_red(
         upstox_expiries: list[date] = []
         premium_source = None
         try:
-            premium_source = UpstoxPremiumSource(underlying_key=underlying_key)
+            premium_source = UpstoxPremiumSource(underlying_key=underlying_key, backfill_missing=True)
             upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
             _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
@@ -9308,7 +9823,7 @@ async def _test_bench_execute(payload: TestBenchPayload, request: Request):
         upstox_expiries: list[date] = []
         premium_source = None
         try:
-            premium_source = UpstoxPremiumSource(underlying_key=underlying_key)
+            premium_source = UpstoxPremiumSource(underlying_key=underlying_key, backfill_missing=True)
             upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
             _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
@@ -11103,8 +11618,8 @@ async def cancel_order(order_id: str, request: Request):
 @app.get("/api/terminal/cascade/status")
 async def terminal_cascade_status(request: Request):
     user_id = _request_user_id(request)
-    _user, broker_client, _source = await _request_broker_context(request)
-    runtimes = await _restore_terminal_cascade_open_state(user_id, broker_client)
+    # Passive monitoring must never resurrect a poll loop.
+    runtimes = _terminal_cascade_engines.get(user_id, {})
     if not runtimes:
         return {"status": "not_started", "mode": "paper", "live_gate": _terminal_cascade_live_gate_status()}
     return {
@@ -12149,11 +12664,33 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
 @app.get("/api/scalp/status")
 async def get_scalp_status(request: Request):
     user_id = _request_user_id(request)
-    eng = _get_scalp_engine(user_id)
-    restored = await _restore_scalp_open_state(user_id, eng)
-    status = eng.get_status()
-    if status.get("open_trades"):
-        await _save_scalp_open_state(user_id, eng, force=restored)
+    eng = _scalp_engines.get(user_id)
+    if eng is not None:
+        status = eng.get_status()
+    else:
+        status = {
+            "running": False,
+            "open_trades": [],
+            "closed_trades": [],
+            "event_log": [],
+            "total_pnl": 0.0,
+            "closed_pnl": 0.0,
+            "open_pnl": 0.0,
+            "session_pnl": 0.0,
+        }
+        # A broker connection can be temporarily unavailable during startup.
+        # Show the saved positions without constructing or starting an engine;
+        # the active worker will perform the real monitored restore separately.
+        raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
+        try:
+            persisted = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            persisted = {}
+        rows = persisted.get("open_trades") if isinstance(persisted, dict) else None
+        if isinstance(rows, list) and rows:
+            status["open_trades"] = rows
+            status["event_log"] = list(persisted.get("event_log") or [])[-100:]
+            status["recovery_pending"] = True
     file_trades = await _db_mod.list_scalp_trades(user_id)
     status["file_trades"] = list(reversed(file_trades))
     return status
@@ -13170,6 +13707,7 @@ async def _start_token_renewal():
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())
         asyncio.create_task(_restore_paper_engines())
+        asyncio.create_task(_restore_auxiliary_engines())
     elif _STARTUP_ENGINE_RESTORE_ENABLED:
         print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:
@@ -13381,6 +13919,29 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved paper Cascade campaign: {owner_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save paper Cascade campaign {owner_id}: {e}")
+    for label, registry, saver in (
+        ("Candle Entry", _candle_entry_engines, _save_candle_entry_open_state),
+        ("Fib Boundary", _fib_boundary_engines, _save_fib_boundary_open_state),
+    ):
+        for owner_id, runtime in list(registry.items()):
+            try:
+                await saver(owner_id, force=True)
+                runtime.running = False
+                if runtime.task and not runtime.task.done():
+                    runtime.task.cancel()
+                print(f"🛑 [Shutdown] Saved {label} campaign: {owner_id}")
+            except Exception as e:
+                print(f"🛑 [Shutdown] Failed to save {label} campaign {owner_id}: {e}")
+    for owner_id, runtimes in list(_terminal_cascade_engines.items()):
+        try:
+            await _save_terminal_cascade_open_state(owner_id, force=True)
+            for runtime in runtimes.values():
+                runtime.running = False
+                if runtime.task and not runtime.task.done():
+                    runtime.task.cancel()
+            print(f"🛑 [Shutdown] Saved Terminal Cascade campaigns: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save Terminal Cascade campaigns {owner_id}: {e}")
     shutdown_feed()
     await alerter.shutdown()
     await _db_mod.close_db()

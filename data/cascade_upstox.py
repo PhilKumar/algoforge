@@ -39,6 +39,7 @@ from typing import Optional
 
 import requests
 
+from data.option_archive import OptionDataArchive
 from engine.cascade_options import Contract, OptionCandle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -138,6 +139,10 @@ class UpstoxPremiumSource:
         self._expiries: Optional[set[date]] = None
         self._refreshed_contracts: set[date] = set()
         self._refreshed_series: set[str] = set()
+        archive_root = None if self._cache_dir.resolve() == CACHE_DIR.resolve() else self._cache_dir / "option_archive"
+        self._archive = OptionDataArchive(archive_root)
+        self._archive_series: dict[tuple[str, date, int, str], dict[datetime, dict]] = {}
+        self._archive_written: set[str] = set()
 
         # Observability: the engine already counts gaps, but knowing *why* a run
         # is thin (strike never listed vs. minute missing) is worth keeping.
@@ -275,6 +280,30 @@ class UpstoxPremiumSource:
         """The exact premium bar for ``contract`` at ``timestamp``'s minute, or
         None if that strike/expiry was never listed or that minute has no data.
         Never fabricates a price."""
+        archive_key = (
+            str(contract.symbol).upper(),
+            contract.expiry,
+            int(round(contract.strike)),
+            str(contract.option_type).upper(),
+        )
+        if archive_key not in self._archive_series:
+            self._archive_series[archive_key] = self._archive.load(
+                provider="upstox",
+                underlying=archive_key[0],
+                expiry=contract.expiry,
+                strike=archive_key[2],
+                option_type=archive_key[3],
+            )
+        archived = self._archive_series[archive_key].get(_minute_key(timestamp))
+        if archived is not None:
+            return OptionCandle(
+                timestamp=_minute_key(timestamp),
+                open=float(archived["open"]),
+                high=float(archived["high"]),
+                low=float(archived["low"]),
+                close=float(archived["close"]),
+            )
+
         index = self._contract_index(contract.expiry)
         instrument_key = index.get((int(round(contract.strike)), str(contract.option_type).upper()))
         if instrument_key is None and self._backfill_missing and contract.expiry not in self._refreshed_contracts:
@@ -287,10 +316,37 @@ class UpstoxPremiumSource:
 
         series = self._minute_series(instrument_key, contract.expiry)
         bar = series.get(_minute_key(timestamp))
+        refreshed = False
         if bar is None and self._backfill_missing and instrument_key not in self._refreshed_series:
             self._refreshed_series.add(instrument_key)
             series = self._minute_series(instrument_key, contract.expiry, refresh=True)
             bar = series.get(_minute_key(timestamp))
+            refreshed = True
+        if series and (instrument_key not in self._archive_written or refreshed):
+            self._archive.store(
+                provider="upstox",
+                underlying=archive_key[0],
+                expiry=contract.expiry,
+                strike=archive_key[2],
+                option_type=archive_key[3],
+                bars=series,
+                instrument_key=instrument_key,
+            )
+            persisted_series = dict(self._archive_series[archive_key])
+            persisted_series.update(
+                {
+                    minute: {
+                        "timestamp": minute.isoformat(timespec="minutes"),
+                        "open": row.open,
+                        "high": row.high,
+                        "low": row.low,
+                        "close": row.close,
+                    }
+                    for minute, row in series.items()
+                }
+            )
+            self._archive_series[archive_key] = persisted_series
+            self._archive_written.add(instrument_key)
         if bar is None:
             self.missing_minutes += 1
             return None

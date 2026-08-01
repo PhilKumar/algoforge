@@ -1,9 +1,5 @@
 const CACHE_NAME = 'philforge-shell-__ASSET_VERSION__';
 const APP_SHELL = [
-  '/',
-  '/charts-viewer',
-  '/market-movers',
-  '/study-lounge',
   '/manifest.webmanifest',
   '/favicon.ico?v=__ASSET_VERSION__',
   '/static/pwa-icons/favicon-16.png?v=__ASSET_VERSION__',
@@ -45,19 +41,23 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match('/');
-        })
+      // Authenticated HTML is user-specific. Never cache a login/dashboard
+      // navigation or replay one person's shell after an auth transition.
+      fetch(request, { cache: 'no-store' }).catch(() => new Response(
+        '<!doctype html><meta name="viewport" content="width=device-width"><title>PhilForge offline</title><main style="font:16px system-ui;padding:32px;max-width:560px;margin:auto"><h1>PhilForge is offline</h1><p>Reconnect to the network and reload. Trading state continues on the server.</p></main>',
+        { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
+      ))
     );
     return;
   }
+
+  // Only versioned public shell assets belong in Cache Storage. Authenticated
+  // chart images and study assets use non-/api routes, so a broad same-origin
+  // cache rule would leak them across logout/login on a shared browser.
+  const publicShellAsset = url.pathname.startsWith('/static/') || [
+    '/manifest.webmanifest', '/favicon.ico', '/apple-touch-icon.png', '/logo.jpg', '/logo.png'
+  ].includes(url.pathname);
+  if (!publicShellAsset) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {

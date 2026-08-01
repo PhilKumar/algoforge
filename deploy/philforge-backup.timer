@@ -4,6 +4,8 @@ Description=Daily PhilForge backup timer
 [Timer]
 OnCalendar=*-*-* 04:10:00
 Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
 Unit=philforge-backup.service
 
 [Install]

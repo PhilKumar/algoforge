@@ -1,6 +1,6 @@
 # PhilForge Multi-Tenant Rollout Guide
 
-This guide is for the `feature/multi-tenant` branch only. It does not apply to the current single-user `main` branch.
+This guide applies to the multi-tenant production application on `main`.
 
 ## 1. What This Branch Changes
 
@@ -27,11 +27,16 @@ DHAN_TOTP_SECRET=...
 
 ADMIN_USERNAME=admin
 PHILFORGE_PIN=your_first_admin_password
-PHILFORGE_DB=/home/ec2-user/philforge/philforge.db
-PHILFORGE_USER_DATA_ROOT=/home/ec2-user/philforge/data/users
-PHILFORGE_BACKUP_ROOT=/home/ec2-user/philforge/backups
+PHILFORGE_DB=/home/ec2-user/.local/share/philforge/philforge.db
+PHILFORGE_USER_DATA_ROOT=/home/ec2-user/.local/share/philforge/users
+PHILFORGE_BACKUP_ROOT=/home/ec2-user/.local/share/philforge/backups
 PHILFORGE_BACKUP_RETENTION_DAYS=14
 PHILFORGE_BACKUP_MIN_FREE_MB=1024
+PHILFORGE_OPTION_ARCHIVE_ROOT=/home/ec2-user/.local/share/philforge/option-archive
+# Optional encrypted off-host copy:
+PHILFORGE_BACKUP_S3_URI=s3://your-private-bucket/philforge
+# Optional; blank uses S3 AES-256 instead of KMS:
+PHILFORGE_BACKUP_S3_KMS_KEY_ID=
 SESSION_TTL_HOURS=24
 MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=5
@@ -156,13 +161,37 @@ These steps assume the current production server is the AWS Lightsail host and t
 
 ```bash
 cd /home/ec2-user/philforge
-python3 scripts/backup_philforge.py --output-dir backups/manual --include-legacy
+install -d -m 700 /home/ec2-user/.local/share/philforge/backups/manual
+python3 scripts/backup_philforge.py \
+  --output-dir /home/ec2-user/.local/share/philforge/backups/manual \
+  --include-legacy
+python3 scripts/verify_backup.py \
+  --archive /home/ec2-user/.local/share/philforge/backups/manual/latest.tar.gz
 ```
 
 This backup path streams large folders directly into the archive instead of staging a full duplicate copy.
 If the instance does not have enough free disk to create a safe local archive, it aborts early instead of filling the box and destabilizing SSH/Nginx.
 
-### Update `.env`
+### Move Runtime Data Outside The Checkout
+
+First inspect the plan; this command is read-only:
+
+```bash
+python3 scripts/migrate_runtime_storage.py
+```
+
+Then stop both blue-green workers for the one-time maintenance window and run:
+
+```bash
+sudo systemctl stop philforge@8000 philforge@8001
+python3 scripts/migrate_runtime_storage.py --apply --maintenance-confirmed
+```
+
+The migration uses SQLite's backup API, verifies the copied database, copies
+user files/backups/option history, and switches `.env` atomically. It never
+deletes the old checkout paths, so those remain available for rollback.
+
+### Review `.env`
 
 Set these explicitly on the server:
 
@@ -171,6 +200,8 @@ Set these explicitly on the server:
 - `PHILFORGE_USER_DATA_ROOT`
 - `PHILFORGE_BACKUP_ROOT`
 - `PHILFORGE_BACKUP_MIN_FREE_MB`
+- `PHILFORGE_OPTION_ARCHIVE_ROOT`
+- `PHILFORGE_BACKUP_S3_URI` when an approved private bucket is available
 - `ENCRYPTION_KEY`
 - existing Dhan/global broker values if admin fallback is still needed
 
@@ -221,6 +252,10 @@ That script:
 - runs migration before and after blue-green deploy
 - installs/enables the backup timer
 - verifies health and active port at the end
+
+It does not automatically move an existing installation's storage because
+that requires a confirmed maintenance window. Run the storage migration above
+once before the rollout.
 
 ### Post-Deploy Verification
 

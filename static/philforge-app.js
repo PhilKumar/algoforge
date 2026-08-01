@@ -389,7 +389,16 @@ async function logoutUser() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {}
+  await purgeAuthenticatedShellCaches();
   location.reload();
+}
+
+async function purgeAuthenticatedShellCaches() {
+  if (!('caches' in window)) return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key.startsWith('philforge-shell-')).map(key => caches.delete(key)));
+  } catch (e) {}
 }
 
 async function handleUnauthorizedResponse(res) {
@@ -397,6 +406,7 @@ async function handleUnauthorizedResponse(res) {
   try {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {}
+  await purgeAuthenticatedShellCaches();
   location.reload();
   return true;
 }
@@ -820,13 +830,16 @@ function renderAdminUsers(users, engineRows) {
     engineSummary.appendChild(createStatusChip(`Paper ${engine.paper_running || 0}`, Number(engine.paper_running || 0) > 0 ? 'success' : 'warn'));
     engineSummary.appendChild(createStatusChip(`Live ${engine.live_running || 0}`, Number(engine.live_running || 0) > 0 ? 'success' : 'warn'));
     engineSummary.appendChild(createStatusChip(`Scalp ${engine.scalp_open_trades || 0}`, Number(engine.scalp_open_trades || 0) > 0 ? 'success' : 'warn'));
+    const cascadeCount = Number(!!engine.cascade_running) + Number(!!engine.candle_entry_running)
+      + Number(!!engine.fib_boundary_running) + Number(engine.terminal_cascade_running || 0);
+    engineSummary.appendChild(createStatusChip(`Cascade ${cascadeCount}`, cascadeCount > 0 ? 'success' : 'warn'));
     engineCell.appendChild(engineSummary);
     const liveRuns = Array.isArray(engine.live_runs) ? engine.live_runs : [];
     const paperRuns = Array.isArray(engine.paper_runs) ? engine.paper_runs : [];
     const engineMeta = document.createElement('div');
     engineMeta.className = 'admin-user-sub';
     const runNames = [...paperRuns, ...liveRuns].map(run => run.strategy_name || run.run_id).filter(Boolean);
-    engineMeta.textContent = runNames.length ? `Active runs: ${runNames.join(', ')}` : 'No active paper/live runs';
+    engineMeta.textContent = runNames.length ? `Active runs: ${runNames.join(', ')}` : (cascadeCount ? 'Cascade campaign active' : 'No active engines');
     engineCell.appendChild(engineMeta);
     row.appendChild(engineCell);
 
@@ -2506,7 +2519,7 @@ async function runFibBoundaryBacktest() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Backtest failed (${response.status})`));
     _renderFibBoundaryBacktest(data);
-    _fibSetFormStatus('Backtest complete — real fixed-strike premiums, no order sent.', 'success');
+    _fibSetFormStatus(`Backtest saved as run #${data.run_id} — download it any time. No order sent.`, 'success');
   } catch (error) {
     _fibSetFormStatus(error.message || 'Backtest failed.', 'error');
   } finally {
@@ -2524,6 +2537,16 @@ function _renderFibBoundaryBacktest(data) {
   _fibBoundaryCollapseBacktestChart();
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
+  const csvLink = document.getElementById('fibx-backtest-csv');
+  const jsonLink = document.getElementById('fibx-backtest-json');
+  if (csvLink) {
+    csvLink.href = data.downloads?.csv || '#';
+    csvLink.style.display = data.downloads?.csv ? '' : 'none';
+  }
+  if (jsonLink) {
+    jsonLink.href = data.downloads?.json || '#';
+    jsonLink.style.display = data.downloads?.json ? '' : 'none';
+  }
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
     const priced = !!result.fully_priced;
@@ -12440,7 +12463,7 @@ function toggleTheme() {
 // ══════════════════════════════════════════════════════════════
 async function emergencyStop() {
   const confirmed = await customConfirm(
-    'This will <strong style="color:var(--danger)">immediately stop ALL</strong> running strategies (paper + auto) and attempt broker square-off for live positions first.<br><br>If any broker exit is not confirmed, that engine will be left running so it does not lose tracking.',
+    'This will <strong style="color:var(--danger)">immediately stop ALL</strong> running strategies: paper, auto, Scalp, Options Cascade, Candle Entry, Fib Boundary and Terminal Cascade. Broker exits are confirmed before live tracking is released.<br><br>If any exit is not confirmed, that engine will be left running so it does not lose tracking.',
     { title: ICO.stop(20) + ' EMERGENCY STOP', icon: ICO.siren(28), okText: 'KILL ALL', danger: true }
   );
   if (!confirmed) return;
@@ -12458,14 +12481,11 @@ async function emergencyStop() {
 
 function updateKillSwitchVisibility() {
   if (!_isPageVisible()) return;
-  // Show kill switch button only when engines might be running
-  fetch('/api/paper/status').then(r => r.json()).then(pData => {
-    fetch('/api/live/status').then(r => r.json()).then(lData => {
-      const anyRunning = (pData.status === 'running') || (lData.status === 'running');
-      const btn = document.getElementById('kill-switch-btn');
-      if (anyRunning) btn.classList.remove('hidden');
-      else btn.classList.add('hidden');
-    }).catch(() => {});
+  fetch('/api/engine-control/status').then(r => r.json()).then(data => {
+    const btn = document.getElementById('kill-switch-btn');
+    if (!btn) return;
+    if (data.any_running) btn.classList.remove('hidden');
+    else btn.classList.add('hidden');
   }).catch(() => {});
 }
 // Check kill switch visibility every 10s

@@ -25,6 +25,7 @@ from engine.candle_ladder import (
     LADDER_TIMEFRAMES,
     LadderCandle,
     LadderError,
+    LadderFill,
     TwoRedLadder,
     ladder_from,
     order_events,
@@ -2813,6 +2814,183 @@ class LadderCandleEntryPaper:
             "rounds": rounds,
             "events": ladder.events[-100:],
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize every decision-bearing field for restart-safe recovery."""
+
+        def candle(row: LadderCandle) -> dict[str, Any]:
+            return {
+                "timeframe": row.timeframe,
+                "timestamp": row.timestamp.isoformat(),
+                "open": row.open,
+                "high": row.high,
+                "low": row.low,
+                "close": row.close,
+            }
+
+        ladder = self.ladder
+        return {
+            "version": 1,
+            "strategy": "candle_entry_ladder",
+            "config": {
+                "timeframe": self.timeframe,
+                "target_fraction": ladder.target_fraction,
+                "signal_only": self.signal_only,
+                "require_new_low": ladder.require_new_low,
+            },
+            "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
+            "contract": {
+                "underlying": self.contract.underlying,
+                "strike": self.contract.strike,
+                "expiry": self.contract.expiry.isoformat(),
+                "option_type": self.contract.option_type,
+                "lot_size": self.contract.lot_size,
+                "security_id": self.contract.security_id,
+            },
+            "seen": {key: value.isoformat() for key, value in self._seen.items()},
+            "candles_reviewed": self._candles_reviewed,
+            "latest": candle(self._latest) if self._latest is not None else None,
+            "replay_complete": self.replay_complete,
+            "ladder": {
+                "active": ladder.active,
+                "lowest": ladder.lowest,
+                "gate_low": ladder.gate_low,
+                "status": ladder.status,
+                "exit_timestamp": ladder.exit_timestamp.isoformat() if ladder.exit_timestamp else None,
+                "exit_index_price": ladder.exit_index_price,
+                "exit_premium": ladder.exit_premium,
+                "exit_reason": ladder.exit_reason,
+                "gross_pnl": ladder.gross_pnl,
+                "costs": NiftyOptionsPaperCascade._costs_to_dict(ladder.costs) if ladder.costs else None,
+                "net_pnl": ladder.net_pnl,
+                "last_close": dict(ladder._last_close),
+                "stages": [
+                    {
+                        "rung": stage.rung,
+                        "timeframe": stage.timeframe,
+                        "lots": stage.lots,
+                        "reds": [candle(row) for row in stage.reds],
+                        "stop": stage.stop,
+                        "armed_at": stage.armed_at.isoformat() if stage.armed_at else None,
+                    }
+                    for stage in ladder.stages
+                ],
+                "fills": [
+                    {
+                        "rung": fill.rung,
+                        "timeframe": fill.timeframe,
+                        "timestamp": fill.timestamp.isoformat(),
+                        "index_price": fill.index_price,
+                        "option_premium": fill.option_premium,
+                        "lots": fill.lots,
+                        "quantity": fill.quantity,
+                        "strike": fill.strike,
+                        "option_type": fill.option_type,
+                        "marked_low": fill.marked_low,
+                    }
+                    for fill in ladder.fills
+                ],
+                "events": list(ladder.events[-100:]),
+            },
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        adapter: CascadeOptionsAdapter,
+        option_premium_lookup: OptionPremiumLookup,
+    ) -> "LadderCandleEntryPaper":
+        """Restore a snapshot without replaying fills or placing paper orders."""
+
+        def moment(value: Any) -> datetime:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+        def ladder_candle(row: Mapping[str, Any]) -> LadderCandle:
+            return LadderCandle(
+                str(row["timeframe"]),
+                moment(row["timestamp"]),
+                float(row["open"]),
+                float(row["high"]),
+                float(row["low"]),
+                float(row["close"]),
+            )
+
+        raw_mother = payload.get("mother") or {}
+        mother = IndexCandle(
+            moment(raw_mother["timestamp"]),
+            float(raw_mother["open"]),
+            float(raw_mother["high"]),
+            float(raw_mother["low"]),
+            float(raw_mother["close"]),
+        )
+        raw_contract = payload.get("contract") or {}
+        contract = FixedCampaignOption(
+            underlying=str(raw_contract["underlying"]),
+            strike=int(raw_contract["strike"]),
+            expiry=date.fromisoformat(str(raw_contract["expiry"])),
+            option_type=str(raw_contract["option_type"]),
+            lot_size=int(raw_contract["lot_size"]),
+            security_id=str(raw_contract.get("security_id") or ""),
+        )
+        config = payload.get("config") or {}
+        engine = cls(
+            mother,
+            str(config.get("timeframe") or "1h"),
+            contract,
+            adapter,
+            option_premium_lookup,
+            target_fraction=float(config.get("target_fraction") or 0.25),
+            signal_only=bool(config.get("signal_only")),
+        )
+        ladder = engine.ladder
+        ladder.require_new_low = bool(config.get("require_new_low", True))
+        raw_ladder = payload.get("ladder") or {}
+        stage_rows = {int(row["rung"]): row for row in raw_ladder.get("stages") or []}
+        for stage in ladder.stages:
+            row = stage_rows.get(stage.rung)
+            if not row:
+                continue
+            stage.lots = int(row.get("lots") or stage.lots)
+            stage.reds = [ladder_candle(item) for item in row.get("reds") or []]
+            stage.stop = float(row["stop"]) if row.get("stop") is not None else None
+            stage.armed_at = moment(row["armed_at"]) if row.get("armed_at") else None
+        ladder.active = max(0, min(int(raw_ladder.get("active") or 0), len(ladder.stages)))
+        ladder.fills = [
+            LadderFill(
+                rung=int(row["rung"]),
+                timeframe=str(row["timeframe"]),
+                timestamp=moment(row["timestamp"]),
+                index_price=float(row["index_price"]),
+                option_premium=(float(row["option_premium"]) if row.get("option_premium") is not None else None),
+                lots=int(row["lots"]),
+                quantity=int(row["quantity"]),
+                strike=int(row["strike"]),
+                option_type=str(row["option_type"]),
+                marked_low=float(row["marked_low"]),
+            )
+            for row in raw_ladder.get("fills") or []
+        ]
+        ladder.lowest = float(raw_ladder.get("lowest") if raw_ladder.get("lowest") is not None else mother.low)
+        ladder.gate_low = float(raw_ladder["gate_low"]) if raw_ladder.get("gate_low") is not None else None
+        ladder.status = str(raw_ladder.get("status") or "WAITING_TWO_RED")
+        ladder.exit_timestamp = moment(raw_ladder["exit_timestamp"]) if raw_ladder.get("exit_timestamp") else None
+        ladder.exit_index_price = raw_ladder.get("exit_index_price")
+        ladder.exit_premium = raw_ladder.get("exit_premium")
+        ladder.exit_reason = raw_ladder.get("exit_reason")
+        ladder.gross_pnl = raw_ladder.get("gross_pnl")
+        ladder.costs = (
+            NiftyOptionsPaperCascade._costs_from_dict(raw_ladder["costs"]) if raw_ladder.get("costs") else None
+        )
+        ladder.net_pnl = raw_ladder.get("net_pnl")
+        ladder._last_close = {str(key): float(value) for key, value in (raw_ladder.get("last_close") or {}).items()}
+        ladder.events = list(raw_ladder.get("events") or [])[-100:]
+        engine._seen = {str(key): moment(value) for key, value in (payload.get("seen") or {}).items()}
+        engine._candles_reviewed = int(payload.get("candles_reviewed") or 0)
+        engine._latest = ladder_candle(payload["latest"]) if payload.get("latest") else None
+        engine.replay_complete = bool(payload.get("replay_complete"))
+        return engine
 
 
 @dataclass

@@ -15,6 +15,7 @@ introduced:
 
 import os
 import sys
+import tempfile
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -79,10 +80,15 @@ class MinuteKeyTests(unittest.TestCase):
 class HybridLookupTests(unittest.TestCase):
     def setUp(self):
         self._original_scrip = app_module.ScripMaster
+        self._original_archive_root = app_module.config.OPTION_ARCHIVE_ROOT
+        self._archive_tmp = tempfile.TemporaryDirectory()
+        app_module.config.OPTION_ARCHIVE_ROOT = self._archive_tmp.name
         app_module.ScripMaster = _ScripMaster
 
     def tearDown(self):
         app_module.ScripMaster = self._original_scrip
+        app_module.config.OPTION_ARCHIVE_ROOT = self._original_archive_root
+        self._archive_tmp.cleanup()
 
     def test_an_aware_engine_timestamp_finds_the_naive_dhan_bar(self):
         # The exact 2026-08-01 failure: the bar exists, the tzinfo hid it.

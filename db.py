@@ -130,6 +130,21 @@ _SCHEMA_STATEMENTS = [
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_test_bench_query ON test_bench_runs(user_id, query_key)",
     "CREATE INDEX IF NOT EXISTS idx_test_bench_date ON test_bench_runs(user_id, mother_date)",
+    """CREATE TABLE IF NOT EXISTS fib_backtest_runs (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id          INTEGER NOT NULL,
+        mother_timestamp TEXT    NOT NULL,
+        side             TEXT    NOT NULL,
+        timeframe        TEXT    NOT NULL,
+        horizon_to       TEXT    NOT NULL,
+        fully_priced     INTEGER NOT NULL DEFAULT 0,
+        net_pnl          REAL,
+        gap_count        INTEGER NOT NULL DEFAULT 0,
+        payload          TEXT    NOT NULL DEFAULT '{}',
+        created_at       TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_fib_backtest_user_date ON fib_backtest_runs(user_id, mother_timestamp)",
 ]
 
 
@@ -1267,3 +1282,66 @@ def _test_bench_row(row, *, with_payload: bool = True) -> dict:
     else:
         data.pop("payload", None)
     return data
+
+
+# ── Fib Boundary backtests: durable, user-owned replay packages ──
+async def save_fib_backtest_run(user_id: int, payload: dict) -> int:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO fib_backtest_runs
+                   (user_id, mother_timestamp, side, timeframe, horizon_to,
+                    fully_priced, net_pnl, gap_count, payload, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                int(user_id),
+                str((payload.get("mother") or {}).get("timestamp") or ""),
+                str(payload.get("side") or ""),
+                str(payload.get("timeframe") or ""),
+                str(payload.get("horizon_to") or ""),
+                int(bool(result.get("fully_priced"))),
+                result.get("net_pnl"),
+                len(result.get("data_gaps") or []),
+                _json_dumps(payload),
+                _now_iso(),
+            ),
+        )
+        await db.commit()
+        return int(cursor.lastrowid or 0)
+    finally:
+        await db.close()
+
+
+async def list_fib_backtest_runs(user_id: int, limit: int = 50) -> list[dict]:
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT id, mother_timestamp, side, timeframe, horizon_to,
+                      fully_priced, net_pnl, gap_count, created_at
+               FROM fib_backtest_runs WHERE user_id = ?
+               ORDER BY id DESC LIMIT ?""",
+            (int(user_id), max(1, min(int(limit), 200))),
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def get_fib_backtest_run(user_id: int, run_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM fib_backtest_runs WHERE user_id = ? AND id = ?",
+            (int(user_id), int(run_id)),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["payload"] = _json_loads(result.get("payload"), {})
+        return result
+    finally:
+        await db.close()

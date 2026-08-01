@@ -676,6 +676,26 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY"])
         self.assertEqual(len(engine.ladder.fills), 2)
 
+    def test_round_trip_serialisation_preserves_mid_ladder_state(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+        engine.ingest(self._two_rung_batches())
+
+        restored_adapter = _PaperAdapter()
+        restored = LadderCandleEntryPaper.from_dict(
+            engine.to_dict(),
+            adapter=restored_adapter,
+            option_premium_lookup=lambda _t, _c: 100.0,
+        )
+
+        self.assertEqual(restored.status, engine.status)
+        self.assertEqual(restored.get_status()["rungs"], engine.get_status()["rungs"])
+        self.assertEqual(restored.get_status()["open_quantity"], 195)
+        self.assertEqual(restored_adapter.orders, [])  # restore never replays paper fills
+        # Re-feeding saved candles is still idempotent after recovery.
+        restored.ingest(self._two_rung_batches())
+        self.assertEqual(len(restored.ladder.fills), 2)
+
     def test_signal_only_replay_records_geometry_without_any_paper_order(self):
         adapter = _PaperAdapter()
         engine = self._engine(adapter, signal_only=True)

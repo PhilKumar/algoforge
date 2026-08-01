@@ -114,6 +114,7 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls._tmp.cleanup)
         cls._swap(config, "DB_PATH", os.path.join(cls._tmp.name, "e2e.db"))
+        cls._swap(config, "OPTION_ARCHIVE_ROOT", os.path.join(cls._tmp.name, "option-archive"))
         # AUTH_PASSWORD is frozen at app-import time from PHILFORGE_PIN, and
         # which test file imports app first varies by collection order — so
         # patch the module global, never the environment.

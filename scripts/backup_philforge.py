@@ -18,6 +18,7 @@ Safety:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
@@ -29,6 +30,7 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,6 +66,14 @@ def _human_bytes(num_bytes: int) -> str:
             return f"{size:.1f}{unit}"
         size /= 1024
     return f"{size:.1f}TB"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _path_size(path: Path) -> int:
@@ -137,6 +147,7 @@ def _write_manifest(
     db_src: Path,
     db_present: bool,
     user_data_src: Path,
+    option_archive_src: Path,
     archive_name: str,
     user_data_items: int,
     legacy_sources: list[tuple[Path, str]],
@@ -148,6 +159,7 @@ def _write_manifest(
         "db_source": str(db_src),
         "db_present": db_present,
         "user_data_source": str(user_data_src),
+        "option_archive_source": str(option_archive_src),
         "archive_name": archive_name,
         "user_data_items": user_data_items,
         "legacy_sources": [arcname for _, arcname in legacy_sources],
@@ -162,6 +174,7 @@ def _build_archive(
     db_present: bool,
     manifest_path: Path,
     user_data_src: Path,
+    option_archive_src: Path,
     legacy_sources: list[tuple[Path, str]],
 ) -> None:
     with tarfile.open(archive_path, "w:gz") as tf:
@@ -177,11 +190,14 @@ def _build_archive(
                 empty_dir.mkdir()
                 tf.add(empty_dir, arcname="philforge-backup/user-data")
 
+        if option_archive_src.exists():
+            tf.add(option_archive_src, arcname="philforge-backup/option-archive")
+
         for src_path, arcname in legacy_sources:
             tf.add(src_path, arcname=arcname)
 
 
-def _update_latest_symlink(output_dir: Path, archive_path: Path) -> None:
+def _update_latest_symlink(output_dir: Path, archive_path: Path, checksum_path: Path) -> None:
     latest = output_dir / "latest.tar.gz"
     try:
         if latest.exists() or latest.is_symlink():
@@ -189,6 +205,13 @@ def _update_latest_symlink(output_dir: Path, archive_path: Path) -> None:
         latest.symlink_to(archive_path.name)
     except OSError:
         shutil.copy2(archive_path, latest)
+    latest_checksum = output_dir / "latest.sha256"
+    try:
+        if latest_checksum.exists() or latest_checksum.is_symlink():
+            latest_checksum.unlink()
+        latest_checksum.symlink_to(checksum_path.name)
+    except OSError:
+        shutil.copy2(checksum_path, latest_checksum)
 
 
 def _prune_old_archives(output_dir: Path, retention_days: int) -> int:
@@ -200,10 +223,42 @@ def _prune_old_archives(output_dir: Path, retention_days: int) -> int:
         try:
             if path.stat().st_mtime < cutoff:
                 path.unlink()
+                checksum = path.with_suffix(path.suffix + ".sha256")
+                checksum.unlink(missing_ok=True)
                 removed += 1
         except FileNotFoundError:
             continue
     return removed
+
+
+def _upload_offsite(archive_path: Path, checksum_path: Path) -> dict[str, str]:
+    """Upload a backup to S3 with mandatory server-side encryption when configured."""
+    destination = str(getattr(config, "BACKUP_S3_URI", "") or "").strip().rstrip("/")
+    if not destination:
+        return {"status": "not_configured"}
+    parsed = urlparse(destination)
+    if parsed.scheme != "s3" or not parsed.netloc:
+        raise RuntimeError("PHILFORGE_BACKUP_S3_URI must be an s3://bucket/prefix URI")
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("boto3 is required when PHILFORGE_BACKUP_S3_URI is configured") from exc
+
+    prefix = parsed.path.strip("/")
+    archive_key = "/".join(part for part in (prefix, archive_path.name) if part)
+    checksum_key = "/".join(part for part in (prefix, checksum_path.name) if part)
+    kms_key = str(getattr(config, "BACKUP_S3_KMS_KEY_ID", "") or "").strip()
+    extra = (
+        {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key} if kms_key else {"ServerSideEncryption": "AES256"}
+    )
+    client = boto3.client("s3")
+    client.upload_file(str(archive_path), parsed.netloc, archive_key, ExtraArgs=extra)
+    client.upload_file(str(checksum_path), parsed.netloc, checksum_key, ExtraArgs=extra)
+    return {
+        "status": "uploaded",
+        "archive": f"s3://{parsed.netloc}/{archive_key}",
+        "encryption": "aws:kms" if kms_key else "AES256",
+    }
 
 
 def main() -> int:
@@ -232,11 +287,14 @@ def main() -> int:
 
     db_src = Path(config.DB_PATH).expanduser().resolve()
     user_data_src = Path(config.USER_DATA_ROOT).expanduser().resolve()
+    option_archive_src = Path(config.OPTION_ARCHIVE_ROOT).expanduser().resolve()
     legacy_root = Path(args.legacy_root).expanduser().resolve()
     legacy_sources = _discover_legacy_sources(legacy_root) if args.include_legacy else []
     timestamp = _now_utc()
     archive_path = output_dir / _archive_name(timestamp)
     estimated_required = _estimate_required_bytes(db_src, user_data_src, legacy_sources)
+    if option_archive_src != user_data_src and user_data_src not in option_archive_src.parents:
+        estimated_required += _path_size(option_archive_src)
     disk_budget = _ensure_free_space(output_dir, estimated_required, config.BACKUP_MIN_FREE_MB)
 
     with tempfile.TemporaryDirectory(prefix="philforge-backup-meta-", dir=str(output_dir)) as tmp_root:
@@ -249,14 +307,27 @@ def main() -> int:
             db_src,
             db_present,
             user_data_src,
+            option_archive_src,
             archive_path.name,
             _tree_items(user_data_src),
             legacy_sources,
             disk_budget,
         )
-        _build_archive(archive_path, db_dest, db_present, manifest_path, user_data_src, legacy_sources)
+        _build_archive(
+            archive_path,
+            db_dest,
+            db_present,
+            manifest_path,
+            user_data_src,
+            option_archive_src,
+            legacy_sources,
+        )
 
-    _update_latest_symlink(output_dir, archive_path)
+    checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+    checksum = _sha256_file(archive_path)
+    checksum_path.write_text(f"{checksum}  {archive_path.name}\n", encoding="utf-8")
+    _update_latest_symlink(output_dir, archive_path, checksum_path)
+    offsite = _upload_offsite(archive_path, checksum_path)
     removed = _prune_old_archives(output_dir, args.retention_days)
 
     print(
@@ -268,6 +339,8 @@ def main() -> int:
                 "included_legacy": len(legacy_sources),
                 "estimated_required_bytes": estimated_required,
                 "free_bytes_before_backup": disk_budget["free_bytes"],
+                "sha256": checksum,
+                "offsite": offsite,
             },
             indent=2,
         )

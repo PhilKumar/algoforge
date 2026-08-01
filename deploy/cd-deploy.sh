@@ -79,7 +79,10 @@ pip install -q --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 # application can defer engine restore while it is the standby.
 log "Refreshing systemd template..."
 sudo cp "$APP_DIR/deploy/philforge.service" "/etc/systemd/system/${APP}@.service"
+sudo cp "$APP_DIR/deploy/philforge-backup.service" "/etc/systemd/system/${APP}-backup.service"
+sudo cp "$APP_DIR/deploy/philforge-backup.timer" "/etc/systemd/system/${APP}-backup.timer"
 sudo systemctl daemon-reload
+sudo systemctl enable --now "${APP}-backup.timer"
 
 log "Clearing __pycache__ to prevent stale bytecode..."
 find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true

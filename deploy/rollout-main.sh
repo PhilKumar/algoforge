@@ -2,6 +2,7 @@
 set -euo pipefail
 
 APP_DIR="/home/ec2-user/philforge"
+STATE_ROOT="/home/ec2-user/.local/share/philforge"
 VENV="$APP_DIR/venv"
 LOG_TAG="[ROLLOUT]"
 LOCK_FILE="$HOME/.philforge-deploy.lock"
@@ -29,7 +30,8 @@ log "Installing dependencies..."
 pip install -q --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 
 log "Ensuring required directories exist..."
-mkdir -p "$APP_DIR/backups/manual" "$APP_DIR/data/users"
+install -d -m 700 "$STATE_ROOT" "$STATE_ROOT/backups" "$STATE_ROOT/backups/manual" \
+  "$STATE_ROOT/users" "$STATE_ROOT/option-archive"
 
 log "Ensuring multi-tenant env keys exist..."
 python3 - <<'PY'
@@ -41,11 +43,12 @@ text = env_path.read_text(encoding='utf-8') if env_path.exists() else ''
 lines = text.splitlines()
 updates = {
     'ADMIN_USERNAME': 'admin',
-    'PHILFORGE_DB': '/home/ec2-user/philforge/philforge.db',
-    'PHILFORGE_USER_DATA_ROOT': '/home/ec2-user/philforge/data/users',
-    'PHILFORGE_BACKUP_ROOT': '/home/ec2-user/philforge/backups',
+    'PHILFORGE_DB': '/home/ec2-user/.local/share/philforge/philforge.db',
+    'PHILFORGE_USER_DATA_ROOT': '/home/ec2-user/.local/share/philforge/users',
+    'PHILFORGE_BACKUP_ROOT': '/home/ec2-user/.local/share/philforge/backups',
     'PHILFORGE_BACKUP_RETENTION_DAYS': '14',
     'PHILFORGE_BACKUP_MIN_FREE_MB': '1024',
+    'PHILFORGE_OPTION_ARCHIVE_ROOT': '/home/ec2-user/.local/share/philforge/option-archive',
 }
 existing = {}
 for line in lines:
@@ -63,7 +66,10 @@ for line in lines:
         key, _ = line.split('=', 1)
         key = key.strip()
         if key in updates:
-            out.append(f"{key}={updates[key]}")
+            # Existing installations keep their configured paths. Runtime
+            # storage is moved only by migrate_runtime_storage.py during a
+            # confirmed maintenance window.
+            out.append(line if existing.get(key, '').strip() else f"{key}={updates[key]}")
             seen.add(key)
             continue
     out.append(line)
@@ -75,7 +81,8 @@ print('[ROLLOUT] .env updated with multi-tenant settings')
 PY
 
 log "Creating pre-cutover backup..."
-python3 "$APP_DIR/scripts/backup_philforge.py" --output-dir "$APP_DIR/backups/manual" --include-legacy
+python3 "$APP_DIR/scripts/backup_philforge.py" --output-dir "$STATE_ROOT/backups/manual" --include-legacy
+python3 "$APP_DIR/scripts/verify_backup.py" --archive "$STATE_ROOT/backups/manual/latest.tar.gz"
 
 log "Running pre-deploy migration..."
 python3 "$APP_DIR/scripts/migrate_to_sqlite.py"
@@ -110,6 +117,6 @@ systemctl is-enabled philforge-backup.timer
 systemctl show philforge-backup.service -p Result -p ExecMainStatus -p ActiveState --no-pager
 
 log "Recent backups..."
-ls -lt "$APP_DIR/backups" | head
+ls -lt "$STATE_ROOT/backups" | head
 
 log "Rollout completed successfully."
