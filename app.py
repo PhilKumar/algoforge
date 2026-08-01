@@ -192,6 +192,45 @@ if os.path.exists("static"):
 
 _ASSET_MANIFEST_PATH = os.path.join(_HERE, "static", "asset-manifest.json")
 _ASSET_VERSION_CACHE: tuple[int | None, str] | None = None
+_ASSET_FINGERPRINT_CACHE: str | None = None
+_ASSET_FINGERPRINT_SUFFIXES = (".js", ".css")
+
+
+def _asset_fingerprint() -> str:
+    """A short digest of every served JS/CSS file's CONTENT.
+
+    The manifest string is a hand-typed label, and between 2026-07-30 and
+    2026-08-01 eighteen front-end commits shipped without it moving.  When it
+    does not move nothing else does either: every `?v=` URL stays byte-identical
+    AND the service worker's CACHE_NAME stays the same, so its activate-purge
+    never fires and it answers static requests cache-first.  Users keep running
+    the previous release's JavaScript and no amount of deploying changes that.
+
+    Hashing the files removes the hand-step: change any JS or CSS and the
+    version changes with it.  Computed once per process, so a deploy (which
+    restarts the app) is what re-reads them.
+    """
+
+    global _ASSET_FINGERPRINT_CACHE
+    if _ASSET_FINGERPRINT_CACHE is not None:
+        return _ASSET_FINGERPRINT_CACHE
+    digest = hashlib.blake2b(digest_size=6)
+    static_root = os.path.join(_HERE, "static")
+    try:
+        for folder, _dirs, files in sorted(os.walk(static_root)):
+            for name in sorted(files):
+                if not name.endswith(_ASSET_FINGERPRINT_SUFFIXES):
+                    continue
+                path = os.path.join(folder, name)
+                digest.update(os.path.relpath(path, static_root).encode())
+                with open(path, "rb") as handle:
+                    digest.update(handle.read())
+    except OSError:
+        # A partially readable static tree must not take the app down; the
+        # manifest label alone still versions the assets, just less reliably.
+        return ""
+    _ASSET_FINGERPRINT_CACHE = digest.hexdigest()
+    return _ASSET_FINGERPRINT_CACHE
 
 
 def _asset_version() -> str:
@@ -210,7 +249,9 @@ def _asset_version() -> str:
         version = str(data.get("version") or "").strip()
     except Exception:
         version = ""
-    _ASSET_VERSION_CACHE = (manifest_mtime, version or fallback)
+    label = version or fallback
+    fingerprint = _asset_fingerprint()
+    _ASSET_VERSION_CACHE = (manifest_mtime, f"{label}-{fingerprint}" if fingerprint else label)
     return _ASSET_VERSION_CACHE[1]
 
 
