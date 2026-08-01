@@ -188,6 +188,75 @@ def ladder_result(ladder, *, instrument: str, timeframe: str, mother_timestamp: 
     }
 
 
+def fib_boundary_chart(config, result, candles: list, *, timeframe: str) -> dict:
+    """Draw a typed-mother fib-boundary replay for the Canvas renderer.
+
+    `bench_chart` cannot draw this one: it renders legs and trendlines the
+    auto-geometry engine discovers, and a typed ladder has neither.  Its two
+    boundaries are fixed lines measured straight off the mother the user named,
+    so they go through `lines` -- solid and carrying what they cost once filled,
+    dashed and faint while price never reached them.
+    """
+
+    spend_by_level: dict[int, float] = {}
+    for entry in result.entries:
+        if entry.option_price is None:
+            continue
+        level = int(entry.stage)
+        spend_by_level[level] = round(spend_by_level.get(level, 0.0) + float(entry.option_price) * entry.quantity, 2)
+    filled = {int(entry.stage) for entry in result.entries}
+    lines = [
+        {
+            "price": config.boundary_price(level),
+            "label": f"L{level}",
+            "inr_notional": spend_by_level.get(int(level), 0.0),
+            "filled": int(level) in filled,
+        }
+        for level in config.ordered_boundaries()
+    ]
+    return {
+        "timeframe": timeframe,
+        "candles": [
+            {
+                "t": int(row.timestamp.timestamp()),
+                "o": row.open,
+                "h": row.high,
+                "l": row.low,
+                "c": row.close,
+                "is_mother": row.timestamp == config.mother_timestamp,
+            }
+            for row in candles
+        ],
+        "mother": {"high": config.mother_high, "low": config.mother_low},
+        "trendlines": [],
+        "legs": [],
+        "lines": lines,
+        "entries": [{"t": int(entry.timestamp.timestamp()), "price": entry.spot} for entry in result.entries],
+        "exits": (
+            [
+                {
+                    "t": int(result.exit_timestamp.timestamp()),
+                    "price": result.target_index if result.exit_reason == "target" else result.average_spot,
+                    "pnl": result.net_pnl or 0,
+                }
+            ]
+            if result.exit_timestamp and result.entries
+            else []
+        ),
+        "avg_entry_price": result.average_spot,
+        "tp_price": result.target_index,
+        # A mother squared off at expiry never sold at its target, and the line
+        # must not claim it did.
+        "tp_label": (
+            "TARGET HIT"
+            if result.exit_reason == "target"
+            else "TARGET (open — watching)"
+            if result.entries and result.exit_timestamp is None
+            else "TARGET (not reached)"
+        ),
+    }
+
+
 def ladder_chart(ladder, candles: list, *, timeframe: str) -> dict:
     """Draw the ladder on the chart Phil chose to read it on.
 

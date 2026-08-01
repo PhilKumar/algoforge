@@ -2115,7 +2115,7 @@ function _syncFibModeHint() {
     el.textContent = '▶ Live paper: buys at real current premiums, P&L accrues live this session.';
   } else {
     el.classList.add('is-replay');
-    el.textContent = '↻ Past mother → Start runs SIGNAL-ONLY (P&L withheld). ◱ Backtest gives real historical P&L, but for the auto-geometry engine — not these typed fib levels.';
+    el.textContent = '↻ Past mother → Start replays the index geometry only (P&L withheld — Dhan quotes only "now"). ◱ Backtest replays the SAME typed levels against real Upstox/Dhan premium history and gives the full P&L.';
   }
 }
 
@@ -2480,7 +2480,7 @@ async function runFibBoundaryBacktest() {
   } catch (error) {
     _fibSetFormStatus(error.message || 'Backtest failed.', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = '◱ Backtest (real premiums)'; }
+    if (button) { button.disabled = false; button.textContent = '◱ Backtest · real P&L'; }
   }
 }
 

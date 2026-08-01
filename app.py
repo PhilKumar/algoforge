@@ -79,6 +79,7 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
+from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
 from engine.cascade_options import (
     CascadeConfig,
@@ -2833,7 +2834,10 @@ class FibBoundaryBacktestPayload(BaseModel):
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
     itm_steps: int = Field(default=2, ge=0, le=10)
-    horizon_days: int = Field(default=20, ge=1, le=45)
+    # A monthly bought at 15-45 DTE with no stop loss can only end at its target
+    # or at expiry, so the replay has to be able to reach 45 days out; the old
+    # 20-day default guaranteed an unfinished answer on half the contracts.
+    horizon_days: int = Field(default=50, ge=1, le=70)
 
 
 class TerminalCascadePaperStartPayload(BaseModel):
@@ -8477,6 +8481,66 @@ def _serialize_cascade_geometry(engine: NiftyOptionsPaperCascade, mother: IndexC
     }
 
 
+def _serialize_fib_boundary_backtest(result, lot_size: int) -> dict:
+    """Flatten a typed-mother `FibBoundaryCascade` replay into the panel's JSON.
+
+    Deliberately the same field names `_serialize_cascade_backtest` produces, so
+    the panel renders either without a branch.  `level` is the fib boundary the
+    buy sat on -- which this engine carries as the entry's stage, because a typed
+    ladder has no legs to key a rung against.
+    """
+
+    def _iso(value):
+        return value.isoformat() if value is not None else None
+
+    entries = []
+    for entry in result.entries:
+        premium = entry.option_price
+        entries.append(
+            {
+                "timestamp": _iso(entry.timestamp),
+                "spot": entry.spot,
+                "option_price": premium,
+                "lots": entry.lots,
+                "quantity": entry.quantity,
+                "level": entry.stage,
+                "leg_id": None,
+                # An unpriced fill is a gap, never a free trade.
+                "spend_inr": (round(float(premium) * int(entry.quantity), 2) if premium is not None else None),
+                "strike": entry.contract.strike,
+                "option_type": entry.contract.option_type,
+                "expiry": entry.contract.expiry.isoformat(),
+            }
+        )
+    # Each rung re-selects its own strike as the index falls, so the campaign
+    # holds several. The first one names the campaign; the table shows them all.
+    first = result.entries[0].contract if result.entries else None
+    return {
+        "status": result.status,
+        "contract": (
+            {
+                "strike": first.strike,
+                "expiry": first.expiry.isoformat(),
+                "option_type": first.option_type,
+                "lot_size": getattr(first, "lot_size", lot_size),
+            }
+            if first is not None
+            else None
+        ),
+        "entries": entries,
+        "exit_timestamp": _iso(result.exit_timestamp),
+        "exit_reason": result.exit_reason,
+        "target_index": result.target_index,
+        "average_spot": result.average_spot,
+        "index_move": result.index_move,
+        "gross_pnl": result.realized_pnl,
+        "costs_total": result.costs_total,
+        "net_pnl": result.net_pnl,
+        "fully_priced": result.fully_priced,
+        "data_gaps": list(result.data_gaps or []),
+    }
+
+
 @app.post("/api/fib-boundary/backtest")
 async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Request):
     """Replay a past mother with REAL fixed-strike Upstox premiums.
@@ -8505,11 +8569,9 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY index candles.")
-    if side != "CE":
-        raise HTTPException(
-            status_code=400,
-            detail="PE cascade backtest is not wired to the real geometry engine yet (CE only for now).",
-        )
+    # PE used to be refused here because the auto-geometry engine only ran CE.
+    # FibBoundaryCascade mirrors the ladder above the mother low, so both sides
+    # replay.
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=payload.horizon_days))
     try:
@@ -8519,9 +8581,10 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
 
-    # The mother candle comes from the real market data -- its high/low anchor the
-    # trendline and the mother-break exactly like CryptoForge.  A typed pair is
-    # only an explicit override; with neither, the mother is wrong, not guessed.
+    # The mother candle comes from the real market data -- its high and low ARE
+    # the fib ladder, the same two numbers the live paper engine measures from.
+    # A typed pair is only an explicit override; with neither, the mother is
+    # wrong, not guessed.
     mother_row = next((row for row in index_candles if row.timestamp == mother_timestamp), None)
     if mother_row is not None and not typed:
         mother = mother_row
@@ -8540,21 +8603,28 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     if not forward:
         raise HTTPException(status_code=400, detail="No NIFTY candles after the mother in that window.")
 
-    resolver_config = CascadeConfig(
+    # The ladder is the two typed numbers, nothing else: no trendline, no leg
+    # detection, no swing. Exactly what FibBoundaryPaper measures live, so this
+    # replay proves the geometry the Start button actually trades.
+    fib_config = FibBoundaryConfig(
         mother_timestamp=mother_timestamp,
         mother_high=mother.high,
         mother_low=mother.low,
         option_type=side,
         timeframe=timeframe,
+        rung_inr=float(payload.rung_inr),
         itm_steps=int(payload.itm_steps),
         strike_step=50.0,
         lot_size=_NIFTY_BACKTEST_LOT_SIZE,
+        target_fraction=0.25,
     )
 
     def _run() -> dict:
         # Upstox construction + the coverage probe both hit the network and read
         # UPSTOX_ACCESS_TOKEN, so the whole batch runs off the event loop.
         from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+        from engine.cascade_options import OptionCandle
+        from engine.test_bench import fib_boundary_chart
 
         # Dhan-style self-heal: mint a fresh Upstox token if the daily one is dead
         # and headless-login creds are configured; a no-op otherwise.
@@ -8583,20 +8653,6 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         resolver = NiftyContractResolver(
             expiries=expiries, strike_step=50.0, lot_size=_NIFTY_BACKTEST_LOT_SIZE, symbol="NIFTY"
         )
-
-        def to_fixed(contract) -> FixedCampaignOption:
-            return FixedCampaignOption(
-                "NIFTY", int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
-            )
-
-        def select(_timestamp, index_price) -> FixedCampaignOption:
-            # Strike is ATM-N at the index AT THIS FILL (a deeper CE buys a lower
-            # strike), but the EXPIRY stays the mother's next-weekly for the whole
-            # campaign -- so we resolve against the mother's date, not the fill's.
-            # Re-resolving on the fill date would drift the expiry as the campaign
-            # ages and eventually find none Upstox has priced.
-            return to_fixed(resolver.select(mother.timestamp, index_price, side, resolver_config))
-
         premium_lookup = _hybrid_premium_lookup(
             broker_client,
             "NIFTY",
@@ -8606,32 +8662,18 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             horizon_to,
         )
 
-        try:
-            initial = select(mother.timestamp, mother.close)
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"No next-weekly {side} strike at the mother: {exc}") from exc
-        paper_adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-        engine = NiftyOptionsPaperCascade(
-            mother,
-            initial,
-            paper_adapter,
-            premium_lookup,
-            PaperCascadeConfig(
-                rung_inr=float(payload.rung_inr),
-                ce_offset_steps=-int(payload.itm_steps),
-                target_fraction=0.25,
-                lot_ladder=True,
-                per_entry_strike=True,
-                # Phil's locked timeframe rule -- (8,) on 1m, (4, 8) on 5m,
-                # (2, 4, 8) on 15m/1h.  Without this the engine's own default
-                # armed L2 on every chart, including the fast ones where the
-                # Jan-Jul 2026 sweep showed the shallow line only loses money.
-                fib_levels=boundaries_for_timeframe(timeframe),
-            ),
-            contract_selector=select,
-        ).run(forward)
-        serialized = _serialize_cascade_backtest(engine)
-        serialized["geometry"] = _serialize_cascade_geometry(engine, mother, forward)
+        def option_lookup(timestamp, contract):
+            # The hybrid lookup answers in rupees; this engine reads bars. A
+            # missing minute stays None so it is recorded as a gap rather than
+            # priced from a neighbour.
+            price = premium_lookup(timestamp, contract)
+            if price is None:
+                return None
+            return OptionCandle(timestamp, float(price), float(price), float(price), float(price))
+
+        result = FibBoundaryCascade(fib_config, resolver, option_lookup).run(forward)
+        serialized = _serialize_fib_boundary_backtest(result, _NIFTY_BACKTEST_LOT_SIZE)
+        serialized["_chart"] = fib_boundary_chart(fib_config, result, forward, timeframe=timeframe)
         return serialized
 
     try:
@@ -8641,8 +8683,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
 
-    from engine.test_bench import bench_chart
-
+    chart = backtest.pop("_chart", None)
     return {
         "status": "ok",
         "mode": "backtest",
@@ -8654,13 +8695,12 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         "horizon_to": horizon_to.isoformat(),
         "lot_size": _NIFTY_BACKTEST_LOT_SIZE,
         "result": backtest,
-        # The same Canvas payload the Test Bench draws — bar-index axis, gap
-        # blocks, trade markers — so this panel stops using the old wall-clock
-        # SVG that let a weekend fling the trendline off the chart.
-        "chart": bench_chart(backtest.get("geometry") or {}, backtest, timeframe=timeframe),
+        "chart": chart,
         "note": (
-            "CryptoForge geometry (auto trendline -> touch -> fib); 1/2/3 lot ladder; each entry buys ATM-2 "
-            "against the index at that level. Every premium is a real Upstox bar or a recorded gap."
+            f"Typed-mother fib ladder — {' and '.join('L' + str(level) for level in fib_config.ordered_boundaries())} "
+            f"measured straight off {mother.high:,.2f} / {mother.low:,.2f}, two closes beyond a line arm the buy. "
+            f"1/2/3 lot ladder, each rung buying ATM-{payload.itm_steps} against the index at that depth, "
+            "monthly expiry at 15-45 DTE. Every premium is a real Upstox or Dhan bar, or a recorded gap."
         ),
     }
 
