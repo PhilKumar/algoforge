@@ -1752,7 +1752,7 @@ function _ceRenderTimeframes() {
   }).join('');
   select.value = chosen;
   const mother = _cascadeOptionsEl('candle-entry-mother-timestamp');
-  if (mother) mother.dataset.pfCalendarMinutes = _TB_MINUTES_BY_TF[select.value] || '';
+  if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[select.value] || '';
 }
 
 async function startCandleEntryPaper() {
@@ -2002,6 +2002,42 @@ function _syncFibLevelsHint() {
   const tf = document.getElementById('fibx-timeframe')?.value || '5m';
   const hint = document.getElementById('fibx-levels-hint');
   if (hint) hint.textContent = _fibLevelsForTimeframe(tf).map(level => `L${level}`).join(' · ');
+  // The picker must offer only the minutes this timeframe can open on: 5m gets
+  // multiples of 5, 15m multiples of 15, 1H only :15, and 1m every minute.
+  // Anything else is a timestamp Dhan has no candle for.
+  const mother = document.getElementById('fibx-mother-timestamp');
+  if (!mother) return;
+  mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[tf] || '';
+  _fibSnapMotherToTimeframe(mother, tf);
+}
+
+// Changing the timeframe leaves whatever was already typed behind, and the
+// picker deliberately keeps offering a stale minute rather than silently
+// snapping it. That is right for the dropdown and wrong for the field: 14:17
+// left over from 1m is not a 15m candle. Round DOWN to the bar that contains
+// it, which is the one a trader means by that instant.
+function _fibSnapMotherToTimeframe(input, timeframe) {
+  const match = String(input.value || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return;
+  const [, day, rawHour, rawMinute] = match;
+  let hour = Number(rawHour);
+  let minute = Number(rawMinute);
+  if (timeframe === '1h') {
+    // NSE 1H bars open at :15 only, so 10:05 belongs to the 09:15 bar.
+    if (minute < 15) hour -= 1;
+    minute = 15;
+    if (hour < 9) { hour = 9; minute = 15; }
+  } else {
+    const step = _FIB_TIMEFRAME_MINUTES[timeframe] || 5;
+    minute -= minute % step;
+  }
+  // Rounding down can land before the open — 09:14 on 5m becomes 09:10, which is
+  // not a candle either. The session starts at 09:15 on every timeframe.
+  if (hour * 60 + minute < 555) { hour = 9; minute = 15; }
+  const snapped = `${day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (snapped === input.value) return;
+  input.value = snapped;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 // The browser may be in any zone; every rule below is an IST rule, so read the
@@ -14404,7 +14440,12 @@ function _tbRenderTimeframes() {
 // start at 09:15, so every bar is offset by 15: a 1H bar opens at :15 and
 // nothing else, a 15m bar at :00/:15/:30/:45. Offering a minute that can never
 // be a candle open only produces "Dhan has no candle at that time".
-const _TB_MINUTES_BY_TF = {
+//
+// Shared by all three mother pickers -- Test Bench, candle-entry and
+// fib-boundary. The fib tab was the one that never got wired to it, so its
+// picker offered all 60 minutes on every timeframe and 14:17 looked selectable
+// on a 15m chart.
+const _MOTHER_MINUTES_BY_TF = {
   '1m': Array.from({ length: 60 }, (_, i) => i).join(','),
   '5m': [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].join(','),
   '15m': [0, 15, 30, 45].join(','),
@@ -14414,7 +14455,7 @@ const _TB_MINUTES_BY_TF = {
 function _tbSyncCalendarToTimeframe() {
   const mother = document.getElementById('tb-mother');
   const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
-  if (mother) mother.dataset.pfCalendarMinutes = _TB_MINUTES_BY_TF[timeframe] || '';
+  if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[timeframe] || '';
 }
 
 function initTestBenchPage() {
