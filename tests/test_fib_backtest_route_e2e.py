@@ -24,8 +24,6 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-os.environ.setdefault("PHILFORGE_PIN", "123456")
-
 import httpx  # noqa: E402
 
 import app as app_module  # noqa: E402
@@ -57,9 +55,10 @@ INDEX_CANDLES = {
     _dt(10, 45): (23630.0, 23920.0, 23620.0, 23900.0),
 }
 
-# The L8 fill minute (10:30) deliberately has NO bar — the nearest is 10:27,
-# so the leg must price from the last trade and say so, not gap out.
-OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 45): 520.0}
+# Two deliberately thin minutes: the L8 fill (10:30) has no bar — nearest is
+# 10:27, priced from the last trade — and the exit (10:45) first prints at
+# 10:47, priced from the next trade inside the exit candle.  Neither gaps.
+OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 47): 520.0}
 
 
 class _StubDhanClient:
@@ -108,11 +107,17 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         setattr(holder, attribute, value)
         cls.addClassCleanup(setattr, holder, attribute, original)
 
+    PIN = "e2e-pin-123456"
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls._tmp.cleanup)
         cls._swap(config, "DB_PATH", os.path.join(cls._tmp.name, "e2e.db"))
+        # AUTH_PASSWORD is frozen at app-import time from PHILFORGE_PIN, and
+        # which test file imports app first varies by collection order — so
+        # patch the module global, never the environment.
+        cls._swap(app_module, "AUTH_PASSWORD", cls.PIN)
         # Another test may have initialised the schema at ITS path already;
         # the module flag would make init a no-op at ours.
         cls._swap(db_module, "_initialized", False)
@@ -139,9 +144,7 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         async def _run():
             transport = httpx.ASGITransport(app=app_module.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://e2e.local") as client:
-                login = await client.post(
-                    "/api/auth/login", json={"username": "admin", "password": os.environ["PHILFORGE_PIN"]}
-                )
+                login = await client.post("/api/auth/login", json={"username": "admin", "password": cls.PIN})
                 assert login.status_code == 200, login.text
                 return [await client.post(path, json=payload) for path, payload in calls]
 
@@ -177,10 +180,13 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         self.assertGreater(result["costs_total"], 0)
         self.assertAlmostEqual(result["gross_pnl"], (520 - 500) * 65 + (520 - 300) * 2 * 65, places=2)
 
-        # The L8 fill minute had no bar; the leg priced from the 10:27 trade
-        # and the response says so instead of withholding everything.
-        self.assertEqual(len(result["premium_stale_fills"]), 1)
-        self.assertIn("3 min earlier", result["premium_stale_fills"][0])
+        # The L8 fill minute had no bar (priced from the 10:27 trade) and the
+        # exit's first print came 2 min into its candle — both disclosed,
+        # neither withholding anything.
+        self.assertEqual(len(result["premium_stale_fills"]), 3)
+        notes = "\n".join(result["premium_stale_fills"])
+        self.assertIn("3 min earlier", notes)
+        self.assertIn("2 min into the candle", notes)
 
         # The mother came off the stub Dhan frame, not typed numbers.
         self.assertAlmostEqual(body["mother"]["high"], MOTHER_HIGH)

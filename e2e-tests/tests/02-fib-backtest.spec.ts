@@ -35,7 +35,11 @@ const backtestSuccess = {
     target_index: 23886.825, average_spot: 23726.666666666668, index_move: 160.15833333333285,
     gross_pnl: 29900.0, costs_total: 268.26, net_pnl: 29631.74, fully_priced: true,
     data_gaps: [], premium_failures: [],
-    premium_stale_fills: ['23500CE at 10:30 priced from the last trade 3 min earlier (10:27 bar, ₹300.00)'],
+    premium_stale_fills: [
+      '23500CE at 10:30 priced from the last trade 3 min earlier (10:27 bar, ₹300.00)',
+      '23850CE at 10:45 priced from its next trade 2 min into the candle (10:47 bar, ₹520.00)',
+      '23500CE at 10:45 priced from its next trade 2 min into the candle (10:47 bar, ₹520.00)',
+    ],
   },
   note: 'Typed-mother fib ladder — L4 and L8 measured straight off 24,367.30 / 24,280.55.',
 };
@@ -136,7 +140,7 @@ test('Backtest panel shows real rupee P&L with a stale leg disclosed, not withhe
 
   // The illiquid minute is disclosed as a quiet note, not an amber warning.
   const gapsBox = page.locator('#fibx-backtest-gaps');
-  await expect(gapsBox.locator('.fibx-premium-stale')).toContainText('priced from the last traded bar');
+  await expect(gapsBox.locator('.fibx-premium-stale')).toContainText('priced without an exact minute bar');
   await expect(gapsBox.locator('.fibx-premium-gaps')).toHaveCount(0);
   await expect(gapsBox.locator('.fibx-premium-failures')).toHaveCount(0);
 });
@@ -152,5 +156,5 @@ test('A dead premium source is named as a failure, never dressed up as a market 
   await expect(failures).toContainText('NOT a market gap');
   await expect(failures).toContainText('DH-901');
   // The real market gap list still renders alongside, with the new copy.
-  await expect(gapsBox.locator('.fibx-premium-gaps')).toContainText('no bar within 10 min');
+  await expect(gapsBox.locator('.fibx-premium-gaps')).toContainText('no tradable bar near the fill');
 });

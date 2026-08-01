@@ -301,6 +301,9 @@ class CascadeResult:
     # replay will always have some; the point is that the report shows how many
     # rather than one gap ending the campaign or, worse, going unmentioned.
     data_gaps: list[str] = field(default_factory=list)
+    # Legs priced without an exact minute bar — a neighbouring real trade, or
+    # intrinsic value at an exit.  Disclosure, not gaps: the P&L stands.
+    pricing_notes: list[str] = field(default_factory=list)
     exit_option_prices: list[Optional[float]] = field(default_factory=list)
     costs_total: float = 0.0
     net_pnl: Optional[float] = None

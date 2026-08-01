@@ -368,11 +368,26 @@ class FibBoundaryCascade:
 
     def _exit_premium(self, candle: Candle, entry: Entry) -> Optional[float]:
         bar = self._lookup_option(candle.timestamp, entry.contract)
-        if bar is None:
-            gap = f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.key}"
-            self.result.data_gaps.append(gap)
-            return None
-        return bar.open
+        if bar is not None:
+            return bar.open
+        # No printable trade near the exit at all.  The position still has a
+        # hard floor nobody disputes: intrinsic value against the index — the
+        # same settlement the expiry exit already uses.  A deep ITM option
+        # (exactly the leg that goes quiet) trades within rupees of it, and
+        # using the floor UNDERSTATES the profit rather than inventing one.
+        if entry.contract.option_type == "CE":
+            intrinsic = max(candle.close - entry.contract.strike, 0.0)
+        else:
+            intrinsic = max(entry.contract.strike - candle.close, 0.0)
+        if intrinsic > 0:
+            self.result.pricing_notes.append(
+                f"{entry.contract.key} exit at {candle.timestamp.strftime('%H:%M')} priced at intrinsic "
+                f"₹{intrinsic:,.2f} (no trade printed near the exit; floor value, understates profit)"
+            )
+            return intrinsic
+        gap = f"missing exit option candle at {candle.timestamp.isoformat()} for {entry.contract.key}"
+        self.result.data_gaps.append(gap)
+        return None
 
     def _settle(self, option_prices: list[Optional[float]]) -> None:
         entries = self.result.entries

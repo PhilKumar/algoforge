@@ -104,6 +104,37 @@ class FibBoundarySerializerTests(unittest.TestCase):
         for row in payload["entries"]:
             self.assertIsNone(row["spend_inr"])
 
+    def test_an_exit_with_no_print_settles_at_the_intrinsic_floor(self):
+        # The deep ITM leg is exactly the one that stops printing (2026-07-27:
+        # a gap-up hit the target on the opening candle before the deep strike
+        # traded).  Its exit settles at intrinsic against the index — the same
+        # floor the expiry exit uses — disclosed, and the P&L stands.
+        def lookup(timestamp, contract):
+            value = PREMIUMS.get((timestamp.hour, timestamp.minute))
+            if value is None:
+                return None
+            if (timestamp.hour, timestamp.minute) == (9, 45) and contract.strike <= 23_000:
+                return None  # the deep strike never printed near the exit
+            return OptionCandle(timestamp, value, value, value, value)
+
+        config = _config()
+        resolver = NiftyContractResolver(EXPIRIES, strike_step=50.0, lot_size=75)
+        result = FibBoundaryCascade(config, resolver, lookup).run(CANDLES)
+
+        self.assertEqual(result.status, "closed")
+        self.assertEqual(result.data_gaps, [])
+        self.assertEqual(len(result.pricing_notes), 1)
+        self.assertIn("intrinsic", result.pricing_notes[0])
+        self.assertIsNotNone(result.net_pnl)
+        # The exit candle closed at 23,540; the deep leg's floor is close - strike.
+        deep = next(entry for entry in result.entries if entry.contract.strike <= 23_000)
+        floor = 23_540.0 - deep.contract.strike
+        priced_exit = result.exit_option_prices[result.entries.index(deep)]
+        self.assertAlmostEqual(priced_exit, floor)
+        payload = _serialize_fib_boundary_backtest(result, 75)
+        self.assertTrue(payload["fully_priced"])
+        self.assertIsNotNone(payload["net_pnl"])
+
     def test_a_mother_that_never_traded_serializes_without_a_contract(self):
         config = _config()
         resolver = NiftyContractResolver(EXPIRIES, strike_step=50.0, lot_size=75)

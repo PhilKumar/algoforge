@@ -60,10 +60,12 @@ class _ScripMaster:
         return cls.security_id
 
 
-def _build(broker):
+def _build(broker, forward_minutes: int = 5):
     # ScripMaster is resolved when the lookup RUNS, so the patch has to outlive
     # this call -- the test classes swap app_module.ScripMaster in setUp.
-    return _hybrid_premium_lookup(broker, "NIFTY", None, set(), date(2026, 7, 17), date(2026, 7, 28))
+    return _hybrid_premium_lookup(
+        broker, "NIFTY", None, set(), date(2026, 7, 17), date(2026, 7, 28), forward_minutes=forward_minutes
+    )
 
 
 class MinuteKeyTests(unittest.TestCase):
@@ -98,6 +100,38 @@ class HybridLookupTests(unittest.TestCase):
         self.assertEqual(price, 480.0)
         self.assertEqual(len(lookup.stale_fills), 1)
         self.assertIn("3 min earlier", lookup.stale_fills[0])
+
+    def test_a_session_open_fill_prices_from_the_days_first_trade(self):
+        # The 2026-07-27 failure: a gap-up crossed the target on the 09:15
+        # candle, but the deep strike's first print of the day came at 09:17.
+        # An exit order resting there fills at that next trade — walking
+        # backward finds only yesterday, which the lookup must refuse.
+        broker = _Broker({datetime(2026, 7, 27, 9, 17): 402.0})
+        lookup = _build(broker, forward_minutes=15)
+        price = lookup(datetime(2026, 7, 27, 9, 15, tzinfo=IST), _Contract())
+        self.assertEqual(price, 402.0)
+        self.assertEqual(len(lookup.stale_fills), 1)
+        self.assertIn("2 min into the candle", lookup.stale_fills[0])
+
+    def test_the_forward_scan_stays_inside_the_fills_own_candle(self):
+        # A 5m replay owns minutes T..T+4; a bar at T+5 belongs to the next
+        # candle and reading it would be lookahead.
+        broker = _Broker({datetime(2026, 7, 22, 10, 5): 402.0})
+        lookup = _build(broker, forward_minutes=5)
+        self.assertIsNone(lookup(datetime(2026, 7, 22, 10, 0, tzinfo=IST), _Contract()))
+        self.assertEqual(lookup.stale_fills, [])
+
+    def test_the_exact_bar_wins_over_every_neighbour(self):
+        broker = _Broker(
+            {
+                datetime(2026, 7, 22, 9, 59): 470.0,
+                datetime(2026, 7, 22, 10, 0): 485.75,
+                datetime(2026, 7, 22, 10, 1): 490.0,
+            }
+        )
+        lookup = _build(broker, forward_minutes=15)
+        self.assertEqual(lookup(datetime(2026, 7, 22, 10, 0, tzinfo=IST), _Contract()), 485.75)
+        self.assertEqual(lookup.stale_fills, [])
 
     def test_the_fallback_stops_at_ten_minutes(self):
         broker = _Broker({datetime(2026, 7, 22, 9, 49): 470.0})

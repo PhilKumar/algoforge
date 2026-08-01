@@ -8703,6 +8703,7 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
             set(upstox_expiries),
             mother_timestamp.date(),
             horizon_to,
+            forward_minutes=_FIB_TIMEFRAME_MINUTES[timeframe],
         )
 
         def option_lookup(timestamp, contract):
@@ -8719,7 +8720,9 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
         # A dead token or a rate-limited fetch is not a market gap; say which
         # one happened so a failed replay never masquerades as missing data.
         serialized["premium_failures"] = list(premium_lookup.source_failures)
-        serialized["premium_stale_fills"] = list(premium_lookup.stale_fills)
+        # Neighbouring-trade fills from the lookup, intrinsic-floor exits from
+        # the engine: one disclosure list, each line saying how it was priced.
+        serialized["premium_stale_fills"] = list(premium_lookup.stale_fills) + list(result.pricing_notes or [])
         serialized["_chart"] = fib_boundary_chart(fib_config, result, forward, timeframe=timeframe)
         return serialized
 
@@ -8777,15 +8780,20 @@ def _hybrid_premium_lookup(
     upstox_expiries: set,
     from_day: date,
     to_day: date,
+    forward_minutes: int = 5,
 ):
     """Upstox bar first, Dhan's own option candles when Upstox has nothing.
 
     Upstox records a contract's minutes only after it EXPIRES; Dhan can serve
     a still-listed contract's minutes right now.  Between them a replay can
     price any contract the resolver picks.  A minute neither source recorded
-    is priced from the last real bar up to ``_PREMIUM_STALE_LIMIT_MINUTES``
-    earlier the same day — disclosed on ``lookup.stale_fills`` — and stays
-    None past that.  One Dhan fetch per contract, cached for the whole replay.
+    is priced from a real neighbouring trade — first scanning FORWARD through
+    the rest of the fill's own candle (``forward_minutes`` is the replay
+    timeframe: an order resting at the level fills at the option's next trade,
+    which on a gap-up session open can be a minute or two into the candle),
+    then back up to ``_PREMIUM_STALE_LIMIT_MINUTES`` the same day — each one
+    disclosed on ``lookup.stale_fills`` — and stays None past both.  One Dhan
+    fetch per contract, cached for the whole replay.
 
     A contract whose Dhan fetch FAILED (dead token, rate limit, no security
     id) is not a data gap: the reason lands on ``lookup.source_failures`` so
@@ -8841,6 +8849,20 @@ def _hybrid_premium_lookup(
         price = _price_at(minute, contract)
         if price is not None:
             return price
+        # Forward, inside the fill's own candle: the 2026-07-27 09:15 gap-up
+        # crossed the target on the opening candle before the deep strike had
+        # printed its first trade of the day — the next trade IS the fill.
+        for ahead in range(1, max(int(forward_minutes), 1)):
+            later = minute + timedelta(minutes=ahead)
+            if later.date() != minute.date():
+                break
+            price = _price_at(later, contract)
+            if price is not None:
+                stale_fills.append(
+                    f"{int(contract.strike)}{contract.option_type} at {minute.strftime('%H:%M')} priced from "
+                    f"its next trade {ahead} min into the candle ({later.strftime('%H:%M')} bar, ₹{price:,.2f})"
+                )
+                return price
         for back in range(1, _PREMIUM_STALE_LIMIT_MINUTES + 1):
             earlier = minute - timedelta(minutes=back)
             if earlier.date() != minute.date():
@@ -8969,6 +8991,7 @@ async def _test_bench_two_red(
             set(upstox_expiries),
             mother_timestamp.date(),
             horizon_to,
+            forward_minutes=_FIB_TIMEFRAME_MINUTES.get(timeframe, 5),
         )
 
         def premium_lookup(timestamp, strike, option_type):
@@ -9264,6 +9287,7 @@ async def _test_bench_execute(payload: TestBenchPayload, request: Request):
             set(upstox_expiries),
             mother_timestamp.date(),
             horizon_to,
+            forward_minutes=_FIB_TIMEFRAME_MINUTES.get(timeframe, 5),
         )
 
         try:
