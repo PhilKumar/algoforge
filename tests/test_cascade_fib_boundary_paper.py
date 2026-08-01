@@ -194,6 +194,78 @@ class FibBoundaryPaperSignalOnlyTest(unittest.TestCase):
         self.assertEqual(len(engine.signal_fills), 1)
 
 
+class FibBoundaryPaperPricedReplayTest(unittest.TestCase):
+    """A signal-only replay WITH a history source settles a real, costed round.
+
+    Born 2026-08-01: Phil's 07-31 replay hit its target, said REPLAY · CLOSED,
+    and showed nothing — no round, no P&L, a chart still 'watching'.  With
+    real Upstox/Dhan bars there is nothing left to withhold.
+    """
+
+    def _walk(self, engine):
+        for candle in [
+            _c(9, 15, 24040, 24050, 23690, 23700),
+            _c(9, 20, 23700, 23710, 23600, 23640),  # arm L4
+            _c(9, 25, 23640, 23680, 23630, 23670),  # fill L4
+            _c(9, 45, 23670, 23900, 23650, 23880),  # target
+        ]:
+            engine.on_candle(candle)
+        engine.complete_historical_replay(engine.history[-1])
+        return engine
+
+    def test_a_priced_replay_settles_a_costed_round(self):
+        mother = IndexCandle(ts(9, 10), 24100, 24180, 24050, 24100)
+        history = _PremiumBook({(9, 25): 150.0, (9, 45): 210.0})
+        engine = self._walk(
+            FibBoundaryPaper(
+                mother,
+                _ce_contract(),
+                _PaperAdapter(),
+                lambda _t, _c: None,  # live quotes never answer for the past
+                timeframe="5m",
+                rung_inr=75_000.0,
+                signal_only=True,
+                historical_premium_lookup=history,
+            )
+        )
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertTrue(engine.replay_complete)
+        self.assertEqual(len(engine.rounds), 1)
+        round_ = engine.rounds[0]
+        self.assertEqual(round_.exit_reason, "target")
+        # ₹75k at ₹150 × 65/lot -> 7 lots, 455 qty; exit at ₹210.
+        self.assertEqual(round_.exit_quantity, 455)
+        self.assertAlmostEqual(round_.gross_pnl, (210.0 - 150.0) * 455)
+        self.assertGreater(round_.costs.total, 0)
+        self.assertAlmostEqual(round_.net_pnl, round(round_.gross_pnl - round_.costs.total, 2))
+        # The basket is settled, not left dangling as signal fills.
+        self.assertEqual(engine.signal_fills, [])
+        status = engine.get_status()
+        self.assertEqual(status["pricing_mode"], "replay_history")
+        self.assertIn("real Upstox/Dhan bars", status["pricing_warning"])
+
+    def test_a_replay_with_a_premium_hole_stays_index_only(self):
+        # The entry priced but the exit minute has no bar anywhere: no round,
+        # no invented P&L — exactly the pre-history behaviour.
+        mother = IndexCandle(ts(9, 10), 24100, 24180, 24050, 24100)
+        history = _PremiumBook({(9, 25): 150.0})
+        engine = self._walk(
+            FibBoundaryPaper(
+                mother,
+                _ce_contract(),
+                _PaperAdapter(),
+                lambda _t, _c: None,
+                timeframe="5m",
+                signal_only=True,
+                historical_premium_lookup=history,
+            )
+        )
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.rounds, [])
+        self.assertEqual(len(engine.signal_fills), 1)
+        self.assertEqual(engine.signal_fills[0]["option_premium"], 150.0)
+
+
 class FibBoundaryPaperKillTest(unittest.TestCase):
     def test_kill_closes_an_open_basket_and_cancels_pending(self):
         adapter = _PaperAdapter()

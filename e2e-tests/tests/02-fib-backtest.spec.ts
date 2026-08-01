@@ -57,7 +57,41 @@ const backtestSourceFailure = {
   },
 };
 
-async function installMocks(page: Page, backtestBody: object) {
+// A signal-only replay that hit its target, VERBATIM from
+// FibBoundaryPaper.get_status() with a historical premium lookup wired in —
+// the campaign monitor must show the settled round, not "withheld".
+const replayClosedStatus = {
+  status: 'ok', mode: 'paper',
+  campaign: {
+    mode: 'paper', strategy: 'fib_boundary', running: false, status: 'CLOSED', side: 'CE', timeframe: '5m',
+    pricing_mode: 'replay_history',
+    pricing_warning: 'Historical replay — premiums priced from real Upstox/Dhan bars. No live order was sent.',
+    replay_complete: true,
+    mother: { timestamp: '2026-07-29T09:10:00', high: 24180, low: 24050 },
+    contract: { underlying: 'NIFTY', strike: 24000, expiry: '2026-08-11', option_type: 'CE', lot_size: 65, security_id: '111' },
+    rung_inr: 75000.0, target_index: null, average_index_entry: null, open_quantity: 0, entry_stop: null,
+    boundaries: [
+      { key: 'L4', level: 4, index_price: 23660, status: 'CLOSED' },
+      { key: 'L8', level: 8, index_price: 23140, status: 'PENDING' },
+    ],
+    open_fills: [], signal_fills: [],
+    rounds: [{
+      round_id: 1, opened_at: '2026-07-29T09:25:00', closed_at: '2026-07-29T09:45:00',
+      fills: [{ timestamp: '2026-07-29T09:25:00', index_price: 23640.0, option_premium: 150.0, lots: 7, quantity: 455, rung_keys: ['L4'], order_id: 'REPLAY' }],
+      target_index: 23775.0, exit_index_price: 23775.0, exit_option_premium: 210.0, exit_quantity: 455,
+      gross_pnl: 27300.0,
+      costs: { buy_turnover: 68250.0, sell_turnover: 95550.0, brokerage: 40.0, stt: 59.72, exchange_transaction: 86.81, sebi: 0.16, stamp: 2.05, gst: 22.86, total: 211.6 },
+      net_pnl: 27088.4, exit_reason: 'target',
+    }],
+    events: [
+      { timestamp: '2026-07-29T09:25:00', event: 'signal_entry', level: 4, index_price: 23640, option_premium: 150.0 },
+      { timestamp: '2026-07-29T09:45:00', event: 'round_closed', reason: 'target', net_pnl: 27088.4, pricing: 'replay_history' },
+      { timestamp: '2026-07-29T09:45:00', event: 'historical_replay_complete', status: 'CLOSED' },
+    ],
+  },
+};
+
+async function installMocks(page: Page, backtestBody: object, paperStatus?: object) {
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (!['http:', 'https:'].includes(url.protocol) || url.origin === BASE_ORIGIN) { await route.fallback(); return; }
@@ -89,7 +123,7 @@ async function installMocks(page: Page, backtestBody: object) {
     else if (path === '/api/scalp/status') await route.fulfill({ json: { running: false, open_trades: [], closed_trades: [], events: [], session_pnl: 0 } });
     else if (path === '/api/terminal/cascade/scan') await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
     else if (path === '/api/cascade/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_gate: { enabled: false } } });
-    else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: paperStatus ?? { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
@@ -98,8 +132,8 @@ async function installMocks(page: Page, backtestBody: object) {
   });
 }
 
-async function openFibPanel(page: Page, backtestBody: object) {
-  await installMocks(page, backtestBody);
+async function openCascadePage(page: Page, backtestBody: object, paperStatus?: object) {
+  await installMocks(page, backtestBody, paperStatus);
   await page.goto('/');
   await page.fill('#username-input', USERNAME);
   const passwordInput = page.locator('#password-input');
@@ -111,6 +145,10 @@ async function openFibPanel(page: Page, backtestBody: object) {
   }
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
   await page.click('#nav-cascade');
+}
+
+async function openFibPanel(page: Page, backtestBody: object) {
+  await openCascadePage(page, backtestBody);
   // The pf-calendar overlay marks the input readonly; the backtest reads its
   // .value, so set it the way the picker would.
   await page.evaluate(() => {
@@ -157,4 +195,18 @@ test('A dead premium source is named as a failure, never dressed up as a market 
   await expect(failures).toContainText('DH-901');
   // The real market gap list still renders alongside, with the new copy.
   await expect(gapsBox.locator('.fibx-premium-gaps')).toContainText('no tradable bar near the fill');
+});
+
+test('A replay that hit its target shows the settled round with rupee P&L', async ({ page }) => {
+  await openCascadePage(page, backtestSuccess, replayClosedStatus);
+
+  await expect(page.locator('#fibx-badge')).toHaveText('REPLAY · CLOSED');
+  // The settled round carries the P&L the old replay withheld.
+  const rounds = page.locator('#fibx-rounds');
+  await expect(rounds).toContainText('27,088.40');
+  await expect(rounds).toContainText('target');
+  // And the pricing note says the premiums were real, not withheld.
+  await expect(page.locator('.fibx-pricing-warning')).toContainText('real Upstox/Dhan bars');
+  await expect(page.locator('.fibx-pricing-warning')).not.toContainText('withheld');
+  if (process.env.E2E_SHOT_REPLAY) await page.locator('#fibx-window').screenshot({ path: process.env.E2E_SHOT_REPLAY });
 });

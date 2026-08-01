@@ -2233,7 +2233,15 @@ function _renderFibBoundaryStatus(payload) {
     if (fills.length) {
       fillsEl.innerHTML = fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(c.option_type || campaign.side || 'CE'))} ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('');
     } else if (signalFills.length) {
-      fillsEl.innerHTML = signalFills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong class="fibx-warning-value" style="color:#fbbf24;">SIGNAL ONLY</strong></div>`).join('');
+      // A replay fill priced off real history shows its size and premium; an
+      // index-only fill keeps the SIGNAL ONLY tag.
+      fillsEl.innerHTML = signalFills.map(fill => {
+        const priced = fill.option_premium != null;
+        const tail = priced
+          ? `<strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(fill.lots))} lot · ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong>`
+          : '<strong class="fibx-warning-value" style="color:#fbbf24;">SIGNAL ONLY</strong>';
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span>${tail}</div>`;
+      }).join('');
     } else {
       fillsEl.innerHTML = '<div style="color:var(--muted);padding:8px 0;">No open paper basket.</div>';
     }
@@ -5804,6 +5812,33 @@ function _terminalCascadeCanvasDraw() {
   ctx.clip();
 
   const bodyW = Math.max(Math.min(barW * 0.65, 9), 1);
+
+  // Overnight gap, drawn as a synthetic candle spanning prev close -> new open,
+  // sitting on the bar where the gap happened. The x-axis is a bar sequence, so
+  // an overnight jump leaves no blank space of its own — without this block a
+  // gap is invisible. NSE trades continuously, so a real close->open gap only
+  // happens across a session break; a pause much longer than one bar is what
+  // marks one. Translucent body, solid border, so the real candle shows through.
+  const SESSION_BREAK_MS = 4 * 3600 * 1000;
+  for (let i = Math.max(first, 1); i <= last; i += 1) {
+    const prev = c[i - 1], bar = c[i];
+    if (_tcvMillis(bar.t) - _tcvMillis(prev.t) < SESSION_BREAK_MS) continue;
+    const prevClose = Number(prev.c), openPrice = Number(bar.o);
+    if (!Number.isFinite(prevClose) || !Number.isFinite(openPrice) || prevClose === openPrice) continue;
+    const gapUp = openPrice > prevClose;
+    const gx = X(i), gw = bodyW + 4;
+    const gTop = Y(Math.max(prevClose, openPrice));
+    const gBottom = Y(Math.min(prevClose, openPrice));
+    ctx.save();
+    ctx.fillStyle = ctx.strokeStyle = gapUp ? PAL.up : PAL.down;
+    ctx.globalAlpha = 0.22;
+    ctx.fillRect(gx - gw / 2, gTop, gw, Math.max(gBottom - gTop, 1));
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(gx - gw / 2, gTop, gw, Math.max(gBottom - gTop, 1));
+    ctx.restore();
+  }
+
   for (let i = first; i <= last; i += 1) {
     const candle = c[i];
     const o = Number(candle.o), h = Number(candle.h), l = Number(candle.l), close = Number(candle.c);

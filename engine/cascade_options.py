@@ -2844,8 +2844,10 @@ class FibBoundaryPaper:
     closes and the campaign ENDS -- there is no new-low re-arm.
 
     ``signal_only`` proves the index geometry over historical Dhan candles
-    without ever pairing a current LTP with a past fill; it withholds premium
-    and P&L exactly like the 1H Candle Entry replay.
+    without ever pairing a current LTP with a past fill.  Given a
+    ``historical_premium_lookup`` (real Upstox/Dhan bars for past minutes) the
+    replay prices its fills and settles a real, costed round when the target
+    is reached — the withholding is only for a replay with no history source.
     """
 
     def __init__(
@@ -2859,6 +2861,7 @@ class FibBoundaryPaper:
         rung_inr: float = 75_000.0,
         target_fraction: float = 0.25,
         signal_only: bool = False,
+        historical_premium_lookup: Optional[OptionPremiumLookup] = None,
     ) -> None:
         side = str(contract.option_type).upper()
         if not adapter.paper_only:
@@ -2880,6 +2883,7 @@ class FibBoundaryPaper:
         self.rung_inr = float(rung_inr)
         self.target_fraction = float(target_fraction)
         self.signal_only = bool(signal_only)
+        self.historical_premium_lookup = historical_premium_lookup
         self.replay_complete = False
 
         self.history: list[IndexCandle] = [mother]
@@ -2957,6 +2961,16 @@ class FibBoundaryPaper:
         except (TypeError, ValueError):
             return None
 
+    def _historical_premium(self, candle: IndexCandle) -> Optional[float]:
+        """A real past bar for this contract, or None — never a live quote."""
+        if self.historical_premium_lookup is None:
+            return None
+        try:
+            value = self.historical_premium_lookup(candle.timestamp, self.contract)
+            return float(value) if value is not None and float(value) > 0 else None
+        except Exception:
+            return None
+
     def complete_historical_replay(self, candle: Optional[IndexCandle] = None) -> None:
         """Mark a finite signal-only replay complete without inventing a trade."""
         if not self.signal_only:
@@ -2980,16 +2994,35 @@ class FibBoundaryPaper:
             return
         rung = self.pending_rung
         if self.signal_only:
-            self.signal_fills.append(
-                {"timestamp": candle.timestamp.isoformat(), "index_price": self.pending_stop, "level": rung.level}
-            )
+            fill: dict[str, Any] = {
+                "timestamp": candle.timestamp.isoformat(),
+                "index_price": self.pending_stop,
+                "level": rung.level,
+                "rung_key": rung.key,
+            }
+            # With a history source the replay prices the fill exactly like the
+            # live path would have — real bar, real lot sizing.  Without one
+            # the fill stays index-only, as before.
+            premium = self._historical_premium(candle)
+            if premium is not None:
+                lots = max(1, math.floor(self.rung_inr / (premium * self.contract.lot_size)))
+                fill["option_premium"] = premium
+                fill["lots"] = lots
+                fill["quantity"] = lots * self.contract.lot_size
+            self.signal_fills.append(fill)
             rung.status = "FILLED"
             self.pending_rung = None
             self.pending_stop = None
             self.pending_stop_timestamp = None
             self.streak = 0
             self.status = "OPEN_SIGNAL_ONLY"
-            self._log(candle, "signal_entry", level=rung.level, index_price=self.signal_fills[-1]["index_price"])
+            self._log(
+                candle,
+                "signal_entry",
+                level=rung.level,
+                index_price=fill["index_price"],
+                option_premium=premium,
+            )
             return
         premium = self._premium(candle)
         if premium is None:
@@ -3053,6 +3086,8 @@ class FibBoundaryPaper:
             if not self.signal_fills:
                 self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
                 return True
+            if self._settle_replay_round(candle, reason, target):
+                return True
             self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
             self._log(candle, "signal_target_reached", reason=reason, target_index=target)
             return True
@@ -3096,6 +3131,63 @@ class FibBoundaryPaper:
         self.open_fills = []
         self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
         self._log(candle, "round_closed", reason=reason, net_pnl=self.rounds[-1].net_pnl)
+        return True
+
+    def _settle_replay_round(self, candle: IndexCandle, reason: str, target: Optional[float]) -> bool:
+        """Price a signal-only close off real history and record a costed round.
+
+        Every fill and the exit need a real bar; anything short of that falls
+        back to the index-only close (nothing is invented).  A settled round is
+        what puts rupee P&L, the exit marker and TARGET HIT on the panel — the
+        same shapes the quote-backed live path records.
+        """
+        if any(row.get("option_premium") is None for row in self.signal_fills):
+            return False
+        exit_premium = self._historical_premium(candle)
+        if exit_premium is None:
+            return False
+        fills = tuple(
+            PaperCascadeFill(
+                timestamp=datetime.fromisoformat(str(row["timestamp"])),
+                index_price=float(row["index_price"]),
+                option_premium=float(row["option_premium"]),
+                lots=int(row["lots"]),
+                quantity=int(row["quantity"]),
+                rung_keys=(str(row.get("rung_key") or f"L{row['level']}"),),
+                order_id="REPLAY",
+            )
+            for row in self.signal_fills
+        )
+        quantity = sum(fill.quantity for fill in fills)
+        costs = calculate_nifty_option_basket_round_costs(
+            buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in fills],
+            sell_price=exit_premium,
+            sell_quantity=quantity,
+            sell_lots=quantity // self.contract.lot_size,
+        )
+        gross = round(sum((exit_premium - fill.option_premium) * fill.quantity for fill in fills), 2)
+        self.rounds.append(
+            PaperCascadeRound(
+                round_id=len(self.rounds) + 1,
+                opened_at=fills[0].timestamp,
+                closed_at=candle.timestamp,
+                fills=fills,
+                target_index=target or candle.close,
+                exit_index_price=target if reason == "target" and target is not None else candle.close,
+                exit_option_premium=exit_premium,
+                exit_quantity=quantity,
+                gross_pnl=gross,
+                costs=costs,
+                net_pnl=round(gross - costs.total, 2),
+                exit_reason=reason,
+            )
+        )
+        for rung in self.rungs:
+            if rung.status == "FILLED":
+                rung.status = "CLOSED"
+        self.signal_fills = []
+        self.status = "KILLED" if reason == "manual_kill" else "CLOSED"
+        self._log(candle, "round_closed", reason=reason, net_pnl=self.rounds[-1].net_pnl, pricing="replay_history")
         return True
 
     def _check_exit(self, candle: IndexCandle) -> bool:
@@ -3151,10 +3243,18 @@ class FibBoundaryPaper:
             "status": self.status,
             "side": self.side,
             "timeframe": self.timeframe,
-            "pricing_mode": "signal_only_dhan" if self.signal_only else "current_quote_paper",
+            "pricing_mode": (
+                ("replay_history" if self.historical_premium_lookup is not None else "signal_only_dhan")
+                if self.signal_only
+                else "current_quote_paper"
+            ),
             "pricing_warning": (
-                "Historical replay verifies NIFTY index entry and target geometry only. "
-                "Fixed-strike option premium and P&L are intentionally withheld."
+                (
+                    "Historical replay — premiums priced from real Upstox/Dhan bars. No live order was sent."
+                    if self.historical_premium_lookup is not None
+                    else "Historical replay verifies NIFTY index entry and target geometry only. "
+                    "Fixed-strike option premium and P&L are intentionally withheld."
+                )
                 if self.signal_only
                 else None
             ),

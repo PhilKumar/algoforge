@@ -8191,6 +8191,14 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to select the fixed next-weekly {side}: {exc}") from exc
+    historical_lookup = None
+    if is_historical_replay:
+        # Real Upstox/Dhan bars price the replay's fills and settle a costed
+        # round at the target — same lookup the Backtest panel uses.  If the
+        # sources are down the replay still runs, index-only, as before.
+        historical_lookup = await asyncio.to_thread(
+            _fib_replay_premium_lookup, broker_client, mother_timestamp.date(), now.date(), timeframe
+        )
     engine = FibBoundaryPaper(
         mother,
         contract,
@@ -8199,15 +8207,24 @@ async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, reques
         timeframe=timeframe,
         rung_inr=payload.rung_inr,
         signal_only=is_historical_replay,
+        historical_premium_lookup=historical_lookup,
     )
     last_candle_timestamp = mother.timestamp
     if is_historical_replay:
-        for candle in candles:
-            if candle.timestamp <= mother.timestamp:
-                continue
-            engine.on_candle(candle)
-            last_candle_timestamp = candle.timestamp
-        engine.complete_historical_replay(candles[-1] if candles else mother)
+
+        def _replay() -> datetime:
+            # The premium lookup fetches candles synchronously per contract, so
+            # the whole replay runs off the event loop.
+            last = mother.timestamp
+            for candle in candles:
+                if candle.timestamp <= mother.timestamp:
+                    continue
+                engine.on_candle(candle)
+                last = candle.timestamp
+            engine.complete_historical_replay(candles[-1] if candles else mother)
+            return last
+
+        last_candle_timestamp = await asyncio.to_thread(_replay)
     runtime = _CascadeRuntime(
         engine=engine,
         adapter=adapter,
@@ -8879,6 +8896,43 @@ def _hybrid_premium_lookup(
     lookup.source_failures = source_failures
     lookup.stale_fills = stale_fills
     return lookup
+
+
+def _fib_replay_premium_lookup(broker: DhanClient, from_day: date, to_day: date, timeframe: str):
+    """The hybrid history lookup, packaged for a fib-boundary paper replay.
+
+    Blocking (Upstox construction + per-contract Dhan fetches) — call it, and
+    the replay that uses it, off the event loop.  Returns None when no source
+    is reachable so a Start never fails just because the replay can't price.
+    """
+    try:
+        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+
+        try:
+            from upstox_token_manager import ensure_fresh_token
+
+            ensure_fresh_token()
+        except Exception as exc:
+            _logger.warning("[fib-replay] Upstox token pre-check skipped: %s", exc)
+        premium_source = None
+        upstox_expiries: list = []
+        try:
+            premium_source = UpstoxPremiumSource()
+            upstox_expiries = sorted(premium_source.available_expiries())
+        except UpstoxAccessError as exc:
+            _logger.warning("[fib-replay] Upstox premium history unavailable, using Dhan only: %s", exc)
+        return _hybrid_premium_lookup(
+            broker,
+            "NIFTY",
+            premium_source,
+            set(upstox_expiries),
+            from_day,
+            to_day,
+            forward_minutes=_FIB_TIMEFRAME_MINUTES.get(timeframe, 5),
+        )
+    except Exception as exc:
+        _logger.warning("[fib-replay] premium history unavailable, replay stays index-only: %s", exc)
+        return None
 
 
 def _known_option_expiries(instrument: str, upstox_expiries: list) -> list:
