@@ -81,10 +81,14 @@ class PricedCampaign:
     gross: Optional[float] = None
     costs: Optional[float] = None
     net: Optional[float] = None
+    # How the campaign ENDED: the final round's reason.  Earlier rounds that
+    # banked at target are inside the same net figure.
     exit_reason: Optional[str] = None
     gap: Optional[str] = None
     quantity: int = 0
     bars_held: int = 0
+    rounds: int = 0
+    round_reasons: tuple = ()
 
 
 # A deep-ITM strike does not print every minute -- 83 of 114 NIFTY 15m campaigns
@@ -121,87 +125,103 @@ def _premium_at(source, contract, when: datetime, forward_minutes: int) -> Optio
 def price_campaign(
     result, bars_by_index, source, resolver, view, settle_bars=None, timeframe: str = "15m"
 ) -> PricedCampaign:
-    """Price one campaign's legs on real premium bars, settling at expiry.
+    """Price one campaign's ROUNDS on real premium bars, settling at expiry.
+
+    Each round is a complete basket: its own legs, its own exit, its own cost
+    round.  The campaign's net is the sum of its rounds -- Phil's 22-Apr-2026
+    BankNifty mother banks the 27-Apr rally AND the 6-May rally as two banked
+    rounds, where the single-basket pricing saw only one doomed hold.
 
     ``settle_bars`` is the FULL index series; expiry settlement is read from it
     rather than from the campaign's replay window (see below).
     """
     forward = _FORWARD_MINUTES.get(timeframe, 15)
     priced = PricedCampaign(mother=result.mother_timestamp, status=result.status, bars_held=result.bars_held)
-    if not result.fills:
+    rounds = getattr(result, "rounds", None)
+    if not rounds:
         priced.status = "no_trade"
         return priced
 
-    legs = []
-    for fill in result.fills:
-        try:
-            contract = resolver.select(fill.timestamp, fill.index_price, "CE", view)
-        except Exception as exc:  # no monthly in the DTE window
-            priced.gap = f"no contract at {fill.timestamp:%Y-%m-%d %H:%M}: {exc}"
-            priced.status = "gap"
-            return priced
-        entry_premium = _premium_at(source, contract, fill.timestamp, forward)
-        if entry_premium is None:
-            priced.gap = f"no entry bar {int(contract.strike)}CE {contract.expiry} @ {fill.timestamp:%Y-%m-%d %H:%M}"
-            priced.status = "gap"
-            return priced
-        legs.append((fill, contract, entry_premium))
-
-    expiry = min(c.expiry for _f, c, _p in legs)
-    # The trade cannot outlive its contract.  A campaign still open when the
-    # monthly expires is settled at intrinsic against the index -- which for a
-    # CE bought above the settlement price is a total loss of premium, and that
-    # is exactly the tail the index-space layer cannot see.
-    exit_at = result.exit_timestamp
-    exit_reason = result.exit_reason or "open_at_end"
-    expiry_close = datetime.combine(expiry, dt_time(15, 15))
-    if exit_at is None or exit_at > expiry_close:
-        exit_at = expiry_close
-        exit_reason = "expiry_square_off"
-
-    settle_index = None
-    if exit_reason == "expiry_square_off":
-        # Settlement must be read from the FULL series, never the campaign's
-        # replay window: a monthly bought at 45 DTE expires after a 30-session
-        # window ends, and taking that window's last bar prices the settlement
-        # on the wrong day at the wrong price -- silently, on the one term that
-        # dominates this strategy's P&L.
-        series = settle_bars if settle_bars is not None else bars_by_index
-        candidates = [b for b in series if b.timestamp <= expiry_close]
-        settle_index = candidates[-1].close if candidates else None
-        if settle_index is None or candidates[-1].timestamp.date() < expiry:
-            # The data ends before this contract expires: its outcome is
-            # genuinely unknown, so it is a gap, not a loss we invented.
-            priced.gap = f"index data ends before expiry {expiry}"
-            priced.status = "gap"
-            return priced
-
-    buys, sell_value, quantity, lots_total = [], 0.0, 0, 0
-    for fill, contract, entry_premium in legs:
-        if exit_reason == "expiry_square_off":
-            exit_premium = max(float(settle_index) - float(contract.strike), 0.0)
-        else:
-            exit_premium = _premium_at(source, contract, exit_at, forward)
-            if exit_premium is None:
-                priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {exit_at:%Y-%m-%d %H:%M}"
+    total_gross, total_costs, quantity = 0.0, 0.0, 0
+    reasons = []
+    for rnd in rounds:
+        legs = []
+        for fill in rnd.fills:
+            try:
+                contract = resolver.select(fill.timestamp, fill.index_price, "CE", view)
+            except Exception as exc:  # no monthly in the DTE window
+                priced.gap = f"no contract at {fill.timestamp:%Y-%m-%d %H:%M}: {exc}"
                 priced.status = "gap"
                 return priced
-        buys.append(OptionCostFill(price=entry_premium, quantity=fill.quantity, lots=fill.lots))
-        sell_value += exit_premium * fill.quantity
-        quantity += fill.quantity
-        lots_total += fill.lots
+            entry_premium = _premium_at(source, contract, fill.timestamp, forward)
+            if entry_premium is None:
+                priced.gap = (
+                    f"no entry bar {int(contract.strike)}CE {contract.expiry} @ {fill.timestamp:%Y-%m-%d %H:%M}"
+                )
+                priced.status = "gap"
+                return priced
+            legs.append((fill, contract, entry_premium))
 
-    gross = sell_value - sum(b.price * b.quantity for b in buys)
-    costs = calculate_nifty_option_basket_round_costs(
-        buys=buys,
-        sell_price=sell_value / quantity,
-        sell_quantity=quantity,
-        sell_lots=lots_total,
-    )
-    priced.gross = round(gross, 2)
-    priced.costs = round(costs.total, 2)
-    priced.net = round(gross - costs.total, 2)
-    priced.exit_reason = exit_reason
+        expiry = min(c.expiry for _f, c, _p in legs)
+        # The trade cannot outlive its contract.  A round still open when the
+        # monthly expires is settled at intrinsic against the index -- which
+        # for a CE bought above the settlement price is a total loss of
+        # premium, and that is exactly the tail the index layer cannot see.
+        exit_at = rnd.exit_timestamp
+        exit_reason = rnd.exit_reason or "open_at_end"
+        expiry_close = datetime.combine(expiry, dt_time(15, 15))
+        if exit_at is None or exit_at > expiry_close:
+            exit_at = expiry_close
+            exit_reason = "expiry_square_off"
+
+        settle_index = None
+        if exit_reason == "expiry_square_off":
+            # Settlement must be read from the FULL series, never the replay
+            # window: a monthly bought at 45 DTE expires after a 30-session
+            # window ends, and taking that window's last bar prices the
+            # settlement on the wrong day at the wrong price -- silently, on
+            # the one term that dominates this strategy's P&L.
+            series = settle_bars if settle_bars is not None else bars_by_index
+            candidates = [b for b in series if b.timestamp <= expiry_close]
+            settle_index = candidates[-1].close if candidates else None
+            if settle_index is None or candidates[-1].timestamp.date() < expiry:
+                # The data ends before this contract expires: its outcome is
+                # genuinely unknown, so it is a gap, not a loss we invented.
+                priced.gap = f"index data ends before expiry {expiry}"
+                priced.status = "gap"
+                return priced
+
+        buys, sell_value, round_quantity, lots_total = [], 0.0, 0, 0
+        for fill, contract, entry_premium in legs:
+            if exit_reason == "expiry_square_off":
+                exit_premium = max(float(settle_index) - float(contract.strike), 0.0)
+            else:
+                exit_premium = _premium_at(source, contract, exit_at, forward)
+                if exit_premium is None:
+                    priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {exit_at:%Y-%m-%d %H:%M}"
+                    priced.status = "gap"
+                    return priced
+            buys.append(OptionCostFill(price=entry_premium, quantity=fill.quantity, lots=fill.lots))
+            sell_value += exit_premium * fill.quantity
+            round_quantity += fill.quantity
+            lots_total += fill.lots
+
+        total_gross += sell_value - sum(b.price * b.quantity for b in buys)
+        total_costs += calculate_nifty_option_basket_round_costs(
+            buys=buys,
+            sell_price=sell_value / round_quantity,
+            sell_quantity=round_quantity,
+            sell_lots=lots_total,
+        ).total
+        quantity += round_quantity
+        reasons.append(exit_reason)
+
+    priced.gross = round(total_gross, 2)
+    priced.costs = round(total_costs, 2)
+    priced.net = round(total_gross - total_costs, 2)
+    priced.exit_reason = reasons[-1]
+    priced.round_reasons = tuple(reasons)
+    priced.rounds = len(reasons)
     priced.quantity = quantity
     priced.status = "priced"
     return priced
@@ -287,8 +307,12 @@ def main() -> None:
     if losses:
         print(f"  mean loss  Rs {mean(losses):>12,.2f}   worst   Rs {min(losses):,.2f}")
     print(f"  median trade Rs {median(nets):,.2f}")
+    round_counts = Counter(r.rounds for r in priced)
+    banked = Counter(reason for r in priced for reason in r.round_reasons)
+    print(f"\n  rounds per campaign: {dict(sorted(round_counts.items()))}")
+    print(f"  round outcomes: {dict(banked.most_common())}")
     reasons = Counter(r.exit_reason for r in priced)
-    print(f"\n  exit reasons: {dict(reasons)}")
+    print(f"\n  final-round exit reasons: {dict(reasons)}")
     for reason in reasons:
         subset = [r.net for r in priced if r.exit_reason == reason]
         print(f"    {reason:<20} n={len(subset):<4} net Rs {sum(subset):>14,.2f}")

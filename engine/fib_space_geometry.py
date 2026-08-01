@@ -186,6 +186,11 @@ class SpaceGeometry:
     # -- helpers ----------------------------------------------------------
 
     @property
+    def finished(self) -> bool:
+        """True once a high back above the mother ended this structure."""
+        return self._finished
+
+    @property
     def active_trendline(self) -> Optional[Trendline]:
         if self.active_trendline_id is None:
             return None
@@ -439,6 +444,20 @@ class SpaceGeometry:
 
     def _draw_fib(self, bar: Bar, pending: dict) -> None:
         fib0, fib1 = pending["fib0"], pending["fib1"]
+        # ONE STRUCTURE, ONE FIB.  Two touches sharing the same low are the same
+        # swing grazing the line twice, and Phil's rule is that the TOP graze is
+        # fib 0.  _file_pending already merges them, but a fib drawn straight off
+        # a freshly-drawn trendline skips that path -- which on his 26-Feb-2026
+        # 11:15 mother left both 0=25,468.50 and 0=25,527.15 standing on the same
+        # 25,400.95 low, and the pair of them manufactured a convergence space
+        # his chart does not have.
+        for existing in list(self.fibs):
+            if abs(existing.fib1 - fib1) <= fib1 * 1e-9:
+                if fib0 <= existing.fib0:
+                    return
+                self.fibs.remove(existing)
+                self._log(bar, "fib_superseded", kept=round(fib0, 2), dropped=round(existing.fib0, 2))
+                break
         for existing in self.fibs:
             if not _ladders_overlap(fib0, fib1, existing.fib0, existing.fib1):
                 continue

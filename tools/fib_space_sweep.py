@@ -46,8 +46,16 @@ SYMBOLS = {
 # NSE trades 09:15-15:30, so a session is 6.25 hours.  Horizons and time stops
 # are expressed in SESSIONS and converted here, otherwise "50 bars" means two
 # days on 15m and seven weeks on 1H and the timeframes cannot be compared.
+#
+# The horizon is counted from the MOTHER, but the option's life runs from the
+# ENTRY, which can be many sessions later.  A window sized to the DTE window
+# therefore stopped some campaigns watching before their own contract expired
+# and manufactured "expiry" losses on trades whose target actually arrived --
+# 7 of 13 NIFTY 15m expiry losses were this, not the market.  The horizon is
+# now deliberately far longer than any contract's life; expiry does the real
+# capping, in price_campaign.
 BARS_PER_SESSION = {"5m": 75, "15m": 25, "1h": 7}
-DEFAULT_HORIZON_SESSIONS = 30
+DEFAULT_HORIZON_SESSIONS = 120
 # Kept for callers that still think in bars (the original 15m default).
 DEFAULT_HORIZON_BARS = BARS_PER_SESSION["15m"] * DEFAULT_HORIZON_SESSIONS
 
@@ -142,8 +150,10 @@ def main() -> None:
         print(f"\n  UNCLOSED campaigns hold {sum(r.quantity for r in stranded)} units of open risk")
         print("  (index space cannot price these -- an option leg would decay or expire)")
     if traded:
+        rounds = Counter(len(r.rounds) for r in traded)
+        print(f"\n  rounds per campaign: {dict(sorted(rounds.items()))}")
         fills = Counter(len(r.fills) for r in traded)
-        print(f"\n  fills per campaign: {dict(sorted(fills.items()))}")
+        print(f"  fills per campaign: {dict(sorted(fills.items()))}")
         labels = Counter(f.space_label for r in traded for f in r.fills)
         print(f"  space labels bought: {dict(labels.most_common())}")
         touch = sum(1 for r in traded for f in r.fills if f.on_touch)

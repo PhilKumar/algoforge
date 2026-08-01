@@ -37,14 +37,15 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from statistics import mean, median
 from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.cascade_mothers import MotherCandidate, find_mother_candles  # noqa: E402
+from engine.cascade_fib_geometry import boundaries_for_timeframe  # noqa: E402
+from engine.cascade_mothers import MotherCandidate, find_mother_candles, find_wick_mothers  # noqa: E402
 from engine.cascade_options import (  # noqa: E402
     CascadeConfig,
     CascadeOptionsAdapter,
@@ -108,6 +109,10 @@ class FibOutcome:
     target_gross_neg_rounds: int = 0  # target hit, book negative even before costs
     target_net_pnl: float = 0.0  # summed net over target-exit rounds
     expiry_net_pnl: float = 0.0  # summed net over expiry-square-off rounds
+    # One row per round, for --detail: (round number, exit reason, entries,
+    # lots, deepest level, net P&L). The aggregate counters above answer "how
+    # often"; this answers "which trade, and when".
+    round_rows: list[tuple] = field(default_factory=list)
 
     @property
     def traded(self) -> bool:
@@ -156,6 +161,9 @@ def replay_one_fib(
     single_shot: bool,
     max_rounds: Optional[int],
     max_round_premium_inr: Optional[float],
+    exit_days_before_expiry: int,
+    fib_levels: Optional[tuple[int, ...]],
+    fill_at_boundary: bool,
     label: str,
 ) -> FibOutcome:
     # Feed from the mother pivot itself: the fib geometry needs the bars right
@@ -214,6 +222,9 @@ def replay_one_fib(
             single_shot=single_shot,
             max_rounds=max_rounds,
             max_round_premium_inr=max_round_premium_inr,
+            exit_days_before_expiry=exit_days_before_expiry,
+            fill_at_boundary=fill_at_boundary,
+            **({"fib_levels": fib_levels} if fib_levels else {}),
         ),
         contract_selector=select,
     ).run(forward)
@@ -251,6 +262,18 @@ def replay_one_fib(
         target_gross_neg_rounds=sum(1 for r in target_priced if r.gross_pnl < 0),
         target_net_pnl=round(sum(r.net_pnl for r in target_priced), 2),
         expiry_net_pnl=round(sum(r.net_pnl for r in expiry_priced), 2),
+        round_rows=[
+            (
+                number,
+                r.exit_reason,
+                getattr(r, "exit_timestamp", None),
+                len(r.fills),
+                sum(f.lots for f in r.fills),
+                max((lvl for lvl in (_level_of(f) for f in r.fills) if lvl is not None), default=None),
+                r.net_pnl,
+            )
+            for number, r in enumerate(engine.rounds, start=1)
+        ],
     )
 
 
@@ -260,6 +283,7 @@ def run_sweep(
     *,
     timeframe: str,
     max_concurrent: int,
+    scanner: Callable[..., list[MotherCandidate]],
     scanner_kwargs: dict,
     premium_lookup: Callable[[datetime, FixedCampaignOption], Optional[float]],
     expiries: list[date],
@@ -268,8 +292,11 @@ def run_sweep(
     single_shot: bool,
     max_rounds: Optional[int],
     max_round_premium_inr: Optional[float],
+    exit_days_before_expiry: int,
+    fib_levels: Optional[tuple[int, ...]],
+    fill_at_boundary: bool,
 ) -> tuple[list[FibOutcome], list[MotherCandidate]]:
-    mothers = find_mother_candles(index_series, **scanner_kwargs)
+    mothers = scanner(index_series, **scanner_kwargs)
     outcomes: list[FibOutcome] = []
     open_until: list[datetime] = []
     skipped = 0
@@ -291,6 +318,9 @@ def run_sweep(
             single_shot=single_shot,
             max_rounds=max_rounds,
             max_round_premium_inr=max_round_premium_inr,
+            exit_days_before_expiry=exit_days_before_expiry,
+            fib_levels=fib_levels,
+            fill_at_boundary=fill_at_boundary,
             label=f"#{number} {mother.timestamp:%Y-%m-%d %H:%M}",
         )
         outcomes.append(outcome)
@@ -299,6 +329,43 @@ def run_sweep(
     if skipped:
         print(f"  ({skipped} mothers skipped: max-concurrent {max_concurrent} already deployed)")
     return outcomes, mothers
+
+
+def detail(outcomes: list[FibOutcome]) -> None:
+    """Every round of every campaign that traded, newest rule first: WHICH ones.
+
+    The summary counts expiry exits; this names them, because "six trades ate
+    thirty-eight winners" is only actionable once you can go look at the six.
+    """
+    traded = [o for o in outcomes if o.traded]
+    if not traded:
+        return
+    print("\n--- every round, campaign by campaign ---")
+    print(
+        f"  {'mother':>16}  {'rnd':>3}  {'exit':>18}  {'exited':>16}  {'buys':>4} {'lots':>4} {'lvl':>3}  {'net Rs':>13}"
+    )
+    for outcome in traded:
+        for number, reason, exit_at, entries, lots, level, net in outcome.round_rows:
+            when = f"{exit_at:%Y-%m-%d %H:%M}" if exit_at else "-"
+            money = f"{net:,.0f}" if net is not None else "no price"
+            print(
+                f"  {outcome.mother_timestamp:%Y-%m-%d %H:%M}  {number:>3}  {str(reason):>18}  "
+                f"{when:>16}  {entries:>4} {lots:>4} {str(level):>3}  {money:>13}"
+            )
+    print("\n--- expiry square-offs only (the tail that pays for the winners) ---")
+    rows = [
+        (o.mother_timestamp, exit_at, entries, lots, level, net)
+        for o in traded
+        for _n, reason, exit_at, entries, lots, level, net in o.round_rows
+        if reason == "expiry_square_off"
+    ]
+    for mother, exit_at, entries, lots, level, net in sorted(rows, key=lambda row: (row[5] is None, row[5])):
+        when = f"{exit_at:%Y-%m-%d %H:%M}" if exit_at else "-"
+        money = f"{net:,.0f}" if net is not None else "no price"
+        print(
+            f"  mother {mother:%d %b %Y %H:%M}   squared off {when}   "
+            f"{entries} buys / {lots} lots / deepest L{level}   Rs {money}"
+        )
 
 
 def report(outcomes: list[FibOutcome], mothers: list[MotherCandidate], *, priced: bool, label: str) -> None:
@@ -354,7 +421,7 @@ def main() -> int:
     ap.add_argument("--symbol", choices=sorted(SYMBOLS), default="nifty")
     ap.add_argument("--from", dest="from_date", required=True)
     ap.add_argument("--to", dest="to_date", required=True)
-    ap.add_argument("--tf", dest="timeframe", default="15m", choices=["5m", "15m", "1h"])
+    ap.add_argument("--tf", dest="timeframe", default="15m", choices=["1m", "5m", "15m", "1h"])
     ap.add_argument("--premium", action="store_true", help="Layer 2: price legs with real Upstox premiums")
     ap.add_argument("--single-shot", action="store_true", help="one trade per mother, no deeper buys / re-arm")
     ap.add_argument(
@@ -374,13 +441,89 @@ def main() -> int:
     ap.add_argument("--max-concurrent", type=int, default=999)
     ap.add_argument("--rung-inr", type=float, default=15000.0)
     ap.add_argument("--itm-steps", type=int, default=2)
+    ap.add_argument(
+        "--mother-rule",
+        choices=["swing", "wick"],
+        default="swing",
+        help="swing = swing-high pivot (needs right-bars to confirm). "
+        "wick = Phil's rule: a bullish run, then a candle whose upper wick is over "
+        "half its range (red or green), confirmed at its own close.",
+    )
     ap.add_argument("--left-bars", type=int, default=3)
     ap.add_argument("--right-bars", type=int, default=3)
     ap.add_argument("--min-range-atr", type=float, default=0.8)
+    # --mother-rule wick only
+    ap.add_argument("--run-bars", type=int, default=4, help="wick rule: bars of bullish run before the mother")
+    ap.add_argument("--min-run-green", type=int, default=3, help="wick rule: how many of those must close green")
+    ap.add_argument("--min-run-atr", type=float, default=1.5, help="wick rule: run height in ATRs -- the 'huge' test")
+    ap.add_argument("--min-wick", type=float, default=0.5, help="wick rule: upper wick as a share of candle range")
+    ap.add_argument(
+        "--allow-overnight-run",
+        action="store_true",
+        help="wick rule: let the bullish run cross a session boundary (default: one day)",
+    )
+    ap.add_argument(
+        "--min-separation-bars",
+        type=int,
+        default=0,
+        help="minimum bars between accepted mothers, so one swing spawns one campaign "
+        "instead of a cluster of adjacent local highs. Default: 0 (no separation).",
+    )
+    ap.add_argument(
+        "--exit-days-before-expiry",
+        type=int,
+        default=0,
+        help="time-stop: square off this many calendar days before expiry to cut late "
+        "theta on legs that never hit target. Default: 0 (square off at expiry).",
+    )
+    ap.add_argument(
+        "--timeframe-levels",
+        action="store_true",
+        help="apply Phil's timeframe rule to which fib lines may trade: (4, 8) on "
+        "1m/5m, (2, 4, 8) on 15m/1h. Default: the engine's own (2, 4, 8) everywhere.",
+    )
+    ap.add_argument("--detail", action="store_true", help="print every round of every campaign that traded")
+    ap.add_argument(
+        "--min-dte",
+        type=int,
+        default=None,
+        help="days to expiry the campaign's contract must have AT THE MOTHER. The engine's "
+        "own CascadeConfig default is 10; this tool's per-symbol table says 7. Overrides both.",
+    )
+    ap.add_argument("--max-dte", type=int, default=None, help="upper end of the same window")
+    ap.add_argument(
+        "--monthly-only",
+        action="store_true",
+        help="keep only the LAST expiry of each calendar month, so a weekly "
+        "underlying is replayed on a monthly cadence. This is the control for "
+        "'is it the monthly expiry helping, or is it the other index?'",
+    )
+    ap.add_argument(
+        "--at-boundary",
+        action="store_true",
+        help="buy the fib line itself the moment price trades there, instead of "
+        "waiting for two reds below it and buying the recovery.",
+    )
+    ap.add_argument(
+        "--levels",
+        default=None,
+        help="which fib lines may trade, e.g. '8' or '4,8'. Overrides both the engine default and --timeframe-levels.",
+    )
+    ap.add_argument(
+        "--upstox-cache",
+        default=None,
+        help="override the premium cache directory. Point two concurrent sweeps at "
+        "separate copies: the cache writes whole files, so a reader can catch a half-written one.",
+    )
     ap.add_argument("--refetch", action="store_true")
     args = ap.parse_args()
 
-    cfg = SYMBOLS[args.symbol]
+    cfg = dict(SYMBOLS[args.symbol])
+    if args.min_dte is not None:
+        cfg["min_dte"] = args.min_dte
+    if args.max_dte is not None:
+        cfg["max_dte"] = args.max_dte
+    print(f"[dte] contract picked {cfg['min_dte']}-{cfg['max_dte']} days from expiry, measured at the mother")
     index_series = load_index_candles(cfg, args.timeframe, args.from_date, args.to_date, refetch=args.refetch)
     if not index_series:
         print("No candles in range.")
@@ -406,12 +549,22 @@ def main() -> int:
     # option chains) internally: NIFTY keeps the root, every other underlying
     # gets its own subdir. So all symbols can safely share this one root dir --
     # no per-symbol cache_dir juggling needed here.
-    upstox_cache = Path(os.path.dirname(os.path.abspath(__file__))) / ".upstox_cache"
+    upstox_cache = Path(args.upstox_cache or (Path(os.path.dirname(os.path.abspath(__file__))) / ".upstox_cache"))
     source = UpstoxPremiumSource(underlying_key=cfg["upstox_key"], cache_dir=upstox_cache)
     expiries = sorted(source.available_expiries())
     if not expiries:
         print(f"[upstox] no expiry coverage for {cfg['upstox_key']}.")
         return 1
+    if args.monthly_only:
+        # Last expiry of each calendar month -- that IS the monthly contract on
+        # both NSE weekly chains, so no separate calendar is needed.
+        by_month: dict[tuple[int, int], date] = {}
+        for expiry in expiries:
+            key = (expiry.year, expiry.month)
+            if key not in by_month or expiry > by_month[key]:
+                by_month[key] = expiry
+        expiries = sorted(by_month.values())
+        print(f"[expiry] monthly cadence only: {len(expiries)} contracts kept")
     print(f"[upstox] {len(expiries)} {args.symbol} expiries: {expiries[0]} -> {expiries[-1]}")
 
     if args.premium:
@@ -424,12 +577,45 @@ def main() -> int:
         def premium_lookup(_timestamp, _contract):
             return 100.0  # flat: drives the geometry, prices nothing
 
-    scanner_kwargs = dict(left_bars=args.left_bars, right_bars=args.right_bars, min_range_atr=args.min_range_atr)
+    # Phil's timeframe rule: a 1m/5m mother buys only the two DEEPEST lines (4, 8);
+    # 15m/1h start one step earlier (2, 4, 8). The engine's own default is (2,4,8)
+    # for every timeframe, so without --timeframe-levels a 5m sweep arms L2 -- a
+    # level Phil's rule says that mother should never take.
+    if args.levels:
+        fib_levels = tuple(int(part) for part in args.levels.replace(" ", "").split(",") if part)
+    elif args.timeframe_levels:
+        fib_levels = tuple(boundaries_for_timeframe(args.timeframe))
+    else:
+        fib_levels = None
+    if fib_levels:
+        print(f"[levels] {args.timeframe} trades fib levels {fib_levels}")
+    print(f"[entry] {'AT the fib line' if args.at_boundary else 'two reds below the line, buy the recovery'}")
+
+    if args.mother_rule == "wick":
+        scanner = find_wick_mothers
+        scanner_kwargs = dict(
+            run_bars=args.run_bars,
+            min_run_green=args.min_run_green,
+            min_run_atr=args.min_run_atr,
+            min_wick_fraction=args.min_wick,
+            min_range_atr=args.min_range_atr,
+            min_separation_bars=args.min_separation_bars,
+            same_session_only=not args.allow_overnight_run,
+        )
+    else:
+        scanner = find_mother_candles
+        scanner_kwargs = dict(
+            left_bars=args.left_bars,
+            right_bars=args.right_bars,
+            min_range_atr=args.min_range_atr,
+            min_separation_bars=args.min_separation_bars,
+        )
     outcomes, mothers = run_sweep(
         index_series,
         cfg,
         timeframe=args.timeframe,
         max_concurrent=args.max_concurrent,
+        scanner=scanner,
         scanner_kwargs=scanner_kwargs,
         premium_lookup=premium_lookup,
         expiries=expiries,
@@ -438,6 +624,9 @@ def main() -> int:
         single_shot=args.single_shot,
         max_rounds=args.max_rounds,
         max_round_premium_inr=args.max_round_premium,
+        exit_days_before_expiry=args.exit_days_before_expiry,
+        fib_levels=fib_levels,
+        fill_at_boundary=args.at_boundary,
     )
     layer = "Layer 2 (real Upstox premiums)" if args.premium else "Layer 1 (signal geometry, no P&L)"
     if args.single_shot:
@@ -448,12 +637,18 @@ def main() -> int:
         mode = "full cascade"
     if args.max_round_premium is not None:
         mode += f" · premium cap Rs {int(args.max_round_premium):,}"
+    rule = "wick rejection" if args.mother_rule == "wick" else "swing high"
+    if fib_levels:
+        mode += f" · levels {'/'.join(str(level) for level in fib_levels)}"
+    mode += " · AT the line" if args.at_boundary else " · two-red entry"
     report(
         outcomes,
         mothers,
         priced=args.premium,
-        label=f"{args.symbol.upper()} {args.timeframe} · {mode} · {layer}",
+        label=f"{args.symbol.upper()} {args.timeframe} · mothers: {rule} · {mode} · {layer}",
     )
+    if args.detail:
+        detail(outcomes)
     return 0
 
 

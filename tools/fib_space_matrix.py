@@ -122,7 +122,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", nargs="*", default=sorted(SYMBOLS))
     parser.add_argument("--tfs", nargs="*", default=list(TIMEFRAMES))
-    parser.add_argument("--horizon-sessions", type=int, default=45)
+    parser.add_argument("--horizon-sessions", type=int, default=120)
     parser.add_argument(
         "--time-stops", nargs="*", type=int, default=[0, 2, 5], help="time stops in SESSIONS (0 = none)"
     )
