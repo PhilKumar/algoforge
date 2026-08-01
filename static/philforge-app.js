@@ -139,15 +139,20 @@ const ICO = {
     if (!minutes.includes(selectedDate.getMinutes())) minutes = [...minutes, selectedDate.getMinutes()].sort((a, b) => a - b);
     const monthName = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(visibleMonth);
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('');
+    // A mother candle is a bar that has already printed, so a field marked
+    // no-future must not offer one that has not. Nothing stopped it before, and
+    // picking a date weeks ahead came back from the server as a bare "(400)".
+    const noFuture = activeInput.dataset.pfCalendarNoFuture === '1';
     let days = '';
     for (let index = 0; index < 42; index += 1) {
       const day = new Date(gridStart);
       day.setDate(gridStart.getDate() + index);
       const classes = ['pf-cascade-calendar-day'];
+      const ahead = noFuture && !sameDay(day, now) && day > now;
       if (day.getMonth() !== month) classes.push('is-outside');
       if (sameDay(day, now)) classes.push('is-today');
       if (sameDay(day, selectedDate)) classes.push('is-selected');
-      days += `<button type="button" class="${classes.join(' ')}" data-pf-calendar-day="${day.getFullYear()}-${day.getMonth()}-${day.getDate()}">${day.getDate()}</button>`;
+      days += `<button type="button" class="${classes.join(' ')}"${ahead ? ' disabled aria-disabled="true" title="A mother candle cannot be in the future"' : ''} data-pf-calendar-day="${day.getFullYear()}-${day.getMonth()}-${day.getDate()}">${day.getDate()}</button>`;
     }
     const hours = Array.from({ length: 24 }, (_, hour) => `<option value="${hour}" ${hour === selectedDate.getHours() ? 'selected' : ''}>${pad(hour)}</option>`).join('');
     const minuteOptions = minutes.map(minute => `<option value="${minute}" ${minute === selectedDate.getMinutes() ? 'selected' : ''}>${pad(minute)}</option>`).join('');
@@ -204,6 +209,13 @@ const ICO = {
         const hour = Number(popover.querySelector('[data-pf-calendar-hour]').value);
         const minute = Number(popover.querySelector('[data-pf-calendar-minute]').value);
         selectedDate.setHours(hour, minute, 0, 0);
+      }
+      // Disabling the future day buttons is not enough on its own: the field can
+      // arrive pre-filled with a future value, and Apply would write it straight
+      // back out without the grid ever being touched.
+      if (activeInput.dataset.pfCalendarNoFuture === '1' && selectedDate > new Date()) {
+        selectedDate = new Date();
+        selectedDate.setSeconds(0, 0);
       }
       activeInput.value = activeInput.dataset.pfCalendarKind === 'date' ? dateOnly(selectedDate) : iso(selectedDate);
       activeInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1832,7 +1844,7 @@ async function loadCascadeOptionsChart() {
   try {
     const response = await fetch(`/api/cascade/paper/chart?mother_timestamp=${encodeURIComponent(timestamp)}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
     if (chart) chart.innerHTML = _cascadeOptionsChartSvg(data);
     const mother = data.mother || {};
     const fieldMap = { open: mother.native_open, high: mother.native_high, low: mother.native_low, close: mother.native_close };
@@ -1930,7 +1942,7 @@ async function killCascadeOptionsPaper() {
   try {
     const response = await fetch('/api/cascade/paper/kill', { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'killed') throw new Error(data?.detail || `Kill failed (${response.status})`);
+    if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, `Kill failed (${response.status})`));
     _cascadeOptionsSetFormStatus(`Campaign killed. ${Number(data.cancelled_rungs || []).length} paper rung(s) cancelled; any open basket is recorded as a manual paper exit.`, 'success');
     _renderCascadeOptionsStatus({ status: 'ok', mode: 'paper', live_gate: _lastCascadeOptionsStatus?.live_gate, campaign: data.campaign });
   } catch (error) {
@@ -1974,10 +1986,78 @@ function showOptionsCascadeTab(event, el) {
   else refreshFibBoundaryStatus();
 }
 
+const _FIB_TIMEFRAME_MINUTES = { '1m': 1, '5m': 5, '15m': 15, '1h': 60 };
+// Matches the server's _FIB_BOUNDARY_HISTORY_DAYS.
+const _FIB_HISTORY_DAYS = 15;
+
+// Mirrors engine/cascade_fib_geometry.boundaries_for_timeframe. The panel used
+// to advertise L4+L8 on 1m and L2+L4+L8 on 15m/1H; the engine has traded
+// neither of those since the levels were locked, so the form was describing a
+// strategy that does not exist.
+function _fibLevelsForTimeframe(timeframe) {
+  return String(timeframe) === '1m' ? [8] : [4, 8];
+}
+
 function _syncFibLevelsHint() {
   const tf = document.getElementById('fibx-timeframe')?.value || '5m';
   const hint = document.getElementById('fibx-levels-hint');
-  if (hint) hint.textContent = (tf === '1m' || tf === '5m') ? 'L4 · L8' : 'L2 · L4 · L8';
+  if (hint) hint.textContent = _fibLevelsForTimeframe(tf).map(level => `L${level}`).join(' · ');
+}
+
+// The browser may be in any zone; every rule below is an IST rule, so read the
+// clock through Asia/Kolkata rather than trusting the local one.
+function _istNowParts() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date()).reduce((acc, part) => { acc[part.type] = part.value; return acc; }, {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minuteOfDay: (Number(parts.hour) % 24) * 60 + Number(parts.minute),
+  };
+}
+
+// The same rules /api/fib-boundary/paper/start enforces, checked before the
+// round trip. The server's message is correct but the user never saw it: a
+// mother 17 days in the future came back as a bare "Campaign did not start
+// (400)". Returns a sentence to show, or null when the mother is startable.
+function _fibMotherProblem(raw, timeframe) {
+  const match = String(raw || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return 'Mother timestamp must be an IST datetime (YYYY-MM-DDTHH:MM).';
+  const [, day, hh, mm] = match;
+  const minuteOfDay = Number(hh) * 60 + Number(mm);
+  const now = _istNowParts();
+  const ageDays = Math.round((Date.parse(`${now.date}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86400000);
+  if (!Number.isFinite(ageDays)) return 'Mother timestamp must be an IST datetime (YYYY-MM-DDTHH:MM).';
+  if (ageDays < 0) return `Mother candle cannot be in the future — it is ${now.date} in IST.`;
+  if (ageDays > _FIB_HISTORY_DAYS) return `Mother candle is older than the ${_FIB_HISTORY_DAYS}-day paper window. Use Backtest for older history.`;
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  if (weekday === 0 || weekday === 6) return 'NSE does not trade at weekends — pick a session day.';
+  // 09:15 = 555, 15:30 = 930.
+  if (minuteOfDay < 555 || minuteOfDay > 930) return 'Mother candle must open inside the NSE 09:15–15:30 session (IST).';
+  const step = _FIB_TIMEFRAME_MINUTES[String(timeframe)] || 5;
+  if (step === 60) {
+    if (Number(mm) !== 15) return 'A 1H mother opens at 09:15, 10:15 … 15:15 IST.';
+  } else if (Number(mm) % step) {
+    return `A ${timeframe} mother opens on a ${step}-minute boundary — its minute must be a multiple of ${step}.`;
+  }
+  // NSE's last 1H bar is the 15-minute 15:15 block, not a full hour.
+  const effective = step === 60 && Number(hh) === 15 ? 15 : step;
+  if (ageDays === 0 && minuteOfDay + effective > now.minuteOfDay) return `That ${timeframe} candle has not closed yet.`;
+  return null;
+}
+
+// FastAPI answers with {detail}, but a request-validation failure makes detail a
+// LIST and a proxy can answer with no JSON at all. Every one of those used to
+// collapse into a bare status code, which tells the user nothing.
+function _apiErrorMessage(data, fallback) {
+  const detail = data?.detail ?? data?.error?.detail ?? data?.error?.message ?? data?.message;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const joined = detail.map(row => row?.msg || row?.detail || '').filter(Boolean).join('; ');
+    if (joined) return joined;
+  }
+  return fallback;
 }
 
 // The mother's date decides how Start behaves — a today mother runs live paper
@@ -2170,13 +2250,15 @@ async function startFibBoundaryPaper() {
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
   if (!Number.isFinite(payload.rung_inr) || payload.rung_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ per rung.', 'error'); return; }
+  const problem = _fibMotherProblem(payload.mother_timestamp, payload.timeframe);
+  if (problem) { _fibSetFormStatus(problem, 'error'); return; }
   const button = el('fibx-start');
   if (button) { button.disabled = true; button.textContent = 'Fetching the mother candle and starting paper monitor…'; }
   _fibSetFormStatus(`Fetching the mother from Dhan and selecting next-weekly ${payload.side}. No order will be sent.`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !['started', 'replayed'].includes(data.status)) throw new Error(data?.detail || `Campaign did not start (${response.status})`);
+    if (!response.ok || !['started', 'replayed'].includes(data.status)) throw new Error(_apiErrorMessage(data, `Campaign did not start (${response.status})`));
     _fibSetFormStatus(data.status === 'replayed' ? 'Historical replay completed. Fixed-strike P&L is withheld for signal-only mode.' : 'Fib-boundary paper campaign started. No live order will be sent.', 'success');
     _renderFibBoundaryStatus({ campaign: data.campaign });
   } catch (error) {
@@ -2194,7 +2276,7 @@ async function killFibBoundaryPaper() {
   try {
     const response = await fetch('/api/fib-boundary/paper/kill', { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'killed') throw new Error(data?.detail || `Kill failed (${response.status})`);
+    if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, `Kill failed (${response.status})`));
     _fibSetFormStatus('Fib-boundary campaign killed.', 'success');
     _renderFibBoundaryStatus({ campaign: data.campaign });
   } catch (error) {
@@ -2306,7 +2388,7 @@ async function loadFibBoundaryChart() {
     if (Number.isFinite(high) && Number.isFinite(low)) { query.set('high', String(high)); query.set('low', String(low)); }
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
     // Only one canvas chart can be mounted at a time -- the renderer finds its
     // surfaces by a fixed id. Fold the backtest journal chart away first so the
     // overlay does not mount behind a duplicate host.
@@ -2356,7 +2438,7 @@ async function runFibBoundaryBacktest() {
   try {
     const response = await fetch('/api/fib-boundary/backtest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Backtest failed (${response.status})`);
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Backtest failed (${response.status})`));
     _renderFibBoundaryBacktest(data);
     _fibSetFormStatus('Backtest complete — real fixed-strike premiums, no order sent.', 'success');
   } catch (error) {

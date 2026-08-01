@@ -80,6 +80,10 @@
   .pf-cascade-calendar-day:hover, .pf-cascade-calendar-day.is-selected { border-color:rgba(0,191,165,.55); background:rgba(0,191,165,.14); color:#6ee7b7; }
   .pf-cascade-calendar-day.is-today { box-shadow:inset 0 0 0 1px rgba(79,142,247,.48); }
   .pf-cascade-calendar-day.is-outside { opacity:.34; }
+  /* A mother candle that has not printed yet is not a choice. Struck through
+     rather than merely dimmed, so it reads as refused and not as "outside". */
+  .pf-cascade-calendar-day[disabled] { opacity:.26; cursor:not-allowed; text-decoration:line-through; }
+  .pf-cascade-calendar-day[disabled]:hover { border-color:transparent; background:transparent; color:var(--text); }
   .pf-cascade-calendar-time { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
   .pf-cascade-calendar-time select { min-height:36px; padding:7px 8px; font:11px 'JetBrains Mono',monospace; }
   .pf-cascade-calendar-minute-lock { min-height:36px; display:flex; align-items:center; padding:7px 8px; border:1px solid var(--border); border-radius:8px; background:rgba(79,142,247,.08); color:var(--muted); font:10px 'JetBrains Mono',monospace; }

@@ -1479,7 +1479,7 @@
         <div class="terminal-cascade-form-grid">
           <div class="terminal-cascade-field">
             <label>Mother candle <span id="terminal-cascade-mother-readable" class="terminal-cascade-field-hint">--</span></label>
-            <input id="terminal-cascade-mother-timestamp" type="datetime-local" step="300">
+            <input id="terminal-cascade-mother-timestamp" data-pf-calendar-no-future="1" type="datetime-local" step="300">
           </div>
           <div class="terminal-cascade-field">
             <label>Capital INR</label>
@@ -1851,17 +1851,17 @@
           <div>
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Timeframe</label>
             <select id="fibx-timeframe" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-              <option value="1m">1m · L4 · L8</option>
+              <option value="1m">1m · L8</option>
               <option value="5m" selected>5m · L4 · L8</option>
-              <option value="15m">15m · L2 · L4 · L8</option>
-              <option value="1h">1H · L2 · L4 · L8</option>
+              <option value="15m">15m · L4 · L8</option>
+              <option value="1h">1H · L4 · L8</option>
             </select>
           </div>
         </div>
         <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->
-        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
         <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">The candle's high &amp; low are fetched from Dhan — nothing typed by hand.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
@@ -1927,7 +1927,7 @@
   <div id="oc-tab-candle" class="oc-tab-panel" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;">Candle Entry Strategy</h3><p style="margin:6px 0 0;font-size:11px;color:var(--muted);line-height:1.55;max-width:720px;">Pick a starting chart and a completed mother candle from the last 15 calendar days. Two red closes arm a buy-stop on the FIRST red's close; each fill marks the low and climbs to the next chart — 1, 2, 3 then 4 lots, the whole basket leaving together on the first target. Today's mother runs a quote-backed paper campaign; an earlier date replays the index geometry only, without inventing fixed-strike premium or P&amp;L.</p></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
-      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:190px;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" type="datetime-local" step="60" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:190px;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
       <section id="candle-entry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
@@ -1967,7 +1967,7 @@
     </div>
     <div class="tb-field">
       <label for="tb-mother">Mother candle · IST</label>
-      <input id="tb-mother" type="datetime-local" step="60">
+      <input id="tb-mother" data-pf-calendar-no-future="1" type="datetime-local" step="60">
     </div>
     <div class="tb-field tb-field-narrow" id="tb-rung-field">
       <label for="tb-rung">Per level ₹</label>
