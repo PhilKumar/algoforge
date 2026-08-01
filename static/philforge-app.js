@@ -2526,11 +2526,23 @@ function _renderFibBoundaryBacktest(data) {
   const note = document.getElementById('fibx-backtest-note');
   if (note) note.textContent = data.note || '';
   const gaps = Array.isArray(result.data_gaps) ? result.data_gaps : [];
+  const failures = Array.isArray(result.premium_failures) ? result.premium_failures : [];
+  const staleFills = Array.isArray(result.premium_stale_fills) ? result.premium_stale_fills : [];
   const gapsEl = document.getElementById('fibx-backtest-gaps');
   if (gapsEl) {
-    gapsEl.innerHTML = gaps.length
-      ? `<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — legs Upstox never listed or minutes with no bar (net P&L is withheld when any leg is a gap)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`
-      : '';
+    const blocks = [];
+    if (failures.length) {
+      // A dead token / rate limit / missing scrip id — the data source broke,
+      // the market didn't go quiet. Re-run once the source is healthy.
+      blocks.push(`<details class="fibx-premium-failures" open style="border:1px solid rgba(252,165,165,.4);border-radius:7px;padding:8px 10px;"><summary style="color:#fca5a5;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${failures.length} premium source failure${failures.length === 1 ? '' : 's'} — the data feed broke, this is NOT a market gap. Fix the source and re-run.</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${failures.slice(0, 20).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
+    }
+    if (gaps.length) {
+      blocks.push(`<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — no bar within 10 min of the fill (net P&L is withheld when a leg stays unpriced)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
+    }
+    if (staleFills.length) {
+      blocks.push(`<details class="fibx-premium-stale" style="border:1px solid var(--border);border-radius:7px;padding:8px 10px;"><summary style="color:var(--muted);font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${staleFills.length} leg${staleFills.length === 1 ? '' : 's'} priced from the last traded bar (illiquid minute — real price, up to 10 min old)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${staleFills.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
+    }
+    gapsEl.innerHTML = blocks.join('');
   }
   const legs = document.getElementById('fibx-backtest-legs');
   if (legs) {

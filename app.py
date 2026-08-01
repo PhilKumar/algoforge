@@ -8690,6 +8690,10 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
 
         result = FibBoundaryCascade(fib_config, resolver, option_lookup).run(forward)
         serialized = _serialize_fib_boundary_backtest(result, lot_size)
+        # A dead token or a rate-limited fetch is not a market gap; say which
+        # one happened so a failed replay never masquerades as missing data.
+        serialized["premium_failures"] = list(premium_lookup.source_failures)
+        serialized["premium_stale_fills"] = list(premium_lookup.stale_fills)
         serialized["_chart"] = fib_boundary_chart(fib_config, result, forward, timeframe=timeframe)
         return serialized
 
@@ -8722,6 +8726,24 @@ async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Re
     }
 
 
+def _premium_minute(moment: datetime) -> datetime:
+    """One canonical minute key: naive IST wall clock.
+
+    The engine's index candles are IST-aware while Dhan's option frame is
+    stamped naive — an aware and a naive datetime never compare equal, so
+    keying both sides through here is what lets a premium lookup hit at all.
+    """
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(IST).replace(tzinfo=None)
+    return moment.replace(second=0, microsecond=0)
+
+
+# An illiquid strike can go a few minutes without a trade; a market buy there
+# would still fill near the last traded price.  How many minutes back a lookup
+# may reach for that last real bar before the minute is an honest gap.
+_PREMIUM_STALE_LIMIT_MINUTES = 10
+
+
 def _hybrid_premium_lookup(
     broker: DhanClient,
     instrument: str,
@@ -8734,16 +8756,24 @@ def _hybrid_premium_lookup(
 
     Upstox records a contract's minutes only after it EXPIRES; Dhan can serve
     a still-listed contract's minutes right now.  Between them a replay can
-    price any contract the resolver picks — and a minute neither source
-    recorded stays None rather than borrowing a neighbour's price.  One Dhan
-    fetch per contract, cached for the whole replay.
+    price any contract the resolver picks.  A minute neither source recorded
+    is priced from the last real bar up to ``_PREMIUM_STALE_LIMIT_MINUTES``
+    earlier the same day — disclosed on ``lookup.stale_fills`` — and stays
+    None past that.  One Dhan fetch per contract, cached for the whole replay.
+
+    A contract whose Dhan fetch FAILED (dead token, rate limit, no security
+    id) is not a data gap: the reason lands on ``lookup.source_failures`` so
+    the caller can say what actually broke instead of "minute has no bar".
     """
 
     dhan_minutes: dict[tuple, dict] = {}
+    source_failures: list[str] = []
+    stale_fills: list[str] = []
 
     def _dhan_series(contract) -> dict:
         key = (int(contract.strike), contract.expiry, str(contract.option_type))
         if key not in dhan_minutes:
+            label = f"{instrument} {int(contract.strike)}{contract.option_type} {contract.expiry.isoformat()}"
             series: dict = {}
             try:
                 security_id = ScripMaster.lookup(
@@ -8760,28 +8790,46 @@ def _hybrid_premium_lookup(
                         "1",
                     )
                     series = {
-                        index.to_pydatetime().replace(second=0, microsecond=0): float(row_open)
+                        _premium_minute(index.to_pydatetime()): float(row_open)
                         for index, row_open in frame["open"].items()
                     }
+                    if not series:
+                        source_failures.append(f"Dhan returned no candles at all for {label}")
+                else:
+                    source_failures.append(f"Dhan's scrip master has no security id for {label}")
             except Exception as exc:
-                _logger.warning(
-                    "[premiums] Dhan option candles unavailable for %s %s %s %s: %s",
-                    instrument,
-                    contract.strike,
-                    contract.expiry,
-                    contract.option_type,
-                    exc,
-                )
+                source_failures.append(f"Dhan option candles unavailable for {label}: {exc}")
+                _logger.warning("[premiums] Dhan option candles unavailable for %s: %s", label, exc)
             dhan_minutes[key] = series
         return dhan_minutes[key]
 
-    def lookup(timestamp, contract):
+    def _price_at(minute: datetime, contract):
         if upstox_source is not None and contract.expiry in upstox_expiries:
-            bar = upstox_source.lookup(timestamp, contract)
+            bar = upstox_source.lookup(minute, contract)
             if bar is not None:
                 return float(bar.open)
-        return _dhan_series(contract).get(timestamp.replace(second=0, microsecond=0))
+        return _dhan_series(contract).get(minute)
 
+    def lookup(timestamp, contract):
+        minute = _premium_minute(timestamp)
+        price = _price_at(minute, contract)
+        if price is not None:
+            return price
+        for back in range(1, _PREMIUM_STALE_LIMIT_MINUTES + 1):
+            earlier = minute - timedelta(minutes=back)
+            if earlier.date() != minute.date():
+                break
+            price = _price_at(earlier, contract)
+            if price is not None:
+                stale_fills.append(
+                    f"{int(contract.strike)}{contract.option_type} at {minute.strftime('%H:%M')} priced from "
+                    f"the last trade {back} min earlier ({earlier.strftime('%H:%M')} bar, ₹{price:,.2f})"
+                )
+                return price
+        return None
+
+    lookup.source_failures = source_failures
+    lookup.stale_fills = stale_fills
     return lookup
 
 
