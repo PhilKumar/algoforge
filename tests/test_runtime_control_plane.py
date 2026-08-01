@@ -1,3 +1,4 @@
+import base64
 import os
 import unittest
 from datetime import datetime
@@ -8,7 +9,7 @@ os.environ.setdefault("PHILFORGE_PIN", "123456")
 os.environ.setdefault("PHILFORGE_DB", "/tmp/philforge-runtime-control.db")
 os.environ.setdefault("PHILFORGE_USER_DATA_ROOT", "/tmp/philforge-runtime-control-data")
 os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
-os.environ.setdefault("ENCRYPTION_KEY", "QmG8YWqLPtWFDn7gCAiHJXoX7zH5zi89kUnkkMvibU=")
+os.environ.setdefault("ENCRYPTION_KEY", base64.urlsafe_b64encode(b"0" * 32).decode())
 
 import app as app_module  # noqa: E402
 
