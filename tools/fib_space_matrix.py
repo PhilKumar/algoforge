@@ -51,6 +51,7 @@ def run_cell(
     stop_sessions: int,
     limit: int = 0,
     open_ended: bool = False,
+    since: str = "",
 ) -> dict:
     """One symbol/timeframe/time-stop combination, index and rupees."""
     cfg = SYMBOLS[symbol]
@@ -60,6 +61,10 @@ def run_cell(
 
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
     mothers = find_space_mothers(index_candles)
+    # Restrict which MOTHERS start a campaign, never the bar series: geometry
+    # and expiry settlement still read the full history behind and ahead.
+    if since:
+        mothers = [m for m in mothers if m.timestamp.strftime("%Y-%m-%d") >= since]
     if limit:
         mothers = mothers[:limit]
 
@@ -141,6 +146,7 @@ def main() -> None:
         "--time-stops", nargs="*", type=int, default=[0, 2, 5], help="time stops in SESSIONS (0 = none)"
     )
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--since", default="", help="only mothers on/after this YYYY-MM-DD")
     parser.add_argument(
         "--open-ended",
         action="store_true",
@@ -162,6 +168,7 @@ def main() -> None:
                         stop_sessions=stop,
                         limit=args.limit,
                         open_ended=args.open_ended,
+                        since=args.since,
                     )
                 except UpstoxAccessError as exc:
                     print(f"  {symbol} {timeframe} stop={stop}: upstox unavailable ({exc})")
