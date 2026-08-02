@@ -89,14 +89,32 @@ class Bar:
     high: float
     low: float
     close: float
+    # THE GAP RULE.  Set only on the FIRST bar of a session, to the previous
+    # session's close.  Phil, 2026-08-02: "the previous day close is green and
+    # current day's open is gap down, the price has to be calculated from the
+    # close of yesterday as the open of the current day."
+    #
+    # NSE closes overnight, so a session-opening candle's own open is where the
+    # gap ENDED, not where the move began.  Judging that candle red or green
+    # against it hides the whole overnight fall inside a bar that can look
+    # green: BankNifty's 23-Apr-2026 09:15 closed 128 points ABOVE its own open
+    # and 378 points BELOW the previous close.  On its own open it is green and
+    # the two-candle count resets; measured from yesterday's close it is red,
+    # which is what the eye reads on the chart and what the rule means.
+    session_prev_close: Optional[float] = None
+
+    @property
+    def effective_open(self) -> float:
+        """Where this candle's move actually began -- see ``session_prev_close``."""
+        return self.open if self.session_prev_close is None else self.session_prev_close
 
     @property
     def is_red(self) -> bool:
-        return self.close < self.open
+        return self.close < self.effective_open
 
     @property
     def is_green(self) -> bool:
-        return self.close > self.open
+        return self.close > self.effective_open
 
     @property
     def range(self) -> float:
@@ -289,14 +307,17 @@ class SpaceGeometry:
         candidates = [
             b
             for b in window
-            if self.low_index is not None and b.index > self.low_index and b.is_red and b.open < self.mother.high
+            if self.low_index is not None
+            and b.index > self.low_index
+            and b.is_red
+            and b.effective_open < self.mother.high
         ]
         if not candidates:
             return
         slack = self._slack(window)
         anchor = None
         blocked = None
-        for candidate in sorted(candidates, key=lambda b: -b.open):
+        for candidate in sorted(candidates, key=lambda b: -b.effective_open):
             span = candidate.index - self.mother.index
             if span <= 0:
                 continue
@@ -304,7 +325,7 @@ class SpaceGeometry:
             for other in window:
                 if other.index == candidate.index:
                     continue
-                level = self.mother.high + (candidate.open - self.mother.high) * (
+                level = self.mother.high + (candidate.effective_open - self.mother.high) * (
                     (other.index - self.mother.index) / span
                 )
                 if other.close > level + slack:
@@ -321,7 +342,7 @@ class SpaceGeometry:
                 self._log(
                     bar,
                     "trendline_refused",
-                    highest_open=round(top.open, 2),
+                    highest_open=round(top.effective_open, 2),
                     cut_by_close=round(other.close, 2),
                     against=round(level, 2),
                 )
@@ -331,7 +352,7 @@ class SpaceGeometry:
             trendline_id=len(self.trendlines) + 1,
             anchor1_price=self.mother.high,
             anchor1_index=self.mother.index,
-            anchor2_price=anchor.open,
+            anchor2_price=anchor.effective_open,
             anchor2_index=anchor.index,
             anchor2_timestamp=anchor.timestamp,
         )
@@ -349,7 +370,7 @@ class SpaceGeometry:
             bar,
             "trendline_drawn",
             trendline_id=candidate_line.trendline_id,
-            anchor_open=round(anchor.open, 2),
+            anchor_open=round(anchor.effective_open, 2),
             anchor_at=anchor.timestamp.isoformat(),
         )
 

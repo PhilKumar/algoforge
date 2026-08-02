@@ -27,17 +27,31 @@ from statistics import mean
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource  # noqa: E402
-from engine.cascade_mothers import find_mother_candles  # noqa: E402
 from engine.cascade_options import IndexCandle, NiftyContractResolver  # noqa: E402
 from engine.fib_space_cascade import SpaceCascadeConfig, run_space_campaign  # noqa: E402
 from tools.fib_space_premium import CACHE_ONLY, _ResolverView, lot_size_on, price_campaign  # noqa: E402
-from tools.fib_space_sweep import BARS_PER_SESSION, SYMBOLS, horizon_bars, load_bars  # noqa: E402
+from tools.fib_space_sweep import (  # noqa: E402
+    BARS_PER_SESSION,
+    SYMBOLS,
+    find_space_mothers,
+    horizon_bars,
+    load_bars,
+)
 
 TIMEFRAMES = ("5m", "15m", "1h")
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fib_space_matrix_results.json")
+OUT_PATH_OPEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fib_space_matrix_open_ended.json")
 
 
-def run_cell(symbol: str, timeframe: str, *, horizon_sessions: int, stop_sessions: int, limit: int = 0) -> dict:
+def run_cell(
+    symbol: str,
+    timeframe: str,
+    *,
+    horizon_sessions: int,
+    stop_sessions: int,
+    limit: int = 0,
+    open_ended: bool = False,
+) -> dict:
     """One symbol/timeframe/time-stop combination, index and rupees."""
     cfg = SYMBOLS[symbol]
     bars = load_bars(timeframe, symbol)
@@ -45,7 +59,7 @@ def run_cell(symbol: str, timeframe: str, *, horizon_sessions: int, stop_session
     stop_bars = BARS_PER_SESSION[timeframe] * stop_sessions if stop_sessions else 0
 
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
-    mothers = find_mother_candles(index_candles)
+    mothers = find_space_mothers(index_candles)
     if limit:
         mothers = mothers[:limit]
 
@@ -70,7 +84,7 @@ def run_cell(symbol: str, timeframe: str, *, horizon_sessions: int, stop_session
         result = run_space_campaign(
             bars[start],
             window,
-            SpaceCascadeConfig(lot_size=lot, max_bars_held=stop_bars),
+            SpaceCascadeConfig(lot_size=lot, max_bars_held=stop_bars, deepest_zone_open_ended=open_ended),
             arm_from_index=mother.confirmed_index,
         )
         if not result.fills:
@@ -127,6 +141,11 @@ def main() -> None:
         "--time-stops", nargs="*", type=int, default=[0, 2, 5], help="time stops in SESSIONS (0 = none)"
     )
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--open-ended",
+        action="store_true",
+        help="the deepest zone claims everything below it (Phil's crash-entry charts)",
+    )
     args = parser.parse_args()
 
     print(f"[matrix] cache_only={CACHE_ONLY} horizon={args.horizon_sessions} sessions")
@@ -142,6 +161,7 @@ def main() -> None:
                         horizon_sessions=args.horizon_sessions,
                         stop_sessions=stop,
                         limit=args.limit,
+                        open_ended=args.open_ended,
                     )
                 except UpstoxAccessError as exc:
                     print(f"  {symbol} {timeframe} stop={stop}: upstox unavailable ({exc})")
@@ -153,7 +173,7 @@ def main() -> None:
                     f"traded={row['traded']:<4} priced={row['priced']:<4} "
                     f"net={row['net'] if row['net'] is not None else 'n/a'}"
                 )
-                with open(OUT_PATH, "w", encoding="utf-8") as handle:
+                with open(OUT_PATH_OPEN if args.open_ended else OUT_PATH, "w", encoding="utf-8") as handle:
                     json.dump(rows, handle, indent=2)
 
     print("\n" + "=" * 96)

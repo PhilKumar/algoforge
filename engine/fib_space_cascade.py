@@ -75,6 +75,15 @@ class SpaceCascadeConfig:
     # expiry).  With no stop loss and a monthly option, expiry is otherwise the
     # only thing that can end a losing round -- and it ends it at a total loss.
     max_bars_held: int = 0
+    # WHEN THE FALL BLOWS THROUGH EVERY LEVEL.  A gap or a crash can leave the
+    # market hundreds of points below the deepest line the geometry has drawn,
+    # and then no zone contains the close, so no money goes in.  Phil's charts
+    # show him buying anyway: on 09-Mar-2026 BankNifty gapped 1,661 points and
+    # his entry sits ~1,600 points under the deepest level of the fibs that
+    # existed.  With this on, the DEEPEST live zone claims everything beneath
+    # it, so the two-candle rule alone governs the entry down there.  Measured
+    # rather than assumed -- it widens the strategy considerably.
+    deepest_zone_open_ended: bool = False
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
@@ -339,9 +348,25 @@ def run_space_campaign(
         zones = tradable_zones(geometry.fibs, reached=lowest)
         if not zones:
             continue
-        for space in zones:
-            # Never re-buy a space this round already used.
-            if any(abs(f.space_top - space.top_price) < 1e-9 for f in round_fills):
+        for position, space in enumerate(zones):
+            in_zone = space.contains_buy(bar.close)
+            # See SpaceCascadeConfig.deepest_zone_open_ended: below the last
+            # line the geometry drew there are no more zones, and Phil's charts
+            # keep buying the two-red recoveries down there anyway.
+            open_country = (
+                not in_zone
+                and config.deepest_zone_open_ended
+                and position == len(zones) - 1
+                and bar.close < space.buy_floor
+            )
+            if not (in_zone or open_country):
+                continue
+            # Never re-buy a space this round already used -- but open country
+            # is not a level, it is everything under the last one, so the
+            # ladder must be free to step down through it more than once.  With
+            # this guard applied there too, the 23-Feb-2026 round bought once
+            # and then sat, where Phil's chart adds a second lot on 09-Mar.
+            if in_zone and any(abs(f.space_top - space.top_price) < 1e-9 for f in round_fills):
                 continue
             # Money moves DOWN the boundaries, never back up: a second lot
             # priced above the first is not a cascade, it is averaging up.
@@ -352,11 +377,10 @@ def run_space_campaign(
             # bought again.
             if not round_fills and round_floor is not None and bar.close >= round_floor:
                 continue
-            if space.contains_buy(bar.close):
-                pending_trigger = bar.close
-                pending_space = space
-                pending_index = bar.index
-                break
+            pending_trigger = bar.close
+            pending_space = space
+            pending_index = bar.index
+            break
 
     result.fib_count = len(geometry.fibs)
     result.space_count = len(find_spaces(geometry.fibs))

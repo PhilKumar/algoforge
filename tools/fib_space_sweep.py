@@ -56,6 +56,23 @@ SYMBOLS = {
 # capping, in price_campaign.
 BARS_PER_SESSION = {"5m": 75, "15m": 25, "1h": 7}
 DEFAULT_HORIZON_SESSIONS = 120
+
+# How many bars either side a swing high must beat to be a mother HERE.  The
+# detector's own default is 3, which in a downtrend promotes every minor bounce:
+# Phil rejected 2024-12-17 11:00 on sight, and he was right -- its high sits 398
+# points UNDER the real high of the surrounding 40 bars and its range is 0.92
+# ATR.  Widening to 5 drops 2024-12-17 11:00 and 261 other junk pivots (770 ->
+# 509) while keeping all four mothers Phil has confirmed by chart (05-Mar-2026
+# 14:45, 23-Feb-2026 09:30, 25-Mar-2026 14:00, 22-Apr-2026 14:00).  Raising the
+# ATR floor instead loses his mothers, so the pivot width is the right knob.
+MOTHER_PIVOT_BARS = 5
+
+
+def find_space_mothers(index_candles):
+    """The mother scan this design uses -- see MOTHER_PIVOT_BARS."""
+    return find_mother_candles(index_candles, left_bars=MOTHER_PIVOT_BARS, right_bars=MOTHER_PIVOT_BARS)
+
+
 # Kept for callers that still think in bars (the original 15m default).
 DEFAULT_HORIZON_BARS = BARS_PER_SESSION["15m"] * DEFAULT_HORIZON_SESSIONS
 
@@ -78,10 +95,26 @@ def load_bars(timeframe: str, symbol: str = "nifty") -> list[Bar]:
         if len(data) > len(rows):
             best, rows = name, data
     print(f"[data] {best}: {len(rows)} bars")
-    return [
-        Bar(index=i, timestamp=datetime.fromisoformat(r[0]), open=r[1], high=r[2], low=r[3], close=r[4])
-        for i, r in enumerate(rows)
-    ]
+    bars: list[Bar] = []
+    prev = None
+    for i, r in enumerate(rows):
+        stamp = datetime.fromisoformat(r[0])
+        # THE GAP RULE: the first bar of a session carries the previous
+        # session's close, so red/green and the trendline anchor are measured
+        # from where the move began rather than from where the gap ended.
+        prev_close = prev.close if prev is not None and prev.timestamp.date() != stamp.date() else None
+        bar = Bar(
+            index=i,
+            timestamp=stamp,
+            open=r[1],
+            high=r[2],
+            low=r[3],
+            close=r[4],
+            session_prev_close=prev_close,
+        )
+        bars.append(bar)
+        prev = bar
+    return bars
 
 
 def main() -> None:
@@ -97,7 +130,7 @@ def main() -> None:
     bars = load_bars(args.tf, args.symbol)
     span = horizon_bars(args.tf, args.horizon_sessions)
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
-    mothers = find_mother_candles(index_candles)
+    mothers = find_space_mothers(index_candles)
     if args.limit:
         mothers = mothers[: args.limit]
     print(f"[mothers] {len(mothers)} swing-high mothers on {args.symbol} {args.tf}")

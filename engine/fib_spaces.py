@@ -135,6 +135,15 @@ def find_spaces(fibs: Sequence[DrawnFib], levels: Iterable[int] = FIB_LEVELS) ->
     for upper, lower in zip(marks, marks[1:]):
         if upper[1] == lower[1]:
             continue  # same fib: a gap inside one structure is not a boundary
+        if upper[2] == lower[2]:
+            # Same LEVEL NUMBER from two fibs is not a boundary either.  Phil
+            # names his boundaries "2-4 or 4-8 or 2-8" -- always a tight fib's
+            # deep line meeting a wide fib's shallow one.  Two L2s a few points
+            # apart are two similar-sized drafts of the same slide, and on his
+            # 05-Mar-2026 BankNifty mother the "2-2" spaces they made bought
+            # 58,2xx on 6 Mar -- entries his chart does not have -- and then
+            # died with the crash.
+            continue
         spaces.append(
             Space(
                 top_price=upper[0],

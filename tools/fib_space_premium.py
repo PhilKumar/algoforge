@@ -30,12 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_costs  # noqa: E402
 from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource  # noqa: E402
-from engine.cascade_mothers import find_mother_candles  # noqa: E402
 from engine.cascade_options import IndexCandle, NiftyContractResolver  # noqa: E402
 from engine.fib_space_cascade import SpaceCascadeConfig, run_space_campaign  # noqa: E402
 from tools.fib_space_sweep import (  # noqa: E402
     DEFAULT_HORIZON_SESSIONS,
     SYMBOLS,
+    find_space_mothers,
     horizon_bars,
     load_bars,
 )
@@ -241,7 +241,7 @@ def main() -> None:
     bars = load_bars(args.tf, args.symbol)
     span = horizon_bars(args.tf, args.horizon_sessions)
     index_candles = [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in bars]
-    mothers = find_mother_candles(index_candles)
+    mothers = find_space_mothers(index_candles)
     if args.limit:
         mothers = mothers[: args.limit]
 
