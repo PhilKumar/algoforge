@@ -616,7 +616,7 @@ body::before {
 
 <!-- ── Topbar ── -->
 <div class="app-topbar">
-  <a href="/" class="topbar-brand">
+  <a href="/app" class="topbar-brand">
     <img src="/static/logo.png?v=__ASSET_VERSION__" alt="PhilForge">
     <div>
       <div class="topbar-brand-text">PhilForge</div>
@@ -624,7 +624,7 @@ body::before {
     </div>
   </a>
   <div class="topbar-right">
-    <a href="/" class="topbar-btn">← Back to Dashboard</a>
+    <a href="/app" class="topbar-btn">← Back to Dashboard</a>
     <button class="topbar-btn" data-install-app hidden>Install App</button>
     <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())">Logout</button>
   </div>

@@ -430,7 +430,7 @@ async function loadMarketMovers() {
       signal: controller.signal,
     });
     if (response.status === 401) {
-      window.location.href = '/';
+      window.location.href = '/app';
       return;
     }
     if (!response.ok) throw new Error(`Request failed (${response.status})`);

@@ -3,7 +3,7 @@
   "name": "PhilForge",
   "short_name": "PhilForge",
   "description": "PhilForge trading workspace",
-  "start_url": "/",
+  "start_url": "/app",
   "scope": "/",
   "display": "minimal-ui",
   "orientation": "portrait-primary",

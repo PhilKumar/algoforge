@@ -124,7 +124,9 @@ async function tryUnlock() {
         await Promise.all(keys.filter(key => key.startsWith('philforge-shell-')).map(key => caches.delete(key)));
       }
       setSuccess();
-      setTimeout(() => { window.location.href = '/'; }, 400);
+      // The terminal is at /app; "/" is now the public landing page. Sending a
+      // freshly logged-in user to "/" would show them marketing copy.
+      setTimeout(() => { window.location.href = '/app'; }, 400);
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.detail || 'Wrong credentials. Try again.');

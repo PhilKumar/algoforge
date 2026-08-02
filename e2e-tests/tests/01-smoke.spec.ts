@@ -138,7 +138,7 @@ async function installOfflineE2E(page: Page) {
 // for explicit PIN mode in case a branch toggles that UI back on.
 async function login(page: Page) {
   await installOfflineE2E(page);
-  await page.goto('/');
+  await page.goto('/app');
 
   await page.fill('#username-input', USERNAME);
 

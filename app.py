@@ -63,7 +63,15 @@ import fcntl
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -2656,7 +2664,13 @@ async def auth_middleware(request: Request, call_next):
         "/api/save-state",
         "/api/restore-engines",
         "/login",
+        # "/" is the public landing page. "/app" is the terminal, and it is
+        # listed here for the same reason "/" used to be: the route does its
+        # own session check and renders the LOGIN PAGE when there is no user.
+        # Without this the middleware answers a browser navigation with a JSON
+        # 401 and nobody can reach the login form.
         "/",
+        "/app",
         "/charts-viewer",
         "/market-movers",
         "/study-lounge",
@@ -3050,6 +3064,25 @@ def _render_login_page() -> HTMLResponse:
 
 # ── Serve Frontend ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
+async def serve_landing():
+    """Public front door for philforge.in. No session, no secrets.
+
+    This is the shared landing for both desks: it tells the Homma story once
+    and then forks to the equities terminal here at /app and to the crypto
+    terminal on crypto.philforge.in. The terminal itself moved to /app, and
+    every CTA on this page points there.
+    """
+    landing_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "landing", "forge.html")
+    if os.path.exists(landing_path):
+        resp = HTMLResponse(_read_frontend_template(landing_path))
+        # Short, revalidated: the page is public but changes with deploys.
+        resp.headers["Cache-Control"] = "public, max-age=300, must-revalidate"
+        return resp
+    # Losing the landing file must not lock anyone out of the terminal.
+    return RedirectResponse("/app", status_code=307)
+
+
+@app.get("/app", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
     user = await _get_page_user(request)
     if not user:

@@ -135,7 +135,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
 
 async function openCascadePage(page: Page, backtestBody: object, paperStatus?: object) {
   await installMocks(page, backtestBody, paperStatus);
-  await page.goto('/');
+  await page.goto('/app');
   await page.fill('#username-input', USERNAME);
   const passwordInput = page.locator('#password-input');
   if (await passwordInput.isVisible()) {
