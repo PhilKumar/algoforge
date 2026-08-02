@@ -217,7 +217,13 @@ def run_space_campaign(
     geometry = SpaceGeometry(mother=mother)
     result = SpaceCampaignResult(mother_timestamp=mother.timestamp, mother_high=mother.high, mother_low=mother.low)
 
-    streak = 0
+    # THE ENTRY, as CryptoForge's engine/cascade.py has always run it
+    # (_advance_pending_stop / _set_pending_stop).  The trigger is the PREVIOUS
+    # red's close, one body back, so it rests ABOVE where the market just
+    # closed -- that is what makes it a stop rather than a limit, and it is why
+    # the fill can only come from a turn back UP.
+    last_red_close: Optional[float] = None
+    last_red_zone_top: Optional[float] = None
     pending_trigger: Optional[float] = None
     pending_space: Optional[Space] = None
     pending_index: Optional[int] = None
@@ -236,7 +242,7 @@ def run_space_campaign(
 
     def _close_round(bar: Bar, reason: str, exit_level: float, average: float) -> None:
         nonlocal round_fills, first_fill_index, anchor_low, round_floor
-        nonlocal streak, pending_trigger, pending_space, pending_index
+        nonlocal last_red_close, last_red_zone_top, pending_trigger, pending_space, pending_index
         rnd = SpaceRound(
             fills=round_fills,
             status="closed",
@@ -255,7 +261,7 @@ def run_space_campaign(
         round_fills = []
         first_fill_index = None
         anchor_low = None
-        streak = 0
+        last_red_close = last_red_zone_top = None
         pending_trigger = pending_space = pending_index = None
 
     result_target: Optional[float] = None
@@ -291,7 +297,7 @@ def run_space_campaign(
                 # went on, giving the 24,649.85 target his chart shows.
                 anchor_low = lowest if lowest is not None else bar.low
                 pending_trigger = pending_space = pending_index = None
-                streak = 0
+                last_red_close = last_red_zone_top = None
 
         # The fall's lowest point, tracked from the mother -- the anchor Phil
         # draws his retracement from.
@@ -330,7 +336,20 @@ def run_space_campaign(
                 _close_round(bar, "time_stop", bar.close, average)
                 continue
 
-        # --- arm the next buy: two red closes, inside a live space's buy zone
+        # --- arm and WALK DOWN the buy-stop.  Ported rule-for-rule from
+        # CryptoForge's _advance_pending_stop, which is the reference:
+        #
+        #   * only red candles act, "before arming and after" -- a green is
+        #     IGNORED, not a reset.  A fall that pauses for a bar is still the
+        #     same fall;
+        #   * a red must close inside the live zone (there: below the fib line
+        #     that collected the money);
+        #   * the first such red only SUPPLIES the trigger and waits;
+        #   * the next red must close LOWER than that one -- "price must keep
+        #     falling" -- and only then is the stop set, at the PREVIOUS red's
+        #     close, one body back;
+        #   * every further lower red WALKS the stop down to the new previous
+        #     close, so the trigger tracks the fall until a turn takes it.
         if len(round_fills) >= config.max_fills:
             continue
         if arm_from_index is not None and bar.index < arm_from_index:
@@ -340,10 +359,6 @@ def run_space_campaign(
         if geometry.finished:
             continue
         if not bar.is_red:
-            streak = 0
-            continue
-        streak += 1
-        if streak < 2 or pending_trigger is not None:
             continue
         zones = tradable_zones(geometry.fibs, reached=lowest)
         if not zones:
@@ -377,9 +392,21 @@ def run_space_campaign(
             # bought again.
             if not round_fills and round_floor is not None and bar.close >= round_floor:
                 continue
-            pending_trigger = bar.close
+            # A red in a DIFFERENT zone starts the count again: the trigger
+            # belongs to the line whose money it is about to spend.
+            if last_red_zone_top is None or abs(last_red_zone_top - space.top_price) > 1e-9:
+                last_red_close = bar.close
+                last_red_zone_top = space.top_price
+                break
+            # "not lower than the previous red -- price must keep falling"
+            if bar.close >= last_red_close:
+                break
+            # The trigger is the PREVIOUS red's close, one body back, so it
+            # sits ABOVE this close and only a turn back up can take it.
+            pending_trigger = last_red_close
             pending_space = space
             pending_index = bar.index
+            last_red_close = bar.close
             break
 
     result.fib_count = len(geometry.fibs)
