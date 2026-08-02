@@ -52,6 +52,7 @@ def run_cell(
     limit: int = 0,
     open_ended: bool = False,
     since: str = "",
+    target_mode: str = "retrace",
 ) -> dict:
     """One symbol/timeframe/time-stop combination, index and rupees."""
     cfg = SYMBOLS[symbol]
@@ -89,7 +90,12 @@ def run_cell(
         result = run_space_campaign(
             bars[start],
             window,
-            SpaceCascadeConfig(lot_size=lot, max_bars_held=stop_bars, deepest_zone_open_ended=open_ended),
+            SpaceCascadeConfig(
+                lot_size=lot,
+                max_bars_held=stop_bars,
+                deepest_zone_open_ended=open_ended,
+                target_mode=target_mode,
+            ),
             arm_from_index=mother.confirmed_index,
         )
         if not result.fills:
@@ -147,6 +153,7 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--since", default="", help="only mothers on/after this YYYY-MM-DD")
+    parser.add_argument("--target-mode", default="retrace", choices=("retrace", "avg_entry", "structure"))
     parser.add_argument(
         "--open-ended",
         action="store_true",
@@ -169,6 +176,7 @@ def main() -> None:
                         limit=args.limit,
                         open_ended=args.open_ended,
                         since=args.since,
+                        target_mode=args.target_mode,
                     )
                 except UpstoxAccessError as exc:
                     print(f"  {symbol} {timeframe} stop={stop}: upstox unavailable ({exc})")
