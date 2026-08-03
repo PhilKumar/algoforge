@@ -181,6 +181,18 @@ class SpaceGeometry:
     """Incremental geometry over one mother candle's window."""
 
     mother: Bar
+    # THE FIRST STRUCTURE NEEDS NO TRENDLINE.  Phil's 07-May-2026 NIFTY chart,
+    # marked candle by candle: his fib A is 0 = 24,420.55 (the 13:00 bar's
+    # HIGH) over 1 = 24,377.70 (the 12:45 bar's LOW) -- the first pullback off
+    # the mother and the bounce out of it, drawn at 13:00.  The engine cannot
+    # see that structure at all: a fib here must touch a STANDING line, the
+    # first line needs a locked low broken decisively, and that did not happen
+    # until 15:00 -- by which time it drew a different fib (0 = 24,385.30,
+    # 1 = 24,324.55) whose levels sit ~100 points under his.  That single
+    # late reading is why his 08-May 09:25 buy has no counterpart in the
+    # backtest.  With this on, the FIRST fib of a campaign is seeded from the
+    # first bounce; every later fib still needs its line.
+    seed_first_fib: bool = False
     trendlines: list[Trendline] = field(default_factory=list)
     fibs: list[DrawnFib] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
@@ -283,6 +295,25 @@ class SpaceGeometry:
             if level > 0 and bar.high >= level and bar.close < level:
                 fib1 = bar.low if self.ultimate_low is None else min(self.ultimate_low, bar.low)
                 self._file_pending(bar.high, bar.index, bar.timestamp, fib1, line.trendline_id)
+
+        # 4b. SEED FIB -- see ``seed_first_fib``.  Runs BEFORE low tracking so
+        #     the low still reads the PREVIOUS bar's, which is what makes
+        #     fib1 = 24,377.70 (12:45's low) rather than 24,376.90 (13:00's).
+        if (
+            self.seed_first_fib
+            and not self.fibs
+            and not self.trendlines
+            and self.low_index is not None
+            and bar.index > self.low_index
+            and bar.high < self.mother.high
+        ):
+            ultimate = None
+            for other in self._history:
+                if other.index <= self.mother.index or other.index >= bar.index:
+                    continue
+                ultimate = other.low if ultimate is None else min(ultimate, other.low)
+            if ultimate is not None and (bar.high - ultimate) >= bar.high * MIN_FIB_RANGE_PCT:
+                self._file_pending(bar.high, bar.index, bar.timestamp, ultimate, 0)
 
         # 5. Low tracking: run down while falling, lock on the rise.  A GREEN
         #    candle that sets the low locks it itself when its recovery is

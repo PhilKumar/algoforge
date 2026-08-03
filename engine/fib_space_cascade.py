@@ -104,6 +104,9 @@ class SpaceCascadeConfig:
     # -4.22L, and BankNifty's 37/37 2026 record gains its first death).  The
     # same asymmetry that rejected open country.
     ladder_adds_below_zones: bool = False
+    # See SpaceGeometry.seed_first_fib -- the first structure after the mother
+    # is drawn from the first bounce instead of waiting for a trendline.
+    seed_first_fib: bool = False
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
@@ -236,7 +239,7 @@ def run_space_campaign(
     bar.  Without this the sweep quietly credits a pivot to the bars that
     confirmed it.
     """
-    geometry = SpaceGeometry(mother=mother)
+    geometry = SpaceGeometry(mother=mother, seed_first_fib=config.seed_first_fib)
     result = SpaceCampaignResult(mother_timestamp=mother.timestamp, mother_high=mother.high, mother_low=mother.low)
 
     # THE ENTRY, as CryptoForge's engine/cascade.py has always run it
