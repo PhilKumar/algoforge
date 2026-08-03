@@ -2671,6 +2671,10 @@ async def auth_middleware(request: Request, call_next):
         # 401 and nobody can reach the login form.
         "/",
         "/app",
+        # Public marketing page, same as "/". Without this the middleware
+        # answers a browser navigation with a JSON 401.
+        "/equities",
+        "/equities/",
         "/charts-viewer",
         "/market-movers",
         "/study-lounge",
@@ -3080,6 +3084,24 @@ async def serve_landing():
         return resp
     # Losing the landing file must not lock anyone out of the terminal.
     return RedirectResponse("/app", status_code=307)
+
+
+@app.get("/equities", response_class=HTMLResponse)
+@app.get("/equities/", response_class=HTMLResponse)
+async def serve_equities_landing():
+    """The equities story page — the mirror of crypto.philforge.in's own.
+
+    Public, like "/". Both spellings are registered because the shared front
+    door and any hand-typed URL may or may not carry the trailing slash, and a
+    404 on a marketing link is worse than one extra route.
+    """
+    page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "landing", "equities.html")
+    if os.path.exists(page_path):
+        resp = HTMLResponse(_read_frontend_template(page_path))
+        resp.headers["Cache-Control"] = "public, max-age=300, must-revalidate"
+        return resp
+    # A missing story page should land on the shared front door, not a 404.
+    return RedirectResponse("/", status_code=307)
 
 
 @app.get("/app", response_class=HTMLResponse)
