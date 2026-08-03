@@ -205,6 +205,7 @@ def run_space_campaign(
     config: SpaceCascadeConfig = SpaceCascadeConfig(),
     *,
     arm_from_index: Optional[int] = None,
+    geometry_bars: Optional[Sequence[Bar]] = None,
 ) -> SpaceCampaignResult:
     """Replay one mother's window. Geometry, spaces and fills all step together.
 
@@ -272,10 +273,36 @@ def run_space_campaign(
 
     result_target: Optional[float] = None
 
+    # TWO-SCALE MODE (Phil, 2026-08-03: "Take 15m as the main timeframe entry
+    # mechanism... later we will fine tune for 5m").  When ``geometry_bars`` is
+    # given, trendlines and fibs advance on THOSE bars (his 15m chart) while
+    # arming, fills and the target run on ``bars`` (5m timing).  A geometry bar
+    # is fed only once it has CLOSED before the entry bar opens, so the fine
+    # scale can never see a line the coarse chart has not finished drawing.
+    # Bar-index slopes stay in geometry-bar units, which is the whole point:
+    # on 5m the same line goes flat and is never spent, and the next one never
+    # arms -- the March-2026 starvation his five worst charts showed.
+    geo_seq: Optional[list] = None
+    geo_ptr = 0
+    geo_step = None
+    entry_start = None
+    if geometry_bars is not None:
+        geo_seq = sorted(geometry_bars, key=lambda b: b.index)
+        deltas = [(b2.timestamp - b1.timestamp) for b1, b2 in zip(geo_seq, geo_seq[1:]) if b2.timestamp > b1.timestamp]
+        geo_step = min(deltas) if deltas else None
+        entry_start = mother.timestamp + geo_step if geo_step else mother.timestamp
+
     for bar in sorted(bars, key=lambda b: b.index):
-        if bar.index <= mother.index:
-            continue
-        geometry.on_bar(bar)
+        if geo_seq is None:
+            if bar.index <= mother.index:
+                continue
+            geometry.on_bar(bar)
+        else:
+            if entry_start is not None and bar.timestamp < entry_start:
+                continue
+            while geo_ptr < len(geo_seq) and geo_seq[geo_ptr].timestamp + geo_step <= bar.timestamp:
+                geometry.on_bar(geo_seq[geo_ptr])
+                geo_ptr += 1
 
         # --- fill an armed buy-stop: price recovers back through the trigger
         if pending_trigger is not None and pending_index is not None and bar.index > pending_index:
