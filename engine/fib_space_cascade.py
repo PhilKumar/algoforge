@@ -315,15 +315,25 @@ def run_space_campaign(
                 anchor = average
             target = anchor + config.target_fraction * (mother.high - anchor)
             result_target = target
-            # The basket leaves at the 0.25 retrace, but never below what it
-            # paid: the exit is whichever of the two is higher.  Requiring the
-            # TARGET itself to clear the average instead (the first attempt at
-            # this) silently disabled the exit whenever the retrace landed a
-            # few points under the average -- on BankNifty's 05-Mar-2026 mother
-            # the target sat Rs 40 under it, the index then rallied 914 points
-            # straight through, and a winning round was carried into a total
-            # loss at expiry.
-            exit_level = target if average is None else max(target, average)
+            # THE BASKET LEAVES AT ITS 0.25 RETRACE.  Full stop -- even when
+            # that line sits below the average entry, which happens whenever a
+            # ladder built high gets its last lot after a deep fall.
+            #
+            # Two earlier attempts to protect the average both cost more than
+            # they saved, and the second is what this replaces:
+            #   1. gating the exit on `target > average` disabled it outright.
+            #      BankNifty 05-Mar-2026: target Rs 40 under the average, the
+            #      index then rallied 914 points straight through, total loss.
+            #   2. exiting at max(target, average) held for breakeven instead.
+            #      NIFTY 5m 19-Feb-2026 round 2: the target 24,244.67 WAS
+            #      reached on 10-Mar, but max() demanded 24,408.13 and the
+            #      index stopped 104 points short.  Held on, all three calls
+            #      expired worthless.  Taking its own target that morning was
+            #      -Rs 20,650; refusing to book it cost -Rs 2,40,734.
+            #
+            # Trying never to book a loss is what converts a small loss into a
+            # complete one.  The target is the target.
+            exit_level = target
             if bar.high >= exit_level and first_fill_index is not None and bar.index > first_fill_index:
                 _close_round(bar, "target", exit_level, average)
                 continue
