@@ -22,6 +22,36 @@
       "description": "Open the PhilForge study lounge"
     }
   ],
+  "screenshots": [
+    {
+      "src": "/static/pwa-shots/forge-wide.jpg?v=__ASSET_VERSION__",
+      "sizes": "1280x800",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "One method, two markets — the PhilForge front door"
+    },
+    {
+      "src": "/static/pwa-shots/equities-wide.jpg?v=__ASSET_VERSION__",
+      "sizes": "1280x800",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "The equities desk, from the banyan to the bell"
+    },
+    {
+      "src": "/static/pwa-shots/forge-narrow.jpg?v=__ASSET_VERSION__",
+      "sizes": "750x1334",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "One method, two markets — the PhilForge front door"
+    },
+    {
+      "src": "/static/pwa-shots/equities-narrow.jpg?v=__ASSET_VERSION__",
+      "sizes": "750x1334",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "The equities desk, from the banyan to the bell"
+    }
+  ],
   "icons": [
     {
       "src": "/static/pwa-icons/icon-192.png?v=__ASSET_VERSION__",
