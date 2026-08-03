@@ -162,45 +162,45 @@ def price_campaign(
                 return priced
             legs.append((fill, contract, entry_premium))
 
-        expiry = min(c.expiry for _f, c, _p in legs)
-        # The trade cannot outlive its contract.  A round still open when the
-        # monthly expires is settled at intrinsic against the index -- which
-        # for a CE bought above the settlement price is a total loss of
-        # premium, and that is exactly the tail the index layer cannot see.
-        exit_at = rnd.exit_timestamp
-        exit_reason = rnd.exit_reason or "open_at_end"
-        expiry_close = datetime.combine(expiry, dt_time(15, 15))
-        if exit_at is None or exit_at > expiry_close:
-            exit_at = expiry_close
-            exit_reason = "expiry_square_off"
-
-        settle_index = None
-        if exit_reason == "expiry_square_off":
-            # Settlement must be read from the FULL series, never the replay
-            # window: a monthly bought at 45 DTE expires after a 30-session
-            # window ends, and taking that window's last bar prices the
-            # settlement on the wrong day at the wrong price -- silently, on
-            # the one term that dominates this strategy's P&L.
-            series = settle_bars if settle_bars is not None else bars_by_index
-            candidates = [b for b in series if b.timestamp <= expiry_close]
-            settle_index = candidates[-1].close if candidates else None
-            if settle_index is None or candidates[-1].timestamp.date() < expiry:
-                # The data ends before this contract expires: its outcome is
-                # genuinely unknown, so it is a gap, not a loss we invented.
-                priced.gap = f"index data ends before expiry {expiry}"
-                priced.status = "gap"
-                return priced
+        # EVERY LEG LIVES ITS OWN CONTRACT'S LIFE.  This used to settle the
+        # whole round at min(expiry) across its legs, which is wrong the moment
+        # a round's lots sit on different monthlies -- and they do, because each
+        # fill resolves its own contract at its own moment.  On NIFTY 5m's
+        # 06-Mar-2026 11:40 mother the third lot was bought on 08-Apr on the
+        # 28-Apr contract, then settled at the 30-Mar index close: a 23100 CE
+        # bought 116 points in the money was booked at zero against a price from
+        # nine days BEFORE it was bought, inventing a Rs 1.85 lakh loss.
+        #
+        # A leg is squared at the round's exit if its contract is still alive
+        # then; otherwise it settles at intrinsic on ITS OWN expiry.
+        series = settle_bars if settle_bars is not None else bars_by_index
+        round_exit = rnd.exit_timestamp
+        leg_reasons = []
 
         buys, sell_value, round_quantity, lots_total = [], 0.0, 0, 0
         for fill, contract, entry_premium in legs:
-            if exit_reason == "expiry_square_off":
-                exit_premium = max(float(settle_index) - float(contract.strike), 0.0)
-            else:
-                exit_premium = _premium_at(source, contract, exit_at, forward)
+            leg_expiry_close = datetime.combine(contract.expiry, dt_time(15, 15))
+            if round_exit is not None and round_exit <= leg_expiry_close:
+                exit_premium = _premium_at(source, contract, round_exit, forward)
                 if exit_premium is None:
-                    priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {exit_at:%Y-%m-%d %H:%M}"
+                    priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {round_exit:%Y-%m-%d %H:%M}"
                     priced.status = "gap"
                     return priced
+                leg_reasons.append(rnd.exit_reason or "open_at_end")
+            else:
+                # Settlement is read from the FULL series, never the replay
+                # window: a monthly bought at 45 DTE expires after the window
+                # ends, and the window's last bar would price it on the wrong
+                # day -- silently, on the term that dominates this P&L.
+                candidates = [b for b in series if b.timestamp <= leg_expiry_close]
+                if not candidates or candidates[-1].timestamp.date() < contract.expiry:
+                    # The data ends before this contract expires: its outcome is
+                    # genuinely unknown, so it is a gap, not a loss we invented.
+                    priced.gap = f"index data ends before expiry {contract.expiry}"
+                    priced.status = "gap"
+                    return priced
+                exit_premium = max(float(candidates[-1].close) - float(contract.strike), 0.0)
+                leg_reasons.append("expiry_square_off")
             buys.append(OptionCostFill(price=entry_premium, quantity=fill.quantity, lots=fill.lots))
             sell_value += exit_premium * fill.quantity
             round_quantity += fill.quantity
@@ -214,7 +214,11 @@ def price_campaign(
             sell_lots=lots_total,
         ).total
         quantity += round_quantity
-        reasons.append(exit_reason)
+        # A round counts as an expiry death if ANY of its lots had to be
+        # settled at intrinsic rather than sold at the round's exit.
+        reasons.append(
+            "expiry_square_off" if "expiry_square_off" in leg_reasons else (rnd.exit_reason or "open_at_end")
+        )
 
     priced.gross = round(total_gross, 2)
     priced.costs = round(total_costs, 2)
