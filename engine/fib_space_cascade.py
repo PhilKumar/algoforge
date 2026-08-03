@@ -90,6 +90,20 @@ class SpaceCascadeConfig:
     # it, so the two-candle rule alone governs the entry down there.  Measured
     # rather than assumed -- it widens the strategy considerably.
     deepest_zone_open_ended: bool = False
+    # LADDER ADDS BELOW THE ZONES -- measured 2026-08-03 and REJECTED as a
+    # default; kept as a flag because it is exactly what Phil's own 07-May-2026
+    # NIFTY basket does (buy3 on 13-May 09:50 far below every drawn band,
+    # re-anchoring the target to 23,624 and banking the basket in six days).
+    # Only a round that is ALREADY OPEN may add once the fall drops beneath
+    # the deepest band; round-starting fills still need one.
+    #
+    # Why it stays OFF: over the full 22 months it fattens the winners
+    # exactly as his chart suggests (NIFTY target column +2.85L -> +8.24L) and
+    # more than gives it back on crash baskets that keep adding and then die
+    # with three lots (NIFTY -0.88L -> -10.47L net, BankNifty +3.60L ->
+    # -4.22L, and BankNifty's 37/37 2026 record gains its first death).  The
+    # same asymmetry that rejected open country.
+    ladder_adds_below_zones: bool = False
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
@@ -206,6 +220,7 @@ def run_space_campaign(
     *,
     arm_from_index: Optional[int] = None,
     geometry_bars: Optional[Sequence[Bar]] = None,
+    trace: Optional[list] = None,
 ) -> SpaceCampaignResult:
     """Replay one mother's window. Geometry, spaces and fills all step together.
 
@@ -322,6 +337,8 @@ def run_space_campaign(
                         on_touch=pending_space.is_tiny,
                     )
                 )
+                if trace is not None:
+                    trace.append((bar.timestamp, "FILL", f"@{pending_trigger:,.2f} zone {pending_space.label}"))
                 if first_fill_index is None:
                     first_fill_index = bar.index
                 # The retrace is re-drawn from the low each time a lot is added,
@@ -411,6 +428,8 @@ def run_space_campaign(
             continue
         zones = tradable_zones(geometry.fibs, reached=lowest)
         if not zones:
+            if trace is not None:
+                trace.append((bar.timestamp, "red-no-zones", f"close {bar.close:,.2f}"))
             continue
         for position, space in enumerate(zones):
             in_zone = space.contains_buy(bar.close)
@@ -419,11 +438,19 @@ def run_space_campaign(
             # keep buying the two-red recoveries down there anyway.
             open_country = (
                 not in_zone
-                and config.deepest_zone_open_ended
                 and position == len(zones) - 1
                 and bar.close < space.buy_floor
+                and (config.deepest_zone_open_ended or (config.ladder_adds_below_zones and round_fills))
             )
             if not (in_zone or open_country):
+                if trace is not None:
+                    trace.append(
+                        (
+                            bar.timestamp,
+                            "outside",
+                            f"close {bar.close:,.2f} vs {space.label} [{space.buy_floor:,.2f}..{space.top_price:,.2f}]",
+                        )
+                    )
                 continue
             # Never re-buy a space this round already used -- but open country
             # is not a level, it is everything under the last one, so the
@@ -431,24 +458,42 @@ def run_space_campaign(
             # this guard applied there too, the 23-Feb-2026 round bought once
             # and then sat, where Phil's chart adds a second lot on 09-Mar.
             if in_zone and any(abs(f.space_top - space.top_price) < 1e-9 for f in round_fills):
+                if trace is not None:
+                    trace.append((bar.timestamp, "blocked-space-used", space.label))
                 continue
             # Money moves DOWN the boundaries, never back up: a second lot
             # priced above the first is not a cascade, it is averaging up.
             if round_fills and bar.close >= min(f.index_price for f in round_fills):
+                if trace is not None:
+                    trace.append(
+                        (
+                            bar.timestamp,
+                            "blocked-not-below-last-fill",
+                            f"close {bar.close:,.2f} >= {min(f.index_price for f in round_fills):,.2f}",
+                        )
+                    )
                 continue
             # Between rounds, the cascade invariant: the next round only arms
             # BELOW the previous round's low.  Ground already banked is never
             # bought again.
             if not round_fills and round_floor is not None and bar.close >= round_floor:
+                if trace is not None:
+                    trace.append(
+                        (bar.timestamp, "blocked-above-round-floor", f"close {bar.close:,.2f} >= {round_floor:,.2f}")
+                    )
                 continue
             # A red in a DIFFERENT zone starts the count again: the trigger
             # belongs to the line whose money it is about to spend.
             if last_red_zone_top is None or abs(last_red_zone_top - space.top_price) > 1e-9:
                 last_red_close = bar.close
                 last_red_zone_top = space.top_price
+                if trace is not None:
+                    trace.append((bar.timestamp, "red1-supplies-trigger", f"{bar.close:,.2f} in {space.label}"))
                 break
             # "not lower than the previous red -- price must keep falling"
             if bar.close >= last_red_close:
+                if trace is not None:
+                    trace.append((bar.timestamp, "red-not-lower", f"{bar.close:,.2f} >= {last_red_close:,.2f}"))
                 break
             # The trigger is the PREVIOUS red's close, one body back, so it
             # sits ABOVE this close and only a turn back up can take it.
@@ -456,6 +501,8 @@ def run_space_campaign(
             pending_space = space
             pending_index = bar.index
             last_red_close = bar.close
+            if trace is not None:
+                trace.append((bar.timestamp, "STOP-SET/WALKED", f"trigger {pending_trigger:,.2f} zone {space.label}"))
             break
 
     result.fib_count = len(geometry.fibs)
