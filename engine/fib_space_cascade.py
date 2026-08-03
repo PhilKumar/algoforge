@@ -70,6 +70,12 @@ class SpaceCascadeConfig:
     # the market cleared his and never came near mine, so the avg-entry rule
     # manufactured an expiry loss out of a winning trade.
     target_mode: str = "retrace"
+    # "If we are getting to a negative... lets try to hit one target and stop
+    # our trade and then move on to a diff mother candle."  Phil, 2026-08-03,
+    # with his 27-Feb NIFTY chart: ONE banked target ends the campaign; the
+    # falls that come later belong to newer, smaller mothers, not to this one.
+    # 0 = unlimited (the old behaviour).
+    max_target_rounds: int = 0
     # Bars a round's basket may be held before it is closed at the market,
     # whatever the index has done.  0 = no time stop (ride to target or
     # expiry).  With no stop loss and a monthly option, expiry is otherwise the
@@ -336,6 +342,12 @@ def run_space_campaign(
             exit_level = target
             if bar.high >= exit_level and first_fill_index is not None and bar.index > first_fill_index:
                 _close_round(bar, "target", exit_level, average)
+                # One banked target ends the campaign when so configured --
+                # the rest of this fall belongs to a newer mother.
+                if config.max_target_rounds and (
+                    sum(1 for x in result.rounds if x.exit_reason == "target") >= config.max_target_rounds
+                ):
+                    break
                 continue
             # The time stop sells at this bar's close, wherever the index is.
             if (

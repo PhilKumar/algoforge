@@ -53,6 +53,9 @@ def run_cell(
     open_ended: bool = False,
     since: str = "",
     target_mode: str = "retrace",
+    min_dte: int = 15,
+    dte_window: int = 30,
+    max_target_rounds: int = 0,
 ) -> dict:
     """One symbol/timeframe/time-stop combination, index and rupees."""
     cfg = SYMBOLS[symbol]
@@ -77,7 +80,7 @@ def run_cell(
         backfill_missing=not CACHE_ONLY,
     )
     expiries = sorted(source.available_expiries())
-    view = _ResolverView(strike_step=cfg["strike_step"])
+    view = _ResolverView(strike_step=cfg["strike_step"], min_dte=min_dte, max_dte=min_dte + dte_window)
 
     traded, priced, gaps = 0, [], 0
     index_closed, index_points = 0, []
@@ -95,6 +98,7 @@ def run_cell(
                 max_bars_held=stop_bars,
                 deepest_zone_open_ended=open_ended,
                 target_mode=target_mode,
+                max_target_rounds=max_target_rounds,
             ),
             arm_from_index=mother.confirmed_index,
         )
@@ -154,6 +158,9 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--since", default="", help="only mothers on/after this YYYY-MM-DD")
     parser.add_argument("--target-mode", default="retrace", choices=("retrace", "avg_entry", "structure"))
+    parser.add_argument("--min-dtes", nargs="*", type=int, default=[15], help="DTE floors to sweep")
+    parser.add_argument("--dte-window", type=int, default=30, help="max_dte = min_dte + this")
+    parser.add_argument("--one-target", action="store_true", help="one banked target ends the campaign")
     parser.add_argument(
         "--open-ended",
         action="store_true",
@@ -166,30 +173,35 @@ def main() -> None:
     for symbol in args.symbols:
         for timeframe in args.tfs:
             for stop in args.time_stops:
-                started = datetime.now()
-                try:
-                    row = run_cell(
-                        symbol,
-                        timeframe,
-                        horizon_sessions=args.horizon_sessions,
-                        stop_sessions=stop,
-                        limit=args.limit,
-                        open_ended=args.open_ended,
-                        since=args.since,
-                        target_mode=args.target_mode,
+                for mdte in args.min_dtes:
+                    started = datetime.now()
+                    try:
+                        row = run_cell(
+                            symbol,
+                            timeframe,
+                            horizon_sessions=args.horizon_sessions,
+                            stop_sessions=stop,
+                            limit=args.limit,
+                            open_ended=args.open_ended,
+                            since=args.since,
+                            target_mode=args.target_mode,
+                            min_dte=mdte,
+                            dte_window=args.dte_window,
+                            max_target_rounds=1 if args.one_target else 0,
+                        )
+                    except UpstoxAccessError as exc:
+                        print(f"  {symbol} {timeframe} stop={stop}: upstox unavailable ({exc})")
+                        continue
+                    row["seconds"] = round((datetime.now() - started).total_seconds(), 1)
+                    row["min_dte"] = mdte
+                    rows.append(row)
+                    print(
+                        f"  {symbol:<9} {timeframe:<4} stop={stop or '-':<2} "
+                        f"traded={row['traded']:<4} priced={row['priced']:<4} "
+                        f"net={row['net'] if row['net'] is not None else 'n/a'}"
                     )
-                except UpstoxAccessError as exc:
-                    print(f"  {symbol} {timeframe} stop={stop}: upstox unavailable ({exc})")
-                    continue
-                row["seconds"] = round((datetime.now() - started).total_seconds(), 1)
-                rows.append(row)
-                print(
-                    f"  {symbol:<9} {timeframe:<4} stop={stop or '-':<2} "
-                    f"traded={row['traded']:<4} priced={row['priced']:<4} "
-                    f"net={row['net'] if row['net'] is not None else 'n/a'}"
-                )
-                with open(OUT_PATH_OPEN if args.open_ended else OUT_PATH, "w", encoding="utf-8") as handle:
-                    json.dump(rows, handle, indent=2)
+                    with open(OUT_PATH_OPEN if args.open_ended else OUT_PATH, "w", encoding="utf-8") as handle:
+                        json.dump(rows, handle, indent=2)
 
     print("\n" + "=" * 96)
     print("CONVERGING-FIB SPACE -- REAL PREMIUMS, MONTHLY 15-45 DTE, ATM-2")
@@ -201,7 +213,7 @@ def main() -> None:
     print(header)
     print("-" * 96)
     for row in rows:
-        stop = f"{row['stop_sessions']}s" if row["stop_sessions"] else "none"
+        stop = f"dte{row.get('min_dte', 15)}"
         net = f"{row['net']:,.0f}" if row["net"] is not None else "n/a"
         tgt = f"{row['n_target']}: {row['net_target']:,.0f}"
         bad = f"{row['n_expiry'] + row['n_stop']}: {row['net_expiry'] + row['net_stop']:,.0f}"
