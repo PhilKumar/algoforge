@@ -9,7 +9,7 @@ from engine.cascade_equity import (
     cash_budget_to_quantity,
     cash_cascade_reference_symbol,
 )
-from engine.cascade_options import IndexCandle
+from engine.cascade_options import CascadeError, IndexCandle
 
 
 def ts(offset: int) -> datetime:
@@ -159,3 +159,26 @@ class CashCascadePaperEngineTests(unittest.TestCase):
         self.assertEqual(restored.config.product_type, "CNC")
         self.assertEqual(restored.pending_inr, 1000)
         self.assertEqual(restored.rungs["1:2"].status, "COLLECTED")
+
+
+class DailyTimeframeTests(unittest.TestCase):
+    """1d is offered by the Terminal picker, so the engine must accept it.
+
+    It did not: app.py maps "1d" to Dhan's "D" interval, the engine already had
+    DAILY_BAR_MINUTES, and the UI listed Daily -- but the config validator still
+    named only 5m/15m/1h. Choosing Daily raised CascadeError, which nothing in
+    app.py catches, so the page returned a bare 500.
+    """
+
+    def test_daily_is_accepted(self):
+        config = CashCascadePaperConfig(capital_inr=100000, timeframe="1d")
+        self.assertEqual(config.timeframe, "1d")
+
+    def test_every_timeframe_the_terminal_offers_is_accepted(self):
+        for timeframe in ("5m", "15m", "1h", "1d"):
+            with self.subTest(timeframe=timeframe):
+                self.assertEqual(CashCascadePaperConfig(capital_inr=100000, timeframe=timeframe).timeframe, timeframe)
+
+    def test_an_unsupported_timeframe_is_still_refused(self):
+        with self.assertRaises(CascadeError):
+            CashCascadePaperConfig(capital_inr=100000, timeframe="3m")

@@ -225,8 +225,13 @@ class CashCascadePaperConfig:
         if not 0 < self.target_fraction <= 1:
             raise CascadeError("target_fraction must be between 0 and 1")
         timeframe = str(self.timeframe or "5m").lower()
-        if timeframe not in {"5m", "15m", "1h"}:
-            raise CascadeError("cash Cascade timeframe must be 5m, 15m, or 1h")
+        # 1d belongs here. The daily bar already has its own span
+        # (DAILY_BAR_MINUTES), app.py maps it to Dhan's "D" interval, and the
+        # Terminal picker offers it -- only this line was missed, so choosing
+        # Daily raised CascadeError, which nothing catches, so the user got a
+        # bare 500 and no idea why.
+        if timeframe not in {"5m", "15m", "1h", "1d"}:
+            raise CascadeError("cash Cascade timeframe must be 5m, 15m, 1h, or 1d")
         product = str(self.product_type or "CNC").upper()
         if product not in {"CNC", "MTF"}:
             raise CascadeError("cash Cascade paper mode supports CNC or MTF")
