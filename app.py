@@ -1838,6 +1838,52 @@ async def _save_fib_space_state(user_id: int, runtime: _FibSpaceRuntime) -> None
     )
 
 
+async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) -> _FibSpaceRuntime | None:
+    """Bring a paper run back after a restart.
+
+    Deploys are frequent, and a run that quietly died on one would leave a gap
+    in the record exactly where the design is being judged.  Nothing about the
+    campaigns is restored from disk -- the driver rebuilds every decision by
+    replaying the bars -- so this only has to know which symbol was going.
+    """
+    if broker is None or _fib_space_engines.get(int(user_id)) is not None:
+        return None
+    raw = await _db_mod.get_app_state(_fib_space_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        saved = json.loads(raw)
+    except Exception:
+        return None
+    if not saved.get("running"):
+        return None
+    symbol = str(saved.get("symbol") or "").strip().lower()
+    if symbol not in FIB_SPACE_SYMBOLS:
+        _logger.warning("[FIBSPACE] Not restoring unknown symbol %r for user %s", symbol, user_id)
+        return None
+
+    adapter = CascadeOptionsAdapter(broker, paper_only=True)
+    try:
+        host = _build_fib_space_host(symbol, adapter, broker)
+    except Exception as exc:
+        # The chain could not size a campaign right now (often before the day's
+        # ScripMaster load). Leave the saved state alone so the next restart can
+        # try again, rather than starting a run whose quantities are a guess.
+        _logger.warning("[FIBSPACE] Cannot restore %s paper run for user %s: %s", symbol, user_id, exc)
+        return None
+
+    started_at = datetime.now(IST).replace(tzinfo=None)
+    try:
+        started_at = datetime.fromisoformat(str(saved.get("started_at")))
+    except Exception:
+        pass
+    runtime = _FibSpaceRuntime(host=host, adapter=adapter, broker=broker, symbol=symbol, started_at=started_at)
+    _fib_space_engines[int(user_id)] = runtime
+    runtime.task = asyncio.create_task(_run_fib_space_paper_loop(int(user_id), runtime))
+    _logger.info("[FIBSPACE] Restored %s paper run for user %s", symbol, user_id)
+    return runtime
+
+
 async def _run_fib_space_paper_loop(user_id: int, runtime: _FibSpaceRuntime) -> None:
     """Poll closed BankNifty bars and advance every live fib-space campaign.
 
@@ -2064,7 +2110,14 @@ def _is_loopback_request(request: Request) -> bool:
 
 async def _restore_auxiliary_engines() -> dict[str, int]:
     """Restore every non-main runtime only on the active blue/green worker."""
-    restored = {"scalp": 0, "cascade": 0, "candle_entry": 0, "fib_boundary": 0, "terminal_cascade": 0}
+    restored = {
+        "scalp": 0,
+        "cascade": 0,
+        "candle_entry": 0,
+        "fib_boundary": 0,
+        "terminal_cascade": 0,
+        "fib_space": 0,
+    }
     if not _engine_restore_owner_is_active_instance():
         return restored
     for user in await _db_mod.list_users():
@@ -2087,6 +2140,8 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
             terminal = await _restore_terminal_cascade_open_state(user_id, broker_client)
             if terminal:
                 restored["terminal_cascade"] += len(terminal)
+            if await _restore_fib_space_paper_run(user_id, broker_client) is not None:
+                restored["fib_space"] += 1
         except Exception as exc:
             _logger.warning("[Restore] Auxiliary engine restore failed for user %s: %s", user_id, exc)
     return restored
