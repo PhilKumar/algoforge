@@ -41,6 +41,10 @@ CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nifty_cac
 SYMBOLS = {
     "nifty": dict(cache="NIFTY", upstox_key="NSE_INDEX|Nifty 50", strike_step=50.0),
     "banknifty": dict(cache="BANKNIFTY", upstox_key="NSE_INDEX|Nifty Bank", strike_step=100.0),
+    # BSE. Index candles are resampled from Upstox 1-minute history (Dhan has
+    # no BSE feed here, and minting a Dhan token locally kills the live
+    # server's -- see the Dhan single-active-token rule).
+    "sensex": dict(cache="SENSEX", upstox_key="BSE_INDEX|SENSEX", strike_step=100.0),
 }
 
 # NSE trades 09:15-15:30, so a session is 6.25 hours.  Horizons and time stops

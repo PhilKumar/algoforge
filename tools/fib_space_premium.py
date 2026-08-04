@@ -55,6 +55,10 @@ def lot_size_on(day: date, symbol: str = "nifty") -> int:
     here -- a constant scales that symbol's rupees uniformly and so cannot
     change which timeframe wins, but it is not a precise cash figure.
     """
+    if symbol == "sensex":
+        # BSE SENSEX: 10 until 2024-11-20, 20 after. Carried flat at 20 like
+        # BankNifty's 30 -- scales that symbol's rupees uniformly.
+        return 20
     if symbol != "nifty":
         return 30
     for start, size in _LOT_HISTORY:
