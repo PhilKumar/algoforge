@@ -78,6 +78,13 @@ class _ResolverView:
     monthly_only: bool = True
 
 
+def resolver_view(symbol: str) -> "_ResolverView":
+    """The contract terms this symbol actually trades -- see SYMBOLS."""
+    cfg = SYMBOLS[symbol]
+    terms = cfg.get("contract") or {}
+    return _ResolverView(strike_step=cfg["strike_step"], **terms)
+
+
 @dataclass
 class PricedCampaign:
     mother: datetime

@@ -38,13 +38,36 @@ CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nifty_cac
 # Per-underlying contract facts, matching tools/fib_cascade_sweep.py.  The DTE
 # window here is Phil's locked one -- MONTHLY contracts at 15-45 days -- for
 # both underlyings, so the two are compared on the same footing.
+# ``contract`` is the expiry product each symbol actually trades.  NIFTY and
+# BankNifty run Phil's locked MONTHLY 15-45 DTE.  SENSEX cannot: its monthly
+# contracts have no market until ~9 sessions before expiry (measured
+# 2026-08-04 -- a 31-Oct-2024 SENSEX monthly returns data only from 21-Oct,
+# where the equivalent NIFTY monthly returns 43 sessions), so a 15-45 DTE buy
+# has nothing to fill against.  Its weeklies DO trade across their whole life,
+# so SENSEX runs NEXT WEEK'S expiry: 7-13 DTE, current expiry week excluded by
+# the resolver, which lands on the following week's contract.
 SYMBOLS = {
-    "nifty": dict(cache="NIFTY", upstox_key="NSE_INDEX|Nifty 50", strike_step=50.0),
-    "banknifty": dict(cache="BANKNIFTY", upstox_key="NSE_INDEX|Nifty Bank", strike_step=100.0),
+    "nifty": dict(
+        cache="NIFTY",
+        upstox_key="NSE_INDEX|Nifty 50",
+        strike_step=50.0,
+        contract=dict(monthly_only=True, min_dte=15, max_dte=45),
+    ),
+    "banknifty": dict(
+        cache="BANKNIFTY",
+        upstox_key="NSE_INDEX|Nifty Bank",
+        strike_step=100.0,
+        contract=dict(monthly_only=True, min_dte=15, max_dte=45),
+    ),
     # BSE. Index candles are resampled from Upstox 1-minute history (Dhan has
     # no BSE feed here, and minting a Dhan token locally kills the live
     # server's -- see the Dhan single-active-token rule).
-    "sensex": dict(cache="SENSEX", upstox_key="BSE_INDEX|SENSEX", strike_step=100.0),
+    "sensex": dict(
+        cache="SENSEX",
+        upstox_key="BSE_INDEX|SENSEX",
+        strike_step=100.0,
+        contract=dict(monthly_only=False, min_dte=7, max_dte=13),
+    ),
 }
 
 # NSE trades 09:15-15:30, so a session is 6.25 hours.  Horizons and time stops
