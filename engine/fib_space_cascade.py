@@ -107,6 +107,9 @@ class SpaceCascadeConfig:
     # See SpaceGeometry.seed_first_fib -- the first structure after the mother
     # is drawn from the first bounce instead of waiting for a trendline.
     seed_first_fib: bool = False
+    # See Space.reach -- a convergence too tight to buy on touch is worked one
+    # fib-span below its line, which is where Phil's 08-May-2026 NIFTY buy sits.
+    tiny_space_reach: bool = False
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
@@ -429,7 +432,7 @@ def run_space_campaign(
             continue
         if not bar.is_red:
             continue
-        zones = tradable_zones(geometry.fibs, reached=lowest)
+        zones = tradable_zones(geometry.fibs, reached=lowest, tiny_reach=config.tiny_space_reach)
         if not zones:
             if trace is not None:
                 trace.append((bar.timestamp, "red-no-zones", f"close {bar.close:,.2f}"))

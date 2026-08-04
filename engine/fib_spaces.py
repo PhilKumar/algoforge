@@ -66,6 +66,15 @@ class Space:
     top_level: int
     bottom_level: int
     kind: str = "space"
+    # How far a TINY convergence may be worked BELOW its bottom line.  Phil,
+    # 2026-08-04, on his 08-May-2026 NIFTY buy: it sits 28 points under a
+    # 1.4-point "4-2" pair at 24,247.75.  A pair that tight cannot be bought
+    # "on touch" -- the fall goes straight through it in one candle -- so it is
+    # worked like a level, and the working depth is the tighter fib's own span.
+    # This DOES sit against his earlier 3-Jul reading ("One is very small.. so
+    # you can buy it on the touch of the 2 levels"), which is why find_spaces
+    # only sets it when asked; the 3-Jul fixture keeps the original behaviour.
+    reach: float = 0.0
     # How far below a LONE LEVEL a close may sit and still claim the level.
     # 0.0 means only the line itself.  single_fib_levels sets half the fib's
     # span -- the same top-to-middle working a wide space gets.
@@ -109,14 +118,16 @@ class Space:
         """
         if self.is_level:
             return self.top_price - self.depth
-        return self.bottom_price if self.is_tiny else self.midpoint
+        return self.bottom_price - self.reach if self.is_tiny else self.midpoint
 
     def contains_buy(self, price: float) -> bool:
         """Is ``price`` inside this space's buy zone?"""
         return self.buy_floor <= price <= self.top_price
 
 
-def find_spaces(fibs: Sequence[DrawnFib], levels: Iterable[int] = FIB_LEVELS) -> list[Space]:
+def find_spaces(
+    fibs: Sequence[DrawnFib], levels: Iterable[int] = FIB_LEVELS, *, tiny_reach: bool = False
+) -> list[Space]:
     """Every converging pair among the drawn fibs, deepest-last.
 
     All levels of all fibs are sorted by price; a space is an adjacent pair
@@ -125,6 +136,7 @@ def find_spaces(fibs: Sequence[DrawnFib], levels: Iterable[int] = FIB_LEVELS) ->
     """
     if len(fibs) < 2:
         return []
+    spans = {fib.fib_id: fib.span for fib in fibs}
     marks: list[tuple[float, int, int]] = []
     for fib in fibs:
         for level in levels:
@@ -152,6 +164,11 @@ def find_spaces(fibs: Sequence[DrawnFib], levels: Iterable[int] = FIB_LEVELS) ->
                 bottom_fib_id=lower[1],
                 top_level=upper[2],
                 bottom_level=lower[2],
+                reach=(
+                    min(spans.get(upper[1], 0.0), spans.get(lower[1], 0.0))
+                    if (tiny_reach and (upper[0] - lower[0]) < TINY_SPACE_POINTS)
+                    else 0.0
+                ),
             )
         )
     return spaces
@@ -209,7 +226,13 @@ def single_fib_levels(fib, levels: Iterable[int] = (4, 8)) -> list[Space]:
     ]
 
 
-def tradable_zones(fibs: Sequence, *, below: Optional[float] = None, reached: Optional[float] = None) -> list[Space]:
+def tradable_zones(
+    fibs: Sequence,
+    *,
+    below: Optional[float] = None,
+    reached: Optional[float] = None,
+    tiny_reach: bool = False,
+) -> list[Space]:
     """Where money may go, whichever geometry the market actually produced.
 
     Two or more fibs that converge -> the deepest two spaces the fall has
@@ -217,7 +240,7 @@ def tradable_zones(fibs: Sequence, *, below: Optional[float] = None, reached: Op
     a level needs no ``reached`` gate because its buy zone is only half a
     span deep, so a close cannot be inside it before price has come there.
     """
-    spaces = tradable_spaces(find_spaces(fibs), below=below, reached=reached)
+    spaces = tradable_spaces(find_spaces(fibs, tiny_reach=tiny_reach), below=below, reached=reached)
     if spaces:
         return spaces
     if not fibs:
