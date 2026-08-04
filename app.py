@@ -105,6 +105,10 @@ from engine.cascade_options import (
 from engine.cascade_scanner import HIGH_LOOKBACK as CASCADE_SCAN_HIGH_LOOKBACK
 from engine.cascade_scanner import ScanInput
 from engine.cascade_scanner import scan as cascade_scan
+from engine.fib_space_cascade import SpaceCascadeConfig
+from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
+from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
+from engine.fib_space_host import FibSpacePaperHost
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -1737,6 +1741,149 @@ async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> Non
         except Exception as exc:
             _logger.warning("[CASCADE] NIFTY paper poll failed for user %s: %s", user_id, exc)
         await asyncio.sleep(12)
+
+
+# ── Fib-space paper run ───────────────────────────────────────────
+# The converging-fib space design (engine/fib_space_*), driven forward in paper.
+# Unlike the campaigns above it takes no typed mother: it finds its own swing
+# pivots on the 15m series and runs every one it accepts, which is exactly what
+# tools/fib_space_book.py measured.  Nothing here can reach a Dhan order path --
+# CascadeOptionsAdapter is constructed paper_only and refuses otherwise.
+
+
+@dataclass
+class _FibSpaceRuntime:
+    host: FibSpacePaperHost
+    adapter: CascadeOptionsAdapter
+    broker: DhanClient
+    symbol: str
+    started_at: datetime
+    task: asyncio.Task | None = None
+    running: bool = True
+    last_error: str | None = None
+
+
+_fib_space_engines: Dict[int, _FibSpaceRuntime] = {}
+
+
+def _fib_space_state_key(user_id: int) -> str:
+    return f"fib_space_paper:{int(user_id)}"
+
+
+def _build_fib_space_host(symbol: str, adapter: CascadeOptionsAdapter, broker: DhanClient) -> FibSpacePaperHost:
+    """Wire the design's contract rules to the broker's real chain.
+
+    Strike selection goes through the adapter's own `select_campaign_contract`,
+    so the paper run buys the contract Dhan actually lists -- real security id,
+    real lot size -- rather than the flat lot the backtest had to assume.  The
+    terms it is asked for (monthly, 15+ DTE, ATM-2) are the measured ones, held
+    in FIB_SPACE_SYMBOLS and asserted against the sweep's config in the tests.
+    """
+    terms = FIB_SPACE_SYMBOLS[symbol]
+    quote = _cascade_premium_lookup(broker)
+
+    def select_contract(when: datetime, index_price: float):
+        return adapter.select_campaign_contract(
+            mother_spot=float(index_price),
+            selected_at=when,
+            ce_offset_steps=-int(terms["itm_steps"]),
+            strike_step=int(terms["strike_step"]),
+            option_type="CE",
+            symbol=terms["dhan_symbol"],
+        )
+
+    # The lot comes from the chain, not from the backtest's assumption.  It is
+    # resolved once, now, so every campaign this run starts is sized alike and a
+    # mid-run lot revision cannot silently restate earlier quantities.
+    lot_size = int(
+        adapter.select_campaign_contract(
+            mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
+            selected_at=datetime.now(IST),
+            ce_offset_steps=-int(terms["itm_steps"]),
+            strike_step=int(terms["strike_step"]),
+            option_type="CE",
+            symbol=terms["dhan_symbol"],
+        ).lot_size
+    )
+
+    return FibSpacePaperHost(
+        symbol,
+        adapter,
+        premium_lookup=quote,
+        select_contract=select_contract,
+        config=SpaceCascadeConfig(lot_size=lot_size),
+        entry_timeframe="5m",
+        geometry_timeframe="15m",
+        cooldown_days=int(terms["cooldown_days"]),
+        dhan_symbol=terms["dhan_symbol"],
+    )
+
+
+async def _save_fib_space_state(user_id: int, runtime: _FibSpaceRuntime) -> None:
+    """Persist enough to describe the run; the campaigns themselves replay.
+
+    Deliberately NOT an engine dump.  The driver rebuilds every decision from
+    the bars on the next poll, so the only thing that must survive a restart is
+    which symbol was running -- see engine/fib_space_live.py.
+    """
+    await _db_mod.set_app_state(
+        _fib_space_state_key(user_id),
+        json.dumps(
+            {
+                "symbol": runtime.symbol,
+                "running": bool(runtime.running),
+                "started_at": runtime.started_at.isoformat(),
+            }
+        ),
+    )
+
+
+async def _run_fib_space_paper_loop(user_id: int, runtime: _FibSpaceRuntime) -> None:
+    """Poll closed BankNifty bars and advance every live fib-space campaign.
+
+    The host gates itself on the NSE session, so an out-of-hours tick costs no
+    broker calls -- the Dhan rate budget is shared with the live engine.
+    """
+    while runtime.running and _fib_space_engines.get(int(user_id)) is runtime:
+        try:
+            report = await runtime.host.poll(now=datetime.now(IST).replace(tzinfo=None))
+            runtime.last_error = report.error
+            if report.error:
+                _logger.warning("[FIBSPACE] %s poll error for user %s: %s", runtime.symbol, user_id, report.error)
+            if report.changed:
+                for fill in report.fills:
+                    _logger.info(
+                        "[FIBSPACE] %s FILL %s round %s @ index %.2f, %s lots, strike %s, premium %s",
+                        runtime.symbol,
+                        fill.campaign_id,
+                        fill.round_no,
+                        fill.index_price,
+                        fill.lots,
+                        fill.strike,
+                        "UNPRICED" if fill.premium is None else f"{fill.premium:.2f}",
+                    )
+                for exit_ in report.exits:
+                    _logger.info(
+                        "[FIBSPACE] %s EXIT %s round %s (%s) @ index %.2f",
+                        runtime.symbol,
+                        exit_.campaign_id,
+                        exit_.round_no,
+                        exit_.exit_reason,
+                        exit_.exit_index,
+                    )
+                for halted in report.halted:
+                    _logger.error("[FIBSPACE] %s campaign HALTED: %s", runtime.symbol, halted)
+                await _save_fib_space_state(user_id, runtime)
+                await _broadcast_user_ws_json(
+                    int(user_id),
+                    {"type": "fib_space_status", "fib_space": runtime.host.snapshot()},
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            runtime.last_error = str(exc)
+            _logger.warning("[FIBSPACE] paper poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(FIB_SPACE_POLL_SECONDS)
 
 
 def _scalp_open_state_key(user_id: int) -> str:
@@ -10305,6 +10452,92 @@ async def cascade_paper_stop(request: Request):
     await _save_cascade_open_state(user_id, runtime, force=True)
     await _notify_cascade_ws(user_id)
     return {"status": "stopped", "mode": "paper"}
+
+
+@app.post("/api/fib-space/paper/start")
+async def fib_space_paper_start(request: Request):
+    """Start the converging-fib space paper run for one underlying.
+
+    Takes no mother: the design finds its own swing pivots, which is what makes
+    a forward run comparable to the measured backtest.  Paper only -- there is
+    no live counterpart to this route and the adapter refuses to build one.
+    """
+    body = await request.json() if await request.body() else {}
+    symbol = str(body.get("symbol") or "banknifty").strip().lower()
+    if symbol not in FIB_SPACE_SYMBOLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported underlying. Measured symbols: {', '.join(sorted(FIB_SPACE_SYMBOLS))}.",
+        )
+
+    user_id = _request_user_id(request)
+    existing = _fib_space_engines.get(user_id)
+    if existing is not None and existing.running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A fib-space paper run is already going on {existing.symbol.upper()}. Stop it first.",
+        )
+
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a fib-space paper run.")
+
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        host = _build_fib_space_host(symbol, adapter, broker_client)
+    except Exception as exc:
+        # Usually a missing monthly contract or lot size in ScripMaster.  Refuse
+        # rather than start a run whose every quantity is a guess.
+        raise HTTPException(status_code=400, detail=f"Cannot size a {symbol.upper()} campaign: {exc}") from exc
+
+    runtime = _FibSpaceRuntime(
+        host=host,
+        adapter=adapter,
+        broker=broker_client,
+        symbol=symbol,
+        started_at=datetime.now(IST).replace(tzinfo=None),
+    )
+    _fib_space_engines[user_id] = runtime
+    runtime.task = asyncio.create_task(_run_fib_space_paper_loop(user_id, runtime))
+    await _save_fib_space_state(user_id, runtime)
+    return {
+        "status": "started",
+        "mode": "paper",
+        "symbol": symbol,
+        "lot_size": host.book.config.lot_size,
+        "poll_seconds": FIB_SPACE_POLL_SECONDS,
+    }
+
+
+@app.post("/api/fib-space/paper/stop")
+async def fib_space_paper_stop(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _fib_space_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_running"}
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_fib_space_state(user_id, runtime)
+    return {"status": "stopped", "mode": "paper", "symbol": runtime.symbol}
+
+
+@app.get("/api/fib-space/paper/status")
+async def fib_space_paper_status(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _fib_space_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper"}
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "symbol": runtime.symbol,
+        "running": runtime.running,
+        "started_at": runtime.started_at.isoformat(),
+        "last_error": runtime.last_error,
+        "lot_size": runtime.host.book.config.lot_size,
+        "book": runtime.host.snapshot(),
+    }
 
 
 @app.post("/api/cascade/paper/kill")
