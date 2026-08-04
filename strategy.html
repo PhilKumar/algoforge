@@ -1814,7 +1814,7 @@
       <div class="oc-hero-copy">
         <div class="oc-kicker">Paper campaigns on live prices · no real order is ever sent</div>
         <h2>Cascade</h2>
-        <p class="oc-hero-steps"><strong>1</strong>&nbsp;Pick a strategy below &nbsp;·&nbsp; <strong>2</strong>&nbsp;Give it a mother candle &nbsp;·&nbsp; <strong>3</strong>&nbsp;Press <strong>Start paper campaign</strong>. That's the whole page. To replay a past mother instead, open <strong>Test Bench</strong> — the third tab.</p>
+        <p class="oc-hero-steps"><strong>1</strong>&nbsp;Pick a strategy below &nbsp;·&nbsp; <strong>2</strong>&nbsp;Give it a mother candle &nbsp;·&nbsp; <strong>3</strong>&nbsp;Press <strong>Start paper campaign</strong>. That's the whole page. <strong>Fib Space</strong> needs no mother — it finds its own. To replay a past mother instead, open <strong>Test Bench</strong> — the last tab.</p>
       </div>
       <div id="options-cascade-live-gate" class="oc-live-gate"><strong>LIVE LOCKED</strong><span>Paper validation required</span></div>
     </div>
@@ -1824,6 +1824,7 @@
   <div class="oc-tabs" role="tablist">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Pick a mother candle · buys the deep fib levels under it</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
+    <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Finds its own mothers — the measured fib-space design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Finds its own mothers · 15m geometry, 5m entries, converging-fib zones</span></button>
     <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother · history only, nothing trades</span></button>
   </div>
 
@@ -1938,6 +1939,45 @@
           <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <!-- ── TAB · Fib space (auto geometry) ── -->
+  <div id="oc-tab-space" class="oc-tab-panel" style="display:none;">
+    <div class="cascade-options-workspace">
+      <div class="card cascade-options-setup-card" style="padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:15px;">Fib-space paper run</h3>
+          <span id="fsx-terms-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">15m geometry · 5m entries</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:14px;">No mother to type — this is the only Cascade that <strong style="color:var(--text);">finds its own</strong>. It scans 15m swing pivots, draws the trendlines and fibs, and buys where two fibs' levels converge, timing entries on 5m. Exactly what the 22-month backtest measured, run forward on live prices. <strong style="color:var(--text);">Paper only</strong> — there is no live counterpart to this route.</div>
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
+        <select id="fsx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+          <option value="banknifty" selected>BankNifty — locked config, +₹6.72L / 73% over 22 months</option>
+          <option value="nifty">NIFTY — 3-day cooldown, +₹1.95L / 70%</option>
+        </select>
+        <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">Monthly contracts, ATM−2 CE, 15–45 DTE. Lot size comes from the live chain, not the backtest's assumption.</div>
+        <div class="pf-cascade-campaign-actions"><button id="fsx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibSpacePaper">▶ Start paper run</button><button id="fsx-stop" class="btn cascade-options-control" type="button" data-pf-action="stopFibSpacePaper" style="display:none;">■ Stop</button></div>
+        <div id="fsx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div style="margin-top:12px;padding:11px 12px;border:1px dashed var(--border);border-radius:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">BankNifty produces about <strong style="color:var(--text);">6 campaigns a month</strong>, median hold 2 days. A month of this proves the plumbing — that the live path finds the same mothers and makes the same decisions as the backtest. It is <strong style="color:var(--text);">not</strong> enough to confirm the 73% win rate.</div>
+      </div>
+
+      <details id="fsx-window" class="cascade-options-window" open>
+        <summary class="cascade-options-window-head">
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Book monitor</h3><span id="fsx-badge" class="cascade-options-state">IDLE</span></div><div id="fsx-contract" class="cascade-options-contract">No paper run</div></div>
+          <div id="fsx-gist" class="cascade-options-gist">Start a run to watch it find mothers and ladder into them.</div>
+        </summary>
+        <div class="cascade-options-window-body">
+          <div id="fsx-summary" class="cascade-options-summary"></div>
+          <div id="fsx-error" style="display:none;margin-top:10px;padding:9px 11px;border:1px solid var(--danger);border-radius:7px;font:10.5px 'JetBrains Mono',monospace;color:var(--danger);line-height:1.5;"></div>
+          <div id="fsx-empty" class="cascade-options-empty">Nothing running. Once started it polls only during the NSE session (09:15–15:30) — outside those hours it makes no broker call at all, so an idle evening is expected, not a fault.</div>
+          <div id="fsx-active" style="display:none;margin-top:16px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Campaigns</div>
+            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Mother</th><th style="padding:6px 8px;">High</th><th style="text-align:left;padding:6px 8px;">State</th><th style="padding:6px 8px;">Fills</th><th style="padding:6px 8px;">Open qty</th><th style="padding:6px 8px;">Net ₹</th></tr></thead><tbody id="fsx-campaigns"></tbody></table></div>
+            <div id="fsx-unpriced-note" style="display:none;margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:#fbbf24;line-height:1.5;"></div>
+          </div>
+        </div>
+      </details>
     </div>
   </div>
 

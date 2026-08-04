@@ -239,6 +239,7 @@ class FibSpacePaperHost:
                 "fills": len(c.fills),
                 "open_quantity": c.open_quantity,
                 "unpriced": c.unpriced,
+                "closed_rounds": c.closed_rounds,
                 "net": c.net,
             }
             for c in sorted(self.book.campaigns.values(), key=lambda c: c.mother.timestamp, reverse=True)

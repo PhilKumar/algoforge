@@ -349,3 +349,54 @@ class SnapshotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClosedRoundsDistinguishesZeroFromBlankTests(unittest.TestCase):
+    """A campaign holding open lots has realised nothing -- not "flat".
+
+    net is 0.0 in both cases, which is arithmetically right and badly
+    misleading in a P&L column, so callers need closed_rounds to tell them
+    apart. The panel shows an em dash until this is non-zero.
+    """
+
+    def _campaign(self):
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(120.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = LiveCampaign(
+            campaign_id="c1",
+            symbol="banknifty",
+            mother=bars[6],
+            arm_from_index=None,
+            confirmed_at=bars[11].timestamp,
+            lot_size=30,
+        )
+        book.campaigns["c1"] = campaign
+        return book, campaign, bars
+
+    def test_a_fresh_campaign_has_banked_nothing(self):
+        _, campaign, _ = self._campaign()
+        self.assertEqual(campaign.closed_rounds, 0)
+
+    def test_an_open_position_reports_zero_net_but_no_closed_rounds(self):
+        book, campaign, bars = self._campaign()
+        # Stop before the recovery so the round is still open.
+        book.advance(campaign, bars[:60], bars[:60], now=bars[59].timestamp)
+
+        self.assertTrue(campaign.fills, "fixture must have opened a position")
+        self.assertGreater(campaign.open_quantity, 0)
+        self.assertEqual(campaign.closed_rounds, 0)
+        self.assertEqual(campaign.net, 0.0, "realised is genuinely zero -- callers must not read it as flat")
+
+    def test_a_banked_round_counts(self):
+        book, campaign, bars = self._campaign()
+        book.advance(campaign, bars, bars, now=bars[-1].timestamp)
+
+        self.assertGreater(campaign.closed_rounds, 0)
+        self.assertEqual(campaign.closed_rounds, len(campaign.exits))

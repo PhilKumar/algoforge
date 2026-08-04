@@ -1838,6 +1838,25 @@ async def _save_fib_space_state(user_id: int, runtime: _FibSpaceRuntime) -> None
     )
 
 
+def _fib_space_status_payload(runtime: _FibSpaceRuntime) -> dict:
+    """One shape for the status route and the websocket push.
+
+    The panel renders whichever arrives first, so they must agree -- a push
+    carrying only the book snapshot would leave the panel unable to tell a
+    running run from a stopped one.
+    """
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "symbol": runtime.symbol,
+        "running": runtime.running,
+        "started_at": runtime.started_at.isoformat(),
+        "last_error": runtime.last_error,
+        "lot_size": runtime.host.book.config.lot_size,
+        "book": runtime.host.snapshot(),
+    }
+
+
 async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) -> _FibSpaceRuntime | None:
     """Bring a paper run back after a restart.
 
@@ -1922,7 +1941,7 @@ async def _run_fib_space_paper_loop(user_id: int, runtime: _FibSpaceRuntime) -> 
                 await _save_fib_space_state(user_id, runtime)
                 await _broadcast_user_ws_json(
                     int(user_id),
-                    {"type": "fib_space_status", "fib_space": runtime.host.snapshot()},
+                    {"type": "fib_space_status", "fib_space": _fib_space_status_payload(runtime)},
                 )
         except asyncio.CancelledError:
             raise
@@ -10583,16 +10602,7 @@ async def fib_space_paper_status(request: Request):
     runtime = _fib_space_engines.get(user_id)
     if runtime is None:
         return {"status": "not_started", "mode": "paper"}
-    return {
-        "status": "ok",
-        "mode": "paper",
-        "symbol": runtime.symbol,
-        "running": runtime.running,
-        "started_at": runtime.started_at.isoformat(),
-        "last_error": runtime.last_error,
-        "lot_size": runtime.host.book.config.lot_size,
-        "book": runtime.host.snapshot(),
-    }
+    return _fib_space_status_payload(runtime)
 
 
 @app.post("/api/cascade/paper/kill")

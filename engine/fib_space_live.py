@@ -129,6 +129,17 @@ class LiveCampaign:
         return sum(f.quantity for f in self.fills if f.round_no not in closed)
 
     @property
+    def closed_rounds(self) -> int:
+        """Rounds that have actually banked. Distinguishes a zero from a blank.
+
+        A campaign holding three open lots has realised exactly nothing, so its
+        net is 0.0 -- arithmetically right and badly misleading, because it reads
+        as "flat" next to a campaign that banked and broke even. Callers should
+        show no number at all until this is non-zero.
+        """
+        return len(self.exits)
+
+    @property
     def net(self) -> Optional[float]:
         """Realised P&L, or None while any leg is unpriced."""
         if self.unpriced:
