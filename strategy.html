@@ -1987,14 +1987,14 @@
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Campaigns</div>
             <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Mother</th><th style="padding:6px 8px;">High</th><th style="text-align:left;padding:6px 8px;">State</th><th style="padding:6px 8px;">Fills</th><th style="padding:6px 8px;">Open qty</th><th style="padding:6px 8px;">Net ₹</th><th style="padding:6px 8px;">Open</th></tr></thead><tbody id="fsx-campaigns"></tbody></table></div>
             <div id="fsx-unpriced-note" style="display:none;margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:#fbbf24;line-height:1.5;"></div>
-            <div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Click a campaign for its premiums, capital and chart.</div>
+            <div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Click a campaign for its premiums, capital and chart · click again to collapse.</div>
           </div>
 
           <!-- One campaign, in full: what it bought, what it cost, what it is worth -->
           <div id="fsx-detail" style="display:none;margin-top:16px;padding-top:15px;border-top:1px solid var(--border);">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
               <div><h4 id="fsx-detail-title" style="margin:0;font-size:13px;">Campaign</h4><div id="fsx-detail-contract" style="margin-top:3px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);"></div></div>
-              <div style="display:flex;gap:7px;"><button id="fsx-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadFibSpaceChart">↗ Chart</button><button class="cascade-options-control" type="button" data-pf-action="closeFibSpaceDetail">✕ Close</button></div>
+              <div style="display:flex;align-items:center;gap:10px;"><span style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">click the row again to collapse</span><button id="fsx-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadFibSpaceChart">↗ Chart</button></div>
             </div>
             <div id="fsx-detail-money" class="cascade-options-summary"></div>
             <div id="fsx-detail-rounds" style="margin-top:14px;"></div>
@@ -2009,7 +2009,7 @@
           <div><h3 style="margin:0;font-size:15px;">Fib-space campaign chart</h3><div id="fsx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div>
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> fib level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
-            <button class="btn btn-sm" type="button" data-pf-action="hideFibSpaceChart">Close</button>
+            <button class="btn btn-sm" type="button" data-pf-action="hideFibSpaceChart">Close chart</button>
           </div>
         </div>
         <div id="fsx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Native closed candles from the campaign's own replay — the same run the fills came out of. Drag to pan, wheel to zoom, double-click to reset.</div></div>

@@ -1465,7 +1465,6 @@ const PF_DELEGATED_ACTIONS = new Set([
   'stopFibSpacePaper',
   'addFibSpaceMother',
   'openFibSpaceCampaign',
-  'closeFibSpaceDetail',
   'loadFibSpaceChart',
   'hideFibSpaceChart',
   'runTestBench',
@@ -2407,6 +2406,11 @@ function _fsxMoney(value) {
 async function openFibSpaceCampaign(event, el) {
   const id = (el || event?.currentTarget)?.getAttribute('data-fsx-campaign');
   if (!id) return;
+  // The row is a toggle. There is deliberately no "Close" button on the trade
+  // sheet: in a trading app that word means square off the position, and a
+  // control that reads as "close this trade" but only collapses a panel is a
+  // hazard the moment somebody is in a hurry.
+  if (_fsxOpenCampaignId === id) { closeFibSpaceDetail(); return; }
   _fsxOpenCampaignId = id;
   await _fsxLoadCampaignDetail();
 }
