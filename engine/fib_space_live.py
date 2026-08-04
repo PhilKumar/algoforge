@@ -294,6 +294,50 @@ class FibSpacePaperBook:
 
     # -- the poll -----------------------------------------------------------
 
+    def _replay(self, campaign: LiveCampaign, geometry_bars: Sequence[Bar], entry_bars: Sequence[Bar]):
+        """Run the campaign over everything closed so far and stash the result.
+
+        Pure: it reads bars and writes nothing but ``last_result``/``last_bars``.
+        Splitting it out is what lets a mother be DRAWN the moment it is named --
+        geometry needs only closed candles, while recording a fill needs a live
+        quote, so the two must not be welded together.
+        """
+        window = [b for b in geometry_bars if b.timestamp >= campaign.mother.timestamp]
+        span = horizon_bars(self.geometry_timeframe, self.horizon_sessions)
+        window = window[: span + 1]
+        if not window:
+            return None
+
+        if self.entry_timeframe == self.geometry_timeframe:
+            replay, geometry = window, None
+        else:
+            last = window[-1].timestamp
+            replay = [b for b in entry_bars if campaign.mother.timestamp <= b.timestamp <= last]
+            geometry = window
+        if not replay:
+            return None
+        armed = next((i for i, b in enumerate(replay) if b.timestamp >= campaign.confirmed_at), None)
+
+        result = run_space_campaign(
+            campaign.mother,
+            replay,
+            self.config,
+            arm_from_index=replay[armed].index if armed is not None else None,
+            geometry_bars=geometry,
+        )
+        campaign.last_result = result
+        campaign.last_bars = list(geometry if geometry is not None else replay)
+        return result
+
+    def preview(self, campaign: LiveCampaign, geometry_bars: Sequence[Bar], entry_bars: Sequence[Bar]):
+        """Draw the campaign without trading it.
+
+        Named a mother at 8pm and want to check the fibs match your own chart?
+        That needs no market and no quote. Nothing is recorded here, so no fill
+        is ever priced off a stale premium as a side effect of looking.
+        """
+        return self._replay(campaign, geometry_bars, entry_bars)
+
     def advance(
         self,
         campaign: LiveCampaign,
@@ -306,34 +350,9 @@ class FibSpacePaperBook:
         if campaign.status in ("done", "halted"):
             return [], []
 
-        window = [b for b in geometry_bars if b.timestamp >= campaign.mother.timestamp]
-        span = horizon_bars(self.geometry_timeframe, self.horizon_sessions)
-        window = window[: span + 1]
-        if not window:
+        result = self._replay(campaign, geometry_bars, entry_bars)
+        if result is None:
             return [], []
-
-        if self.entry_timeframe == self.geometry_timeframe:
-            replay = window
-            geometry = None
-            armed = next((i for i, b in enumerate(replay) if b.timestamp >= campaign.confirmed_at), None)
-        else:
-            last = window[-1].timestamp
-            replay = [b for b in entry_bars if campaign.mother.timestamp <= b.timestamp <= last]
-            geometry = window
-            armed = next((i for i, b in enumerate(replay) if b.timestamp >= campaign.confirmed_at), None)
-        if not replay:
-            return [], []
-
-        result = run_space_campaign(
-            campaign.mother,
-            replay,
-            self.config,
-            arm_from_index=replay[armed].index if armed is not None else None,
-            geometry_bars=geometry,
-        )
-
-        campaign.last_result = result
-        campaign.last_bars = list(geometry if geometry is not None else replay)
 
         new_fills = self._record_fills(campaign, result, now=now)
         new_exits = self._record_exits(campaign, result, now=now)

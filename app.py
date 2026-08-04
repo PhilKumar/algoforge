@@ -10721,6 +10721,15 @@ async def fib_space_paper_campaign(campaign_id: str, request: Request):
 async def fib_space_paper_chart(campaign_id: str, request: Request):
     """The campaign drawn: geometry, fills and target, for the shared renderer."""
     runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
+    # A campaign that has not been polled yet still HAS geometry -- it just has
+    # not been computed. Build it on demand rather than refusing, which is what
+    # made a mother named after the close look broken all evening.
+    try:
+        await runtime.host.ensure_drawable(campaign, now=datetime.now(IST).replace(tzinfo=None))
+    except Exception as exc:
+        _logger.warning("[FIBSPACE] Could not build a chart for %s: %s", campaign.campaign_id, exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Could not read candles for this chart — {exc}") from exc
+
     payload = runtime.host.book.campaign_chart(campaign)
     if payload.get("status") != "ok":
         raise HTTPException(status_code=409, detail=payload.get("reason") or "This campaign has nothing to draw yet.")

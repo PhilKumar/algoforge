@@ -674,3 +674,86 @@ class CampaignChartTests(unittest.TestCase):
 
         self.assertFalse(campaign.exits)
         self.assertEqual(book.campaign_chart(campaign)["tp_label"], "TARGET")
+
+
+class PreviewDrawsWithoutTradingTests(unittest.TestCase):
+    """A mother named after the close must still be drawable.
+
+    This is the bug Phil hit: the chart only had something to draw once a POLL
+    had run, and the poll is session-gated, so naming a mother in the evening
+    left the chart permanently empty. Geometry needs closed candles, not an open
+    market; only recording a fill needs a live quote.
+    """
+
+    def _book(self, lookup=None):
+        return FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=lookup or _always(120.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+
+    def test_a_chart_is_available_before_any_poll(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        campaign = book.adopt_manual_mother(bars[6])
+
+        self.assertEqual(book.campaign_chart(campaign)["status"], "not_ready")
+        book.preview(campaign, bars, bars)
+        chart = book.campaign_chart(campaign)
+
+        self.assertEqual(chart["status"], "ok")
+        self.assertTrue(chart["candles"])
+        self.assertTrue(chart["legs"], "the fibs must be drawn without a poll")
+
+    def test_preview_records_no_fill_and_spends_no_money(self):
+        """Looking must never be mistaken for trading."""
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        campaign = book.adopt_manual_mother(bars[6])
+        book.preview(campaign, bars, bars)
+
+        self.assertEqual(campaign.fills, [])
+        self.assertEqual(campaign.exits, [])
+        self.assertEqual(campaign.unpriced, 0)
+        self.assertEqual(campaign.status, "watching")
+        self.assertEqual(book.campaign_detail(campaign, mark_to_market=False)["capital_spent"], 0)
+
+    def test_preview_never_asks_for_a_quote(self):
+        """A stale premium must not be fetched just because a chart was opened."""
+        asked = []
+
+        def _watching(when, contract):
+            asked.append(when)
+            return 120.0
+
+        bars = bars_from_candles(_falling_market())
+        book = self._book(lookup=_watching)
+        campaign = book.adopt_manual_mother(bars[6])
+        book.preview(campaign, bars, bars)
+        self.assertEqual(asked, [])
+
+    def test_a_later_poll_still_records_normally(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        campaign = book.adopt_manual_mother(bars[6])
+        book.preview(campaign, bars, bars)
+
+        fills, _ = book.advance(campaign, bars, bars, now=bars[-1].timestamp)
+        self.assertTrue(fills, "previewing must not consume the fills")
+        self.assertTrue(campaign.fills)
+
+    def test_preview_and_advance_reach_the_same_geometry(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        a = book.adopt_manual_mother(bars[6])
+        book.preview(a, bars, bars)
+        previewed = book.campaign_chart(a)
+
+        book.advance(a, bars, bars, now=bars[-1].timestamp)
+        polled = book.campaign_chart(a)
+
+        self.assertEqual(len(previewed["legs"]), len(polled["legs"]))
+        self.assertEqual(previewed["candles"], polled["candles"])

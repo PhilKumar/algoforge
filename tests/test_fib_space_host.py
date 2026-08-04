@@ -337,3 +337,68 @@ class NamedMotherFetchTests(unittest.TestCase):
         report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 1)))
         self.assertTrue(report.fills, "the named mother must trade like any other campaign")
         self.assertEqual(host.snapshot()["campaign_rows"][0]["source"], "manual")
+
+
+class NamedMotherIsDrawableImmediatelyTests(unittest.TestCase):
+    """Naming a mother is asking "does the engine see what I see" — so it draws."""
+
+    def test_the_chart_is_ready_the_moment_the_mother_is_accepted(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+
+        chart = host.book.campaign_chart(campaign)
+        self.assertEqual(chart["status"], "ok")
+        self.assertTrue(chart["candles"])
+
+    def test_it_draws_even_outside_the_session(self):
+        """The poll is gated; drawing must not be — that was the whole bug."""
+        candles = _series()
+        host = _host(_Adapter(candles))
+        # 20:30 on a weekday: no poll would ever run at this hour.
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 20, 30)))
+
+        self.assertEqual(host.book.campaign_chart(campaign)["status"], "ok")
+
+    def test_naming_a_mother_records_no_trade(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 20, 30)))
+
+        self.assertEqual(campaign.fills, [])
+        self.assertEqual(host.snapshot()["open_quantity"], 0)
+
+
+class EnsureDrawableTests(unittest.TestCase):
+    """A campaign adopted before any poll must still produce a chart."""
+
+    def test_it_builds_a_replay_when_there_is_none(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        # Simulate a campaign that predates the preview (e.g. adopted by an
+        # older build, or restored from saved state).
+        campaign.last_result = None
+        campaign.last_bars = []
+
+        asyncio.run(host.ensure_drawable(campaign, now=datetime(2026, 3, 3, 20, 30)))
+        self.assertEqual(host.book.campaign_chart(campaign)["status"], "ok")
+
+    def test_it_does_not_refetch_when_a_replay_is_already_there(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        host.adapter.calls.clear()
+
+        asyncio.run(host.ensure_drawable(campaign, now=datetime(2026, 3, 3, 11, 1)))
+        self.assertEqual(host.adapter.calls, [], "a drawable campaign must not spend broker calls")
+
+    def test_building_a_chart_records_no_trade(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        campaign.last_result = None
+
+        asyncio.run(host.ensure_drawable(campaign, now=datetime(2026, 3, 3, 20, 30)))
+        self.assertEqual(campaign.fills, [])
+        self.assertEqual(campaign.unpriced, 0)

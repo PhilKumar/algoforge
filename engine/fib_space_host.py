@@ -297,7 +297,45 @@ class FibSpacePaperHost:
             raise LookupError(
                 f"no closed {self.geometry_timeframe} {self.dhan_symbol} candle opens at {when:%d %b %Y %H:%M} IST"
             )
-        return self.book.adopt_manual_mother(bar)
+        campaign = self.book.adopt_manual_mother(bar)
+
+        # DRAW IT NOW, don't wait for a poll. The geometry needs only closed
+        # candles, so a mother named at 8pm can be checked against your own
+        # chart the same evening -- the point of naming it is to confirm the
+        # engine sees what you see. preview() records nothing, so no fill gets
+        # priced off a stale quote as a side effect of looking.
+        entry_bars = bars
+        if self.entry_timeframe != self.geometry_timeframe:
+            try:
+                entry_bars = bars_from_candles(await self._fetch(self.entry_timeframe, now=now))
+            except Exception:
+                # A missing entry series costs the fill marks, not the geometry;
+                # the poll will fill them in. Better a partial chart than none.
+                entry_bars = bars
+        try:
+            self.book.preview(campaign, bars, entry_bars)
+        except Exception:
+            pass  # the campaign is real either way; the poll redraws it
+        return campaign
+
+    async def ensure_drawable(self, campaign, *, now: datetime) -> None:
+        """Make sure this campaign has something to draw, fetching if it must.
+
+        A campaign adopted before its first poll -- or before this preview
+        existed at all -- has no replay behind it, and asking for its chart got
+        a refusal that looked like a bug. Drawing needs only closed candles, so
+        it can always be satisfied on demand. Records nothing.
+        """
+        if getattr(campaign, "last_result", None) is not None:
+            return
+        bars = await self.geometry_bars(now=now)
+        entry_bars = bars
+        if self.entry_timeframe != self.geometry_timeframe:
+            try:
+                entry_bars = bars_from_candles(await self._fetch(self.entry_timeframe, now=now))
+            except Exception:
+                entry_bars = bars
+        self.book.preview(campaign, bars, entry_bars)
 
     def snapshot(self) -> dict:
         snap = self.book.snapshot()

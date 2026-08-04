@@ -2368,6 +2368,7 @@ function _renderFibSpaceStatus(payload) {
         <td style="padding:6px 8px;">${row.fills ?? 0}</td>
         <td style="padding:6px 8px;">${row.open_quantity ?? 0}</td>
         <td style="padding:6px 8px;color:${netColour};" title="${escapeHtml(netTitle)}">${escapeHtml(net)}</td>
+        <td style="padding:6px 8px;color:#38bdf8;" title="Open premiums, capital and chart">↗</td>
       </tr>`;
     }).join('');
   }
@@ -2547,6 +2548,12 @@ async function addFibSpaceMother() {
   // Echo the market's own high/low back, so it is obvious nothing was typed.
   _fsxSetMotherStatus(`Running — high ${_cascadeNumber(data.mother_high)}, low ${_cascadeNumber(data.mother_low)} from Dhan.`, 'success');
   await refreshFibSpaceStatus();
+  // Open it straight away. Naming a mother is asking "does the engine see what
+  // I see", and the answer is the chart -- it should not be behind knowing to
+  // click a table row.
+  _fsxOpenCampaignId = data.campaign_id;
+  await _fsxLoadCampaignDetail();
+  await loadFibSpaceChart();
 }
 
 async function startFibSpacePaper() {
