@@ -110,11 +110,21 @@ class SpaceCascadeConfig:
     # See Space.reach -- a convergence too tight to buy on touch is worked one
     # fib-span below its line, which is where Phil's 08-May-2026 NIFTY buy sits.
     tiny_space_reach: bool = False
-    # Phil, 2026-08-04, describing his 13-May buy: "a zone formed with 8-1
-    # boundary".  Level 1 is in his boundary vocabulary; the engine has only
-    # counted 2/4/8 as rungs that may converge.  Adding it creates more (and
-    # shallower) convergences.
-    boundary_levels: tuple = (2, 4, 8)
+    # THE RUNGS THAT MAY CONVERGE.  Phil, 2026-08-04, describing his 13-May
+    # buy: "a zone formed with 8-1 boundary" -- level 1 is in his boundary
+    # vocabulary, and the engine had only ever counted 2/4/8.
+    #
+    # Promoted to the default on his sign-off the same day, because it is the
+    # one change all week that improved BOTH symbols.  Two-scale config, full
+    # 22 months: BankNifty +3.60L -> +6.72L (71.9% -> 73.0% win, still only 2
+    # expiry rounds and those settle NET POSITIVE), NIFTY -0.88L -> -0.71L;
+    # 2026 alone BankNifty +0.85L -> +5.23L.  Level 1 sits close to fib 0, so
+    # the convergences it makes are shallower and nearer the market: rounds
+    # fill sooner and resolve sooner, which is the drag both symbols carried.
+    #
+    # It does NOT combine with seed_first_fib (together BankNifty +1.10L) --
+    # the two generate overlapping zones and the ladder dilutes.
+    boundary_levels: tuple = (1, 2, 4, 8)
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
