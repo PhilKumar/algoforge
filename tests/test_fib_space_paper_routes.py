@@ -219,7 +219,7 @@ class ConfigReachesTheRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_banknifty_runs_with_no_cooldown_and_nifty_with_three_days(self):
         adapter = _Adapter()
         broker = object()
-        with patch.object(app_module, "_cascade_premium_lookup", lambda b: (lambda w, c: 100.0)):
+        with patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0):
             bn = app_module._build_fib_space_host("banknifty", adapter, broker)
             nf = app_module._build_fib_space_host("nifty", adapter, broker)
 
@@ -227,7 +227,7 @@ class ConfigReachesTheRunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nf.book.cooldown_days, 3)
 
     async def test_geometry_is_15m_and_entries_are_5m(self):
-        with patch.object(app_module, "_cascade_premium_lookup", lambda b: (lambda w, c: 100.0)):
+        with patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0):
             host = app_module._build_fib_space_host("banknifty", _Adapter(), object())
         self.assertEqual(host.geometry_timeframe, "15m")
         self.assertEqual(host.entry_timeframe, "5m")
@@ -240,7 +240,7 @@ class ConfigReachesTheRunTests(unittest.IsolatedAsyncioTestCase):
                 captured.update(kwargs)
                 return _Contract()
 
-        with patch.object(app_module, "_cascade_premium_lookup", lambda b: (lambda w, c: 100.0)):
+        with patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0):
             host = app_module._build_fib_space_host("banknifty", _Recording(), object())
         host.book.select_contract(datetime(2026, 3, 3, 11, 0), 57_240.0)
 
@@ -276,7 +276,7 @@ class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
         await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
         with (
             patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
-            patch.object(app_module, "_cascade_premium_lookup", lambda b: (lambda w, c: 100.0)),
+            patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0),
         ):
             runtime = await app_module._restore_fib_space_paper_run(7, object())
 
@@ -316,7 +316,7 @@ class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
         await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
         with (
             patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
-            patch.object(app_module, "_cascade_premium_lookup", lambda b: (lambda w, c: 100.0)),
+            patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0),
         ):
             first = await app_module._restore_fib_space_paper_run(7, object())
             second = await app_module._restore_fib_space_paper_run(7, object())
