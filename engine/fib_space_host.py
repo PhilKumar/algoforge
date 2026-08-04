@@ -60,11 +60,28 @@ LIVE_SYMBOLS = {
     ),
 }
 
-# How far back each cycle fetches.  A campaign's horizon is 120 sessions, so the
-# window must exceed that or an old campaign's replay gets truncated under it.
-# 260 calendar days is ~180 sessions, comfortably past the horizon and still one
-# cheap request per timeframe.
-DEFAULT_LOOKBACK_DAYS = 260
+# THE FETCH WINDOW IS SIZED BY DEMAND, NOT BY THE HORIZON.
+#
+# This used to ask for a flat 260 days of intraday candles on every poll, which
+# was wrong twice over.  Dhan's /charts/intraday endpoint is not built for a
+# range that long -- every other caller in this repo asks for 14 or 15 days --
+# and even if it answered, pulling nine months of 15m AND 5m bars once a minute
+# would spend an account-wide rate budget that the live engine shares.
+#
+# So the window is now the smallest one that can still answer: far enough back
+# to reach the oldest campaign actually being replayed, and never less than
+# MIN_LOOKBACK_DAYS so a mother named at the edge of its own window still has
+# warm-up bars behind it.  A book with no campaigns fetches a fortnight.
+MIN_LOOKBACK_DAYS = 30
+
+# Extra days behind the oldest mother, so ATR and the trendline anchors have
+# history to sit on rather than starting flat at the very first bar.
+LOOKBACK_WARMUP_DAYS = 10
+
+# One request never spans more than this.  Long ranges are split and stitched
+# instead of failing whole -- the exact ceiling Dhan enforces is not documented
+# here, so this stays comfortably under any plausible one.
+MAX_FETCH_DAYS = 60
 
 # Entries are decided on closed 5m bars, so a minute's cadence is already finer
 # than the decisions. Kept slow deliberately: the budget is shared with the live
@@ -144,14 +161,14 @@ class FibSpacePaperHost:
         entry_timeframe: str = "5m",
         geometry_timeframe: str = "15m",
         cooldown_days: int = 0,
-        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        min_lookback_days: int = MIN_LOOKBACK_DAYS,
         dhan_symbol: Optional[str] = None,
         auto_scan: bool = False,
     ) -> None:
         self.symbol = symbol
         self.adapter = adapter
         self.dhan_symbol = dhan_symbol or symbol.upper()
-        self.lookback_days = lookback_days
+        self.min_lookback_days = min_lookback_days
         # MOTHERS ARE NAMED BY DEFAULT, NOT SCANNED.  The pivot scanner exists
         # because a backtest has nobody to ask; running live there is somebody.
         # It stays available (auto_scan=True) because the measured numbers came
@@ -183,17 +200,12 @@ class FibSpacePaperHost:
             self.last_report = report
             return report
 
-        start = (now - timedelta(days=self.lookback_days)).date()
         try:
-            geometry_candles = await self.adapter.async_get_candles(
-                self.dhan_symbol, self.geometry_timeframe, from_date=start, to_date=now.date(), now=now
-            )
+            geometry_candles = await self._fetch(self.geometry_timeframe, now=now)
             if self.entry_timeframe == self.geometry_timeframe:
                 entry_candles = geometry_candles
             else:
-                entry_candles = await self.adapter.async_get_candles(
-                    self.dhan_symbol, self.entry_timeframe, from_date=start, to_date=now.date(), now=now
-                )
+                entry_candles = await self._fetch(self.entry_timeframe, now=now)
         except Exception as exc:
             report.error = f"candle fetch failed: {exc}"
             self.last_report = report
@@ -232,13 +244,44 @@ class FibSpacePaperHost:
         self.last_report = report
         return report
 
+    def lookback_days(self, *, now: datetime) -> int:
+        """How far back this book actually needs to see, today.
+
+        Reaching past the oldest campaign being replayed would truncate it and
+        trip the driver's history guard; reaching further than that is a request
+        nobody reads, paid for out of a shared rate budget.
+        """
+        oldest = min((c.mother.timestamp for c in self.book.campaigns.values()), default=None)
+        if oldest is None:
+            return self.min_lookback_days
+        span = (now.date() - oldest.date()).days + LOOKBACK_WARMUP_DAYS
+        return max(self.min_lookback_days, span)
+
+    async def _fetch(self, timeframe: str, *, now: datetime) -> list:
+        """Closed candles over the needed window, in slices the broker accepts.
+
+        A long range is split rather than sent whole. Slices overlap by a day at
+        the seam, so bars are de-duplicated by timestamp on the way back in --
+        one bar arriving twice must not become two.
+        """
+        days = self.lookback_days(now=now)
+        by_stamp: dict = {}
+        end = now.date()
+        remaining = days
+        while remaining > 0:
+            span = min(remaining, MAX_FETCH_DAYS)
+            start = end - timedelta(days=span)
+            for candle in await self.adapter.async_get_candles(
+                self.dhan_symbol, timeframe, from_date=start, to_date=end, now=now
+            ):
+                by_stamp[candle.timestamp] = candle
+            remaining -= span
+            end = start
+        return [by_stamp[k] for k in sorted(by_stamp)]
+
     async def geometry_bars(self, *, now: datetime) -> list:
-        """Every closed geometry bar in the lookback window."""
-        start = (now - timedelta(days=self.lookback_days)).date()
-        candles = await self.adapter.async_get_candles(
-            self.dhan_symbol, self.geometry_timeframe, from_date=start, to_date=now.date(), now=now
-        )
-        return bars_from_candles(candles)
+        """Every closed geometry bar in the window this book needs."""
+        return bars_from_candles(await self._fetch(self.geometry_timeframe, now=now))
 
     async def start_named_mother(self, when: datetime, *, now: datetime):
         """Open a campaign on the bar the trader named. Returns the campaign.

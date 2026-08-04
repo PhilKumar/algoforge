@@ -10672,7 +10672,13 @@ async def fib_space_paper_mother(request: Request):
     except ValueError as exc:  # already running on this mother
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not read that candle from Dhan: {exc}") from exc
+        # 400, deliberately, not 502.  error_handlers only passes the specific
+        # reason through for 4xx -- a 5xx is rewritten to "The broker API is
+        # temporarily unreachable", which hid a real bug here behind a message
+        # that suggested waiting would fix it.  The user can act on the actual
+        # text; a generic one wastes their time and mine.
+        _logger.warning("[FIBSPACE] Candle fetch failed for mother %s: %s", when, exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Could not read that candle from Dhan — {exc}") from exc
 
     _logger.info(
         "[FIBSPACE] %s manual mother %s (high %.2f) accepted for user %s",

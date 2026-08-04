@@ -130,15 +130,58 @@ class FetchShapeTests(unittest.TestCase):
         asyncio.run(_host(adapter).poll(now=datetime(2026, 3, 3, 11, 0)))
         self.assertEqual(len(adapter.calls), 1)
 
-    def test_the_lookback_reaches_past_the_campaign_horizon(self):
-        """A short window would truncate an old campaign's replay under it."""
+
+class FetchWindowTests(unittest.TestCase):
+    """The window is sized by demand.
+
+    A flat 260-day request is what broke this in production: Dhan's intraday
+    endpoint is not built for a range that long, and every other caller in this
+    repo asks for a fortnight.
+    """
+
+    def test_an_empty_book_asks_for_a_short_window(self):
         adapter = _Adapter(_series())
-        host = _host(adapter, lookback_days=260)
         now = datetime(2026, 3, 3, 11, 0)
-        asyncio.run(host.poll(now=now))
+        asyncio.run(_host(adapter).poll(now=now))
 
         _, _, from_date, _ = adapter.calls[0]
-        self.assertEqual((now.date() - from_date).days, 260)
+        self.assertEqual((now.date() - from_date).days, 30)
+
+    def test_the_window_reaches_back_to_the_oldest_campaign(self):
+        """Short of the oldest mother would truncate its replay and halt it."""
+        bars_source = _series()
+        host = _host(_Adapter(bars_source))
+        now = datetime(2026, 6, 1, 11, 0)
+        asyncio.run(host.start_named_mother(bars_source[26].timestamp, now=now))
+        host.adapter.calls.clear()
+
+        asyncio.run(host.poll(now=now))
+        earliest = min(from_date for _, _, from_date, _ in host.adapter.calls)
+        self.assertLessEqual(earliest, bars_source[26].timestamp.date())
+
+    def test_a_long_window_is_split_rather_than_sent_whole(self):
+        bars_source = _series()
+        host = _host(_Adapter(bars_source))
+        now = datetime(2026, 7, 31, 11, 0)  # a Friday, ~5 months past the mother
+        asyncio.run(host.start_named_mother(bars_source[26].timestamp, now=now))
+        host.adapter.calls.clear()
+
+        asyncio.run(host.poll(now=now))
+        spans = [(to_date - from_date).days for _, _, from_date, to_date in host.adapter.calls]
+        self.assertGreater(len(host.adapter.calls), 1, "a long range must be split")
+        self.assertTrue(all(s <= 60 for s in spans), f"every slice must stay small: {spans}")
+
+    def test_split_slices_do_not_duplicate_a_bar(self):
+        """The seams overlap, so bars must be de-duplicated by timestamp."""
+        bars_source = _series()
+        host = _host(_Adapter(bars_source))
+        now = datetime(2026, 8, 1, 11, 0)
+        asyncio.run(host.start_named_mother(bars_source[26].timestamp, now=now))
+
+        candles = asyncio.run(host._fetch("15m", now=now))
+        stamps = [c.timestamp for c in candles]
+        self.assertEqual(len(stamps), len(set(stamps)))
+        self.assertEqual(stamps, sorted(stamps))
 
 
 class ErrorsStayLocalTests(unittest.TestCase):
