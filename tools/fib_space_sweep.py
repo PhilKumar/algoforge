@@ -46,12 +46,24 @@ CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nifty_cac
 # has nothing to fill against.  Its weeklies DO trade across their whole life,
 # so SENSEX runs NEXT WEEK'S expiry: 7-13 DTE, current expiry week excluded by
 # the resolver, which lands on the following week's contract.
+#
+# ``cooldown_days`` is a PORTFOLIO rule rather than an engine rule: it refuses a
+# campaign that starts within N days of the last ACCEPTED one.  It lives here
+# because it is part of what a symbol trades, and it is causal-safe -- it needs
+# only the last accepted start, known at the time.  NIFTY needs one because its
+# rounds resolve slower than its contracts live, so two mothers days apart end
+# up holding the same fall on the same contract into the same expiry, doubling a
+# single bet: 109 campaigns at -Rs 71,359 become 56 at +Rs 1,94,825.  BankNifty
+# must NOT have one -- its rounds resolve in hours and its campaigns are largely
+# independent winners, so a throttle only drops winners (+Rs 6.72L unthrottled
+# against +Rs 5.65L at 3 days).
 SYMBOLS = {
     "nifty": dict(
         cache="NIFTY",
         upstox_key="NSE_INDEX|Nifty 50",
         strike_step=50.0,
         contract=dict(monthly_only=True, min_dte=15, max_dte=45),
+        cooldown_days=3,
     ),
     "banknifty": dict(
         cache="BANKNIFTY",
@@ -67,6 +79,20 @@ SYMBOLS = {
         upstox_key="BSE_INDEX|SENSEX",
         strike_step=100.0,
         contract=dict(monthly_only=False, min_dte=7, max_dte=13),
+        # SENSEX takes 5m entries like the others.  A 2026-08-04 reading that
+        # said otherwise was a MEASUREMENT artefact, not a result: the default
+        # premium window is one fill-bar wide, and on a book that trades 33.9%
+        # of minutes it left 76 of 128 campaigns (59%) unpriceable.  Those gaps
+        # were not random -- they were the losers -- so 15m entries scored
+        # -Rs 63,509 on the 52 that survived while 5m scored -Rs 1.62L on 98.
+        # Widening the FORWARD scan to 90 minutes (see
+        # _FORWARD_MINUTES_BY_SYMBOL) cut the gaps to 27 and reversed it:
+        #   entries 15m  101 priced  63.4% win  -Rs 2,05,828
+        #   entries  5m  108 priced  62.0% win  +Rs    61,488
+        # Paired on the 90 mothers both can price: 15m -Rs 1,20,440 vs 5m
+        # +Rs 37,631, and the 18 campaigns only 5m sees are +Rs 23,858 at 72.2%.
+        # Left at the 5m default; the entry_timeframe hook stays for symbols
+        # that genuinely need it.
     ),
 }
 

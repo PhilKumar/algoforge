@@ -100,6 +100,12 @@ class PricedCampaign:
     bars_held: int = 0
     rounds: int = 0
     round_reasons: tuple = ()
+    # Every rupee in and out, stamped: ``(when, amount)``, negative for money
+    # leaving.  ``net`` is their sum.  They are emitted from the SAME walk that
+    # produces net rather than recomputed by a second tool, because a capital
+    # figure derived from a parallel implementation is a figure that silently
+    # drifts from the P&L it claims to fund.  See tools/fib_space_book.py.
+    flows: tuple = ()
 
 
 # A deep-ITM strike does not print every minute -- 83 of 114 NIFTY 15m campaigns
@@ -110,6 +116,18 @@ class PricedCampaign:
 # genuine print; nothing is interpolated.
 _FORWARD_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
 _STALE_LIMIT_MINUTES = 10
+
+# THIN BOOKS NEED A LONGER FORWARD SCAN.  The default window is the fill bar's
+# own duration, which assumes the option trades at least once inside it -- true
+# on NIFTY (58.5% of minutes trade) and BankNifty (49.2%), false on SENSEX
+# weeklies (33.9%), where it left 72 of 76 gaps as "no entry bar" on strikes
+# that do have a series.
+#
+# Only the FORWARD scan is widened, never the backward one: waiting for the
+# option's next real trade is what an order actually does, so a later fill is a
+# real fill at a real price.  Walking further BACK would price the trade at a
+# quote that had already gone stale, which is not a fill anyone could get.
+_FORWARD_MINUTES_BY_SYMBOL = {"sensex": 90}
 
 
 def _premium_at(source, contract, when: datetime, forward_minutes: int) -> Optional[float]:
@@ -134,7 +152,7 @@ def _premium_at(source, contract, when: datetime, forward_minutes: int) -> Optio
 
 
 def price_campaign(
-    result, bars_by_index, source, resolver, view, settle_bars=None, timeframe: str = "15m"
+    result, bars_by_index, source, resolver, view, settle_bars=None, timeframe: str = "15m", symbol: str = ""
 ) -> PricedCampaign:
     """Price one campaign's ROUNDS on real premium bars, settling at expiry.
 
@@ -146,7 +164,7 @@ def price_campaign(
     ``settle_bars`` is the FULL index series; expiry settlement is read from it
     rather than from the campaign's replay window (see below).
     """
-    forward = _FORWARD_MINUTES.get(timeframe, 15)
+    forward = _FORWARD_MINUTES_BY_SYMBOL.get(symbol) or _FORWARD_MINUTES.get(timeframe, 15)
     priced = PricedCampaign(mother=result.mother_timestamp, status=result.status, bars_held=result.bars_held)
     rounds = getattr(result, "rounds", None)
     if not rounds:
@@ -155,6 +173,7 @@ def price_campaign(
 
     total_gross, total_costs, quantity = 0.0, 0.0, 0
     reasons = []
+    flows: list = []
     for rnd in rounds:
         legs = []
         for fill in rnd.fills:
@@ -189,6 +208,7 @@ def price_campaign(
         leg_reasons = []
 
         buys, sell_value, round_quantity, lots_total = [], 0.0, 0, 0
+        leg_closed_at = None
         for fill, contract, entry_premium in legs:
             leg_expiry_close = datetime.combine(contract.expiry, dt_time(15, 15))
             if round_exit is not None and round_exit <= leg_expiry_close:
@@ -197,6 +217,7 @@ def price_campaign(
                     priced.gap = f"no exit bar {int(contract.strike)}CE {contract.expiry} @ {round_exit:%Y-%m-%d %H:%M}"
                     priced.status = "gap"
                     return priced
+                exit_when = round_exit
                 leg_reasons.append(rnd.exit_reason or "open_at_end")
             else:
                 # Settlement is read from the FULL series, never the replay
@@ -211,19 +232,29 @@ def price_campaign(
                     priced.status = "gap"
                     return priced
                 exit_premium = max(float(candidates[-1].close) - float(contract.strike), 0.0)
+                exit_when = leg_expiry_close
                 leg_reasons.append("expiry_square_off")
             buys.append(OptionCostFill(price=entry_premium, quantity=fill.quantity, lots=fill.lots))
             sell_value += exit_premium * fill.quantity
             round_quantity += fill.quantity
             lots_total += fill.lots
+            # Premium leaves when the lot is bought and comes back when it is
+            # sold or settled -- so a ladder that walks down over three weeks
+            # holds all three lots' cash for those weeks, which is the whole
+            # question of how much capital this book needs.
+            flows.append((fill.timestamp, -entry_premium * fill.quantity))
+            flows.append((exit_when, exit_premium * fill.quantity))
+            leg_closed_at = exit_when if leg_closed_at is None else max(leg_closed_at, exit_when)
 
         total_gross += sell_value - sum(b.price * b.quantity for b in buys)
-        total_costs += calculate_nifty_option_basket_round_costs(
+        round_costs = calculate_nifty_option_basket_round_costs(
             buys=buys,
             sell_price=sell_value / round_quantity,
             sell_quantity=round_quantity,
             sell_lots=lots_total,
         ).total
+        total_costs += round_costs
+        flows.append((leg_closed_at, -round_costs))
         quantity += round_quantity
         # A round counts as an expiry death if ANY of its lots had to be
         # settled at intrinsic rather than sold at the round's exit.
@@ -238,6 +269,7 @@ def price_campaign(
     priced.round_reasons = tuple(reasons)
     priced.rounds = len(reasons)
     priced.quantity = quantity
+    priced.flows = tuple(sorted(flows, key=lambda f: f[0]))
     priced.status = "priced"
     return priced
 
