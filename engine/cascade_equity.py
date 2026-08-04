@@ -230,8 +230,8 @@ class CashCascadePaperConfig:
         # Terminal picker offers it -- only this line was missed, so choosing
         # Daily raised CascadeError, which nothing catches, so the user got a
         # bare 500 and no idea why.
-        if timeframe not in {"5m", "15m", "1h", "1d"}:
-            raise CascadeError("cash Cascade timeframe must be 5m, 15m, 1h, or 1d")
+        if timeframe not in {"5m", "15m", "1h", "4h", "1d"}:
+            raise CascadeError("cash Cascade timeframe must be 5m, 15m, 1h, 4h, or 1d")
         product = str(self.product_type or "CNC").upper()
         # CNC ONLY, and paper agrees with live rather than being laxer than it.
         # MTF is margin funding: it accrues daily interest and carries pledge

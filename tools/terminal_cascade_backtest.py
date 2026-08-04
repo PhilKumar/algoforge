@@ -48,7 +48,25 @@ from engine.cascade_mothers import find_mother_candles  # noqa: E402
 from engine.cascade_options import CascadeError, IndexCandle  # noqa: E402
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".equity_cache")
-BASE = "https://api.upstox.com/v2"
+# v3 serves NATIVE 5m/15m/1h/4h/1d for equities, so nothing is resampled.
+BASE = "https://api.upstox.com/v3"
+
+# (unit, value, max days per request, minutes per bar). The windows are Upstox's,
+# found by probing: asking wider returns UDAPI1148 "Invalid date range", so a
+# long span has to be stitched from chunks rather than requested whole.
+TIMEFRAMES = {
+    "5m": ("minutes", "5", 30, 5),
+    "15m": ("minutes", "15", 30, 15),
+    "1h": ("hours", "1", 90, 60),
+    "4h": ("hours", "4", 90, 240),
+    "1d": ("days", "1", 730, 375),
+}
+
+# A campaign is replayed at most this many of its OWN bars -- the same 800-bar
+# budget the Terminal page uses for its window. Without it a 5m run replays
+# every mother to the end of two years, which is quadratic and measures a
+# holding period no one would sit through.
+HORIZON_BARS = 800
 
 # Upstox instrument keys. ISIN-based for equities, and NIFTYBEES is an ETF whose
 # SIGNAL is the NIFTY index -- the Terminal maps that in
@@ -85,11 +103,19 @@ def _token() -> str:
     return token
 
 
-def fetch_daily(instrument_key: str, start: date, end: date, *, cache_only: bool = False) -> list[list]:
-    """Daily candles, cached. Returns Upstox rows: [ts, o, h, l, c, vol, oi]."""
+def fetch_candles(
+    instrument_key: str, start: date, end: date, timeframe: str, *, cache_only: bool = False
+) -> list[list]:
+    """Candles for one instrument and timeframe, cached and chunk-stitched.
+
+    Upstox caps the span per request (30 days on 5m, 90 on 1h, 730 on daily), so
+    anything longer is fetched in slices and merged. Slices are de-duplicated by
+    timestamp because the seams overlap by a day.
+    """
+    unit, value, max_days, _minutes = TIMEFRAMES[timeframe]
     os.makedirs(CACHE_DIR, exist_ok=True)
     slug = instrument_key.replace("|", "_").replace(" ", "_")
-    path = os.path.join(CACHE_DIR, f"{slug}_{start}_{end}.json")
+    path = os.path.join(CACHE_DIR, f"{slug}_{timeframe}_{start}_{end}.json")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -99,49 +125,77 @@ def fetch_daily(instrument_key: str, start: date, end: date, *, cache_only: bool
     session, token = _session(), _token()
     from urllib.parse import quote
 
-    url = f"{BASE}/historical-candle/{quote(instrument_key, safe='')}/day/{end}/{start}"
-    for attempt in range(4):
-        response = session.get(
-            url, headers={"Accept": "application/json", "Authorization": f"Bearer {token}"}, timeout=45
-        )
-        if response.status_code == 200:
-            rows = (response.json().get("data") or {}).get("candles") or []
-            # Upstox returns newest first; every consumer here wants oldest first.
-            rows = sorted(rows, key=lambda r: r[0])
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(rows, handle)
-            return rows
-        if response.status_code in (429, 500, 502, 503, 504):
-            time.sleep(1.5 * (attempt + 1))
-            continue
-        raise SystemExit(f"Upstox {response.status_code} for {instrument_key}: {response.text[:200]}")
-    raise SystemExit(f"Upstox kept failing for {instrument_key}")
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+    key = quote(instrument_key, safe="")
+    by_stamp: dict = {}
+    slice_end = end
+    while slice_end > start:
+        # THE WINDOW IS NOT A FIXED NUMBER OF DAYS. Upstox answers a 30-day 5m
+        # request for recent dates and rejects the same width in March with
+        # UDAPI1148 "Invalid date range" -- the real rule appears to be calendar
+        # based, and is not documented here. So the width ADAPTS: ask wide, and
+        # on a range rejection halve and retry rather than encoding a guess that
+        # breaks on some other month.
+        width = max_days
+        while True:
+            slice_start = max(start, slice_end - timedelta(days=width))
+            url = f"{BASE}/historical-candle/{key}/{unit}/{value}/{slice_end}/{slice_start}"
+            response = None
+            for attempt in range(4):
+                response = session.get(url, headers=headers, timeout=60)
+                if response.status_code in (429, 500, 502, 503, 504):
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                break
+            if response is not None and response.status_code == 200:
+                for row in (response.json().get("data") or {}).get("candles") or []:
+                    by_stamp[row[0]] = row
+                break
+            rejected_range = response is not None and "UDAPI1148" in response.text
+            if rejected_range and width > 5:
+                width = max(5, width // 2)
+                continue
+            raise SystemExit(
+                f"Upstox {getattr(response, 'status_code', '?')} for {instrument_key} {timeframe} "
+                f"{slice_start}..{slice_end}: {getattr(response, 'text', '')[:200]}"
+            )
+        slice_end = slice_start
+        time.sleep(0.25)  # the budget is shared; do not hammer it
+
+    rows = [by_stamp[k] for k in sorted(by_stamp)]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle)
+    return rows
 
 
-def to_candles(rows: list[list]) -> list[IndexCandle]:
-    """Upstox rows -> IndexCandles, stamped at the session open.
+def to_candles(rows: list[list], timeframe: str = "1d") -> list[IndexCandle]:
+    """Upstox rows -> IndexCandles in naive IST.
 
-    A daily bar arrives at 00:00; the engine treats a bar as spanning
-    DAILY_BAR_MINUTES from 09:15, and is_nse_cash_session rejects midnight, so
-    an unrestamped series would be silently dropped bar by bar.
+    A DAILY bar arrives stamped 00:00. The engine spans a bar from its stamp and
+    is_nse_cash_session rejects midnight, so an unrestamped daily series is
+    dropped bar by bar. Intraday bars already carry their real session time and
+    must be left exactly as they are.
     """
     out = []
     for row in rows:
-        stamp = datetime.fromisoformat(str(row[0]))
-        stamp = stamp.replace(tzinfo=None, hour=9, minute=15, second=0, microsecond=0)
+        stamp = datetime.fromisoformat(str(row[0])).replace(tzinfo=None)
+        if timeframe == "1d":
+            stamp = stamp.replace(hour=9, minute=15, second=0, microsecond=0)
         out.append(IndexCandle(stamp, float(row[1]), float(row[2]), float(row[3]), float(row[4])))
     return out
 
 
-def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool) -> dict:
+def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, timeframe: str = "1d") -> dict:
     spec = UNIVERSE[symbol]
     end = date.today()
     start = end - timedelta(days=int(365 * years) + 20)
 
-    trade_candles = to_candles(fetch_daily(spec["key"], start, end, cache_only=cache_only))
+    trade_candles = to_candles(fetch_candles(spec["key"], start, end, timeframe, cache_only=cache_only), timeframe)
     signal_symbol = spec.get("signal") or symbol
     if signal_symbol != symbol:
-        signal_candles = to_candles(fetch_daily(SIGNAL_KEYS[signal_symbol], start, end, cache_only=cache_only))
+        signal_candles = to_candles(
+            fetch_candles(SIGNAL_KEYS[signal_symbol], start, end, timeframe, cache_only=cache_only), timeframe
+        )
     else:
         signal_candles = trade_candles
 
@@ -179,12 +233,12 @@ def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool) -
                 aligned_signal[index],
                 by_stamp[shared[index]],
                 instrument,
-                CashCascadePaperConfig(capital_inr=capital, timeframe="1d"),
+                CashCascadePaperConfig(capital_inr=capital, timeframe=timeframe),
             )
         except CascadeError as exc:
             return {"symbol": symbol, "error": str(exc), "campaigns": []}
 
-        for position in range(armed_at, len(shared)):
+        for position in range(armed_at, min(len(shared), index + HORIZON_BARS)):
             stamp = shared[position]
             engine.on_candle(signal_by_stamp[stamp], by_stamp[stamp])
             if engine.status in {"ENDED", "COMPLETED"}:
@@ -246,6 +300,7 @@ def main() -> None:
     parser.add_argument("--years", type=float, default=2.0)
     parser.add_argument("--capital", type=float, default=300000.0)
     parser.add_argument("--symbols", default=",".join(UNIVERSE))
+    parser.add_argument("--tf", default="1d", choices=sorted(TIMEFRAMES))
     parser.add_argument("--cache-only", action="store_true")
     args = parser.parse_args()
 
@@ -254,12 +309,14 @@ def main() -> None:
     if unknown:
         raise SystemExit(f"unknown symbol(s): {', '.join(unknown)}")
 
-    print(f"[backtest] Terminal cash Cascade · daily · {args.years}y · Rs {args.capital:,.0f} per campaign")
+    print(f"[backtest] Terminal cash Cascade · {args.tf} · {args.years}y · Rs {args.capital:,.0f} per campaign")
     print(f"[backtest] mothers: {MOTHER_PIVOT_BARS}-bar swing pivots, applied mechanically\n")
 
     rows = []
     for symbol in symbols:
-        result = run_symbol(symbol, years=args.years, capital=args.capital, cache_only=args.cache_only)
+        result = run_symbol(
+            symbol, years=args.years, capital=args.capital, cache_only=args.cache_only, timeframe=args.tf
+        )
         row = summarise(result)
         rows.append(row)
         if row["error"]:

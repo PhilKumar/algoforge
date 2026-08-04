@@ -175,7 +175,7 @@ class DailyTimeframeTests(unittest.TestCase):
         self.assertEqual(config.timeframe, "1d")
 
     def test_every_timeframe_the_terminal_offers_is_accepted(self):
-        for timeframe in ("5m", "15m", "1h", "1d"):
+        for timeframe in ("5m", "15m", "1h", "4h", "1d"):
             with self.subTest(timeframe=timeframe):
                 self.assertEqual(CashCascadePaperConfig(capital_inr=100000, timeframe=timeframe).timeframe, timeframe)
 
