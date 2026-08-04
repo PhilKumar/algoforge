@@ -1463,6 +1463,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'toggleFibBoundaryBacktestChart',
   'startFibSpacePaper',
   'stopFibSpacePaper',
+  'addFibSpaceMother',
   'runTestBench',
   'toggleTestBenchChart',
   'openSavedTestBenchRun',
@@ -2280,10 +2281,16 @@ function _renderFibSpaceStatus(payload) {
   const startBtn = document.getElementById('fsx-start');
   const stopBtn = document.getElementById('fsx-stop');
   const windowEl = document.getElementById('fsx-window');
+  const motherBox = document.getElementById('fsx-mother-box');
+  const scanBadge = document.getElementById('fsx-scan-badge');
 
   if (startBtn) startBtn.style.display = running ? 'none' : '';
   if (stopBtn) stopBtn.style.display = running ? '' : 'none';
   if (windowEl) windowEl.classList.toggle('is-active', !!running);
+  // Naming a mother needs an open book to put it in, so the field only appears
+  // once the run is going.
+  if (motherBox) motherBox.style.display = running ? '' : 'none';
+  if (scanBadge) scanBadge.textContent = running && book.auto_scan ? 'auto-scan also ON' : '';
 
   if (!running) {
     if (badge) { badge.textContent = payload?.status === 'ok' ? 'STOPPED' : 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
@@ -2345,8 +2352,13 @@ function _renderFibSpaceStatus(payload) {
         netTitle = `${row.closed_rounds} round${row.closed_rounds === 1 ? '' : 's'} banked`;
       }
       const mother = new Date(row.mother).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      // A mother you chose and one the scanner found are different claims about
+      // why this trade exists, so the table says which.
+      const mark = row.source === 'manual'
+        ? '<span title="You named this mother" style="color:#38bdf8;">◈</span> '
+        : '<span title="Found by the pivot scanner" style="color:var(--muted);">◇</span> ';
       return `<tr style="text-align:right;border-top:1px solid var(--border);">
-        <td style="text-align:left;padding:6px 8px;">${escapeHtml(mother)}</td>
+        <td style="text-align:left;padding:6px 8px;">${mark}${escapeHtml(mother)}</td>
         <td style="padding:6px 8px;">${_cascadeNumber(row.mother_high)}</td>
         <td style="text-align:left;padding:6px 8px;color:${stateColour};" title="${escapeHtml(row.halt_reason || '')}">${escapeHtml(String(row.status || '').toUpperCase())}</td>
         <td style="padding:6px 8px;">${row.fills ?? 0}</td>
@@ -2375,6 +2387,36 @@ async function refreshFibSpaceStatus() {
   }
   const data = await response.json().catch(() => ({}));
   if (response.ok) _renderFibSpaceStatus(data);
+}
+
+function _fsxSetMotherStatus(message, tone = 'muted') {
+  const el = document.getElementById('fsx-mother-status');
+  if (!el) return;
+  el.textContent = message || '';
+  _cascadeSetTone(el, tone);
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+
+async function addFibSpaceMother() {
+  const input = document.getElementById('fsx-mother-timestamp');
+  const timestamp = input?.value;
+  if (!timestamp) { _fsxSetMotherStatus('Pick a completed 15m candle open.', 'error'); return; }
+  _fsxSetMotherStatus('Reading that candle from Dhan…', 'busy');
+  let response;
+  try {
+    response = await fetch('/api/fib-space/paper/mother', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: timestamp }) });
+  } catch (error) {
+    _fsxSetMotherStatus(error?.message || 'Unable to reach the paper run service.', 'error');
+    return;
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.status !== 'accepted') {
+    _fsxSetMotherStatus(_apiErrorMessage(data, 'That mother was not accepted.'), 'error');
+    return;
+  }
+  // Echo the market's own high/low back, so it is obvious nothing was typed.
+  _fsxSetMotherStatus(`Running — high ${_cascadeNumber(data.mother_high)}, low ${_cascadeNumber(data.mother_low)} from Dhan.`, 'success');
+  await refreshFibSpaceStatus();
 }
 
 async function startFibSpacePaper() {
@@ -3023,6 +3065,7 @@ window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.startFibSpacePaper = startFibSpacePaper;
 window.stopFibSpacePaper = stopFibSpacePaper;
+window.addFibSpaceMother = addFibSpaceMother;
 window.refreshFibSpaceStatus = refreshFibSpaceStatus;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;

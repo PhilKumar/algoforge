@@ -1770,7 +1770,9 @@ def _fib_space_state_key(user_id: int) -> str:
     return f"fib_space_paper:{int(user_id)}"
 
 
-def _build_fib_space_host(symbol: str, adapter: CascadeOptionsAdapter, broker: DhanClient) -> FibSpacePaperHost:
+def _build_fib_space_host(
+    symbol: str, adapter: CascadeOptionsAdapter, broker: DhanClient, *, auto_scan: bool = False
+) -> FibSpacePaperHost:
     """Wire the design's contract rules to the broker's real chain.
 
     Strike selection goes through the adapter's own `select_campaign_contract`,
@@ -1816,6 +1818,7 @@ def _build_fib_space_host(symbol: str, adapter: CascadeOptionsAdapter, broker: D
         geometry_timeframe="15m",
         cooldown_days=int(terms["cooldown_days"]),
         dhan_symbol=terms["dhan_symbol"],
+        auto_scan=auto_scan,
     )
 
 
@@ -1833,6 +1836,16 @@ async def _save_fib_space_state(user_id: int, runtime: _FibSpaceRuntime) -> None
                 "symbol": runtime.symbol,
                 "running": bool(runtime.running),
                 "started_at": runtime.started_at.isoformat(),
+                # Without this a restart would silently flip a scanning run to
+                # manual, and the book would quietly stop finding its own
+                # mothers with nothing on screen to say so.
+                "auto_scan": bool(runtime.host.auto_scan),
+                # Mothers named by hand are the only thing here the driver
+                # cannot rediscover by replaying bars, so they are the one piece
+                # of campaign state worth persisting.
+                "manual_mothers": sorted(
+                    c.mother.timestamp.isoformat() for c in runtime.host.book.campaigns.values() if c.source == "manual"
+                ),
             }
         ),
     )
@@ -1883,7 +1896,7 @@ async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) 
 
     adapter = CascadeOptionsAdapter(broker, paper_only=True)
     try:
-        host = _build_fib_space_host(symbol, adapter, broker)
+        host = _build_fib_space_host(symbol, adapter, broker, auto_scan=bool(saved.get("auto_scan")))
     except Exception as exc:
         # The chain could not size a campaign right now (often before the day's
         # ScripMaster load). Leave the saved state alone so the next restart can
@@ -1898,6 +1911,17 @@ async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) 
         pass
     runtime = _FibSpaceRuntime(host=host, adapter=adapter, broker=broker, symbol=symbol, started_at=started_at)
     _fib_space_engines[int(user_id)] = runtime
+
+    # Re-adopt the mothers that were named by hand. A scanned mother comes back
+    # on its own from the next poll; a named one exists only because somebody
+    # said so, so losing it on a deploy would silently drop a live campaign.
+    now = datetime.now(IST).replace(tzinfo=None)
+    for stamp in saved.get("manual_mothers") or []:
+        try:
+            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now)
+        except Exception as exc:
+            _logger.warning("[FIBSPACE] Could not re-adopt manual mother %s for user %s: %s", stamp, user_id, exc)
+
     runtime.task = asyncio.create_task(_run_fib_space_paper_loop(int(user_id), runtime))
     _logger.info("[FIBSPACE] Restored %s paper run for user %s", symbol, user_id)
     return runtime
@@ -10532,12 +10556,16 @@ async def cascade_paper_stop(request: Request):
 async def fib_space_paper_start(request: Request):
     """Start the converging-fib space paper run for one underlying.
 
-    Takes no mother: the design finds its own swing pivots, which is what makes
-    a forward run comparable to the measured backtest.  Paper only -- there is
-    no live counterpart to this route and the adapter refuses to build one.
+    Starting the run only opens the book; it takes no mother.  Name mothers with
+    /api/fib-space/paper/mother, one per campaign -- that is the intended way in.
+    Pass auto_scan to let the pivot scanner find its own instead, which is what
+    the backtest did and the only way to compare a forward run to it like for
+    like.  Paper only: there is no live counterpart to this route and the adapter
+    refuses to build one.
     """
     body = await request.json() if await request.body() else {}
     symbol = str(body.get("symbol") or "banknifty").strip().lower()
+    auto_scan = bool(body.get("auto_scan"))
     if symbol not in FIB_SPACE_SYMBOLS:
         raise HTTPException(
             status_code=400,
@@ -10558,7 +10586,7 @@ async def fib_space_paper_start(request: Request):
 
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     try:
-        host = _build_fib_space_host(symbol, adapter, broker_client)
+        host = _build_fib_space_host(symbol, adapter, broker_client, auto_scan=auto_scan)
     except Exception as exc:
         # Usually a missing monthly contract or lot size in ScripMaster.  Refuse
         # rather than start a run whose every quantity is a guess.
@@ -10580,6 +10608,87 @@ async def fib_space_paper_start(request: Request):
         "symbol": symbol,
         "lot_size": host.book.config.lot_size,
         "poll_seconds": FIB_SPACE_POLL_SECONDS,
+        "auto_scan": host.auto_scan,
+    }
+
+
+# How far back a named mother may reach. A mother older than this has usually
+# already had its ladder fill, and those fills cannot be quoted now -- a premium
+# is a live number, so the driver records them unpriced rather than guessing.
+_FIB_SPACE_MOTHER_HISTORY_DAYS = 15
+
+
+@app.post("/api/fib-space/paper/mother")
+async def fib_space_paper_mother(request: Request):
+    """Run the fib-space design on a mother candle the trader names.
+
+    This is the primary way in. The pivot scanner is what a backtest has to do
+    because it cannot ask anybody; here there is somebody to ask, and the record
+    says asking is better -- every rule measured so far reproduces trades from
+    Phil's own charts and then loses money applied mechanically, because he
+    selects among the mothers the geometry offers.
+
+    Only the timestamp is taken. High and low come from the market bar, exactly
+    as the fib-boundary tab and the Test Bench do.
+    """
+    body = await request.json() if await request.body() else {}
+    # The parser hands back a tz-aware IST datetime; everything downstream here
+    # -- the geometry bars, the driver, the campaign keys -- is naive IST, so it
+    # is flattened once, at the boundary, rather than compared across the two.
+    when = _parse_cascade_mother_timestamp(body.get("mother_timestamp")).replace(tzinfo=None)
+    now = datetime.now(IST).replace(tzinfo=None)
+
+    if when > now:
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if not (dt_time(9, 15) <= when.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
+    # Geometry runs on 15m, so a mother is a 15m candle open and nothing else.
+    if when.minute % 15 or when.second or when.microsecond:
+        raise HTTPException(
+            status_code=400, detail="Mother must be a 15m candle open in IST — 09:15, 09:30, 09:45 and so on."
+        )
+    if when + timedelta(minutes=15) > now:
+        raise HTTPException(status_code=400, detail="That 15m candle has not closed yet.")
+    if (now.date() - when.date()).days > _FIB_SPACE_MOTHER_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Choose a mother from the last {_FIB_SPACE_MOTHER_HISTORY_DAYS} days. "
+                "Older ladders have usually already filled, and those fills cannot be quoted now."
+            ),
+        )
+
+    user_id = _request_user_id(request)
+    runtime = _fib_space_engines.get(user_id)
+    if runtime is None or not runtime.running:
+        raise HTTPException(
+            status_code=409, detail="Start the fib-space paper run first, then give it a mother candle."
+        )
+
+    try:
+        campaign = await runtime.host.start_named_mother(when, now=now)
+    except LookupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:  # already running on this mother
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read that candle from Dhan: {exc}") from exc
+
+    _logger.info(
+        "[FIBSPACE] %s manual mother %s (high %.2f) accepted for user %s",
+        runtime.symbol,
+        campaign.mother.timestamp,
+        campaign.mother.high,
+        user_id,
+    )
+    return {
+        "status": "accepted",
+        "mode": "paper",
+        "symbol": runtime.symbol,
+        "campaign_id": campaign.campaign_id,
+        "mother": campaign.mother.timestamp.isoformat(),
+        "mother_high": round(campaign.mother.high, 2),
+        "mother_low": round(campaign.mother.low, 2),
     }
 
 

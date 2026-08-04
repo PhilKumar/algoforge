@@ -400,3 +400,74 @@ class ClosedRoundsDistinguishesZeroFromBlankTests(unittest.TestCase):
 
         self.assertGreater(campaign.closed_rounds, 0)
         self.assertEqual(campaign.closed_rounds, len(campaign.exits))
+
+
+class NamedMotherTests(unittest.TestCase):
+    """A mother the trader names, not one the scanner guessed at."""
+
+    def _book(self, **kwargs):
+        return FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(150.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+            **kwargs,
+        )
+
+    def test_a_named_mother_starts_a_campaign_marked_manual(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        campaign = book.adopt_manual_mother(bars[6])
+
+        self.assertEqual(campaign.source, "manual")
+        self.assertIs(campaign.mother, bars[6])
+        self.assertEqual(len(book.campaigns), 1)
+
+    def test_it_arms_at_the_mother_rather_than_waiting_for_a_right_shoulder(self):
+        """A typed mother is a decision already made, not a guess to confirm."""
+        bars = bars_from_candles(_falling_market())
+        campaign = self._book().adopt_manual_mother(bars[6])
+        self.assertEqual(campaign.confirmed_at, bars[6].timestamp)
+
+    def test_naming_the_same_mother_twice_is_refused(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+        book.adopt_manual_mother(bars[6])
+        with self.assertRaises(ValueError):
+            book.adopt_manual_mother(bars[6])
+        self.assertEqual(len(book.campaigns), 1)
+
+    def test_the_cooldown_does_not_apply_to_a_person(self):
+        """The throttle stops duplicate AUTO pivots; naming two means two."""
+        bars = bars_from_candles(_falling_market())
+        book = self._book(cooldown_days=3)
+        book.adopt_manual_mother(bars[6])
+        book.adopt_manual_mother(bars[7])
+        self.assertEqual(len(book.campaigns), 2)
+
+    def test_a_named_mother_trades_exactly_like_a_scanned_one(self):
+        """Same engine, same fills -- only the choice of mother differs."""
+        bars = bars_from_candles(_falling_market())
+        one_pass = run_space_campaign(bars[6], bars[6:], SpaceCascadeConfig(lot_size=30), arm_from_index=bars[6].index)
+
+        book = self._book()
+        campaign = book.adopt_manual_mother(bars[6])
+        book.advance(campaign, bars, bars, now=bars[-1].timestamp)
+
+        self.assertEqual(
+            [(f.timestamp, round(f.index_price, 2), f.lots) for f in campaign.fills],
+            [(f.timestamp, round(f.index_price, 2), f.lots) for f in one_pass.fills],
+        )
+
+    def test_a_scanned_campaign_is_marked_auto(self):
+        bars = bars_from_candles(_falling_market())
+        book = self._book()
+
+        class _Candidate:
+            index = 6
+            confirmed_at = bars[11].timestamp
+
+        started = book.adopt_mothers(bars, [_Candidate()])
+        self.assertEqual(started[0].source, "auto")

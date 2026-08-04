@@ -122,6 +122,7 @@ class LiveCampaign:
     status: str = "watching"  # watching | trading | done | halted
     halt_reason: Optional[str] = None
     unpriced: int = 0
+    source: str = "auto"  # auto (pivot scanner) | manual (named by the trader)
 
     @property
     def open_quantity(self) -> int:
@@ -227,6 +228,39 @@ class FibSpacePaperBook:
             self._last_accepted_start = candidate.confirmed_at
             started.append(campaign)
         return started
+
+    def adopt_manual_mother(self, bar: Bar, *, confirmed_at: Optional[datetime] = None) -> LiveCampaign:
+        """Open a campaign on a mother the trader named.
+
+        The scanner exists because a backtest cannot ask anyone; a person can
+        look at the chart. And the record says a person should: every rule tried
+        so far reproduces trades from Phil's own charts faithfully and then loses
+        money applied mechanically, because he is SELECTING among the mothers the
+        geometry offers and the scanner takes every one.
+
+        A typed mother needs no right shoulder -- it is not a guess being
+        confirmed, it is a decision already made -- so it arms as soon as the
+        mother's own bar has closed. No cooldown either: the throttle exists to
+        stop near-duplicate AUTO pivots stacking the same fall, and a person
+        naming two mothers days apart meant to.
+
+        Raises if this mother is already running, so a double submit cannot
+        create two campaigns racing on one fall.
+        """
+        key = _mother_key(self.symbol, bar)
+        if key in self.campaigns:
+            raise ValueError(f"a campaign is already running on the {bar.timestamp:%d %b %Y %H:%M} mother")
+        campaign = LiveCampaign(
+            campaign_id=key,
+            symbol=self.symbol,
+            mother=bar,
+            arm_from_index=None,
+            confirmed_at=confirmed_at or bar.timestamp,
+            lot_size=self.config.lot_size,
+            source="manual",
+        )
+        self.campaigns[key] = campaign
+        return campaign
 
     # -- the poll -----------------------------------------------------------
 

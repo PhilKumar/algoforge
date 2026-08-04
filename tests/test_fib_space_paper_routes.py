@@ -10,7 +10,7 @@ import os
 import shutil
 import sys
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -323,3 +323,120 @@ class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+
+class NamedMotherRouteTests(unittest.IsolatedAsyncioTestCase):
+    """Giving the engine a mother candle -- the primary way in."""
+
+    async def asyncSetUp(self):
+        app_module._db_mod._initialized = False
+        app_module._fib_space_engines.clear()
+        await app_module._db_mod.init_db()
+
+    async def asyncTearDown(self):
+        for runtime in app_module._fib_space_engines.values():
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+        app_module._fib_space_engines.clear()
+
+    async def _start(self):
+        with (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 7}, object(), "user"))),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
+        ):
+            return await app_module.fib_space_paper_start(_Request())
+
+    def _aligned_past_15m(self):
+        """A completed 15m candle open inside the last session-ish window."""
+        now = datetime.now(app_module.IST).replace(tzinfo=None)
+        stamp = now.replace(hour=10, minute=15, second=0, microsecond=0)
+        if stamp + timedelta(minutes=15) > now:
+            stamp -= timedelta(days=1)
+        return stamp
+
+    async def test_a_mother_needs_a_running_book_to_go_into(self):
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(
+                _Request(body={"mother_timestamp": self._aligned_past_15m().strftime("%Y-%m-%dT%H:%M")})
+            )
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("Start the fib-space paper run first", caught.exception.detail)
+
+    async def test_a_future_mother_is_refused(self):
+        await self._start()
+        ahead = (datetime.now(app_module.IST).replace(tzinfo=None) + timedelta(days=1)).replace(
+            hour=10, minute=15, second=0, microsecond=0
+        )
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(
+                _Request(body={"mother_timestamp": ahead.strftime("%Y-%m-%dT%H:%M")})
+            )
+        self.assertEqual(caught.exception.status_code, 400)
+
+    async def test_a_mother_off_the_15m_grid_is_refused(self):
+        await self._start()
+        stamp = self._aligned_past_15m().replace(minute=22)
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(
+                _Request(body={"mother_timestamp": stamp.strftime("%Y-%m-%dT%H:%M")})
+            )
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("15m candle open", caught.exception.detail)
+
+    async def test_a_mother_outside_the_session_is_refused(self):
+        await self._start()
+        stamp = self._aligned_past_15m().replace(hour=17, minute=0)
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(
+                _Request(body={"mother_timestamp": stamp.strftime("%Y-%m-%dT%H:%M")})
+            )
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("09:15", caught.exception.detail)
+
+    async def test_a_mother_older_than_the_window_is_refused_with_the_reason(self):
+        await self._start()
+        old = self._aligned_past_15m() - timedelta(days=60)
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(_Request(body={"mother_timestamp": old.strftime("%Y-%m-%dT%H:%M")}))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("cannot be quoted", caught.exception.detail)
+
+    async def test_a_timestamp_dhan_has_no_candle_for_is_a_400_not_an_invented_bar(self):
+        await self._start()
+        stamp = self._aligned_past_15m()
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_mother(
+                _Request(body={"mother_timestamp": stamp.strftime("%Y-%m-%dT%H:%M")})
+            )
+        # The stub adapter serves no candles, so this is the "no such bar" path.
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("no closed", caught.exception.detail)
+
+    async def test_the_start_route_reports_the_scan_mode(self):
+        result = await self._start()
+        self.assertIn("auto_scan", result)
+        self.assertFalse(result["auto_scan"], "naming mothers is the default; scanning is opt-in")
+
+    async def test_auto_scan_can_still_be_asked_for(self):
+        with (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 7}, object(), "user"))),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
+        ):
+            result = await app_module.fib_space_paper_start(_Request(body={"auto_scan": True}))
+        self.assertTrue(result["auto_scan"])
+        self.assertTrue(app_module._fib_space_engines[7].host.auto_scan)
+
+    async def test_named_mothers_are_persisted_so_a_deploy_cannot_lose_them(self):
+        await self._start()
+        runtime = app_module._fib_space_engines[7]
+
+        from engine.fib_space_geometry import Bar
+
+        bar = Bar(index=0, timestamp=datetime(2026, 3, 3, 10, 15), open=57000, high=57200, low=56900, close=56950)
+        runtime.host.book.adopt_manual_mother(bar)
+        await app_module._save_fib_space_state(7, runtime)
+
+        saved = json.loads(await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7)))
+        self.assertEqual(saved["manual_mothers"], ["2026-03-03T10:15:00"])
+        self.assertFalse(saved["auto_scan"])

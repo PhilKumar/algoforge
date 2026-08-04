@@ -146,11 +146,18 @@ class FibSpacePaperHost:
         cooldown_days: int = 0,
         lookback_days: int = DEFAULT_LOOKBACK_DAYS,
         dhan_symbol: Optional[str] = None,
+        auto_scan: bool = False,
     ) -> None:
         self.symbol = symbol
         self.adapter = adapter
         self.dhan_symbol = dhan_symbol or symbol.upper()
         self.lookback_days = lookback_days
+        # MOTHERS ARE NAMED BY DEFAULT, NOT SCANNED.  The pivot scanner exists
+        # because a backtest has nobody to ask; running live there is somebody.
+        # It stays available (auto_scan=True) because the measured numbers came
+        # from it and a like-for-like forward test needs it -- but it is not the
+        # default, because the trader picking the mother is the actual strategy.
+        self.auto_scan = auto_scan
         self.entry_timeframe = entry_timeframe
         self.geometry_timeframe = geometry_timeframe
         self.book = FibSpacePaperBook(
@@ -201,13 +208,14 @@ class FibSpacePaperHost:
             self.last_report = report
             return report
 
-        mothers = find_mother_candles(
-            [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in geometry_bars],
-            left_bars=MOTHER_PIVOT_BARS,
-            right_bars=MOTHER_PIVOT_BARS,
-        )
-        report.mothers_seen = len(mothers)
-        report.campaigns_started = self.book.adopt_mothers(geometry_bars, mothers)
+        if self.auto_scan:
+            mothers = find_mother_candles(
+                [IndexCandle(b.timestamp, b.open, b.high, b.low, b.close) for b in geometry_bars],
+                left_bars=MOTHER_PIVOT_BARS,
+                right_bars=MOTHER_PIVOT_BARS,
+            )
+            report.mothers_seen = len(mothers)
+            report.campaigns_started = self.book.adopt_mothers(geometry_bars, mothers)
 
         for campaign in list(self.book.campaigns.values()):
             try:
@@ -223,6 +231,30 @@ class FibSpacePaperHost:
         self.last_poll = now
         self.last_report = report
         return report
+
+    async def geometry_bars(self, *, now: datetime) -> list:
+        """Every closed geometry bar in the lookback window."""
+        start = (now - timedelta(days=self.lookback_days)).date()
+        candles = await self.adapter.async_get_candles(
+            self.dhan_symbol, self.geometry_timeframe, from_date=start, to_date=now.date(), now=now
+        )
+        return bars_from_candles(candles)
+
+    async def start_named_mother(self, when: datetime, *, now: datetime):
+        """Open a campaign on the bar the trader named. Returns the campaign.
+
+        The mother's high and low come from the market bar, never from anything
+        typed -- the same discipline the fib-boundary tab and the Test Bench
+        already use. A timestamp with no bar behind it is an error, not a shape
+        to invent.
+        """
+        bars = await self.geometry_bars(now=now)
+        bar = next((b for b in bars if b.timestamp == when), None)
+        if bar is None:
+            raise LookupError(
+                f"no closed {self.geometry_timeframe} {self.dhan_symbol} candle opens at {when:%d %b %Y %H:%M} IST"
+            )
+        return self.book.adopt_manual_mother(bar)
 
     def snapshot(self) -> dict:
         snap = self.book.snapshot()
@@ -241,7 +273,9 @@ class FibSpacePaperHost:
                 "unpriced": c.unpriced,
                 "closed_rounds": c.closed_rounds,
                 "net": c.net,
+                "source": c.source,
             }
             for c in sorted(self.book.campaigns.values(), key=lambda c: c.mother.timestamp, reverse=True)
         ]
+        snap["auto_scan"] = self.auto_scan
         return snap

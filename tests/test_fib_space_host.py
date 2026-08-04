@@ -156,8 +156,10 @@ class ErrorsStayLocalTests(unittest.TestCase):
 
 
 class DrivingTests(unittest.TestCase):
+    """The scanner path. It is opt-in now, so these ask for it explicitly."""
+
     def test_a_mother_is_found_and_a_campaign_starts(self):
-        host = _host(_Adapter(_series()))
+        host = _host(_Adapter(_series()), auto_scan=True)
         report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
 
         self.assertGreater(report.mothers_seen, 0)
@@ -165,7 +167,7 @@ class DrivingTests(unittest.TestCase):
         self.assertTrue(report.changed)
 
     def test_polling_twice_does_not_restart_the_same_campaign(self):
-        host = _host(_Adapter(_series()))
+        host = _host(_Adapter(_series()), auto_scan=True)
         first = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
         second = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 1)))
 
@@ -174,7 +176,7 @@ class DrivingTests(unittest.TestCase):
         self.assertEqual(len(host.book.campaigns), len(first.campaigns_started))
 
     def test_a_fill_is_reported_once_and_only_once(self):
-        host = _host(_Adapter(_series()))
+        host = _host(_Adapter(_series()), auto_scan=True)
         first = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
         second = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 1)))
 
@@ -182,9 +184,11 @@ class DrivingTests(unittest.TestCase):
         self.assertEqual(second.fills, [], "a re-poll must not re-report a decision already recorded")
 
     def test_snapshot_describes_every_campaign(self):
-        host = _host(_Adapter(_series()))
+        host = _host(_Adapter(_series()), auto_scan=True)
         asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
         snap = host.snapshot()
+
+        self.assertGreater(snap["campaigns"], 0)
 
         self.assertEqual(snap["symbol"], "banknifty")
         self.assertEqual(len(snap["campaign_rows"]), snap["campaigns"])
@@ -192,7 +196,7 @@ class DrivingTests(unittest.TestCase):
         self.assertTrue(all("mother" in row for row in snap["campaign_rows"]))
 
     def test_report_serialises_for_the_wire(self):
-        host = _host(_Adapter(_series()))
+        host = _host(_Adapter(_series()), auto_scan=True)
         report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
         payload = report.to_dict()
 
@@ -236,3 +240,57 @@ class ConfigParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoScanIsOptInTests(unittest.TestCase):
+    """Naming the mother is the mode; the scanner is what a backtest must do."""
+
+    def test_the_scanner_is_off_by_default(self):
+        host = _host(_Adapter(_series()))
+        report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
+
+        self.assertFalse(host.auto_scan)
+        self.assertEqual(report.mothers_seen, 0)
+        self.assertEqual(report.campaigns_started, [])
+        self.assertEqual(len(host.book.campaigns), 0)
+
+    def test_the_scanner_still_works_when_asked_for(self):
+        """The measured numbers came from it, so a like-for-like run needs it."""
+        host = _host(_Adapter(_series()), auto_scan=True)
+        report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
+
+        self.assertGreater(report.mothers_seen, 0)
+        self.assertTrue(report.campaigns_started)
+
+    def test_the_snapshot_says_which_mode_it_is_in(self):
+        self.assertFalse(_host(_Adapter(_series())).snapshot()["auto_scan"])
+        self.assertTrue(_host(_Adapter(_series()), auto_scan=True).snapshot()["auto_scan"])
+
+
+class NamedMotherFetchTests(unittest.TestCase):
+    def test_it_takes_the_high_and_low_from_the_market_bar(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        target = candles[26].timestamp  # the pivot in the fixture
+
+        campaign = asyncio.run(host.start_named_mother(target, now=datetime(2026, 3, 3, 11, 0)))
+
+        self.assertEqual(campaign.mother.timestamp, target)
+        self.assertEqual(campaign.mother.high, candles[26].high)
+        self.assertEqual(campaign.mother.low, candles[26].low)
+        self.assertEqual(campaign.source, "manual")
+
+    def test_a_timestamp_with_no_candle_is_an_error_not_an_invented_bar(self):
+        host = _host(_Adapter(_series()))
+        with self.assertRaises(LookupError) as caught:
+            asyncio.run(host.start_named_mother(datetime(2021, 1, 4, 10, 0), now=datetime(2026, 3, 3, 11, 0)))
+        self.assertIn("no closed", str(caught.exception))
+
+    def test_a_named_mother_is_advanced_by_the_ordinary_poll(self):
+        candles = _series()
+        host = _host(_Adapter(candles))
+        asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+
+        report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 1)))
+        self.assertTrue(report.fills, "the named mother must trade like any other campaign")
+        self.assertEqual(host.snapshot()["campaign_rows"][0]["source"], "manual")
