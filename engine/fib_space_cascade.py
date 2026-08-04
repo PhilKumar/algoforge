@@ -110,6 +110,11 @@ class SpaceCascadeConfig:
     # See Space.reach -- a convergence too tight to buy on touch is worked one
     # fib-span below its line, which is where Phil's 08-May-2026 NIFTY buy sits.
     tiny_space_reach: bool = False
+    # Phil, 2026-08-04, describing his 13-May buy: "a zone formed with 8-1
+    # boundary".  Level 1 is in his boundary vocabulary; the engine has only
+    # counted 2/4/8 as rungs that may converge.  Adding it creates more (and
+    # shallower) convergences.
+    boundary_levels: tuple = (2, 4, 8)
 
     def lots_for(self, fill_index: int) -> int:
         return int(fill_index) + 1
@@ -432,7 +437,12 @@ def run_space_campaign(
             continue
         if not bar.is_red:
             continue
-        zones = tradable_zones(geometry.fibs, reached=lowest, tiny_reach=config.tiny_space_reach)
+        zones = tradable_zones(
+            geometry.fibs,
+            reached=lowest,
+            tiny_reach=config.tiny_space_reach,
+            levels=config.boundary_levels,
+        )
         if not zones:
             if trace is not None:
                 trace.append((bar.timestamp, "red-no-zones", f"close {bar.close:,.2f}"))

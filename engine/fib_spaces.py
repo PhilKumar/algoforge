@@ -232,6 +232,7 @@ def tradable_zones(
     below: Optional[float] = None,
     reached: Optional[float] = None,
     tiny_reach: bool = False,
+    levels: Iterable[int] = FIB_LEVELS,
 ) -> list[Space]:
     """Where money may go, whichever geometry the market actually produced.
 
@@ -240,7 +241,7 @@ def tradable_zones(
     a level needs no ``reached`` gate because its buy zone is only half a
     span deep, so a close cannot be inside it before price has come there.
     """
-    spaces = tradable_spaces(find_spaces(fibs, tiny_reach=tiny_reach), below=below, reached=reached)
+    spaces = tradable_spaces(find_spaces(fibs, levels=levels, tiny_reach=tiny_reach), below=below, reached=reached)
     if spaces:
         return spaces
     if not fibs:
