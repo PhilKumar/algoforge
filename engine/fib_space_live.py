@@ -421,16 +421,24 @@ def bars_from_candles(candles: Sequence[IndexCandle]) -> list[Bar]:
     red/green and the trendline anchor read the move rather than the gap.  The
     backtest's loader does this in tools/fib_space_sweep.load_bars; a live feed
     needs the identical treatment or the geometry silently differs.
+
+    TIMESTAMPS ARE FLATTENED TO NAIVE IST HERE, and that is not cosmetic.  The
+    adapter hands back tz-AWARE candles; the backtest reads naive ones out of
+    its JSON cache.  Leaving the difference in place meant the live driver and
+    the replay it is supposed to be identical to were carrying different types
+    in the one field every comparison keys on -- and an aware datetime never
+    equals a naive one, so a mother named as "03 Aug 15:00" silently matched no
+    bar at all.  Everything downstream (campaign ids, the history guard, the
+    premium lookup) is naive IST, so the conversion belongs at this boundary.
     """
     bars: list[Bar] = []
     previous = None
     for i, candle in enumerate(sorted(candles, key=lambda c: c.timestamp)):
-        prev_close = (
-            previous.close if previous is not None and previous.timestamp.date() != candle.timestamp.date() else None
-        )
+        stamp = candle.timestamp.replace(tzinfo=None) if candle.timestamp.tzinfo else candle.timestamp
+        prev_close = previous.close if previous is not None and previous.timestamp.date() != stamp.date() else None
         bar = Bar(
             index=i,
-            timestamp=candle.timestamp,
+            timestamp=stamp,
             open=candle.open,
             high=candle.high,
             low=candle.low,

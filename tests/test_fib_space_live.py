@@ -9,7 +9,7 @@ exactly what run_space_campaign produces in a single pass.
 import os
 import sys
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -471,3 +471,41 @@ class NamedMotherTests(unittest.TestCase):
 
         started = book.adopt_mothers(bars, [_Candidate()])
         self.assertEqual(started[0].source, "auto")
+
+
+class AwareCandlesBecomeNaiveBarsTests(unittest.TestCase):
+    """The adapter returns TZ-AWARE candles; the backtest reads naive ones.
+
+    That difference shipped and broke naming a mother: an aware datetime never
+    equals a naive one, so "03 Aug 15:00" matched no bar and the route reported
+    that Dhan had no such candle when Dhan had returned it. Fixtures here used
+    naive candles, which is exactly why the tests missed it -- these use aware
+    ones, like production does.
+    """
+
+    IST = timezone(timedelta(hours=5, minutes=30))
+
+    def _aware(self, *stamps):
+        return [IndexCandle(s.replace(tzinfo=self.IST), 57_000.0, 57_100.0, 56_900.0, 57_050.0) for s in stamps]
+
+    def test_an_aware_candle_becomes_a_naive_bar(self):
+        bars = bars_from_candles(self._aware(datetime(2026, 8, 3, 15, 0)))
+        self.assertIsNone(bars[0].timestamp.tzinfo)
+        self.assertEqual(bars[0].timestamp, datetime(2026, 8, 3, 15, 0))
+
+    def test_a_naive_lookup_finds_a_bar_built_from_an_aware_candle(self):
+        """The exact failure Phil hit."""
+        bars = bars_from_candles(self._aware(datetime(2026, 8, 3, 14, 45), datetime(2026, 8, 3, 15, 0)))
+        wanted = datetime(2026, 8, 3, 15, 0)
+        self.assertIsNotNone(next((b for b in bars if b.timestamp == wanted), None))
+
+    def test_the_gap_rule_still_reads_across_a_session_boundary(self):
+        """Flattening must not break the previous-close carry."""
+        bars = bars_from_candles(self._aware(datetime(2026, 8, 3, 15, 15), datetime(2026, 8, 4, 9, 15)))
+        self.assertIsNone(bars[0].session_prev_close)
+        self.assertEqual(bars[1].session_prev_close, bars[0].close)
+
+    def test_naive_candles_are_left_alone(self):
+        bars = bars_from_candles([IndexCandle(datetime(2026, 8, 3, 15, 0), 57_000.0, 57_100.0, 56_900.0, 57_050.0)])
+        self.assertEqual(bars[0].timestamp, datetime(2026, 8, 3, 15, 0))
+        self.assertIsNone(bars[0].timestamp.tzinfo)
