@@ -2502,6 +2502,39 @@
       </div>
 
       <div class="settings-section">
+        <h4><span id="account-mfa-ico"></span> Authenticator Security</h4>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="status-chip warn" id="account-mfa-status-chip">Checking</span>
+          <span class="settings-status-line" id="account-mfa-status-line" style="margin-top:0;">Loading authenticator status...</span>
+        </div>
+        <div class="settings-hint">
+          Protected broker and real-money actions require a fresh password and 6-digit code. The dedicated Emergency Stop remains immediately available.
+        </div>
+        <div class="settings-form-grid" style="margin-top:14px;">
+          <div>
+            <label for="account-mfa-password">Current Password</label>
+            <input type="password" id="account-mfa-password" autocomplete="current-password">
+          </div>
+          <div>
+            <label for="account-mfa-code">Authenticator Code</label>
+            <input type="text" id="account-mfa-code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="mono-field" placeholder="123456">
+          </div>
+        </div>
+        <div class="mfa-enrollment-box" id="account-mfa-enrollment" hidden>
+          <img id="account-mfa-qr" class="mfa-enrollment-qr" alt="QR code for PhilForge authenticator setup">
+          <div class="settings-meta-label">Manual setup key</div>
+          <code id="account-mfa-secret"></code>
+          <a id="account-mfa-uri" href="#">Open in authenticator app</a>
+          <div class="settings-hint">Add this key to Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app, then enter its first code above and select Verify.</div>
+        </div>
+        <div class="settings-actions-row">
+          <button class="btn" id="account-mfa-start-btn" onclick="startMfaEnrollment()">Set Up Authenticator</button>
+          <button class="btn" id="account-mfa-verify-btn" onclick="verifyMfaEnrollment()" hidden>Verify & Enable</button>
+          <button class="btn" id="account-mfa-disable-btn" onclick="disableMfa()" hidden style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Disable Authenticator</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h4><span id="account-password-ico"></span> Change Password</h4>
         <div class="settings-form-grid">
           <div>
@@ -2527,6 +2560,33 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="action-auth-modal" role="dialog" aria-modal="true" aria-labelledby="action-auth-title">
+  <div class="modal action-auth-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+      <h3 id="action-auth-title" style="margin:0;display:flex;align-items:center;gap:8px;">Authorize protected action</h3>
+      <button type="button" class="modal-close" id="action-auth-close">Cancel</button>
+    </div>
+    <p class="settings-hint" id="action-auth-description">Confirm this action with your password and authenticator code.</p>
+    <form id="action-auth-form">
+      <div class="settings-form-grid settings-form-grid-single">
+        <div>
+          <label for="action-auth-password">Current Password</label>
+          <input type="password" id="action-auth-password" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label for="action-auth-totp">Authenticator Code</label>
+          <input type="text" id="action-auth-totp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="mono-field" required>
+        </div>
+      </div>
+      <div class="settings-status-line" id="action-auth-status" role="status" aria-live="polite"></div>
+      <div class="settings-actions-row">
+        <button type="button" class="btn" id="action-auth-cancel">Cancel</button>
+        <button type="submit" class="btn" id="action-auth-submit">Authorize Once</button>
+      </div>
+    </form>
   </div>
 </div>
 

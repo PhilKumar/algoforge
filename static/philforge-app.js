@@ -1,3 +1,117 @@
+// Protected mutations are challenged by the server. Intercept only that
+// explicit response, obtain a path-bound single-use token, and retry once.
+const _philForgeNativeFetch = window.fetch.bind(window);
+let _actionAuthorizationPrompt = null;
+
+function _actionLabel(actionClass) {
+  return ({
+    live_trading: 'change live trading state',
+    broker_order: 'send or cancel a broker order',
+    live_scalp: 'change a live scalp position',
+    broker_credentials: 'change broker credentials',
+    account_security: 'change account security',
+    admin_account: 'change another account',
+  })[actionClass] || 'complete this protected action';
+}
+
+function _promptForActionAuthorization(challenge) {
+  if (_actionAuthorizationPrompt) return _actionAuthorizationPrompt;
+  _actionAuthorizationPrompt = new Promise((resolve) => {
+    const modal = document.getElementById('action-auth-modal');
+    const form = document.getElementById('action-auth-form');
+    const password = document.getElementById('action-auth-password');
+    const totp = document.getElementById('action-auth-totp');
+    const status = document.getElementById('action-auth-status');
+    const submit = document.getElementById('action-auth-submit');
+    const cancelButtons = [document.getElementById('action-auth-close'), document.getElementById('action-auth-cancel')];
+    const previousFocus = document.activeElement;
+    document.getElementById('action-auth-description').textContent = `Confirm your identity once to ${_actionLabel(challenge.action_class)}.`;
+    password.value = '';
+    totp.value = '';
+    status.textContent = '';
+    modal.classList.add('open');
+    password.focus();
+
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      modal.classList.remove('open');
+      form.removeEventListener('submit', onSubmit);
+      cancelButtons.forEach(btn => btn.removeEventListener('click', onCancel));
+      document.removeEventListener('keydown', onKeyDown);
+      _actionAuthorizationPrompt = null;
+      if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+      resolve(value);
+    };
+    const onCancel = () => finish(null);
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(null);
+      }
+    };
+    const onSubmit = async (event) => {
+      event.preventDefault();
+      const code = totp.value.replace(/\D/g, '').slice(0, 6);
+      if (!password.value || !/^\d{6}$/.test(code)) {
+        status.textContent = 'Enter your password and a 6-digit authenticator code.';
+        return;
+      }
+      submit.disabled = true;
+      status.textContent = 'Verifying…';
+      try {
+        const response = await _philForgeNativeFetch('/api/auth/action-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            password: password.value,
+            totp: code,
+            action_class: challenge.action_class,
+            target_method: challenge.target_method,
+            target_path: challenge.target_path,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.action_token) {
+          status.textContent = data.detail || 'Verification failed. Use a fresh authenticator code.';
+          totp.value = '';
+          totp.focus();
+          return;
+        }
+        finish(data.action_token);
+      } catch (error) {
+        status.textContent = 'Could not reach the server. Try again.';
+      } finally {
+        submit.disabled = false;
+      }
+    };
+    totp.oninput = () => { totp.value = totp.value.replace(/\D/g, '').slice(0, 6); };
+    form.addEventListener('submit', onSubmit);
+    cancelButtons.forEach(btn => btn.addEventListener('click', onCancel));
+    document.addEventListener('keydown', onKeyDown);
+  });
+  return _actionAuthorizationPrompt;
+}
+
+window.fetch = async function philForgeProtectedFetch(input, init) {
+  const request = new Request(input, init);
+  const response = await _philForgeNativeFetch(request.clone());
+  if (response.status !== 428 || request.method === 'GET') return response;
+  const challenge = await response.clone().json().catch(() => ({}));
+  if (challenge.code === 'mfa_enrollment_required') {
+    toast(challenge.detail || 'Set up an authenticator in Account Settings first.', 'warn');
+    openAccountModal();
+    return response;
+  }
+  if (challenge.code !== 'action_authorization_required') return response;
+  const actionToken = await _promptForActionAuthorization(challenge);
+  if (!actionToken) return response;
+  const headers = new Headers(request.headers);
+  headers.set('X-PhilForge-Action-Token', actionToken);
+  return _philForgeNativeFetch(new Request(request, { headers }));
+};
+
 // ══════════════════════════════════════════════════════════════
 //  SVG ICON SYSTEM — Modern trading platform icons
 // ══════════════════════════════════════════════════════════════
@@ -240,6 +354,7 @@ const ICO = {
     'account-modal-ico': ICO.gear(18),
     'account-summary-ico': ICO.clip(16),
     'account-broker-ico': ICO.money(16),
+    'account-mfa-ico': ICO.shield(16),
     'account-password-ico': ICO.shield(16),
     'admin-modal-ico': ICO.shield(18),
     'admin-create-ico': ICO.brain(16),
@@ -434,11 +549,25 @@ function openAccountModal() {
   document.getElementById('account-current-password').value = '';
   document.getElementById('account-new-password').value = '';
   document.getElementById('account-confirm-password').value = '';
+  document.getElementById('account-mfa-password').value = '';
+  document.getElementById('account-mfa-code').value = '';
+  document.getElementById('account-mfa-enrollment').hidden = true;
+  document.getElementById('account-mfa-verify-btn').hidden = true;
+  document.getElementById('account-mfa-secret').textContent = '';
+  document.getElementById('account-mfa-qr').removeAttribute('src');
+  document.getElementById('account-mfa-uri').removeAttribute('href');
   loadUserProfile(true);
 }
 
 function closeAccountModal() {
   document.getElementById('account-modal').classList.remove('open');
+  document.getElementById('account-mfa-password').value = '';
+  document.getElementById('account-mfa-code').value = '';
+  document.getElementById('account-mfa-secret').textContent = '';
+  document.getElementById('account-mfa-qr').removeAttribute('src');
+  document.getElementById('account-mfa-uri').removeAttribute('href');
+  document.getElementById('account-mfa-enrollment').hidden = true;
+  document.getElementById('account-mfa-verify-btn').hidden = true;
 }
 
 async function loadExecutionIpStatus(silent = true) {
@@ -534,6 +663,14 @@ async function loadUserProfile(silent = true) {
     document.getElementById('account-profile-role').textContent = String(user.role || 'user').toUpperCase();
     document.getElementById('account-profile-created').textContent = formatDateTimeLabel(user.created_at);
     document.getElementById('account-profile-login').textContent = formatDateTimeLabel(user.last_login);
+    const mfaEnabled = !!user.mfa_enabled;
+    applyStatusChip(document.getElementById('account-mfa-status-chip'), mfaEnabled ? 'Enabled' : 'Not Enabled', mfaEnabled ? 'success' : 'warn');
+    document.getElementById('account-mfa-status-line').textContent = mfaEnabled
+      ? `Authenticator protection enabled${user.mfa_enrolled_at ? ` since ${formatDateTimeLabel(user.mfa_enrolled_at)}` : ''}.`
+      : 'Set up an authenticator before broker credentials or real-money actions can be changed.';
+    const mfaStartBtn = document.getElementById('account-mfa-start-btn');
+    mfaStartBtn.textContent = mfaEnabled ? 'Replace Authenticator' : 'Set Up Authenticator';
+    document.getElementById('account-mfa-disable-btn').hidden = !mfaEnabled;
     document.getElementById('account-broker-client-id').value = broker.client_id || '';
     document.getElementById('account-broker-token').value = '';
     document.getElementById('account-broker-pin').value = '';
@@ -595,6 +732,99 @@ async function loadUserProfile(silent = true) {
     if (!silent) toast('Account settings loaded', 'success', 2200);
   } catch (e) {
     if (!silent) toast(e.message || 'Failed to load account settings', 'danger');
+  }
+}
+
+async function startMfaEnrollment() {
+  const password = document.getElementById('account-mfa-password').value;
+  const code = document.getElementById('account-mfa-code').value.trim();
+  if (!password) {
+    toast('Enter your current password', 'warn');
+    return;
+  }
+  if (_userProfile?.user?.mfa_enabled && !/^\d{6}$/.test(code)) {
+    toast('Enter a fresh code from your current authenticator before replacing it', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/mfa/enroll/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, ...(code ? { totp: code } : {}) }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'pending') throw new Error(data.detail || 'Could not start authenticator setup');
+    document.getElementById('account-mfa-secret').textContent = data.secret;
+    const qr = document.getElementById('account-mfa-qr');
+    if (data.qr_data_uri) {
+      qr.src = data.qr_data_uri;
+      qr.hidden = false;
+    } else {
+      qr.removeAttribute('src');
+      qr.hidden = true;
+    }
+    const uri = document.getElementById('account-mfa-uri');
+    uri.href = data.otpauth_uri;
+    document.getElementById('account-mfa-enrollment').hidden = false;
+    document.getElementById('account-mfa-verify-btn').hidden = false;
+    document.getElementById('account-mfa-code').value = '';
+    document.getElementById('account-mfa-code').focus();
+    toast('Authenticator setup started. Add the key, then verify a fresh code.', 'success', 4200);
+  } catch (e) {
+    toast(e.message || 'Could not start authenticator setup', 'danger');
+  }
+}
+
+async function verifyMfaEnrollment() {
+  const password = document.getElementById('account-mfa-password').value;
+  const code = document.getElementById('account-mfa-code').value.trim();
+  if (!password || !/^\d{6}$/.test(code)) {
+    toast('Enter your current password and the new 6-digit code', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/mfa/enroll/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, totp: code }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || 'Authenticator verification failed');
+    document.getElementById('account-mfa-enrollment').hidden = true;
+    document.getElementById('account-mfa-verify-btn').hidden = true;
+    document.getElementById('account-mfa-password').value = '';
+    document.getElementById('account-mfa-code').value = '';
+    toast('Authenticator enabled. Protected actions now require step-up verification.', 'success', 4200);
+    await loadUserProfile(true);
+  } catch (e) {
+    toast(e.message || 'Authenticator verification failed', 'danger');
+  }
+}
+
+async function disableMfa() {
+  const password = document.getElementById('account-mfa-password').value;
+  const code = document.getElementById('account-mfa-code').value.trim();
+  if (!password || !/^\d{6}$/.test(code)) {
+    toast('Enter your current password and a fresh authenticator code', 'warn');
+    return;
+  }
+  const ok = await customConfirm(
+    'Disable authenticator protection?<br><span style="font-size:11px;">You will be signed out and broker/order actions will be blocked until it is set up again.</span>',
+    { title: 'Disable Authenticator', icon: ICO.shield(28), okText: 'Disable & Sign Out', danger: true }
+  );
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/auth/mfa', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, totp: code }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || 'Could not disable authenticator');
+    await purgeAuthenticatedShellCaches();
+    location.reload();
+  } catch (e) {
+    toast(e.message || 'Could not disable authenticator', 'danger');
   }
 }
 

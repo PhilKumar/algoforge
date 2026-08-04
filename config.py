@@ -113,6 +113,7 @@ USER_DATA_ROOT = _env_first(
 ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds at rest
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
+ACTION_TOKEN_TTL_SECONDS = max(30, min(int(os.getenv("ACTION_TOKEN_TTL_SECONDS", "120")), 300))
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
 BACKUP_ROOT = _env_first(

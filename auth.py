@@ -5,12 +5,17 @@ Handles password hashing (bcrypt), Fernet encryption for broker creds,
 session creation/validation, and the get_current_user FastAPI dependency.
 """
 
+import base64
 import hashlib
+import io
 import logging
+import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import pyotp
 from fastapi import HTTPException, Request
 
 import config
@@ -89,6 +94,16 @@ def _session_storage_key(token: str) -> str:
     return f"sha256:{digest}"
 
 
+def session_storage_key(token: str) -> str:
+    """Public canonical hash used to bind action tokens to one login session."""
+    return _session_storage_key(token)
+
+
+def _action_token_storage_key(token: str) -> str:
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
 async def create_session(user_id: int) -> str:
     """Create a new session token for a user. Returns the token string."""
     token = secrets.token_hex(32)
@@ -114,6 +129,139 @@ async def destroy_session(token: str) -> None:
         return
     await db.delete_session(_session_storage_key(token))
     await db.delete_session(token)
+
+
+# ── MFA and one-time action authorization ────────────────────────
+
+
+def generate_totp_enrollment(username: str) -> dict:
+    """Create an encrypted-at-rest TOTP enrollment payload for an account."""
+    secret = pyotp.random_base32()
+    uri = pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="PhilForge")
+    qr_data_uri = ""
+    try:
+        import segno
+
+        qr_buffer = io.BytesIO()
+        segno.make(uri, micro=False, error="m").save(qr_buffer, kind="svg", scale=5, border=2)
+        qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(qr_buffer.getvalue()).decode("ascii")
+    except ImportError:
+        # Manual secret enrollment remains functional in minimal developer
+        # environments; production requirements include segno for the QR.
+        pass
+    return {"secret": secret, "otpauth_uri": uri, "qr_data_uri": qr_data_uri}
+
+
+def _matching_totp_counter(secret: str, code: str, *, now: float | None = None, valid_window: int = 1) -> int | None:
+    """Return the matching 30-second counter without accepting a replay."""
+    candidate = re.sub(r"\s+", "", str(code or ""))
+    if not re.fullmatch(r"\d{6}", candidate):
+        return None
+    timestamp = float(time.time() if now is None else now)
+    totp = pyotp.TOTP(secret)
+    current_counter = int(timestamp // totp.interval)
+    for counter in range(current_counter - valid_window, current_counter + valid_window + 1):
+        if counter < 0:
+            continue
+        expected = totp.at(counter * totp.interval)
+        if pyotp.utils.strings_equal(expected, candidate):
+            return counter
+    return None
+
+
+async def verify_user_totp(user: dict, code: str, *, consume: bool = True, now: float | None = None) -> bool:
+    """Verify an enrolled user's TOTP and atomically reject code reuse."""
+    if not bool(user.get("mfa_enabled")):
+        return False
+    secret = str(user.get("mfa_totp_secret") or "")
+    if not secret:
+        return False
+    counter = _matching_totp_counter(secret, code, now=now)
+    if counter is None:
+        return False
+    if not consume:
+        return counter > int(user.get("mfa_last_counter", -1) or -1)
+    return await db.claim_mfa_counter(int(user["id"]), counter)
+
+
+async def verify_totp_enrollment(user_id: int, secret: str, code: str, *, now: float | None = None) -> bool:
+    """Verify and consume the first code for a pending enrollment secret."""
+    counter = _matching_totp_counter(secret, code, now=now)
+    if counter is None:
+        return False
+    return await db.claim_mfa_counter(int(user_id), counter)
+
+
+_SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("POST", re.compile(r"^/api/live/start$"), "live_trading"),
+    ("POST", re.compile(r"^/api/live/stop$"), "live_trading"),
+    ("POST", re.compile(r"^/api/live/exit-position$"), "live_trading"),
+    ("POST", re.compile(r"^/api/orders/place$"), "broker_order"),
+    ("DELETE", re.compile(r"^/api/orders/[^/]+$"), "broker_order"),
+    ("POST", re.compile(r"^/api/terminal/order$"), "broker_order"),
+    ("POST", re.compile(r"^/api/terminal/gtt$"), "broker_order"),
+    ("DELETE", re.compile(r"^/api/terminal/forever/[^/]+$"), "broker_order"),
+    ("POST", re.compile(r"^/api/scalp/entry$"), "live_scalp"),
+    ("POST", re.compile(r"^/api/scalp/stop$"), "live_scalp"),
+    ("POST", re.compile(r"^/api/scalp/exit/[^/]+$"), "live_scalp"),
+    ("POST", re.compile(r"^/api/scalp/kill-all$"), "live_scalp"),
+    ("PUT", re.compile(r"^/api/scalp/trades/[^/]+/targets$"), "live_scalp"),
+    ("PUT", re.compile(r"^/api/user/broker$"), "broker_credentials"),
+    ("DELETE", re.compile(r"^/api/user/broker$"), "broker_credentials"),
+    ("POST", re.compile(r"^/api/refresh-token$"), "broker_credentials"),
+    ("POST", re.compile(r"^/api/broker/connect$"), "broker_credentials"),
+    ("PUT", re.compile(r"^/api/user/password$"), "account_security"),
+    ("POST", re.compile(r"^/api/admin/users$"), "admin_account"),
+    ("PUT", re.compile(r"^/api/admin/users/[^/]+/(?:toggle|password)$"), "admin_account"),
+)
+
+
+def classify_sensitive_action(method: str, path: str) -> str | None:
+    """Map one exact method/path to its server-owned authorization class."""
+    method = str(method or "").upper()
+    path = str(path or "")
+    for expected_method, pattern, action_class in _SENSITIVE_ACTION_RULES:
+        if method == expected_method and pattern.fullmatch(path):
+            return action_class
+    return None
+
+
+async def create_action_authorization(
+    *, user_id: int, session_token: str, action_class: str, method: str, path: str
+) -> tuple[str, int]:
+    """Issue a short-lived bearer that works once for one exact request."""
+    expected = classify_sensitive_action(method, path)
+    if not expected or expected != action_class:
+        raise ValueError("Unsupported action authorization target")
+    token = secrets.token_urlsafe(32)
+    ttl = int(config.ACTION_TOKEN_TTL_SECONDS)
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+    await db.create_action_token(
+        _action_token_storage_key(token),
+        int(user_id),
+        _session_storage_key(session_token),
+        action_class,
+        method,
+        path,
+        expires_at,
+    )
+    return token, ttl
+
+
+async def consume_action_authorization(
+    *, token: str, user_id: int, session_token: str, action_class: str, method: str, path: str
+) -> bool:
+    """Consume an exact action authorization; every mismatch fails closed."""
+    if not token or not session_token:
+        return False
+    return await db.consume_action_token(
+        _action_token_storage_key(token),
+        int(user_id),
+        _session_storage_key(session_token),
+        action_class,
+        method,
+        path,
+    )
 
 
 # ── Request Helpers ──────────────────────────────────────────────

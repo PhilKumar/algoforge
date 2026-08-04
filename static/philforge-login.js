@@ -4,6 +4,7 @@ const PIN_MODE = 'pin';
 let pin = '';
 let locked = false;
 let loginMode = PASSWORD_MODE;
+let mfaPending = false;
 
 const dots = document.querySelectorAll('.pin-dot');
 const status = document.getElementById('unlock-status');
@@ -12,13 +13,15 @@ const usernameInput = document.getElementById('username-input');
 const passwordInput = document.getElementById('password-input');
 const passwordField = document.getElementById('password-field');
 const passwordToggle = document.getElementById('password-toggle');
+const totpField = document.getElementById('totp-field');
+const totpInput = document.getElementById('totp-input');
 const pinSection = document.getElementById('pin-section');
 const modeSwitchBtn = document.getElementById('mode-switch-btn');
 const unlockBtn = document.getElementById('unlock-btn');
 const keypad = document.getElementById('keypad');
 
 function baseStatusMessage() {
-  return 'Enter username & password';
+  return mfaPending ? 'Enter the code from your authenticator app' : 'Enter username & password';
 }
 
 function updateDots() {
@@ -43,6 +46,9 @@ function setIdleStatus() {
 function setMode(mode, focus = true) {
   loginMode = PASSWORD_MODE;
   passwordField.classList.remove('hidden');
+  totpField.classList.add('hidden');
+  totpInput.value = '';
+  mfaPending = false;
   pinSection.classList.add('hidden');
   modeSwitchBtn.classList.add('hidden');
   modeSwitchBtn.setAttribute('aria-hidden', 'true');
@@ -78,10 +84,14 @@ function setError(msg) {
   card.classList.add('shake');
   setTimeout(() => {
     card.classList.remove('shake');
-    resetSecrets(true);
+    if (mfaPending) {
+      totpInput.value = '';
+    } else {
+      resetSecrets(true);
+    }
     locked = false;
     setIdleStatus();
-    if (loginMode === PASSWORD_MODE) passwordInput.focus();
+    if (loginMode === PASSWORD_MODE) (mfaPending ? totpInput : passwordInput).focus();
   }, 800);
 }
 
@@ -101,9 +111,14 @@ async function tryUnlock() {
   if (locked) return;
   const username = usernameInput.value.trim();
   const secret = loginMode === PIN_MODE ? pin : passwordInput.value;
+  const totp = totpInput.value.trim();
 
   if (!secret) {
     showValidationError(loginMode === PIN_MODE ? 'Enter your PIN' : 'Enter your password', passwordInput);
+    return;
+  }
+  if (mfaPending && !/^\d{6}$/.test(totp)) {
+    showValidationError('Enter the 6-digit authenticator code', totpInput);
     return;
   }
 
@@ -116,7 +131,9 @@ async function tryUnlock() {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(username ? { username, password: secret } : { password: secret, pin: secret })
+      body: JSON.stringify(username
+        ? { username, password: secret, ...(mfaPending ? { totp } : {}) }
+        : { password: secret, pin: secret, ...(mfaPending ? { totp } : {}) })
     });
     if (res.ok) {
       if ('caches' in window) {
@@ -129,6 +146,17 @@ async function tryUnlock() {
       setTimeout(() => { window.location.href = '/app'; }, 400);
     } else {
       const data = await res.json().catch(() => ({}));
+      if (res.status === 428 && data.code === 'mfa_required') {
+        locked = false;
+        mfaPending = true;
+        totpField.classList.remove('hidden');
+        unlockBtn.disabled = false;
+        unlockBtn.textContent = 'Verify & Unlock';
+        status.textContent = data.detail || baseStatusMessage();
+        status.className = 'unlock-status';
+        totpInput.focus();
+        return;
+      }
       setError(data.detail || 'Wrong credentials. Try again.');
     }
   } catch (e) {
@@ -167,6 +195,17 @@ usernameInput.addEventListener('keydown', (e) => {
 });
 
 passwordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    tryUnlock();
+  }
+});
+
+totpInput.addEventListener('input', () => {
+  totpInput.value = totpInput.value.replace(/\D/g, '').slice(0, 6);
+});
+
+totpInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
     tryUnlock();

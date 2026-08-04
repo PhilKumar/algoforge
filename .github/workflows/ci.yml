@@ -105,5 +105,6 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_dashboard_summary.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_broker_check.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_order_submission_safety.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_mfa_action_authorization.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_hybrid_premium_lookup.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_fib_backtest_route_e2e.py'

@@ -173,6 +173,11 @@
     display: none;
   }
 
+  #totp-input {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.18em;
+  }
+
   .pin-dots {
     display: flex; justify-content: center; gap: 12px;
     margin-bottom: 18px;

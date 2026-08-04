@@ -41,6 +41,10 @@
     </div>
   </div>
 
+  <div class="auth-field hidden" id="totp-field">
+    <input type="text" id="totp-input" placeholder="6-digit authenticator code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Authenticator code">
+  </div>
+
   <div class="mode-switch-row">
     <button type="button" class="mode-switch-btn hidden" id="mode-switch-btn" aria-hidden="true">Use password instead</button>
   </div>
@@ -88,7 +92,7 @@
     </div>
   </div>
 
-  <div class="unlock-footer">Password login only &middot; Auto-locks after 24h</div>
+  <div class="unlock-footer">Password + authenticator when enabled &middot; Auto-locks after 24h</div>
 </div>
 
 <script src="/static/philforge-login.js?v=__ASSET_VERSION__"></script>

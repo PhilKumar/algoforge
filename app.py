@@ -192,7 +192,7 @@ app.add_middleware(
     allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Request-ID"],
+    allow_headers=["Content-Type", "X-Request-ID", "X-PhilForge-Action-Token"],
 )
 
 from error_handlers import register_error_handlers
@@ -2707,6 +2707,63 @@ async def auth_middleware(request: Request, call_next):
     # Stash current user on request state to avoid repeated lookups downstream
     request.state.user_id = user["id"]
     request.state.current_user = user
+    action_class = _auth_mod.classify_sensitive_action(request.method, path)
+    if action_class:
+        if not bool(user.get("mfa_enabled")):
+            return JSONResponse(
+                status_code=428,
+                content={
+                    "detail": "Set up an authenticator in Account Settings before this protected action.",
+                    "code": "mfa_enrollment_required",
+                    "action_class": action_class,
+                    "target_method": request.method.upper(),
+                    "target_path": path,
+                    "mfa_enrolled": False,
+                },
+            )
+        action_token = str(request.headers.get("X-PhilForge-Action-Token", "") or "")
+        if not action_token:
+            return JSONResponse(
+                status_code=428,
+                content={
+                    "detail": "Confirm your password and authenticator code to continue.",
+                    "code": "action_authorization_required",
+                    "action_class": action_class,
+                    "target_method": request.method.upper(),
+                    "target_path": path,
+                    "mfa_enrolled": True,
+                },
+            )
+        authorized = await _auth_mod.consume_action_authorization(
+            token=action_token,
+            user_id=int(user["id"]),
+            session_token=token,
+            action_class=action_class,
+            method=request.method,
+            path=path,
+        )
+        if not authorized:
+            _logger.warning(
+                "[Auth] Rejected action authorization user_id=%s class=%s method=%s request_id=%s",
+                user["id"],
+                action_class,
+                request.method.upper(),
+                getattr(request.state, "request_id", ""),
+            )
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "This one-time action authorization is invalid, expired, or already used.",
+                    "code": "invalid_action_authorization",
+                },
+            )
+        _logger.info(
+            "[Auth] Consumed action authorization user_id=%s class=%s method=%s request_id=%s",
+            user["id"],
+            action_class,
+            request.method.upper(),
+            getattr(request.state, "request_id", ""),
+        )
     return await call_next(request)
 
 
@@ -3973,6 +4030,20 @@ async def auth_login(request: Request):
         _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    if bool(user.get("mfa_enabled")):
+        totp_code = str(body.get("totp", "") or "").strip()
+        if not totp_code:
+            return JSONResponse(
+                status_code=428,
+                content={
+                    "detail": "Enter the 6-digit code from your authenticator app.",
+                    "code": "mfa_required",
+                },
+            )
+        if not await _auth_mod.verify_user_totp(user, totp_code):
+            _record_failed_login(login_key)
+            raise HTTPException(status_code=401, detail="Invalid credentials or authenticator code")
+
     # Success — create DB session
     _clear_login_attempts(login_key)
     await _db_mod.cleanup_expired_sessions()
@@ -4018,6 +4089,7 @@ async def auth_status(request: Request):
         "username": user["username"],
         "role": user["role"],
         "user_id": user["id"],
+        "mfa_enabled": bool(user.get("mfa_enabled")),
     }
 
 
@@ -4028,6 +4100,160 @@ async def auth_logout(request: Request):
     resp = JSONResponse({"status": "ok"})
     _clear_session_cookie(resp)
     return resp
+
+
+@app.post("/api/auth/mfa/enroll/start")
+async def auth_mfa_enroll_start(request: Request):
+    """Start authenticator enrollment without replacing a working factor."""
+    user = await _auth_mod.get_current_user(request)
+    if not _auth_mod.encryption_enabled():
+        raise HTTPException(status_code=503, detail="Encrypted secret storage is not configured")
+    body = await request.json()
+    ip = request.client.host if request.client else "unknown"
+    manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
+    _check_login_rate(manage_key)
+    password = str(body.get("password", "") or "")
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(manage_key)
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if bool(user.get("mfa_enabled")):
+        if not await _auth_mod.verify_user_totp(user, str(body.get("totp", "") or "")):
+            _record_failed_login(manage_key)
+            raise HTTPException(status_code=401, detail="Current authenticator code is incorrect or already used")
+    enrollment = _auth_mod.generate_totp_enrollment(str(user["username"]))
+    await _db_mod.update_user(user["id"], mfa_pending_secret=enrollment["secret"])
+    _clear_login_attempts(manage_key)
+    _logger.info("[Auth] MFA enrollment started user_id=%s", user["id"])
+    return {
+        "status": "pending",
+        "secret": enrollment["secret"],
+        "otpauth_uri": enrollment["otpauth_uri"],
+        "qr_data_uri": enrollment["qr_data_uri"],
+        "issuer": "PhilForge",
+        "account": user["username"],
+    }
+
+
+@app.post("/api/auth/mfa/enroll/verify")
+async def auth_mfa_enroll_verify(request: Request):
+    """Activate a pending authenticator secret after proving one fresh code."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    ip = request.client.host if request.client else "unknown"
+    manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
+    _check_login_rate(manage_key)
+    password = str(body.get("password", "") or "")
+    code = str(body.get("totp", "") or "")
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(manage_key)
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    pending_secret = str(user.get("mfa_pending_secret") or "")
+    if not pending_secret:
+        raise HTTPException(status_code=409, detail="Start authenticator setup first")
+    if not await _auth_mod.verify_totp_enrollment(int(user["id"]), pending_secret, code):
+        _record_failed_login(manage_key)
+        raise HTTPException(status_code=401, detail="Authenticator code is invalid or already used")
+    await _db_mod.update_user(  # nosec B106 - deliberately clearing the pending MFA secret
+        user["id"],
+        mfa_totp_secret=pending_secret,
+        mfa_pending_secret="",
+        mfa_enabled=1,
+        mfa_enrolled_at=datetime.now(ZoneInfo("UTC")).isoformat(),
+    )
+    _clear_login_attempts(manage_key)
+    _logger.info("[Auth] MFA enabled user_id=%s", user["id"])
+    # Rotate this browser's session and revoke every other logged-in browser.
+    # This closes the common gap where a stolen pre-enrollment session survives
+    # after the account gains a second factor.
+    await _db_mod.delete_sessions_for_user(int(user["id"]))
+    new_session = await _auth_mod.create_session(int(user["id"]))
+    response = JSONResponse({"status": "ok", "mfa_enabled": True})
+    response.set_cookie(
+        _SESSION_COOKIE_NAME,
+        new_session,
+        max_age=config.SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=_request_is_https(request),
+    )
+    return response
+
+
+@app.delete("/api/auth/mfa")
+async def auth_mfa_disable(request: Request):
+    """Disable MFA only after fresh password and current-factor proof."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    ip = request.client.host if request.client else "unknown"
+    manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
+    _check_login_rate(manage_key)
+    password = str(body.get("password", "") or "")
+    code = str(body.get("totp", "") or "")
+    if not bool(user.get("mfa_enabled")):
+        return {"status": "ok", "mfa_enabled": False}
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(manage_key)
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if not await _auth_mod.verify_user_totp(user, code):
+        _record_failed_login(manage_key)
+        raise HTTPException(status_code=401, detail="Authenticator code is invalid or already used")
+    await _db_mod.update_user(  # nosec B106 - deliberately clearing enrolled and pending MFA secrets
+        user["id"],
+        mfa_totp_secret="",
+        mfa_pending_secret="",
+        mfa_enabled=0,
+        mfa_enrolled_at=None,
+        mfa_last_counter=-1,
+    )
+    _clear_login_attempts(manage_key)
+    _logger.info("[Auth] MFA disabled user_id=%s", user["id"])
+    await _db_mod.delete_sessions_for_user(int(user["id"]))
+    response = JSONResponse({"status": "ok", "mfa_enabled": False, "reauthenticate": True})
+    _clear_session_cookie(response)
+    return response
+
+
+@app.post("/api/auth/action-token")
+async def auth_action_token(request: Request):
+    """Create a session-bound, single-use token for one sensitive mutation."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    action_class = str(body.get("action_class", "") or "")
+    target_method = str(body.get("target_method", "") or "").upper()
+    target_path = str(body.get("target_path", "") or "")
+    if _auth_mod.classify_sensitive_action(target_method, target_path) != action_class:
+        raise HTTPException(status_code=400, detail="Unsupported action authorization target")
+    if not bool(user.get("mfa_enabled")):
+        raise HTTPException(status_code=428, detail="Set up an authenticator before this protected action")
+
+    ip = request.client.host if request.client else "unknown"
+    step_key = _login_key(f"stepup:{user['username']}", ip)
+    _check_login_rate(step_key)
+    password = str(body.get("password", "") or "")
+    code = str(body.get("totp", "") or "")
+    if not _auth_mod.verify_password(password, user["password_hash"]):
+        _record_failed_login(step_key)
+        raise HTTPException(status_code=401, detail="Password or authenticator code is incorrect")
+    if not await _auth_mod.verify_user_totp(user, code):
+        _record_failed_login(step_key)
+        raise HTTPException(status_code=401, detail="Password or authenticator code is incorrect or already used")
+    _clear_login_attempts(step_key)
+    session_token = _get_session_token(request)
+    token, ttl = await _auth_mod.create_action_authorization(
+        user_id=int(user["id"]),
+        session_token=session_token,
+        action_class=action_class,
+        method=target_method,
+        path=target_path,
+    )
+    _logger.info(
+        "[Auth] Step-up authorized user_id=%s class=%s method=%s request_id=%s",
+        user["id"],
+        action_class,
+        target_method,
+        getattr(request.state, "request_id", ""),
+    )
+    return {"status": "ok", "action_token": token, "expires_in": ttl}
 
 
 # ── Admin Routes ──────────────────────────────────────────────────
@@ -4671,6 +4897,8 @@ async def get_user_profile(request: Request):
             "is_active": bool(user.get("is_active", 1)),
             "created_at": user.get("created_at"),
             "last_login": user.get("last_login"),
+            "mfa_enabled": bool(user.get("mfa_enabled")),
+            "mfa_enrolled_at": user.get("mfa_enrolled_at"),
         },
         "broker": _broker_profile_payload(user),
     }

@@ -33,6 +33,11 @@ _SCHEMA_STATEMENTS = [
         dhan_access_token TEXT  DEFAULT '',
         dhan_pin        TEXT    DEFAULT '',
         dhan_totp_secret TEXT   DEFAULT '',
+        mfa_totp_secret TEXT    DEFAULT '',
+        mfa_pending_secret TEXT DEFAULT '',
+        mfa_enabled     INTEGER NOT NULL DEFAULT 0,
+        mfa_enrolled_at TEXT,
+        mfa_last_counter INTEGER NOT NULL DEFAULT -1,
         created_at      TEXT    NOT NULL,
         last_login      TEXT
     )""",
@@ -43,6 +48,19 @@ _SCHEMA_STATEMENTS = [
         created_at  TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
+    """CREATE TABLE IF NOT EXISTS action_tokens (
+        token_hash   TEXT    PRIMARY KEY,
+        user_id      INTEGER NOT NULL,
+        session_hash TEXT    NOT NULL,
+        action_class TEXT    NOT NULL,
+        method       TEXT    NOT NULL,
+        path         TEXT    NOT NULL,
+        expires_at   TEXT    NOT NULL,
+        created_at   TEXT    NOT NULL,
+        consumed_at  TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_action_tokens_user_expiry ON action_tokens(user_id, expires_at)",
     """CREATE TABLE IF NOT EXISTS strategies (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id     INTEGER NOT NULL,
@@ -160,6 +178,20 @@ def _init_db_sync():
     conn.execute("PRAGMA foreign_keys = ON")
     for stmt in _SCHEMA_STATEMENTS:
         conn.execute(stmt)
+    # Existing installations pre-date application MFA. SQLite's CREATE TABLE
+    # IF NOT EXISTS does not add columns, so upgrades need explicit, idempotent
+    # column migrations before any authenticated request reads a user row.
+    existing_user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    user_column_migrations = {
+        "mfa_totp_secret": "TEXT DEFAULT ''",
+        "mfa_pending_secret": "TEXT DEFAULT ''",
+        "mfa_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "mfa_enrolled_at": "TEXT",
+        "mfa_last_counter": "INTEGER NOT NULL DEFAULT -1",
+    }
+    for column, definition in user_column_migrations.items():
+        if column not in existing_user_columns:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")  # nosec B608
     conn.commit()
     conn.close()
     _initialized = True
@@ -212,6 +244,8 @@ _SENSITIVE_USER_FIELDS = frozenset(
         "dhan_access_token",
         "dhan_pin",
         "dhan_totp_secret",
+        "mfa_totp_secret",
+        "mfa_pending_secret",
     }
 )
 
@@ -373,6 +407,11 @@ _ALLOWED_USER_FIELDS = frozenset(
         "dhan_access_token",
         "dhan_pin",
         "dhan_totp_secret",
+        "mfa_totp_secret",
+        "mfa_pending_secret",
+        "mfa_enabled",
+        "mfa_enrolled_at",
+        "mfa_last_counter",
         "last_login",
     }
 )
@@ -472,6 +511,80 @@ async def cleanup_expired_sessions() -> int:
         cursor = await db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
         await db.commit()
         return cursor.rowcount
+
+
+async def claim_mfa_counter(user_id: int, counter: int) -> bool:
+    """Atomically accept a TOTP counter once, preventing code replay."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE users SET mfa_last_counter = ? WHERE id = ? AND mfa_last_counter < ?",
+            (int(counter), int(user_id), int(counter)),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
+async def create_action_token(
+    token_hash: str,
+    user_id: int,
+    session_hash: str,
+    action_class: str,
+    method: str,
+    path: str,
+    expires_at: str,
+) -> None:
+    """Persist one short-lived, session-bound action authorization token."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        now = _now_iso()
+        await db.execute("DELETE FROM action_tokens WHERE expires_at <= ? OR consumed_at IS NOT NULL", (now,))
+        await db.execute(
+            """INSERT INTO action_tokens
+               (token_hash, user_id, session_hash, action_class, method, path, expires_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                token_hash,
+                int(user_id),
+                session_hash,
+                action_class,
+                method.upper(),
+                path,
+                expires_at,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def consume_action_token(
+    token_hash: str,
+    user_id: int,
+    session_hash: str,
+    action_class: str,
+    method: str,
+    path: str,
+) -> bool:
+    """Atomically consume an exact-match action token once."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        now = _now_iso()
+        cursor = await db.execute(
+            """UPDATE action_tokens
+               SET consumed_at = ?
+               WHERE token_hash = ? AND user_id = ? AND session_hash = ?
+                 AND action_class = ? AND method = ? AND path = ?
+                 AND expires_at > ? AND consumed_at IS NULL""",
+            (
+                now,
+                token_hash,
+                int(user_id),
+                session_hash,
+                action_class,
+                method.upper(),
+                path,
+                now,
+            ),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
 
 
 async def get_app_state(key: str) -> str | None:

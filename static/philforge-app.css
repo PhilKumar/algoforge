@@ -2890,6 +2890,42 @@
     width: 820px;
     max-width: min(820px, 92vw);
   }
+  .action-auth-panel {
+    width: 440px;
+    max-width: min(440px, 92vw);
+  }
+  .action-auth-panel input,
+  #account-mfa-code {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.12em;
+  }
+  .mfa-enrollment-box {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(52,211,153,0.24);
+    background: rgba(16,185,129,0.08);
+  }
+  .mfa-enrollment-box code {
+    display: block;
+    margin: 7px 0 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: rgba(3,7,18,0.48);
+    overflow-wrap: anywhere;
+    user-select: all;
+    color: #a7f3d0;
+  }
+  .mfa-enrollment-qr {
+    display: block;
+    width: 180px;
+    height: 180px;
+    margin: 0 auto 12px;
+    padding: 7px;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .mfa-enrollment-box a { color: #67e8f9; font-size: 12px; }
   .settings-section {
     background: linear-gradient(155deg, rgba(18,26,42,0.58) 0%, rgba(12,18,32,0.46) 100%);
     border: 1px solid rgba(255,255,255,0.08);
