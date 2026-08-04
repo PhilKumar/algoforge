@@ -161,6 +161,31 @@ async def _http_handler(request: Request, exc: StarletteHTTPException) -> JSONRe
     )
 
 
+async def _cascade_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A Cascade engine refusal is the caller's problem, not a server crash.
+
+    CascadeError is how every Cascade engine says "these inputs cannot make a
+    campaign" -- an unsupported timeframe, a mother with no range, a capital of
+    zero. Nothing caught it, so each one fell through to the generic handler and
+    came back as HTTP 500 "Something went wrong on our end", which is both wrong
+    and useless: the message that would have explained it was already in the
+    exception. Choosing Daily on the Terminal read exactly like a server fault.
+
+    400, so error_handlers passes the real reason through -- only 4xx keeps its
+    detail (see _build_response).
+    """
+    _log.warning(
+        "[%s] Cascade refusal on %s %s — %s",
+        getattr(request.state, "request_id", "-"),
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=400, content=_build_response(400, detail=str(exc) or "Cascade refused these inputs.")
+    )
+
+
 async def _validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Catches Pydantic v2 request-body validation failures."""
     errors = exc.errors()
@@ -229,5 +254,15 @@ def register_error_handlers(app: FastAPI) -> None:
     """
     app.add_exception_handler(StarletteHTTPException, _http_handler)
     app.add_exception_handler(RequestValidationError, _validation_handler)
+    # Registered before the catch-all so an engine refusal keeps its message.
+    # Imported here rather than at module scope: error_handlers is imported very
+    # early by app.py, and the engine package pulls in pandas and the broker
+    # stack, which has no business being on the import path of the error layer.
+    try:
+        from engine.cascade_options import CascadeError
+
+        app.add_exception_handler(CascadeError, _cascade_handler)
+    except Exception:  # pragma: no cover - engine absent in a trimmed install
+        _log.warning("CascadeError handler not registered — engine import failed")
     app.add_exception_handler(Exception, _generic_handler)
     _log.info("Error handlers registered (DEBUG=%s)", _DEBUG)

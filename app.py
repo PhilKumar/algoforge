@@ -7353,19 +7353,32 @@ def _extract_marketfeed_ltp(data: dict, exchange_segment: str, security_id: str)
 
 
 def _terminal_cascade_live_gate_status() -> dict:
-    if not _TERMINAL_CASCADE_LIVE_FLAG:
-        return {
-            "enabled": False,
-            "armed": False,
-            "reason": (
-                "Terminal Cascade live GTT is server-locked. Source/paper validation, account confirmation "
-                "and explicit arming are required before Dhan orders can be submitted."
-            ),
-        }
+    """What the Terminal can actually do live, stated accurately.
+
+    This used to read as though live were built and merely awaiting approval --
+    "blocked until explicitly wired and approved", with the env flag implying a
+    switch that turns it on. There is no such switch. engine/cascade_equity_live.py
+    is complete and tested (resting SL buys, cancel-and-replace targets, gap-up
+    skip, guardrails) and is imported by NOTHING but its own test file: no route
+    constructs an executor, so no code path can place a cash order at all.
+    Setting PHILFORGE_TERMINAL_CASCADE_LIVE changes nothing.
+
+    Saying so plainly matters more than it looks. A gate that reads "locked"
+    invites someone to go looking for the key; a gate that says the road is not
+    built does not.
+    """
     return {
-        "enabled": True,
+        "enabled": False,
         "armed": False,
-        "reason": "Server flag is present, but live GTT submission remains blocked until explicitly wired and approved.",
+        "flag_set": bool(_TERMINAL_CASCADE_LIVE_FLAG),
+        "wired": False,
+        "reason": (
+            "Terminal Cascade is PAPER ONLY. The live executor exists but is not connected to any "
+            "route, so no code path can submit a cash order — the server flag does not change that. "
+            "Wiring it is deliberately pending the held-position problem: the 2-year backtest banks "
+            "+Rs 36k on closed rounds but carries -Rs 88k of unsold stock, so live execution would "
+            "faithfully deliver a losing strategy."
+        ),
     }
 
 

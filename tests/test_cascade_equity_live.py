@@ -314,3 +314,45 @@ class PersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveIsNotWiredTests(unittest.TestCase):
+    """Pins the fact that no route can place a live cash order.
+
+    engine/cascade_equity_live.py is complete and tested but imported by nothing
+    except this file. If someone wires it, these tests fail — which is the point:
+    connecting a real order path should be a deliberate act that trips a guard,
+    not something that slips in unnoticed.
+    """
+
+    def test_no_module_but_this_test_imports_the_live_executor(self):
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parents[1]
+        importers = []
+        for path in (
+            list(root.glob("*.py")) + list((root / "engine").glob("*.py")) + list((root / "tools").glob("*.py"))
+        ):
+            if path.name == "cascade_equity_live.py":
+                continue
+            # An IMPORT, not a mention: several modules name it in comments
+            # explaining why it is not wired, and those must not trip the guard.
+            text = path.read_text(encoding="utf-8")
+            if re.search(r"^\s*(from\s+\S*cascade_equity_live|import\s+\S*cascade_equity_live)", text, re.M):
+                importers.append(str(path.relative_to(root)))
+        self.assertEqual(
+            importers,
+            [],
+            f"cascade_equity_live is now imported by {importers}. Live cash orders are only "
+            f"acceptable once the held-position problem is answered — see the backtest.",
+        )
+
+    def test_the_gate_says_paper_only_rather_than_locked(self):
+        import app as app_module
+
+        gate = app_module._terminal_cascade_live_gate_status()
+        self.assertFalse(gate["enabled"])
+        self.assertFalse(gate["armed"])
+        self.assertFalse(gate["wired"])
+        self.assertIn("PAPER ONLY", gate["reason"])

@@ -182,3 +182,30 @@ class DailyTimeframeTests(unittest.TestCase):
     def test_an_unsupported_timeframe_is_still_refused(self):
         with self.assertRaises(CascadeError):
             CashCascadePaperConfig(capital_inr=100000, timeframe="3m")
+
+
+class ProductTypeTests(unittest.TestCase):
+    """Paper must not be more permissive than live.
+
+    MTF accrues daily interest and carries pledge mechanics; CashMarketCostSchedule
+    models neither. A paper MTF campaign would therefore report a profit it did
+    not make, and this cascade holds positions for months, so the error compounds.
+    engine/cascade_equity_live.py already refuses MTF for that reason.
+    """
+
+    def test_cnc_is_accepted(self):
+        self.assertEqual(CashCascadePaperConfig(capital_inr=100000).product_type, "CNC")
+
+    def test_mtf_is_refused_with_the_reason(self):
+        with self.assertRaises(CascadeError) as caught:
+            CashCascadePaperConfig(capital_inr=100000, product_type="MTF")
+        self.assertIn("CNC only", str(caught.exception))
+        self.assertIn("not modelled", str(caught.exception))
+
+    def test_the_cost_schedule_still_has_no_interest_line(self):
+        """If interest is ever modelled, this test should fail and MTF reopen."""
+        from engine.cascade_equity import CashMarketCostSchedule
+
+        fields = set(CashMarketCostSchedule().__dataclass_fields__)
+        self.assertNotIn("interest_pct", fields)
+        self.assertNotIn("mtf_interest_pct", fields)

@@ -233,8 +233,20 @@ class CashCascadePaperConfig:
         if timeframe not in {"5m", "15m", "1h", "1d"}:
             raise CascadeError("cash Cascade timeframe must be 5m, 15m, 1h, or 1d")
         product = str(self.product_type or "CNC").upper()
-        if product not in {"CNC", "MTF"}:
-            raise CascadeError("cash Cascade paper mode supports CNC or MTF")
+        # CNC ONLY, and paper agrees with live rather than being laxer than it.
+        # MTF is margin funding: it accrues daily interest and carries pledge
+        # mechanics, and CashMarketCostSchedule models NEITHER -- it charges
+        # brokerage, STT, exchange, SEBI, stamp and GST and stops there. A paper
+        # MTF campaign would therefore report a profit it did not make, growing
+        # more wrong the longer it holds; and this cascade holds for months.
+        # engine/cascade_equity_live.py already refuses MTF for exactly this
+        # reason, so accepting it here made paper the more permissive of the two,
+        # which is backwards.
+        if product != "CNC":
+            raise CascadeError(
+                "cash Cascade is CNC only. MTF interest and pledge costs are not modelled, "
+                "so an MTF campaign would report a profit it did not make."
+            )
         object.__setattr__(self, "timeframe", timeframe)
         object.__setattr__(self, "product_type", product)
 

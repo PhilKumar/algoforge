@@ -1489,9 +1489,11 @@
           <input id="terminal-cascade-target-pct" type="hidden" value="25">
           <div class="terminal-cascade-field">
             <label>Product</label>
-            <select id="terminal-cascade-product">
-              <option value="CNC" selected>CNC</option>
-              <option value="MTF">MTF</option>
+            <!-- CNC only: MTF interest and pledge costs are not in the cost
+                 model, so an MTF campaign would report a profit it did not
+                 make. The live executor refuses it for the same reason. -->
+            <select id="terminal-cascade-product" title="CNC only — MTF interest is not modelled">
+              <option value="CNC" selected>CNC (delivery)</option>
             </select>
           </div>
         </div>
