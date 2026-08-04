@@ -37,7 +37,7 @@ None`` -- so paper and live differ only in what that callable does.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional, Protocol, Sequence
 
 from engine.cascade_options import IndexCandle
@@ -123,6 +123,10 @@ class LiveCampaign:
     halt_reason: Optional[str] = None
     unpriced: int = 0
     source: str = "auto"  # auto (pivot scanner) | manual (named by the trader)
+    # The most recent replay, kept so the chart and the trade detail are drawn
+    # from the SAME run that made the decisions rather than a second one.
+    last_result: object = None
+    last_bars: list = field(default_factory=list)
 
     @property
     def open_quantity(self) -> int:
@@ -153,6 +157,32 @@ class LiveCampaign:
 
 def _mother_key(symbol: str, mother: Bar) -> str:
     return f"{symbol.lower()}:{mother.timestamp:%Y%m%dT%H%M}"
+
+
+def _epoch(when: Optional[datetime]) -> Optional[int]:
+    """Naive IST datetime -> epoch SECONDS, which is all the renderer accepts.
+
+    It does arithmetic on these, so an ISO string silently draws nothing. The
+    bars are naive IST (see bars_from_candles), so IST is subtracted here rather
+    than trusting the platform's local zone.
+    """
+    if when is None:
+        return None
+    return int((when - datetime(1970, 1, 1) - timedelta(hours=5, minutes=30)).total_seconds())
+
+
+def _contract_dict(contract) -> Optional[dict]:
+    """The contract as the panel needs to name it, or None before one is picked."""
+    if contract is None:
+        return None
+    expiry = getattr(contract, "expiry", None)
+    return {
+        "underlying": getattr(contract, "underlying", None),
+        "strike": getattr(contract, "strike", None),
+        "option_type": getattr(contract, "option_type", "CE"),
+        "expiry": str(expiry) if expiry else None,
+        "lot_size": getattr(contract, "lot_size", None),
+    }
 
 
 def horizon_bars(timeframe: str, sessions: int = DEFAULT_HORIZON_SESSIONS) -> int:
@@ -302,6 +332,9 @@ class FibSpacePaperBook:
             geometry_bars=geometry,
         )
 
+        campaign.last_result = result
+        campaign.last_bars = list(geometry if geometry is not None else replay)
+
         new_fills = self._record_fills(campaign, result, now=now)
         new_exits = self._record_exits(campaign, result, now=now)
         if campaign.fills and campaign.status == "watching":
@@ -399,6 +432,210 @@ class FibSpacePaperBook:
             raise CampaignHalted(campaign.halt_reason)
 
     # -- reporting ----------------------------------------------------------
+
+    def campaign_detail(self, campaign: LiveCampaign, *, mark_to_market: bool = True) -> dict:
+        """Every rupee of one campaign: what was paid, what came back, what is still on.
+
+        ``capital_spent`` is premium actually paid out, which for a bought
+        option IS the money at stake -- there is no margin beyond it and no
+        further call, so it is both the cost and the worst case.
+
+        ``mark_to_market`` re-quotes the OPEN legs at the current premium. That
+        number moves every tick and is not a result; it is what the position
+        would fetch if closed now.  It is reported separately from ``realised``
+        and never added into it.
+        """
+        closed_rounds = {e.round_no for e in campaign.exits}
+        by_round: dict = {}
+        for fill in campaign.fills:
+            by_round.setdefault(fill.round_no, {"fills": [], "exit": None})["fills"].append(fill)
+        for exit_ in campaign.exits:
+            by_round.setdefault(exit_.round_no, {"fills": [], "exit": None})["exit"] = exit_
+
+        rounds = []
+        spent_total = open_cost = realised_total = 0.0
+        open_value = 0.0
+        marked = False
+        for number in sorted(by_round):
+            entry = by_round[number]
+            fills, exit_ = entry["fills"], entry["exit"]
+            spent = sum(f.outlay or 0.0 for f in fills)
+            spent_total += spent
+            unpriced = any(f.premium is None for f in fills)
+
+            row = {
+                "round": number,
+                "fills": [
+                    {
+                        "at": f.timestamp.isoformat(),
+                        "index_price": round(f.index_price, 2),
+                        "lots": f.lots,
+                        "quantity": f.quantity,
+                        "strike": f.strike,
+                        "expiry": str(f.expiry) if f.expiry else None,
+                        "premium": f.premium,
+                        "outlay": None if f.premium is None else round(f.outlay, 2),
+                        "space": f.space_label,
+                    }
+                    for f in fills
+                ],
+                "quantity": sum(f.quantity for f in fills),
+                "lots": sum(f.lots for f in fills),
+                "capital_spent": None if unpriced else round(spent, 2),
+                "average_premium": (
+                    None if unpriced or not fills else round(spent / max(sum(f.quantity for f in fills), 1), 2)
+                ),
+                "status": "closed" if exit_ is not None else "open",
+            }
+            if exit_ is not None:
+                proceeds = exit_.proceeds
+                row["exit"] = {
+                    "at": exit_.timestamp.isoformat(),
+                    "index_price": round(exit_.exit_index, 2),
+                    "reason": exit_.exit_reason,
+                    "premium": exit_.premium,
+                    "proceeds": None if proceeds is None else round(proceeds, 2),
+                }
+                if proceeds is not None and not unpriced:
+                    realised_total += proceeds - spent
+                    row["realised"] = round(proceeds - spent, 2)
+                else:
+                    row["realised"] = None
+            else:
+                row["exit"] = None
+                row["realised"] = None
+                open_cost += spent
+                if mark_to_market and not unpriced and fills:
+                    quote = self.premium_lookup(fills[-1].timestamp, campaign.contract)
+                    if quote is not None:
+                        value = quote * row["quantity"]
+                        row["mark_premium"] = quote
+                        row["mark_value"] = round(value, 2)
+                        row["unrealised"] = round(value - spent, 2)
+                        open_value += value
+                        marked = True
+            rounds.append(row)
+
+        return {
+            "campaign_id": campaign.campaign_id,
+            "symbol": campaign.symbol,
+            "source": campaign.source,
+            "status": campaign.status,
+            "halt_reason": campaign.halt_reason,
+            "lot_size": campaign.lot_size,
+            "mother": {
+                "at": campaign.mother.timestamp.isoformat(),
+                "high": round(campaign.mother.high, 2),
+                "low": round(campaign.mother.low, 2),
+            },
+            "contract": _contract_dict(campaign.contract),
+            "rounds": rounds,
+            "closed_rounds": len(closed_rounds),
+            "unpriced_legs": campaign.unpriced,
+            # Totals. capital_spent is every rupee ever paid; capital_open is
+            # what is still tied up in positions that have not closed.
+            "capital_spent": round(spent_total, 2),
+            "capital_open": round(open_cost, 2),
+            "realised": None if campaign.unpriced else round(realised_total, 2),
+            "open_value": round(open_value, 2) if marked else None,
+            "unrealised": round(open_value - open_cost, 2) if marked else None,
+        }
+
+    def campaign_chart(self, campaign: LiveCampaign) -> dict:
+        """The payload static/philforge-bench-chart.js draws.
+
+        Built from ``campaign.last_result`` -- the same replay the decisions came
+        out of -- so the picture cannot disagree with the trade beside it.  See
+        that file for the contract; the rule that bites is that every ``t`` is
+        epoch SECONDS, and OHLC must be native, because the renderer draws its
+        own session-gap blocks.
+        """
+        result = campaign.last_result
+        bars = campaign.last_bars or []
+        if result is None or not bars:
+            return {"status": "not_ready", "reason": "no replay yet — the first poll has not run"}
+
+        mother_at = campaign.mother.timestamp
+        candles = [
+            {
+                "t": _epoch(b.timestamp),
+                "o": b.open,
+                "h": b.high,
+                "l": b.low,
+                "c": b.close,
+                "is_mother": b.timestamp == mother_at,
+            }
+            for b in bars
+        ]
+
+        geometry = getattr(result, "geometry", None)
+        # A trendline stores its anchors by BAR INDEX, not by time, so the
+        # timestamps have to come back through the series the geometry ran on.
+        stamp_of = {b.index: b.timestamp for b in bars}
+        trendlines = []
+        for line in getattr(geometry, "trendlines", []) or []:
+            a1, a2 = stamp_of.get(line.anchor1_index), stamp_of.get(line.anchor2_index)
+            if a1 is None or a2 is None:
+                continue  # an anchor older than the window is not drawable
+            trendlines.append(
+                {
+                    "id": line.trendline_id,
+                    "a1": {"t": _epoch(a1), "p": line.anchor1_price},
+                    "a2": {"t": _epoch(a2), "p": line.anchor2_price},
+                    "active": line.trendline_id == getattr(geometry, "active_trendline_id", None),
+                }
+            )
+
+        # Each drawn fib becomes a leg, with its rungs as levels. The ladder
+        # this design buys is 1-2-4-8, so those are the levels worth drawing.
+        legs = [
+            {
+                "leg_id": fib.fib_id,
+                "touch_timestamp": _epoch(fib.drawn_timestamp),
+                "touch_high": fib.fib0,
+                "low": fib.fib1,
+                "levels": {str(level): fib.fib0 - level * fib.span for level in (0, 1, 2, 4, 8)},
+                "orders": [],
+            }
+            for fib in getattr(geometry, "fibs", []) or []
+        ]
+
+        entries = [{"t": _epoch(f.timestamp), "price": f.index_price} for f in campaign.fills]
+        exits = [
+            {
+                "t": _epoch(e.timestamp),
+                "price": e.exit_index,
+                "pnl": next(
+                    (
+                        r.get("realised")
+                        for r in self.campaign_detail(campaign, mark_to_market=False)["rounds"]
+                        if r["round"] == e.round_no
+                    ),
+                    None,
+                ),
+            }
+            for e in campaign.exits
+        ]
+
+        open_round = next((r for r in reversed(result.rounds) if r.status != "closed"), None)
+        last_round = result.rounds[-1] if result.rounds else None
+        target = (open_round or last_round).target_index if (open_round or last_round) else None
+        hit = bool(campaign.exits)
+        return {
+            "status": "ok",
+            "timeframe": self.geometry_timeframe,
+            "candles": candles,
+            "mother": {"high": campaign.mother.high, "low": campaign.mother.low},
+            "trendlines": trendlines,
+            "legs": legs,
+            "entries": entries,
+            "exits": exits,
+            "avg_entry_price": (open_round or last_round).average_entry if (open_round or last_round) else None,
+            "tp_price": target,
+            # Never draw the target as if it were a sale that happened. Whether
+            # price got there is the one thing the chart must not blur.
+            "tp_label": "TARGET HIT" if hit else "TARGET",
+        }
 
     def snapshot(self) -> dict:
         live = [c for c in self.campaigns.values() if c.status == "trading"]

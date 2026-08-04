@@ -1464,6 +1464,10 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startFibSpacePaper',
   'stopFibSpacePaper',
   'addFibSpaceMother',
+  'openFibSpaceCampaign',
+  'closeFibSpaceDetail',
+  'loadFibSpaceChart',
+  'hideFibSpaceChart',
   'runTestBench',
   'toggleTestBenchChart',
   'openSavedTestBenchRun',
@@ -2357,7 +2361,7 @@ function _renderFibSpaceStatus(payload) {
       const mark = row.source === 'manual'
         ? '<span title="You named this mother" style="color:#38bdf8;">◈</span> '
         : '<span title="Found by the pivot scanner" style="color:var(--muted);">◇</span> ';
-      return `<tr style="text-align:right;border-top:1px solid var(--border);">
+      return `<tr style="text-align:right;border-top:1px solid var(--border);cursor:pointer;" data-pf-action="openFibSpaceCampaign" data-fsx-campaign="${escapeHtml(row.id)}" title="Open premiums, capital and chart">
         <td style="text-align:left;padding:6px 8px;">${mark}${escapeHtml(mother)}</td>
         <td style="padding:6px 8px;">${_cascadeNumber(row.mother_high)}</td>
         <td style="text-align:left;padding:6px 8px;color:${stateColour};" title="${escapeHtml(row.halt_reason || '')}">${escapeHtml(String(row.status || '').toUpperCase())}</td>
@@ -2387,6 +2391,132 @@ async function refreshFibSpaceStatus() {
   }
   const data = await response.json().catch(() => ({}));
   if (response.ok) _renderFibSpaceStatus(data);
+  // Keep an open trade sheet current without it closing under the cursor.
+  if (_fsxOpenCampaignId) await _fsxLoadCampaignDetail();
+}
+
+// The campaign currently opened in the detail drawer, so the 3s poll can
+// refresh its numbers without the drawer closing under the cursor.
+let _fsxOpenCampaignId = null;
+
+function _fsxMoney(value) {
+  return value === null || value === undefined ? '—' : _cascadeOptionsMoney(value);
+}
+
+async function openFibSpaceCampaign(event, el) {
+  const id = (el || event?.currentTarget)?.getAttribute('data-fsx-campaign');
+  if (!id) return;
+  _fsxOpenCampaignId = id;
+  await _fsxLoadCampaignDetail();
+}
+
+function closeFibSpaceDetail() {
+  _fsxOpenCampaignId = null;
+  const box = document.getElementById('fsx-detail');
+  if (box) box.style.display = 'none';
+  hideFibSpaceChart();
+}
+
+async function _fsxLoadCampaignDetail() {
+  if (!_fsxOpenCampaignId) return;
+  let response;
+  try {
+    response = await fetch(`/api/fib-space/paper/campaign?campaign_id=${encodeURIComponent(_fsxOpenCampaignId)}`, { credentials: 'same-origin' });
+  } catch (error) { return; }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.status !== 'ok') { closeFibSpaceDetail(); return; }
+  _renderFibSpaceDetail(data.campaign);
+}
+
+function _renderFibSpaceDetail(c) {
+  const box = document.getElementById('fsx-detail');
+  if (!box || !c) return;
+  box.style.display = '';
+
+  const title = document.getElementById('fsx-detail-title');
+  const contract = document.getElementById('fsx-detail-contract');
+  const mother = new Date(c.mother.at).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  if (title) title.textContent = `${c.source === 'manual' ? '◈' : '◇'} Mother ${mother} · high ${_cascadeNumber(c.mother.high)}`;
+  if (contract) {
+    contract.textContent = c.contract
+      ? `${c.contract.underlying || c.symbol.toUpperCase()} ${Number(c.contract.strike).toLocaleString('en-IN')} ${c.contract.option_type} · exp ${c.contract.expiry} · ${c.lot_size} units/lot`
+      : 'No contract bought yet';
+  }
+
+  const money = document.getElementById('fsx-detail-money');
+  if (money) {
+    // Capital spent is premium paid, which for a bought option IS the money at
+    // risk — there is no margin beyond it. Mark-to-market is shown apart from
+    // realised and never folded into it.
+    money.innerHTML = [
+      _cascadeOptionsMetric('Capital spent', _fsxMoney(c.capital_spent)),
+      _cascadeOptionsMetric('Still at risk', _fsxMoney(c.capital_open), (c.capital_open || 0) > 0 ? '#fbbf24' : 'var(--text)'),
+      _cascadeOptionsMetric('Realised ₹', _fsxMoney(c.realised), (c.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
+      _cascadeOptionsMetric('Open now ₹', _fsxMoney(c.unrealised), (c.unrealised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
+    ].join('');
+  }
+
+  const rounds = document.getElementById('fsx-detail-rounds');
+  if (!rounds) return;
+  if (!c.rounds.length) {
+    rounds.innerHTML = '<div class="cascade-options-empty">Nothing bought yet — the geometry is drawn and it is waiting for price to reach a zone.</div>';
+    return;
+  }
+  rounds.innerHTML = c.rounds.map(r => {
+    const head = `Round ${r.round} · ${r.lots} lot${r.lots === 1 ? '' : 's'} / ${r.quantity} qty · avg premium ${r.average_premium ?? '—'} · spent ${_fsxMoney(r.capital_spent)}`;
+    const tail = r.exit
+      ? `<span style="color:${(r.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(String(r.exit.reason || 'exit').toUpperCase())} @ ${_cascadeNumber(r.exit.index_price)} · premium ${r.exit.premium ?? '—'} · ${_fsxMoney(r.realised)}</span>`
+      : `<span style="color:#fbbf24;">OPEN${r.mark_value !== undefined ? ` · worth ${_fsxMoney(r.mark_value)} now (${_fsxMoney(r.unrealised)})` : ''}</span>`;
+    const legs = r.fills.map(f => `<tr style="text-align:right;border-top:1px solid var(--border);">
+        <td style="text-align:left;padding:5px 8px;">${escapeHtml(new Date(f.at).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+        <td style="padding:5px 8px;">${_cascadeNumber(f.index_price)}</td>
+        <td style="padding:5px 8px;">${f.strike === null ? '—' : Number(f.strike).toLocaleString('en-IN')}</td>
+        <td style="padding:5px 8px;">${f.lots}</td>
+        <td style="padding:5px 8px;">${f.quantity}</td>
+        <td style="padding:5px 8px;">${f.premium ?? '<span style="color:#fbbf24;">unpriced</span>'}</td>
+        <td style="padding:5px 8px;">${_fsxMoney(f.outlay)}</td>
+        <td style="text-align:left;padding:5px 8px;color:var(--muted);">${escapeHtml(f.space || '')}</td>
+      </tr>`).join('');
+    return `<div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);margin-bottom:5px;"><span>${escapeHtml(head)}</span>${tail}</div>
+      <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:10.5px 'JetBrains Mono',monospace;">
+        <thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:5px 8px;">Bought</th><th style="padding:5px 8px;">Index</th><th style="padding:5px 8px;">Strike</th><th style="padding:5px 8px;">Lots</th><th style="padding:5px 8px;">Qty</th><th style="padding:5px 8px;">Premium</th><th style="padding:5px 8px;">Capital ₹</th><th style="text-align:left;padding:5px 8px;">Zone</th></tr></thead>
+        <tbody>${legs}</tbody></table></div></div>`;
+  }).join('');
+}
+
+async function loadFibSpaceChart() {
+  if (!_fsxOpenCampaignId) return;
+  const chart = document.getElementById('fsx-chart');
+  const meta = document.getElementById('fsx-chart-meta');
+  const overlay = document.getElementById('fsx-chart-overlay');
+  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+  if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading the campaign\'s own replay…</div>';
+  try {
+    const response = await fetch(`/api/fib-space/paper/chart?campaign_id=${encodeURIComponent(_fsxOpenCampaignId)}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
+    // Only one canvas may be mounted — the renderer finds its surfaces by fixed
+    // id, so any other chart has to be folded away before this one mounts.
+    _fibBoundaryCollapseBacktestChart();
+    // The renderer sizes itself from the host's measured width, so it must not
+    // draw in the same frame the overlay opened — that yields a 2px canvas.
+    // The fetch above usually buys enough time; this makes it certain.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, data);
+    if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${data.legs.length} fibs · ${data.trendlines.length} trendlines · ${data.entries.length} buys · drag to pan, wheel to zoom, double-click to reset`;
+  } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+  }
+}
+
+function hideFibSpaceChart() {
+  const overlay = document.getElementById('fsx-chart-overlay');
+  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  // Without the teardown the renderer's observers leak on every open.
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
 }
 
 function _fsxSetMotherStatus(message, tone = 'muted') {
@@ -3066,6 +3196,10 @@ window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.startFibSpacePaper = startFibSpacePaper;
 window.stopFibSpacePaper = stopFibSpacePaper;
 window.addFibSpaceMother = addFibSpaceMother;
+window.openFibSpaceCampaign = openFibSpaceCampaign;
+window.closeFibSpaceDetail = closeFibSpaceDetail;
+window.loadFibSpaceChart = loadFibSpaceChart;
+window.hideFibSpaceChart = hideFibSpaceChart;
 window.refreshFibSpaceStatus = refreshFibSpaceStatus;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;

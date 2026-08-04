@@ -175,6 +175,11 @@ class SpaceCampaignResult:
     rounds: list[SpaceRound] = field(default_factory=list)
     fib_count: int = 0
     space_count: int = 0
+    # The geometry as it stood at the end of the replay -- its trendlines and
+    # drawn fibs.  Counts alone answer "did it draw anything"; a chart has to
+    # show WHERE, and re-deriving that in a second place would let the picture
+    # drift from the decisions.  Nothing in the backtest path reads this.
+    geometry: Optional["SpaceGeometry"] = None
 
     @property
     def fills(self) -> list[SpaceFill]:
@@ -533,6 +538,7 @@ def run_space_campaign(
 
     result.fib_count = len(geometry.fibs)
     result.space_count = len(find_spaces(geometry.fibs))
+    result.geometry = geometry
     if round_fills:
         # The last basket never met its target inside the data.
         result.rounds.append(

@@ -10698,6 +10698,35 @@ async def fib_space_paper_mother(request: Request):
     }
 
 
+def _fib_space_campaign_or_404(request: Request, campaign_id: str):
+    """The runtime and campaign behind an id, or the right refusal."""
+    user_id = _request_user_id(request)
+    runtime = _fib_space_engines.get(user_id)
+    if runtime is None:
+        raise HTTPException(status_code=409, detail="No fib-space paper run is going.")
+    campaign = runtime.host.book.campaigns.get(str(campaign_id or "").strip())
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="No such campaign in this run.")
+    return runtime, campaign
+
+
+@app.get("/api/fib-space/paper/campaign")
+async def fib_space_paper_campaign(campaign_id: str, request: Request):
+    """One campaign's money: every fill's premium, what it cost, what it is worth."""
+    runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
+    return {"status": "ok", "mode": "paper", "campaign": runtime.host.book.campaign_detail(campaign)}
+
+
+@app.get("/api/fib-space/paper/chart")
+async def fib_space_paper_chart(campaign_id: str, request: Request):
+    """The campaign drawn: geometry, fills and target, for the shared renderer."""
+    runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
+    payload = runtime.host.book.campaign_chart(campaign)
+    if payload.get("status") != "ok":
+        raise HTTPException(status_code=409, detail=payload.get("reason") or "This campaign has nothing to draw yet.")
+    return payload
+
+
 @app.post("/api/fib-space/paper/stop")
 async def fib_space_paper_stop(request: Request):
     user_id = _request_user_id(request)

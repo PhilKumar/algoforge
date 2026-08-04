@@ -509,3 +509,168 @@ class AwareCandlesBecomeNaiveBarsTests(unittest.TestCase):
         bars = bars_from_candles([IndexCandle(datetime(2026, 8, 3, 15, 0), 57_000.0, 57_100.0, 56_900.0, 57_050.0)])
         self.assertEqual(bars[0].timestamp, datetime(2026, 8, 3, 15, 0))
         self.assertIsNone(bars[0].timestamp.tzinfo)
+
+
+class CampaignDetailTests(unittest.TestCase):
+    """The trade sheet: premium paid, capital at stake, what came back."""
+
+    def _traded(self, lookup=None):
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=lookup or _always(120.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        book.advance(campaign, bars, bars, now=bars[-1].timestamp)
+        return book, campaign
+
+    def test_capital_spent_is_premium_times_quantity(self):
+        book, campaign = self._traded()
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        expected = sum(f.premium * f.quantity for f in campaign.fills)
+        self.assertAlmostEqual(detail["capital_spent"], round(expected, 2))
+        self.assertGreater(detail["capital_spent"], 0)
+
+    def test_every_fill_carries_its_premium_strike_and_outlay(self):
+        book, campaign = self._traded()
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        fills = [f for r in detail["rounds"] for f in r["fills"]]
+        self.assertEqual(len(fills), len(campaign.fills))
+        for row in fills:
+            self.assertIsNotNone(row["premium"])
+            self.assertIsNotNone(row["strike"])
+            self.assertAlmostEqual(row["outlay"], row["premium"] * row["quantity"])
+            self.assertIn("space", row)
+
+    def test_a_banked_round_reports_realised_as_proceeds_minus_cost(self):
+        book, campaign = self._traded()
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        closed = [r for r in detail["rounds"] if r["status"] == "closed"]
+        self.assertTrue(closed, "fixture must close a round")
+        for row in closed:
+            self.assertAlmostEqual(row["realised"], row["exit"]["proceeds"] - row["capital_spent"], places=2)
+        self.assertAlmostEqual(detail["realised"], sum(r["realised"] for r in closed), places=2)
+
+    def test_an_unpriced_leg_leaves_the_money_unknown_not_zero(self):
+        book, campaign = self._traded(lookup=lambda when, contract: None)
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        self.assertGreater(detail["unpriced_legs"], 0)
+        self.assertIsNone(detail["realised"])
+        for row in detail["rounds"]:
+            self.assertIsNone(row["capital_spent"])
+
+    def test_mark_to_market_is_reported_apart_from_realised(self):
+        """What it would fetch now is not a result and must not be added in."""
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(100.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        # Stop before the recovery so a round is still open to mark.
+        book.advance(campaign, bars[:60], bars[:60], now=bars[59].timestamp)
+
+        detail = book.campaign_detail(campaign, mark_to_market=True)
+        self.assertGreater(detail["capital_open"], 0)
+        self.assertIsNotNone(detail["open_value"])
+        self.assertAlmostEqual(detail["unrealised"], detail["open_value"] - detail["capital_open"], places=2)
+        self.assertEqual(detail["realised"], 0.0, "nothing banked yet")
+
+    def test_the_contract_actually_bought_is_named(self):
+        book, campaign = self._traded()
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+        self.assertIsNotNone(detail["contract"])
+        self.assertIsNotNone(detail["contract"]["strike"])
+
+
+class CampaignChartTests(unittest.TestCase):
+    def _traded(self):
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(120.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        book.advance(campaign, bars, bars, now=bars[-1].timestamp)
+        return book, campaign
+
+    def test_a_campaign_with_no_replay_yet_says_so_rather_than_drawing_nothing(self):
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(120.0),
+            select_contract=_select,
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        self.assertEqual(book.campaign_chart(campaign)["status"], "not_ready")
+
+    def test_every_timestamp_is_epoch_seconds(self):
+        """An ISO string silently draws nothing — the renderer does maths on t."""
+        book, campaign = self._traded()
+        chart = book.campaign_chart(campaign)
+
+        stamps = (
+            [c["t"] for c in chart["candles"]]
+            + [e["t"] for e in chart["entries"]]
+            + [e["t"] for e in chart["exits"]]
+            + [leg["touch_timestamp"] for leg in chart["legs"]]
+        )
+        self.assertTrue(stamps)
+        for value in stamps:
+            self.assertIsInstance(value, int)
+            self.assertGreater(value, 1_000_000_000)
+
+    def test_the_mother_bar_is_flagged_exactly_once(self):
+        book, campaign = self._traded()
+        chart = book.campaign_chart(campaign)
+        self.assertEqual(sum(1 for c in chart["candles"] if c["is_mother"]), 1)
+
+    def test_geometry_and_fills_reach_the_payload(self):
+        book, campaign = self._traded()
+        chart = book.campaign_chart(campaign)
+
+        self.assertTrue(chart["legs"], "the fibs it drew must be drawable")
+        self.assertEqual(len(chart["entries"]), len(campaign.fills))
+        self.assertEqual(len(chart["exits"]), len(campaign.exits))
+        self.assertEqual(chart["mother"]["high"], campaign.mother.high)
+
+    def test_a_fib_leg_carries_the_ladder_levels(self):
+        book, campaign = self._traded()
+        leg = book.campaign_chart(campaign)["legs"][0]
+        for level in ("0", "1", "2", "4", "8"):
+            self.assertIn(level, leg["levels"])
+        # Level 8 is eight leg-ranges below level 0, so it must be far lower.
+        self.assertLess(leg["levels"]["8"], leg["levels"]["0"])
+
+    def test_the_target_is_never_labelled_hit_when_it_was_not(self):
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(120.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        book.advance(campaign, bars[:60], bars[:60], now=bars[59].timestamp)
+
+        self.assertFalse(campaign.exits)
+        self.assertEqual(book.campaign_chart(campaign)["tp_label"], "TARGET")

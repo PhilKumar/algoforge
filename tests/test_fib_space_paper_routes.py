@@ -440,3 +440,65 @@ class NamedMotherRouteTests(unittest.IsolatedAsyncioTestCase):
         saved = json.loads(await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7)))
         self.assertEqual(saved["manual_mothers"], ["2026-03-03T10:15:00"])
         self.assertFalse(saved["auto_scan"])
+
+
+class CampaignDetailRouteTests(unittest.IsolatedAsyncioTestCase):
+    """Premiums, capital and the chart, per campaign."""
+
+    async def asyncSetUp(self):
+        app_module._db_mod._initialized = False
+        app_module._fib_space_engines.clear()
+        await app_module._db_mod.init_db()
+
+    async def asyncTearDown(self):
+        for runtime in app_module._fib_space_engines.values():
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+        app_module._fib_space_engines.clear()
+
+    async def _start(self):
+        with (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 7}, object(), "user"))),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
+        ):
+            await app_module.fib_space_paper_start(_Request())
+        return app_module._fib_space_engines[7]
+
+    async def test_detail_without_a_run_is_refused(self):
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_campaign("anything", _Request())
+        self.assertEqual(caught.exception.status_code, 409)
+
+    async def test_an_unknown_campaign_is_a_404(self):
+        await self._start()
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_campaign("banknifty:20260101T0915", _Request())
+        self.assertEqual(caught.exception.status_code, 404)
+
+    async def test_detail_reports_the_money(self):
+        runtime = await self._start()
+        from engine.fib_space_geometry import Bar
+
+        bar = Bar(index=0, timestamp=datetime(2026, 3, 3, 10, 15), open=57000, high=57200, low=56900, close=56950)
+        campaign = runtime.host.book.adopt_manual_mother(bar)
+
+        result = await app_module.fib_space_paper_campaign(campaign.campaign_id, _Request())
+        detail = result["campaign"]
+        self.assertEqual(result["mode"], "paper")
+        self.assertEqual(detail["source"], "manual")
+        self.assertIn("capital_spent", detail)
+        self.assertIn("capital_open", detail)
+        self.assertEqual(detail["rounds"], [], "nothing bought yet")
+
+    async def test_a_chart_with_no_replay_yet_is_a_409_not_an_empty_canvas(self):
+        runtime = await self._start()
+        from engine.fib_space_geometry import Bar
+
+        bar = Bar(index=0, timestamp=datetime(2026, 3, 3, 10, 15), open=57000, high=57200, low=56900, close=56950)
+        campaign = runtime.host.book.adopt_manual_mother(bar)
+
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_chart(campaign.campaign_id, _Request())
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("no replay yet", caught.exception.detail)
