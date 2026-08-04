@@ -36,7 +36,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff bandit pytest
+          pip install ruff bandit pytest pip-audit==2.10.1
+
+      - name: Python dependency vulnerability scan
+        run: pip-audit
 
       - name: Ruff lint
         run: ruff check .
