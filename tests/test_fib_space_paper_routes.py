@@ -387,6 +387,14 @@ class NamedMotherRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_mother_outside_the_session_is_refused(self):
         await self._start()
         stamp = self._aligned_past_15m().replace(hour=17, minute=0)
+        # 17:00 on the helper's day is only in the PAST after 17:00 IST — run
+        # this suite mid-afternoon and the future-check fires before the
+        # session-check, failing the test until evening. Roll back a day so
+        # the timestamp is always past and the refusal under test is the one
+        # that answers.
+        now = datetime.now(app_module.IST).replace(tzinfo=None)
+        if stamp > now:
+            stamp -= timedelta(days=1)
         with self.assertRaises(HTTPException) as caught:
             await app_module.fib_space_paper_mother(
                 _Request(body={"mother_timestamp": stamp.strftime("%Y-%m-%dT%H:%M")})

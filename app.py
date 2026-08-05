@@ -2931,6 +2931,7 @@ async def auth_middleware(request: Request, call_next):
         "/sw.js",
         "/apple-touch-icon.png",
         "/robots.txt",
+        "/sitemap.xml",
     ):
         return await call_next(request)
     if not protected_public_paths and (path.startswith("/static") or path.startswith("/ws")):
@@ -3682,7 +3683,37 @@ async def serve_study_lounge(request: Request):
 
 @app.get("/robots.txt", include_in_schema=False)
 async def robots_txt():
-    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+    """The landing pages exist to be found; the terminal does not. The old
+    body was `Disallow: /` — a marketing site whose robots file told every
+    crawler to leave, which quietly unlists it from search entirely."""
+    body = "\n".join(
+        (
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /app",
+            "Disallow: /api/",
+            "Disallow: /charts-viewer",
+            "Disallow: /study-lounge",
+            "",
+            "Sitemap: https://philforge.in/sitemap.xml",
+            "",
+        )
+    )
+    return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    """The two public story pages. Tiny, but a sitemap that exists beats the
+    401 this path used to answer with."""
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        "  <url><loc>https://philforge.in/</loc><changefreq>monthly</changefreq></url>\n"
+        "  <url><loc>https://philforge.in/equities</loc><changefreq>monthly</changefreq></url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=body, media_type="application/xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/study-assets/{asset_path:path}")

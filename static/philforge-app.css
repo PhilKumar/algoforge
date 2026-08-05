@@ -5963,3 +5963,45 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #oc-tab-bench .tb-pager button[disabled] { opacity: .4; cursor: default; }
 #oc-tab-bench #tb-saved-table a { text-decoration: none; }
 #oc-tab-bench #tb-saved-table a:hover { text-decoration: underline; }
+
+  /* ── ⓘ info reveals ──────────────────────────────────────────────────
+     The Cascade page used to carry its manual in its face: every card
+     opened with a paragraph. The prose is unchanged — it folds under an
+     ⓘ and appears on demand, so the page leads with controls and the
+     explanation is one tap away rather than always in the way. */
+  .pf-info { display: contents; }
+  .pf-info-btn {
+    width: 20px; height: 20px; border-radius: 999px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border-hi, rgba(255,255,255,0.12));
+    background: rgba(255,255,255,0.05);
+    color: var(--muted);
+    font: 700 11px 'JetBrains Mono', monospace;
+    font-style: italic;
+    cursor: pointer;
+    padding: 0;
+    transition: color .15s, border-color .15s, background .15s;
+    vertical-align: middle;
+  }
+  .pf-info-btn:hover { color: var(--accent); border-color: var(--border-acc); }
+  .pf-info.is-open > .pf-info-btn,
+  .pf-info-btn[aria-expanded="true"] {
+    color: var(--accent);
+    border-color: var(--border-acc);
+    background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.10);
+  }
+  .pf-info-pop {
+    display: none;
+    margin: 10px 0 4px;
+    padding: 11px 14px;
+    border-left: 2px solid var(--border-acc, rgba(0,191,165,0.30));
+    border-radius: 0 10px 10px 0;
+    background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.055);
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+  .pf-info-pop strong { color: var(--text); }
+  .pf-info.is-open ~ .pf-info-pop,
+  .pf-info-pop.is-open { display: block; }
+  [data-theme="light"] .pf-info-btn { background: rgba(15,23,42,0.04); }

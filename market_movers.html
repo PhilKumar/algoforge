@@ -17,6 +17,11 @@
 <link rel="manifest" href="/manifest.webmanifest?v=__ASSET_VERSION__">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
+<!-- The preset registry must load before theme.js: without it theme.js
+     falls back to a font list containing only "forge", and a stored font
+     preference is silently dropped on this page while every other page
+     honours it. -->
+<script src="/static/philforge-appearance.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-theme.js?v=__ASSET_VERSION__"></script>
 <link rel="stylesheet" href="/static/market_movers.css?v=__ASSET_VERSION__">
 <link rel="stylesheet" href="/static/philforge-theme.css?v=__ASSET_VERSION__">

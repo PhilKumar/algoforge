@@ -17,6 +17,11 @@
 <link rel="manifest" href="/manifest.webmanifest?v=__ASSET_VERSION__">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
+<!-- This page lived outside the appearance system entirely — a stored
+     tint, font or light theme applied on every other page and not here.
+     Registry first, then the engine, same order as everywhere else. -->
+<script src="/static/philforge-appearance.js?v=__ASSET_VERSION__"></script>
+<script src="/static/philforge-theme.js?v=__ASSET_VERSION__"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -39,6 +44,35 @@
   --glass-hi:   rgba(255, 255, 255, 0.18);
   --glass-mid:  rgba(255, 255, 255, 0.09);
   --glass-lo:   rgba(255, 255, 255, 0.04);
+}
+/* Native-tint light mode. The tinted variants come from philforge-theme.css,
+   which needs BOTH attributes (html[data-theme="light"][data-pf-tint]); this
+   block is the untinted case that file deliberately leaves to the page. */
+[data-theme="light"] {
+  --bg:         #eef4f8;
+  --surface:    rgba(255, 255, 255, 0.92);
+  --card:       rgba(255, 255, 255, 0.94);
+  --card2:      rgba(248, 251, 254, 0.96);
+  --border:     rgba(15, 23, 42, 0.08);
+  --border-hi:  rgba(15, 23, 42, 0.13);
+  --border-acc: rgba(15, 118, 110, 0.20);
+  --text:       #102031;
+  --text-dim:   rgba(16, 32, 49, 0.72);
+  --muted:      rgba(71, 85, 105, 0.72);
+  --accent:     #0f766e;
+  --accent2:    #2563eb;
+  --green:      #0f9f6e;
+  --red:        #d24b5a;
+  --warn:       #c98a18;
+  --purple:     #7c5cd6;
+  --glass-hi:   rgba(15, 23, 42, 0.10);
+  --glass-mid:  rgba(15, 23, 42, 0.05);
+  --glass-lo:   rgba(15, 23, 42, 0.03);
+}
+[data-theme="light"] body {
+  background-image:
+    radial-gradient(ellipse 900px 700px at 15% 25%, rgba(15,118,110,0.05) 0%, transparent 68%),
+    radial-gradient(ellipse 700px 600px at 82% 72%, rgba(37,99,235,0.04) 0%, transparent 68%);
 }
 body {
   font-family: 'Outfit', sans-serif;
@@ -611,6 +645,7 @@ body::before {
   }
 }
 </style>
+<link rel="stylesheet" href="/static/philforge-theme.css?v=__ASSET_VERSION__">
 </head>
 <body>
 
@@ -624,6 +659,7 @@ body::before {
     </div>
   </a>
   <div class="topbar-right">
+    <button class="topbar-btn" id="charts-theme-toggle" type="button" aria-label="Toggle theme">◐ Theme</button>
     <a href="/app" class="topbar-btn">← Back to Dashboard</a>
     <button class="topbar-btn" data-install-app hidden>Install App</button>
     <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())">Logout</button>
@@ -1053,6 +1089,11 @@ document.addEventListener('keydown', function(e) {
     applyLightboxLayout(viewport);
   });
 })();
+</script>
+<script>
+document.getElementById('charts-theme-toggle').addEventListener('click', function () {
+  if (typeof window.pfToggleTheme === 'function') window.pfToggleTheme();
+});
 </script>
 </body>
 </html>

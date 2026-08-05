@@ -24,6 +24,27 @@
 </head>
 <body>
 
+<!-- The same affordance the terminal and CryptoForge's unlock have: theme,
+     tint and font are choosable BEFORE login, not only after. Names come
+     from PHILFORGE_APPEARANCE_PRESETS — the single vocabulary — never typed
+     here by hand. -->
+<button type="button" class="login-appearance-toggle" id="login-appearance-toggle" aria-label="Appearance" aria-expanded="false">
+  <span class="login-appearance-dot"></span>
+  <span>Style</span>
+</button>
+<div class="login-appearance-panel" id="login-appearance-panel" hidden>
+  <div class="login-appearance-title">Appearance</div>
+  <div class="login-appearance-label">Theme</div>
+  <div class="login-theme-row">
+    <button type="button" data-login-theme="dark">Dark</button>
+    <button type="button" data-login-theme="light">Light</button>
+  </div>
+  <div class="login-appearance-label">Tint</div>
+  <div class="login-appearance-grid" id="login-tint-grid"></div>
+  <div class="login-appearance-label">Font</div>
+  <div class="login-font-list" id="login-font-list"></div>
+</div>
+
 <div class="unlock-card" id="unlock-card">
   <img src="/static/logo.png?v=__ASSET_VERSION__" alt="PhilForge" class="unlock-logo theme-logo dark-variant">
   <img src="/static/logolight.png?v=__ASSET_VERSION__" alt="PhilForge" class="unlock-logo theme-logo light-variant">

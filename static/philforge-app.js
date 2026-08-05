@@ -15695,3 +15695,14 @@ document.addEventListener('change', (event) => {
     _tbForceNextRun = false;
   }
 });
+
+/* ⓘ info reveals: the button names its target by id, so the prose can sit
+   wherever the layout wants it rather than being forced adjacent. */
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.pf-info-btn');
+  if (!btn) return;
+  const target = document.getElementById(btn.getAttribute('data-pf-info') || '');
+  if (!target) return;
+  const open = target.classList.toggle('is-open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+});

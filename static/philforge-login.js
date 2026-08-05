@@ -243,3 +243,83 @@ document.addEventListener('keydown', (e) => {
 
 unlockBtn.addEventListener('click', tryUnlock);
 setMode(PASSWORD_MODE, false);
+
+/* ── Appearance at the door ─────────────────────────────────────────────
+   The panel is BUILT from PHILFORGE_APPEARANCE_PRESETS rather than typed
+   here: CryptoForge's unlock once hand-listed preset names its allowlist
+   had never heard of, and three of its five font buttons silently did
+   nothing. Rendering from the registry makes that class of drift
+   impossible — a preset that exists is offered, one that doesn't isn't. */
+(function () {
+  const toggle = document.getElementById('login-appearance-toggle');
+  const panel = document.getElementById('login-appearance-panel');
+  const tintGrid = document.getElementById('login-tint-grid');
+  const fontList = document.getElementById('login-font-list');
+  const presets = window.PHILFORGE_APPEARANCE_PRESETS || {};
+  if (!toggle || !panel || !tintGrid || !fontList) return;
+
+  (presets.tints || []).forEach((tint) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'swatch ' + (tint.swatch || '');
+    btn.setAttribute('data-login-tint', tint.id);
+    btn.setAttribute('aria-label', tint.label || tint.id);
+    btn.title = tint.label || tint.id;
+    tintGrid.appendChild(btn);
+  });
+  (presets.fonts || []).forEach((font) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('data-login-font', font.id);
+    btn.textContent = font.label || font.id;
+    fontList.appendChild(btn);
+  });
+
+  function sync() {
+    const state = typeof window.pfGetAppearance === 'function' ? window.pfGetAppearance() : {};
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    panel.querySelectorAll('[data-login-tint]').forEach((btn) => {
+      const active = btn.getAttribute('data-login-tint') === state.tint;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    panel.querySelectorAll('[data-login-font]').forEach((btn) => {
+      const active = btn.getAttribute('data-login-font') === state.font;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    panel.querySelectorAll('[data-login-theme]').forEach((btn) => {
+      const active = btn.getAttribute('data-login-theme') === theme;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  toggle.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+    sync();
+  });
+  panel.addEventListener('click', (event) => {
+    const tintBtn = event.target.closest('[data-login-tint]');
+    const fontBtn = event.target.closest('[data-login-font]');
+    const themeBtn = event.target.closest('[data-login-theme]');
+    if (tintBtn && typeof window.pfApplyAppearance === 'function') {
+      window.pfApplyAppearance({ tint: tintBtn.getAttribute('data-login-tint') }, { persist: true });
+    }
+    if (fontBtn && typeof window.pfApplyAppearance === 'function') {
+      window.pfApplyAppearance({ font: fontBtn.getAttribute('data-login-font') }, { persist: true });
+    }
+    if (themeBtn && typeof window.pfApplyTheme === 'function') {
+      window.pfApplyTheme(themeBtn.getAttribute('data-login-theme'), { persist: true });
+    }
+    if (tintBtn || fontBtn || themeBtn) sync();
+  });
+  document.addEventListener('click', (event) => {
+    if (panel.hidden) return;
+    if (panel.contains(event.target) || toggle.contains(event.target)) return;
+    panel.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+  });
+  sync();
+})();
