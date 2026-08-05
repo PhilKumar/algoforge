@@ -1755,7 +1755,7 @@ function _renderCascadeOptionsStatus(payload) {
   }
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const tone = isRunning ? '#6ee7b7' : '#fbbf24';
+  const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
   if (badge) { badge.textContent = state; _cascadeSetTone(badge, isRunning ? 'success' : 'warning'); badge.style.color = tone; badge.style.borderColor = tone; }
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
@@ -1849,14 +1849,14 @@ function _renderCandleEntryStatus(payload) {
   }
   const running = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : '#fbbf24'; }
+  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : 'var(--warn)'; }
   if (start) start.disabled = running;
   if (kill) kill.style.display = running ? '' : 'none';
   const c = campaign.contract || {};
   if (summary) {
     const signal = campaign.signal_entry || {};
     const signalLine = signal.index_price == null ? '' : `<br>Index entry signal: ${escapeHtml(_cascadeNumber(signal.index_price))}${signal.exit_timestamp ? ' · Exit reached' : ''}`;
-    const pricingLine = campaign.pricing_warning ? `<br><span class="is-warning" style="color:#fbbf24;">${escapeHtml(campaign.pricing_warning)}</span>` : '';
+    const pricingLine = campaign.pricing_warning ? `<br><span class="is-warning" style="color:var(--warn);">${escapeHtml(campaign.pricing_warning)}</span>` : '';
     const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
     const filled = rungs.filter(r => r.state === 'filled').length;
     const ladderLine = rungs.length
@@ -2080,13 +2080,13 @@ function _cascadeOptionsChartSvg(payload) {
     if (!Number.isFinite(prevC) || !Number.isFinite(openP) || prevC === openP) continue;
     const gTop = Y(Math.max(prevC, openP)), gBot = Y(Math.min(prevC, openP));
     const gw = bodyW + 4, gx = X(i) - gw / 2;
-    const gColor = openP > prevC ? '#34d399' : '#f87171';
+    const gColor = openP > prevC ? 'var(--green)' : 'var(--red)';
     parts.push(`<rect x="${gx.toFixed(1)}" y="${gTop.toFixed(1)}" width="${gw.toFixed(1)}" height="${Math.max(gBot - gTop, 1).toFixed(1)}" fill="${gColor}" opacity=".22" stroke="${gColor}" stroke-opacity=".6" stroke-width="0.8"/>`);
   }
   candles.forEach((candle, i) => {
     const isGap = candle.gap_direction === 'up' || candle.gap_direction === 'down';
     const up = Number(candle.c) >= Number(candle.o);
-    const color = candle.gap_direction === 'up' ? '#34d399' : candle.gap_direction === 'down' ? '#f87171' : (up ? '#39c6b1' : '#ec5f91');
+    const color = candle.gap_direction === 'up' ? 'var(--green)' : candle.gap_direction === 'down' ? 'var(--red)' : (up ? '#39c6b1' : '#ec5f91');
     const x = X(i), top = Y(Math.max(Number(candle.o), Number(candle.c))), bottom = Y(Math.min(Number(candle.o), Number(candle.c)));
     parts.push(`<line x1="${x.toFixed(1)}" y1="${Y(Number(candle.h)).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(Number(candle.l)).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
     parts.push(`<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(bottom - top, 1).toFixed(1)}" fill="${color}" ${isGap ? 'opacity=".95"' : ''}/>`);
@@ -2343,7 +2343,7 @@ function _renderFibSpaceStatus(payload) {
       //                   NOT a flat result, and showing Rs 0.00 reads as one
       //   a real number   at least one round has closed
       let net = 'unpriced';
-      let netColour = '#fbbf24';
+      let netColour = 'var(--warn)';
       let netTitle = 'A leg could not be quoted when it happened, so this campaign reports no P&L rather than a guessed one.';
       if (!row.unpriced && !row.closed_rounds) {
         net = '—';
@@ -2455,7 +2455,7 @@ function _renderFibSpaceDetail(c) {
     // realised and never folded into it.
     money.innerHTML = [
       _cascadeOptionsMetric('Capital spent', _fsxMoney(c.capital_spent)),
-      _cascadeOptionsMetric('Still at risk', _fsxMoney(c.capital_open), (c.capital_open || 0) > 0 ? '#fbbf24' : 'var(--text)'),
+      _cascadeOptionsMetric('Still at risk', _fsxMoney(c.capital_open), (c.capital_open || 0) > 0 ? 'var(--warn)' : 'var(--text)'),
       _cascadeOptionsMetric('Realised ₹', _fsxMoney(c.realised), (c.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
       _cascadeOptionsMetric('Open now ₹', _fsxMoney(c.unrealised), (c.unrealised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
     ].join('');
@@ -2471,14 +2471,14 @@ function _renderFibSpaceDetail(c) {
     const head = `Round ${r.round} · ${r.lots} lot${r.lots === 1 ? '' : 's'} / ${r.quantity} qty · avg premium ${r.average_premium ?? '—'} · spent ${_fsxMoney(r.capital_spent)}`;
     const tail = r.exit
       ? `<span style="color:${(r.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(String(r.exit.reason || 'exit').toUpperCase())} @ ${_cascadeNumber(r.exit.index_price)} · premium ${r.exit.premium ?? '—'} · ${_fsxMoney(r.realised)}</span>`
-      : `<span style="color:#fbbf24;">OPEN${r.mark_value !== undefined ? ` · worth ${_fsxMoney(r.mark_value)} now (${_fsxMoney(r.unrealised)})` : ''}</span>`;
+      : `<span style="color:var(--warn);">OPEN${r.mark_value !== undefined ? ` · worth ${_fsxMoney(r.mark_value)} now (${_fsxMoney(r.unrealised)})` : ''}</span>`;
     const legs = r.fills.map(f => `<tr style="text-align:right;border-top:1px solid var(--border);">
         <td style="text-align:left;padding:5px 8px;">${escapeHtml(new Date(f.at).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
         <td style="padding:5px 8px;">${_cascadeNumber(f.index_price)}</td>
         <td style="padding:5px 8px;">${f.strike === null ? '—' : Number(f.strike).toLocaleString('en-IN')}</td>
         <td style="padding:5px 8px;">${f.lots}</td>
         <td style="padding:5px 8px;">${f.quantity}</td>
-        <td style="padding:5px 8px;">${f.premium ?? '<span style="color:#fbbf24;">unpriced</span>'}</td>
+        <td style="padding:5px 8px;">${f.premium ?? '<span style="color:var(--warn);">unpriced</span>'}</td>
         <td style="padding:5px 8px;">${_fsxMoney(f.outlay)}</td>
         <td style="text-align:left;padding:5px 8px;color:var(--muted);">${escapeHtml(f.space || '')}</td>
       </tr>`).join('');
@@ -2789,7 +2789,7 @@ function _renderFibBoundaryStatus(payload) {
   }
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const tone = isRunning ? '#6ee7b7' : '#fbbf24';
+  const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
   if (badge) {
     badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state;
     badge.classList.toggle('is-positive', isRunning);
@@ -2818,7 +2818,7 @@ function _renderFibBoundaryStatus(payload) {
   if (active) active.style.display = '';
   if (startBtn) startBtn.disabled = isRunning;
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
-  const pricingWarn = campaign.pricing_warning ? `<div class="fibx-pricing-warning" style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:#fbbf24;font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
+  const pricingWarn = campaign.pricing_warning ? `<div class="fibx-pricing-warning" style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
   if (pricingWarn && summary) summary.insertAdjacentHTML('beforeend', pricingWarn);
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const signalFills = Array.isArray(campaign.signal_fills) ? campaign.signal_fills : [];
@@ -2833,7 +2833,7 @@ function _renderFibBoundaryStatus(payload) {
         const priced = fill.option_premium != null;
         const tail = priced
           ? `<strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(fill.lots))} lot · ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong>`
-          : '<strong class="fibx-warning-value" style="color:#fbbf24;">SIGNAL ONLY</strong>';
+          : '<strong class="fibx-warning-value" style="color:var(--warn);">SIGNAL ONLY</strong>';
         return `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span>${tail}</div>`;
       }).join('');
     } else {
@@ -2843,7 +2843,7 @@ function _renderFibBoundaryStatus(payload) {
   const boundaries = Array.isArray(campaign.boundaries) ? campaign.boundaries : [];
   const boundEl = document.getElementById('fibx-boundaries');
   if (boundEl) boundEl.innerHTML = boundaries.length ? boundaries.map(b => {
-    const stateColor = ({ PENDING: 'var(--muted)', ARMED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#f87171' }[b.status] || 'var(--muted)');
+    const stateColor = ({ PENDING: 'var(--muted)', ARMED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: 'var(--red)' }[b.status] || 'var(--muted)');
     const toneClass = _cascadeOptionsToneClass(stateColor);
     return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>L${escapeHtml(String(b.level))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(b.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(b.index_price))}</div></div>`;
   }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib boundaries yet.</div>';
@@ -3119,7 +3119,7 @@ function _renderFibBoundaryBacktest(data) {
   if (badge) {
     const priced = !!result.fully_priced;
     badge.textContent = priced ? 'REAL PREMIUMS' : 'PARTIAL · GAPS';
-    const tone = priced ? '#6ee7b7' : '#fbbf24';
+    const tone = priced ? '#6ee7b7' : 'var(--warn)';
     badge.classList.toggle('is-positive', priced);
     badge.classList.toggle('is-warning', !priced);
     badge.style.color = tone; badge.style.borderColor = tone;
@@ -3158,7 +3158,7 @@ function _renderFibBoundaryBacktest(data) {
       blocks.push(`<details class="fibx-premium-failures" open style="border:1px solid rgba(252,165,165,.4);border-radius:7px;padding:8px 10px;"><summary style="color:#fca5a5;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${failures.length} premium source failure${failures.length === 1 ? '' : 's'} — the data feed broke, this is NOT a market gap. Fix the source and re-run.</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${failures.slice(0, 20).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
     }
     if (gaps.length) {
-      blocks.push(`<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:#fbbf24;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — no tradable bar near the fill (net P&L is withheld when a leg stays unpriced)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
+      blocks.push(`<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:var(--warn);font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — no tradable bar near the fill (net P&L is withheld when a leg stays unpriced)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
     }
     if (staleFills.length) {
       blocks.push(`<details class="fibx-premium-stale" style="border:1px solid var(--border);border-radius:7px;padding:8px 10px;"><summary style="color:var(--muted);font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${staleFills.length} leg${staleFills.length === 1 ? '' : 's'} priced without an exact minute bar (each line says how — neighbouring real trade, or intrinsic floor at an exit)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${staleFills.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
@@ -3170,7 +3170,7 @@ function _renderFibBoundaryBacktest(data) {
     const rows = result.entries || [];
     legs.innerHTML = rows.length ? rows.map(e => {
       const priced = e.option_price != null;
-      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td class="${priced ? '' : 'is-warning'}" style="padding:7px 8px;color:${priced ? 'var(--text)' : '#fbbf24'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
+      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td class="${priced ? '' : 'is-warning'}" style="padding:7px 8px;color:${priced ? 'var(--text)' : 'var(--warn)'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
     }).join('') : '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--muted);">No leg filled — price never reached the deep boundaries in this window.</td></tr>';
   }
 }
@@ -3669,7 +3669,7 @@ function _buildRunCards(runs, opts = {}) {
         <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size:11px;padding:6px 12px;">View</button>
         <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size:11px;padding:6px 12px;">Copy&amp;Edit</button>
         <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">Rename</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(245,158,11,0.15); --btn-color: #fbbf24; --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">Folder</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">Folder</button>
         <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size:11px;padding:6px 12px;">Del</button>
       </div>
     </article>`;
@@ -3714,7 +3714,7 @@ function _buildRunsTable(runs, opts = {}) {
           <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 11px; padding: 5px 10px;">View</button>
           <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Copy&amp;Edit</button>
           <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">✏️</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(245,158,11,0.15); --btn-color: #fbbf24; --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">📁</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">📁</button>
           <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
         </div>
       </td>
@@ -3774,7 +3774,7 @@ function _updateBulkBar() {
     bar.style.display = 'flex';
     bar.innerHTML = '<span class="bulk-count">' + n + ' selected</span>'
       + '<button class="btn btn-danger btn-sm" onclick="bulkDeleteRuns()" style="font-size:11px;padding:5px 12px;">' + ICO.trash(13) + ' Delete</button>'
-      + '<button class="btn btn-sm" onclick="bulkMoveToFolder()" style="font-size:11px;padding:5px 12px;--btn-bg:rgba(245,158,11,0.15);--btn-color:#fbbf24;--btn-border:rgba(245,158,11,0.3);">📁 Move to Folder</button>'
+      + '<button class="btn btn-sm" onclick="bulkMoveToFolder()" style="font-size:11px;padding:5px 12px;--btn-bg:rgba(245,158,11,0.15);--btn-color:var(--warn);--btn-border:rgba(245,158,11,0.3);">📁 Move to Folder</button>'
       + '<button class="btn btn-sm" onclick="bulkRename()" style="font-size:11px;padding:5px 12px;--btn-bg:rgba(99,102,241,0.15);--btn-color:#a594f9;--btn-border:rgba(99,102,241,0.3);">✏️ Rename</button>'
       + '<button class="page-btn" onclick="_selectedRunIds.clear();_renderFilteredRuns();_renderDashRuns();" style="font-size:11px;">Clear</button>';
   });
@@ -5340,8 +5340,8 @@ function _renderTerminalCascadeStatus(payload) {
   }
   if (badge) {
     badge.textContent = `${runningCampaigns.length} ACTIVE / ${campaigns.length}`;
-    badge.style.color = runningCampaigns.length ? '#6ee7b7' : '#fbbf24';
-    badge.style.borderColor = runningCampaigns.length ? '#6ee7b7' : '#fbbf24';
+    badge.style.color = runningCampaigns.length ? '#6ee7b7' : 'var(--warn)';
+    badge.style.borderColor = runningCampaigns.length ? '#6ee7b7' : 'var(--warn)';
   }
   if (start) start.disabled = false;
   if (stop) stop.style.display = 'none';
@@ -6170,7 +6170,7 @@ function _renderTerminalClosedCampaigns() {
       <td>${escapeHtml(String(config.timeframe || '—'))}<small>${escapeHtml(String(config.product_type || ''))}</small></td>
       <td class="num">${escapeHtml(_terminalCascadeMoney(config.capital_inr || 0))}</td>
       <td class="num">${escapeHtml(_cascadeNumber(archive?.mother?.trade?.high))}</td>
-      <td>${escapeHtml(String(archive.status || '—').replaceAll('_', ' '))}${heldQty ? `<small style="color:#fbbf24;">deleted holding ${heldQty} qty</small>` : ''}</td>
+      <td>${escapeHtml(String(archive.status || '—').replaceAll('_', ' '))}${heldQty ? `<small style="color:var(--warn);">deleted holding ${heldQty} qty</small>` : ''}</td>
       <td class="num">${rounds.length}</td>
       <td class="num" style="color:${tone};font-weight:700;">${net >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(net)))}</td>
       <td><button class="btn btn-sm btn-danger" onclick="purgeTerminalClosedCampaign('${escapeJsAttr(String(archive.archive_id || ''))}')">Purge</button></td>
@@ -6261,7 +6261,7 @@ function _terminalCascadeChartHtml(payload) {
   const legend = `<div class="terminal-cascade-chart-legend">
     <span style="color:#a78bfa;">MC / mother high</span>
     <span style="color:#60a5fa;">trendlines</span>
-    <span style="color:#34d399;">fib buy levels</span>
+    <span style="color:var(--green);">fib buy levels</span>
     <span style="color:#6ee7b7;">fills</span>
     ${referenceMode ? `<em>${escapeHtml(signal)} signal chart -> ${escapeHtml(trade)} trade/TP</em>` : '<em>Own chart, own trade and TP scale</em>'}
   </div>`;
@@ -6284,8 +6284,8 @@ function _terminalCascadeChartPalette() {
   return {
     bg: '#07101d', grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
     up: '#3fae56', down: '#d9534f', mother: '#a855f7',
-    tp: '#10b981', avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
-    fibs: ['#3b82f6', '#22c55e', '#ef4444'],
+    tp: 'var(--green)', avg: '#e2e8f0', fill: 'var(--green)', fillRing: '#0b1220',
+    fibs: ['#3b82f6', 'var(--green)', 'var(--red)'],
   };
 }
 
@@ -7593,7 +7593,7 @@ async function fetchScalpLTP() {
     if (match) {
       _scalpCurrentLTP = match.current_premium;
       el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
-      el.style.color = '#34d399';
+      el.style.color = 'var(--green)';
       updateScalpMargin();
       return;
     }
@@ -7609,7 +7609,7 @@ async function fetchScalpLTP() {
     const d = await r.json();
     if (d.status === 'ok' && d.ltp > 0) {
       el.textContent = '₹' + d.ltp.toFixed(2);
-      el.style.color = '#34d399';
+      el.style.color = 'var(--green)';
       _scalpCurrentLTP = d.ltp;
     } else {
       // Fallback: keep last known LTP if we had one, show N/A only if truly unknown
@@ -8293,9 +8293,9 @@ function _applyScalpEngineState(running, rootGetter = (id) => document.getElemen
   const stopBtn = rootGetter('scalp-stop-btn');
 
   if (running) {
-    if (dot) { dot.style.background = '#34d399'; dot.style.animation = 'livePulse 2s infinite'; }
+    if (dot) { dot.style.background = 'var(--green)'; dot.style.animation = 'livePulse 2s infinite'; }
     if (label) label.textContent = 'Running';
-    if (engDot) engDot.style.color = '#34d399';
+    if (engDot) engDot.style.color = 'var(--green)';
   } else {
     if (dot) { dot.style.background = 'var(--muted)'; dot.style.animation = 'none'; }
     if (label) label.textContent = 'Idle';
@@ -8568,17 +8568,17 @@ function loadExpiryDates() {
       if (data.nifty && nEl) {
         const dt = new Date(data.nifty + 'T00:00:00');
         const today = new Date(); today.setHours(0,0,0,0);
-        if (dt.getTime() === today.getTime()) nEl.style.color = '#f87171';
+        if (dt.getTime() === today.getTime()) nEl.style.color = 'var(--red)';
       }
       if (data.banknifty && bEl) {
         const dt = new Date(data.banknifty + 'T00:00:00');
         const today = new Date(); today.setHours(0,0,0,0);
-        if (dt.getTime() === today.getTime()) bEl.style.color = '#f87171';
+        if (dt.getTime() === today.getTime()) bEl.style.color = 'var(--red)';
       }
       if (data.sensex && sEl) {
         const dt = new Date(data.sensex + 'T00:00:00');
         const today = new Date(); today.setHours(0,0,0,0);
-        if (dt.getTime() === today.getTime()) sEl.style.color = '#f87171';
+        if (dt.getTime() === today.getTime()) sEl.style.color = 'var(--red)';
       }
     }
   }).catch(e => console.warn('Expiry fetch error:', e));
@@ -8760,7 +8760,7 @@ async function checkBrokerStatus(silent) {
     const res = await fetch('/api/broker/check', { method: 'POST' });
     const data = await res.json();
     if (data.status === 'connected') {
-      updateBrokerUI(true, 'Dhan Connected', '#22c55e', 'Recheck');
+      updateBrokerUI(true, 'Dhan Connected', 'var(--green)', 'Recheck');
       startBrokerHealthCheck();
       if (!silent) toast('Broker connection verified', 'success');
       return true;
@@ -11452,7 +11452,7 @@ async function refreshBuilderPreview() {
       } else if (paper.running) {
         badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
-        badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = '#f87171';
+        badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = 'var(--red)';
       }
       const pName = document.getElementById('bp-paper-name');
       pName.textContent = paper.strategy_name || '—';
@@ -11472,7 +11472,7 @@ async function refreshBuilderPreview() {
       } else if (live.running) {
         badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
-        badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = '#f87171';
+        badge.textContent = 'STOPPED'; badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = 'var(--red)';
       }
       const aName = document.getElementById('bp-auto-name');
       aName.textContent = live.strategy_name || '—';
@@ -11697,7 +11697,7 @@ function renderLiveTabs() {
     let statusDot = '';
     if (running && inTrade) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ade80;margin-right:4px;animation:pulse 2s infinite;"></span>';
     else if (running) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:4px;animation:pulse 2s infinite;"></span>';
-    else statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f87171;margin-right:4px;"></span>';
+    else statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:4px;"></span>';
 
     const borderStyle = active ? 'border-bottom:2px solid var(--accent);' : 'border-bottom:2px solid transparent;';
     const bgStyle = active ? 'background:rgba(99,102,241,0.08);' : '';
@@ -11740,7 +11740,7 @@ function renderLivePanel(d, idx) {
     badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:#f59e0b;">WAITING</span>';
     statusText = 'Waiting'; statusColor = '#f59e0b';
   } else {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:#f87171;">STOPPED</span>';
+    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:var(--red);">STOPPED</span>';
     statusText = 'Idle'; statusColor = 'var(--muted)';
   }
 
@@ -11782,13 +11782,13 @@ function renderLivePanel(d, idx) {
     posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
       const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:#f87171;border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
+      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:var(--red);border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
     }).join('');
   }
 
   // Events
   const events = (d.event_log || []).slice().reverse();
-  const evtColors = {signal:'#4ade80',error:'#f87171',warning:'#fbbf24',stop:'#f87171',start:'#4ade80',info:'var(--muted)'};
+  const evtColors = {signal:'#4ade80',error:'var(--red)',warning:'var(--warn)',stop:'var(--red)',start:'#4ade80',info:'var(--muted)'};
   let evtHtml;
   if (!events.length) {
     evtHtml = '<div class="live-event-empty">No events yet.</div>';
@@ -11891,7 +11891,7 @@ function renderLivePanel(d, idx) {
     </div>
     <div class="live-panel-actions" style="display:flex;gap:8px;">
       <button class="btn" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
-      ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: #f87171;--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
+      ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: var(--red);--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
       ${!running && runId ? `<button class="btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
       ${!running && runId ? `<button class="btn" onclick="dismissEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
       <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
@@ -13434,9 +13434,9 @@ function updateMoodFromRuns() {
     const labelEl = document.getElementById('confidence-label');
     if (barEl) {
       barEl.style.width = confidence + '%';
-      if (confidence >= 70) barEl.style.background = 'linear-gradient(90deg,var(--success),#34d399)';
-      else if (confidence >= 40) barEl.style.background = 'linear-gradient(90deg,var(--warn),#fbbf24)';
-      else barEl.style.background = 'linear-gradient(90deg,var(--danger),#f87171)';
+      if (confidence >= 70) barEl.style.background = 'linear-gradient(90deg,var(--success),var(--green))';
+      else if (confidence >= 40) barEl.style.background = 'linear-gradient(90deg,var(--warn),var(--warn))';
+      else barEl.style.background = 'linear-gradient(90deg,var(--danger),var(--red))';
     }
     if (valEl) {
       valEl.textContent = confidence + '%';
@@ -13573,10 +13573,10 @@ function _wsSetLiveIndicator(connected, stale) {
   if (!dot || !label) return;
   const scalpRunning = !!(_lastScalpStatus && _lastScalpStatus.running);
   if (!connected) {
-    dot.style.background = '#ef4444';
+    dot.style.background = 'var(--red)';
     dot.style.animation = 'none';
     label.textContent = 'Disconnected';
-    label.style.color = '#ef4444';
+    label.style.color = 'var(--red)';
   } else if (stale) {
     dot.style.background = '#f59e0b';
     dot.style.animation = 'none';
@@ -13588,10 +13588,10 @@ function _wsSetLiveIndicator(connected, stale) {
     label.textContent = 'Feed Ready';
     label.style.color = '#0891b2';
   } else {
-    dot.style.background = '#34d399';
+    dot.style.background = 'var(--green)';
     dot.style.animation = 'livePulse 2s infinite';
     label.textContent = 'Feed Live';
-    label.style.color = '#34d399';
+    label.style.color = 'var(--green)';
   }
 }
 
@@ -13859,7 +13859,7 @@ function _updateLivePremiumFromWS(openTrades) {
     const el = _getScalpEl('scalp-live-ltp');
     if (el) {
       el.textContent = '₹' + match.current_premium.toFixed(2);
-      el.style.color = '#34d399';
+      el.style.color = 'var(--green)';
     }
     _scalpCurrentLTP = match.current_premium;
     _scalpLTPFromWS = Date.now();  // mark as fresh — suppresses REST fallback
@@ -15513,7 +15513,7 @@ function _tbRenderVerdict(data) {
   const pnl = Number(s.net_pnl);
   const open = !!s.still_open;
   const targetHit = String(s.exit_reason || '').toLowerCase().startsWith('target');
-  const GOOD = '#6ee7b7', BAD = '#fca5a5', WAIT = '#fbbf24';
+  const GOOD = '#6ee7b7', BAD = '#fca5a5', WAIT = 'var(--warn)';
 
   const badge = document.getElementById('tb-outcome-badge');
   if (badge) {
@@ -15630,7 +15630,7 @@ async function _tbLoadSaved(page) {
       <td>${escapeHtml(row.strategy === 'two_red' ? 'Two red' : 'Fib levels')}</td>
       <td>${escapeHtml(_TB_TF_LABEL[row.timeframe] || row.timeframe || '')}</td>
       <td>${_tbInr(row.rung_inr)}</td>
-      <td${open ? ' style="color:#fbbf24;"' : ''}>${escapeHtml(String(row.outcome || '—'))}</td>
+      <td${open ? ' style="color:var(--warn);"' : ''}>${escapeHtml(String(row.outcome || '—'))}</td>
       <td>${escapeHtml(String(row.entry_count ?? 0))}</td>
       <td${tone}>${isFinite(pnl) ? _tbInr(pnl) : '—'}</td>
       <td><button class="btn btn-sm cascade-options-control" type="button" data-pf-action="deleteSavedTestBenchRun" data-tb-run="${row.id}" aria-label="Delete this saved run">×</button></td>

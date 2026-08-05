@@ -524,3 +524,40 @@ html[data-pf-tint] .unlock-title {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* ── Semantic colours, calibrated per tint ────────────────────────────
+   Profit stays green and loss stays red — that meaning is not up for
+   restyling — but WHICH green and WHICH red now follows the tint, so a
+   P&L number no longer wears the native palette's neon against a copper
+   or fuchsia room. Appended last to win over the base tokens. */
+html[data-pf-tint="jade"] {
+  --green: #2fd4a4; --success: #2fd4a4; --positive: #2fd4a4;
+  --red: #f2758f; --danger: #f2758f; --negative: #f2758f;
+  --warn: #e3c063;
+}
+html[data-pf-tint="cobalt"] {
+  --green: #5cd6b2; --success: #5cd6b2; --positive: #5cd6b2;
+  --red: #ef82a6; --danger: #ef82a6; --negative: #ef82a6;
+  --warn: #d9be72;
+}
+html[data-pf-tint="copper"] {
+  --green: #93cf8e; --success: #93cf8e; --positive: #93cf8e;
+  --red: #e58a74; --danger: #e58a74; --negative: #e58a74;
+  --warn: #e0b45f;
+}
+html[data-pf-tint="fuchsia"] {
+  --green: #6fd6b8; --success: #6fd6b8; --positive: #6fd6b8;
+  --red: #f27f9f; --danger: #f27f9f; --negative: #f27f9f;
+  --warn: #e5ba61;
+}
+html[data-pf-tint="lime"] {
+  --green: #8ad483; --success: #8ad483; --positive: #8ad483;
+  --red: #e5808c; --danger: #e5808c; --negative: #e5808c;
+  --warn: #d8c766;
+}
+/* Light theme: the same hue families, darkened to hold contrast on paper. */
+html[data-theme="light"][data-pf-tint="jade"]    { --green:#0e7f63; --success:#0e7f63; --positive:#0e7f63; --red:#c23e5c; --danger:#c23e5c; --negative:#c23e5c; --warn:#9a7415; }
+html[data-theme="light"][data-pf-tint="cobalt"]  { --green:#177a60; --success:#177a60; --positive:#177a60; --red:#bb4470; --danger:#bb4470; --negative:#bb4470; --warn:#8f7020; }
+html[data-theme="light"][data-pf-tint="copper"]  { --green:#4a7d46; --success:#4a7d46; --positive:#4a7d46; --red:#b64f3c; --danger:#b64f3c; --negative:#b64f3c; --warn:#96690f; }
+html[data-theme="light"][data-pf-tint="fuchsia"] { --green:#177e62; --success:#177e62; --positive:#177e62; --red:#c04371; --danger:#c04371; --negative:#c04371; --warn:#93701c; }
+html[data-theme="light"][data-pf-tint="lime"]    { --green:#3e7d38; --success:#3e7d38; --positive:#3e7d38; --red:#b74b58; --danger:#b74b58; --negative:#b74b58; --warn:#8d7318; }
