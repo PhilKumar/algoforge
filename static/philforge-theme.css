@@ -47,71 +47,70 @@
     --negative: var(--danger);
     --shadow: var(--pf-shadow);
   }
-  html[data-pf-tint="jade"] {
-    --pf-tint-primary: #3bb9ad;
-    --pf-tint-secondary: #7db6c9;
-    --pf-tint-primary-rgb: 59, 185, 173;
-    --pf-tint-secondary-rgb: 125, 182, 201;
-    --pf-bg: #07110f;
+  html[data-pf-tint="ember"] {
+    --pf-tint-primary: #f59e0b;
+    --pf-tint-secondary: #fb923c;
+    --pf-tint-primary-rgb: 245, 158, 11;
+    --pf-tint-secondary-rgb: 251, 146, 60;
+    --pf-bg: #140d05;
     --pf-bg-image:
-      radial-gradient(880px 620px at 12% 16%, rgba(59, 185, 173, 0.08), transparent 64%),
-      radial-gradient(720px 560px at 85% 72%, rgba(125, 182, 201, 0.05), transparent 66%),
-      linear-gradient(180deg, #07110f 0%, #0a1717 52%, #040908 100%);
-    --pf-card-gradient: linear-gradient(158deg, rgba(16, 31, 33, 0.92), rgba(9, 19, 24, 0.88));
-    --pf-card2-gradient: linear-gradient(158deg, rgba(19, 38, 39, 0.86), rgba(11, 23, 27, 0.82));
+      radial-gradient(900px 620px at 12% 18%, rgba(245, 158, 11, 0.10), transparent 64%),
+      radial-gradient(760px 560px at 85% 74%, rgba(251, 146, 60, 0.06), transparent 66%),
+      linear-gradient(180deg, #140d05 0%, #1a1208 52%, #0a0603 100%);
+    --pf-card-gradient: linear-gradient(158deg, rgba(38, 28, 17, 0.92), rgba(23, 17, 11, 0.88));
+    --pf-card2-gradient: linear-gradient(158deg, rgba(46, 34, 20, 0.86), rgba(27, 20, 13, 0.82));
   }
-  html[data-pf-tint="cobalt"] {
-    --pf-tint-primary: #7fa7d8;
-    --pf-tint-secondary: #9a94c8;
-    --pf-tint-primary-rgb: 127, 167, 216;
-    --pf-tint-secondary-rgb: 154, 148, 200;
-    --pf-bg: #090d17;
+  html[data-pf-tint="azure"] {
+    --pf-tint-primary: #4f9cf7;
+    --pf-tint-secondary: #38bdf8;
+    --pf-tint-primary-rgb: 79, 156, 247;
+    --pf-tint-secondary-rgb: 56, 189, 248;
+    --pf-bg: #070d1a;
     --pf-bg-image:
-      radial-gradient(900px 640px at 14% 20%, rgba(127, 167, 216, 0.09), transparent 64%),
-      radial-gradient(760px 560px at 82% 72%, rgba(154, 148, 200, 0.06), transparent 66%),
-      linear-gradient(180deg, #090d17 0%, #0c1424 52%, #050811 100%);
-    --pf-card-gradient: linear-gradient(158deg, rgba(17, 26, 45, 0.92), rgba(10, 16, 30, 0.88));
-    --pf-card2-gradient: linear-gradient(158deg, rgba(20, 32, 55, 0.86), rgba(12, 19, 35, 0.82));
+      radial-gradient(900px 620px at 12% 18%, rgba(79, 156, 247, 0.10), transparent 64%),
+      radial-gradient(760px 560px at 85% 74%, rgba(56, 189, 248, 0.06), transparent 66%),
+      linear-gradient(180deg, #070d1a 0%, #0a1526 52%, #040810 100%);
+    --pf-card-gradient: linear-gradient(158deg, rgba(15, 26, 46, 0.92), rgba(9, 16, 30, 0.88));
+    --pf-card2-gradient: linear-gradient(158deg, rgba(18, 32, 56, 0.86), rgba(11, 19, 36, 0.82));
   }
-  html[data-pf-tint="copper"] {
-    --pf-tint-primary: #d19a72;
-    --pf-tint-secondary: #c8ad78;
-    --pf-tint-primary-rgb: 209, 154, 114;
-    --pf-tint-secondary-rgb: 200, 173, 120;
-    --pf-bg: #120d09;
+  html[data-pf-tint="orchid"] {
+    --pf-tint-primary: #d879f2;
+    --pf-tint-secondary: #a78bfa;
+    --pf-tint-primary-rgb: 216, 121, 242;
+    --pf-tint-secondary-rgb: 167, 139, 250;
+    --pf-bg: #130a17;
     --pf-bg-image:
-      radial-gradient(900px 620px at 10% 22%, rgba(209, 154, 114, 0.09), transparent 64%),
-      radial-gradient(740px 560px at 84% 76%, rgba(200, 173, 120, 0.055), transparent 66%),
-      linear-gradient(180deg, #120d09 0%, #17110d 52%, #090604 100%);
-    --pf-card-gradient: linear-gradient(158deg, rgba(34, 25, 20, 0.92), rgba(21, 15, 13, 0.88));
-    --pf-card2-gradient: linear-gradient(158deg, rgba(42, 31, 24, 0.86), rgba(24, 17, 14, 0.82));
-    --warn: #fde047;
+      radial-gradient(900px 620px at 12% 18%, rgba(216, 121, 242, 0.10), transparent 64%),
+      radial-gradient(760px 560px at 85% 74%, rgba(167, 139, 250, 0.06), transparent 66%),
+      linear-gradient(180deg, #130a17 0%, #1a0f21 52%, #09050c 100%);
+    --pf-card-gradient: linear-gradient(158deg, rgba(33, 21, 42, 0.92), rgba(20, 13, 26, 0.88));
+    --pf-card2-gradient: linear-gradient(158deg, rgba(41, 26, 52, 0.86), rgba(24, 15, 31, 0.82));
   }
-  html[data-pf-tint="fuchsia"] {
-    --pf-tint-primary: #c58ab3;
-    --pf-tint-secondary: #9b91ca;
-    --pf-tint-primary-rgb: 197, 138, 179;
-    --pf-tint-secondary-rgb: 155, 145, 202;
-    --pf-bg: #120b13;
+  html[data-pf-tint="crimson"] {
+    --pf-tint-primary: #fb7185;
+    --pf-tint-secondary: #f472b6;
+    --pf-tint-primary-rgb: 251, 113, 133;
+    --pf-tint-secondary-rgb: 244, 114, 182;
+    --pf-bg: #160709;
     --pf-bg-image:
-      radial-gradient(900px 620px at 12% 20%, rgba(197, 138, 179, 0.09), transparent 64%),
-      radial-gradient(760px 560px at 86% 70%, rgba(155, 145, 202, 0.06), transparent 66%),
-      linear-gradient(180deg, #120b13 0%, #17101b 52%, #09050a 100%);
-    --pf-card-gradient: linear-gradient(158deg, rgba(33, 23, 35, 0.92), rgba(20, 14, 24, 0.88));
-    --pf-card2-gradient: linear-gradient(158deg, rgba(41, 29, 44, 0.86), rgba(24, 17, 29, 0.82));
+      radial-gradient(900px 620px at 12% 18%, rgba(251, 113, 133, 0.10), transparent 64%),
+      radial-gradient(760px 560px at 85% 74%, rgba(244, 114, 182, 0.06), transparent 66%),
+      linear-gradient(180deg, #160709 0%, #1d0b10 52%, #0b0405 100%);
+    --pf-card-gradient: linear-gradient(158deg, rgba(41, 19, 25, 0.92), rgba(25, 12, 16, 0.88));
+    --pf-card2-gradient: linear-gradient(158deg, rgba(51, 23, 31, 0.86), rgba(29, 14, 19, 0.82));
   }
-  html[data-pf-tint="lime"] {
-    --pf-tint-primary: #a8bd78;
-    --pf-tint-secondary: #7bb8b5;
-    --pf-tint-primary-rgb: 168, 189, 120;
-    --pf-tint-secondary-rgb: 123, 184, 181;
-    --pf-bg: #0e1108;
+  html[data-pf-tint="emerald"] {
+    --pf-tint-primary: #34d399;
+    --pf-tint-secondary: #4ade80;
+    --pf-tint-primary-rgb: 52, 211, 153;
+    --pf-tint-secondary-rgb: 74, 222, 128;
+    --pf-bg: #06120c;
     --pf-bg-image:
-      radial-gradient(900px 620px at 12% 20%, rgba(168, 189, 120, 0.09), transparent 64%),
-      radial-gradient(760px 560px at 86% 72%, rgba(123, 184, 181, 0.055), transparent 66%),
-      linear-gradient(180deg, #0e1108 0%, #12170d 52%, #070904 100%);
-    --pf-card-gradient: linear-gradient(158deg, rgba(29, 34, 20, 0.92), rgba(18, 22, 13, 0.88));
-    --pf-card2-gradient: linear-gradient(158deg, rgba(36, 42, 24, 0.86), rgba(20, 25, 15, 0.82));
+      radial-gradient(900px 620px at 12% 18%, rgba(52, 211, 153, 0.10), transparent 64%),
+      radial-gradient(760px 560px at 85% 74%, rgba(74, 222, 128, 0.06), transparent 66%),
+      linear-gradient(180deg, #06120c 0%, #081a11 52%, #030a06 100%);
+    --pf-card-gradient: linear-gradient(158deg, rgba(13, 33, 24, 0.92), rgba(8, 20, 15, 0.88));
+    --pf-card2-gradient: linear-gradient(158deg, rgba(16, 41, 29, 0.86), rgba(10, 24, 18, 0.82));
   }
   html[data-theme="light"][data-pf-tint] {
     --pf-input-bg: rgba(255, 255, 255, 0.82);
@@ -131,11 +130,11 @@
     --muted-strong: rgba(30, 41, 59, 0.88);
     --shadow: var(--pf-shadow);
   }
-  html[data-theme="light"][data-pf-tint="jade"] { --pf-bg: #f4faf8; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(59, 185, 173, 0.075), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(125, 182, 201, 0.05), transparent 66%), linear-gradient(180deg, #fbfefd 0%, #f1f8f6 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(240,248,247,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(252,255,254,0.96), rgba(235,245,244,0.92)); --accent: #347f78; --accent2: #4b8796; }
-  html[data-theme="light"][data-pf-tint="cobalt"] { --pf-bg: #f4f7fc; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(127, 167, 216, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(154, 148, 200, 0.055), transparent 66%), linear-gradient(180deg, #fbfcff 0%, #eff3fa 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(239,243,250,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(251,253,255,0.96), rgba(234,239,248,0.92)); --accent: #4f709b; --accent2: #6e669b; }
-  html[data-theme="light"][data-pf-tint="copper"] { --pf-bg: #faf6f1; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(209, 154, 114, 0.085), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(200, 173, 120, 0.06), transparent 66%), linear-gradient(180deg, #fffdf9 0%, #f7f0e8 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(247,239,231,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(255,253,249,0.96), rgba(244,234,225,0.92)); --accent: #9a6745; --accent2: #8d7644; }
-  html[data-theme="light"][data-pf-tint="fuchsia"] { --pf-bg: #faf4f9; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(197, 138, 179, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(155, 145, 202, 0.055), transparent 66%), linear-gradient(180deg, #fffaff 0%, #f6eef7 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(247,238,247,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(255,251,255,0.96), rgba(243,233,245,0.92)); --accent: #9b6688; --accent2: #76689c; }
-  html[data-theme="light"][data-pf-tint="lime"] { --pf-bg: #f7faf1; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(168, 189, 120, 0.085), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(123, 184, 181, 0.055), transparent 66%), linear-gradient(180deg, #fcfef8 0%, #f2f7ea 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(242,248,234,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(252,254,248,0.96), rgba(237,245,229,0.92)); --accent: #70824d; --accent2: #4f8583; }
+  html[data-theme="light"][data-pf-tint="ember"] { --pf-bg: #fbf6ee; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(245, 158, 11, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(251, 146, 60, 0.055), transparent 66%), linear-gradient(180deg, #fffdf8 0%, #f7efe2 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(250,242,230,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(255,253,248,0.96), rgba(247,238,224,0.92)); --accent: #b45309; --accent2: #c2570c; }
+  html[data-theme="light"][data-pf-tint="azure"] { --pf-bg: #f2f7fd; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(79, 156, 247, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(56, 189, 248, 0.055), transparent 66%), linear-gradient(180deg, #fafdff 0%, #ecf3fb 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(238,245,252,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(250,253,255,0.96), rgba(233,241,250,0.92)); --accent: #1d4ed8; --accent2: #0369a1; }
+  html[data-theme="light"][data-pf-tint="orchid"] { --pf-bg: #faf4fc; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(216, 121, 242, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(167, 139, 250, 0.055), transparent 66%), linear-gradient(180deg, #fefaff 0%, #f5ecf9 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(248,238,251,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(254,250,255,0.96), rgba(244,234,249,0.92)); --accent: #9333ea; --accent2: #a21caf; }
+  html[data-theme="light"][data-pf-tint="crimson"] { --pf-bg: #fcf4f6; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(251, 113, 133, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(244, 114, 182, 0.055), transparent 66%), linear-gradient(180deg, #fffafb 0%, #f8ecef 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(251,238,241,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(255,250,251,0.96), rgba(249,233,238,0.92)); --accent: #be123c; --accent2: #db2777; }
+  html[data-theme="light"][data-pf-tint="emerald"] { --pf-bg: #f2faf6; --pf-bg-image: radial-gradient(900px 620px at 12% 18%, rgba(52, 211, 153, 0.08), transparent 64%), radial-gradient(760px 560px at 84% 78%, rgba(74, 222, 128, 0.055), transparent 66%), linear-gradient(180deg, #fafdfb 0%, #ebf7f1 100%); --pf-card-gradient: linear-gradient(158deg, rgba(255,255,255,0.96), rgba(237,248,242,0.92)); --pf-card2-gradient: linear-gradient(158deg, rgba(250,253,251,0.96), rgba(232,246,238,0.92)); --accent: #047857; --accent2: #15803d; }
 
   html[data-pf-font="forge"] { --font-body: 'Outfit', sans-serif; --font-display: 'Syne', sans-serif; --font-mono: 'JetBrains Mono', monospace; }
   html[data-pf-font="atelier"] { --font-body: 'DM Sans', sans-serif; --font-display: 'Space Grotesk', sans-serif; --font-mono: 'IBM Plex Mono', monospace; }
@@ -386,11 +385,11 @@
     flex: 0 0 auto;
   }
   .swatch-native { background: linear-gradient(135deg, #070b12 0%, #111827 52%, #334155 100%); }
-  .swatch-jade { background: linear-gradient(135deg, #07110f 0%, #3bb9ad 56%, #7db6c9 100%); }
-  .swatch-cobalt { background: linear-gradient(135deg, #090d17 0%, #7fa7d8 56%, #9a94c8 100%); }
-  .swatch-copper { background: linear-gradient(135deg, #120d09 0%, #d19a72 56%, #c8ad78 100%); }
-  .swatch-fuchsia { background: linear-gradient(135deg, #120b13 0%, #c58ab3 56%, #9b91ca 100%); }
-  .swatch-lime { background: linear-gradient(135deg, #0e1108 0%, #a8bd78 56%, #7bb8b5 100%); }
+  .swatch-ember { background: linear-gradient(135deg, #431407 0%, #f59e0b 56%, #fb923c 100%); }
+  .swatch-azure { background: linear-gradient(135deg, #0c2647 0%, #4f9cf7 56%, #38bdf8 100%); }
+  .swatch-orchid { background: linear-gradient(135deg, #3b0764 0%, #d879f2 56%, #a78bfa 100%); }
+  .swatch-crimson { background: linear-gradient(135deg, #4c0519 0%, #fb7185 56%, #f472b6 100%); }
+  .swatch-emerald { background: linear-gradient(135deg, #022c22 0%, #34d399 56%, #4ade80 100%); }
   .appearance-font-sample {
     display: flex;
     align-items: center;
@@ -527,37 +526,37 @@ html[data-pf-tint] .unlock-title {
 
 /* ── Semantic colours, calibrated per tint ────────────────────────────
    Profit stays green and loss stays red — that meaning is not up for
-   restyling — but WHICH green and WHICH red now follows the tint, so a
-   P&L number no longer wears the native palette's neon against a copper
-   or fuchsia room. Appended last to win over the base tokens. */
-html[data-pf-tint="jade"] {
-  --green: #2fd4a4; --success: #2fd4a4; --positive: #2fd4a4;
-  --red: #f2758f; --danger: #f2758f; --negative: #f2758f;
-  --warn: #e3c063;
+   restyling — but WHICH green and WHICH red follows the room. Where a
+   room's own accent collides with a semantic hue (crimson, emerald), the
+   semantic one shifts weight so the two never read as each other. */
+html[data-pf-tint="ember"] {
+  --green: #4ade80; --success: #4ade80; --positive: #4ade80;
+  --red: #f43f5e; --danger: #f43f5e; --negative: #f43f5e;
+  --warn: #fde047;
 }
-html[data-pf-tint="cobalt"] {
-  --green: #5cd6b2; --success: #5cd6b2; --positive: #5cd6b2;
-  --red: #ef82a6; --danger: #ef82a6; --negative: #ef82a6;
-  --warn: #d9be72;
+html[data-pf-tint="azure"] {
+  --green: #34d399; --success: #34d399; --positive: #34d399;
+  --red: #fb7185; --danger: #fb7185; --negative: #fb7185;
+  --warn: #fbbf24;
 }
-html[data-pf-tint="copper"] {
-  --green: #93cf8e; --success: #93cf8e; --positive: #93cf8e;
-  --red: #e58a74; --danger: #e58a74; --negative: #e58a74;
-  --warn: #e0b45f;
+html[data-pf-tint="orchid"] {
+  --green: #4fd6b8; --success: #4fd6b8; --positive: #4fd6b8;
+  --red: #fb6f7f; --danger: #fb6f7f; --negative: #fb6f7f;
+  --warn: #fbbf24;
 }
-html[data-pf-tint="fuchsia"] {
-  --green: #6fd6b8; --success: #6fd6b8; --positive: #6fd6b8;
-  --red: #f27f9f; --danger: #f27f9f; --negative: #f27f9f;
-  --warn: #e5ba61;
+html[data-pf-tint="crimson"] {
+  --green: #34d399; --success: #34d399; --positive: #34d399;
+  --red: #ff5c5c; --danger: #ff5c5c; --negative: #ff5c5c;
+  --warn: #fbbf24;
 }
-html[data-pf-tint="lime"] {
-  --green: #8ad483; --success: #8ad483; --positive: #8ad483;
-  --red: #e5808c; --danger: #e5808c; --negative: #e5808c;
-  --warn: #d8c766;
+html[data-pf-tint="emerald"] {
+  --green: #a7f3d0; --success: #a7f3d0; --positive: #a7f3d0;
+  --red: #fb7185; --danger: #fb7185; --negative: #fb7185;
+  --warn: #fbbf24;
 }
-/* Light theme: the same hue families, darkened to hold contrast on paper. */
-html[data-theme="light"][data-pf-tint="jade"]    { --green:#0e7f63; --success:#0e7f63; --positive:#0e7f63; --red:#c23e5c; --danger:#c23e5c; --negative:#c23e5c; --warn:#9a7415; }
-html[data-theme="light"][data-pf-tint="cobalt"]  { --green:#177a60; --success:#177a60; --positive:#177a60; --red:#bb4470; --danger:#bb4470; --negative:#bb4470; --warn:#8f7020; }
-html[data-theme="light"][data-pf-tint="copper"]  { --green:#4a7d46; --success:#4a7d46; --positive:#4a7d46; --red:#b64f3c; --danger:#b64f3c; --negative:#b64f3c; --warn:#96690f; }
-html[data-theme="light"][data-pf-tint="fuchsia"] { --green:#177e62; --success:#177e62; --positive:#177e62; --red:#c04371; --danger:#c04371; --negative:#c04371; --warn:#93701c; }
-html[data-theme="light"][data-pf-tint="lime"]    { --green:#3e7d38; --success:#3e7d38; --positive:#3e7d38; --red:#b74b58; --danger:#b74b58; --negative:#b74b58; --warn:#8d7318; }
+/* Light theme: same families, darkened to hold contrast on paper. */
+html[data-theme="light"][data-pf-tint="ember"]   { --green:#15803d; --success:#15803d; --positive:#15803d; --red:#be123c; --danger:#be123c; --negative:#be123c; --warn:#a16207; }
+html[data-theme="light"][data-pf-tint="azure"]   { --green:#047857; --success:#047857; --positive:#047857; --red:#be123c; --danger:#be123c; --negative:#be123c; --warn:#a16207; }
+html[data-theme="light"][data-pf-tint="orchid"]  { --green:#0f766e; --success:#0f766e; --positive:#0f766e; --red:#be123c; --danger:#be123c; --negative:#be123c; --warn:#a16207; }
+html[data-theme="light"][data-pf-tint="crimson"] { --green:#047857; --success:#047857; --positive:#047857; --red:#b91c1c; --danger:#b91c1c; --negative:#b91c1c; --warn:#a16207; }
+html[data-theme="light"][data-pf-tint="emerald"] { --green:#166534; --success:#166534; --positive:#166534; --red:#be123c; --danger:#be123c; --negative:#be123c; --warn:#a16207; }

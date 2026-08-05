@@ -219,8 +219,18 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
   await page.click('[data-appearance-tint="native"]');
   await expect(page.locator('html')).not.toHaveAttribute('data-pf-tint');
 
+  // The roster comes from the page's own registry, never typed here: a
+  // hand-listed id survives a rename in the product and fails for the wrong
+  // reason — which is exactly how this spec broke when the five pastels
+  // became five contrasting rooms.
+  const tintIds: string[] = await page.evaluate(() =>
+    ((window as any).PHILFORGE_APPEARANCE_PRESETS?.tints || [])
+      .map((t: any) => t.id)
+      .filter((id: string) => id !== 'native')
+  );
+  expect(tintIds).toHaveLength(5);
   const tintPalettes: Record<string, string> = {};
-  for (const tint of ['jade', 'cobalt', 'copper', 'fuchsia', 'lime']) {
+  for (const tint of tintIds) {
     await page.click(`[data-appearance-tint="${tint}"]`);
     await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
     tintPalettes[tint] = await page.evaluate(() => {
@@ -252,7 +262,7 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
 
   await page.reload();
   await expect(page.locator('.nav-tab').first()).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('data-pf-tint', 'lime');
+  await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tintIds[tintIds.length - 1]);
   await expect(page.locator('html')).toHaveAttribute('data-pf-font', 'scribe');
 });
 

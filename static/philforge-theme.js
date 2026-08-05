@@ -2,7 +2,7 @@
   var THEME_KEY = 'philforge_theme';
   var APPEARANCE_KEY = 'philforge_appearance';
   var PRESETS = window.PHILFORGE_APPEARANCE_PRESETS || {};
-  var FALLBACK_TINTS = [{ id: 'native' }, { id: 'jade' }, { id: 'cobalt' }, { id: 'copper' }, { id: 'fuchsia' }, { id: 'lime' }];
+  var FALLBACK_TINTS = [{ id: 'native' }, { id: 'ember' }, { id: 'azure' }, { id: 'orchid' }, { id: 'crimson' }, { id: 'emerald' }];
   var FALLBACK_FONTS = [{ id: 'forge', href: '' }];
   var DEFAULT_APPEARANCE = PRESETS.default || { tint: 'native', font: 'forge' };
   var TINTS = {};

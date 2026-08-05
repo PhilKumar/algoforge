@@ -3700,7 +3700,7 @@ function _buildRunsTable(runs, opts = {}) {
     const safeRunName = escapeHtml(r.run_name || 'Unnamed');
     const safeRunTitle = escapeAttr(r.run_name || 'Unnamed');
     const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
-    html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
+    html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
       ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
@@ -3859,15 +3859,15 @@ function filterRuns(mode, btn) {
     else if (f === 'backtest') _setV(b, 'linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.5)');
     else if (f === 'paper') _setV(b, 'linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.5)');
     else if (f === 'live') _setV(b, 'linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.5)');
-    else if (f === 'scalp') _setV(b, 'linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%)', 'rgb(34,211,238)', 'rgba(6,182,212,0.5)');
+    else if (f === 'scalp') _setV(b, 'linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%, rgba(4,130,155,0.4) 100%)', 'var(--accent)', 'rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5)');
   });
   if (btn) {
     btn.classList.add('active');
-    if (mode === 'all') _setV(btn, 'linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%)', 'rgb(52,211,153)', 'rgba(0,200,150,0.6)');
+    if (mode === 'all') _setV(btn, 'linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,200,150),0.3) 0%, rgba(0,150,110,0.5) 100%)', 'rgb(52,211,153)', 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.6)');
     else if (mode === 'backtest') _setV(btn, 'linear-gradient(180deg, rgba(59,130,246,0.35) 0%, rgba(40,90,180,0.55) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.7)');
     else if (mode === 'paper') _setV(btn, 'linear-gradient(180deg, rgba(245,158,11,0.35) 0%, rgba(180,120,8,0.55) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.7)');
     else if (mode === 'live') _setV(btn, 'linear-gradient(180deg, rgba(139,92,246,0.35) 0%, rgba(100,60,200,0.55) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.7)');
-    else if (mode === 'scalp') _setV(btn, 'linear-gradient(180deg, rgba(6,182,212,0.35) 0%, rgba(4,130,155,0.55) 100%)', 'rgb(34,211,238)', 'rgba(6,182,212,0.7)');
+    else if (mode === 'scalp') _setV(btn, 'linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 6,182,212),0.35) 0%, rgba(4,130,155,0.55) 100%)', 'var(--accent)', 'rgba(var(--pf-tint-primary-rgb, 6,182,212),0.7)');
   }
   _renderFilteredRuns();
 }
@@ -8262,7 +8262,7 @@ function _buildScalpActiveRow(t) {
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
-        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);">Set</button>
+        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </div></td>
     </tr>`;
@@ -8279,7 +8279,7 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
-      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(6,182,212,0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:rgb(34,211,238);--btn-border:rgba(6,182,212,0.5);">Set</button>
+      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
     </div></td>
   </tr>`;
@@ -8691,7 +8691,7 @@ function moveStrategyFolder(id) {
     const isActive = f === currentFolder;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.style.cssText = `width: 100%; padding: 10px 14px; text-align: left; background: ${isActive ? 'rgba(0,200,150,0.1)' : 'var(--card2)'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; color: ${isActive ? 'var(--accent)' : 'var(--text)'}; cursor: pointer; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: ${isActive ? '700' : '500'}; transition: 0.15s;`;
+    btn.style.cssText = `width: 100%; padding: 10px 14px; text-align: left; background: ${isActive ? 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.1)' : 'var(--card2)'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; color: ${isActive ? 'var(--accent)' : 'var(--text)'}; cursor: pointer; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: ${isActive ? '700' : '500'}; transition: 0.15s;`;
     btn.textContent = `${isActive ? '• ' : ''}${f}${isActive ? ' (current)' : ''}`;
     btn.addEventListener('click', () => confirmMoveTo(f));
     container.appendChild(btn);
@@ -9154,7 +9154,7 @@ async function fetchStrategies() {
           <td style="padding: 10px 0; color: var(--muted); font-size: 12px; width: 20%">${escapeHtml(dateStr)}</td>
           <td style="padding: 10px 0; width: 20%;">
             <button class="btn btn-sm" onclick="viewStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px; margin-right: 3px;">View</button>
-            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: rgb(52,211,153); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
+            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,200,150),0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.45); --btn-color: rgb(52,211,153); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
             <button class="btn btn-sm" onclick="moveStrategyFolder(${s.id})" style="--btn-bg: var(--card2); --btn-color: var(--muted); --btn-border: var(--border); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Move</button>
             <button class="btn btn-danger btn-sm" onclick="deleteStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
           </td></tr>`;
@@ -9212,7 +9212,7 @@ function showDetailsModal(data, title) {
   // Indicators
   if (inds.length > 0) {
     html += `<div style="margin-bottom: 14px;"><span style="color: var(--muted); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 6px;">Indicators (${inds.length})</span><div style="display:flex;flex-wrap:wrap;">`;
-    inds.forEach(i => { html += `<span style="${chipStyle} background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.22);">${escapeHtml(i)}</span>`; });
+    inds.forEach(i => { html += `<span style="${chipStyle} background: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.12); border: 1px solid rgba(var(--pf-tint-primary-rgb, 0,200,150),0.22);">${escapeHtml(i)}</span>`; });
     html += `</div></div>`;
   }
 
@@ -9756,7 +9756,7 @@ function addConditionRow(type) {
     const connector = document.createElement('div');
     connector.className = 'condition-connector';
     connector.id = `${type}-connector-${rowId}`;
-    connector.innerHTML = `<select class="logic-op" onchange="this.style.background=this.value==='OR'?'rgba(245,158,11,0.12)':'rgba(0,200,150,0.12)';this.style.borderColor=this.value==='OR'?'rgba(245,158,11,0.3)':'rgba(0,200,150,0.3)';this.style.color=this.value==='OR'?'var(--warn)':'var(--accent)'"><option value="AND">AND</option><option value="OR">OR</option></select>`;
+    connector.innerHTML = `<select class="logic-op" onchange="this.style.background=this.value==='OR'?'rgba(245,158,11,0.12)':'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.12)';this.style.borderColor=this.value==='OR'?'rgba(245,158,11,0.3)':'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.3)';this.style.color=this.value==='OR'?'var(--warn)':'var(--accent)'"><option value="AND">AND</option><option value="OR">OR</option></select>`;
     container.appendChild(connector);
   }
 
@@ -9865,12 +9865,12 @@ function onLHSChange(lhsSelect) {
     rhsWrap.innerHTML = `<div class="day-picker" style="flex:1;position:relative;">
       <div class="day-picker-toggle" onclick="toggleDayDropdown(this)" style="padding:6px 10px;background:var(--card2);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;color:var(--muted);">Can select multiple days \u25BE</div>
       <div class="day-picker-dd" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);margin-top:4px;padding:4px 0;">
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Monday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Monday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Tuesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Tuesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Wednesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Wednesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Thursday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Thursday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Friday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Friday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;" onmouseover="this.style.background='rgba(0,200,150,0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Saturday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Saturday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Monday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Monday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Tuesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Tuesday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Wednesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Wednesday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Thursday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Thursday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Friday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Friday</label>
+        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Saturday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Saturday</label>
       </div>
     </div>`;
   } else {
@@ -10750,7 +10750,7 @@ function renderTradePage() {
       const reasonBg = t.exit_reason === 'StopLoss' ? 'rgba(239,68,68,0.15)' : (t.exit_reason === 'Target' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)');
       const reasonColor = t.exit_reason === 'StopLoss' ? 'rgb(248,113,113)' : (t.exit_reason === 'Target' ? 'rgb(74,222,128)' : 'rgb(147,197,253)');
       const reasonText = String(t.exit_reason || '').replace(/_/g,' ');
-      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(0,200,150,0.03)'" onmouseout="this.style.background='transparent'">
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${escapeHtml(t.id)}</td>
         <td style="padding:7px 10px;font-size:12px;font-weight:600;">${escapeHtml(sk)}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${dirColor};">${escapeHtml(txn)}</span></td>
@@ -10962,11 +10962,11 @@ function renderEquityChart(equityData) {
   }
 
   ctx.beginPath();
-  ctx.strokeStyle = 'rgba(0,200,150,1)';
+  ctx.strokeStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),1)';
   ctx.lineWidth = 2.2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.shadowColor = 'rgba(0,200,150,0.35)';
+  ctx.shadowColor = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.35)';
   ctx.shadowBlur = 12;
   ctx.moveTo(points[0].x, points[0].y);
 
@@ -10993,8 +10993,8 @@ function renderEquityChart(equityData) {
   ctx.lineTo(padding.left, padding.top + plotH);
   ctx.closePath();
   const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + plotH);
-  grad.addColorStop(0, 'rgba(0,200,150,0.12)');
-  grad.addColorStop(1, 'rgba(0,200,150,0.01)');
+  grad.addColorStop(0, 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.12)');
+  grad.addColorStop(1, 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.01)');
   ctx.fillStyle = grad;
   ctx.fill();
 
@@ -11003,11 +11003,11 @@ function renderEquityChart(equityData) {
   const endY = padding.top + ((maxVal - values[values.length - 1]) / range) * plotH;
   ctx.beginPath();
   ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,200,150,1)';
+  ctx.fillStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),1)';
   ctx.fill();
   ctx.beginPath();
   ctx.arc(endX, endY, 7, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(0,200,150,0.25)';
+  ctx.strokeStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.25)';
   ctx.lineWidth = 2;
   ctx.stroke();
   }); // end requestAnimationFrame
@@ -14409,7 +14409,7 @@ fetchRuns = async function() {
     let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">';
     h += '<div><div style="font-family:\'Syne\',sans-serif;font-size:20px;font-weight:700;">' + escapeHtml(_chDateLabel) + '</div>';
     h += '<div style="font-size:12px;color:var(--muted);margin-top:2px;">Press Ctrl+V to add more charts</div></div>';
-    h += '<span style="background:rgba(0,191,165,0.12);border:1px solid rgba(0,191,165,0.25);color:var(--accent);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">' + _chImages.length + ' chart' + (_chImages.length > 1 ? 's' : '') + '</span>';
+    h += '<span style="background:rgba(var(--pf-tint-primary-rgb, 0,191,165),0.12);border:1px solid rgba(var(--pf-tint-primary-rgb, 0,191,165),0.25);color:var(--accent);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">' + _chImages.length + ' chart' + (_chImages.length > 1 ? 's' : '') + '</span>';
     h += '</div><div class="ch-grid">';
     _chImages.forEach((img, i) => {
       const safeName = escapeHtml(img.name || '');

@@ -3,11 +3,15 @@
     default: { tint: 'native', font: 'forge' },
     tints: [
       { id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true },
-      { id: 'jade', label: 'Jade Mist', swatch: 'swatch-jade' },
-      { id: 'cobalt', label: 'Cobalt Haze', swatch: 'swatch-cobalt' },
-      { id: 'copper', label: 'Copper Sand', swatch: 'swatch-copper' },
-      { id: 'fuchsia', label: 'Rose Dusk', swatch: 'swatch-fuchsia' },
-      { id: 'lime', label: 'Olive Calm', swatch: 'swatch-lime' },
+      /* Five deliberately CONTRASTING rooms — the old five (jade, cobalt,
+         copper, fuchsia, lime) were all low-saturation pastels an arm's
+         length apart, and Phil's verdict was "all feels same greenish".
+         An old stored id normalises to native, harmlessly. */
+      { id: 'ember', label: 'Ember Glow', swatch: 'swatch-ember' },
+      { id: 'azure', label: 'Azure Sky', swatch: 'swatch-azure' },
+      { id: 'orchid', label: 'Orchid Bloom', swatch: 'swatch-orchid' },
+      { id: 'crimson', label: 'Crimson Pulse', swatch: 'swatch-crimson' },
+      { id: 'emerald', label: 'Emerald Drive', swatch: 'swatch-emerald' },
     ],
     fonts: [
       { id: 'forge', label: 'Forge Native', className: 'font-forge', href: '', sample: 'Aa' },

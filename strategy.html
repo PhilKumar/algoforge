@@ -966,7 +966,7 @@
           <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
           <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
           <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
-          <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5);">Scalp</button>
+          <button class="btn btn-sm runs-filter-btn" data-filter="scalp" onclick="filterRuns('scalp', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: var(--accent); --btn-border: rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Scalp</button>
         </div>
       </div>
     </div>
@@ -2113,7 +2113,7 @@
       <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
     </div>
     <div style="display: flex; gap: 8px;">
-      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(6,182,212,0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: rgb(34,211,238); --btn-border: rgba(6,182,212,0.5); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: var(--accent); --btn-border: rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
       <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
     </div>
   </div>
