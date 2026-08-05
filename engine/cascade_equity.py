@@ -16,7 +16,6 @@ from typing import Any, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from engine.cascade_options import (
-    GEOMETRY_FIB_LEVELS,
     CascadeError,
     IndexCandle,
     NiftyIndexCascadeGeometry,
@@ -25,6 +24,12 @@ from engine.cascade_options import (
 
 IST = ZoneInfo("Asia/Kolkata")
 LEVEL_ALLOCATION = {2: 0.20, 4: 0.30, 8: 0.50}
+# Phil's "ultimate downfall" rung. When price keeps falling but no new leg forms,
+# the ladder runs out of places to buy -- L16 gives it one more, twice as deep as
+# L8. The two deep rungs share the weight L8 used to carry alone; the shallow
+# ones give up a little so the deep end can be funded twice. Opt-in: a campaign
+# gets it only when the config asks, so existing behaviour is unchanged.
+DEEP_LEVEL_ALLOCATION = {2: 0.15, 4: 0.25, 8: 0.30, 16: 0.30}
 REFERENCE_INDEX_BY_TRADED_SYMBOL = {
     "NIFTYBEES": "NIFTY",
     "BANKBEES": "BANKNIFTY",
@@ -218,6 +223,23 @@ class CashCascadePaperConfig:
     product_type: str = "CNC"
     min_order_inr: float = 0.0
     cost_schedule: CashMarketCostSchedule = field(default_factory=CashMarketCostSchedule)
+    # Add the L16 "ultimate downfall" rung to every leg.
+    deep_ladder: bool = False
+    # A rung priced below this fraction of the mother high is dropped and its
+    # budget shared out over the reachable rungs. Zero removes only the
+    # impossible ones -- a wide leg can price L8 NEGATIVE. Raising it also drops
+    # rungs that are merely absurd: on the INFY specimen a 188-point leg put L2
+    # at 900 and L4 at 523 with the stock at 1,167, both positive and neither
+    # ever going to fill.
+    min_rung_price_pct: float = 0.0
+
+    @property
+    def level_allocation(self) -> dict[int, float]:
+        return DEEP_LEVEL_ALLOCATION if self.deep_ladder else LEVEL_ALLOCATION
+
+    @property
+    def levels(self) -> tuple[int, ...]:
+        return tuple(sorted(self.level_allocation))
 
     def __post_init__(self) -> None:
         if self.capital_inr <= 0:
@@ -503,15 +525,39 @@ class CashCascadePaperEngine:
         prior = self.geometry.campaign.legs[leg.leg_id - 2]
         return max((prior.low - leg.low) / prior.low * 100.0, 0.0) if prior.low > 0 else 0.0
 
+    def _rung_weights(self, leg: Any) -> dict[int, float]:
+        """Levels for this leg, with unreachable ones dropped and their weight
+        shared out over the rest.
+
+        `level_price(n) = high - n x (high - low)`, so a wide leg puts the deep
+        rungs at absurd prices: a 188-point INFY leg priced L8 at MINUS 230 and
+        still allocated Rs 15,566 to it. Money on a rung that cannot fill is
+        neither invested nor available, so the level is dropped and its share
+        goes to the rungs that can actually trade.
+        """
+        allocation = dict(self.config.level_allocation)
+        floor = self.geometry.campaign.mother_high * self.config.min_rung_price_pct
+        live = {level: weight for level, weight in allocation.items() if leg.fib.level_price(level) > floor}
+        if not live:
+            return {}
+        spare = sum(allocation.values()) - sum(live.values())
+        if spare > 0:
+            total = sum(live.values())
+            live = {level: weight + spare * (weight / total) for level, weight in live.items()}
+        return live
+
     def _sync_new_rungs(self, signal_candle: IndexCandle) -> None:
         for leg in self.geometry.campaign.legs:
             allocation_pct = self._allocation_pct_for_leg(leg)
             pool_inr = round(allocation_pct * self.config.capital_unit_per_pct, 2)
-            for level in GEOMETRY_FIB_LEVELS:
+            weights = self._rung_weights(leg)
+            for level in self.config.levels:
                 key = f"{leg.leg_id}:{level}"
                 if key in self.rungs:
                     continue
-                budget = round(pool_inr * LEVEL_ALLOCATION[level], 2)
+                if level not in weights:
+                    continue
+                budget = round(pool_inr * weights[level], 2)
                 rung = CashCascadeRung(
                     leg_id=leg.leg_id,
                     level=level,
@@ -759,6 +805,53 @@ class CashCascadePaperEngine:
             self.on_candle(signal_candle, trade_candle)
         return self
 
+    def retire_entries(self, signal_candle: IndexCandle) -> list[str]:
+        """Stop entering, keep holding.
+
+        A broken or retested mother ends the geometry, so no leg can ever form
+        again — but the rungs already created stay PENDING and would keep
+        filling against an anchor the market invalidated. That is how a campaign
+        ends up buying the first 2.5% of a 20% fall and nothing after it. The
+        successor does the laddering from here; this one only works its open
+        position to its own target.
+        """
+        cancelled = []
+        for rung in self.rungs.values():
+            if rung.status in {"PENDING", "COLLECTED"}:
+                rung.status = "CANCELLED"
+                cancelled.append(rung.key)
+        self.pending_rung_keys = []
+        self.pending_inr = 0.0
+        self.cash_carry_inr = 0.0
+        self.pending_line = None
+        self.pending_last_red = None
+        self.pending_stop = None
+        self.pending_stop_timestamp = None
+        self.reuse_below = None
+        if self.open_fills:
+            self.status = "RETIRED_HOLDING"
+        self._log(signal_candle, "entries_retired", cancelled=cancelled, reason=self.geometry.campaign.state)
+        return cancelled
+
+    def manage_open_only(self, signal_candle: IndexCandle, trade_candle: IndexCandle) -> None:
+        """Work a retired generation's open position — exit checks only.
+
+        Deliberately does NOT call the rung machinery: a retired parent must
+        never take a new entry, or it competes with its own successor for the
+        same fall.
+        """
+        signal_candle = _normalise_candle(signal_candle)
+        trade_candle = _normalise_candle(trade_candle)
+        if not is_nse_cash_session(signal_candle.timestamp):
+            return
+        if trade_candle.timestamp > self.trade_history[-1].timestamp:
+            self.trade_history.append(trade_candle)
+        if not self.open_fills:
+            return
+        self._check_exit(signal_candle, trade_candle)
+        if not self.open_fills:
+            self.status = "RETIRED_FLAT"
+
     def get_status(self) -> dict[str, Any]:
         return {
             "mode": "paper",
@@ -894,3 +987,149 @@ class CashCascadePaperEngine:
         engine.status = str(payload.get("status") or "WAITING")
         engine.events = list(payload.get("events") or [])
         return engine
+
+
+# A break or a retest does not end the cascade, it MOVES it. CryptoForge has
+# always worked this way (engine/cascade.py: RESTART_REASONS -> _auto_restart);
+# the cash engine never had it, so a campaign whose mother broke kept its open
+# position with a dead geometry and bought nothing for the rest of the fall.
+MOTHER_BREAK_CONFIRM_BARS = 3
+MAX_BARREN_AUTO_RESTARTS = 10
+GEOMETRY_TERMINAL_STATES = {"MOTHER_BROKEN", "MOTHER_RETESTED"}
+
+
+class CashCascadeChain:
+    """One symbol's cascade, continued across successor campaigns.
+
+    Only the newest generation enters. When its mother breaks or is retested the
+    geometry can draw nothing more, so that generation retires from entering and
+    a successor starts on a fresh mother; the retired parent keeps its own
+    position and works it to its own target. Nothing is carried over — no
+    trendlines, no fibs, no rungs, no fills — exactly as CryptoForge rebuilds a
+    successor from the new mother candle.
+
+    The successor's mother follows CryptoForge's two rules:
+
+    * retest -- the retesting candle itself becomes the mother. The old one is
+      spent; a line drawn from it to here would run almost horizontal.
+    * break -- freeze, then take the HIGHEST of the breaking candle and the two
+      that close after it. A break usually keeps running, so anchoring on the
+      breaking candle alone leaves the new mother below price that has already
+      printed.
+    """
+
+    def __init__(
+        self,
+        mother_signal: IndexCandle,
+        mother_trade: IndexCandle,
+        instrument: CashCascadeInstrument,
+        config: CashCascadePaperConfig,
+        *,
+        max_barren_restarts: int = MAX_BARREN_AUTO_RESTARTS,
+    ) -> None:
+        self.instrument = instrument
+        self.config = config
+        self.max_barren_restarts = max_barren_restarts
+        self.generations: list[CashCascadePaperEngine] = [
+            CashCascadePaperEngine(mother_signal, mother_trade, instrument, config)
+        ]
+        self.retired: list[CashCascadePaperEngine] = []
+        # Retired generations that still hold stock. A retired generation which
+        # has gone flat can never act again — it takes no entries and has
+        # nothing to exit — so it must drop out of the per-bar walk. Keeping it
+        # made the loop O(bars x generations) and a 5m run never finished.
+        self._working: list[CashCascadePaperEngine] = []
+        self.barren_streak = 0
+        self.chain_stopped_reason: Optional[str] = None
+        self._break_window: list[tuple[IndexCandle, IndexCandle]] = []
+        self._break_remaining = 0
+
+    @property
+    def active(self) -> Optional[CashCascadePaperEngine]:
+        """The generation still allowed to enter, if the chain is still alive."""
+        if self.chain_stopped_reason is not None:
+            return None
+        newest = self.generations[-1]
+        return None if newest in self.retired else newest
+
+    @property
+    def all_engines(self) -> list[CashCascadePaperEngine]:
+        return list(self.generations)
+
+    @property
+    def rounds(self) -> list[CashCascadeRound]:
+        return [row for engine in self.generations for row in engine.rounds]
+
+    @property
+    def open_quantity(self) -> int:
+        return sum(engine.open_quantity for engine in self.generations)
+
+    @property
+    def open_invested_inr(self) -> float:
+        return round(sum(engine.open_invested_inr for engine in self.generations), 2)
+
+    def _drew_structure(self, engine: CashCascadePaperEngine) -> bool:
+        # "Drew a fib", not "created a leg": a leg is appended before the fib
+        # size gate runs, so a leg with fib=None means no ladder, no rungs and
+        # no money — a barren generation however many legs it lists.
+        return any(getattr(leg, "fib", None) is not None for leg in engine.geometry.campaign.legs)
+
+    def _retire(self, engine: CashCascadePaperEngine, signal_candle: IndexCandle) -> None:
+        engine.retire_entries(signal_candle)
+        self.retired.append(engine)
+        if engine.open_fills:
+            self._working.append(engine)
+        self.barren_streak = 0 if self._drew_structure(engine) else self.barren_streak + 1
+        if self.barren_streak > self.max_barren_restarts:
+            # A straight rip upward breaks a mother every bar. Cut the chain
+            # rather than spawning a generation per candle forever.
+            self.chain_stopped_reason = "barren_chain"
+
+    def _start_successor(self, signal_candle: IndexCandle, trade_candle: IndexCandle) -> bool:
+        if self.chain_stopped_reason is not None:
+            return False
+        if signal_candle.high <= signal_candle.low or trade_candle.high <= 0:
+            return False
+        self.generations.append(CashCascadePaperEngine(signal_candle, trade_candle, self.instrument, self.config))
+        return True
+
+    def on_candle(self, signal_candle: IndexCandle, trade_candle: IndexCandle) -> None:
+        # Retired generations only ever work their own open position. Done
+        # first so a parent can still bank its target on the same bar that
+        # settles its successor's mother. Once one goes flat it is dropped:
+        # it can never enter again, so walking it every bar is pure cost.
+        if self._working:
+            for engine in self._working:
+                engine.manage_open_only(signal_candle, trade_candle)
+            self._working = [engine for engine in self._working if engine.open_fills]
+
+        if self._break_remaining > 0:
+            self._break_window.append((signal_candle, trade_candle))
+            self._break_remaining -= 1
+            if self._break_remaining == 0:
+                mother = max(self._break_window, key=lambda pair: pair[0].high)
+                self._break_window = []
+                self._start_successor(*mother)
+            return
+
+        engine = self.active
+        if engine is None:
+            return
+        engine.on_candle(signal_candle, trade_candle)
+        state = engine.geometry.campaign.state
+        if state not in GEOMETRY_TERMINAL_STATES:
+            return
+
+        self._retire(engine, signal_candle)
+        if state == "MOTHER_RETESTED":
+            # This candle takes over as the mother outright.
+            self._start_successor(signal_candle, trade_candle)
+        else:
+            # Freeze and let two more bars close; the highest of the three wins.
+            self._break_window = [(signal_candle, trade_candle)]
+            self._break_remaining = MOTHER_BREAK_CONFIRM_BARS - 1
+
+    def run(self, pairs: Iterable[tuple[IndexCandle, IndexCandle]]) -> "CashCascadeChain":
+        for signal_candle, trade_candle in sorted(pairs, key=lambda row: row[0].timestamp):
+            self.on_candle(signal_candle, trade_candle)
+        return self
