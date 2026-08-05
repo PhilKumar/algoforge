@@ -6005,3 +6005,158 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .pf-info.is-open ~ .pf-info-pop,
   .pf-info-pop.is-open { display: block; }
   [data-theme="light"] .pf-info-btn { background: rgba(15,23,42,0.04); }
+
+/* ═════════════════════════════════════════════════════════════════════
+   DEPTH PASS — CryptoForge's material grade, in PhilForge's own palette.
+   Appended last so it wins the cascade over the flatter originals above.
+   Everything routes through the pf tint variables, so all six tints and
+   both themes inherit the depth automatically. Nothing here changes
+   layout — surfaces only: light, glass, shadow.
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* The blueprint grid, fixed behind every page. The terminal look CryptoForge
+   has carried from the start; PhilForge only had the top sheen. */
+body::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.030) 0%, rgba(255,255,255,0) 30%),
+    linear-gradient(90deg, rgba(255,255,255,0.016) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+  background-size: auto, 52px 52px, 52px 52px;
+}
+[data-theme="light"] body::before {
+  display: block;
+  background:
+    linear-gradient(90deg, rgba(15,23,42,0.020) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(15,23,42,0.016) 1px, transparent 1px);
+  background-size: 52px 52px, 52px 52px;
+}
+
+/* Cards: corner glow, deeper well, top gloss. */
+.card {
+  background:
+    radial-gradient(circle at top left, rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.13) 0%, transparent 34%),
+    linear-gradient(180deg, rgba(22,31,50,0.95) 0%, rgba(12,18,32,0.97) 100%);
+  border-radius: 16px;
+  box-shadow:
+    0 18px 44px rgba(0,0,0,0.44),
+    0 0 0 0.5px rgba(255,255,255,0.05),
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 -16px 30px rgba(0,0,0,0.20);
+}
+.card::after {
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.025) 22%, transparent 48%);
+}
+[data-theme="light"] .card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.985) 0%, rgba(245,248,255,0.96) 100%);
+  box-shadow:
+    0 20px 44px rgba(15,23,42,0.10),
+    0 6px 14px rgba(15,23,42,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.94);
+}
+[data-theme="light"] .card::after { background: none; }
+
+/* Stat tiles: a real well with a tinted hairline, not a wash. */
+.stat-box {
+  background: linear-gradient(155deg, rgba(24,33,52,0.92) 0%, rgba(14,20,36,0.88) 100%);
+  box-shadow:
+    0 0 0 0.5px rgba(255,255,255,0.07),
+    0 6px 22px rgba(0,0,0,0.38),
+    inset 0 1px 0 rgba(255,255,255,0.09);
+}
+.stat-box::before {
+  background: linear-gradient(90deg,
+    transparent 5%,
+    rgba(255,255,255,0.10) 25%,
+    rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.42) 50%,
+    rgba(255,255,255,0.10) 75%,
+    transparent 95%);
+}
+.stat-box:hover {
+  border-color: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.26);
+  box-shadow:
+    0 0 0 0.5px rgba(255,255,255,0.10),
+    0 10px 30px rgba(0,0,0,0.44),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+/* Tables: the ledger look — machined header, striped body, lit hover. */
+.candle-entry-table th, .tb-table th, .scalp-active-table th, .trade-table th,
+.fsx-rounds-table th, .fibx-rounds-table th {
+  background: linear-gradient(180deg, rgba(78,90,120,0.50) 0%, rgba(38,48,72,0.94) 40%, rgba(16,23,42,0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.30);
+}
+.candle-entry-table tbody tr:nth-child(even) td,
+.tb-table tbody tr:nth-child(even) td,
+.scalp-active-table tbody tr:nth-child(even) td {
+  background: rgba(255,255,255,0.020);
+}
+.candle-entry-table tbody tr:hover td,
+.tb-table tbody tr:hover td,
+.scalp-active-table tbody tr:hover td {
+  background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.07);
+}
+[data-theme="light"] .candle-entry-table th,
+[data-theme="light"] .tb-table th,
+[data-theme="light"] .scalp-active-table th,
+[data-theme="light"] .trade-table th {
+  background: linear-gradient(180deg, #f8fafc, #edf2f8);
+  box-shadow: none;
+}
+
+/* Inputs: a machined well instead of a flat pane, focus lifts. */
+input, select {
+  background: linear-gradient(180deg, rgba(40,50,74,0.62), rgba(14,20,36,0.92));
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    inset 0 -8px 16px rgba(0,0,0,0.16),
+    0 6px 14px rgba(0,0,0,0.10);
+}
+input:focus, select:focus {
+  border-color: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.45);
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 2px rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.12),
+    0 10px 20px rgba(0,0,0,0.14),
+    inset 0 1px 0 rgba(255,255,255,0.09);
+}
+[data-theme="light"] input, [data-theme="light"] select {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  transform: none;
+}
+
+/* Buttons: the last 20% of the gloss — deeper throw, firmer press. */
+.btn {
+  box-shadow:
+    0 12px 26px rgba(2,6,23,0.34),
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    inset 0 -10px 16px rgba(0,0,0,0.18);
+}
+.btn:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.12) brightness(1.05);
+  box-shadow:
+    0 16px 30px rgba(2,6,23,0.40),
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    inset 0 -10px 16px rgba(0,0,0,0.22);
+}
+.btn:active {
+  transform: translateY(1px);
+  filter: none;
+  box-shadow: 0 5px 10px rgba(0,0,0,0.28), inset 0 2px 2px rgba(0,0,0,0.24);
+}
+
+/* The topbar hairline takes the tint, both themes. */
+.app-topbar::before {
+  background: linear-gradient(90deg,
+    transparent 5%,
+    rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.60) 30%,
+    rgba(var(--pf-tint-secondary-rgb, 79,142,247), 0.50) 70%,
+    transparent 95%);
+}
+
+/* Scrollbar and selection join the tint. */
+::-webkit-scrollbar-thumb { background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.22); border-radius: 3px; }
+::selection { background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.28); }
