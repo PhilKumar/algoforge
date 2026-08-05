@@ -60,6 +60,7 @@ os.chdir(_HERE)
 # ─────────────────────────────────────────────────────────────────
 
 import fcntl
+from types import SimpleNamespace
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -81,6 +82,9 @@ import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES
+from engine.candle_recovery import RecoveryConfig
+from engine.candle_recovery_host import MODES as RECOVERY_MODES
+from engine.candle_recovery_host import CandleRecoveryHost
 from engine.cascade_calendar import ContractCalendar
 from engine.cascade_equity import (
     CashCascadeInstrument,
@@ -1743,6 +1747,252 @@ async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> Non
         await asyncio.sleep(12)
 
 
+# ── Candle-entry recovery run ─────────────────────────────────────
+# Phil's stop-loss recovery rules (engine/candle_recovery.py), driven forward in
+# paper.  Two reds where the second closes below the first's LOW, buy the
+# recovery at the second red's HIGH, stop on a CLOSE below the entry candle's
+# low, and repeat -- every later entry having to break lower -- until one trade
+# nets back every booked loss plus a margin.  Intraday: positions square off at
+# the day's last bar, only the ledger carries.
+#
+# Two modes, both measured (tools/candle_recovery_sweep.py, Jan-Jul 2026):
+#   ladder    every stop re-arms; needs ~10 sessions to pay (15m: +Rs 82,896)
+#   fib-zone  entries only in the 2-2 and 4-4 zones between the buyer and seller
+#             fibs, two per campaign (5m intraday: +Rs 6,732, worst -Rs 3,562)
+# Paper only: CascadeOptionsAdapter is constructed paper_only and refuses
+# otherwise, and no route here can reach a Dhan order path.
+
+RECOVERY_POLL_SECONDS = 30
+RECOVERY_SYMBOLS = {
+    "nifty": dict(dhan_symbol="NIFTY", strike_step=50, itm_steps=2, min_dte=4, max_dte=45),
+    "banknifty": dict(dhan_symbol="BANKNIFTY", strike_step=100, itm_steps=2, min_dte=4, max_dte=45),
+}
+RECOVERY_TIMEFRAMES = ("1m", "5m", "15m", "1h")
+
+
+@dataclass
+class _RecoveryRuntime:
+    host: CandleRecoveryHost
+    adapter: CascadeOptionsAdapter
+    broker: DhanClient
+    symbol: str
+    started_at: datetime
+    task: asyncio.Task | None = None
+    running: bool = True
+    last_error: str | None = None
+
+
+_recovery_engines: Dict[int, _RecoveryRuntime] = {}
+
+
+def _recovery_state_key(user_id: int) -> str:
+    return f"candle_recovery:{int(user_id)}"
+
+
+def _build_recovery_host(
+    symbol: str,
+    adapter: CascadeOptionsAdapter,
+    broker: DhanClient,
+    *,
+    timeframe: str,
+    mode: str,
+    config_overrides: dict | None = None,
+) -> CandleRecoveryHost:
+    """Wire the measured rules to the broker's real chain.
+
+    Strike selection goes through the adapter's own `select_campaign_contract`
+    at EVERY fill, so a deeper entry buys the contract Dhan actually lists for
+    that index level -- real security id, real lot size -- rather than holding
+    the strike the campaign opened on.
+    """
+    terms = RECOVERY_SYMBOLS[symbol]
+    quote = _cascade_premium_lookup(broker)
+
+    def select_contract(when: datetime, index_price: float):
+        return adapter.select_campaign_contract(
+            mother_spot=float(index_price),
+            selected_at=when,
+            ce_offset_steps=-int(terms["itm_steps"]),
+            strike_step=int(terms["strike_step"]),
+            option_type="CE",
+            symbol=terms["dhan_symbol"],
+        )
+
+    def premium_lookup(when: datetime, strike: int, expiry) -> float | None:
+        # the lookup keys on .underlying, not .symbol
+        return quote(
+            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type="CE")
+        )
+
+    lot_size = int(
+        adapter.select_campaign_contract(
+            mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
+            selected_at=datetime.now(IST),
+            ce_offset_steps=-int(terms["itm_steps"]),
+            strike_step=int(terms["strike_step"]),
+            option_type="CE",
+            symbol=terms["dhan_symbol"],
+        ).lot_size
+    )
+
+    overrides = dict(config_overrides or {})
+    config = RecoveryConfig(
+        timeframe=timeframe,
+        lots_schedule=tuple(overrides.get("lots_schedule") or (1, 2)),
+        min_profit_inr=float(overrides.get("min_profit_inr", 500.0)),
+        sl_source=str(overrides.get("sl_source", "entry")),
+        itm_steps=int(terms["itm_steps"]),
+        min_dte=int(terms["min_dte"]),
+        max_dte=int(terms["max_dte"]),
+        horizon_sessions=int(overrides.get("horizon_sessions", 10)),
+    )
+    return CandleRecoveryHost(
+        symbol,
+        adapter,
+        premium_lookup=premium_lookup,
+        select_contract=select_contract,
+        config=config,
+        mode=mode,
+        lot_size=lot_size,
+        dhan_symbol=terms["dhan_symbol"],
+    )
+
+
+async def _save_recovery_state(user_id: int, runtime: _RecoveryRuntime) -> None:
+    """Persist the run and its NAMED MOTHERS; the campaigns themselves replay.
+
+    A named mother is the one thing the replay cannot rediscover -- the same
+    trap that lost the fib-space book its BankNifty campaign every night, so it
+    is written on every acceptance, not only when something changed.
+    """
+    await _db_mod.set_app_state(
+        _recovery_state_key(user_id),
+        json.dumps(
+            {
+                "symbol": runtime.symbol,
+                "running": bool(runtime.running),
+                "started_at": runtime.started_at.isoformat(),
+                "timeframe": runtime.host.config.timeframe,
+                "mode": runtime.host.mode,
+                "config": {
+                    "lots_schedule": list(runtime.host.config.lots_schedule),
+                    "min_profit_inr": runtime.host.config.min_profit_inr,
+                    "sl_source": runtime.host.config.sl_source,
+                    "horizon_sessions": runtime.host.config.horizon_sessions,
+                },
+                "mothers": sorted(c.mother.timestamp.isoformat() for c in runtime.host.campaigns.values()),
+            }
+        ),
+    )
+
+
+def _recovery_status_payload(runtime: _RecoveryRuntime) -> dict:
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "symbol": runtime.symbol,
+        "running": runtime.running,
+        "started_at": runtime.started_at.isoformat(),
+        "last_error": runtime.last_error,
+        "poll_seconds": RECOVERY_POLL_SECONDS,
+        "book": runtime.host.snapshot(),
+    }
+
+
+async def _readopt_recovery_mothers(user_id: int, host: CandleRecoveryHost, symbol: str) -> int:
+    raw = await _db_mod.get_app_state(_recovery_state_key(user_id))
+    if not raw:
+        return 0
+    try:
+        saved = json.loads(raw)
+    except Exception:
+        return 0
+    if str(saved.get("symbol") or "").strip().lower() != symbol:
+        return 0
+    if str(saved.get("timeframe") or "") != host.config.timeframe:
+        return 0  # a mother is a bar of ITS timeframe; it does not carry across
+    now = datetime.now(IST).replace(tzinfo=None)
+    adopted = 0
+    for stamp in saved.get("mothers") or []:
+        try:
+            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now)
+            adopted += 1
+        except Exception as exc:
+            _logger.warning("[RECOVERY] Could not re-adopt mother %s for user %s: %s", stamp, user_id, exc)
+    return adopted
+
+
+async def _restore_recovery_run(user_id: int, broker: DhanClient | None) -> _RecoveryRuntime | None:
+    if broker is None or _recovery_engines.get(int(user_id)) is not None:
+        return None
+    raw = await _db_mod.get_app_state(_recovery_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        saved = json.loads(raw)
+    except Exception:
+        return None
+    if not saved.get("running"):
+        return None
+    symbol = str(saved.get("symbol") or "").strip().lower()
+    if symbol not in RECOVERY_SYMBOLS:
+        return None
+    adapter = CascadeOptionsAdapter(broker, paper_only=True)
+    try:
+        host = _build_recovery_host(
+            symbol,
+            adapter,
+            broker,
+            timeframe=str(saved.get("timeframe") or "15m"),
+            mode=str(saved.get("mode") or "ladder"),
+            config_overrides=saved.get("config") or {},
+        )
+    except Exception as exc:
+        _logger.warning("[RECOVERY] Cannot restore %s run for user %s: %s", symbol, user_id, exc)
+        return None
+    started_at = datetime.now(IST).replace(tzinfo=None)
+    try:
+        started_at = datetime.fromisoformat(str(saved.get("started_at")))
+    except Exception:
+        pass
+    runtime = _RecoveryRuntime(host=host, adapter=adapter, broker=broker, symbol=symbol, started_at=started_at)
+    _recovery_engines[int(user_id)] = runtime
+    await _readopt_recovery_mothers(int(user_id), host, symbol)
+    runtime.task = asyncio.create_task(_run_recovery_loop(int(user_id), runtime))
+    _logger.info("[RECOVERY] Restored %s run for user %s", symbol, user_id)
+    return runtime
+
+
+async def _run_recovery_loop(user_id: int, runtime: _RecoveryRuntime) -> None:
+    """Poll closed bars and replay every campaign.
+
+    The host gates itself on the NSE session, so an out-of-hours tick costs no
+    broker call -- the Dhan rate budget is shared with the live engine.
+    """
+    while runtime.running and _recovery_engines.get(int(user_id)) is runtime:
+        try:
+            report = await runtime.host.poll(now=datetime.now(IST).replace(tzinfo=None))
+            runtime.last_error = report.error
+            if report.error:
+                _logger.warning("[RECOVERY] %s poll error for user %s: %s", runtime.symbol, user_id, report.error)
+            if report.changed:
+                for fill in report.fills:
+                    _logger.info("[RECOVERY] %s FILL %s", runtime.symbol, fill)
+                for exit_ in report.exits:
+                    _logger.info("[RECOVERY] %s EXIT %s", runtime.symbol, exit_)
+                await _save_recovery_state(user_id, runtime)
+                await _broadcast_user_ws_json(
+                    int(user_id),
+                    {"type": "recovery_status", "recovery": _recovery_status_payload(runtime)},
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            runtime.last_error = str(exc)
+            _logger.warning("[RECOVERY] poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(RECOVERY_POLL_SECONDS)
+
+
 # ── Fib-space paper run ───────────────────────────────────────────
 # The converging-fib space design (engine/fib_space_*), driven forward in paper.
 # Unlike the campaigns above it takes no typed mother: it finds its own swing
@@ -2182,6 +2432,7 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
         "scalp": 0,
         "cascade": 0,
         "candle_entry": 0,
+        "recovery": 0,
         "fib_boundary": 0,
         "terminal_cascade": 0,
         "fib_space": 0,
@@ -2210,6 +2461,8 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
                 restored["terminal_cascade"] += len(terminal)
             if await _restore_fib_space_paper_run(user_id, broker_client) is not None:
                 restored["fib_space"] += 1
+            if await _restore_recovery_run(user_id, broker_client) is not None:
+                restored["recovery"] += 1
         except Exception as exc:
             _logger.warning("[Restore] Auxiliary engine restore failed for user %s: %s", user_id, exc)
     return restored
@@ -10841,6 +11094,169 @@ async def fib_space_paper_status(request: Request):
     if runtime is None:
         return {"status": "not_started", "mode": "paper"}
     return _fib_space_status_payload(runtime)
+
+
+# ── Candle-entry recovery routes ──────────────────────────────────
+# Paper only. The adapter is constructed paper_only and there is no live
+# counterpart to any of these -- no code path here can submit a Dhan order.
+
+
+@app.post("/api/recovery/paper/start")
+async def recovery_paper_start(request: Request):
+    """Start a recovery paper run. Mothers are named afterwards, one per campaign."""
+    body = await request.json() if await request.body() else {}
+    symbol = str(body.get("symbol") or "nifty").strip().lower()
+    timeframe = str(body.get("timeframe") or "15m").strip().lower()
+    mode = str(body.get("mode") or "ladder").strip().lower()
+    if symbol not in RECOVERY_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"Measured symbols: {', '.join(sorted(RECOVERY_SYMBOLS))}.")
+    if timeframe not in RECOVERY_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Timeframe must be one of {', '.join(RECOVERY_TIMEFRAMES)}.")
+    if mode not in RECOVERY_MODES:
+        raise HTTPException(status_code=400, detail=f"Mode must be one of {', '.join(RECOVERY_MODES)}.")
+
+    user_id = _request_user_id(request)
+    existing = _recovery_engines.get(user_id)
+    if existing is not None and existing.running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A recovery run is already going on {existing.symbol.upper()}. Stop it first.",
+        )
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a recovery run.")
+
+    overrides = {}
+    if body.get("lots_schedule"):
+        overrides["lots_schedule"] = [int(x) for x in body["lots_schedule"]]
+    for key in ("min_profit_inr", "horizon_sessions"):
+        if body.get(key) is not None:
+            overrides[key] = body[key]
+    if body.get("sl_source"):
+        overrides["sl_source"] = str(body["sl_source"])
+
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        host = _build_recovery_host(
+            symbol, adapter, broker_client, timeframe=timeframe, mode=mode, config_overrides=overrides
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot size a {symbol.upper()} campaign: {exc}") from exc
+
+    runtime = _RecoveryRuntime(
+        host=host,
+        adapter=adapter,
+        broker=broker_client,
+        symbol=symbol,
+        started_at=datetime.now(IST).replace(tzinfo=None),
+    )
+    _recovery_engines[user_id] = runtime
+    # Pick the named mothers back up BEFORE saving, so a stop/start or a restore
+    # that failed on a deploy cannot write an empty book over the record.
+    readopted = await _readopt_recovery_mothers(user_id, host, symbol)
+    runtime.task = asyncio.create_task(_run_recovery_loop(user_id, runtime))
+    await _save_recovery_state(user_id, runtime)
+    return {
+        "status": "started",
+        "mode": "paper",
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "strategy_mode": mode,
+        "lot_size": host.lot_size,
+        "poll_seconds": RECOVERY_POLL_SECONDS,
+        "readopted_mothers": readopted,
+    }
+
+
+@app.post("/api/recovery/paper/mother")
+async def recovery_paper_mother(request: Request):
+    """Run the recovery rules on a mother candle the trader names.
+
+    Only the timestamp is taken; the high and low come from the market bar.
+    """
+    body = await request.json() if await request.body() else {}
+    user_id = _request_user_id(request)
+    runtime = _recovery_engines.get(user_id)
+    if runtime is None or not runtime.running:
+        raise HTTPException(status_code=409, detail="Start the recovery run first, then give it a mother candle.")
+
+    when = _parse_cascade_mother_timestamp(body.get("mother_timestamp")).replace(tzinfo=None)
+    now = datetime.now(IST).replace(tzinfo=None)
+    if when > now:
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if not (dt_time(9, 15) <= when.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15-15:30 session.")
+
+    try:
+        campaign = await runtime.host.start_named_mother(when, now=now)
+    except LookupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        # 400 deliberately: error_handlers only passes the real reason through
+        # for 4xx, and a 5xx is rewritten to "the broker is unreachable".
+        _logger.warning("[RECOVERY] mother %s failed: %s", when, exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Could not read that candle from Dhan - {exc}") from exc
+
+    # PERSIST IT NOW, not on the next change -- a named mother that has not
+    # filled yet is exactly the thing a restart would otherwise lose.
+    await _save_recovery_state(user_id, runtime)
+    _logger.info(
+        "[RECOVERY] %s mother %s (high %.2f) accepted and saved for user %s",
+        runtime.symbol,
+        campaign.mother.timestamp,
+        campaign.mother.high,
+        user_id,
+    )
+    return {
+        "status": "accepted",
+        "mode": "paper",
+        "campaign_id": campaign.campaign_id,
+        "mother": campaign.mother.timestamp.isoformat(),
+        "mother_high": round(campaign.mother.high, 2),
+        "mother_low": round(campaign.mother.low, 2),
+        "campaign": runtime.host.campaign_row(campaign),
+    }
+
+
+@app.post("/api/recovery/paper/drop")
+async def recovery_paper_drop(request: Request):
+    """Remove one campaign from the book. Paper: nothing is sold, it stops being tracked."""
+    body = await request.json() if await request.body() else {}
+    user_id = _request_user_id(request)
+    runtime = _recovery_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_running"}
+    campaign_id = str(body.get("campaign_id") or "")
+    if not runtime.host.drop(campaign_id):
+        raise HTTPException(status_code=404, detail="No such campaign in this run.")
+    await _save_recovery_state(user_id, runtime)
+    return {"status": "dropped", "campaign_id": campaign_id}
+
+
+@app.post("/api/recovery/paper/stop")
+async def recovery_paper_stop(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _recovery_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_running"}
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_recovery_state(user_id, runtime)
+    return {"status": "stopped", "mode": "paper", "symbol": runtime.symbol}
+
+
+@app.get("/api/recovery/paper/status")
+async def recovery_paper_status(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _recovery_engines.get(user_id)
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper"}
+    return _recovery_status_payload(runtime)
 
 
 @app.post("/api/cascade/paper/kill")

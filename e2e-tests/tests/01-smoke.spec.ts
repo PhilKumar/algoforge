@@ -127,6 +127,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/fib-space/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
@@ -550,4 +551,32 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
 
   // The copy sells the ladder, not the old single 1H buy.
   await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
+});
+
+test('Recovery tab renders its controls and monitor', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-recovery');
+
+  await expect(page.locator('#oc-tab-recovery')).toBeVisible();
+
+  // Every timeframe the engine supports, with the measured one first.
+  await expect(page.locator('#recovery-timeframe option')).toHaveCount(4);
+  await expect(page.locator('#recovery-timeframe')).toHaveValue('15m');
+  await expect(page.locator('#recovery-mode option')).toHaveCount(2);
+
+  // The monitor must render from a not_started payload rather than staying blank
+  // -- a JS typo here leaves an empty panel that a green Python run never catches.
+  await expect(page.locator('#recovery-badge')).toHaveText('IDLE');
+  await expect(page.locator('#recovery-campaigns')).toContainText('Nothing running');
+  await expect(page.locator('#recovery-start')).toBeVisible();
+  await expect(page.locator('#recovery-stop')).toBeHidden();
+
+  // The rules are stated where the trader can read them.
+  await expect(page.locator('#options-cascade-page')).toContainText('NO REAL ORDER IS EVER SENT');
+
+  expect(jsErrors, `page errors: ${jsErrors.join(' | ')}`).toHaveLength(0);
 });

@@ -1455,6 +1455,10 @@ const PF_DELEGATED_ACTIONS = new Set([
   'killCandleEntryPaper',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
+  'recoveryStart',
+  'recoveryStop',
+  'recoveryAddMother',
+  'recoveryDrop',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
   'loadFibBoundaryChart',
@@ -2243,7 +2247,7 @@ let _lastFibBoundaryStatus = null;
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
 // moved in beside the two paper strategies the same day — both on Phil's call,
 // so the top nav stays one row.
-const _OC_TABS = ['fib', 'candle', 'space', 'bench'];
+const _OC_TABS = ['fib', 'candle', 'space', 'recovery', 'bench'];
 
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
@@ -2255,6 +2259,7 @@ function showOptionsCascadeTab(event, el) {
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'bench') initTestBenchPage();
   else if (tab === 'space') refreshFibSpaceStatus();
+  else if (tab === 'recovery') refreshRecoveryStatus();
   else refreshFibBoundaryStatus();
 }
 
@@ -15706,3 +15711,214 @@ document.addEventListener('click', (event) => {
   const open = target.classList.toggle('is-open');
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 });
+
+// ── Recovery (two reds, stop on the entry candle low) ─────────────
+// Phil's stop-loss recovery rules. The panel is a monitor: mothers are named by
+// hand, the engine replays each one from its own mother on every poll, and the
+// target is a RUPEE threshold on the ledger — never a price level, so there is
+// no target line to draw.
+
+let _recoveryTimer = null;
+
+function _recNum(v, dp) {
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  return n.toLocaleString('en-IN', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
+}
+
+function _recInr(v) {
+  const n = Number(v);
+  if (v === null || v === undefined || !isFinite(n)) return '—';
+  const sign = n < 0 ? '−' : '+';
+  return `${sign}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
+}
+
+function _recTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return `${String(d.getDate()).padStart(2, '0')} ${d.toLocaleString('en-IN', { month: 'short' })} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function _recoveryError(msg) {
+  const box = document.getElementById('recovery-error');
+  if (!box) return;
+  box.textContent = msg || '';
+  box.style.display = msg ? '' : 'none';
+}
+
+async function recoveryStart() {
+  _recoveryError('');
+  const body = {
+    symbol: document.getElementById('recovery-symbol')?.value || 'nifty',
+    timeframe: document.getElementById('recovery-timeframe')?.value || '15m',
+    mode: document.getElementById('recovery-mode')?.value || 'ladder',
+    horizon_sessions: Number(document.getElementById('recovery-horizon')?.value || 10),
+    min_profit_inr: Number(document.getElementById('recovery-margin')?.value || 500),
+  };
+  try {
+    const res = await apiFetch('/api/recovery/paper/start', { method: 'POST', body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not start the run.');
+    if (data.readopted_mothers) showToast(`Re-adopted ${data.readopted_mothers} named mother(s)`, 'info');
+    refreshRecoveryStatus();
+  } catch (err) {
+    _recoveryError(String(err.message || err));
+  }
+}
+
+async function recoveryStop() {
+  try {
+    await apiFetch('/api/recovery/paper/stop', { method: 'POST', body: '{}' });
+  } catch (err) { /* the refresh below tells the truth either way */ }
+  refreshRecoveryStatus();
+}
+
+async function recoveryAddMother() {
+  _recoveryError('');
+  const raw = document.getElementById('recovery-mother')?.value;
+  if (!raw) { _recoveryError('Pick a completed candle open first.'); return; }
+  try {
+    const res = await apiFetch('/api/recovery/paper/mother', {
+      method: 'POST', body: JSON.stringify({ mother_timestamp: raw }),
+    });
+    const data = await res.json();
+    // FastAPI errors can be a list; `data.detail ||` alone swallows those.
+    if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+    showToast(`Mother ${_recTime(data.mother)} accepted — high ${_recNum(data.mother_high, 2)}`, 'success');
+    refreshRecoveryStatus();
+  } catch (err) {
+    _recoveryError(String(err.message || err));
+  }
+}
+
+async function recoveryDrop(event, el) {
+  const id = el?.getAttribute('data-rec-campaign');
+  if (!id) return;
+  try {
+    await apiFetch('/api/recovery/paper/drop', { method: 'POST', body: JSON.stringify({ campaign_id: id }) });
+  } catch (err) { /* refresh reports the real state */ }
+  refreshRecoveryStatus();
+}
+
+function _recoveryTrades(rows) {
+  if (!rows || !rows.length) return '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">No trade yet — waiting for two reds that break lower.</div>';
+  const body = rows.map(t => {
+    const net = t.net_pnl === null || t.net_pnl === undefined
+      ? (t.open ? '<span style="color:#fbbf24;">OPEN</span>' : '<span style="color:var(--muted);">unpriced</span>')
+      : `<span style="color:${t.net_pnl >= 0 ? '#34d399' : '#f87171'};">${_recInr(t.net_pnl)}</span>`;
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 8px;">T${t.trade_no}</td>
+      <td style="padding:4px 8px;">${_recTime(t.entry_time)}</td>
+      <td style="padding:4px 8px;text-align:right;">${_recNum(t.entry_index, 2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#f87171;">${_recNum(t.sl_level, 2)}</td>
+      <td style="padding:4px 8px;text-align:right;">${t.lots || '—'}×${t.strike || '—'}</td>
+      <td style="padding:4px 8px;text-align:right;">${t.entry_premium === null || t.entry_premium === undefined ? '—' : _recNum(t.entry_premium, 2)}</td>
+      <td style="padding:4px 8px;text-align:right;">${t.exit_premium === null || t.exit_premium === undefined ? '—' : _recNum(t.exit_premium, 2)}</td>
+      <td style="padding:4px 8px;">${t.exit_reason || (t.open ? 'holding' : '—')}</td>
+      <td style="padding:4px 8px;text-align:right;">${net}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;">
+    <thead><tr style="color:var(--muted);text-align:left;">
+      <th style="padding:4px 8px;">#</th><th style="padding:4px 8px;">ENTRY</th>
+      <th style="padding:4px 8px;text-align:right;">INDEX</th><th style="padding:4px 8px;text-align:right;">SL</th>
+      <th style="padding:4px 8px;text-align:right;">LOTS×STRIKE</th><th style="padding:4px 8px;text-align:right;">IN ₹</th>
+      <th style="padding:4px 8px;text-align:right;">OUT ₹</th><th style="padding:4px 8px;">EXIT</th>
+      <th style="padding:4px 8px;text-align:right;">NET</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function _recoveryCampaign(c) {
+  const statusColour = c.status === 'RECOVERED' ? '#34d399' : (c.status === 'ABANDONED' ? '#f87171' : '#93c5fd');
+  const zones = (c.zones || []).map(z =>
+    `<span style="margin-right:12px;">zone ${z.level}-${z.level}: ${_recNum(z.lower, 1)}–${_recNum(z.upper, 1)} · ${z.lots} lot</span>`).join('');
+  const need = c.required_recovery === null || c.required_recovery === undefined ? null : c.required_recovery;
+  return `<div class="card" style="padding:14px;margin-top:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="font:12px 'JetBrains Mono',monospace;">
+        <b>Mother ${_recTime(c.mother.timestamp)}</b> · high ${_recNum(c.mother.high, 2)}
+        <span style="color:${statusColour};margin-left:10px;">${c.status}</span>
+        ${c.end_reason ? `<span style="color:var(--muted);"> (${c.end_reason})</span>` : ''}
+      </div>
+      <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+    </div>
+    <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
+      ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>
+      ${need !== null ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
+      ${c.open_trades ? ` · ${c.open_trades} open` : ''}
+      ${zones ? `<div style="margin-top:4px;">${zones}</div>` : ''}
+    </div>
+    <div style="margin-top:8px;">${_recoveryTrades(c.trades)}</div>
+  </div>`;
+}
+
+function renderRecovery(data) {
+  const badge = document.getElementById('recovery-badge');
+  const startBtn = document.getElementById('recovery-start');
+  const stopBtn = document.getElementById('recovery-stop');
+  const poll = document.getElementById('recovery-poll');
+  const tiles = document.getElementById('recovery-tiles');
+  const list = document.getElementById('recovery-campaigns');
+  if (!badge || !tiles || !list) return;
+
+  const running = data && data.status === 'ok' && data.running;
+  badge.textContent = running ? 'RUNNING' : 'IDLE';
+  badge.style.color = running ? '#34d399' : 'var(--muted)';
+  if (startBtn) startBtn.style.display = running ? 'none' : '';
+  if (stopBtn) stopBtn.style.display = running ? '' : 'none';
+
+  if (!running) {
+    if (poll) poll.textContent = 'not started';
+    tiles.innerHTML = '';
+    list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
+    return;
+  }
+
+  const book = data.book || {};
+  const campaigns = book.campaigns || [];
+  const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
+  const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
+  const tile = (label, value, colour) =>
+    `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+      <div style="font:800 9px 'JetBrains Mono',monospace;letter-spacing:.6px;color:var(--muted);">${label}</div>
+      <div style="margin-top:4px;font:600 17px 'JetBrains Mono',monospace;${colour ? `color:${colour};` : ''}">${value}</div>
+    </div>`;
+  tiles.innerHTML = [
+    tile('CAMPAIGNS', campaigns.length),
+    tile('OPEN TRADES', openTrades),
+    tile('CLOSED TRADES', closed),
+    tile('LEDGER', _recInr(book.booked_net), (book.booked_net || 0) >= 0 ? '#34d399' : '#f87171'),
+  ].join('');
+
+  if (poll) {
+    const skipped = book.last_report && book.last_report.skipped;
+    poll.textContent = `${String(book.timeframe || '').toUpperCase()} · ${book.mode} · lot ${book.lot_size} · `
+      + (book.last_poll ? `last poll ${_recTime(book.last_poll)} IST` : 'no poll yet')
+      + (skipped ? ` (${skipped})` : '');
+  }
+
+  list.innerHTML = campaigns.length
+    ? campaigns.map(_recoveryCampaign).join('')
+    : '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Running, but no mother named yet. Pick a completed candle open above.</div>';
+}
+
+async function refreshRecoveryStatus() {
+  try {
+    const res = await apiFetch('/api/recovery/paper/status');
+    renderRecovery(await res.json());
+  } catch (err) {
+    renderRecovery(null);
+  }
+  if (_recoveryTimer) clearTimeout(_recoveryTimer);
+  const visible = document.getElementById('oc-tab-recovery');
+  if (visible && visible.style.display !== 'none') {
+    _recoveryTimer = setTimeout(refreshRecoveryStatus, 15000);
+  }
+}
+
+window.recoveryStart = recoveryStart;
+window.recoveryStop = recoveryStop;
+window.recoveryAddMother = recoveryAddMother;
+window.recoveryDrop = recoveryDrop;
+window.refreshRecoveryStatus = refreshRecoveryStatus;

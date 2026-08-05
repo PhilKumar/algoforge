@@ -1828,6 +1828,7 @@
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Pick a mother candle · buys the deep fib levels under it</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
     <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Your mother candle, auto trendlines and fibs — the measured design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Your mother · auto trendlines + fibs · buys where two fibs converge</span></button>
+    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds breaking lower · SL on the entry candle · recovers the ledger</span></button>
     <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother · history only, nothing trades</span></button>
   </div>
 
@@ -2019,6 +2020,57 @@
     </div>
   </div>
 
+  <div id="oc-tab-recovery" class="oc-tab-panel" style="display:none;">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">PAPER CAMPAIGNS ON LIVE PRICES · NO REAL ORDER IS EVER SENT</div>
+          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Recovery <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <div id="recovery-info" class="pf-info-pop" style="max-width:760px;">Two red candles where the SECOND closes below the FIRST's low arm a buy at the second red's high — price must rise back through it, so a recovery is bought and never a falling knife. The stop is the entry candle's own low; a wick through it survives, a close below it does not. After any trade closes the next may only arm by breaking lower, never off a bounce. The target is not a price: the open trade must net back every rupee already lost, costs included, plus a margin. Positions square off at the day's last bar — only the ledger carries overnight.</div>
+        </div>
+        <span id="recovery-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+      </div>
+      <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
+        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">UNDERLYING
+          <select id="recovery-symbol" class="pf-input" style="width:100%;margin-top:4px;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select></label>
+        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">TIMEFRAME
+          <select id="recovery-timeframe" class="pf-input" style="width:100%;margin-top:4px;"><option value="15m" selected>15m — measured best</option><option value="5m">5m</option><option value="1h">1H</option><option value="1m">1m</option></select></label>
+        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">MODE
+          <select id="recovery-mode" class="pf-input" style="width:100%;margin-top:4px;"><option value="ladder">Ladder — re-arm after every stop</option><option value="fib-zone">Fib zones — 2-2 and 4-4 only</option></select></label>
+        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">HORIZON (SESSIONS)
+          <input id="recovery-horizon" class="pf-input" type="number" min="1" max="30" value="10" style="width:100%;margin-top:4px;"></label>
+        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">MARGIN OVER LOSSES ₹
+          <input id="recovery-margin" class="pf-input" type="number" min="0" step="100" value="500" style="width:100%;margin-top:4px;"></label>
+      </div>
+      <div style="margin-top:10px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
+        Lots 1 then 2 · stop on the entry candle low · ATM−2 CE, 4+ days to expiry, re-picked at every fill.
+        <span id="recovery-measured" style="color:#6ee7b7;">15m ladder measured +₹82,896 over Jan–Jul 2026 on mechanical mothers; 5m fib-zone +₹6,732 intraday.</span>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button id="recovery-start" class="btn" type="button" data-pf-action="recoveryStart">▶ Start paper run</button>
+        <button id="recovery-stop" class="btn btn-ghost" type="button" data-pf-action="recoveryStop" style="display:none;">■ Stop</button>
+      </div>
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+        <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--muted);">GIVE IT A MOTHER CANDLE</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
+          <input id="recovery-mother" class="pf-input" type="datetime-local" step="60" style="flex:1;min-width:220px;">
+          <button id="recovery-add-mother" class="btn" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
+        </div>
+        <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
+          A completed candle open on the chosen timeframe. Its high and low come from Dhan; nothing is typed. Add as many as you like — each runs as its own campaign with its own ledger.
+        </div>
+      </div>
+      <div id="recovery-error" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
+    </div>
+    <div class="card" style="padding:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h3 style="margin:0;font-size:15px;">Book monitor</h3>
+        <span id="recovery-poll" style="font:11px 'JetBrains Mono',monospace;color:var(--muted);">not started</span>
+      </div>
+      <div id="recovery-tiles" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;"></div>
+      <div id="recovery-campaigns" style="margin-top:14px;"></div>
+    </div>
+  </div>
   <div id="oc-tab-bench" class="oc-tab-panel" style="display:none;">
   <div class="tb-controls card">
     <div class="tb-field">
