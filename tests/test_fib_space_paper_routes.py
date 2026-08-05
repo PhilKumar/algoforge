@@ -11,6 +11,7 @@ import shutil
 import sys
 import unittest
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -510,3 +511,113 @@ class CampaignDetailRouteTests(unittest.IsolatedAsyncioTestCase):
             await app_module.fib_space_paper_chart(campaign.campaign_id, _Request())
         self.assertEqual(caught.exception.status_code, 409)
         self.assertIn("no replay yet", caught.exception.detail)
+
+
+class _CandleAdapter(_Adapter):
+    """A paper adapter with real 15m bars behind it, so a mother can be named."""
+
+    def __init__(self, mother: datetime):
+        super().__init__()
+        self.mother = mother
+
+    async def async_get_candles(self, symbol, timeframe, *, from_date=None, to_date=None, now=None):
+        step = 15 if timeframe == "15m" else 5
+        first = self.mother - timedelta(minutes=step * 40)
+        out = []
+        for i in range(120):
+            stamp = first + timedelta(minutes=step * i)
+            if not (dt_time(9, 15) <= stamp.time() <= dt_time(15, 30)):
+                continue
+            base = 57_000.0 - i
+            out.append(
+                SimpleNamespace(
+                    timestamp=stamp, open=base, high=base + 30.0, low=base - 30.0, close=base - 5.0, volume=100
+                )
+            )
+        return out
+
+
+class NamedMotherSurvivesTests(unittest.IsolatedAsyncioTestCase):
+    """A mother named by hand must outlive a restart and a stop/start.
+
+    It did not. The poll loop saved only when something CHANGED -- a fill, an
+    exit, a halt, an auto-scanned mother -- so with auto-scan off a named mother
+    that had not filled yet was never written to disk; and the start route saved
+    its brand-new EMPTY book, overwriting any mother that had been saved. Name a
+    mother in the evening, come back next day, the book was empty.
+    """
+
+    async def asyncSetUp(self):
+        if TEST_DB.exists():
+            TEST_DB.unlink()
+        if TEST_USER_DATA.exists():
+            shutil.rmtree(TEST_USER_DATA)
+        app_module.config.DB_PATH = str(TEST_DB)
+        app_module.config.USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._db_mod.config.DB_PATH = str(TEST_DB)
+        app_module._db_mod.config.USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._db_mod._initialized = False
+        app_module._fib_space_engines.clear()
+        await app_module._db_mod.init_db()
+        # Yesterday's 10:00 bar: closed, inside the session, on a 15m open.
+        self.mother = (datetime.now(app_module.IST).replace(tzinfo=None) - timedelta(days=1)).replace(
+            hour=10, minute=0, second=0, microsecond=0
+        )
+        self.adapter = _CandleAdapter(self.mother)
+
+    async def asyncTearDown(self):
+        for runtime in app_module._fib_space_engines.values():
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+        app_module._fib_space_engines.clear()
+
+    def _broker(self):
+        return (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 7}, object(), "user"))),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: self.adapter),
+        )
+
+    async def _saved(self):
+        raw = await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7))
+        return json.loads(raw) if raw else {}
+
+    async def _name_mother(self):
+        return await app_module.fib_space_paper_mother(_Request(body={"mother_timestamp": self.mother.isoformat()}))
+
+    async def test_naming_a_mother_writes_it_to_disk_immediately(self):
+        broker_patch, adapter_patch = self._broker()
+        with broker_patch, adapter_patch:
+            await app_module.fib_space_paper_start(_Request())
+            await self._name_mother()
+
+        saved = await self._saved()
+        self.assertEqual(saved["manual_mothers"], [self.mother.isoformat()])
+
+    async def test_restarting_the_run_does_not_erase_the_named_mother(self):
+        broker_patch, adapter_patch = self._broker()
+        with broker_patch, adapter_patch:
+            await app_module.fib_space_paper_start(_Request())
+            await self._name_mother()
+            await app_module.fib_space_paper_stop(_Request())
+            app_module._fib_space_engines.clear()
+            result = await app_module.fib_space_paper_start(_Request())
+
+        self.assertEqual(result["readopted_mothers"], 1)
+        saved = await self._saved()
+        self.assertEqual(saved["manual_mothers"], [self.mother.isoformat()])
+        runtime = app_module._fib_space_engines[7]
+        self.assertEqual(len(runtime.host.book.campaigns), 1)
+
+    async def test_a_run_on_another_symbol_does_not_inherit_the_mother(self):
+        broker_patch, adapter_patch = self._broker()
+        with broker_patch, adapter_patch:
+            await app_module.fib_space_paper_start(_Request())
+            await self._name_mother()
+            await app_module.fib_space_paper_stop(_Request())
+            app_module._fib_space_engines.clear()
+            result = await app_module.fib_space_paper_start(_Request(body={"symbol": "nifty"}))
+
+        self.assertEqual(result["readopted_mothers"], 0)
+        self.assertEqual(len(app_module._fib_space_engines[7].host.book.campaigns), 0)

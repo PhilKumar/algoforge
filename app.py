@@ -1851,6 +1851,36 @@ async def _save_fib_space_state(user_id: int, runtime: _FibSpaceRuntime) -> None
     )
 
 
+async def _readopt_saved_manual_mothers(user_id: int, host, symbol: str) -> int:
+    """Re-open the hand-named mothers saved for this symbol.
+
+    A named mother is the one thing the replay cannot rediscover, so it has to
+    survive a restart AND a stop/start. Without this, building a fresh host and
+    saving its empty book wrote `manual_mothers: []` over the record and every
+    mother the trader had named was gone for good.
+    """
+    raw = await _db_mod.get_app_state(_fib_space_state_key(user_id))
+    if not raw:
+        return 0
+    try:
+        saved = json.loads(raw)
+    except Exception:
+        return 0
+    # Mothers belong to the symbol they were named on; starting a run on a
+    # different underlying must not drag them across.
+    if str(saved.get("symbol") or "").strip().lower() != symbol:
+        return 0
+    now = datetime.now(IST).replace(tzinfo=None)
+    adopted = 0
+    for stamp in saved.get("manual_mothers") or []:
+        try:
+            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now)
+            adopted += 1
+        except Exception as exc:
+            _logger.warning("[FIBSPACE] Could not re-adopt manual mother %s for user %s: %s", stamp, user_id, exc)
+    return adopted
+
+
 def _fib_space_status_payload(runtime: _FibSpaceRuntime) -> dict:
     """One shape for the status route and the websocket push.
 
@@ -1915,12 +1945,7 @@ async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) 
     # Re-adopt the mothers that were named by hand. A scanned mother comes back
     # on its own from the next poll; a named one exists only because somebody
     # said so, so losing it on a deploy would silently drop a live campaign.
-    now = datetime.now(IST).replace(tzinfo=None)
-    for stamp in saved.get("manual_mothers") or []:
-        try:
-            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now)
-        except Exception as exc:
-            _logger.warning("[FIBSPACE] Could not re-adopt manual mother %s for user %s: %s", stamp, user_id, exc)
+    await _readopt_saved_manual_mothers(int(user_id), host, symbol)
 
     runtime.task = asyncio.create_task(_run_fib_space_paper_loop(int(user_id), runtime))
     _logger.info("[FIBSPACE] Restored %s paper run for user %s", symbol, user_id)
@@ -10644,10 +10669,19 @@ async def fib_space_paper_start(request: Request):
         started_at=datetime.now(IST).replace(tzinfo=None),
     )
     _fib_space_engines[user_id] = runtime
+    # Pick the named mothers back up BEFORE saving. This host's book is empty,
+    # so saving first wrote `manual_mothers: []` over the record -- which is how
+    # a run that was restarted (or whose restore failed on a deploy, leaving the
+    # panel showing "not running") silently lost every campaign the trader had
+    # started. Restoring here also makes Stop then Start non-destructive.
+    readopted = await _readopt_saved_manual_mothers(user_id, host, symbol)
     runtime.task = asyncio.create_task(_run_fib_space_paper_loop(user_id, runtime))
     await _save_fib_space_state(user_id, runtime)
+    if readopted:
+        _logger.info("[FIBSPACE] Re-adopted %s named mother(s) on start for user %s", readopted, user_id)
     return {
         "status": "started",
+        "readopted_mothers": readopted,
         "mode": "paper",
         "symbol": symbol,
         "lot_size": host.book.config.lot_size,
@@ -10724,8 +10758,15 @@ async def fib_space_paper_mother(request: Request):
         _logger.warning("[FIBSPACE] Candle fetch failed for mother %s: %s", when, exc, exc_info=True)
         raise HTTPException(status_code=400, detail=f"Could not read that candle from Dhan — {exc}") from exc
 
+    # PERSIST IT NOW. The poll loop only saves when something CHANGED -- a fill,
+    # an exit, a halt, or an auto-scanned mother -- so with auto-scan off a named
+    # mother that had not filled yet was never written to disk at all, and the
+    # next restart came back with an empty book. Name a mother in the evening and
+    # it was gone by morning.
+    await _save_fib_space_state(user_id, runtime)
+
     _logger.info(
-        "[FIBSPACE] %s manual mother %s (high %.2f) accepted for user %s",
+        "[FIBSPACE] %s manual mother %s (high %.2f) accepted and saved for user %s",
         runtime.symbol,
         campaign.mother.timestamp,
         campaign.mother.high,
