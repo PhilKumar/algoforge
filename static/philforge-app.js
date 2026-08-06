@@ -13060,27 +13060,10 @@ async function emergencyStop() {
   }
 }
 
-function updateKillSwitchVisibility() {
-  if (!_isPageVisible()) return;
-  fetch('/api/engine-control/status').then(r => r.json()).then(data => {
-    const btn = document.getElementById('kill-switch-btn');
-    if (!btn) return;
-    if (data.any_running) btn.classList.remove('hidden');
-    else btn.classList.add('hidden');
-    // Loud only when real money is exposed. A paper campaign still gets the
-    // button — same place, same action — just without the red pulse, so the
-    // alarm keeps meaning something on the day it does fire.
-    const rows = Array.isArray(data.users) ? data.users : [];
-    const liveAtRisk = rows.some(r => Number(r.live_running || 0) > 0 || Number(r.scalp_live_open_trades || 0) > 0);
-    btn.classList.toggle('is-live', liveAtRisk);
-    btn.title = liveAtRisk
-      ? 'Live engines running — stop everything immediately'
-      : 'Paper runtimes active — stop everything immediately';
-  }).catch(() => {});
-}
-// Check kill switch visibility every 10s
-setInterval(updateKillSwitchVisibility, 10000);
-setTimeout(updateKillSwitchVisibility, 2000);
+// The floating kill switch is gone, so nothing polls /api/engine-control/status
+// on a 10s timer any more. emergencyStop() below is kept and still allowlisted
+// as a pf-action: re-adding one button restores the whole thing.
+function updateKillSwitchVisibility() {}
 
 // ══════════════════════════════════════════════════════════════
 //  DASHBOARD SUMMARY

@@ -34,10 +34,14 @@
   <div id="backfill-bar-track"><div id="backfill-bar-fill"></div></div>
 </div>
 
-<!-- EMERGENCY KILL SWITCH (hidden by default, shown when engines active) -->
-<button class="kill-switch hidden" id="kill-switch-btn" data-pf-action="emergencyStop">
-  <span style="color:#ef4444;">⊘</span> <span>KILL ALL</span>
-</button>
+<!-- The floating global KILL ALL button lived here. Removed 2026-08-06: it
+     appeared on every page whenever ANY runtime was up, paper included, and
+     every engine family already carries its own stop on its own tab —
+     stopEngine (Live), stopScalpEngine + killAllScalpTrades (Scalp),
+     stopCascadeOptionsPaper + stopFibSpacePaper (Cascade), and
+     stopTerminalCascadePaper (Terminal). Nothing became unreachable.
+     POST /api/emergency-stop and the emergencyStop() handler both remain, so
+     restoring it is one <button data-pf-action="emergencyStop"> away. -->
 
 <!-- ═══ HEADER: Top Bar ═══ -->
 <div class="header-shell">
