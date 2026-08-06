@@ -201,7 +201,10 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         base = datetime(2026, 8, 6, 9, 15)
         rows = [
-            (24_660, 24_665, 24_640, 24_642),
+            # Mother high 24,780, above its own bounce -- a close past the
+            # mother now ends the campaign, so a fixture that must keep
+            # trading has to contain it.
+            (24_660, 24_780, 24_640, 24_642),
             (24_642, 24_644, 24_620, 24_622),
             (24_622, 24_624, 24_600, 24_602),
             (24_602, 24_612, 24_600, 24_610),

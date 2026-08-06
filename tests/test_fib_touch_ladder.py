@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 from engine.fib_touch_ladder import (
+    DEEP_TARGET_FRACTION,
+    DEEP_TARGET_FROM_LEVEL,
     GEOMETRY_TIMEFRAMES,
     HALVING_LEVELS,
     ExecutionRefused,
@@ -46,10 +48,14 @@ def falling_then_bouncing() -> list[Bar]:
     Both anchors sit AFTER the mother -- 0 is the mother itself, 3-4 are the two
     greens that freeze the low at 24,600, and 7-8 are the two reds that freeze
     the high at 24,700 once the bounce runs out. Span 100.
+
+    The mother's high is 24,780, deliberately ABOVE the bounce: a close past it
+    now ends the campaign, so a fixture meant to keep trading has to contain
+    its own bounce.
     """
     return bars(
         [
-            (24_660, 24_665, 24_640, 24_642),  # 0 red   <- MOTHER
+            (24_660, 24_780, 24_640, 24_642),  # 0 red   <- MOTHER, high 24,780
             (24_642, 24_644, 24_620, 24_622),  # 1 red
             (24_622, 24_624, 24_600, 24_602),  # 2 red   <- lowest low 24,600
             (24_602, 24_612, 24_600, 24_610),  # 3 green
@@ -587,7 +593,7 @@ class TrendlineTests(unittest.TestCase):
         self.assertIsNotNone(line)
         assert line is not None
         self.assertEqual(line.start_timestamp, candles[0].timestamp)
-        self.assertEqual(line.start_price, 24_665.0)  # the mother's HIGH, not its low
+        self.assertEqual(line.start_price, 24_780.0)  # the mother's HIGH, not its low
 
     def test_the_anchor_is_the_top_red_candle_BEFORE_the_swing_low(self):
         line, candles, anchor = self.line()
@@ -750,6 +756,115 @@ class PersistenceTests(unittest.TestCase):
         raw = self.open_ladder().to_dict()
         self.assertEqual(raw["version"], 1)
         json.loads(json.dumps(raw))  # no datetimes left un-stringified
+
+
+class MotherBreakTests(unittest.TestCase):
+    """Phil: "If mother candle broken, stop the trade.\" """
+
+    def test_a_close_above_the_mother_high_ends_a_ce_campaign(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        self.assertEqual(len(engine.fills), 1)
+        # 24,790 closes above the mother's 24,780 high: thesis gone.
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.exit_reason, "mother_broken")
+        self.assertIsNotNone(engine.net_pnl)
+
+    def test_a_wick_past_the_mother_is_not_a_break(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        # High 24,800 but the CLOSE is back under 24,780.
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_770))
+        self.assertNotEqual(engine.status, "MOTHER_BROKEN")
+
+    def test_the_break_is_checked_before_any_rung_can_buy(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        # One bar that both touches L2 (24,500) and closes above the mother.
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_700, 24_800, 24_495, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.fills, [], "a bar that kills the trade must not also buy into it")
+
+    def test_a_broken_campaign_ignores_later_candles(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_790, 24_795, 24_100, 24_110))
+        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+
+    def test_a_pe_breaks_on_a_close_below_the_mother_low(self):
+        candles = bars(
+            [
+                (24_640, 24_660, 24_500, 24_658),  # 0 green <- MOTHER, low 24,500
+                (24_658, 24_680, 24_655, 24_675),
+                (24_675, 24_700, 24_670, 24_695),
+                (24_695, 24_698, 24_688, 24_690),
+                (24_690, 24_692, 24_680, 24_682),  # HIGH frozen
+                (24_682, 24_684, 24_650, 24_652),
+                (24_652, 24_654, 24_600, 24_602),
+                (24_602, 24_612, 24_600, 24_610),
+                (24_610, 24_620, 24_608, 24_618),  # LOW frozen
+            ]
+        )
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="PE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        self.assertEqual(engine.mother_low, 24_500.0)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_600, 24_610, 24_400, 24_450))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+
+
+class DeepTargetTests(unittest.TestCase):
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
+
+    def test_a_shallow_ladder_still_asks_for_a_quarter(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        self.assertEqual([f.level for f in engine.fills], [2])
+        self.assertEqual(engine.target_fraction, 0.25)
+        # avg 24,500, anchor high 24,700 -> a quarter of 200.
+        self.assertAlmostEqual(engine.target_index, 24_550.0, places=2)
+
+    def test_reaching_level_four_widens_the_target_to_a_half(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        # Sweep L2 (24,500), L3 (24,400) and L4 (24,300) in one bar.
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        self.assertEqual([f.level for f in engine.fills], [2, 3, 4])
+        self.assertEqual(engine.target_fraction, DEEP_TARGET_FRACTION)
+        # avg 24,400 -> half of the 300 back to 24,700.
+        self.assertAlmostEqual(engine.target_index, 24_550.0, places=2)
+
+    def test_the_deep_threshold_is_level_four(self):
+        self.assertEqual(DEEP_TARGET_FROM_LEVEL, 4)
+        self.assertEqual(DEEP_TARGET_FRACTION, 0.5)
+
+    def test_the_status_payload_reports_the_fraction_actually_in_use(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        self.assertEqual(engine.get_status()["target_fraction"], 0.5)
 
 
 if __name__ == "__main__":

@@ -47,6 +47,8 @@ from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
 __all__ = [
     "HALVING_LEVELS",
+    "DEEP_TARGET_FROM_LEVEL",
+    "DEEP_TARGET_FRACTION",
     "INVOLVEMENT_CANDLES",
     "SYMBOL_TERMS",
     "SymbolTerms",
@@ -80,6 +82,14 @@ HALVING_LEVELS: tuple[int, ...] = (2, 3, 4, 6, 8, 12, 16)
 # same constant already governs engine/candle_recovery.py; it is repeated rather
 # than imported so this module stays free of that engine's option plumbing.
 INVOLVEMENT_CANDLES = 2
+
+# Past this rung the ladder has paid for a big move, so it asks for half the
+# way back to the anchor instead of a quarter.
+DEEP_TARGET_FROM_LEVEL = 4
+DEEP_TARGET_FRACTION = 0.5
+
+# Statuses no further candle can change.
+_TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
 
 # The charts a mother candle may be read on. Entries are always watched on 1m.
 GEOMETRY_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
@@ -642,6 +652,10 @@ class FibTouchLadder:
         # are the same series, and the engine does not care.
         self.geometry_history: list[Bar] = []
         self.history: list[Bar] = []
+        # The mother's own edges. The fib is measured off the swing, but the
+        # mother candle is still the thesis: break it and the trade is over.
+        self.mother_high: Optional[float] = None
+        self.mother_low: Optional[float] = None
         self.anchor: Optional[SwingAnchor] = None
         self.rungs: list[TouchRung] = []
         self.fills: list[TouchFill] = []
@@ -699,18 +713,32 @@ class FibTouchLadder:
         return sum(fill.premium * fill.quantity for fill in self.fills) / quantity
 
     @property
+    def target_fraction(self) -> float:
+        """How far back toward the anchor the basket asks for.
+
+        Phil, 2026-08-06: "tune up to 0.5 towards mother candle if the depth is
+        huge like moving to level 4 and 6." A shallow ladder is content with a
+        quarter; once it has bought at L4 or deeper it has paid for a much
+        bigger move and should ask for half of one.
+        """
+        if any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
+            return DEEP_TARGET_FRACTION
+        return self.config.target_fraction
+
+    @property
     def target_index(self) -> Optional[float]:
-        """0.25 of the way back from the average entry toward the far anchor.
+        """A fraction of the way back from the average entry toward the anchor.
 
         Recomputed on every fill, so a deeper buy pulls the target down (CE) or
-        up (PE) with the average -- which is the whole point of laddering.
+        up (PE) with the average -- and, past L4, widens the fraction too.
         """
         average = self.average_index_entry
         if average is None or self.anchor is None:
             return None
+        fraction = self.target_fraction
         if self.side == "CE":
-            return average + self.config.target_fraction * (self.anchor.high - average)
-        return average - self.config.target_fraction * (average - self.anchor.low)
+            return average + fraction * (self.anchor.high - average)
+        return average - fraction * (average - self.anchor.low)
 
     def _beyond(self, price: float, level_price_: float) -> bool:
         """Has price reached a level, in the direction the ladder runs?"""
@@ -862,6 +890,66 @@ class FibTouchLadder:
                 deployed=self.deployed_inr,
             )
 
+    def _try_mother_break(self, bar: Bar) -> bool:
+        """End the campaign when price closes back through the mother.
+
+        Phil, 2026-08-06: "If mother candle broken, stop the trade." On a CE the
+        ladder is buying a fall; a close back ABOVE the mother's high says the
+        fall is over and the thesis with it. PE mirrors on the mother's low.
+
+        Checked BEFORE any fill, so a bar that breaks the mother never also
+        buys a rung on the way past.
+        """
+        edge = self.mother_high if self.side == "CE" else self.mother_low
+        if edge is None:
+            return False
+        broken = float(bar.close) > edge if self.side == "CE" else float(bar.close) < edge
+        if not broken:
+            return False
+        if self.fills:
+            prices: list[Optional[float]] = []
+            for fill in self.fills:
+                price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
+                if price is None:
+                    intrinsic = (
+                        max(float(bar.close) - fill.strike, 0.0)
+                        if self.side == "CE"
+                        else max(fill.strike - float(bar.close), 0.0)
+                    )
+                    price = intrinsic if intrinsic > 0 else None
+                if price is None:
+                    # Cannot value the basket, so cannot honestly close it. The
+                    # campaign stays open and tries again on the next bar.
+                    self._note_gap("mother broken but the basket cannot be priced", bar.timestamp)
+                    return False
+                prices.append(price)
+            try:
+                self.executor.sell_all(
+                    when=bar.timestamp,
+                    legs=[
+                        {
+                            "strike": f.strike,
+                            "expiry": f.expiry.isoformat(),
+                            "option_type": f.option_type,
+                            "quantity": f.quantity,
+                        }
+                        for f in self.fills
+                    ],
+                )
+            except ExecutionRefused as exc:
+                self.data_gaps.append(f"mother-break exit not sent: {exc}")
+                self._log(bar.timestamp, "exit_refused", detail=str(exc))
+                self.status = "EXIT_REFUSED"
+                return False
+            self._exit_premiums = prices
+            self._settle(prices)
+        self.exit_timestamp = bar.timestamp
+        self.exit_index = float(bar.close)
+        self.exit_reason = "mother_broken"
+        self.status = "MOTHER_BROKEN"
+        self._log(bar.timestamp, "mother_broken", close=round(float(bar.close), 2), edge=round(edge, 2))
+        return True
+
     def _try_exit(self, bar: Bar) -> bool:
         """Close the whole basket when the index reaches the target."""
         if not self.fills:
@@ -998,9 +1086,11 @@ class FibTouchLadder:
         Only the swing is read from this stream. Nothing trades here: a 1H bar
         closing tells you where the ladder sits, not that a level was touched.
         """
-        if self.anchor is not None or self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+        if self.anchor is not None or self.status in _TERMINAL_STATUSES:
             return
         self.geometry_history.append(bar)
+        if bar.timestamp == self.config.mother_timestamp:
+            self.mother_high, self.mother_low = float(bar.high), float(bar.low)
         anchor = find_swing_anchor(
             self.geometry_history,
             self.config.mother_timestamp,
@@ -1025,7 +1115,7 @@ class FibTouchLadder:
 
     def on_candle(self, bar: Bar) -> None:
         """Advance the campaign by one CLOSED 1-minute index candle."""
-        if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+        if self.status in _TERMINAL_STATUSES:
             return
         self.history.append(bar)
         # A 1m mother needs no separate stream -- the entry bars ARE the
@@ -1039,6 +1129,10 @@ class FibTouchLadder:
         if bar.timestamp < self.anchor.confirmed_at:
             return
 
+        # The thesis first: a broken mother ends the campaign before a rung on
+        # the same bar can add to a position that is about to be closed.
+        if self._try_mother_break(bar):
+            return
         self._try_fill(bar)
         if self._try_exit(bar):
             return
@@ -1051,7 +1145,7 @@ class FibTouchLadder:
         report a closed round it could not value, so the ladder keeps running
         and the user can try again on the next quote.
         """
-        if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+        if self.status in _TERMINAL_STATUSES:
             return True
         if not self.fills:
             self.status = "KILLED"
@@ -1084,7 +1178,7 @@ class FibTouchLadder:
     def run(self, candles: Iterable[Bar]) -> "FibTouchLadder":
         for bar in sorted(candles, key=lambda row: row.timestamp):
             self.on_candle(bar)
-            if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+            if self.status in _TERMINAL_STATUSES:
                 break
         return self
 
@@ -1123,6 +1217,8 @@ class FibTouchLadder:
             },
             "mode": getattr(self.executor, "mode", "paper"),
             "status": self.status,
+            "mother_high": self.mother_high,
+            "mother_low": self.mother_low,
             "anchor": (
                 {
                     "high": anchor.high,
@@ -1250,6 +1346,8 @@ class FibTouchLadder:
         ]
         stamp = raw.get("last_fill_timestamp")
         engine._last_fill_timestamp = datetime.fromisoformat(stamp) if stamp else None
+        engine.mother_high = raw.get("mother_high")
+        engine.mother_low = raw.get("mother_low")
         engine.status = str(raw.get("status") or "WAITING_FOR_SWING")
         # A ladder parked by a refusal must not resume as if nothing happened;
         # the refusal is re-decided on the next bar against the CURRENT arming.
@@ -1310,7 +1408,9 @@ class FibTouchLadder:
             ),
             "average_premium": (round(self.average_premium, 2) if self.average_premium is not None else None),
             "target_index": round(self.target_index, 2) if self.target_index is not None else None,
-            "target_fraction": self.config.target_fraction,
+            "target_fraction": self.target_fraction,
+            "mother_high": self.mother_high,
+            "mother_low": self.mother_low,
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
             "exit_reason": self.exit_reason,
             "exit_index": round(self.exit_index, 2) if self.exit_index is not None else None,
