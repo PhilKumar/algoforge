@@ -18,6 +18,7 @@ from engine.fib_touch_ladder import (
     PaperExecutor,
     atm_strike,
     find_swing_anchor,
+    find_trendline,
     level_price,
     select_expiry,
 )
@@ -40,66 +41,91 @@ def bars(rows, start: datetime = IST_START, step_minutes: int = 1) -> list[Bar]:
 
 
 def falling_then_bouncing() -> list[Bar]:
-    """A leg up, a fall into the mother, then two greens that freeze the low.
+    """The CE shape: mother, a fall, buyer involvement, a bounce, sellers back.
 
-    Index 0-2 rise (so the backward walk stops there and the high anchor is
-    24,700), 3-6 fall to the mother at index 6, 7-8 are the two greens.
+    Both anchors sit AFTER the mother -- 0 is the mother itself, 3-4 are the two
+    greens that freeze the low at 24,600, and 7-8 are the two reds that freeze
+    the high at 24,700 once the bounce runs out. Span 100.
     """
     return bars(
         [
-            (24_660, 24_680, 24_655, 24_675),  # 0 green
-            (24_675, 24_700, 24_670, 24_695),  # 1 green  <- leg high 24,700
-            (24_695, 24_698, 24_680, 24_685),  # 2 red
-            (24_685, 24_690, 24_660, 24_662),  # 3 red
-            (24_662, 24_665, 24_640, 24_642),  # 4 red
-            (24_642, 24_644, 24_620, 24_622),  # 5 red
-            (24_622, 24_624, 24_600, 24_602),  # 6 red   <- MOTHER, low 24,600
-            (24_602, 24_612, 24_600, 24_610),  # 7 green
-            (24_610, 24_620, 24_608, 24_618),  # 8 green <- involvement here
+            (24_660, 24_665, 24_640, 24_642),  # 0 red   <- MOTHER
+            (24_642, 24_644, 24_620, 24_622),  # 1 red
+            (24_622, 24_624, 24_600, 24_602),  # 2 red   <- lowest low 24,600
+            (24_602, 24_612, 24_600, 24_610),  # 3 green
+            (24_610, 24_620, 24_608, 24_618),  # 4 green <- LOW frozen at 24,600
+            (24_618, 24_650, 24_615, 24_645),  # 5 green
+            (24_645, 24_700, 24_640, 24_695),  # 6 green <- highest high 24,700
+            (24_695, 24_698, 24_680, 24_682),  # 7 red
+            (24_682, 24_684, 24_670, 24_672),  # 8 red   <- HIGH frozen, confirmed
         ]
     )
 
 
 class SwingAnchorTests(unittest.TestCase):
-    def test_ce_anchor_is_the_leg_high_and_the_involvement_low(self):
+    def test_both_anchors_come_from_the_swing_after_the_mother(self):
         candles = falling_then_bouncing()
-        mother = candles[6].timestamp
-        anchor = find_swing_anchor(candles, mother, "CE")
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "CE")
         self.assertIsNotNone(anchor)
         assert anchor is not None
-        self.assertEqual(anchor.high, 24_700.0)
         self.assertEqual(anchor.low, 24_600.0)
+        self.assertEqual(anchor.high, 24_700.0)
         self.assertEqual(anchor.span, 100.0)
-        # Confirmed only on the SECOND green -- the involvement is not visible
-        # before its run closes.
+        # Both anchors sit AFTER the mother -- neither is its own high or low.
+        self.assertGreater(anchor.low_timestamp, candles[0].timestamp)
+        self.assertGreater(anchor.high_timestamp, candles[0].timestamp)
+        # Confirmed only when the bounce ends on the second red.
         self.assertEqual(anchor.confirmed_at, candles[8].timestamp)
 
-    def test_no_anchor_until_the_involvement_closes(self):
+    def test_the_mother_own_high_is_never_the_fib_top(self):
+        # Phil's correction: a mother that is itself the highest bar must NOT
+        # hand its high to the fib.
+        candles = bars(
+            [
+                (24_690, 24_800, 24_685, 24_688),  # 0 red <- MOTHER, high 24,800
+                (24_688, 24_690, 24_600, 24_602),  # 1 red <- low 24,600
+                (24_602, 24_612, 24_600, 24_610),  # 2 green
+                (24_610, 24_620, 24_608, 24_618),  # 3 green <- LOW frozen
+                (24_618, 24_700, 24_615, 24_695),  # 4 green <- high 24,700
+                (24_695, 24_698, 24_680, 24_682),  # 5 red
+                (24_682, 24_684, 24_670, 24_672),  # 6 red   <- HIGH frozen
+            ]
+        )
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "CE")
+        assert anchor is not None
+        self.assertEqual(anchor.high, 24_700.0)
+        self.assertNotEqual(anchor.high, 24_800.0)
+
+    def test_no_anchor_until_the_bounce_has_ended(self):
         candles = falling_then_bouncing()
-        mother = candles[6].timestamp
-        # One green is not involvement.
+        mother = candles[0].timestamp
+        # The low has frozen but the high has not: one red is not involvement.
         self.assertIsNone(find_swing_anchor(candles[:8], mother, "CE"))
+        # Not even the low is frozen this early.
+        self.assertIsNone(find_swing_anchor(candles[:4], mother, "CE"))
 
     def test_pe_mirrors_the_rule(self):
         # Mirror the CE fixture: a fall into a low, a rise to the mother, then
         # two reds that freeze the high.
         candles = bars(
             [
-                (24_640, 24_645, 24_620, 24_625),  # red
-                (24_625, 24_630, 24_600, 24_605),  # red  <- leg low 24,600
-                (24_605, 24_620, 24_602, 24_618),  # green
-                (24_618, 24_640, 24_615, 24_638),  # green
-                (24_638, 24_700, 24_635, 24_695),  # green <- MOTHER, high 24,700
-                (24_695, 24_698, 24_688, 24_690),  # red
-                (24_690, 24_692, 24_680, 24_682),  # red   <- involvement
+                (24_640, 24_660, 24_635, 24_658),  # 0 green <- MOTHER
+                (24_658, 24_680, 24_655, 24_675),  # 1 green
+                (24_675, 24_700, 24_670, 24_695),  # 2 green <- highest high 24,700
+                (24_695, 24_698, 24_688, 24_690),  # 3 red
+                (24_690, 24_692, 24_680, 24_682),  # 4 red   <- HIGH frozen
+                (24_682, 24_684, 24_650, 24_652),  # 5 red
+                (24_652, 24_654, 24_600, 24_602),  # 6 red   <- lowest low 24,600
+                (24_602, 24_612, 24_600, 24_610),  # 7 green
+                (24_610, 24_620, 24_608, 24_618),  # 8 green <- LOW frozen
             ]
         )
-        anchor = find_swing_anchor(candles, candles[4].timestamp, "PE")
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "PE")
         self.assertIsNotNone(anchor)
         assert anchor is not None
         self.assertEqual(anchor.high, 24_700.0)
         self.assertEqual(anchor.low, 24_600.0)
-        self.assertEqual(anchor.confirmed_at, candles[6].timestamp)
+        self.assertEqual(anchor.confirmed_at, candles[8].timestamp)
 
     def test_side_must_be_ce_or_pe(self):
         with self.assertRaises(FibTouchError):
@@ -158,7 +184,7 @@ class ExpiryTests(unittest.TestCase):
         self.assertEqual(atm_strike(14_690, 25), 14_700)  # MIDCPNIFTY's 25 step
 
 
-def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=6):
+def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=0):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
     config = FibTouchConfig(
@@ -287,7 +313,7 @@ class LadderTests(unittest.TestCase):
         config = FibTouchConfig(
             symbol="NIFTY",
             side="CE",
-            mother_timestamp=candles[6].timestamp,
+            mother_timestamp=candles[0].timestamp,
             lot_size=65,
             strike_step=50.0,
         )
@@ -410,19 +436,20 @@ class TimeframeTests(unittest.TestCase):
         # 15m geometry: a wide swing the 1m stream never contains.
         geometry = bars(
             [
-                (24_600, 24_620, 24_590, 24_615),  # green
-                (24_615, 25_000, 24_610, 24_980),  # green <- leg high 25,000
-                (24_980, 24_990, 24_500, 24_520),  # red
-                (24_520, 24_530, 24_000, 24_020),  # red   <- MOTHER, low 24,000
-                (24_020, 24_200, 24_010, 24_180),  # green
-                (24_180, 24_300, 24_170, 24_290),  # green <- involvement
+                (24_900, 24_920, 24_880, 24_890),  # 0 red   <- MOTHER, high 24,920
+                (24_890, 24_900, 24_000, 24_020),  # 1 red   <- low 24,000
+                (24_020, 24_200, 24_010, 24_180),  # 2 green
+                (24_180, 24_300, 24_170, 24_290),  # 3 green <- LOW frozen
+                (24_290, 25_000, 24_280, 24_980),  # 4 green <- high 25,000
+                (24_980, 24_990, 24_900, 24_910),  # 5 red
+                (24_910, 24_920, 24_850, 24_860),  # 6 red   <- HIGH frozen
             ],
             step_minutes=15,
         )
         config = FibTouchConfig(
             symbol="NIFTY",
             side="CE",
-            mother_timestamp=geometry[3].timestamp,
+            mother_timestamp=geometry[0].timestamp,
             lot_size=65,
             strike_step=50.0,
             timeframe="15m",
@@ -437,12 +464,13 @@ class TimeframeTests(unittest.TestCase):
         assert engine.anchor is not None
         self.assertEqual(engine.anchor.high, 25_000.0)
         self.assertEqual(engine.anchor.low, 24_000.0)
+        self.assertNotEqual(engine.anchor.high, 24_920.0)  # not the mother's own high
         # Span 1,000 -> L2 sits at 25,000 - 2,000 = 23,000.
         self.assertEqual(engine.rungs[0].index_price, 23_000.0)
 
         # A 1m bar BEFORE the swing was confirmed may not trade, even if it
         # touches: the anchor was not knowable when it printed.
-        early = Bar(geometry[3].timestamp + timedelta(minutes=1), 24_000, 24_010, 22_990, 23_100)
+        early = Bar(geometry[2].timestamp + timedelta(minutes=1), 24_000, 24_010, 22_990, 23_100)
         engine.on_candle(early)
         self.assertEqual(engine.fills, [])
 
@@ -481,7 +509,7 @@ class ExecutorTests(unittest.TestCase):
         config = FibTouchConfig(
             symbol="NIFTY",
             side="CE",
-            mother_timestamp=candles[6].timestamp,
+            mother_timestamp=candles[0].timestamp,
             lot_size=65,
             strike_step=50.0,
         )
@@ -543,6 +571,79 @@ class ExecutorTests(unittest.TestCase):
         )
         self.assertEqual(receipt, {"order_id": "DHAN-1", "mode": "live"})
         self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "BUY", 65)])
+
+
+class TrendlineTests(unittest.TestCase):
+    """Drawn only -- Phil kept the fib on the swing, so the line decides nothing."""
+
+    def line(self, side="CE"):
+        candles = falling_then_bouncing()
+        anchor = find_swing_anchor(candles, candles[0].timestamp, side)
+        assert anchor is not None
+        return find_trendline(candles, candles[0].timestamp, side, anchor), candles, anchor
+
+    def test_a_ce_line_starts_at_the_mother_high(self):
+        line, candles, _anchor = self.line()
+        self.assertIsNotNone(line)
+        assert line is not None
+        self.assertEqual(line.start_timestamp, candles[0].timestamp)
+        self.assertEqual(line.start_price, 24_665.0)  # the mother's HIGH, not its low
+
+    def test_the_anchor_is_a_red_candle_after_the_swing_low(self):
+        line, candles, anchor = self.line()
+        assert line is not None
+        self.assertGreater(line.anchor_timestamp, anchor.low_timestamp)
+        bar = next(row for row in candles if row.timestamp == line.anchor_timestamp)
+        self.assertLess(bar.close, bar.open)  # red
+        self.assertEqual(line.anchor_price, bar.open)
+
+    def test_the_line_clears_every_close_from_the_mother_on(self):
+        line, candles, _anchor = self.line()
+        assert line is not None
+        span = (line.anchor_timestamp - line.start_timestamp).total_seconds()
+        slope = (line.anchor_price - line.start_price) / span
+        for bar in candles:
+            if bar.timestamp < line.start_timestamp:
+                continue
+            at = line.start_price + slope * (bar.timestamp - line.start_timestamp).total_seconds()
+            self.assertLessEqual(bar.close, at + abs(at) * 0.0005, bar.timestamp)
+
+    def test_a_pe_line_starts_at_the_mother_low_and_mirrors(self):
+        candles = bars(
+            [
+                (24_640, 24_660, 24_635, 24_658),
+                (24_658, 24_680, 24_655, 24_675),
+                (24_675, 24_700, 24_670, 24_695),
+                (24_695, 24_698, 24_688, 24_690),
+                (24_690, 24_692, 24_680, 24_682),
+                (24_682, 24_684, 24_650, 24_652),
+                (24_652, 24_654, 24_600, 24_602),
+                (24_602, 24_612, 24_600, 24_610),
+                (24_610, 24_620, 24_608, 24_618),
+            ]
+        )
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "PE")
+        assert anchor is not None
+        line = find_trendline(candles, candles[0].timestamp, "PE", anchor)
+        self.assertIsNotNone(line)
+        assert line is not None
+        self.assertEqual(line.start_price, 24_635.0)  # the mother's LOW
+
+    def test_no_line_rather_than_a_wrong_one_when_every_candidate_is_cut(self):
+        # A wall of closes above anything the mother's high can reach.
+        candles = falling_then_bouncing()
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "CE")
+        assert anchor is not None
+        # No red candles after the swing low at all -> nothing to anchor on.
+        trimmed = [row for row in candles if row.timestamp <= anchor.low_timestamp]
+        self.assertIsNone(find_trendline(trimmed, candles[0].timestamp, "CE", anchor))
+
+    def test_it_is_serialisable_for_the_chart(self):
+        line, _c, _a = self.line()
+        assert line is not None
+        payload = line.as_dict()
+        for key in ("start_timestamp", "start_price", "anchor_timestamp", "anchor_price"):
+            self.assertIn(key, payload)
 
 
 if __name__ == "__main__":

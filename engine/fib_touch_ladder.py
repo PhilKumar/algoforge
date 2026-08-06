@@ -63,6 +63,8 @@ __all__ = [
     "PaperExecutor",
     "LiveExecutor",
     "find_swing_anchor",
+    "find_trendline",
+    "Trendline",
     "level_price",
     "select_expiry",
     "atm_strike",
@@ -208,24 +210,25 @@ def find_swing_anchor(
     lookback_bars: int = 240,
     involvement: int = INVOLVEMENT_CANDLES,
 ) -> Optional[SwingAnchor]:
-    """Anchor the fib on the swing the mother sits in.
+    """Anchor the fib on the counter-swing that FOLLOWS the mother.
 
-    The mother names the turn.  One anchor is behind it (the extreme the move
-    into the mother came from) and one is at it (the extreme the move ended on,
-    frozen by the first involvement of the other side).
+    Both anchors sit after the mother, and they are found in order. Phil,
+    2026-08-06, correcting a chart that had used the mother's own high: "the fib
+    has to be drawn from the swing low to the high but it takes the mother
+    candle high -- wrong."
 
-    For CE the mother ends a FALL, so:
-      * ``high`` is the highest high of the leg down into the mother, found by
-        walking back until buyers were last in control (``involvement``
-        consecutive greens) or ``lookback_bars`` runs out;
-      * ``low`` is the lowest low from the mother forward, frozen the moment
-        ``involvement`` consecutive greens close -- the first buyer involvement.
+    For CE the mother marks a top, so:
+      * the LOW freezes at the first BUYER involvement -- ``involvement``
+        consecutive green closes -- and is the lowest low from the mother up to
+        and including that run;
+      * the HIGH is then the highest high printed from that low onward, frozen
+        when the buying runs out at the first SELLER involvement.
 
     PE is the exact mirror, greens and reds swapped, highs and lows swapped.
 
-    Returns ``None`` while the forward involvement has not happened yet; the
-    ladder simply has no geometry until it does.  Nothing here reads a bar later
-    than the one it returns ``confirmed_at`` for.
+    The mother's own bar can no longer supply either anchor, which is the whole
+    point of the correction. Returns ``None`` until BOTH have frozen: until then
+    the swing has no width and the ladder has no geometry.
     """
     working = str(side).upper()
     if working not in {"CE", "PE"}:
@@ -239,36 +242,14 @@ def find_swing_anchor(
     mother_index = next((i for i, row in enumerate(ordered) if row.timestamp == mother_timestamp), None)
     if mother_index is None:
         return None
+    window = ordered[mother_index : mother_index + lookback_bars + 1]
 
-    # ── the far anchor: walk BACK to where the move into the mother began ──
-    # For CE that is the highest high before the fall; the walk stops at the
-    # last time buyers held the tape, because the leg starts there.
-    far_price: Optional[float] = None
-    far_timestamp: Optional[datetime] = None
-    opposite_run = 0
-    start = max(0, mother_index - lookback_bars)
-    for row in reversed(ordered[start : mother_index + 1]):
-        if working == "CE":
-            if far_price is None or float(row.high) > far_price:
-                far_price, far_timestamp = float(row.high), row.timestamp
-            opposite_run = opposite_run + 1 if _is_green(row) else 0
-        else:
-            if far_price is None or float(row.low) < far_price:
-                far_price, far_timestamp = float(row.low), row.timestamp
-            opposite_run = opposite_run + 1 if _is_red(row) else 0
-        # The run that started the leg is the boundary; the extreme found up to
-        # and including it is the anchor, and walking further back would reach
-        # into a different leg entirely.
-        if opposite_run >= involvement:
-            break
-    if far_price is None or far_timestamp is None:
-        return None
-
-    # ── the near anchor: freeze at the first involvement AFTER the mother ──
+    # ── stage 1: the near anchor, frozen by the first involvement ──
     near_price: Optional[float] = None
     near_timestamp: Optional[datetime] = None
+    near_frozen_at: Optional[int] = None
     run = 0
-    for row in ordered[mother_index:]:
+    for offset, row in enumerate(window):
         if working == "CE":
             if near_price is None or float(row.low) < near_price:
                 near_price, near_timestamp = float(row.low), row.timestamp
@@ -278,13 +259,32 @@ def find_swing_anchor(
                 near_price, near_timestamp = float(row.high), row.timestamp
             run = run + 1 if _is_red(row) else 0
         if run >= involvement:
-            if near_price is None or near_timestamp is None:
+            near_frozen_at = offset
+            break
+    if near_frozen_at is None or near_price is None or near_timestamp is None:
+        return None
+
+    # ── stage 2: the far anchor, the top of the move that involvement began ──
+    far_price: Optional[float] = None
+    far_timestamp: Optional[datetime] = None
+    run = 0
+    for row in window[near_frozen_at:]:
+        if working == "CE":
+            if far_price is None or float(row.high) > far_price:
+                far_price, far_timestamp = float(row.high), row.timestamp
+            run = run + 1 if _is_red(row) else 0
+        else:
+            if far_price is None or float(row.low) < far_price:
+                far_price, far_timestamp = float(row.low), row.timestamp
+            run = run + 1 if _is_green(row) else 0
+        if run >= involvement:
+            if far_price is None or far_timestamp is None:
                 return None
             high, high_ts = (far_price, far_timestamp) if working == "CE" else (near_price, near_timestamp)
             low, low_ts = (near_price, near_timestamp) if working == "CE" else (far_price, far_timestamp)
             if high <= low:
-                # A leg with no span cannot carry a ladder; say so rather than
-                # divide by zero three calls downstream.
+                # A swing with no width cannot carry a ladder; say so rather
+                # than divide by zero three calls downstream.
                 return None
             return SwingAnchor(
                 high=round(float(high), 2),
@@ -293,6 +293,95 @@ def find_swing_anchor(
                 low_timestamp=low_ts,
                 confirmed_at=row.timestamp,
                 involvement_candles=involvement,
+            )
+    return None
+
+
+@dataclass(frozen=True)
+class Trendline:
+    """A drawn reference line. It decides nothing.
+
+    Phil asked for CryptoForge's trendline on this chart but kept the fib on the
+    swing, so this is the geometry without the authority: it is rendered, and no
+    rung consults it.
+    """
+
+    start_timestamp: datetime
+    start_price: float
+    anchor_timestamp: datetime
+    anchor_price: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "start_timestamp": self.start_timestamp.isoformat(),
+            "start_price": round(self.start_price, 2),
+            "anchor_timestamp": self.anchor_timestamp.isoformat(),
+            "anchor_price": round(self.anchor_price, 2),
+        }
+
+
+def find_trendline(
+    candles: Sequence[Bar],
+    mother_timestamp: datetime,
+    side: str,
+    anchor: SwingAnchor,
+    *,
+    tolerance_pct: float = 0.0005,
+) -> Optional[Trendline]:
+    """CryptoForge's trendline, ported for drawing only.
+
+    CE runs from the mother's HIGH to the red candle with the highest OPEN after
+    the swing low, and the finished line must sit at or above EVERY close from
+    the mother onward. A cut candidate hands over to the next one down; only
+    when every candidate is cut is there no line at all. That fallback is the
+    rule as corrected in CryptoForge (`a0c2c9b`) -- the strict reading drew
+    nothing for hours while price kept falling.
+
+    PE mirrors: mother LOW to the green candle with the lowest open, line at or
+    below every close.
+    """
+    working = str(side).upper()
+    if working not in {"CE", "PE"}:
+        raise FibTouchError("side must be CE or PE")
+    ordered = sorted(candles, key=lambda row: row.timestamp)
+    mother = next((row for row in ordered if row.timestamp == mother_timestamp), None)
+    if mother is None:
+        return None
+    start_price = float(mother.high) if working == "CE" else float(mother.low)
+    forward = (
+        [row for row in ordered if row.timestamp > anchor.low_timestamp]
+        if working == "CE"
+        else [row for row in ordered if row.timestamp > anchor.high_timestamp]
+    )
+    candidates = [row for row in forward if (_is_red(row) if working == "CE" else _is_green(row))]
+    if not candidates:
+        return None
+    # Highest open first for CE (lowest for PE): the steepest clean line wins,
+    # and a cut one hands over rather than cancelling the whole trendline.
+    candidates.sort(key=lambda row: float(row.open), reverse=(working == "CE"))
+    checked = [row for row in ordered if row.timestamp >= mother_timestamp]
+
+    for candidate in candidates:
+        span = (candidate.timestamp - mother.timestamp).total_seconds()
+        if span <= 0:
+            continue
+        slope = (float(candidate.open) - start_price) / span
+        clean = True
+        for row in checked:
+            at = start_price + slope * (row.timestamp - mother.timestamp).total_seconds()
+            tolerance = abs(at) * tolerance_pct
+            if working == "CE" and float(row.close) > at + tolerance:
+                clean = False
+                break
+            if working == "PE" and float(row.close) < at - tolerance:
+                clean = False
+                break
+        if clean:
+            return Trendline(
+                start_timestamp=mother.timestamp,
+                start_price=round(start_price, 2),
+                anchor_timestamp=candidate.timestamp,
+                anchor_price=round(float(candidate.open), 2),
             )
     return None
 

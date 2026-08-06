@@ -653,6 +653,10 @@ const fibTouchChart = {
     { level: 2, price: 24500 }, { level: 3, price: 24400 },
     { level: 4, price: 24300 }, { level: 6, price: 24100 },
   ],
+  trendline: {
+    start_timestamp: '2026-08-06T09:21:00+05:30', start_price: 24624,
+    anchor_timestamp: '2026-08-06T09:30:00+05:30', anchor_price: 24560,
+  },
   note: 'Gap adjustment is visual only; the ladder\'s geometry uses native Dhan OHLC.',
 };
 
@@ -695,6 +699,12 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // The swing is the ladder's frame of reference and must be on the chart.
   expect(labels.some((t) => t.includes('SWING HIGH'))).toBe(true);
   expect(labels.some((t) => t.includes('SWING LOW'))).toBe(true);
+  // Only the mother edge the ladder works against -- a CE draws its HIGH and
+  // never its low, which is the whole of Phil's 2026-08-06 correction.
+  expect(labels.some((t) => t.includes('MOTHER HIGH'))).toBe(true);
+  expect(labels.some((t) => t.includes('MOTHER LOW'))).toBe(false);
+  // The trendline is drawn even though it gates nothing.
+  expect(paint).toMatchObject({ trendlines: 1 });
   // Each level carries its own live state, including the one the cap stopped.
   expect(labels.some((t) => t.startsWith('L2 FILLED'))).toBe(true);
   expect(labels.some((t) => t.startsWith('L4 PENDING'))).toBe(true);

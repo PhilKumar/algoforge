@@ -3079,6 +3079,16 @@ function _fibBoundaryCanvasPayload(payload) {
   const lines = [];
   // The swing itself is the ladder's frame of reference, so it is drawn -- the
   // levels below are meaningless without it on screen.
+  const motherBar = candles.find(row => row.is_mother);
+  if (motherBar) {
+    const side = String(payload?.side || campaign.side || 'CE').toUpperCase();
+    lines.push({
+      price: side === 'CE' ? motherBar.h : motherBar.l,
+      label: side === 'CE' ? 'MOTHER HIGH' : 'MOTHER LOW',
+      filled: false,
+      inr_notional: 0,
+    });
+  }
   if (anchor) {
     lines.push({ price: Number(anchor.high), label: 'SWING HIGH', filled: false, inr_notional: 0 });
     lines.push({ price: Number(anchor.low), label: 'SWING LOW', filled: false, inr_notional: 0 });
@@ -3113,14 +3123,21 @@ function _fibBoundaryCanvasPayload(payload) {
   return {
     timeframe: payload?.timeframe || '1m',
     candles,
-    // The mother's OWN band, read off the bar it is flagged on -- not the
-    // swing. Passing the swing here drew MOTHER and SWING HIGH as two labels
-    // on one line, which reads as a bug even though both were correct.
-    mother: (() => {
-      const bar = candles.find(row => row.is_mother);
-      return bar ? { high: bar.h, low: bar.l } : { high: null, low: null };
-    })(),
-    trendlines: [],
+    // No mother BAND. Only the edge the ladder is measured against gets a line:
+    // the mother's high on a CE, its low on a PE. The other edge is noise on
+    // this chart and Phil asked for it gone. The mother candle itself is still
+    // marked -- `is_mother` paints it -- so nothing is lost by dropping the band.
+    mother: { high: null, low: null },
+    // The trendline is a reference the eye needs; it gates nothing, so it is
+    // drawn `active` purely to get the solid stroke rather than the ghost one.
+    trendlines: payload?.trendline
+      ? [{
+          id: 'tl1',
+          a1: { t: epoch(payload.trendline.start_timestamp), p: Number(payload.trendline.start_price) },
+          a2: { t: epoch(payload.trendline.anchor_timestamp), p: Number(payload.trendline.anchor_price) },
+          active: true,
+        }].filter(tl => tl.a1.t !== null && tl.a2.t !== null)
+      : [],
     legs: [],
     lines: drawable,
     entries,

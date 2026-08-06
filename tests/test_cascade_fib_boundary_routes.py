@@ -168,23 +168,26 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         from engine.fib_touch_ladder import HALVING_LEVELS, find_swing_anchor, level_price
 
         rows = [
-            (24_660, 24_680, 24_655, 24_675),
-            (24_675, 24_700, 24_670, 24_695),
-            (24_695, 24_698, 24_680, 24_685),
-            (24_685, 24_690, 24_660, 24_662),
-            (24_662, 24_665, 24_640, 24_642),
+            (24_660, 24_665, 24_640, 24_642),  # MOTHER
             (24_642, 24_644, 24_620, 24_622),
-            (24_622, 24_624, 24_600, 24_602),
+            (24_622, 24_624, 24_600, 24_602),  # low 24,600
             (24_602, 24_612, 24_600, 24_610),
-            (24_610, 24_620, 24_608, 24_618),
+            (24_610, 24_620, 24_608, 24_618),  # LOW frozen
+            (24_618, 24_650, 24_615, 24_645),
+            (24_645, 24_700, 24_640, 24_695),  # high 24,700
+            (24_695, 24_698, 24_680, 24_682),
+            (24_682, 24_684, 24_670, 24_672),  # HIGH frozen
         ]
         base = datetime(2026, 8, 6, 9, 15)
         candles = [
             app_module.IndexCandle(base + timedelta(minutes=i), o, h, low, c) for i, (o, h, low, c) in enumerate(rows)
         ]
-        anchor = find_swing_anchor(candles, candles[6].timestamp, "CE")
+        anchor = find_swing_anchor(candles, candles[0].timestamp, "CE")
         self.assertIsNotNone(anchor)
         assert anchor is not None
+        # Both anchors come from the swing AFTER the mother, never its own high.
+        self.assertEqual(anchor.high, 24_700.0)
+        self.assertEqual(anchor.low, 24_600.0)
         priced = [round(level_price("CE", anchor.high, anchor.low, level), 2) for level in HALVING_LEVELS]
         # span is 100, so the ladder walks down in whole spans from 24,700.
         self.assertEqual(priced, [24_500.0, 24_400.0, 24_300.0, 24_100.0, 23_900.0, 23_500.0, 23_100.0])

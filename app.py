@@ -125,6 +125,7 @@ from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
 from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
 from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
 from engine.fib_touch_ladder import find_swing_anchor as _fib_touch_find_anchor
+from engine.fib_touch_ladder import find_trendline as _fib_touch_find_trendline
 from engine.fib_touch_ladder import level_price as _fib_touch_level_price
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
@@ -9599,6 +9600,9 @@ async def fib_boundary_paper_chart(
         )
 
     anchor = _fib_touch_find_anchor(candles, mother, side)
+    # Drawn only. Phil asked for CryptoForge's trendline on this chart but kept
+    # the fib on the swing, so the line is rendered and consulted by nothing.
+    trendline = _fib_touch_find_trendline(candles, mother, side, anchor) if anchor is not None else None
     levels: list[dict] = []
     if anchor is not None:
         levels = [
@@ -9628,6 +9632,7 @@ async def fib_boundary_paper_chart(
             else None
         ),
         "levels": levels,
+        "trendline": trendline.as_dict() if trendline is not None else None,
         "note": (
             "Gap adjustment is visual only; the ladder's geometry uses native Dhan OHLC."
             if anchor
