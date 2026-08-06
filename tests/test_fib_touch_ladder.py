@@ -5,12 +5,17 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 from engine.fib_touch_ladder import (
+    GEOMETRY_TIMEFRAMES,
     HALVING_LEVELS,
+    ExecutionRefused,
     FibTouchConfig,
     FibTouchError,
     FibTouchLadder,
+    LiveExecutor,
+    PaperExecutor,
     atm_strike,
     find_swing_anchor,
     level_price,
@@ -370,6 +375,174 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.min_dte, 4)
         self.assertEqual(config.timeframe, "1m")
         self.assertEqual(config.itm_steps, 2)
+
+
+class TimeframeTests(unittest.TestCase):
+    """The mother's chart decides the geometry; touches stay on 1m."""
+
+    def test_every_chart_a_mother_may_be_read_on(self):
+        self.assertEqual(GEOMETRY_TIMEFRAMES, ("1m", "5m", "15m", "1h"))
+
+    def test_an_unknown_geometry_timeframe_is_refused(self):
+        with self.assertRaises(FibTouchError):
+            FibTouchConfig(
+                symbol="NIFTY",
+                side="CE",
+                mother_timestamp=IST_START,
+                lot_size=65,
+                strike_step=50.0,
+                timeframe="4h",
+            )
+
+    def test_entries_stay_on_one_minute_whatever_the_mother_is(self):
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=IST_START,
+            lot_size=65,
+            strike_step=50.0,
+            timeframe="15m",
+        )
+        self.assertEqual(config.timeframe, "15m")
+        self.assertEqual(config.entry_timeframe, "1m")
+
+    def test_a_slow_mother_anchors_off_the_slow_stream_and_fills_on_1m(self):
+        # 15m geometry: a wide swing the 1m stream never contains.
+        geometry = bars(
+            [
+                (24_600, 24_620, 24_590, 24_615),  # green
+                (24_615, 25_000, 24_610, 24_980),  # green <- leg high 25,000
+                (24_980, 24_990, 24_500, 24_520),  # red
+                (24_520, 24_530, 24_000, 24_020),  # red   <- MOTHER, low 24,000
+                (24_020, 24_200, 24_010, 24_180),  # green
+                (24_180, 24_300, 24_170, 24_290),  # green <- involvement
+            ],
+            step_minutes=15,
+        )
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=geometry[3].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            timeframe="15m",
+        )
+        engine = FibTouchLadder(
+            config,
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+        )
+        for bar in geometry:
+            engine.on_geometry_candle(bar)
+        assert engine.anchor is not None
+        self.assertEqual(engine.anchor.high, 25_000.0)
+        self.assertEqual(engine.anchor.low, 24_000.0)
+        # Span 1,000 -> L2 sits at 25,000 - 2,000 = 23,000.
+        self.assertEqual(engine.rungs[0].index_price, 23_000.0)
+
+        # A 1m bar BEFORE the swing was confirmed may not trade, even if it
+        # touches: the anchor was not knowable when it printed.
+        early = Bar(geometry[3].timestamp + timedelta(minutes=1), 24_000, 24_010, 22_990, 23_100)
+        engine.on_candle(early)
+        self.assertEqual(engine.fills, [])
+
+        # After confirmation, a 1m touch fills at the level.
+        late = Bar(geometry[-1].timestamp + timedelta(minutes=1), 23_100, 23_110, 22_990, 23_050)
+        engine.on_candle(late)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(engine.fills[0].index_price, 23_000.0)
+
+    def test_a_1m_mother_needs_no_second_stream(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        # Fed only through on_candle, yet the swing is anchored.
+        self.assertIsNotNone(engine.anchor)
+
+
+class ExecutorTests(unittest.TestCase):
+    """Paper and live share one decision path and differ in one object."""
+
+    def test_paper_is_the_default_you_get_by_forgetting_to_choose(self):
+        engine, _c, _s = ladder()
+        self.assertIsInstance(engine.executor, PaperExecutor)
+        self.assertEqual(engine.get_status()["mode"], "paper")
+        self.assertFalse(engine.get_status()["is_live"])
+
+    def test_a_paper_fill_carries_an_order_id(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        self.assertTrue(engine.fills[0].order_id.startswith("paper-"))
+
+    def test_live_refuses_until_it_is_armed_and_records_no_phantom_fill(self):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[6].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+        )
+        engine = FibTouchLadder(
+            config,
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+            executor=LiveExecutor(broker=object(), symbol="NIFTY"),
+        )
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.status, "EXECUTION_REFUSED")
+        self.assertEqual(engine.rungs[0].status, "PENDING")
+        self.assertTrue(any("not sent" in gap for gap in engine.data_gaps))
+        self.assertEqual(engine.get_status()["mode"], "live")
+        self.assertFalse(engine.get_status()["armed"])
+
+    def test_an_unarmed_live_executor_raises_rather_than_returning_quietly(self):
+        live = LiveExecutor(broker=object(), symbol="NIFTY")
+        with self.assertRaises(ExecutionRefused):
+            live.buy(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                lots=1,
+                premium=200.0,
+            )
+        with self.assertRaises(ExecutionRefused):
+            live.sell_all(when=IST_START, legs=[])
+
+    def test_arming_is_explicit_and_never_a_default(self):
+        import inspect
+
+        signature = inspect.signature(LiveExecutor.__init__)
+        self.assertIs(signature.parameters["armed"].default, False)
+        self.assertEqual(signature.parameters["armed"].kind, inspect.Parameter.KEYWORD_ONLY)
+
+    def test_an_armed_live_executor_sends_a_real_order(self):
+        sent = []
+
+        class _Broker:
+            def place_option_order(self, symbol, strike, expiry, option_type, *, side, quantity):
+                sent.append((symbol, strike, expiry, option_type, side, quantity))
+                return SimpleNamespace(order_id="DHAN-1")
+
+        live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
+        receipt = live.buy(
+            when=IST_START,
+            strike=24_400,
+            expiry=date(2026, 8, 11),
+            option_type="CE",
+            quantity=65,
+            lots=1,
+            premium=200.0,
+        )
+        self.assertEqual(receipt, {"order_id": "DHAN-1", "mode": "live"})
+        self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "BUY", 65)])
 
 
 if __name__ == "__main__":

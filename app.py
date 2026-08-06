@@ -112,6 +112,7 @@ from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_touch_ladder import GEOMETRY_TIMEFRAMES as _FIB_TOUCH_GEOMETRY_TF
 from engine.fib_touch_ladder import (
     HALVING_LEVELS,
     FibTouchConfig,
@@ -120,6 +121,9 @@ from engine.fib_touch_ladder import (
     symbol_terms,
 )
 from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
+from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
+from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
+from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
 from engine.fib_touch_ladder import find_swing_anchor as _fib_touch_find_anchor
 from engine.fib_touch_ladder import level_price as _fib_touch_level_price
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
@@ -3552,9 +3556,13 @@ class FibTouchStartPayload(BaseModel):
     symbol: str = Field(default="NIFTY")
     side: str = Field(default="CE")
     mother_timestamp: str
+    # The chart the mother is read on. Touches are always watched on 1m.
+    timeframe: str = Field(default="1m")
     capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
     itm_steps: int = Field(default=2, ge=0, le=10)
     min_dte: int = Field(default=4, ge=0, le=45)
+    # "paper" or "live". Live is built but refuses to send; see LiveExecutor.
+    mode: str = Field(default="paper")
 
 
 class TestBenchPayload(BaseModel):
@@ -9308,12 +9316,19 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
     engine = runtime.engine
     symbol = engine.config.symbol
     timeframe = engine.config.timeframe
-    poll = _FIB_TIMEFRAME_POLL_SEC.get(timeframe, 15)
+    # Touches are watched on 1m however slow the mother's chart is, so the poll
+    # runs at the ENTRY cadence, not the geometry one.
+    poll = _FIB_TIMEFRAME_POLL_SEC.get(engine.config.entry_timeframe, 15)
     while runtime.running and _fib_boundary_engines.get(int(user_id)) is runtime:
         try:
             today = datetime.now(IST).date()
             start = engine.config.mother_timestamp.date()
-            candles = await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today)
+            # The slow stream only matters until the swing is frozen; after that
+            # it is settled geometry and re-fetching it every tick is waste.
+            if timeframe != "1m" and engine.anchor is None:
+                for row in await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today):
+                    engine.on_geometry_candle(row)
+            candles = await runtime.adapter.async_get_candles(symbol, "1m", from_date=start, to_date=today)
             for candle in candles:
                 if candle.timestamp <= runtime.last_candle_timestamp:
                     continue
@@ -9378,15 +9393,32 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     side = str(payload.side).upper()
     if side not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    timeframe = str(payload.timeframe).lower()
+    if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+    mode = str(payload.mode).lower()
+    if mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="mode must be paper or live.")
 
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
     if mother_timestamp.second or mother_timestamp.microsecond:
-        raise HTTPException(status_code=400, detail="Mother timestamp must be a 1-minute candle open in IST.")
+        raise HTTPException(status_code=400, detail=f"Mother timestamp must be a {timeframe} candle open in IST.")
     if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
         raise HTTPException(status_code=400, detail="Mother candle must be within the 09:15-15:30 session.")
-    if mother_timestamp + timedelta(minutes=1) > now:
-        raise HTTPException(status_code=400, detail="Mother timestamp must be a completed 1-minute candle.")
+    tf_minutes = _FIB_TOUCH_TF_MINUTES[timeframe]
+    # NSE 1H bars open at :15 only; the rest open on a multiple of their size.
+    if timeframe == "1h":
+        if mother_timestamp.minute != 15:
+            raise HTTPException(status_code=400, detail="A 1H mother opens at 09:15, 10:15 ... 15:15 IST.")
+    elif mother_timestamp.minute % tf_minutes:
+        raise HTTPException(
+            status_code=400, detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open in IST."
+        )
+    # The last 1H bar of the day is a 15-minute stub, so it completes at 15:30.
+    effective = 15 if (timeframe == "1h" and mother_timestamp.hour == 15) else tf_minutes
+    if mother_timestamp + timedelta(minutes=effective) > now:
+        raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
     if mother_timestamp.date() != now.date():
         # A past mother has no live quote, and pairing one with today's LTP is
         # exactly the fabrication this stack refuses.  History belongs to the
@@ -9408,15 +9440,24 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         )
 
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    candles = await adapter.async_get_candles(terms.symbol, "1m", from_date=mother_timestamp.date(), to_date=now.date())
-    if not any(row.timestamp == mother_timestamp for row in candles):
+    # Two streams: the mother's own chart carries the geometry, 1m carries the
+    # touches. When the mother IS a 1m candle they are the same fetch.
+    geometry_candles = await adapter.async_get_candles(
+        terms.symbol, timeframe, from_date=mother_timestamp.date(), to_date=now.date()
+    )
+    if not any(row.timestamp == mother_timestamp for row in geometry_candles):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Dhan has no {terms.symbol} 1m candle opening at "
-                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date and the time."
+                f"Dhan has no {terms.symbol} {timeframe} candle opening at "
+                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
             ),
         )
+    candles = (
+        geometry_candles
+        if timeframe == "1m"
+        else await adapter.async_get_candles(terms.symbol, "1m", from_date=mother_timestamp.date(), to_date=now.date())
+    )
 
     # Lot size is asked of the scrip master per expiry, because it changes on
     # effective dates; the registry value is only the fallback.
@@ -9438,16 +9479,25 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         mother_timestamp=mother_timestamp,
         lot_size=lot_size,
         strike_step=terms.strike_step,
+        timeframe=timeframe,
         capital_cap_inr=float(payload.capital_cap_inr),
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
     )
+    # Live is built and deliberately NOT armed -- the toggle and the whole code
+    # path exist with the exchange call still closed, so arming stays a separate
+    # explicit act rather than something a payload can flip.
+    executor = _FibTouchLiveExecutor(broker_client, terms.symbol) if mode == "live" else _FibTouchPaperExecutor()
     engine = FibTouchLadder(
         config,
         premium_lookup=_fib_touch_premium_lookup(broker_client, terms.symbol),
         expiry_source=_fib_touch_expiry_source(broker_client, terms.symbol),
+        executor=executor,
     )
     last_candle_timestamp = mother_timestamp
+    if timeframe != "1m":
+        for candle in geometry_candles:
+            engine.on_geometry_candle(candle)
     for candle in candles:
         if candle.timestamp < mother_timestamp:
             continue
@@ -9498,6 +9548,7 @@ async def fib_boundary_paper_chart(
     request: Request,
     symbol: str = "NIFTY",
     side: str = "CE",
+    timeframe: str = "1m",
 ):
     """The swing ladder's own window: real 1m candles, the swing, every level.
 
@@ -9515,6 +9566,9 @@ async def fib_boundary_paper_chart(
     side = str(side).upper()
     if side not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    timeframe = str(timeframe).lower()
+    if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     now = datetime.now(IST)
     if mother.date() > now.date() or (now.date() - mother.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
@@ -9527,16 +9581,20 @@ async def fib_boundary_paper_chart(
         raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {terms.symbol} chart.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     try:
-        candles = await adapter.async_get_candles(terms.symbol, "1m", from_date=mother.date(), to_date=now.date())
+        # Drawn on the MOTHER's chart: that is the chart the swing was read on,
+        # and a 15m mother rendered over days of 1m bars is unreadable.
+        candles = await adapter.async_get_candles(terms.symbol, timeframe, from_date=mother.date(), to_date=now.date())
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to load {terms.symbol} 1m candles: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Unable to load {terms.symbol} {timeframe} candles: {exc}"
+        ) from exc
     rows = _cascade_gap_adjusted_candles(candles, mother)
     if not any(row["is_mother"] for row in rows):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Dhan has no {terms.symbol} 1m candle opening at "
-                f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date and the time."
+                f"Dhan has no {terms.symbol} {timeframe} candle opening at "
+                f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
             ),
         )
 
@@ -9553,7 +9611,7 @@ async def fib_boundary_paper_chart(
     return {
         "status": "ok",
         "symbol": terms.symbol,
-        "timeframe": "1m",
+        "timeframe": timeframe,
         "side": side,
         "chart_mode": "visual_gap_adjusted",
         "candles": rows,

@@ -57,6 +57,11 @@ __all__ = [
     "TouchFill",
     "FibTouchConfig",
     "FibTouchLadder",
+    "GEOMETRY_TIMEFRAMES",
+    "TIMEFRAME_MINUTES",
+    "ExecutionRefused",
+    "PaperExecutor",
+    "LiveExecutor",
     "find_swing_anchor",
     "level_price",
     "select_expiry",
@@ -73,6 +78,12 @@ HALVING_LEVELS: tuple[int, ...] = (2, 3, 4, 6, 8, 12, 16)
 # same constant already governs engine/candle_recovery.py; it is repeated rather
 # than imported so this module stays free of that engine's option plumbing.
 INVOLVEMENT_CANDLES = 2
+
+# The charts a mother candle may be read on. Entries are always watched on 1m.
+GEOMETRY_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+
+# Minutes per bar, used to validate that a typed mother is a real candle open.
+TIMEFRAME_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 
 
 class FibTouchError(ValueError):
@@ -313,6 +324,86 @@ def atm_strike(spot: float, strike_step: float) -> float:
     return math.floor(float(spot) / float(strike_step) + 0.5) * float(strike_step)
 
 
+# ── execution ─────────────────────────────────────────────────────
+#
+# Paper and live differ in exactly one object.  The engine decides WHAT to buy
+# and WHEN entirely on index geometry, then hands the decision to an executor;
+# neither mode can drift from the other's rules, because there is only one set
+# of rules.  That is what "paper must behave the same as live" has to mean in
+# code -- not two engines kept in sync by hand.
+
+
+class ExecutionRefused(RuntimeError):
+    """An order was decided but the executor would not send it."""
+
+
+class PaperExecutor:
+    """Records the fill and sends nothing anywhere."""
+
+    mode = "paper"
+    is_live = False
+
+    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
+        return {"order_id": f"paper-{when.strftime('%H%M%S')}-{int(strike)}{option_type}", "mode": "paper"}
+
+    def sell_all(self, *, when, legs) -> dict:
+        return {"order_id": f"paper-exit-{when.strftime('%H%M%S')}", "mode": "paper"}
+
+
+class LiveExecutor:
+    """The real-money path. Refuses to send until it is explicitly armed.
+
+    The whole live route exists here so paper and live share one decision path
+    and one set of rules -- but the last inch, the call that actually reaches
+    the exchange, is closed.  Phil asked for the toggle and the code with live
+    kept disabled until he has watched paper run and says otherwise, so arming
+    is a deliberate act (`armed=True`) and never a default, a config value or
+    an environment variable that could drift open.
+    """
+
+    mode = "live"
+    is_live = True
+
+    def __init__(self, broker: Any, symbol: str, *, armed: bool = False) -> None:
+        self.broker = broker
+        self.symbol = symbol
+        self.armed = bool(armed)
+
+    def _guard(self) -> None:
+        if not self.armed:
+            raise ExecutionRefused(
+                "Live execution is built but not armed. Watch a paper ladder run first, "
+                "then arm live deliberately -- no config value or environment variable opens it."
+            )
+
+    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
+        self._guard()
+        order = self.broker.place_option_order(
+            self.symbol,
+            float(strike),
+            expiry.isoformat(),
+            str(option_type),
+            side="BUY",
+            quantity=int(quantity),
+        )
+        return {"order_id": getattr(order, "order_id", None) or str(order), "mode": "live"}
+
+    def sell_all(self, *, when, legs) -> dict:
+        self._guard()
+        ids = []
+        for leg in legs:
+            order = self.broker.place_option_order(
+                self.symbol,
+                float(leg["strike"]),
+                str(leg["expiry"]),
+                str(leg["option_type"]),
+                side="SELL",
+                quantity=int(leg["quantity"]),
+            )
+            ids.append(getattr(order, "order_id", None) or str(order))
+        return {"order_id": ",".join(str(i) for i in ids), "mode": "live"}
+
+
 # ── configuration ─────────────────────────────────────────────────
 
 
@@ -325,7 +416,15 @@ class FibTouchConfig:
     mother_timestamp: datetime
     lot_size: int
     strike_step: float
+    # The chart the MOTHER is read on, and so the chart the swing and every
+    # level are measured from. Phil picks a 5m / 15m / 1H mother when he wants a
+    # wider swing under the ladder.
     timeframe: str = "1m"
+    # Touches are always watched on the finest bar available. A touch of 24,500
+    # is the same touch on any chart, so reading it on a slow one only delays
+    # the fill -- the timeframe belongs to the geometry, not the trigger. Same
+    # split the fib-space engine uses (15m geometry, faster entries).
+    entry_timeframe: str = "1m"
     levels: tuple[int, ...] = HALVING_LEVELS
     lots_per_rung: int = 1
     # A cap on the WHOLE ladder, not per rung.  Phil: "per ladder it will 75k
@@ -357,6 +456,8 @@ class FibTouchConfig:
             raise FibTouchError("itm_steps cannot be negative")
         if self.min_dte < 0:
             raise FibTouchError("min_dte cannot be negative")
+        if str(self.timeframe).lower() not in GEOMETRY_TIMEFRAMES:
+            raise FibTouchError(f"timeframe must be one of {', '.join(GEOMETRY_TIMEFRAMES)}")
 
     @property
     def working_side(self) -> str:
@@ -404,6 +505,7 @@ class TouchFill:
     strike: float
     expiry: date
     option_type: str
+    order_id: str = ""
 
     @property
     def funded_inr(self) -> float:
@@ -423,6 +525,7 @@ class TouchFill:
             "expiry": self.expiry.isoformat(),
             "option_type": self.option_type,
             "funded_inr": self.funded_inr,
+            "order_id": self.order_id,
         }
 
 
@@ -450,12 +553,21 @@ class FibTouchLadder:
         *,
         premium_lookup: PremiumLookup,
         expiry_source: ExpirySource,
+        executor: Optional[Any] = None,
     ) -> None:
         self.config = config
         self.premium_lookup = premium_lookup
         self.expiry_source = expiry_source
+        # Paper unless told otherwise: the safe mode is the one you get by
+        # forgetting to choose.
+        self.executor = executor if executor is not None else PaperExecutor()
         self.side = config.working_side
 
+        # Two streams. `geometry_history` carries the mother's own timeframe and
+        # is the ONLY thing the swing is measured from; `history` carries the 1m
+        # bars that touches are read on. When the mother is a 1m candle the two
+        # are the same series, and the engine does not care.
+        self.geometry_history: list[Bar] = []
         self.history: list[Bar] = []
         self.anchor: Optional[SwingAnchor] = None
         self.rungs: list[TouchRung] = []
@@ -608,6 +720,23 @@ class FibTouchLadder:
                 )
                 return
 
+            try:
+                receipt = self.executor.buy(
+                    when=bar.timestamp,
+                    strike=strike,
+                    expiry=expiry,
+                    option_type=self.side,
+                    quantity=quantity,
+                    lots=lots,
+                    premium=float(premium),
+                )
+            except ExecutionRefused as exc:
+                # The decision was right; the executor would not send it. Say so
+                # and leave the rung PENDING rather than record a phantom fill.
+                self.data_gaps.append(f"L{rung.level} not sent: {exc}")
+                self._log(bar.timestamp, "execution_refused", level=rung.level, detail=str(exc))
+                self.status = "EXECUTION_REFUSED"
+                return
             fill = TouchFill(
                 buy_number=len(self.fills) + 1,
                 level=rung.level,
@@ -619,6 +748,7 @@ class FibTouchLadder:
                 strike=strike,
                 expiry=expiry,
                 option_type=self.side,
+                order_id=str(receipt.get("order_id") or ""),
             )
             self.fills.append(fill)
             self._last_fill_timestamp = bar.timestamp
@@ -672,6 +802,26 @@ class FibTouchLadder:
                         f"(no print at {bar.timestamp.isoformat()}); understates profit"
                     )
             prices.append(price)
+        try:
+            self.executor.sell_all(
+                when=bar.timestamp,
+                legs=[
+                    {
+                        "strike": fill.strike,
+                        "expiry": fill.expiry.isoformat(),
+                        "option_type": fill.option_type,
+                        "quantity": fill.quantity,
+                    }
+                    for fill in self.fills
+                ],
+            )
+        except ExecutionRefused as exc:
+            # Refusing an EXIT leaves real money exposed, so it is loud: the
+            # target stays live and the campaign does not pretend to be closed.
+            self.data_gaps.append(f"exit not sent: {exc}")
+            self._log(bar.timestamp, "exit_refused", detail=str(exc))
+            self.status = "EXIT_REFUSED"
+            return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
         self.exit_index = target
@@ -750,39 +900,52 @@ class FibTouchLadder:
 
     # ── entry point ───────────────────────────────────────────────
 
+    def on_geometry_candle(self, bar: Bar) -> None:
+        """Feed one CLOSED candle of the MOTHER's timeframe.
+
+        Only the swing is read from this stream. Nothing trades here: a 1H bar
+        closing tells you where the ladder sits, not that a level was touched.
+        """
+        if self.anchor is not None or self.status in {"CLOSED", "EXPIRED", "KILLED"}:
+            return
+        self.geometry_history.append(bar)
+        anchor = find_swing_anchor(
+            self.geometry_history,
+            self.config.mother_timestamp,
+            self.side,
+            lookback_bars=self.config.lookback_bars,
+            involvement=self.config.involvement_candles,
+        )
+        if anchor is None:
+            return
+        self.anchor = anchor
+        self._build_rungs()
+        self.status = "ARMED"
+        self._log(
+            anchor.confirmed_at,
+            "swing_anchored",
+            timeframe=self.config.timeframe,
+            high=anchor.high,
+            low=anchor.low,
+            span=round(anchor.span, 2),
+            levels=[rung.as_dict() for rung in self.rungs],
+        )
+
     def on_candle(self, bar: Bar) -> None:
-        """Advance the campaign by one CLOSED index candle."""
+        """Advance the campaign by one CLOSED 1-minute index candle."""
         if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
             return
         self.history.append(bar)
-        if bar.timestamp < self.config.mother_timestamp:
-            return
-
+        # A 1m mother needs no separate stream -- the entry bars ARE the
+        # geometry bars, so feed them through as well.
+        if self.config.timeframe == self.config.entry_timeframe:
+            self.on_geometry_candle(bar)
         if self.anchor is None:
-            anchor = find_swing_anchor(
-                self.history,
-                self.config.mother_timestamp,
-                self.side,
-                lookback_bars=self.config.lookback_bars,
-                involvement=self.config.involvement_candles,
-            )
-            if anchor is None:
-                return
-            self.anchor = anchor
-            self._build_rungs()
-            self.status = "ARMED"
-            self._log(
-                anchor.confirmed_at,
-                "swing_anchored",
-                high=anchor.high,
-                low=anchor.low,
-                span=round(anchor.span, 2),
-                levels=[rung.as_dict() for rung in self.rungs],
-            )
-            # The bar that confirmed the swing is the earliest one that may
-            # trade.  Anything before it was not knowable.
-            if bar.timestamp < anchor.confirmed_at:
-                return
+            return
+        # The bar that confirmed the swing is the earliest one that may trade;
+        # anything before it was not knowable when it printed.
+        if bar.timestamp < self.anchor.confirmed_at:
+            return
 
         self._try_fill(bar)
         if self._try_exit(bar):
@@ -841,6 +1004,10 @@ class FibTouchLadder:
             "symbol": self.config.symbol,
             "side": self.side,
             "timeframe": self.config.timeframe,
+            "entry_timeframe": self.config.entry_timeframe,
+            "mode": getattr(self.executor, "mode", "paper"),
+            "is_live": bool(getattr(self.executor, "is_live", False)),
+            "armed": bool(getattr(self.executor, "armed", False)),
             "status": self.status,
             "mother_timestamp": self.config.mother_timestamp.isoformat(),
             "anchor": (

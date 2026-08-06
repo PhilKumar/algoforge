@@ -1842,9 +1842,9 @@
       <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
           <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Start fib-boundary campaign <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">1m · L2·L3·L4·L6·L8·L12·L16</span>
+          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
         </div>
-        <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">The mother candle names <strong>where to look</strong> — it is no longer the fib anchor itself. The ladder is measured off the <strong>swing</strong> around it: the leg extreme behind the mother, and the extreme in front frozen by the <strong>first involvement</strong> (2 consecutive candles the other way). Entries are <strong>1-minute touches</strong> on L2·L3·L4·L6·L8·L12·L16, <strong>one lot each</strong>, until the ladder cap is spent. The whole basket sells at one target, <strong>0.25 of the way back</strong> toward the anchor, and the campaign then ends. No stop loss — only the target or expiry closes it.</div>
+        <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">The mother candle names <strong>where to look</strong> — it is no longer the fib anchor itself. The ladder is measured off the <strong>swing</strong> around it: the leg extreme behind the mother, and the extreme in front frozen by the <strong>first involvement</strong> (2 consecutive candles the other way). The <strong>mother chart</strong> decides how wide that swing is — a 15m mother gives levels far further apart than a 1m one. Entries are always <strong>1-minute touches</strong> on L2·L3·L4·L6·L8·L12·L16, <strong>one lot each</strong>, until the ladder cap is spent. The whole basket sells at one target, <strong>0.25 of the way back</strong> toward the anchor, and the campaign then ends. No stop loss — only the target or expiry closes it.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
@@ -1865,6 +1865,25 @@
           </div>
         </div>
         <div id="fibx-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother chart</label>
+            <select id="fibx-timeframe" title="The chart the mother candle is read on, and so the chart the swing and every level are measured from. Touches are always watched on 1m." style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+              <option value="1m" selected>1m mother</option>
+              <option value="5m">5m mother</option>
+              <option value="15m">15m mother</option>
+              <option value="1h">1H mother</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+            <select id="fibx-mode" title="Paper records fills and sends nothing. Live runs the identical decision path against Dhan — and is built but NOT armed, so it refuses to send." style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+              <option value="paper" selected>▣ Paper</option>
+              <option value="live">◉ Live (not armed)</option>
+            </select>
+          </div>
+        </div>
+        <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
         <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->

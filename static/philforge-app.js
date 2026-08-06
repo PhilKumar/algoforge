@@ -2617,10 +2617,25 @@ function _syncFibLevelsHint() {
     note.textContent = terms || '';
     note.style.display = terms ? '' : 'none';
   }
+
+  // Live is built but not armed, and the form has to say so before it is
+  // picked -- discovering it at the first touch is not a discovery anyone wants.
+  const mode = document.getElementById('fibx-mode')?.value || 'paper';
+  const modeNote = document.getElementById('fibx-mode-note');
+  if (modeNote) {
+    modeNote.textContent = mode === 'live'
+      ? 'Live runs the identical decision path but is NOT armed — it will refuse to send and leave the rung pending. Arming is a separate, deliberate step.'
+      : 'Paper records every fill and sends nothing. Same rules, same sizing, same target as live.';
+    modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
+  }
+
   const mother = document.getElementById('fibx-mother-timestamp');
   if (!mother) return;
-  // 1m entries: every minute of the session is a valid mother open.
-  mother.dataset.pfCalendarMinutes = '';
+  // The picker must offer only the minutes this chart can open on: 5m gets
+  // multiples of 5, 15m multiples of 15, 1H only :15, and 1m every minute.
+  const tf = document.getElementById('fibx-timeframe')?.value || '1m';
+  mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[tf] || '';
+  _fibSnapMotherToTimeframe(mother, tf);
 }
 
 // Read off Dhan's own scrip master (2026-08-05) and the premium sources that
@@ -2743,8 +2758,10 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  const symSel = document.getElementById('fibx-symbol');
-  if (symSel && !symSel._fibHintBound) { symSel.addEventListener('change', _syncFibLevelsHint); symSel._fibHintBound = true; }
+  ['fibx-symbol', 'fibx-timeframe', 'fibx-mode'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel && !sel._fibHintBound) { sel.addEventListener('change', _syncFibLevelsHint); sel._fibHintBound = true; }
+  });
   const tsSel = document.getElementById('fibx-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
@@ -2835,14 +2852,19 @@ function _renderFibBoundaryStatus(payload) {
       ? `${symbol} ${strikes.map(v => v.toLocaleString('en-IN')).join(' / ')} ${side} · exp ${fills[0].expiry} · ${campaign.lot_size || '—'} units/lot`
       : `${symbol} ${side} · ATM−${campaign.itm_steps ?? 2} · ≥${campaign.min_dte ?? 4} DTE · ${campaign.lot_size || '—'} units/lot`;
   }
-  if (eventsTf) eventsTf.textContent = '1M CLOSED BARS';
-  if (isRunning) setLiveGate('PAPER LIVE', 'Quote-backed paper monitor active', 'is-paper-live');
+  const tf = String(campaign.timeframe || '1m').toUpperCase();
+  const mode = String(campaign.mode || 'paper').toUpperCase();
+  if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
+  if (campaign.is_live) {
+    setLiveGate(campaign.armed ? 'LIVE ARMED' : 'LIVE · NOT ARMED',
+      campaign.armed ? 'Real orders reach Dhan' : 'Decisions run; orders are refused', 'is-replay');
+  } else if (isRunning) setLiveGate('PAPER LIVE', 'Quote-backed paper monitor active', 'is-paper-live');
   else setLiveGate('PAPER STOPPED', 'No live order is ever sent', 'is-paused');
   const funded = levels.filter(l => l.status === 'FILLED').length;
   if (gist) {
     gist.textContent = anchor
-      ? `${side} · 1M · ${funded}/${levels.length} levels bought · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
-      : `${side} · 1M · waiting for the first involvement to freeze the swing`;
+      ? `${mode} · ${side} · ${tf} mother, 1m entries · ${funded}/${levels.length} levels bought · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
+      : `${mode} · ${side} · ${tf} mother · waiting for the first involvement to freeze the swing`;
   }
   if (win) win.classList.toggle('is-active', isRunning);
   const deployed = Number(campaign.deployed_inr || 0);
@@ -2970,6 +2992,8 @@ async function startFibBoundaryPaper() {
     symbol: el('fibx-symbol')?.value || 'NIFTY',
     mother_timestamp: el('fibx-mother-timestamp')?.value,
     side: el('fibx-side')?.value || 'CE',
+    timeframe: el('fibx-timeframe')?.value || '1m',
+    mode: el('fibx-mode')?.value || 'paper',
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -2977,7 +3001,7 @@ async function startFibBoundaryPaper() {
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
   if (button) { button.disabled = true; button.textContent = 'Finding the swing and starting the paper monitor…'; }
-  _fibSetFormStatus(`Reading ${payload.symbol} 1m candles and anchoring the swing. No order will be sent.`, 'busy');
+  _fibSetFormStatus(`Reading ${payload.symbol} ${payload.timeframe} candles and anchoring the swing…`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
@@ -3116,16 +3140,17 @@ async function loadFibBoundaryChart() {
   const timestamp = campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
   const symbol = campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
   const side = campaign?.side || el('fibx-side')?.value || 'CE';
+  const timeframe = campaign?.timeframe || el('fibx-timeframe')?.value || '1m';
   const chart = el('fibx-chart');
   const meta = el('fibx-chart-meta');
   const overlay = el('fibx-chart-overlay');
   const title = el('fibx-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
-  if (title) title.textContent = `${symbol} ${side} swing ladder`;
-  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} 1m candles…</div>`;
+  if (title) title.textContent = `${symbol} ${side} swing ladder · ${String(timeframe).toUpperCase()} mother`;
+  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} ${escapeHtml(timeframe)} candles…</div>`;
   try {
-    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side });
+    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe });
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
@@ -3136,8 +3161,8 @@ async function loadFibBoundaryChart() {
     if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data));
     if (meta) {
       meta.textContent = data.anchor
-        ? `${data.candles.length} closed 1m candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
-        : `${data.candles.length} closed 1m candles · ${data.note}`;
+        ? `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
+        : `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${data.note}`;
     }
   } catch (error) {
     if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();

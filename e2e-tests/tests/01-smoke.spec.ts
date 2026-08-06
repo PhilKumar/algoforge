@@ -568,12 +568,22 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-symbol')).toHaveValue('NIFTY');
   await expect(page.locator('#fibx-side option')).toHaveCount(2);
 
-  // The old per-rung budget and timeframe picker are gone; the ladder cap
-  // replaces the first and 1m replaces the second.
+  // The old per-rung budget is gone; the ladder cap replaces it.
   await expect(page.locator('#fibx-capital-cap')).toHaveValue('75000');
-  await expect(page.locator('#fibx-timeframe')).toHaveCount(0);
   await expect(page.locator('#fibx-rung-inr')).toHaveCount(0);
   await expect(page.locator('#fibx-levels-hint')).toContainText('L16');
+
+  // Every chart a mother may be read on. Entries stay 1m whichever is picked.
+  await expect(page.locator('#fibx-timeframe option')).toHaveCount(4);
+  await expect(page.locator('#fibx-timeframe')).toHaveValue('1m');
+
+  // Paper is what you get by default, and live says it is not armed BEFORE
+  // it is picked -- finding that out at the first touch helps nobody.
+  await expect(page.locator('#fibx-mode')).toHaveValue('paper');
+  await expect(page.locator('#fibx-mode-note')).toContainText('sends nothing');
+  await page.selectOption('#fibx-mode', 'live');
+  await expect(page.locator('#fibx-mode-note')).toContainText('NOT armed');
+  await page.selectOption('#fibx-mode', 'paper');
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
   // they are getting a weekly contract that does not exist.
@@ -599,7 +609,8 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
 
 // A running ladder, shaped exactly like FibTouchLadder.get_status().
 const fibTouchCampaign = {
-  symbol: 'NIFTY', side: 'CE', timeframe: '1m', status: 'OPEN', running: true,
+  symbol: 'NIFTY', side: 'CE', timeframe: '15m', entry_timeframe: '1m',
+  mode: 'paper', is_live: false, armed: false, status: 'OPEN', running: true,
   mother_timestamp: '2026-08-06T09:21:00+05:30',
   anchor: {
     high: 24700, low: 24600, span: 100,
@@ -628,7 +639,7 @@ const fibTouchCampaign = {
 };
 
 const fibTouchChart = {
-  status: 'ok', symbol: 'NIFTY', timeframe: '1m', side: 'CE', chart_mode: 'visual_gap_adjusted',
+  status: 'ok', symbol: 'NIFTY', timeframe: '15m', side: 'CE', chart_mode: 'visual_gap_adjusted',
   candles: [
     { t: '2026-08-06T09:16:00+05:30', o: 24675, h: 24700, l: 24670, c: 24695, is_mother: false },
     { t: '2026-08-06T09:19:00+05:30', o: 24662, h: 24665, l: 24640, c: 24642, is_mother: false },
@@ -664,6 +675,9 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await expect(page.locator('#fibx-fills tr')).toHaveCount(2);
   await expect(page.locator('#fibx-anchor')).toContainText('24,700');
   await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
+  // The strip names the mother's chart and the mode it is running in.
+  await expect(page.locator('#fibx-gist')).toContainText('15M mother, 1m entries');
+  await expect(page.locator('#fibx-gist')).toContainText('PAPER');
 
   await page.click('#fibx-load-chart');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
