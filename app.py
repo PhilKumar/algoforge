@@ -1668,16 +1668,13 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
-    """No-op while the tab runs FibTouchLadder, which has no serialiser yet.
-
-    The old FibBoundaryPaper state stays in app_state untouched -- Phil asked
-    for the superseded pieces to be parked, not deleted -- so restoring the old
-    engine is still a matter of pointing the routes back at it.  A ladder in
-    flight does NOT survive a restart today; that is the next piece of work,
-    and it is called out rather than half-done, because a half-restored basket
-    would report positions the engine no longer holds.
-    """
-    return None
+    await _save_specialized_cascade_state(
+        user_id,
+        _fib_boundary_engines,
+        _fib_boundary_open_state_key(user_id),
+        _fib_boundary_open_state_last_save,
+        force=force,
+    )
 
 
 async def _restore_candle_entry_open_state(
@@ -1714,14 +1711,53 @@ async def _restore_candle_entry_open_state(
 async def _restore_fib_boundary_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
 ) -> _CascadeRuntime | None:
-    """Only ever returns a ladder this process already holds.
+    """Bring a ladder back after a restart, always UNARMED.
 
-    Rehydrating the OLD FibBoundaryPaper here would put an engine of the wrong
-    type into `_fib_boundary_engines`, and the poll loop -- which now reads
-    `engine.config` -- would raise on the first tick.  Persisted state is left
-    in app_state untouched for when the ladder gets its own serialiser.
+    A deploy restarts this process, and a restart is not a person deciding to
+    trade real money.  So a live ladder resumes with its executor closed and the
+    console showing LIVE / NOT ARMED again -- the gated arm route is the only
+    way back to sending, exactly as it was the first time.
     """
-    return _fib_boundary_engines.get(int(user_id))
+    existing = _fib_boundary_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    raw = await _db_mod.get_app_state(_fib_boundary_open_state_key(user_id))
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        engine_state = payload["engine"]
+        if int(engine_state.get("version") or 0) != 1:
+            # A snapshot from the retired typed-mother engine. Left in place
+            # rather than guessed at; the ladder simply starts fresh.
+            return None
+        symbol = str(engine_state["config"]["symbol"])
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        executor = (
+            _FibTouchLiveExecutor(broker, symbol)
+            if str(engine_state.get("mode")) == "live"
+            else _FibTouchPaperExecutor()
+        )
+        engine = FibTouchLadder.from_dict(
+            engine_state,
+            premium_lookup=_fib_touch_premium_lookup(broker, symbol),
+            expiry_source=_fib_touch_expiry_source(broker, symbol),
+            executor=executor,
+        )
+        last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
+        runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
+        _fib_boundary_engines[int(user_id)] = runtime
+        if running and activate and _engine_restore_owner_is_active_instance():
+            runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[FIB TOUCH] Skipping invalid persisted ladder for user %s: %s", user_id, exc)
+        return None
 
 
 async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
@@ -9337,6 +9373,7 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
                 engine.on_candle(candle)
             if engine.status in {"CLOSED", "EXPIRED"}:
                 runtime.running = False
+            await _save_fib_boundary_open_state(user_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -9514,6 +9551,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     )
     _fib_boundary_engines[user_id] = runtime
     runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
+    await _save_fib_boundary_open_state(user_id, force=True)
     return {
         "status": "started",
         "mode": "paper",
@@ -9576,6 +9614,7 @@ async def fib_boundary_paper_kill(request: Request):
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
+    await _save_fib_boundary_open_state(_request_user_id(request), force=True)
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
 
 

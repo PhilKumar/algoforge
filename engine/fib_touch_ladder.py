@@ -1069,6 +1069,185 @@ class FibTouchLadder:
                 break
         return self
 
+    # ── surviving a restart ───────────────────────────────────────
+
+    def to_dict(self) -> dict[str, Any]:
+        """Everything needed to resume this ladder after a process restart.
+
+        The candle history is deliberately NOT stored: it is large, and the
+        poll refetches from the mother's date on the next tick anyway. What
+        cannot be recomputed is what the ladder DECIDED -- the frozen swing, the
+        rungs it has spent, the fills it holds -- and that is what is here.
+
+        ``armed`` is not stored on purpose; see :meth:`from_dict`.
+        """
+        config = self.config
+        anchor = self.anchor
+        return {
+            "version": 1,
+            "config": {
+                "symbol": config.symbol,
+                "side": config.side,
+                "mother_timestamp": config.mother_timestamp.isoformat(),
+                "lot_size": config.lot_size,
+                "strike_step": config.strike_step,
+                "timeframe": config.timeframe,
+                "entry_timeframe": config.entry_timeframe,
+                "levels": list(config.levels),
+                "lots_per_rung": config.lots_per_rung,
+                "capital_cap_inr": config.capital_cap_inr,
+                "target_fraction": config.target_fraction,
+                "itm_steps": config.itm_steps,
+                "min_dte": config.min_dte,
+                "lookback_bars": config.lookback_bars,
+                "involvement_candles": config.involvement_candles,
+            },
+            "mode": getattr(self.executor, "mode", "paper"),
+            "status": self.status,
+            "anchor": (
+                {
+                    "high": anchor.high,
+                    "low": anchor.low,
+                    "high_timestamp": anchor.high_timestamp.isoformat(),
+                    "low_timestamp": anchor.low_timestamp.isoformat(),
+                    "confirmed_at": anchor.confirmed_at.isoformat(),
+                    "involvement_candles": anchor.involvement_candles,
+                }
+                if anchor
+                else None
+            ),
+            "rungs": [
+                {
+                    "level": rung.level,
+                    "index_price": rung.index_price,
+                    "status": rung.status,
+                    "filled_at": rung.filled_at.isoformat() if rung.filled_at else None,
+                }
+                for rung in self.rungs
+            ],
+            "fills": [
+                {
+                    "buy_number": fill.buy_number,
+                    "level": fill.level,
+                    "timestamp": fill.timestamp.isoformat(),
+                    "index_price": fill.index_price,
+                    "premium": fill.premium,
+                    "lots": fill.lots,
+                    "quantity": fill.quantity,
+                    "strike": fill.strike,
+                    "expiry": fill.expiry.isoformat(),
+                    "option_type": fill.option_type,
+                    "order_id": fill.order_id,
+                }
+                for fill in self.fills
+            ],
+            "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
+            "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
+            "exit_reason": self.exit_reason,
+            "exit_index": self.exit_index,
+            "exit_premiums": list(self._exit_premiums),
+            "gross_pnl": self.gross_pnl,
+            "costs_total": self.costs_total,
+            "net_pnl": self.net_pnl,
+            "events": list(self.events),
+            "data_gaps": list(self.data_gaps),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        raw: dict[str, Any],
+        *,
+        premium_lookup: PremiumLookup,
+        expiry_source: ExpirySource,
+        executor: Optional[Any] = None,
+    ) -> "FibTouchLadder":
+        """Rebuild a ladder from :meth:`to_dict`.
+
+        **A restored LIVE ladder always comes back UNARMED**, whatever it was
+        when the process died. Arming is a deliberate act by a person, and a
+        restart is not that person; silently resuming real order flow because a
+        deploy restarted the server is precisely the thing that must not happen.
+        The caller re-arms through the gated route if it still wants to.
+        """
+        terms = dict(raw["config"])
+        config = FibTouchConfig(
+            symbol=terms["symbol"],
+            side=terms["side"],
+            mother_timestamp=datetime.fromisoformat(terms["mother_timestamp"]),
+            lot_size=int(terms["lot_size"]),
+            strike_step=float(terms["strike_step"]),
+            timeframe=terms.get("timeframe", "1m"),
+            entry_timeframe=terms.get("entry_timeframe", "1m"),
+            levels=tuple(int(level) for level in terms.get("levels") or HALVING_LEVELS),
+            lots_per_rung=int(terms.get("lots_per_rung", 1)),
+            capital_cap_inr=float(terms.get("capital_cap_inr", 75_000.0)),
+            target_fraction=float(terms.get("target_fraction", 0.25)),
+            itm_steps=int(terms.get("itm_steps", 2)),
+            min_dte=int(terms.get("min_dte", 4)),
+            lookback_bars=int(terms.get("lookback_bars", 240)),
+            involvement_candles=int(terms.get("involvement_candles", INVOLVEMENT_CANDLES)),
+        )
+        engine = cls(
+            config,
+            premium_lookup=premium_lookup,
+            expiry_source=expiry_source,
+            executor=executor,
+        )
+        anchor = raw.get("anchor")
+        if anchor:
+            engine.anchor = SwingAnchor(
+                high=float(anchor["high"]),
+                low=float(anchor["low"]),
+                high_timestamp=datetime.fromisoformat(anchor["high_timestamp"]),
+                low_timestamp=datetime.fromisoformat(anchor["low_timestamp"]),
+                confirmed_at=datetime.fromisoformat(anchor["confirmed_at"]),
+                involvement_candles=int(anchor.get("involvement_candles", INVOLVEMENT_CANDLES)),
+            )
+        engine.rungs = [
+            TouchRung(
+                level=int(row["level"]),
+                index_price=float(row["index_price"]),
+                status=str(row.get("status", "PENDING")),
+                filled_at=datetime.fromisoformat(row["filled_at"]) if row.get("filled_at") else None,
+            )
+            for row in raw.get("rungs") or []
+        ]
+        engine.fills = [
+            TouchFill(
+                buy_number=int(row["buy_number"]),
+                level=int(row["level"]),
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                index_price=float(row["index_price"]),
+                premium=float(row["premium"]),
+                lots=int(row["lots"]),
+                quantity=int(row["quantity"]),
+                strike=float(row["strike"]),
+                expiry=date.fromisoformat(row["expiry"]),
+                option_type=str(row["option_type"]),
+                order_id=str(row.get("order_id") or ""),
+            )
+            for row in raw.get("fills") or []
+        ]
+        stamp = raw.get("last_fill_timestamp")
+        engine._last_fill_timestamp = datetime.fromisoformat(stamp) if stamp else None
+        engine.status = str(raw.get("status") or "WAITING_FOR_SWING")
+        # A ladder parked by a refusal must not resume as if nothing happened;
+        # the refusal is re-decided on the next bar against the CURRENT arming.
+        if engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED"}:
+            engine.status = "OPEN" if engine.fills else "ARMED"
+        exit_at = raw.get("exit_timestamp")
+        engine.exit_timestamp = datetime.fromisoformat(exit_at) if exit_at else None
+        engine.exit_reason = raw.get("exit_reason")
+        engine.exit_index = raw.get("exit_index")
+        engine._exit_premiums = list(raw.get("exit_premiums") or [])
+        engine.gross_pnl = raw.get("gross_pnl")
+        engine.costs_total = raw.get("costs_total")
+        engine.net_pnl = raw.get("net_pnl")
+        engine.events = list(raw.get("events") or [])
+        engine.data_gaps = list(raw.get("data_gaps") or [])
+        return engine
+
     # ── serialisation for the console ─────────────────────────────
 
     def get_status(self) -> dict[str, Any]:

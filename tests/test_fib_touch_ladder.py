@@ -647,5 +647,110 @@ class TrendlineTests(unittest.TestCase):
             self.assertIn(key, payload)
 
 
+class _StubBroker:
+    """Accepts orders so an ARMED live ladder can actually fill in a test."""
+
+    def __init__(self):
+        self.sent = []
+
+    def place_option_order(self, symbol, strike, expiry, option_type, *, side, quantity):
+        self.sent.append((symbol, strike, expiry, option_type, side, quantity))
+        return SimpleNamespace(order_id=f"DHAN-{len(self.sent)}")
+
+
+class PersistenceTests(unittest.TestCase):
+    """A ladder has to survive a deploy without resuming real order flow."""
+
+    def open_ladder(self, executor=None):
+        engine, candles, _ = ladder()
+        if executor is not None:
+            engine.executor = executor
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        return engine
+
+    def revive(self, engine, executor=None):
+        return FibTouchLadder.from_dict(
+            engine.to_dict(),
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+            executor=executor,
+        )
+
+    def test_a_round_trip_keeps_what_the_ladder_decided(self):
+        engine = self.open_ladder()
+        back = self.revive(engine)
+        self.assertEqual(back.status, engine.status)
+        self.assertEqual(back.config.symbol, engine.config.symbol)
+        self.assertEqual(back.config.timeframe, engine.config.timeframe)
+        self.assertEqual(back.config.levels, engine.config.levels)
+        assert back.anchor is not None and engine.anchor is not None
+        self.assertEqual(back.anchor.high, engine.anchor.high)
+        self.assertEqual(back.anchor.low, engine.anchor.low)
+        self.assertEqual(back.anchor.confirmed_at, engine.anchor.confirmed_at)
+        self.assertEqual([r.status for r in back.rungs], [r.status for r in engine.rungs])
+        self.assertEqual(len(back.fills), len(engine.fills))
+        self.assertEqual(back.deployed_inr, engine.deployed_inr)
+        self.assertEqual(back.open_lots, engine.open_lots)
+        self.assertEqual(back.target_index, engine.target_index)
+        self.assertEqual(back.average_index_entry, engine.average_index_entry)
+
+    def test_a_revived_ladder_does_not_rebuy_a_rung_it_already_spent(self):
+        engine = self.open_ladder()
+        back = self.revive(engine)
+        base = engine.fills[-1].timestamp
+        # The same L2 touch again: the rung is FILLED, so nothing happens.
+        back.on_candle(Bar(base + timedelta(minutes=1), 24_510, 24_512, 24_495, 24_505))
+        self.assertEqual(len(back.fills), 1)
+
+    def test_a_revived_ladder_still_exits_on_its_target(self):
+        engine = self.open_ladder()
+        back = self.revive(engine)
+        base = engine.fills[-1].timestamp
+        back.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
+        self.assertEqual(back.status, "CLOSED")
+        self.assertEqual(back.exit_reason, "target")
+
+    def test_the_entry_bar_guard_survives_so_it_cannot_exit_on_its_own_fill_bar(self):
+        engine = self.open_ladder()
+        back = self.revive(engine)
+        self.assertEqual(back._last_fill_timestamp, engine._last_fill_timestamp)
+        # A bar at the SAME stamp as the last fill must still not settle.
+        back.on_candle(Bar(engine.fills[-1].timestamp, 24_510, 24_600, 24_505, 24_555))
+        self.assertNotEqual(back.status, "CLOSED")
+
+    def test_a_live_ladder_comes_back_UNARMED_however_it_died(self):
+        # The rule that matters: a deploy restarts the process, and a restart is
+        # not a person deciding to trade real money.
+        armed = LiveExecutor(broker=_StubBroker(), symbol="NIFTY", armed=True)
+        engine = self.open_ladder(executor=armed)
+        self.assertTrue(engine.get_status()["armed"])
+        back = self.revive(engine, executor=LiveExecutor(broker=_StubBroker(), symbol="NIFTY"))
+        self.assertEqual(back.get_status()["mode"], "live")
+        self.assertFalse(back.get_status()["armed"])
+
+    def test_the_snapshot_never_carries_an_armed_flag_at_all(self):
+        armed = LiveExecutor(broker=_StubBroker(), symbol="NIFTY", armed=True)
+        raw = self.open_ladder(executor=armed).to_dict()
+        self.assertEqual(raw["mode"], "live")
+        self.assertNotIn("armed", raw)
+
+    def test_a_refused_ladder_resumes_unparked_so_it_re_decides(self):
+        engine = self.open_ladder()
+        engine.status = "EXECUTION_REFUSED"
+        self.assertEqual(self.revive(engine).status, "OPEN")
+        engine.fills = []
+        engine.status = "EXECUTION_REFUSED"
+        self.assertEqual(self.revive(engine).status, "ARMED")
+
+    def test_the_snapshot_is_json_and_carries_a_version(self):
+        import json
+
+        raw = self.open_ladder().to_dict()
+        self.assertEqual(raw["version"], 1)
+        json.loads(json.dumps(raw))  # no datetimes left un-stringified
+
+
 if __name__ == "__main__":
     unittest.main()

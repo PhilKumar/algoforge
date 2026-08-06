@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import sys
@@ -191,6 +192,86 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         priced = [round(level_price("CE", anchor.high, anchor.low, level), 2) for level in HALVING_LEVELS]
         # span is 100, so the ladder walks down in whole spans from 24,700.
         self.assertEqual(priced, [24_500.0, 24_400.0, 24_300.0, 24_100.0, 23_900.0, 23_500.0, 23_100.0])
+
+    async def test_a_ladder_survives_a_restart_and_comes_back_unarmed(self):
+        """The real save/restore path, not the engine's round-trip in isolation."""
+        from datetime import date as _date
+
+        from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder, LiveExecutor
+
+        base = datetime(2026, 8, 6, 9, 15)
+        rows = [
+            (24_660, 24_665, 24_640, 24_642),
+            (24_642, 24_644, 24_620, 24_622),
+            (24_622, 24_624, 24_600, 24_602),
+            (24_602, 24_612, 24_600, 24_610),
+            (24_610, 24_620, 24_608, 24_618),
+            (24_618, 24_650, 24_615, 24_645),
+            (24_645, 24_700, 24_640, 24_695),
+            (24_695, 24_698, 24_680, 24_682),
+            (24_682, 24_684, 24_670, 24_672),
+            (24_672, 24_674, 24_495, 24_510),
+        ]
+        candles = [
+            app_module.IndexCandle(base + timedelta(minutes=i), o, h, low, c) for i, (o, h, low, c) in enumerate(rows)
+        ]
+
+        class _Broker:
+            def place_option_order(self, *a, **k):
+                return SimpleNamespace(order_id="DHAN-1")
+
+        broker = _Broker()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+        )
+        engine = FibTouchLadder(
+            config,
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [_date(2026, 8, 11)],
+            executor=LiveExecutor(broker, "NIFTY", armed=True),
+        )
+        for candle in candles:
+            engine.on_candle(candle)
+        self.assertTrue(engine.fills, "fixture should have bought a rung")
+        self.assertTrue(engine.get_status()["armed"])
+
+        runtime = app_module._CascadeRuntime(engine, None, broker, candles[-1].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = runtime
+        await app_module._save_fib_boundary_open_state(11, force=True)
+
+        # The process "restarts": every in-memory ladder is gone.
+        app_module._fib_boundary_engines.clear()
+        app_module._fib_boundary_open_state_last_save.clear()
+
+        revived = await app_module._restore_fib_boundary_open_state(11, broker, activate=False)
+        self.assertIsNotNone(revived)
+        assert revived is not None
+        status = revived.engine.get_status()
+        self.assertEqual(len(status["fills"]), len(engine.fills))
+        self.assertEqual(status["deployed_inr"], engine.deployed_inr)
+        self.assertEqual(status["anchor"]["high"], 24_700.0)
+        self.assertEqual(status["anchor"]["low"], 24_600.0)
+        # THE RULE: a restart is not a person deciding to trade real money.
+        self.assertEqual(status["mode"], "live")
+        self.assertFalse(status["armed"])
+
+    async def test_a_snapshot_from_the_retired_engine_is_ignored_not_guessed_at(self):
+        await app_module._db_mod.set_app_state(
+            app_module._fib_boundary_open_state_key(11),
+            json.dumps(
+                {
+                    "running": True,
+                    "last_candle_timestamp": "2026-08-06T09:20:00+05:30",
+                    "engine": {"timeframe": "5m", "rungs": []},
+                }
+            ),
+        )
+        app_module._fib_boundary_engines.clear()
+        self.assertIsNone(await app_module._restore_fib_boundary_open_state(11, object(), activate=False))
 
     async def test_kill_without_campaign_is_404(self):
         with self.assertRaises(app_module.HTTPException) as raised:
