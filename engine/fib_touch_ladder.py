@@ -785,7 +785,7 @@ class FibTouchLadder:
             premium = self.premium_lookup(bar.timestamp, strike, expiry, self.side)
             if premium is None or premium <= 0:
                 self._note_gap(
-                    f"L{rung.level}: no {self.config.symbol} {strike:g}{self.side} " f"{expiry.isoformat()} quote",
+                    f"L{rung.level}: no {self.config.symbol} {strike:g}{self.side} {expiry.isoformat()} quote",
                     bar.timestamp,
                 )
                 self._log(bar.timestamp, "premium_missing", level=rung.level, strike=strike)
