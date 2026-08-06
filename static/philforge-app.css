@@ -3191,7 +3191,7 @@
   .nav-tabs > #nav-terminal { order: 3; }
   .nav-tabs > #nav-scalp { order: 4; }
   .nav-tabs > #nav-cascade { order: 5; }
-  .nav-tabs > #nav-insights-wrap { order: 6; }
+  .nav-tabs > #nav-insights { order: 6; }
   .nav-tabs > #nav-live { order: 7; }
   .nav-tabs > #nav-builder { order: 8; }
   .nav-tabs > #nav-charts { order: 9; }

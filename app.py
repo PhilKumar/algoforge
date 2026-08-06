@@ -9521,6 +9521,42 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     }
 
 
+@app.post("/api/fib-boundary/paper/arm")
+async def fib_boundary_paper_arm(request: Request):
+    """Arm a LIVE ladder so its next decision reaches the exchange.
+
+    This is the deliberate step the executor refuses without. It is a separate
+    route on purpose: no payload, config value or environment variable can open
+    live execution, and it sits on `_SENSITIVE_ACTION_RULES` so it costs a
+    password and an authenticator code exactly like starting live trading does.
+
+    Arming does NOT retro-fill anything. Rungs the ladder decided on while it
+    was refused stay refused; only decisions made from here on are sent.
+    """
+    runtime = _fib_boundary_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No ladder is active.")
+    executor = getattr(runtime.engine, "executor", None)
+    if not getattr(executor, "is_live", False):
+        raise HTTPException(
+            status_code=400,
+            detail="This ladder is running in paper. Kill it and start one in live mode before arming.",
+        )
+    if getattr(executor, "armed", False):
+        return {"status": "already_armed", "campaign": runtime.engine.get_status()}
+    executor.armed = True
+    # A refusal parked the campaign; arming releases it to act on the next bar.
+    if runtime.engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED"}:
+        runtime.engine.status = "OPEN" if runtime.engine.fills else "ARMED"
+    _logger.warning(
+        "[FIB TOUCH] LIVE ARMED for user %s on %s %s -- real orders will now be sent",
+        _request_user_id(request),
+        runtime.engine.config.symbol,
+        runtime.engine.side,
+    )
+    return {"status": "armed", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+
+
 @app.post("/api/fib-boundary/paper/kill")
 async def fib_boundary_paper_kill(request: Request):
     runtime = _fib_boundary_engines.get(_request_user_id(request))

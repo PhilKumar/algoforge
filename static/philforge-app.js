@@ -1463,6 +1463,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryDrop',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
+  'armFibBoundaryLive',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -1781,6 +1782,8 @@ function _renderCascadeOptionsStatus(payload) {
   if (startBtn) startBtn.disabled = isRunning;
   if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  const armBtn = document.getElementById('fibx-arm');
+  if (armBtn) armBtn.style.display = (isRunning && campaign.is_live && !campaign.armed) ? '' : 'none';
   const motherTimestamp = campaign?.mother?.timestamp;
   const motherInput = _cascadeOptionsEl('cascade-options-mother-timestamp');
   if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
@@ -2660,7 +2663,7 @@ function _syncFibLevelsHint() {
   const modeNote = document.getElementById('fibx-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
-      ? 'Live runs the identical decision path but is NOT armed — it will refuse to send and leave the rung pending. Arming is a separate, deliberate step.'
+      ? 'Live runs the identical decision path. It starts UNARMED and refuses to send, leaving the rung pending — press ⚡ Arm live on the running campaign to let orders through. That asks for your password and authenticator code.'
       : 'Paper records every fill and sends nothing. Same rules, same sizing, same target as live.';
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
@@ -3121,13 +3124,15 @@ function _fibBoundaryCanvasPayload(payload) {
     lines.push({
       price: side === 'CE' ? motherBar.h : motherBar.l,
       label: side === 'CE' ? 'MOTHER HIGH' : 'MOTHER LOW',
-      filled: false,
+      // `filled` is the renderer's solid-vs-dashed flag, not a state here:
+      // every level on this chart is drawn as a line.
+      filled: true,
       inr_notional: 0,
     });
   }
   if (anchor) {
-    lines.push({ price: Number(anchor.high), label: 'SWING HIGH', filled: false, inr_notional: 0 });
-    lines.push({ price: Number(anchor.low), label: 'SWING LOW', filled: false, inr_notional: 0 });
+    lines.push({ price: Number(anchor.high), label: 'SWING HIGH', filled: true, inr_notional: 0 });
+    lines.push({ price: Number(anchor.low), label: 'SWING LOW', filled: true, inr_notional: 0 });
   }
   (Array.isArray(payload?.levels) ? payload.levels : []).forEach(row => {
     const level = Number(row.level);
@@ -3135,7 +3140,7 @@ function _fibBoundaryCanvasPayload(payload) {
     lines.push({
       price: Number(row.price),
       label: `L${level} ${status}`,
-      filled: status === 'FILLED',
+      filled: true,
       // What this rung actually cost, so a hovered line says how much is on it.
       inr_notional: (campaign.fills || [])
         .filter(f => Number(f.level) === level)
@@ -3183,6 +3188,26 @@ function _fibBoundaryCanvasPayload(payload) {
     // A ladder still holding must not have its target drawn as if it sold there.
     tp_label: exits.length ? 'TARGET HIT' : entries.length ? 'TARGET (open — watching)' : 'TARGET (no buy yet)',
   };
+}
+
+async function armFibBoundaryLive() {
+  // Real money. The confirm is this site's own dialog, and the route behind it
+  // demands a password and an authenticator code on top.
+  const ok = await customConfirm(
+    'From the next decision on, this ladder places <strong>REAL F&amp;O orders</strong> on Dhan. '
+    + 'Rungs it already refused stay refused. You will be asked for your password and authenticator code.',
+    { title: 'Arm live execution?', okText: 'Arm live', cancelText: 'Stay unarmed' },
+  );
+  if (!ok) return;
+  try {
+    const response = await fetch('/api/fib-boundary/paper/arm', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(_apiErrorMessage(data, `Could not arm (${response.status})`));
+    _fibSetFormStatus('LIVE ARMED — orders from here on reach the exchange.', 'success');
+    _renderFibBoundaryStatus({ campaign: data.campaign });
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Could not arm live execution.', 'error');
+  }
 }
 
 async function loadFibBoundaryChart() {

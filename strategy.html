@@ -30,6 +30,9 @@
     padding:10px 14px; margin-bottom:14px; border:1px solid var(--border);
     border-radius:9px; background:var(--panel); }
   .insights-strip-note { font:10.5px 'JetBrains Mono',monospace; color:var(--muted); }
+  /* Both panels' actions are anchors, and the panels' own sheets underline
+     anchors. Wearing the app's .btn should look like a button, not a link. */
+  #insights-page a.btn, #insights-page a.btn:hover { text-decoration: none; }
 </style>
 <script src="/static/error-handler.js" defer></script>
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
@@ -1841,8 +1844,8 @@
           <div>
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
             <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-              <option value="CE" selected>CE — below support</option>
-              <option value="PE">PE — above resistance</option>
+              <option value="CE" selected>Buy CE</option>
+              <option value="PE">Buy PE</option>
             </select>
           </div>
           <div>
@@ -1910,7 +1913,7 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
           <div id="fibx-gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
-          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="fibx-summary" class="cascade-options-summary"></div>
@@ -2169,16 +2172,6 @@
 
 <!-- ═══ SCALP PAGE ═══ -->
 <div id="insights-page" class="page-section">
-  <div class="card-glass oc-hero">
-    <div class="oc-hero-content">
-      <div class="oc-hero-copy">
-        <div class="oc-kicker">Read-only market study · nothing here places an order</div>
-        <h2>Insights</h2>
-        <p class="oc-hero-steps">Two views that used to be their own pages, now tabs on one &nbsp;·&nbsp; <strong>Heatmap</strong> for what moved &nbsp;·&nbsp; <strong>Study Lounge</strong> for the reading between trades&nbsp;<button type="button" class="pf-info-btn" data-pf-info="insights-hero-info" aria-expanded="false" aria-label="About this page" title="About this page">i</button></p>
-        <div id="insights-hero-info" class="pf-info-pop">Both still have their own standalone pages at <strong>/market-movers</strong> and <strong>/study-lounge</strong>, unchanged, so old bookmarks keep working. These tabs are the same markup running inside the app shell.</div>
-      </div>
-    </div>
-  </div>
 
   <div class="oc-tabs" role="tablist">
     <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" data-pf-action="showInsightsTab" data-insights-tab="heatmap" title="What moved today, and by how much"><span class="oc-tab-name">▦ Heatmap</span><span class="oc-tab-sub">Gainers, losers and the profit/loss grid · live prices</span></button>
@@ -2386,8 +2379,8 @@
             <span id="featured-size">--</span>
           </div>
           <div class="spotlight-actions">
-            <a class="app-btn app-btn-emerald" id="open-item-btn" href="#" target="_blank" rel="noopener">Open Asset</a>
-            <a class="app-btn app-btn-violet" id="download-item-btn" href="#" download>Download</a>
+            <a class="btn" id="open-item-btn" href="#" target="_blank" rel="noopener">Open Asset</a>
+            <a class="btn btn-secondary" id="download-item-btn" href="#" download>Download</a>
           </div>
         </article>
       </section>

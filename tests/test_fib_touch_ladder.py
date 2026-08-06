@@ -574,7 +574,7 @@ class ExecutorTests(unittest.TestCase):
 
 
 class TrendlineTests(unittest.TestCase):
-    """Drawn only -- Phil kept the fib on the swing, so the line decides nothing."""
+    """Phil's rule: mother HIGH -> the top red candle's OPEN, before the swing low."""
 
     def line(self, side="CE"):
         candles = falling_then_bouncing()
@@ -589,37 +589,37 @@ class TrendlineTests(unittest.TestCase):
         self.assertEqual(line.start_timestamp, candles[0].timestamp)
         self.assertEqual(line.start_price, 24_665.0)  # the mother's HIGH, not its low
 
-    def test_the_anchor_is_a_red_candle_after_the_swing_low(self):
+    def test_the_anchor_is_the_top_red_candle_BEFORE_the_swing_low(self):
         line, candles, anchor = self.line()
         assert line is not None
-        self.assertGreater(line.anchor_timestamp, anchor.low_timestamp)
+        # Strictly between the mother and the swing low -- an earlier version
+        # searched AFTER it, which is the bug Phil caught off his own chart.
+        self.assertGreater(line.anchor_timestamp, candles[0].timestamp)
+        self.assertLessEqual(line.anchor_timestamp, anchor.low_timestamp)
         bar = next(row for row in candles if row.timestamp == line.anchor_timestamp)
         self.assertLess(bar.close, bar.open)  # red
         self.assertEqual(line.anchor_price, bar.open)
 
-    def test_the_line_clears_every_close_from_the_mother_on(self):
+    def test_the_top_red_wins_not_the_nearest_one(self):
         line, candles, _anchor = self.line()
         assert line is not None
-        span = (line.anchor_timestamp - line.start_timestamp).total_seconds()
-        slope = (line.anchor_price - line.start_price) / span
-        for bar in candles:
-            if bar.timestamp < line.start_timestamp:
-                continue
-            at = line.start_price + slope * (bar.timestamp - line.start_timestamp).total_seconds()
-            self.assertLessEqual(bar.close, at + abs(at) * 0.0005, bar.timestamp)
+        # Bars 1 and 2 are both red before the low; bar 1 opens higher (24,642
+        # vs 24,622), so it is the "top red candle".
+        self.assertEqual(line.anchor_timestamp, candles[1].timestamp)
+        self.assertEqual(line.anchor_price, 24_642.0)
 
     def test_a_pe_line_starts_at_the_mother_low_and_mirrors(self):
         candles = bars(
             [
-                (24_640, 24_660, 24_635, 24_658),
-                (24_658, 24_680, 24_655, 24_675),
-                (24_675, 24_700, 24_670, 24_695),
-                (24_695, 24_698, 24_688, 24_690),
-                (24_690, 24_692, 24_680, 24_682),
-                (24_682, 24_684, 24_650, 24_652),
-                (24_652, 24_654, 24_600, 24_602),
-                (24_602, 24_612, 24_600, 24_610),
-                (24_610, 24_620, 24_608, 24_618),
+                (24_640, 24_660, 24_635, 24_658),  # 0 green <- MOTHER, low 24,635
+                (24_658, 24_680, 24_655, 24_675),  # 1 green <- lowest green open
+                (24_675, 24_700, 24_670, 24_695),  # 2 green <- swing high 24,700
+                (24_695, 24_698, 24_688, 24_690),  # 3 red
+                (24_690, 24_692, 24_680, 24_682),  # 4 red   <- HIGH frozen
+                (24_682, 24_684, 24_650, 24_652),  # 5 red
+                (24_652, 24_654, 24_600, 24_602),  # 6 red
+                (24_602, 24_612, 24_600, 24_610),  # 7 green
+                (24_610, 24_620, 24_608, 24_618),  # 8 green <- LOW frozen
             ]
         )
         anchor = find_swing_anchor(candles, candles[0].timestamp, "PE")
@@ -628,15 +628,16 @@ class TrendlineTests(unittest.TestCase):
         self.assertIsNotNone(line)
         assert line is not None
         self.assertEqual(line.start_price, 24_635.0)  # the mother's LOW
+        self.assertEqual(line.anchor_price, 24_658.0)  # lowest green open before the high
 
-    def test_no_line_rather_than_a_wrong_one_when_every_candidate_is_cut(self):
-        # A wall of closes above anything the mother's high can reach.
+    def test_no_candidate_before_the_swing_means_no_line(self):
+        # A mother whose very next bar prints the low leaves no red candle in
+        # between, so there is nothing to anchor on and nothing is drawn.
         candles = falling_then_bouncing()
         anchor = find_swing_anchor(candles, candles[0].timestamp, "CE")
         assert anchor is not None
-        # No red candles after the swing low at all -> nothing to anchor on.
-        trimmed = [row for row in candles if row.timestamp <= anchor.low_timestamp]
-        self.assertIsNone(find_trendline(trimmed, candles[0].timestamp, "CE", anchor))
+        only_mother = [row for row in candles if row.timestamp <= candles[0].timestamp]
+        self.assertIsNone(find_trendline(only_mother, candles[0].timestamp, "CE", anchor))
 
     def test_it_is_serialisable_for_the_chart(self):
         line, _c, _a = self.line()

@@ -69,7 +69,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-#insights-heatmap .status-chip, #insights-heatmap .meta-pill, #insights-heatmap .shell-btn {
+#insights-heatmap .status-chip, #insights-heatmap .meta-pill {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
@@ -78,7 +78,7 @@
   backdrop-filter: blur(18px) saturate(1.15);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
 }
-[data-theme="light"] #insights-heatmap .status-chip, [data-theme="light"] #insights-heatmap .meta-pill, [data-theme="light"] #insights-heatmap .shell-btn {
+[data-theme="light"] #insights-heatmap .status-chip, [data-theme="light"] #insights-heatmap .meta-pill {
   border-color: rgba(15, 23, 42, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 247, 250, 0.92));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 24px rgba(15, 23, 42, 0.08);
@@ -88,59 +88,9 @@
   font-size: 11px;
   font-weight: 600;
 }
-#insights-heatmap .shell-btn {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 0 16px;
-  cursor: pointer;
-  text-decoration: none;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04)),
-    rgba(17, 24, 39, 0.35);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 24px rgba(0, 0, 0, 0.16),
-    0 0 0 0.5px rgba(255,255,255,0.05);
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-#insights-heatmap .shell-btn:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 14px 30px rgba(0, 0, 0, 0.22),
-    0 0 0 1px rgba(49, 212, 191, 0.08);
-}
-[data-theme="light"] #insights-heatmap .shell-btn:hover {
-  border-color: rgba(15, 23, 42, 0.14);
-}
 #insights-heatmap .icon-only {
   width: 42px;
   padding: 0;
-}
-#insights-heatmap .shell-btn-primary {
-  background:
-    linear-gradient(180deg, rgba(49, 212, 191, 0.22), rgba(79, 142, 247, 0.16)),
-    rgba(17, 24, 39, 0.38);
-  border-color: rgba(49, 212, 191, 0.28);
-  color: #eafaf6;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 14px 28px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(49,212,191,0.10);
-}
-[data-theme="light"] #insights-heatmap .shell-btn-primary {
-  background: linear-gradient(180deg, rgba(232, 247, 243, 0.96), rgba(234, 243, 253, 0.94));
-  border-color: rgba(15, 118, 110, 0.18);
-  color: #0f172a;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 12px 24px rgba(15, 23, 42, 0.08);
 }
 #insights-heatmap .movers-shell {
   display: flex;
@@ -718,26 +668,6 @@
     justify-content: center;
     width: 100%;
   }
-#insights-heatmap .topbar-actions .app-btn {
-    width: auto;
-    min-width: 0;
-    padding-inline: 14px;
-  }
-#insights-heatmap .topbar-actions .app-btn-violet {
-    grid-column: 1 / 2;
-    justify-content: center;
-  }
-#insights-heatmap .topbar-actions .app-btn-indigo {
-    grid-column: 2 / 3;
-    justify-content: center;
-  }
-#insights-heatmap .topbar-actions .app-btn-emerald {
-    grid-column: 3 / 4;
-    justify-content: center;
-  }
-#insights-heatmap .topbar-actions .app-btn.icon-only {
-    width: 42px;
-  }
 #insights-heatmap .meta-pill {
     width: 100%;
   }
@@ -767,7 +697,7 @@
   }
 
 }
-#insights-heatmap .shell-btn, #insights-heatmap .filter-chip {
+#insights-heatmap .filter-chip {
   position: relative;
   overflow: hidden;
   border-width: 1px;
@@ -785,13 +715,8 @@
     0 0 0 1px rgba(108, 132, 212, 0.12) !important;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, filter 0.16s ease !important;
 }
-#insights-heatmap .shell-btn, #insights-heatmap .filter-chip {
+#insights-heatmap .filter-chip {
   font-weight: 700;
-}
-#insights-heatmap .shell-btn {
-  min-height: 36px;
-  padding: 0 15px;
-  font-size: 12px;
 }
 #insights-heatmap .filter-chip {
   min-height: 34px;
@@ -799,7 +724,7 @@
   font-size: 11px;
   letter-spacing: 0.03em;
 }
-#insights-heatmap .shell-btn::before, #insights-heatmap .filter-chip::before {
+#insights-heatmap .filter-chip::before {
   content: '';
   position: absolute;
   left: 2px;
@@ -811,7 +736,7 @@
   opacity: 0.9;
   pointer-events: none;
 }
-#insights-heatmap .shell-btn:hover, #insights-heatmap .filter-chip:hover {
+#insights-heatmap .filter-chip:hover {
   transform: translateY(-1px);
   border-color: rgba(112, 157, 255, 0.62) !important;
   background:
@@ -824,7 +749,7 @@
     0 12px 24px rgba(2, 6, 23, 0.28),
     0 0 0 1px rgba(123, 156, 248, 0.16) !important;
 }
-#insights-heatmap .shell-btn:active, #insights-heatmap .filter-chip:active {
+#insights-heatmap .filter-chip:active {
   transform: translateY(0);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -832,7 +757,7 @@
     0 5px 12px rgba(2, 6, 23, 0.22),
     0 0 0 1px rgba(108, 132, 212, 0.12) !important;
 }
-#insights-heatmap .shell-btn:focus-visible, #insights-heatmap .filter-chip:focus-visible {
+#insights-heatmap .filter-chip:focus-visible {
   outline: none;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.28),
@@ -840,7 +765,7 @@
     0 0 0 2px rgba(129, 140, 248, 0.28),
     0 10px 22px rgba(2, 6, 23, 0.26) !important;
 }
-#insights-heatmap .shell-btn-primary, #insights-heatmap .filter-chip.active {
+#insights-heatmap .filter-chip.active {
   border-color: rgba(27, 181, 135, 0.54) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
@@ -853,132 +778,14 @@
     0 10px 22px rgba(5, 73, 58, 0.24),
     0 0 0 1px rgba(16, 185, 129, 0.14) !important;
 }
-#insights-heatmap .shell-btn-primary:hover, #insights-heatmap .filter-chip.active:hover {
+#insights-heatmap .filter-chip.active:hover {
   border-color: rgba(52, 211, 153, 0.68) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
     linear-gradient(180deg, rgba(43, 205, 148, 1) 0%, rgba(13, 165, 124, 1) 58%, rgba(7, 108, 87, 1) 100%) !important;
   color: #a6ffdd !important;
 }
-#insights-heatmap .shell-btn.icon-only {
-  width: 36px !important;
-  min-width: 36px;
-  min-height: 36px;
-  padding: 0 !important;
-  border-radius: 999px;
-}
-#insights-heatmap .shell-btn-emerald {
-  border-color: rgba(27, 181, 135, 0.54) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(33, 193, 137, 0.98) 0%, rgba(11, 154, 116, 0.98) 58%, rgba(5, 99, 80, 1) 100%) !important;
-  color: #75f4ca !important;
-  text-shadow: 0 1px 0 rgba(4, 58, 47, 0.34);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(5, 78, 63, 0.28),
-    0 10px 22px rgba(5, 73, 58, 0.24),
-    0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-#insights-heatmap .shell-btn-emerald:hover {
-  border-color: rgba(52, 211, 153, 0.68) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(43, 205, 148, 1) 0%, rgba(13, 165, 124, 1) 58%, rgba(7, 108, 87, 1) 100%) !important;
-  color: #a1ffdf !important;
-}
-#insights-heatmap .shell-btn-violet {
-  border-color: rgba(148, 116, 244, 0.56) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(132, 102, 235, 0.98) 0%, rgba(96, 72, 196, 0.98) 58%, rgba(56, 40, 128, 1) 100%) !important;
-  color: #dac8ff !important;
-  text-shadow: 0 1px 0 rgba(32, 18, 72, 0.38);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(35, 23, 87, 0.3),
-    0 10px 22px rgba(27, 19, 77, 0.24),
-    0 0 0 1px rgba(139, 92, 246, 0.16) !important;
-}
-#insights-heatmap .shell-btn-violet:hover {
-  border-color: rgba(167, 139, 250, 0.72) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(144, 116, 244, 1) 0%, rgba(106, 82, 208, 1) 58%, rgba(63, 46, 141, 1) 100%) !important;
-  color: #eee4ff !important;
-}
-#insights-heatmap .shell-btn-indigo {
-  border-color: rgba(104, 136, 255, 0.58) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(95, 121, 238, 1) 0%, rgba(68, 88, 194, 1) 58%, rgba(38, 49, 118, 1) 100%) !important;
-  color: #cadcff !important;
-  text-shadow: 0 1px 0 rgba(19, 31, 81, 0.36);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(22, 32, 83, 0.32),
-    0 10px 22px rgba(18, 26, 73, 0.24),
-    0 0 0 1px rgba(99, 102, 241, 0.16) !important;
-}
-#insights-heatmap .shell-btn-indigo:hover {
-  border-color: rgba(129, 161, 255, 0.74) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(108, 135, 249, 1) 0%, rgba(78, 100, 207, 1) 58%, rgba(43, 56, 130, 1) 100%) !important;
-  color: #eef4ff !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-emerald {
-  border-color: rgba(5, 150, 105, 0.44) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(240, 253, 247, 0.99) 36%, rgba(207, 243, 224, 0.99) 100%) !important;
-  color: #0a7357 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(16, 185, 129, 0.16),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-emerald:hover {
-  border-color: rgba(16, 185, 129, 0.58) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(232, 251, 242, 0.99) 36%, rgba(192, 236, 214, 0.99) 100%) !important;
-  color: #07533f !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-violet {
-  border-color: rgba(137, 92, 246, 0.4) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(245, 240, 255, 0.99) 36%, rgba(225, 216, 251, 0.99) 100%) !important;
-  color: #6a47d0 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(139, 92, 246, 0.14),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(139, 92, 246, 0.12) !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-violet:hover {
-  border-color: rgba(124, 58, 237, 0.54) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(239, 233, 255, 0.99) 36%, rgba(214, 202, 249, 0.99) 100%) !important;
-  color: #5231aa !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-indigo {
-  border-color: rgba(79, 70, 229, 0.38) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(236, 241, 255, 0.99) 36%, rgba(211, 221, 251, 0.99) 100%) !important;
-  color: #3752be !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(99, 102, 241, 0.14),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(99, 102, 241, 0.12) !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn.shell-btn-indigo:hover {
-  border-color: rgba(67, 56, 202, 0.5) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(229, 236, 255, 0.99) 36%, rgba(198, 211, 249, 0.99) 100%) !important;
-  color: #2a419d !important;
-}
-[data-theme="light"] #insights-heatmap .shell-btn, [data-theme="light"] #insights-heatmap .filter-chip {
+[data-theme="light"] #insights-heatmap .filter-chip {
   border-color: rgba(96, 126, 198, 0.38) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(247, 250, 255, 0.98) 36%, rgba(222, 232, 248, 0.98) 100%) !important;
@@ -990,13 +797,13 @@
     0 10px 22px rgba(15, 23, 42, 0.1),
     0 0 0 1px rgba(255,255,255,0.72) !important;
 }
-[data-theme="light"] #insights-heatmap .shell-btn:hover, [data-theme="light"] #insights-heatmap .filter-chip:hover {
+[data-theme="light"] #insights-heatmap .filter-chip:hover {
   border-color: rgba(74, 120, 221, 0.5) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(241, 247, 255, 0.98) 36%, rgba(214, 229, 252, 0.98) 100%) !important;
   color: #15315c !important;
 }
-[data-theme="light"] #insights-heatmap .shell-btn-primary, [data-theme="light"] #insights-heatmap .filter-chip.active {
+[data-theme="light"] #insights-heatmap .filter-chip.active {
   border-color: rgba(5, 150, 105, 0.44) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(240, 253, 247, 0.99) 36%, rgba(207, 243, 224, 0.99) 100%) !important;
@@ -1006,110 +813,6 @@
     inset 0 -9px 14px rgba(16, 185, 129, 0.16),
     0 12px 24px rgba(15, 23, 42, 0.12),
     0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-#insights-heatmap /* Shared builder-style action buttons */
-.app-btn {
-  --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(71,85,105,0.32) 100%);
-  --btn-color: #e2e8f0;
-  --btn-border: rgba(148,163,184,0.22);
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 42px;
-  padding: 9px 20px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-weight: 700;
-  font-family: 'Outfit', sans-serif;
-  font-size: 13px;
-  line-height: 1.15;
-  text-decoration: none;
-  white-space: nowrap;
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--btn-border);
-  background: var(--btn-bg);
-  color: var(--btn-color);
-  box-shadow: 0 5px 12px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.22);
-  text-shadow: 0 1px 1px rgba(0,0,0,0.22);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-#insights-heatmap .app-btn::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 8%;
-  width: 84%;
-  height: 40%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02));
-  pointer-events: none;
-}
-#insights-heatmap .app-btn:hover {
-  transform: translateY(-1px);
-  filter: saturate(1.08) brightness(1.04);
-  box-shadow: 0 7px 14px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(0,0,0,0.25);
-}
-#insights-heatmap .app-btn:active {
-  transform: translateY(1px);
-  filter: none;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.28), inset 0 2px 2px rgba(0,0,0,0.20);
-}
-#insights-heatmap .app-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(129,140,248,0.32), 0 7px 14px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.22);
-}
-#insights-heatmap .app-btn.icon-only {
-  width: 42px;
-  min-width: 42px;
-  padding: 0;
-}
-#insights-heatmap .app-btn-emerald {
-  --btn-bg: linear-gradient(180deg, rgba(0,191,165,0.25) 0%, rgba(0,150,130,0.45) 100%);
-  --btn-color: #34d399;
-  --btn-border: rgba(0,191,165,0.48);
-}
-#insights-heatmap .app-btn-violet {
-  --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.20) 0%, rgba(100,60,200,0.38) 100%);
-  --btn-color: #c4b5fd;
-  --btn-border: rgba(139,92,246,0.40);
-}
-#insights-heatmap .app-btn-indigo {
-  --btn-bg: linear-gradient(180deg, rgba(99,102,241,0.22) 0%, rgba(67,56,202,0.40) 100%);
-  --btn-color: #c7d2fe;
-  --btn-border: rgba(99,102,241,0.42);
-}
-[data-theme="light"] #insights-heatmap .app-btn {
-  background: var(--btn-bg, linear-gradient(180deg, rgba(15,23,42,0.035) 0%, rgba(15,23,42,0.075) 100%));
-  color: var(--btn-color, #0f172a);
-  border: 1.5px solid var(--btn-border, rgba(37,99,235,0.20));
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  text-shadow: none;
-}
-[data-theme="light"] #insights-heatmap .app-btn::before {
-  background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.15));
-}
-[data-theme="light"] #insights-heatmap .app-btn:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
-}
-[data-theme="light"] #insights-heatmap .app-btn-emerald {
-  --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.18) 100%);
-  --btn-color: #065f46;
-  --btn-border: rgba(5,150,105,0.26);
-}
-[data-theme="light"] #insights-heatmap .app-btn-violet {
-  --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.17) 100%);
-  --btn-color: #6d28d9;
-  --btn-border: rgba(124,58,237,0.22);
-}
-[data-theme="light"] #insights-heatmap .app-btn-indigo {
-  --btn-bg: linear-gradient(180deg, rgba(79,70,229,0.10) 0%, rgba(79,70,229,0.16) 100%);
-  --btn-color: #4338ca;
-  --btn-border: rgba(79,70,229,0.22);
 }
 
 
@@ -1195,7 +898,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-#insights-study .status-chip, #insights-study .meta-pill, #insights-study .shell-btn, #insights-study .filter-chip, #insights-study .type-pill {
+#insights-study .status-chip, #insights-study .meta-pill, #insights-study .filter-chip, #insights-study .type-pill {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
@@ -1204,7 +907,7 @@
   backdrop-filter: blur(18px) saturate(1.15);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
 }
-[data-theme="light"] #insights-study .status-chip, [data-theme="light"] #insights-study .meta-pill, [data-theme="light"] #insights-study .shell-btn, [data-theme="light"] #insights-study .filter-chip, [data-theme="light"] #insights-study .type-pill {
+[data-theme="light"] #insights-study .status-chip, [data-theme="light"] #insights-study .meta-pill, [data-theme="light"] #insights-study .filter-chip, [data-theme="light"] #insights-study .type-pill {
   border-color: rgba(15, 23, 42, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 247, 250, 0.92));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 24px rgba(15, 23, 42, 0.08);
@@ -1216,60 +919,6 @@
   padding: 10px 14px;
   font-size: 11px;
   font-weight: 600;
-}
-#insights-study .shell-btn {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 0 16px;
-  cursor: pointer;
-  text-decoration: none;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04)),
-    rgba(17, 24, 39, 0.35);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 24px rgba(0, 0, 0, 0.16),
-    0 0 0 0.5px rgba(255,255,255,0.05);
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-#insights-study .shell-btn:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 14px 30px rgba(0, 0, 0, 0.22),
-    0 0 0 1px rgba(49, 212, 191, 0.08);
-}
-[data-theme="light"] #insights-study .shell-btn:hover {
-  border-color: rgba(15, 23, 42, 0.14);
-}
-#insights-study .shell-btn-primary {
-  background:
-    linear-gradient(180deg, rgba(49, 212, 191, 0.22), rgba(79, 142, 247, 0.16)),
-    rgba(17, 24, 39, 0.38);
-  border-color: rgba(49, 212, 191, 0.28);
-  color: #eafaf6;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 14px 28px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(49,212,191,0.10);
-}
-[data-theme="light"] #insights-study .shell-btn-primary {
-  background: linear-gradient(180deg, rgba(232, 247, 243, 0.96), rgba(234, 243, 253, 0.94));
-  border-color: rgba(15, 118, 110, 0.18);
-  color: #0f172a;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 12px 24px rgba(15, 23, 42, 0.08);
-}
-#insights-study .shell-btn.icon-only {
-  width: 42px;
-  padding: 0;
 }
 #insights-study .study-shell {
   display: flex;
@@ -1674,24 +1323,6 @@
     justify-content: center;
     width: 100%;
   }
-#insights-study .topbar-actions .app-btn {
-    min-width: 0;
-    justify-content: center;
-    padding-inline: 14px;
-  }
-#insights-study .topbar-actions .app-btn-violet {
-    grid-column: 1 / 2;
-    justify-content: center;
-    min-width: 0;
-  }
-#insights-study .topbar-actions .app-btn-indigo {
-    grid-column: 2 / 3;
-    justify-content: center;
-  }
-#insights-study .topbar-actions .app-btn-emerald {
-    grid-column: 3 / 4;
-    justify-content: center;
-  }
 #insights-study .hero-grid, #insights-study .content-grid {
     gap: 14px;
   }
@@ -1711,9 +1342,6 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-  }
-#insights-study .spotlight-actions .app-btn {
-    justify-content: center;
   }
 #insights-study .preview-rail {
     position: static;
@@ -1771,7 +1399,7 @@
   }
 
 }
-#insights-study .shell-btn, #insights-study .filter-chip {
+#insights-study .filter-chip {
   position: relative;
   overflow: hidden;
   border-width: 1px;
@@ -1789,13 +1417,8 @@
     0 0 0 1px rgba(108, 132, 212, 0.12) !important;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, filter 0.16s ease !important;
 }
-#insights-study .shell-btn, #insights-study .filter-chip {
+#insights-study .filter-chip {
   font-weight: 700;
-}
-#insights-study .shell-btn {
-  min-height: 36px;
-  padding: 0 15px;
-  font-size: 12px;
 }
 #insights-study .filter-chip {
   min-height: 34px;
@@ -1803,7 +1426,7 @@
   font-size: 11px;
   letter-spacing: 0.03em;
 }
-#insights-study .shell-btn::before, #insights-study .filter-chip::before {
+#insights-study .filter-chip::before {
   content: '';
   position: absolute;
   left: 2px;
@@ -1815,7 +1438,7 @@
   opacity: 0.9;
   pointer-events: none;
 }
-#insights-study .shell-btn:hover, #insights-study .filter-chip:hover {
+#insights-study .filter-chip:hover {
   transform: translateY(-1px);
   border-color: rgba(112, 157, 255, 0.62) !important;
   background:
@@ -1828,7 +1451,7 @@
     0 12px 24px rgba(2, 6, 23, 0.28),
     0 0 0 1px rgba(123, 156, 248, 0.16) !important;
 }
-#insights-study .shell-btn:active, #insights-study .filter-chip:active {
+#insights-study .filter-chip:active {
   transform: translateY(0);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -1836,7 +1459,7 @@
     0 5px 12px rgba(2, 6, 23, 0.22),
     0 0 0 1px rgba(108, 132, 212, 0.12) !important;
 }
-#insights-study .shell-btn:focus-visible, #insights-study .filter-chip:focus-visible {
+#insights-study .filter-chip:focus-visible {
   outline: none;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.28),
@@ -1844,7 +1467,7 @@
     0 0 0 2px rgba(129, 140, 248, 0.28),
     0 10px 22px rgba(2, 6, 23, 0.26) !important;
 }
-#insights-study .shell-btn-primary, #insights-study .filter-chip.active {
+#insights-study .filter-chip.active {
   border-color: rgba(27, 181, 135, 0.54) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
@@ -1857,132 +1480,14 @@
     0 10px 22px rgba(5, 73, 58, 0.24),
     0 0 0 1px rgba(16, 185, 129, 0.14) !important;
 }
-#insights-study .shell-btn-primary:hover, #insights-study .filter-chip.active:hover {
+#insights-study .filter-chip.active:hover {
   border-color: rgba(52, 211, 153, 0.68) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
     linear-gradient(180deg, rgba(43, 205, 148, 1) 0%, rgba(13, 165, 124, 1) 58%, rgba(7, 108, 87, 1) 100%) !important;
   color: #a6ffdd !important;
 }
-#insights-study .shell-btn.icon-only {
-  width: 36px !important;
-  min-width: 36px;
-  min-height: 36px;
-  padding: 0 !important;
-  border-radius: 999px;
-}
-#insights-study .shell-btn-emerald {
-  border-color: rgba(27, 181, 135, 0.54) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(33, 193, 137, 0.98) 0%, rgba(11, 154, 116, 0.98) 58%, rgba(5, 99, 80, 1) 100%) !important;
-  color: #75f4ca !important;
-  text-shadow: 0 1px 0 rgba(4, 58, 47, 0.34);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(5, 78, 63, 0.28),
-    0 10px 22px rgba(5, 73, 58, 0.24),
-    0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-#insights-study .shell-btn-emerald:hover {
-  border-color: rgba(52, 211, 153, 0.68) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(43, 205, 148, 1) 0%, rgba(13, 165, 124, 1) 58%, rgba(7, 108, 87, 1) 100%) !important;
-  color: #a1ffdf !important;
-}
-#insights-study .shell-btn-violet {
-  border-color: rgba(148, 116, 244, 0.56) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(132, 102, 235, 0.98) 0%, rgba(96, 72, 196, 0.98) 58%, rgba(56, 40, 128, 1) 100%) !important;
-  color: #dac8ff !important;
-  text-shadow: 0 1px 0 rgba(32, 18, 72, 0.38);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(35, 23, 87, 0.3),
-    0 10px 22px rgba(27, 19, 77, 0.24),
-    0 0 0 1px rgba(139, 92, 246, 0.16) !important;
-}
-#insights-study .shell-btn-violet:hover {
-  border-color: rgba(167, 139, 250, 0.72) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(144, 116, 244, 1) 0%, rgba(106, 82, 208, 1) 58%, rgba(63, 46, 141, 1) 100%) !important;
-  color: #eee4ff !important;
-}
-#insights-study .shell-btn-indigo {
-  border-color: rgba(104, 136, 255, 0.58) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(95, 121, 238, 1) 0%, rgba(68, 88, 194, 1) 58%, rgba(38, 49, 118, 1) 100%) !important;
-  color: #cadcff !important;
-  text-shadow: 0 1px 0 rgba(19, 31, 81, 0.36);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -10px 16px rgba(22, 32, 83, 0.32),
-    0 10px 22px rgba(18, 26, 73, 0.24),
-    0 0 0 1px rgba(99, 102, 241, 0.16) !important;
-}
-#insights-study .shell-btn-indigo:hover {
-  border-color: rgba(129, 161, 255, 0.74) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(108, 135, 249, 1) 0%, rgba(78, 100, 207, 1) 58%, rgba(43, 56, 130, 1) 100%) !important;
-  color: #eef4ff !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-emerald {
-  border-color: rgba(5, 150, 105, 0.44) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(240, 253, 247, 0.99) 36%, rgba(207, 243, 224, 0.99) 100%) !important;
-  color: #0a7357 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(16, 185, 129, 0.16),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-emerald:hover {
-  border-color: rgba(16, 185, 129, 0.58) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(232, 251, 242, 0.99) 36%, rgba(192, 236, 214, 0.99) 100%) !important;
-  color: #07533f !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-violet {
-  border-color: rgba(137, 92, 246, 0.4) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(245, 240, 255, 0.99) 36%, rgba(225, 216, 251, 0.99) 100%) !important;
-  color: #6a47d0 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(139, 92, 246, 0.14),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(139, 92, 246, 0.12) !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-violet:hover {
-  border-color: rgba(124, 58, 237, 0.54) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(239, 233, 255, 0.99) 36%, rgba(214, 202, 249, 0.99) 100%) !important;
-  color: #5231aa !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-indigo {
-  border-color: rgba(79, 70, 229, 0.38) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(236, 241, 255, 0.99) 36%, rgba(211, 221, 251, 0.99) 100%) !important;
-  color: #3752be !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,1),
-    inset 0 -9px 14px rgba(99, 102, 241, 0.14),
-    0 12px 24px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(99, 102, 241, 0.12) !important;
-}
-[data-theme="light"] #insights-study .shell-btn.shell-btn-indigo:hover {
-  border-color: rgba(67, 56, 202, 0.5) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(229, 236, 255, 0.99) 36%, rgba(198, 211, 249, 0.99) 100%) !important;
-  color: #2a419d !important;
-}
-[data-theme="light"] #insights-study .shell-btn, [data-theme="light"] #insights-study .filter-chip {
+[data-theme="light"] #insights-study .filter-chip {
   border-color: rgba(96, 126, 198, 0.38) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(247, 250, 255, 0.98) 36%, rgba(222, 232, 248, 0.98) 100%) !important;
@@ -1994,13 +1499,13 @@
     0 10px 22px rgba(15, 23, 42, 0.1),
     0 0 0 1px rgba(255,255,255,0.72) !important;
 }
-[data-theme="light"] #insights-study .shell-btn:hover, [data-theme="light"] #insights-study .filter-chip:hover {
+[data-theme="light"] #insights-study .filter-chip:hover {
   border-color: rgba(74, 120, 221, 0.5) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(241, 247, 255, 0.98) 36%, rgba(214, 229, 252, 0.98) 100%) !important;
   color: #15315c !important;
 }
-[data-theme="light"] #insights-study .shell-btn-primary, [data-theme="light"] #insights-study .filter-chip.active {
+[data-theme="light"] #insights-study .filter-chip.active {
   border-color: rgba(5, 150, 105, 0.44) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(240, 253, 247, 0.99) 36%, rgba(207, 243, 224, 0.99) 100%) !important;
@@ -2010,110 +1515,6 @@
     inset 0 -9px 14px rgba(16, 185, 129, 0.16),
     0 12px 24px rgba(15, 23, 42, 0.12),
     0 0 0 1px rgba(16, 185, 129, 0.14) !important;
-}
-#insights-study /* Shared builder-style action buttons */
-.app-btn {
-  --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(71,85,105,0.32) 100%);
-  --btn-color: #e2e8f0;
-  --btn-border: rgba(148,163,184,0.22);
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 42px;
-  padding: 9px 20px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-weight: 700;
-  font-family: 'Outfit', sans-serif;
-  font-size: 13px;
-  line-height: 1.15;
-  text-decoration: none;
-  white-space: nowrap;
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--btn-border);
-  background: var(--btn-bg);
-  color: var(--btn-color);
-  box-shadow: 0 5px 12px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.22);
-  text-shadow: 0 1px 1px rgba(0,0,0,0.22);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-#insights-study .app-btn::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 8%;
-  width: 84%;
-  height: 40%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02));
-  pointer-events: none;
-}
-#insights-study .app-btn:hover {
-  transform: translateY(-1px);
-  filter: saturate(1.08) brightness(1.04);
-  box-shadow: 0 7px 14px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(0,0,0,0.25);
-}
-#insights-study .app-btn:active {
-  transform: translateY(1px);
-  filter: none;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.28), inset 0 2px 2px rgba(0,0,0,0.20);
-}
-#insights-study .app-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(129,140,248,0.32), 0 7px 14px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.22);
-}
-#insights-study .app-btn.icon-only {
-  width: 42px;
-  min-width: 42px;
-  padding: 0;
-}
-#insights-study .app-btn-emerald {
-  --btn-bg: linear-gradient(180deg, rgba(0,191,165,0.25) 0%, rgba(0,150,130,0.45) 100%);
-  --btn-color: #34d399;
-  --btn-border: rgba(0,191,165,0.48);
-}
-#insights-study .app-btn-violet {
-  --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.20) 0%, rgba(100,60,200,0.38) 100%);
-  --btn-color: #c4b5fd;
-  --btn-border: rgba(139,92,246,0.40);
-}
-#insights-study .app-btn-indigo {
-  --btn-bg: linear-gradient(180deg, rgba(99,102,241,0.22) 0%, rgba(67,56,202,0.40) 100%);
-  --btn-color: #c7d2fe;
-  --btn-border: rgba(99,102,241,0.42);
-}
-[data-theme="light"] #insights-study .app-btn {
-  background: var(--btn-bg, linear-gradient(180deg, rgba(15,23,42,0.035) 0%, rgba(15,23,42,0.075) 100%));
-  color: var(--btn-color, #0f172a);
-  border: 1.5px solid var(--btn-border, rgba(37,99,235,0.20));
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  text-shadow: none;
-}
-[data-theme="light"] #insights-study .app-btn::before {
-  background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.15));
-}
-[data-theme="light"] #insights-study .app-btn:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
-}
-[data-theme="light"] #insights-study .app-btn-emerald {
-  --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.18) 100%);
-  --btn-color: #065f46;
-  --btn-border: rgba(5,150,105,0.26);
-}
-[data-theme="light"] #insights-study .app-btn-violet {
-  --btn-bg: linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.17) 100%);
-  --btn-color: #6d28d9;
-  --btn-border: rgba(124,58,237,0.22);
-}
-[data-theme="light"] #insights-study .app-btn-indigo {
-  --btn-bg: linear-gradient(180deg, rgba(79,70,229,0.10) 0%, rgba(79,70,229,0.16) 100%);
-  --btn-color: #4338ca;
-  --btn-border: rgba(79,70,229,0.22);
 }
 #insights-study .library-heading {
   flex-direction: column;

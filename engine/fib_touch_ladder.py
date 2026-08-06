@@ -325,20 +325,21 @@ def find_trendline(
     mother_timestamp: datetime,
     side: str,
     anchor: SwingAnchor,
-    *,
-    tolerance_pct: float = 0.0005,
+    **_ignored: Any,
 ) -> Optional[Trendline]:
-    """CryptoForge's trendline, ported for drawing only.
+    """Phil's rule, in his words (2026-08-06):
 
-    CE runs from the mother's HIGH to the red candle with the highest OPEN after
-    the swing low, and the finished line must sit at or above EVERY close from
-    the mother onward. A cut candidate hands over to the next one down; only
-    when every candidate is cut is there no line at all. That fallback is the
-    rule as corrected in CryptoForge (`a0c2c9b`) -- the strict reading drew
-    nothing for hours while price kept falling.
+        "TL has to start from Mother Candle high and touch the first top red
+         candle before the swing low .. Like the swing high top red candle open"
 
-    PE mirrors: mother LOW to the green candle with the lowest open, line at or
-    below every close.
+    So: start at the mother's HIGH, and anchor on the OPEN of the topmost red
+    candle sitting BETWEEN the mother and the swing low -- the last resistance
+    on the way down. An earlier version searched AFTER the swing low and ported
+    CryptoForge's clean-line veto; both were wrong for this chart, and the veto
+    is not part of the rule he asked for.
+
+    PE mirrors: mother LOW to the open of the lowest green candle before the
+    swing high.
     """
     working = str(side).upper()
     if working not in {"CE", "PE"}:
@@ -348,42 +349,25 @@ def find_trendline(
     if mother is None:
         return None
     start_price = float(mother.high) if working == "CE" else float(mother.low)
-    forward = (
-        [row for row in ordered if row.timestamp > anchor.low_timestamp]
-        if working == "CE"
-        else [row for row in ordered if row.timestamp > anchor.high_timestamp]
-    )
-    candidates = [row for row in forward if (_is_red(row) if working == "CE" else _is_green(row))]
+    # The window closes at the swing anchor the ladder is measured from: for a
+    # CE that is the swing LOW, because the fall into it is what the line rides.
+    edge = anchor.low_timestamp if working == "CE" else anchor.high_timestamp
+    window = [row for row in ordered if mother.timestamp < row.timestamp <= edge]
+    candidates = [row for row in window if (_is_red(row) if working == "CE" else _is_green(row))]
     if not candidates:
         return None
-    # Highest open first for CE (lowest for PE): the steepest clean line wins,
-    # and a cut one hands over rather than cancelling the whole trendline.
-    candidates.sort(key=lambda row: float(row.open), reverse=(working == "CE"))
-    checked = [row for row in ordered if row.timestamp >= mother_timestamp]
-
-    for candidate in candidates:
-        span = (candidate.timestamp - mother.timestamp).total_seconds()
-        if span <= 0:
-            continue
-        slope = (float(candidate.open) - start_price) / span
-        clean = True
-        for row in checked:
-            at = start_price + slope * (row.timestamp - mother.timestamp).total_seconds()
-            tolerance = abs(at) * tolerance_pct
-            if working == "CE" and float(row.close) > at + tolerance:
-                clean = False
-                break
-            if working == "PE" and float(row.close) < at - tolerance:
-                clean = False
-                break
-        if clean:
-            return Trendline(
-                start_timestamp=mother.timestamp,
-                start_price=round(start_price, 2),
-                anchor_timestamp=candidate.timestamp,
-                anchor_price=round(float(candidate.open), 2),
-            )
-    return None
+    # "the TOP red candle" -- highest open on a CE, lowest on a PE.
+    anchor_bar = (
+        max(candidates, key=lambda row: float(row.open))
+        if working == "CE"
+        else min(candidates, key=lambda row: float(row.open))
+    )
+    return Trendline(
+        start_timestamp=mother.timestamp,
+        start_price=round(start_price, 2),
+        anchor_timestamp=anchor_bar.timestamp,
+        anchor_price=round(float(anchor_bar.open), 2),
+    )
 
 
 # ── contract selection ────────────────────────────────────────────

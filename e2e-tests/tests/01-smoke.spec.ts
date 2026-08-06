@@ -583,6 +583,8 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-symbol option')).toHaveCount(5);
   await expect(page.locator('#fibx-symbol')).toHaveValue('NIFTY');
   await expect(page.locator('#fibx-side option')).toHaveCount(2);
+  await expect(page.locator('#fibx-side')).toContainText('Buy CE');
+  await expect(page.locator('#fibx-side')).toContainText('Buy PE');
 
   // The old per-rung budget is gone; the ladder cap replaces it.
   await expect(page.locator('#fibx-capital-cap')).toHaveValue('75000');
@@ -598,7 +600,9 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-mode')).toHaveValue('paper');
   await expect(page.locator('#fibx-mode-note')).toContainText('sends nothing');
   await page.selectOption('#fibx-mode', 'live');
-  await expect(page.locator('#fibx-mode-note')).toContainText('NOT armed');
+  await expect(page.locator('#fibx-mode-note')).toContainText('UNARMED');
+  // The arming step is named, not left hanging.
+  await expect(page.locator('#fibx-mode-note')).toContainText('Arm live');
   await page.selectOption('#fibx-mode', 'paper');
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
@@ -671,7 +675,7 @@ const fibTouchChart = {
   ],
   trendline: {
     start_timestamp: '2026-08-06T09:21:00+05:30', start_price: 24624,
-    anchor_timestamp: '2026-08-06T09:30:00+05:30', anchor_price: 24560,
+    anchor_timestamp: '2026-08-06T09:19:00+05:30', anchor_price: 24662,
   },
   note: 'Gap adjustment is visual only; the ladder\'s geometry uses native Dhan OHLC.',
 };
@@ -767,6 +771,15 @@ test('Insights carries Heatmap and Study Lounge as tabs, and repaints nothing', 
 
   // The dropdown is gone; Insights is a page like Cascade is.
   await expect(page.locator('#nav-insights-menu')).toHaveCount(0);
+  // ...but it must not MOVE. The CSS orders the nav by id, and the rule used
+  // to key the wrapper this commit deleted, which sent Insights to order 0
+  // and put it first in the row.
+  const order = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('nav-insights')!).order);
+  expect(order).toBe('6');
+  // The panels' actions wear the app's button, not their own skin.
+  await expect(page.locator('#insights-study a.btn').first()).toBeVisible();
+  await expect(page.locator('#insights-page .app-btn')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
 });

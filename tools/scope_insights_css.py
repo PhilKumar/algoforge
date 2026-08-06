@@ -45,9 +45,17 @@ DROP = re.compile(
     r"^\s*(\*|html|body|:where\(html\)|"
     r"(\[data-theme=\"light\"\]\s*)?(html|body)(::?[a-z-]+)?|"
     r"(\[data-theme=\"light\"\]\s*)?\.(brand-[a-z-]+|theme-logo|movers-topbar|study-topbar|"
+    # The panels' own button skins. Their markup now wears the app's .btn, so
+    # these rules would only fight it -- the whole point of the button pass.
+    r"app-btn[a-z-]*|shell-btn|"
     r"movers-page|study-page)(\s|$|[.:,]))",
     re.IGNORECASE,
 )
+
+
+# Button skins the panels brought with them. Their markup now wears the app's
+# own `.btn`, so any rule mentioning these would only fight it.
+DROP_ANYWHERE = re.compile(r"\.(app-btn[a-z-]*|shell-btn)\b")
 
 
 def scope_selector(selector: str, scope: str) -> str | None:
@@ -58,6 +66,10 @@ def scope_selector(selector: str, scope: str) -> str | None:
         if not part:
             continue
         if DROP.match(part):
+            continue
+        # ...and anywhere at all for the button skins: `.spotlight-actions
+        # .app-btn` fights the app's .btn just as hard as a bare `.app-btn`.
+        if DROP_ANYWHERE.search(part):
             continue
         if part in {":root", ":root:root"}:
             parts.append(scope)
