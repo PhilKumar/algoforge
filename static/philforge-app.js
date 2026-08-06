@@ -2606,17 +2606,33 @@ function _fibLevelsForTimeframe(timeframe) {
 }
 
 function _syncFibLevelsHint() {
-  const tf = document.getElementById('fibx-timeframe')?.value || '5m';
-  const hint = document.getElementById('fibx-levels-hint');
-  if (hint) hint.textContent = _fibLevelsForTimeframe(tf).map(level => `L${level}`).join(' · ');
-  // The picker must offer only the minutes this timeframe can open on: 5m gets
-  // multiples of 5, 15m multiples of 15, 1H only :15, and 1m every minute.
-  // Anything else is a timestamp Dhan has no candle for.
+  // The ladder no longer varies: 1m entries on the halving levels, every
+  // instrument, every side. What DOES vary by instrument is which expiry rule
+  // the user actually gets and whether a backtest can price it at all -- so
+  // that is what this line says now.
+  const symbol = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const note = document.getElementById('fibx-symbol-note');
+  if (note) {
+    const terms = _FIBX_SYMBOL_NOTES[symbol];
+    note.textContent = terms || '';
+    note.style.display = terms ? '' : 'none';
+  }
   const mother = document.getElementById('fibx-mother-timestamp');
   if (!mother) return;
-  mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[tf] || '';
-  _fibSnapMotherToTimeframe(mother, tf);
+  // 1m entries: every minute of the session is a valid mother open.
+  mother.dataset.pfCalendarMinutes = '';
 }
+
+// Read off Dhan's own scrip master (2026-08-05) and the premium sources that
+// actually exist. NSE withdrew the BANKNIFTY/FINNIFTY/MIDCPNIFTY weeklies, so
+// "current week" cannot mean anything on those three.
+const _FIBX_SYMBOL_NOTES = {
+  NIFTY: '',
+  BANKNIFTY: 'Monthly expiries only — NSE withdrew the weeklies, so ≥4 DTE lands on the near monthly.',
+  FINNIFTY: 'Monthly only, and no premium history — paper runs, but a backtest cannot price it.',
+  MIDCPNIFTY: 'Monthly only, and no premium history — paper runs, but a backtest cannot price it.',
+  SENSEX: 'Weekly, but it prints in only 34% of minutes — expect 1m touches to fill late.',
+};
 
 // Changing the timeframe leaves whatever was already typed behind, and the
 // picker deliberately keeps offering a stale minute rather than silently
@@ -2727,8 +2743,8 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  const tfSel = document.getElementById('fibx-timeframe');
-  if (tfSel && !tfSel._fibHintBound) { tfSel.addEventListener('change', _syncFibLevelsHint); tfSel._fibHintBound = true; }
+  const symSel = document.getElementById('fibx-symbol');
+  if (symSel && !symSel._fibHintBound) { symSel.addEventListener('change', _syncFibLevelsHint); symSel._fibHintBound = true; }
   const tsSel = document.getElementById('fibx-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
@@ -2750,6 +2766,10 @@ function _fibSetFormStatus(message, tone = 'muted') {
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+
+function _fibxLevelTone(status) {
+  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24' }[status] || 'var(--muted)');
 }
 
 function _renderFibBoundaryStatus(payload) {
@@ -2783,12 +2803,12 @@ function _renderFibBoundaryStatus(payload) {
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
     if (active) active.style.display = 'none';
-    if (gist) gist.textContent = 'Pick a mother candle and a side to begin — its high & low come from Dhan.';
+    if (gist) gist.textContent = 'Pick an instrument, a side and a mother candle — the swing is found for you.';
     if (win) win.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (killBtn) killBtn.style.display = 'none';
     setLiveGate('LIVE LOCKED', 'Paper validation required');
-    _renderFibBoundaryRounds([]);
+    _renderFibBoundaryRounds(null);
     _renderFibBoundaryEvents([]);
     return;
   }
@@ -2796,79 +2816,130 @@ function _renderFibBoundaryStatus(payload) {
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
   if (badge) {
-    badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state;
+    badge.textContent = state;
     badge.classList.toggle('is-positive', isRunning);
     badge.classList.toggle('is-warning', !isRunning);
     badge.style.color = tone;
     badge.style.borderColor = tone;
   }
-  const c = campaign.contract || {};
-  if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || campaign.side || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
-  if (eventsTf) eventsTf.textContent = `${String(campaign.timeframe || '').toUpperCase()} CLOSED BARS`;
+  const fills = Array.isArray(campaign.fills) ? campaign.fills : [];
+  const levels = Array.isArray(campaign.levels) ? campaign.levels : [];
+  const anchor = campaign.anchor || null;
+  const symbol = String(campaign.symbol || 'NIFTY');
+  const side = String(campaign.side || 'CE');
+  // The basket holds a different strike per rung, so the header names the
+  // spread rather than pretending there is one contract.
+  const strikes = [...new Set(fills.map(f => Number(f.strike)))].sort((a, b) => a - b);
+  if (contract) {
+    contract.textContent = strikes.length
+      ? `${symbol} ${strikes.map(v => v.toLocaleString('en-IN')).join(' / ')} ${side} · exp ${fills[0].expiry} · ${campaign.lot_size || '—'} units/lot`
+      : `${symbol} ${side} · ATM−${campaign.itm_steps ?? 2} · ≥${campaign.min_dte ?? 4} DTE · ${campaign.lot_size || '—'} units/lot`;
+  }
+  if (eventsTf) eventsTf.textContent = '1M CLOSED BARS';
   if (isRunning) setLiveGate('PAPER LIVE', 'Quote-backed paper monitor active', 'is-paper-live');
-  else if (campaign.replay_complete) setLiveGate('REPLAY MODE', 'Signal geometry only; P&L withheld', 'is-replay');
-  else setLiveGate('PAPER PAUSED', 'No live order is ever sent', 'is-paused');
-  const filled = (campaign.boundaries || []).filter(b => ['FILLED', 'CLOSED'].includes(b.status)).length;
-  if (gist) gist.textContent = `${String(campaign.side || 'CE')} · ${String(campaign.timeframe || '').toUpperCase()} · ${filled}/${(campaign.boundaries || []).length} boundaries filled`;
+  else setLiveGate('PAPER STOPPED', 'No live order is ever sent', 'is-paused');
+  const funded = levels.filter(l => l.status === 'FILLED').length;
+  if (gist) {
+    gist.textContent = anchor
+      ? `${side} · 1M · ${funded}/${levels.length} levels bought · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
+      : `${side} · 1M · waiting for the first involvement to freeze the swing`;
+  }
   if (win) win.classList.toggle('is-active', isRunning);
+  const deployed = Number(campaign.deployed_inr || 0);
+  const cap = Number(campaign.capital_cap_inr || 0);
+  const pct = cap > 0 ? Math.min(100, Math.round((deployed / cap) * 100)) : 0;
   if (summary) {
     summary.innerHTML = [
       _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
       _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
-      _cascadeOptionsMetric('Open qty', String(campaign.open_quantity || 0), '#6ee7b7'),
-      _cascadeOptionsMetric('₹ per rung', _cascadeOptionsMoney(campaign.rung_inr || 0), '#fde68a'),
+      _cascadeOptionsMetric('Avg premium', campaign.average_premium == null ? '—' : `₹${_cascadeNumber(campaign.average_premium)}`),
+      _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
+      _cascadeOptionsMetric('Funded', `${_cascadeOptionsMoney(deployed)} of ${_cascadeOptionsMoney(cap)} (${pct}%)`, '#fde68a'),
+      _cascadeOptionsMetric('Left to spend', _cascadeOptionsMoney(campaign.remaining_inr || 0), '#fde68a'),
     ].join('');
   }
   if (empty) empty.style.display = 'none';
   if (active) active.style.display = '';
   if (startBtn) startBtn.disabled = isRunning;
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
-  const pricingWarn = campaign.pricing_warning ? `<div class="fibx-pricing-warning" style="grid-column:1/-1;margin-top:8px;padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font-size:10.5px;line-height:1.5;">${escapeHtml(campaign.pricing_warning)}</div>` : '';
-  if (pricingWarn && summary) summary.insertAdjacentHTML('beforeend', pricingWarn);
-  const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
-  const signalFills = Array.isArray(campaign.signal_fills) ? campaign.signal_fills : [];
+
+  const anchorEl = document.getElementById('fibx-anchor');
+  if (anchorEl) {
+    anchorEl.innerHTML = anchor
+      ? `<div>Swing high <strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong> at ${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))} · swing low <strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong> at ${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</div>`
+        + `<div style="color:var(--muted);">Span ${escapeHtml(_cascadeNumber(anchor.span))} pts · frozen by ${escapeHtml(String(anchor.involvement_candles))} consecutive candles, confirmed ${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))} · every level below is one span apart</div>`
+      : '<div style="color:var(--muted);">No swing yet — the ladder is priced only once two consecutive candles close the other way after the mother.</div>';
+  }
+
   const fillsEl = document.getElementById('fibx-fills');
   if (fillsEl) {
-    if (fills.length) {
-      fillsEl.innerHTML = fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span><strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(c.option_type || campaign.side || 'CE'))} ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('');
-    } else if (signalFills.length) {
-      // A replay fill priced off real history shows its size and premium; an
-      // index-only fill keeps the SIGNAL ONLY tag.
-      fillsEl.innerHTML = signalFills.map(fill => {
-        const priced = fill.option_premium != null;
-        const tail = priced
-          ? `<strong class="fibx-positive-value" style="color:#6ee7b7;">${escapeHtml(String(fill.lots))} lot · ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong>`
-          : '<strong class="fibx-warning-value" style="color:var(--warn);">SIGNAL ONLY</strong>';
-        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>L${escapeHtml(String(fill.level))} · idx ${escapeHtml(_cascadeNumber(fill.index_price))}</span>${tail}</div>`;
-      }).join('');
-    } else {
-      fillsEl.innerHTML = '<div style="color:var(--muted);padding:8px 0;">No open paper basket.</div>';
-    }
+    fillsEl.innerHTML = fills.length ? fills.map(fill => `<tr style="border-bottom:1px solid var(--border);">`
+      + `<td style="padding:8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(fill.buy_number))}</strong></td>`
+      + `<td style="padding:8px;">L${escapeHtml(String(fill.level))}</td>`
+      + `<td style="padding:8px;">${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</td>`
+      + `<td style="padding:8px;text-align:right;">${escapeHtml(_cascadeNumber(fill.index_price))}</td>`
+      + `<td style="padding:8px;text-align:right;">${escapeHtml(Number(fill.strike).toLocaleString('en-IN'))} ${escapeHtml(String(fill.option_type))}</td>`
+      + `<td style="padding:8px;">${escapeHtml(String(fill.expiry))}</td>`
+      + `<td style="padding:8px;text-align:right;">₹${escapeHtml(_cascadeNumber(fill.premium))}</td>`
+      + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.lots))}</td>`
+      + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.quantity))}</td>`
+      + `<td style="padding:8px;text-align:right;font-weight:800;color:#fde68a;">${escapeHtml(_cascadeOptionsMoney(fill.funded_inr))}</td>`
+      + `</tr>`).join('') : '<tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
   }
-  const boundaries = Array.isArray(campaign.boundaries) ? campaign.boundaries : [];
+  const fillSummary = document.getElementById('fibx-fill-summary');
+  if (fillSummary) fillSummary.textContent = fills.length ? `${fills.length} buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
+
   const boundEl = document.getElementById('fibx-boundaries');
-  if (boundEl) boundEl.innerHTML = boundaries.length ? boundaries.map(b => {
-    const stateColor = ({ PENDING: 'var(--muted)', ARMED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: 'var(--red)' }[b.status] || 'var(--muted)');
-    const toneClass = _cascadeOptionsToneClass(stateColor);
-    return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>L${escapeHtml(String(b.level))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(b.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(b.index_price))}</div></div>`;
-  }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No fib boundaries yet.</div>';
-  _renderFibBoundaryRounds(campaign.rounds || []);
+  if (boundEl) {
+    boundEl.innerHTML = levels.length ? levels.map(level => {
+      const stateColor = _fibxLevelTone(level.status);
+      const toneClass = _cascadeOptionsToneClass(stateColor);
+      const note = level.status === 'UNFUNDED' ? 'cap spent' : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
+      return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
+        + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>${escapeHtml(String(level.key))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
+        + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(level.index_price))}</div>`
+        + (note ? `<div style="margin-top:2px;font:9px 'JetBrains Mono',monospace;color:var(--muted);">${escapeHtml(note)}</div>` : '')
+        + `</div>`;
+    }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No ladder yet — the swing has not been frozen.</div>';
+  }
+
+  const gapsEl = document.getElementById('fibx-gaps');
+  if (gapsEl) {
+    const gaps = Array.isArray(campaign.data_gaps) ? campaign.data_gaps : [];
+    gapsEl.innerHTML = gaps.length
+      ? `<div style="padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font:10.5px/1.5 'JetBrains Mono',monospace;"><strong>${gaps.length} pricing gap${gaps.length === 1 ? '' : 's'}</strong><br>${gaps.slice(-4).map(escapeHtml).join('<br>')}</div>`
+      : '';
+  }
+  _renderFibBoundaryRounds(campaign);
   _renderFibBoundaryEvents(campaign.events || []);
 }
 
-function _renderFibBoundaryRounds(rounds) {
+function _renderFibBoundaryRounds(campaign) {
   const body = document.getElementById('fibx-rounds');
   const count = document.getElementById('fibx-round-count');
-  if (count) count.textContent = `${rounds.length} round${rounds.length === 1 ? '' : 's'}`;
+  // The ladder is one-and-done: one target closes the whole basket and ends
+  // the campaign, so there is at most one round to show.
+  const closed = campaign && ['CLOSED', 'EXPIRED', 'KILLED'].includes(String(campaign.status || ''));
+  if (count) count.textContent = `${closed ? 1 : 0} round${closed ? '' : 's'}`;
   if (!body) return;
-  body.innerHTML = rounds.length ? rounds.slice().reverse().map(row => {
-    const pnl = Number(row.net_pnl || 0);
-    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
-    const avgEntry = row.fills && row.fills.length ? (row.fills.reduce((s, f) => s + Number(f.index_price) * Number(f.quantity), 0) / row.fills.reduce((s, f) => s + Number(f.quantity), 0)) : null;
-    return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(row.round_id))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(String(row.exit_quantity))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(avgEntry))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td class="${_cascadeOptionsToneClass(color)}" style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
-  }).join('') : '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+  if (!closed) {
+    body.innerHTML = '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+    return;
+  }
+  const pnl = Number(campaign.net_pnl || 0);
+  const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+  const cell = 'padding:9px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;';
+  body.innerHTML = `<tr style="border-bottom:1px solid var(--border);">`
+    + `<td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#1</td>`
+    + `<td style="${cell}">${escapeHtml(String(campaign.open_quantity || 0))}</td>`
+    + `<td style="${cell}">${escapeHtml(_cascadeNumber(campaign.average_index_entry))}</td>`
+    + `<td style="${cell}">${escapeHtml(_cascadeNumber(campaign.exit_index))}</td>`
+    + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(campaign.gross_pnl))}</td>`
+    + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(campaign.costs_total))}</td>`
+    + `<td class="${_cascadeOptionsToneClass(color)}" style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(campaign.net_pnl))}</td>`
+    + `<td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(campaign.exit_reason || '').replaceAll('_', ' '))}</td>`
+    + `</tr>`;
 }
-
 function _renderFibBoundaryEvents(events) {
   const el = document.getElementById('fibx-events');
   if (!el) return;
@@ -2891,30 +2962,31 @@ async function refreshFibBoundaryStatus() {
 
 async function startFibBoundaryPaper() {
   const el = id => document.getElementById(id);
-  // The mother's high/low are fetched from Dhan on the server — nothing is
-  // typed by hand here anymore.
+  // Nothing about the geometry is typed: the mother names where to look and the
+  // server finds the swing around it.
   const payload = {
+    symbol: el('fibx-symbol')?.value || 'NIFTY',
     mother_timestamp: el('fibx-mother-timestamp')?.value,
     side: el('fibx-side')?.value || 'CE',
-    timeframe: el('fibx-timeframe')?.value || '5m',
-    rung_inr: Number(el('fibx-rung-inr')?.value),
+    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
-  if (!Number.isFinite(payload.rung_inr) || payload.rung_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ per rung.', 'error'); return; }
-  const problem = _fibMotherProblem(payload.mother_timestamp, payload.timeframe);
-  if (problem) { _fibSetFormStatus(problem, 'error'); return; }
+  if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
-  if (button) { button.disabled = true; button.textContent = 'Fetching the mother candle and starting paper monitor…'; }
-  _fibSetFormStatus(`Fetching the mother from Dhan and selecting next-weekly ${payload.side}. No order will be sent.`, 'busy');
+  if (button) { button.disabled = true; button.textContent = 'Finding the swing and starting the paper monitor…'; }
+  _fibSetFormStatus(`Reading ${payload.symbol} 1m candles and anchoring the swing. No order will be sent.`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !['started', 'replayed'].includes(data.status)) throw new Error(_apiErrorMessage(data, `Campaign did not start (${response.status})`));
-    _fibSetFormStatus(data.status === 'replayed' ? 'Historical replay completed. Fixed-strike P&L is withheld for signal-only mode.' : 'Fib-boundary paper campaign started. No live order will be sent.', 'success');
+    if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Ladder did not start (${response.status})`));
+    const anchored = data.campaign?.anchor;
+    _fibSetFormStatus(anchored
+      ? `Ladder armed on the ${anchored.low}–${anchored.high} swing (${anchored.span} pts). No live order will be sent.`
+      : 'Started. Waiting for the first involvement to freeze the swing before any level is priced.', 'success');
     _renderFibBoundaryStatus({ campaign: data.campaign });
   } catch (error) {
-    _fibSetFormStatus(error.message || 'Campaign start failed.', 'error');
+    _fibSetFormStatus(error.message || 'Ladder start failed.', 'error');
   } finally {
     if (button) { button.disabled = false; button.textContent = '▶ Start fib-boundary paper'; }
   }

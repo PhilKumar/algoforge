@@ -97,7 +97,6 @@ from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
 from engine.cascade_options import (
     CascadeConfig,
     CascadeOptionsAdapter,
-    FibBoundaryPaper,
     FixedCampaignOption,
     IndexCandle,
     LadderCandleEntryPaper,
@@ -113,6 +112,14 @@ from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_touch_ladder import (
+    HALVING_LEVELS,
+    FibTouchConfig,
+    FibTouchError,
+    FibTouchLadder,
+    symbol_terms,
+)
+from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -1654,13 +1661,16 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
-    await _save_specialized_cascade_state(
-        user_id,
-        _fib_boundary_engines,
-        _fib_boundary_open_state_key(user_id),
-        _fib_boundary_open_state_last_save,
-        force=force,
-    )
+    """No-op while the tab runs FibTouchLadder, which has no serialiser yet.
+
+    The old FibBoundaryPaper state stays in app_state untouched -- Phil asked
+    for the superseded pieces to be parked, not deleted -- so restoring the old
+    engine is still a matter of pointing the routes back at it.  A ladder in
+    flight does NOT survive a restart today; that is the next piece of work,
+    and it is called out rather than half-done, because a half-restored basket
+    would report positions the engine no longer holds.
+    """
+    return None
 
 
 async def _restore_candle_entry_open_state(
@@ -1697,32 +1707,14 @@ async def _restore_candle_entry_open_state(
 async def _restore_fib_boundary_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
 ) -> _CascadeRuntime | None:
-    existing = _fib_boundary_engines.get(int(user_id))
-    if existing is not None:
-        return existing
-    if broker is None:
-        return None
-    raw = await _db_mod.get_app_state(_fib_boundary_open_state_key(user_id))
-    if not raw:
-        return None
-    try:
-        payload = json.loads(raw)
-        adapter = CascadeOptionsAdapter(broker, paper_only=True)
-        engine = FibBoundaryPaper.from_dict(
-            payload["engine"], adapter=adapter, option_premium_lookup=_cascade_premium_lookup(broker)
-        )
-        last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=IST)
-        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "KILLED"}
-        runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
-        _fib_boundary_engines[int(user_id)] = runtime
-        if running and activate and _engine_restore_owner_is_active_instance():
-            runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(int(user_id), runtime))
-        return runtime
-    except Exception as exc:
-        _logger.warning("[FIB BOUNDARY] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
-        return None
+    """Only ever returns a ladder this process already holds.
+
+    Rehydrating the OLD FibBoundaryPaper here would put an engine of the wrong
+    type into `_fib_boundary_engines`, and the poll loop -- which now reads
+    `engine.config` -- would raise on the first tick.  Persisted state is left
+    in app_state untouched for when the ladder gets its own serialiser.
+    """
+    return _fib_boundary_engines.get(int(user_id))
 
 
 async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
@@ -3544,6 +3536,23 @@ class FibBoundaryPaperStartPayload(BaseModel):
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
     itm_steps: int = Field(default=2, ge=0, le=10)
+
+
+class FibTouchStartPayload(BaseModel):
+    """Phil's locked swing-anchored touch ladder, 2026-08-06.
+
+    The mother candle names where to start looking; its high and low are NOT
+    the ladder's anchors any more -- the first involvement on each side is.
+    Entries are 1m touches on the halving ladder, one lot each, and the whole
+    ladder stops at ``capital_cap_inr`` rather than per rung.
+    """
+
+    symbol: str = Field(default="NIFTY")
+    side: str = Field(default="CE")
+    mother_timestamp: str
+    capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
+    itm_steps: int = Field(default=2, ge=0, le=10)
+    min_dte: int = Field(default=4, ge=0, le=45)
 
 
 class TestBenchPayload(BaseModel):
@@ -9257,30 +9266,89 @@ def _historical_fib_contract(
     return FixedCampaignOption("NIFTY", strike, expiry, side, 65, "")
 
 
+def _fib_touch_expiry_source(broker: DhanClient, symbol: str):
+    """The expiry chain as the scrip master lists it for this symbol.
+
+    Asked rather than tabulated, because which expiries exist is exactly what
+    changes: NSE withdrew the BANKNIFTY / FINNIFTY / MIDCPNIFTY weeklies, and a
+    hard-coded rhythm would have kept selecting contracts that stopped existing.
+    """
+
+    from broker.dhan import ScripMaster
+
+    def source(on: date) -> list[date]:
+        rows = ScripMaster.get_expiries(symbol) or []
+        return [date.fromisoformat(str(value)[:10]) for value in rows]
+
+    return source
+
+
+def _fib_touch_premium_lookup(broker: DhanClient, symbol: str):
+    """Current quote only -- never a past minute paired with today's LTP."""
+
+    def lookup(when: datetime, strike: float, expiry: date, side: str) -> float | None:
+        now = datetime.now(IST)
+        stamp = when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
+        if abs((now - stamp).total_seconds()) > 7 * 60:
+            return None
+        try:
+            value = broker.get_option_ltp(symbol, strike, expiry.isoformat(), side)
+            return float(value) if float(value or 0) > 0 else None
+        except Exception:
+            return None
+
+    return lookup
+
+
 async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
-    """Poll closed NIFTY bars at the campaign's timeframe; paper-only throughout."""
+    """Poll closed 1m index bars for the campaign's symbol; paper-only throughout."""
 
     engine = runtime.engine
-    timeframe = engine.timeframe
+    symbol = engine.config.symbol
+    timeframe = engine.config.timeframe
     poll = _FIB_TIMEFRAME_POLL_SEC.get(timeframe, 15)
     while runtime.running and _fib_boundary_engines.get(int(user_id)) is runtime:
         try:
             today = datetime.now(IST).date()
-            start = engine.mother.timestamp.date()
-            candles = await runtime.adapter.async_get_candles("NIFTY", timeframe, from_date=start, to_date=today)
+            start = engine.config.mother_timestamp.date()
+            candles = await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today)
             for candle in candles:
                 if candle.timestamp <= runtime.last_candle_timestamp:
                     continue
                 runtime.last_candle_timestamp = candle.timestamp
                 engine.on_candle(candle)
-            if engine.status in {"CLOSED", "KILLED"}:
+            if engine.status in {"CLOSED", "EXPIRED"}:
                 runtime.running = False
-            await _save_fib_boundary_open_state(user_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            _logger.warning("[FIB BOUNDARY] NIFTY %s paper poll failed for user %s: %s", timeframe, user_id, exc)
+            _logger.warning("[FIB TOUCH] %s %s paper poll failed for user %s: %s", symbol, timeframe, user_id, exc)
         await asyncio.sleep(poll)
+
+
+@app.get("/api/fib-boundary/symbols")
+async def fib_touch_symbols(_request: Request):
+    """What the ladder can be run on, and what is honestly true of each.
+
+    The console reads `backtestable` and `has_weeklies` off this rather than
+    assuming, so a symbol with no premium history says so in the form instead
+    of returning a backtest full of zeros.
+    """
+    return {
+        "levels": list(HALVING_LEVELS),
+        "symbols": [
+            {
+                "symbol": terms.symbol,
+                "label": terms.label,
+                "lot_size": terms.lot_size,
+                "strike_step": terms.strike_step,
+                "has_weeklies": terms.has_weeklies,
+                "backtestable": terms.backtestable,
+                "note": terms.note,
+            }
+            for terms in _FIB_TOUCH_SYMBOLS.values()
+        ],
+    }
 
 
 @app.get("/api/fib-boundary/paper/status")
@@ -9292,135 +9360,109 @@ async def fib_boundary_paper_status(request: Request):
 
 
 @app.post("/api/fib-boundary/paper/start")
-async def fib_boundary_paper_start(payload: FibBoundaryPaperStartPayload, request: Request):
-    """Start a manual-mother fib-boundary paper campaign. Never calls Dhan order APIs."""
+async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Request):
+    """Start a swing-anchored touch ladder. Never calls Dhan order APIs.
 
+    The mother candle only names where to look; the ladder's anchors are the
+    first involvement on each side of it, found by the engine.  Everything from
+    the levels to the lot count to the expiry follows Phil's locked spec --
+    see engine/fib_touch_ladder.py for why each number is what it is.
+    """
+
+    try:
+        terms = symbol_terms(payload.symbol)
+    except FibTouchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     side = str(payload.side).upper()
     if side not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
-    timeframe = str(payload.timeframe).lower()
-    if timeframe not in _FIB_TIMEFRAME_MINUTES:
-        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    typed = payload.mother_high is not None and payload.mother_low is not None
-    if typed and payload.mother_high <= payload.mother_low:
-        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
-    if mother_timestamp.date() > now.date():
-        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
-    if (now.date() - mother_timestamp.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
+    if mother_timestamp.second or mother_timestamp.microsecond:
+        raise HTTPException(status_code=400, detail="Mother timestamp must be a 1-minute candle open in IST.")
+    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the 09:15-15:30 session.")
+    if mother_timestamp + timedelta(minutes=1) > now:
+        raise HTTPException(status_code=400, detail="Mother timestamp must be a completed 1-minute candle.")
+    if mother_timestamp.date() != now.date():
+        # A past mother has no live quote, and pairing one with today's LTP is
+        # exactly the fabrication this stack refuses.  History belongs to the
+        # Backtest button, which prices off real expired-option bars.
         raise HTTPException(
             status_code=400,
-            detail=f"Choose a completed mother candle from the last {_FIB_BOUNDARY_HISTORY_DAYS} calendar days.",
+            detail="A paper campaign runs on today's session. Use Backtest for a mother from an earlier day.",
         )
-    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
-        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
-    tf_minutes = _FIB_TIMEFRAME_MINUTES[timeframe]
-    if timeframe == "1h":
-        if mother_timestamp.minute != 15:
-            raise HTTPException(status_code=400, detail="A 1H mother opens at 09:15, 10:15 … 15:15 IST.")
-    elif mother_timestamp.minute % tf_minutes or mother_timestamp.second or mother_timestamp.microsecond:
-        raise HTTPException(
-            status_code=400, detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open in IST."
-        )
-    effective_minutes = 15 if (timeframe == "1h" and mother_timestamp.hour == 15) else tf_minutes
-    if mother_timestamp + timedelta(minutes=effective_minutes) > now:
-        raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
 
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
-        raise HTTPException(
-            status_code=400, detail="Connect a Dhan account before starting a fib-boundary paper campaign."
-        )
-    old = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
-    if old is not None and old.running:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a ladder.")
+    existing = _fib_boundary_engines.get(user_id)
+    if existing is not None and existing.running:
         raise HTTPException(
             status_code=409,
-            detail="A fib-boundary campaign is already running. Kill it before starting a new mother.",
+            detail="A ladder is already running. Kill it before starting a new mother.",
         )
+
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    candles = await adapter.async_get_candles("NIFTY", timeframe, from_date=mother_timestamp.date(), to_date=now.date())
-    mother_row = next((row for row in candles if row.timestamp == mother_timestamp), None)
-    # The mother's high/low come from the market bar, exactly like the Test
-    # Bench; a typed pair is only an explicit override.  Nothing is invented:
-    # no bar and no override is an error, not a guess.
-    if mother_row is None and not typed:
+    candles = await adapter.async_get_candles(terms.symbol, "1m", from_date=mother_timestamp.date(), to_date=now.date())
+    if not any(row.timestamp == mother_timestamp for row in candles):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Dhan has no NIFTY {timeframe} candle opening at "
-                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
+                f"Dhan has no {terms.symbol} 1m candle opening at "
+                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date and the time."
             ),
         )
-    mother_high = float(payload.mother_high) if typed else float(mother_row.high)
-    mother_low = float(payload.mother_low) if typed else float(mother_row.low)
-    spot = float(mother_row.close) if mother_row is not None else (mother_high + mother_low) / 2.0
-    mother = IndexCandle(mother_timestamp, spot, mother_high, mother_low, spot)
-    is_historical_replay = mother_timestamp.date() != now.date()
+
+    # Lot size is asked of the scrip master per expiry, because it changes on
+    # effective dates; the registry value is only the fallback.
+    lot_size = terms.lot_size
     try:
-        contract = (
-            _historical_fib_contract(mother, candles, side, payload.itm_steps)
-            if is_historical_replay
-            else await asyncio.to_thread(
-                adapter.select_campaign_contract,
-                mother_spot=spot,
-                selected_at=mother.timestamp,
-                ce_offset_steps=(-payload.itm_steps if side == "CE" else payload.itm_steps),
-                option_type=side,
-            )
-        )
-    except HTTPException:
-        raise
+        from broker.dhan import ScripMaster
+
+        chain = [date.fromisoformat(str(v)[:10]) for v in (ScripMaster.get_expiries(terms.symbol) or [])]
+        if chain:
+            live_lot = int(ScripMaster.get_lot_size(terms.symbol, min(chain).isoformat()) or 0)
+            if live_lot > 0:
+                lot_size = live_lot
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to select the fixed next-weekly {side}: {exc}") from exc
-    historical_lookup = None
-    if is_historical_replay:
-        # Real Upstox/Dhan bars price the replay's fills and settle a costed
-        # round at the target — same lookup the Backtest panel uses.  If the
-        # sources are down the replay still runs, index-only, as before.
-        historical_lookup = await asyncio.to_thread(
-            _fib_replay_premium_lookup, broker_client, mother_timestamp.date(), now.date(), timeframe
-        )
-    engine = FibBoundaryPaper(
-        mother,
-        contract,
-        adapter,
-        _cascade_premium_lookup(broker_client),
-        timeframe=timeframe,
-        rung_inr=payload.rung_inr,
-        signal_only=is_historical_replay,
-        historical_premium_lookup=historical_lookup,
+        _logger.warning("[FIB TOUCH] %s lot size fell back to %s: %s", terms.symbol, lot_size, exc)
+
+    config = FibTouchConfig(
+        symbol=terms.symbol,
+        side=side,
+        mother_timestamp=mother_timestamp,
+        lot_size=lot_size,
+        strike_step=terms.strike_step,
+        capital_cap_inr=float(payload.capital_cap_inr),
+        itm_steps=int(payload.itm_steps),
+        min_dte=int(payload.min_dte),
     )
-    last_candle_timestamp = mother.timestamp
-    if is_historical_replay:
+    engine = FibTouchLadder(
+        config,
+        premium_lookup=_fib_touch_premium_lookup(broker_client, terms.symbol),
+        expiry_source=_fib_touch_expiry_source(broker_client, terms.symbol),
+    )
+    last_candle_timestamp = mother_timestamp
+    for candle in candles:
+        if candle.timestamp < mother_timestamp:
+            continue
+        engine.on_candle(candle)
+        last_candle_timestamp = candle.timestamp
 
-        def _replay() -> datetime:
-            # The premium lookup fetches candles synchronously per contract, so
-            # the whole replay runs off the event loop.
-            last = mother.timestamp
-            for candle in candles:
-                if candle.timestamp <= mother.timestamp:
-                    continue
-                engine.on_candle(candle)
-                last = candle.timestamp
-            engine.complete_historical_replay(candles[-1] if candles else mother)
-            return last
-
-        last_candle_timestamp = await asyncio.to_thread(_replay)
     runtime = _CascadeRuntime(
         engine=engine,
         adapter=adapter,
         broker=broker_client,
         last_candle_timestamp=last_candle_timestamp,
-        running=not is_historical_replay,
+        running=True,
     )
     _fib_boundary_engines[user_id] = runtime
-    if runtime.running:
-        runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
-    await _save_fib_boundary_open_state(user_id, force=True)
+    runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
     return {
-        "status": "replayed" if is_historical_replay else "started",
+        "status": "started",
         "mode": "paper",
         "campaign": {**engine.get_status(), "running": runtime.running},
     }
@@ -9432,11 +9474,12 @@ async def fib_boundary_paper_kill(request: Request):
     if runtime is None:
         raise HTTPException(status_code=404, detail="No fib-boundary campaign is active.")
     now = datetime.now(IST)
+    symbol = runtime.engine.config.symbol
     try:
-        quote = await asyncio.to_thread(runtime.adapter.get_ticker, "NIFTY")
+        quote = await asyncio.to_thread(runtime.adapter.get_ticker, symbol)
         price = float(quote["last_price"])
     except Exception:
-        price = float(runtime.engine.history[-1].close)
+        price = float(runtime.engine.history[-1].close) if runtime.engine.history else 0.0
     if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
         raise HTTPException(
             status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
@@ -9444,7 +9487,6 @@ async def fib_boundary_paper_kill(request: Request):
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
-    await _save_fib_boundary_open_state(_request_user_id(request), force=True)
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
 
 

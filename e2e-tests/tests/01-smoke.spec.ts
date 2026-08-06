@@ -553,6 +553,49 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
   await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
 });
 
+test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-fib');
+
+  await expect(page.locator('#oc-tab-fib')).toBeVisible();
+
+  // All five instruments Phil asked for, NIFTY first.
+  await expect(page.locator('#fibx-symbol option')).toHaveCount(5);
+  await expect(page.locator('#fibx-symbol')).toHaveValue('NIFTY');
+  await expect(page.locator('#fibx-side option')).toHaveCount(2);
+
+  // The old per-rung budget and timeframe picker are gone; the ladder cap
+  // replaces the first and 1m replaces the second.
+  await expect(page.locator('#fibx-capital-cap')).toHaveValue('75000');
+  await expect(page.locator('#fibx-timeframe')).toHaveCount(0);
+  await expect(page.locator('#fibx-rung-inr')).toHaveCount(0);
+  await expect(page.locator('#fibx-levels-hint')).toContainText('L16');
+
+  // A symbol whose weeklies NSE withdrew must say so, or the user believes
+  // they are getting a weekly contract that does not exist.
+  await page.selectOption('#fibx-symbol', 'BANKNIFTY');
+  await expect(page.locator('#fibx-symbol-note')).toContainText('Monthly expiries only');
+  await page.selectOption('#fibx-symbol', 'SENSEX');
+  await expect(page.locator('#fibx-symbol-note')).toContainText('34% of minutes');
+  await page.selectOption('#fibx-symbol', 'NIFTY');
+
+  // The monitor renders from a not_started payload rather than staying blank.
+  await expect(page.locator('#fibx-badge')).toHaveText('IDLE');
+  await expect(page.locator('#fibx-start')).toBeVisible();
+  await expect(page.locator('#fibx-kill')).toBeHidden();
+
+  // Parked surfaces are hidden AND explained, never silently missing.
+  await expect(page.locator('#fibx-backtest-btn')).toBeHidden();
+  await expect(page.locator('#fibx-load-chart')).toBeHidden();
+  await expect(page.locator('#fibx-parked-note')).toContainText('parked');
+
+  expect(jsErrors).toEqual([]);
+});
+
 test('Recovery tab renders its controls and monitor', async ({ page }) => {
   const jsErrors: string[] = [];
   page.on('pageerror', (err) => jsErrors.push(String(err)));

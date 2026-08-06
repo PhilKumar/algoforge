@@ -14,6 +14,16 @@
 
 import { test, expect, Page } from '@playwright/test';
 
+// PARKED 2026-08-06. The Fib Boundary tab now trades the swing-anchored touch
+// ladder (engine/fib_touch_ladder.py), and the Backtest button still replays
+// the OLD typed-mother L4/L8 geometry -- so it is hidden in the UI rather than
+// shipped alongside a Start button that trades something else. These three
+// specs drive that hidden button. Restore them, unchanged, the moment the
+// backtest is rewired to the ladder; the server side they guard
+// (tests/test_fib_backtest_route_e2e.py) is still running and still green.
+test.describe.configure({ mode: 'default' });
+test.skip(true, 'Backtest button is parked while it is rewired to the swing ladder');
+
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 const BASE_ORIGIN = new URL(process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:8000').origin;

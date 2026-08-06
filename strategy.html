@@ -1829,7 +1829,7 @@
 
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Pick a mother candle · buys the deep fib levels under it</span></button>
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Swing-anchored 1m touch ladder · L2→L16, one lot each</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
     <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Your mother candle, auto trendlines and fibs — the measured design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Your mother · auto trendlines + fibs · buys where two fibs converge</span></button>
     <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds breaking lower · SL on the entry candle · recovers the ledger</span></button>
@@ -1842,9 +1842,9 @@
       <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
           <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Start fib-boundary campaign <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L4 · L8</span>
+          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">1m · L2·L3·L4·L6·L8·L12·L16</span>
         </div>
-        <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">Pick the mother candle — its <strong>high and low come from Dhan</strong> and anchor the fib ladder directly; nothing is typed by hand. The timeframe decides which deep levels trade. Today starts a quote-backed paper campaign; an earlier date replays the index geometry only.</div>
+        <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">The mother candle names <strong>where to look</strong> — it is no longer the fib anchor itself. The ladder is measured off the <strong>swing</strong> around it: the leg extreme behind the mother, and the extreme in front frozen by the <strong>first involvement</strong> (2 consecutive candles the other way). Entries are <strong>1-minute touches</strong> on L2·L3·L4·L6·L8·L12·L16, <strong>one lot each</strong>, until the ladder cap is spent. The whole basket sells at one target, <strong>0.25 of the way back</strong> toward the anchor, and the campaign then ends. No stop loss — only the target or expiry closes it.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
@@ -1854,24 +1854,27 @@
             </select>
           </div>
           <div>
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Timeframe</label>
-            <select id="fibx-timeframe" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-              <option value="1m">1m · L8</option>
-              <option value="5m" selected>5m · L4 · L8</option>
-              <option value="15m">15m · L4 · L8</option>
-              <option value="1h">1H · L4 · L8</option>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
+            <select id="fibx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+              <option value="NIFTY" selected>NIFTY · 65/lot</option>
+              <option value="BANKNIFTY">BANKNIFTY · 30/lot</option>
+              <option value="FINNIFTY">FINNIFTY · 60/lot</option>
+              <option value="MIDCPNIFTY">MIDCPNIFTY · 120/lot</option>
+              <option value="SENSEX">SENSEX · 20/lot</option>
             </select>
           </div>
         </div>
+        <div id="fibx-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
         <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->
         <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ per rung</label><input id="fibx-rung-inr" type="number" min="1" step="500" value="75000" style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
-        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replays THESE typed fib levels and prices every leg off real Upstox/Dhan history — the same ladder Start trades, with P&amp;L">◱ Backtest · real P&amp;L</button></div>
+        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" style="display:none;">◱ Backtest · real P&amp;L</button></div>
+        <div id="fibx-parked-note" style="margin-top:10px;padding:9px 11px;border:1px solid rgba(251,191,36,.28);border-radius:7px;font:10.5px/1.55 'JetBrains Mono',monospace;color:var(--warn);"><strong>Backtest and Full chart are parked.</strong> Both still replay the old typed-mother L4/L8 ladder, which is different geometry from what Start now trades — a backtest of one and a live run of the other cannot be compared. They are being rewired to the swing ladder next.</div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
@@ -1895,17 +1898,20 @@
       <details id="fibx-window" class="cascade-options-window fibx-monitor-window" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
-          <div id="fibx-gist" class="cascade-options-gist">Pick a mother candle and a side to begin — its high &amp; low come from Dhan.</div>
-          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+          <div id="fibx-gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
+          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart" style="display:none;">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="fibx-summary" class="cascade-options-summary"></div>
-          <div id="fibx-empty" class="cascade-options-empty">Start a current-session paper campaign to see the fixed contract, deep fib boundaries, paper fills and net round P&amp;L here.</div>
+          <div id="fibx-empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
           <div id="fibx-active" style="display:none;margin-top:16px;">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Active paper fills</div>
-            <div id="fibx-fills" style="font:11px 'JetBrains Mono',monospace;color:var(--text);"></div>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Fib boundaries</div>
-            <div id="fibx-boundaries" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;"></div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Swing the ladder is measured from</div>
+            <div id="fibx-anchor" style="font:11px/1.6 'JetBrains Mono',monospace;color:var(--text);"></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:16px 0 7px;"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;">Every buy, in order</span><span id="fibx-fill-summary" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"></span></div>
+            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Buy</th><th style="padding:7px 8px;text-align:left;">Level</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:left;">Expiry</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Funded ₹</th></tr></thead><tbody id="fibx-fills"><tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr></tbody></table></div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Fib ladder</div>
+            <div id="fibx-boundaries" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;"></div>
+            <div id="fibx-gaps" style="margin-top:12px;"></div>
           </div>
         </div>
       </details>
