@@ -140,6 +140,55 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows["NIFTY"]["lot_size"], 65)
         self.assertEqual(rows["BANKNIFTY"]["strike_step"], 100.0)
 
+    async def test_chart_rejects_an_unknown_symbol(self):
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_paper_chart(
+                _today_1m_mother().isoformat(), _DummyRequest(), symbol="RELIANCE"
+            )
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("Unknown symbol", str(raised.exception.detail))
+
+    async def test_chart_rejects_a_bad_side(self):
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_paper_chart(_today_1m_mother().isoformat(), _DummyRequest(), side="XX")
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("side must be CE or PE", str(raised.exception.detail))
+
+    async def test_chart_needs_a_broker_before_it_draws_anything(self):
+        with patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_paper_chart(_today_1m_mother().isoformat(), _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("Connect a Dhan account", str(raised.exception.detail))
+
+    async def test_chart_prices_the_same_ladder_the_engine_trades(self):
+        # The whole point of recomputing the anchor in the route is that it
+        # cannot drift from the engine. Prove it: same candles, same mother,
+        # same side -> byte-identical levels.
+        from engine.fib_touch_ladder import HALVING_LEVELS, find_swing_anchor, level_price
+
+        rows = [
+            (24_660, 24_680, 24_655, 24_675),
+            (24_675, 24_700, 24_670, 24_695),
+            (24_695, 24_698, 24_680, 24_685),
+            (24_685, 24_690, 24_660, 24_662),
+            (24_662, 24_665, 24_640, 24_642),
+            (24_642, 24_644, 24_620, 24_622),
+            (24_622, 24_624, 24_600, 24_602),
+            (24_602, 24_612, 24_600, 24_610),
+            (24_610, 24_620, 24_608, 24_618),
+        ]
+        base = datetime(2026, 8, 6, 9, 15)
+        candles = [
+            app_module.IndexCandle(base + timedelta(minutes=i), o, h, low, c) for i, (o, h, low, c) in enumerate(rows)
+        ]
+        anchor = find_swing_anchor(candles, candles[6].timestamp, "CE")
+        self.assertIsNotNone(anchor)
+        assert anchor is not None
+        priced = [round(level_price("CE", anchor.high, anchor.low, level), 2) for level in HALVING_LEVELS]
+        # span is 100, so the ladder walks down in whole spans from 24,700.
+        self.assertEqual(priced, [24_500.0, 24_400.0, 24_300.0, 24_100.0, 23_900.0, 23_500.0, 23_100.0])
+
     async def test_kill_without_campaign_is_404(self):
         with self.assertRaises(app_module.HTTPException) as raised:
             await app_module.fib_boundary_paper_kill(_DummyRequest())

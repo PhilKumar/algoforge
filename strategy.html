@@ -1874,7 +1874,7 @@
           <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
         <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" style="display:none;">◱ Backtest · real P&amp;L</button></div>
-        <div id="fibx-parked-note" style="margin-top:10px;padding:9px 11px;border:1px solid rgba(251,191,36,.28);border-radius:7px;font:10.5px/1.55 'JetBrains Mono',monospace;color:var(--warn);"><strong>Backtest and Full chart are parked.</strong> Both still replay the old typed-mother L4/L8 ladder, which is different geometry from what Start now trades — a backtest of one and a live run of the other cannot be compared. They are being rewired to the swing ladder next.</div>
+        <div id="fibx-parked-note" style="margin-top:10px;padding:9px 11px;border:1px solid rgba(251,191,36,.28);border-radius:7px;font:10.5px/1.55 'JetBrains Mono',monospace;color:var(--warn);"><strong>Backtest is parked.</strong> It still replays the old typed-mother L4/L8 ladder, which is different geometry from what Start now trades — a backtest of one and a live run of the other cannot be compared. Full chart is rewired and draws the real swing ladder.</div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
@@ -1899,7 +1899,7 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
           <div id="fibx-gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
-          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart" style="display:none;">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="fibx-summary" class="cascade-options-summary"></div>
@@ -1926,9 +1926,9 @@
     </div>
 
     <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
-      <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="NIFTY fib-boundary geometry chart">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 style="margin:0;font-size:15px;">NIFTY fib-boundary chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> boundary &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
-        <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">The chart uses actual closed NIFTY candles at the campaign timeframe. The deep fib boundaries and each paper fill are drawn on top; geometry always uses native exchange OHLC.</div></div>
+      <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 id="fibx-chart-title" style="margin:0;font-size:15px;">Swing ladder chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
+        <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div>
       </div>
     </div>
   </div>

@@ -588,10 +588,108 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-start')).toBeVisible();
   await expect(page.locator('#fibx-kill')).toBeHidden();
 
-  // Parked surfaces are hidden AND explained, never silently missing.
+  // The chart is rewired and back; only the backtest is still parked, and it
+  // says so rather than going silently missing.
+  await expect(page.locator('#fibx-load-chart')).toBeVisible();
   await expect(page.locator('#fibx-backtest-btn')).toBeHidden();
-  await expect(page.locator('#fibx-load-chart')).toBeHidden();
-  await expect(page.locator('#fibx-parked-note')).toContainText('parked');
+  await expect(page.locator('#fibx-parked-note')).toContainText('Backtest is parked');
+
+  expect(jsErrors).toEqual([]);
+});
+
+// A running ladder, shaped exactly like FibTouchLadder.get_status().
+const fibTouchCampaign = {
+  symbol: 'NIFTY', side: 'CE', timeframe: '1m', status: 'OPEN', running: true,
+  mother_timestamp: '2026-08-06T09:21:00+05:30',
+  anchor: {
+    high: 24700, low: 24600, span: 100,
+    high_timestamp: '2026-08-06T09:16:00+05:30',
+    low_timestamp: '2026-08-06T09:21:00+05:30',
+    confirmed_at: '2026-08-06T09:23:00+05:30',
+    involvement_candles: 2,
+  },
+  levels: [
+    { level: 2, key: 'L2', index_price: 24500, status: 'FILLED', filled_at: '2026-08-06T09:30:00+05:30' },
+    { level: 3, key: 'L3', index_price: 24400, status: 'FILLED', filled_at: '2026-08-06T09:35:00+05:30' },
+    { level: 4, key: 'L4', index_price: 24300, status: 'PENDING', filled_at: null },
+    { level: 6, key: 'L6', index_price: 24100, status: 'UNFUNDED', filled_at: null },
+  ],
+  fills: [
+    { buy_number: 1, level: 2, rung_key: 'L2', timestamp: '2026-08-06T09:30:00+05:30', index_price: 24500, premium: 200, lots: 1, quantity: 65, strike: 24400, expiry: '2026-08-11', option_type: 'CE', funded_inr: 13000 },
+    { buy_number: 2, level: 3, rung_key: 'L3', timestamp: '2026-08-06T09:35:00+05:30', index_price: 24400, premium: 180, lots: 1, quantity: 65, strike: 24300, expiry: '2026-08-11', option_type: 'CE', funded_inr: 11700 },
+  ],
+  lot_size: 65, strike_step: 50, itm_steps: 2, min_dte: 4,
+  capital_cap_inr: 75000, deployed_inr: 24700, remaining_inr: 50300,
+  open_lots: 2, open_quantity: 130,
+  average_index_entry: 24450, average_premium: 190, target_index: 24512.5, target_fraction: 0.25,
+  exit_timestamp: null, exit_reason: null, exit_index: null, exit_premiums: [],
+  gross_pnl: null, costs_total: null, net_pnl: null,
+  events: [], data_gaps: [],
+};
+
+const fibTouchChart = {
+  status: 'ok', symbol: 'NIFTY', timeframe: '1m', side: 'CE', chart_mode: 'visual_gap_adjusted',
+  candles: [
+    { t: '2026-08-06T09:16:00+05:30', o: 24675, h: 24700, l: 24670, c: 24695, is_mother: false },
+    { t: '2026-08-06T09:19:00+05:30', o: 24662, h: 24665, l: 24640, c: 24642, is_mother: false },
+    { t: '2026-08-06T09:21:00+05:30', o: 24622, h: 24624, l: 24600, c: 24602, is_mother: true },
+    { t: '2026-08-06T09:23:00+05:30', o: 24610, h: 24620, l: 24608, c: 24618, is_mother: false },
+    { t: '2026-08-06T09:30:00+05:30', o: 24560, h: 24565, l: 24495, c: 24510, is_mother: false },
+    { t: '2026-08-06T09:35:00+05:30', o: 24510, h: 24512, l: 24395, c: 24410, is_mother: false },
+  ],
+  anchor: fibTouchCampaign.anchor,
+  levels: [
+    { level: 2, price: 24500 }, { level: 3, price: 24400 },
+    { level: 4, price: 24300 }, { level: 6, price: 24100 },
+  ],
+  note: 'Gap adjustment is visual only; the ladder\'s geometry uses native Dhan OHLC.',
+};
+
+test('Fib Boundary chart paints the swing, every level and each buy', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  // Registered after login, so these win over the table in the fixture.
+  await page.route('**/api/fib-boundary/paper/status**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaign: fibTouchCampaign }) }));
+  await page.route('**/api/fib-boundary/paper/chart**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fibTouchChart) }));
+
+  await page.click('#nav-cascade');
+  await page.click('#oc-tabbtn-fib');
+
+  // The monitor renders the running ladder before the chart is even opened.
+  await expect(page.locator('#fibx-badge')).toHaveText('OPEN');
+  await expect(page.locator('#fibx-fills tr')).toHaveCount(2);
+  await expect(page.locator('#fibx-anchor')).toContainText('24,700');
+  await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
+
+  await page.click('#fibx-load-chart');
+  await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
+
+  const paint = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { paint?: Record<string, unknown> } };
+    if (!app._pfChartCanvas || !app._pfChartCanvas.paint) throw new Error('The fib-boundary canvas never painted');
+    return app._pfChartCanvas.paint;
+  });
+
+  // Six candles in, six drawn -- a translator that drops the native-price
+  // fallback silently renders none of them.
+  expect(paint).toMatchObject({ candles: 6 });
+  const labels = paint.labelTexts as string[];
+  // The swing is the ladder's frame of reference and must be on the chart.
+  expect(labels.some((t) => t.includes('SWING HIGH'))).toBe(true);
+  expect(labels.some((t) => t.includes('SWING LOW'))).toBe(true);
+  // Each level carries its own live state, including the one the cap stopped.
+  expect(labels.some((t) => t.startsWith('L2 FILLED'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('L4 PENDING'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('L6 UNFUNDED'))).toBe(true);
+  // A ladder still holding must not claim it sold at the target.
+  expect(labels.some((t) => t.includes('TARGET (open'))).toBe(true);
+
+  await page.click('[data-pf-action="hideFibBoundaryChart"]');
+  await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
 });

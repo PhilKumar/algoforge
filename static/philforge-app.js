@@ -2854,7 +2854,9 @@ function _renderFibBoundaryStatus(payload) {
       _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
       _cascadeOptionsMetric('Avg premium', campaign.average_premium == null ? '—' : `₹${_cascadeNumber(campaign.average_premium)}`),
       _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
-      _cascadeOptionsMetric('Funded', `${_cascadeOptionsMoney(deployed)} of ${_cascadeOptionsMoney(cap)} (${pct}%)`, '#fde68a'),
+      // Compact on purpose: the long form ran past the tile and ellipsised the
+      // percentage, which is the part that says how much ladder is left.
+      _cascadeOptionsMetric('Funded', `${_cascadeOptionsMoney(deployed)} · ${pct}% of cap`, '#fde68a'),
       _cascadeOptionsMetric('Left to spend', _cascadeOptionsMoney(campaign.remaining_inr || 0), '#fde68a'),
     ].join('');
   }
@@ -3043,73 +3045,87 @@ function _fibBoundaryCanvasPayload(payload) {
     }))
     .filter(row => row.t !== null && [row.o, row.h, row.l, row.c].every(Number.isFinite));
 
-  // Each boundary carries its live status in its own label, because `lines` are
-  // coloured by position in the ladder rather than by state -- and on this chart
-  // the ladder position (L4 before L8) is the thing worth colouring.
+  // Level status comes from the live campaign when one is running; the route
+  // itself only prices the geometry, so a chart opened before Start shows the
+  // ladder with every rung still pending.
   const statusByLevel = {};
-  (campaign.boundaries || []).forEach(b => { statusByLevel[Number(b.level)] = String(b.status || 'PENDING'); });
-  const lines = (Array.isArray(payload?.boundaries) ? payload.boundaries : []).map(b => {
-    const level = Number(b.level);
+  (campaign.levels || []).forEach(row => { statusByLevel[Number(row.level)] = String(row.status || 'PENDING'); });
+
+  const anchor = payload?.anchor || null;
+  const lines = [];
+  // The swing itself is the ladder's frame of reference, so it is drawn -- the
+  // levels below are meaningless without it on screen.
+  if (anchor) {
+    lines.push({ price: Number(anchor.high), label: 'SWING HIGH', filled: false, inr_notional: 0 });
+    lines.push({ price: Number(anchor.low), label: 'SWING LOW', filled: false, inr_notional: 0 });
+  }
+  (Array.isArray(payload?.levels) ? payload.levels : []).forEach(row => {
+    const level = Number(row.level);
     const status = statusByLevel[level] || 'PENDING';
-    return {
-      price: Number(b.price),
+    lines.push({
+      price: Number(row.price),
       label: `L${level} ${status}`,
-      filled: status === 'FILLED' || status === 'CLOSED',
-      inr_notional: 0,
-    };
-  }).filter(line => Number.isFinite(line.price));
+      filled: status === 'FILLED',
+      // What this rung actually cost, so a hovered line says how much is on it.
+      inr_notional: (campaign.fills || [])
+        .filter(f => Number(f.level) === level)
+        .reduce((sum, f) => sum + (Number(f.funded_inr) || 0), 0),
+    });
+  });
+  const drawable = lines.filter(line => Number.isFinite(line.price) && line.price > 0);
 
-  // Buy arrows: closed rounds first (dimmer in the ladder's own story, but the
-  // renderer draws one mark per fill), then whatever is still open, then a
-  // signal-only replay's fills.
-  const entries = [];
-  const addFill = fill => {
-    const at = epoch(fill?.timestamp), p = price(fill?.index_price);
-    if (at !== null && p !== null) entries.push({ t: at, price: p });
-  };
-  (campaign.rounds || []).forEach(round => (round.fills || []).forEach(addFill));
-  (campaign.open_fills || []).forEach(addFill);
-  (campaign.signal_fills || []).forEach(addFill);
-
-  const exits = (campaign.rounds || [])
-    .map(round => ({ t: epoch(round.closed_at), price: price(round.exit_index_price), pnl: Number(round.net_pnl) || 0 }))
+  // One white buy mark per fill, in the order they were bought.
+  const entries = (campaign.fills || [])
+    .map(fill => ({ t: epoch(fill.timestamp), price: price(fill.index_price) }))
     .filter(row => row.t !== null && row.price !== null);
 
+  // The ladder is one-and-done, so there is at most one exit.
+  const exits = [];
+  if (campaign.exit_timestamp && campaign.exit_index != null) {
+    const at = epoch(campaign.exit_timestamp), p = price(campaign.exit_index);
+    if (at !== null && p !== null) exits.push({ t: at, price: p, pnl: Number(campaign.net_pnl) || 0 });
+  }
+
   return {
-    timeframe: payload?.timeframe || campaign.timeframe || '5m',
+    timeframe: payload?.timeframe || '1m',
     candles,
-    mother: { high: price(payload?.mother_high), low: price(payload?.mother_low) },
+    // The mother's OWN band, read off the bar it is flagged on -- not the
+    // swing. Passing the swing here drew MOTHER and SWING HIGH as two labels
+    // on one line, which reads as a bug even though both were correct.
+    mother: (() => {
+      const bar = candles.find(row => row.is_mother);
+      return bar ? { high: bar.h, low: bar.l } : { high: null, low: null };
+    })(),
     trendlines: [],
     legs: [],
-    lines,
+    lines: drawable,
     entries,
     exits,
     avg_entry_price: price(campaign.average_index_entry),
     tp_price: price(campaign.target_index),
-    // A mother held to expiry never traded here, so the target line must not
-    // claim it was sold at.
-    tp_label: exits.length ? 'TARGET HIT' : entries.length ? 'TARGET (open — watching)' : 'TARGET (not reached)',
+    // A ladder still holding must not have its target drawn as if it sold there.
+    tp_label: exits.length ? 'TARGET HIT' : entries.length ? 'TARGET (open — watching)' : 'TARGET (no buy yet)',
   };
 }
 
 async function loadFibBoundaryChart() {
   const el = id => document.getElementById(id);
-  const timestamp = el('fibx-mother-timestamp')?.value || _lastFibBoundaryStatus?.campaign?.mother?.timestamp;
   const campaign = _lastFibBoundaryStatus?.campaign;
-  // Campaign values first; otherwise the server reads the bar from Dhan.
-  const high = Number(campaign?.mother?.high);
-  const low = Number(campaign?.mother?.low);
-  const side = el('fibx-side')?.value || campaign?.side || 'CE';
-  const timeframe = el('fibx-timeframe')?.value || campaign?.timeframe || '5m';
+  // A running campaign owns the question; otherwise the form does, so the chart
+  // can be read before anything is started.
+  const timestamp = campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
+  const symbol = campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
+  const side = campaign?.side || el('fibx-side')?.value || 'CE';
   const chart = el('fibx-chart');
   const meta = el('fibx-chart-meta');
   const overlay = el('fibx-chart-overlay');
+  const title = el('fibx-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
-  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading actual closed NIFTY ${escapeHtml(String(timeframe))} candles…</div>`;
+  if (title) title.textContent = `${symbol} ${side} swing ladder`;
+  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} 1m candles…</div>`;
   try {
-    const query = new URLSearchParams({ mother_timestamp: timestamp, side, timeframe });
-    if (Number.isFinite(high) && Number.isFinite(low)) { query.set('high', String(high)); query.set('low', String(low)); }
+    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side });
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
@@ -3118,7 +3134,11 @@ async function loadFibBoundaryChart() {
     // overlay does not mount behind a duplicate host.
     _fibBoundaryCollapseBacktestChart();
     if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data));
-    if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${(data.boundaries || []).length} deep boundaries · drag to pan, wheel to zoom, double-click to reset`;
+    if (meta) {
+      meta.textContent = data.anchor
+        ? `${data.candles.length} closed 1m candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
+        : `${data.candles.length} closed 1m candles · ${data.note}`;
+    }
   } catch (error) {
     if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
     if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;

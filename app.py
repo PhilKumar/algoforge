@@ -93,7 +93,7 @@ from engine.cascade_equity import (
     cash_cascade_reference_symbol,
 )
 from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig
-from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price
+from engine.cascade_fib_geometry import boundaries_for_timeframe
 from engine.cascade_options import (
     CascadeConfig,
     CascadeOptionsAdapter,
@@ -120,6 +120,8 @@ from engine.fib_touch_ladder import (
     symbol_terms,
 )
 from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
+from engine.fib_touch_ladder import find_swing_anchor as _fib_touch_find_anchor
+from engine.fib_touch_ladder import level_price as _fib_touch_level_price
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -9494,26 +9496,25 @@ async def fib_boundary_paper_kill(request: Request):
 async def fib_boundary_paper_chart(
     mother_timestamp: str,
     request: Request,
-    high: Optional[float] = None,
-    low: Optional[float] = None,
-    timeframe: str = "5m",
+    symbol: str = "NIFTY",
     side: str = "CE",
 ):
-    """Serve the fib-boundary window: real candles + the mother's deep boundaries.
+    """The swing ladder's own window: real 1m candles, the swing, every level.
 
-    High/low are optional overrides — without them, the mother bar Dhan
-    returns owns the geometry, same as everywhere else since 2026-07-30.
+    The anchor is recomputed here with the SAME `find_swing_anchor` the engine
+    runs, rather than read off the live campaign. That is deliberate: the
+    function is pure over (candles, mother, side), so a chart drawn from it
+    cannot drift from the ladder being traded -- and the chart still works
+    before a campaign is started, which is when it is most useful.
     """
 
+    try:
+        terms = symbol_terms(symbol)
+    except FibTouchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     side = str(side).upper()
-    timeframe = str(timeframe).lower()
     if side not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
-    if timeframe not in _FIB_TIMEFRAME_MINUTES:
-        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    typed = high is not None and low is not None
-    if typed and high <= low:
-        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     now = datetime.now(IST)
     if mother.date() > now.date() or (now.date() - mother.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
@@ -9523,43 +9524,57 @@ async def fib_boundary_paper_chart(
         )
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
-        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY chart.")
+        raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {terms.symbol} chart.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     try:
-        candles = await adapter.async_get_candles("NIFTY", timeframe, from_date=mother.date(), to_date=now.date())
+        candles = await adapter.async_get_candles(terms.symbol, "1m", from_date=mother.date(), to_date=now.date())
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"Unable to load {terms.symbol} 1m candles: {exc}") from exc
     rows = _cascade_gap_adjusted_candles(candles, mother)
-    found = next((row for row in rows if row["is_mother"]), None)
-    if not typed:
-        if found is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Dhan has no NIFTY {timeframe} candle opening at "
-                    f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
-                ),
-            )
-        # The chart shows gap-adjusted candles, but the GEOMETRY must use the
-        # bar's native prices.
-        high = float(found.get("native_high", found["h"]))
-        low = float(found.get("native_low", found["l"]))
-    mother_row = found or {"t": mother.isoformat(), "h": float(high), "l": float(low), "is_mother": True}
-    boundaries = [
-        {"level": level, "price": round(boundary_price(side, float(high), float(low), level), 2)}
-        for level in boundaries_for_timeframe(timeframe)
-    ]
+    if not any(row["is_mother"] for row in rows):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dhan has no {terms.symbol} 1m candle opening at "
+                f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date and the time."
+            ),
+        )
+
+    anchor = _fib_touch_find_anchor(candles, mother, side)
+    levels: list[dict] = []
+    if anchor is not None:
+        levels = [
+            {
+                "level": level,
+                "price": round(_fib_touch_level_price(side, anchor.high, anchor.low, level), 2),
+            }
+            for level in HALVING_LEVELS
+        ]
     return {
         "status": "ok",
-        "timeframe": timeframe,
+        "symbol": terms.symbol,
+        "timeframe": "1m",
         "side": side,
         "chart_mode": "visual_gap_adjusted",
         "candles": rows,
-        "mother": mother_row,
-        "mother_high": float(high),
-        "mother_low": float(low),
-        "boundaries": boundaries,
-        "note": "Gap adjustment is visual only; paper geometry uses native Dhan OHLC.",
+        "anchor": (
+            {
+                "high": anchor.high,
+                "low": anchor.low,
+                "span": round(anchor.span, 2),
+                "high_timestamp": anchor.high_timestamp.isoformat(),
+                "low_timestamp": anchor.low_timestamp.isoformat(),
+                "confirmed_at": anchor.confirmed_at.isoformat(),
+            }
+            if anchor
+            else None
+        ),
+        "levels": levels,
+        "note": (
+            "Gap adjustment is visual only; the ladder's geometry uses native Dhan OHLC."
+            if anchor
+            else "No involvement has closed after this mother yet, so the swing is not frozen and no level can be priced."
+        ),
     }
 
 
