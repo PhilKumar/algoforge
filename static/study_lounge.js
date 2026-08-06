@@ -362,8 +362,16 @@ async function loadLibrary() {
   }
 }
 
+// Same two homes as the heatmap. The theme toggle is only wired on the
+// standalone page -- inside Insights the app shell owns it, and binding a
+// second handler would flip the theme twice per click.
+function startStudyLounge() {
+  loadLibrary();
+}
+window.pfStartStudyLounge = startStudyLounge;
 document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('insights-page')) return;
   $('theme-toggle')?.addEventListener('click', toggleTheme);
   setThemeToggleIcon();
-  loadLibrary();
+  startStudyLounge();
 });

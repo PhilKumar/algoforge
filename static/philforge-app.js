@@ -1242,6 +1242,7 @@ const NAV_BUTTON_MAP = {
   'scalp-page': 'nav-scalp',
   'options-cascade-page': 'nav-cascade',
   'charts-page': 'nav-charts',
+  'insights-page': 'nav-insights',
 };
 
 let _mobileNavSyncTimer = null;
@@ -1455,6 +1456,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'killCandleEntryPaper',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
+  'showInsightsTab',
   'recoveryStart',
   'recoveryStop',
   'recoveryAddMother',
@@ -1527,6 +1529,7 @@ async function applyNavState(state) {
   showPage(page, btn, { pushHistory: false, historyState: state });
   if (page === 'live-page') startLiveMonitor();
   if (page === 'stock-terminal-page') initStockTerminalPage();
+  if (page === 'insights-page') initInsightsPage();
   if (page === 'scalp-page') initScalpPage();
   if (page === 'options-cascade-page') initOptionsCascadePage();
   if (page === 'charts-page') initChartsPage();
@@ -2248,6 +2251,39 @@ let _lastFibBoundaryStatus = null;
 // moved in beside the two paper strategies the same day — both on Phil's call,
 // so the top nav stays one row.
 const _OC_TABS = ['fib', 'candle', 'space', 'recovery', 'bench'];
+
+const _INSIGHTS_TABS = ['heatmap', 'study'];
+
+function showInsightsTab(event, el) {
+  const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
+  document.querySelectorAll('#insights-page .oc-tab').forEach(b =>
+    b.classList.toggle('is-active', b.getAttribute('data-insights-tab') === tab));
+  _INSIGHTS_TABS.forEach(name => {
+    const panel = document.getElementById(`insights-${name}`);
+    if (panel) panel.style.display = name === tab ? '' : 'none';
+  });
+  _insightsStartTab(tab);
+}
+
+// Each panel's own script exposes a starter and no longer self-starts inside
+// the app shell, so a tab only begins polling once it is actually on screen.
+// Both are idempotent, so re-showing a tab is free.
+const _insightsStarted = {};
+function _insightsStartTab(tab) {
+  if (tab === 'heatmap' && typeof window.pfStartMarketMovers === 'function') {
+    window.pfStartMarketMovers();
+    _insightsStarted.heatmap = true;
+  }
+  if (tab === 'study' && !_insightsStarted.study && typeof window.pfStartStudyLounge === 'function') {
+    window.pfStartStudyLounge();
+    _insightsStarted.study = true;
+  }
+}
+
+function initInsightsPage() {
+  const active = document.querySelector('#insights-page .oc-tab.is-active');
+  _insightsStartTab(active?.getAttribute('data-insights-tab') || 'heatmap');
+}
 
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';

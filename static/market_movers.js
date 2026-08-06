@@ -472,7 +472,16 @@ function startMarketMovers() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  // Inside the Insights tab this must not poll a panel nobody is looking at.
+  if (document.getElementById('insights-heatmap')?.style.display === 'none') return;
   loadMarketMovers();
 });
 
-document.addEventListener('DOMContentLoaded', startMarketMovers);
+// Two homes now: its own page, and the Heatmap tab inside Insights. On the
+// standalone page it starts itself; in the tab it waits to be asked, so the
+// live-price poll does not run behind a panel that is not on screen.
+window.pfStartMarketMovers = startMarketMovers;
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('insights-page')) return;
+  startMarketMovers();
+});

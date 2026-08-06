@@ -131,6 +131,19 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
+    // Insights panels. Both used to be their own pages; inside the tab they
+    // call the same two endpoints, and the strict table has to know them or
+    // opening the tab throws.
+    else if (path.startsWith('/api/market-movers/')) await route.fulfill({ json: {
+      status: 'success', as_of: '2026-08-06T13:20:00+05:30', index: 'NIFTY 50',
+      gainers: [{ symbol: 'INFY', last_price: 1580.4, change_pct: 2.41, change: 37.2 }],
+      losers: [{ symbol: 'TCS', last_price: 3890.1, change_pct: -1.82, change: -72.1 }],
+    } });
+    else if (path.startsWith('/api/study-library')) await route.fulfill({ json: {
+      status: 'success', items: [{ id: 'a1', title: 'Risk of ruin', category: 'Psychology',
+        kind: 'PDF', description: 'A short read on position sizing.', url: '#',
+        updated_at: '2026-08-01', size: '1.2 MB' }],
+    } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }
@@ -200,8 +213,11 @@ test('Every primary navigation surface has a working owner and active page', asy
     await expect(page.locator(pageSection)).toHaveClass(/active-page/);
   }
 
+  // Insights is a page with tabs now, not a dropdown of links.
   await page.click('#nav-insights');
-  await expect(page.locator('#nav-insights-wrap')).toHaveClass(/menu-open/);
+  await expect(page.locator('#insights-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#nav-insights-wrap')).toHaveCount(0);
+  // The standalone pages are deliberately left serving, so old bookmarks live.
   for (const target of ['/market-movers', '/study-lounge']) {
     const response = await page.request.get(target);
     expect(response.status()).toBe(200);
@@ -714,6 +730,43 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
 
   await page.click('[data-pf-action="hideFibBoundaryChart"]');
   await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
+
+  expect(jsErrors).toEqual([]);
+});
+
+test('Insights carries Heatmap and Study Lounge as tabs, and repaints nothing', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  // The app's own palette, read BEFORE Insights loads its two panel sheets.
+  const before = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+
+  await page.click('#nav-insights');
+  await expect(page.locator('#insights-page')).toBeVisible();
+
+  // Two tabs, Heatmap first and active.
+  await expect(page.locator('#insights-page .oc-tab')).toHaveCount(2);
+  await expect(page.locator('#insights-tabbtn-heatmap')).toHaveClass(/is-active/);
+  await expect(page.locator('#insights-heatmap')).toBeVisible();
+  await expect(page.locator('#insights-study')).toBeHidden();
+
+  // Both stylesheets redefine :root with the app's OWN variable names, so the
+  // scoping in tools/scope_insights_css.py is the only thing stopping them
+  // repainting every page. A regression here is silent and site-wide.
+  const after = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+  expect(after).toBe(before);
+
+  await page.click('#insights-tabbtn-study');
+  await expect(page.locator('#insights-study')).toBeVisible();
+  await expect(page.locator('#insights-heatmap')).toBeHidden();
+  // The panel's own script ran: the library rendered from the mocked payload.
+  await expect(page.locator('#insights-study')).toContainText('Risk of ruin');
+
+  // The dropdown is gone; Insights is a page like Cascade is.
+  await expect(page.locator('#nav-insights-menu')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
 });
