@@ -2164,6 +2164,14 @@
   }
   /* ── Premium Light: Kill Switch ── */
   [data-theme="light"] .kill-switch {
+    background: linear-gradient(135deg, rgba(241,245,249,0.96), rgba(226,232,240,0.98));
+    color: #b91c1c;
+    border-color: rgba(190,18,60,0.40);
+    box-shadow: 0 2px 8px rgba(15,23,42,0.14);
+  }
+  [data-theme="light"] .kill-switch.is-live {
+    background: linear-gradient(135deg, rgba(239,68,68,0.92), rgba(180,30,30,0.96));
+    color: #fff;
     box-shadow: 0 4px 20px rgba(190,18,60,0.25);
   }
   /* ── Premium Light: Scrollbar ── */
@@ -2268,30 +2276,54 @@
   /* Theme toggle is now integrated into topbar */
 
   /* ── EMERGENCY KILL SWITCH ── */
+  /* Two states, because this button appears whenever ANY runtime is up —
+     including a paper campaign. A permanently throbbing red alarm for paper is
+     a false alarm, and a false alarm you see on every page for days is one you
+     stop seeing. Calm by default; loud only when real money is exposed.
+     Availability never changes: same place, same size, same action, always
+     one tap away the moment anything is running. */
   .kill-switch {
     position: fixed;
     bottom: 24px;
     right: 24px;
     z-index: 1500;
-    background: linear-gradient(135deg, rgba(239,68,68,0.9), rgba(180,30,30,0.95));
-    border: 2px solid rgba(239,68,68,0.6);
-    border-radius: 16px;
-    padding: 12px 20px;
+    /* Opaque on purpose — an `opacity` here would let page text bleed through
+       the button and quietly undercut its real contrast. */
+    background: linear-gradient(135deg, #334155, #1e293b);
+    border: 1px solid rgba(248,113,113,0.45);
+    border-radius: 14px;
+    padding: 9px 16px;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 8px;
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
-    font-size: 13px;
-    color: #fff;
-    box-shadow: 0 4px 20px rgba(239,68,68,0.3), 0 0 40px rgba(239,68,68,0.1);
+    font-size: 12px;
+    color: #fca5a5;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
     transition: all 0.2s ease;
-    animation: killPulse 3s infinite;
   }
   .kill-switch:hover {
+    border-color: rgba(248,113,113,0.75);
     transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  }
+  /* Real money is on the line — this is the state the alarm was designed for. */
+  .kill-switch.is-live {
+    background: linear-gradient(135deg, rgba(239,68,68,0.9), rgba(180,30,30,0.95));
+    border: 2px solid rgba(239,68,68,0.6);
+    padding: 12px 20px;
+    font-size: 13px;
+    color: #fff;
+    opacity: 1;
+    animation: killPulse 3s infinite;
+  }
+  .kill-switch.is-live:hover {
     box-shadow: 0 8px 30px rgba(239,68,68,0.5), 0 0 60px rgba(239,68,68,0.2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .kill-switch.is-live { animation: none; }
   }
   .kill-switch.hidden { display: none; }
   @keyframes killPulse {
