@@ -1,3 +1,19 @@
+  /* Double-tap zoom off, pinch zoom kept.
+     `manipulation` permits scrolling and continuous (two-finger) pinch zoom and
+     drops only the double-tap-to-zoom gesture. Touch-action resolves by
+     intersecting values down the ancestor chain, so setting it on <html> covers
+     every element on the page — and a descendant asking for something stricter
+     still wins, which is how the chart surfaces keep `touch-action: none` for
+     their own pan and pinch.
+     Deliberately NOT done with `user-scalable=no` on the viewport: that kills
+     pinch zoom outright and fails WCAG 1.4.4. Previously this was set only on
+     `button, a, input, select, textarea`, so double-tap still zoomed on cards,
+     tables, headings and empty space — i.e. most of the screen.
+     This file is loaded by every page, so one rule covers all of them. */
+  html, body {
+    touch-action: manipulation;
+  }
+
   /* -- User Appearance: PhilForge tint + font presets -- */
   html {
     --pf-tint-primary: #94a3b8;
