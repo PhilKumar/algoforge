@@ -580,3 +580,31 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
 
   expect(jsErrors, `page errors: ${jsErrors.join(' | ')}`).toHaveLength(0);
 });
+
+test('The action-authorization prompt sits above every other modal', async ({ page }) => {
+  await login(page);
+
+  // Every modal shares .modal-overlay at z-index 2000, so a tie is broken by
+  // DOM order -- and #admin-modal is declared AFTER #action-auth-modal. That
+  // put the password/authenticator prompt BEHIND the admin window, where it
+  // could not be reached, and disabling a user looked broken.
+  const layers = await page.evaluate(() => {
+    const z = (id: string) => {
+      const el = document.getElementById(id);
+      if (!el) return null;
+      return parseInt(getComputedStyle(el).zIndex || '0', 10);
+    };
+    return {
+      actionAuth: z('action-auth-modal'),
+      admin: z('admin-modal'),
+      account: z('account-modal'),
+      confirm: z('confirm-modal'),
+    };
+  });
+
+  expect(layers.actionAuth).not.toBeNull();
+  for (const [name, value] of Object.entries(layers)) {
+    if (name === 'actionAuth' || value === null) continue;
+    expect(layers.actionAuth!, `action-auth must outrank #${name}`).toBeGreaterThan(value);
+  }
+});

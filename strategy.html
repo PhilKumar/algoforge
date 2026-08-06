@@ -2693,7 +2693,11 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="action-auth-modal" role="dialog" aria-modal="true" aria-labelledby="action-auth-title">
+<!-- Above every other modal on purpose. This is the gate that authorizes a
+     protected action, and it can be raised FROM another modal -- the admin
+     console is declared after it, so on the shared .modal-overlay z-index of
+     2000 the admin window won the tie and hid the prompt behind itself. -->
+<div class="modal-overlay" id="action-auth-modal" style="z-index:4000;" role="dialog" aria-modal="true" aria-labelledby="action-auth-title">
   <div class="modal action-auth-panel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
       <h3 id="action-auth-title" style="margin:0;display:flex;align-items:center;gap:8px;">Authorize protected action</h3>
