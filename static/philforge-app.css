@@ -400,6 +400,15 @@
   .input-group label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
   input, select { width: 100%; background: rgba(12,16,26,0.7); border: 1px solid rgba(255,255,255,0.06); border-top: 1px solid rgba(255,255,255,0.08); color: var(--text); padding: 11px 12px; border-radius: 8px; font-family: 'Outfit', sans-serif; font-size: 15px; backdrop-filter: blur(10px); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.04); transition: border-color 0.2s, box-shadow 0.2s; }
   input:focus, select:focus { border-color: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.3); box-shadow: 0 0 0 2px rgba(var(--pf-tint-primary-rgb, 0,200,150),0.1), inset 0 1px 3px rgba(0,0,0,0.3); outline: none; }
+  /* The other half of the unwanted-zoom problem: iOS Safari zooms the page in
+     whenever a focused control computes below 16px, and then leaves you there.
+     The desktop default is 15px and ~33 controls carry inline 12–13px, so
+     nearly every tap into a field zoomed. 16px on touch widths stops it at the
+     source; desktop sizing is untouched. !important is needed to beat the
+     inline font-size declarations. */
+  @media (max-width: 768px) {
+    input, select, textarea { font-size: 16px !important; }
+  }
   #bt-from-date::-webkit-calendar-picker-indicator,
   #bt-to-date::-webkit-calendar-picker-indicator {
     filter: brightness(0) saturate(100%) invert(66%) sepia(88%) saturate(1510%) hue-rotate(357deg) brightness(102%) contrast(96%);
@@ -663,6 +672,20 @@
     --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.20) 0%, rgba(100,60,200,0.38) 100%);
     --btn-color: #c4b5fd;
     --btn-border: rgba(139,92,246,0.40);
+  }
+  /* Flat purple tint. The colour lives here rather than inline because no single
+     purple clears 4.5:1 on both grounds — #c084fc is 6.38:1 on the dark button
+     and 2.53:1 on light, so each theme needs its own value. */
+  .btn-purple {
+    --btn-bg: rgba(168,85,247,0.15);
+    --btn-color: #c084fc;
+    --btn-border: rgba(168,85,247,0.40);
+  }
+  /* Secondary detail inside a field label, e.g. Lots (×65). Dimmer than the
+     label it sits in, but still above the AA floor: 5.34:1 here. */
+  .label-suffix {
+    color: rgba(255,255,255,0.5);
+    font-weight: 400;
   }
   .btn-outline {
     --btn-bg: transparent;
@@ -1324,8 +1347,16 @@
     border-top-color: rgba(15,23,42,0.08);
   }
   /* Lots label sub-text */
-  [data-theme="light"] #scalp-page span[style*="rgba(255,255,255,0.2)"] {
-    color: rgba(0,0,0,0.35) !important;
+  /* Was an attribute selector matching the inline colour string, which silently
+     stopped matching the moment that colour changed. Keyed to a class now.
+     0.35 black rendered 2.44:1 on this ground; 0.55 gives 4.73:1. */
+  [data-theme="light"] .label-suffix {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .btn-purple {
+    --btn-color: #7e22ce;
+    --btn-bg: rgba(168,85,247,0.10);
+    --btn-border: rgba(126,34,206,0.35);
   }
 
   /* ── Premium Light: Strategy Template Cards ── */
@@ -4044,9 +4075,12 @@
       font-size: 10px !important;
       letter-spacing: 0.4px !important;
     }
+    /* 16px, not 13px: below 16 iOS zooms the page in on focus and leaves it
+       there, which on the scalp ticket happened on every field. The column is
+       single-width here so the larger text still fits; padding stays tight. */
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] input,
     #scalp-page .card > div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 10px"] select {
-      font-size: 13px !important;
+      font-size: 16px !important;
       padding: 9px 10px !important;
     }
     /* BUY/SELL: full-width touch targets */
@@ -5761,6 +5795,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   margin-top: 14px;
   align-items: start;
 }
+/* Grid items default to min-width:auto, i.e. they refuse to shrink below their
+   content's min-content width. The results card holds an 8-column table whose
+   headers measure ~490px, so the card held the whole page open at 490px on a
+   390px screen — and the table's own `overflow-x:auto` wrapper could never
+   engage, because its parent was already as wide as the table. min-width:0 lets
+   the card follow the track, and the wrapper then scrolls the table inside it. */
+#options-cascade-page .oc-fib-lower-grid > * { min-width: 0; }
 #options-cascade-page .oc-fib-results-card,
 #options-cascade-page .oc-fib-events-card {
   border-radius: 18px;
@@ -5851,7 +5892,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .oc-hero-content { flex-direction: column; gap: 14px; }
   #options-cascade-page .oc-live-gate { width: 100%; min-width: 0; }
   #options-cascade-page .oc-tabs { width: 100%; }
-  #options-cascade-page .oc-tab { flex: 1 1 0; justify-content: center; padding-inline: 10px; }
+  /* No `flex: 1 1 0` here. The ≤900px rule above already turned .oc-tabs into a
+     column, and in a column container flex-basis sizes the BLOCK axis — so
+     `flex: 1 1 0` gave every card a 0 height to grow from, collapsing all five
+     to ~22px and painting each card's two lines through the next one. This rule
+     was written for the old row layout and never re-checked after the stack
+     landed. Height is content-driven now; only the inline padding is set. */
+  #options-cascade-page .oc-tab { padding-inline: 12px; }
   #options-cascade-page .fibx-form-actions { grid-template-columns: 1fr; }
   #options-cascade-page #fibx-backtest-btn { min-width: 0; }
   #options-cascade-page .oc-fib-lower-grid { grid-template-columns: 1fr; }

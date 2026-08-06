@@ -475,7 +475,7 @@
   <div class="card" style="margin: 0 0 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
       <h3 style="margin: 0;">Saved Strategies</h3>
-      <button class="btn btn-sm" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px; --btn-bg: rgba(168,85,247,0.15); --btn-color: rgb(168,85,247); --btn-border: rgba(168,85,247,0.4);">+ New Folder</button>
+      <button class="btn btn-sm btn-purple" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px;">+ New Folder</button>
     </div>
     <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
@@ -2269,7 +2269,7 @@
           </select>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span style="color: rgba(255,255,255,0.2); font-weight: 400;">(×<span id="scalp-lot-size-label">65</span>)</span></label>
+          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span class="label-suffix">(×<span id="scalp-lot-size-label">65</span>)</span></label>
           <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
           <input type="hidden" id="scalp-lot-size" value="65">
         </div>
