@@ -602,7 +602,7 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await page.selectOption('#fibx-mode', 'live');
   await expect(page.locator('#fibx-mode-note')).toContainText('UNARMED');
   // The arming step is named, not left hanging.
-  await expect(page.locator('#fibx-mode-note')).toContainText('Arm live');
+  await expect(page.locator('#fibx-mode-note')).toContainText('Arm on the running campaign');
   await page.selectOption('#fibx-mode', 'paper');
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
@@ -610,7 +610,7 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await page.selectOption('#fibx-symbol', 'BANKNIFTY');
   await expect(page.locator('#fibx-symbol-note')).toContainText('Monthly expiries only');
   await page.selectOption('#fibx-symbol', 'SENSEX');
-  await expect(page.locator('#fibx-symbol-note')).toContainText('34% of minutes');
+  await expect(page.locator('#fibx-symbol-note')).toContainText('Thin book');
   await page.selectOption('#fibx-symbol', 'NIFTY');
 
   // The monitor renders from a not_started payload rather than staying blank.
@@ -697,6 +697,10 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // The monitor renders the running ladder before the chart is even opened.
   await expect(page.locator('#fibx-badge')).toHaveText('OPEN');
   await expect(page.locator('#fibx-fills tr')).toHaveCount(2);
+  // Start is never silently dead: with a ladder running it names the one to
+  // kill, which is what "BANKNIFTY is not working" actually was.
+  await expect(page.locator('#fibx-start')).toBeEnabled();
+  await expect(page.locator('#fibx-start')).toContainText('Kill NIFTY first');
   await expect(page.locator('#fibx-anchor')).toContainText('24,700');
   await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
   // The strip names the mother's chart and the mode it is running in.

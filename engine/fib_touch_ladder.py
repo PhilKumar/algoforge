@@ -647,6 +647,11 @@ class FibTouchLadder:
         self.fills: list[TouchFill] = []
         self.events: list[dict[str, Any]] = []
         self.data_gaps: list[str] = []
+        # Catching up on today's earlier bars asks for a quote the lookup will
+        # never give (it refuses anything older than a few minutes, by design).
+        # That is one fact, not one per candle -- 157 identical lines is noise
+        # that buries the gaps which DO mean something.
+        self._gap_seen: dict[str, int] = {}
         self.status = "WAITING_FOR_SWING"
 
         # A candle that both fills and reaches the target must not do both: the
@@ -715,6 +720,21 @@ class FibTouchLadder:
         """A TOUCH, not a close -- the wick is enough."""
         return float(bar.low) <= level_price_ if self.side == "CE" else float(bar.high) >= level_price_
 
+    def _note_gap(self, reason: str, when: datetime) -> None:
+        """Record a pricing gap once per reason, with a count and a last-seen."""
+        count = self._gap_seen.get(reason, 0) + 1
+        self._gap_seen[reason] = count
+        line = (
+            f"{reason} (x{count}, last {when.strftime('%H:%M')})"
+            if count > 1
+            else f"{reason} at {when.strftime('%H:%M')}"
+        )
+        for i, existing in enumerate(self.data_gaps):
+            if existing.startswith(reason):
+                self.data_gaps[i] = line
+                return
+        self.data_gaps.append(line)
+
     def _log(self, when: datetime, event: str, **payload: Any) -> None:
         self.events.append({"timestamp": when.isoformat(), "event": event, **payload})
 
@@ -764,11 +784,10 @@ class FibTouchLadder:
                 break
             premium = self.premium_lookup(bar.timestamp, strike, expiry, self.side)
             if premium is None or premium <= 0:
-                gap = (
-                    f"no {self.config.symbol} {strike:g}{self.side} {expiry.isoformat()} print at "
-                    f"{bar.timestamp.isoformat()} for L{rung.level}"
+                self._note_gap(
+                    f"L{rung.level}: no {self.config.symbol} {strike:g}{self.side} " f"{expiry.isoformat()} quote",
+                    bar.timestamp,
                 )
-                self.data_gaps.append(gap)
                 self._log(bar.timestamp, "premium_missing", level=rung.level, strike=strike)
                 break
 

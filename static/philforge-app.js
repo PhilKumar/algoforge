@@ -2663,8 +2663,8 @@ function _syncFibLevelsHint() {
   const modeNote = document.getElementById('fibx-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
-      ? 'Live runs the identical decision path. It starts UNARMED and refuses to send, leaving the rung pending — press ⚡ Arm live on the running campaign to let orders through. That asks for your password and authenticator code.'
-      : 'Paper records every fill and sends nothing. Same rules, same sizing, same target as live.';
+      ? 'Starts UNARMED — decides, refuses to send. Arm on the running campaign.'
+      : 'Records fills, sends nothing. Same rules as live.';
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
 
@@ -2682,10 +2682,10 @@ function _syncFibLevelsHint() {
 // "current week" cannot mean anything on those three.
 const _FIBX_SYMBOL_NOTES = {
   NIFTY: '',
-  BANKNIFTY: 'Monthly expiries only — NSE withdrew the weeklies, so ≥4 DTE lands on the near monthly.',
-  FINNIFTY: 'Monthly only, and no premium history — paper runs, but a backtest cannot price it.',
-  MIDCPNIFTY: 'Monthly only, and no premium history — paper runs, but a backtest cannot price it.',
-  SENSEX: 'Weekly, but it prints in only 34% of minutes — expect 1m touches to fill late.',
+  BANKNIFTY: 'Monthly expiries only.',
+  FINNIFTY: 'Monthly only · no premium history, so no backtest.',
+  MIDCPNIFTY: 'Monthly only · no premium history, so no backtest.',
+  SENSEX: 'Thin book — 1m touches fill late.',
 };
 
 // Changing the timeframe leaves whatever was already typed behind, and the
@@ -2789,10 +2789,10 @@ function _syncFibModeHint() {
   const isToday = picked.getFullYear() === today.getFullYear() && picked.getMonth() === today.getMonth() && picked.getDate() === today.getDate();
   if (isToday) {
     el.classList.add('is-live');
-    el.textContent = '▶ Live paper: buys at real current premiums, P&L accrues live this session.';
+    el.textContent = '▶ Live paper · real current premiums';
   } else {
     el.classList.add('is-replay');
-    el.textContent = '↻ Past mother → Start replays the index geometry only (P&L withheld — Dhan quotes only "now"). ◱ Backtest replays the SAME typed levels against real Upstox/Dhan premium history and gives the full P&L.';
+    el.textContent = '↻ Past mother — today\'s session only; use Backtest for history.';
   }
 }
 
@@ -2923,7 +2923,12 @@ function _renderFibBoundaryStatus(payload) {
   }
   if (empty) empty.style.display = 'none';
   if (active) active.style.display = '';
-  if (startBtn) startBtn.disabled = isRunning;
+  // Left ENABLED on purpose. Disabling it meant a click on a different
+  // instrument did nothing and said nothing; now it answers.
+  if (startBtn) {
+    startBtn.disabled = false;
+    startBtn.textContent = isRunning ? `▶ Kill ${symbol} first` : '▶ Start fib-boundary paper';
+  }
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
 
   const anchorEl = document.getElementById('fibx-anchor');
@@ -3040,20 +3045,21 @@ async function startFibBoundaryPaper() {
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
   if (button) { button.disabled = true; button.textContent = 'Finding the swing and starting the paper monitor…'; }
-  _fibSetFormStatus(`Reading ${payload.symbol} ${payload.timeframe} candles and anchoring the swing…`, 'busy');
+  _fibSetFormStatus(`Reading ${payload.symbol} ${payload.timeframe}…`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Ladder did not start (${response.status})`));
     const anchored = data.campaign?.anchor;
     _fibSetFormStatus(anchored
-      ? `Ladder armed on the ${anchored.low}–${anchored.high} swing (${anchored.span} pts). No live order will be sent.`
-      : 'Started. Waiting for the first involvement to freeze the swing before any level is priced.', 'success');
+      ? `Armed · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
+      : 'Started · waiting for the swing to freeze', 'success');
     _renderFibBoundaryStatus({ campaign: data.campaign });
   } catch (error) {
     _fibSetFormStatus(error.message || 'Ladder start failed.', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = '▶ Start fib-boundary paper'; }
+    if (button) button.disabled = false;
+    refreshFibBoundaryStatus();
   }
 }
 

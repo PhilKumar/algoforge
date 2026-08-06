@@ -9472,9 +9472,15 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a ladder.")
     existing = _fib_boundary_engines.get(user_id)
     if existing is not None and existing.running:
+        # Name it. "A ladder is already running" sent Phil hunting for why
+        # BANKNIFTY would not start when the answer was a NIFTY ladder holding
+        # the slot.
         raise HTTPException(
             status_code=409,
-            detail="A ladder is already running. Kill it before starting a new mother.",
+            detail=(
+                f"A {existing.engine.config.symbol} {existing.engine.side} ladder is already running. "
+                f"Kill it before starting {terms.symbol}."
+            ),
         )
 
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
