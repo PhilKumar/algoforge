@@ -481,3 +481,112 @@ class StopSourceVariants(unittest.TestCase):
     def test_an_unknown_source_is_refused(self):
         with self.assertRaises(ValueError):
             RecoveryConfig(timeframe="5m", sl_source="trailing")
+
+
+class PutSideMirror(unittest.TestCase):
+    """A PE campaign is the CE rules upside down, run on mirrored bars.
+
+    The mirror is what lets one implementation serve both sides: negate every
+    price and swap high with low, and "two reds, the second closing below the
+    first's LOW, buy the recovery at its HIGH, stop below the entry candle's
+    LOW" becomes "two greens, the second closing above the first's HIGH, buy at
+    its LOW, stop above the entry candle's HIGH".
+    """
+
+    def test_a_green_bar_mirrors_to_red_with_high_and_low_swapped(self):
+        from engine.candle_recovery import mirror_bar
+
+        b = bar(1, 100, 110, 95, 105)  # green
+        m = mirror_bar(b)
+        self.assertTrue(m.is_red)
+        self.assertEqual(m.high, -b.low)
+        self.assertEqual(m.low, -b.high)
+        self.assertEqual(m.timestamp, b.timestamp)
+
+    def test_the_mirror_is_its_own_inverse(self):
+        from engine.candle_recovery import mirror_bar
+
+        b = bar(1, 100, 110, 95, 105)
+        again = mirror_bar(mirror_bar(b))
+        self.assertEqual((again.open, again.high, again.low, again.close), (b.open, b.high, b.low, b.close))
+
+    def test_a_rising_market_arms_and_fills_a_put_campaign(self):
+        from engine.candle_recovery import mirror_bar, unmirror_price
+
+        # A swing LOW mother, then a rally: two greens where the second closes
+        # ABOVE the first's high, then a dip back through that green's LOW.
+        raw_mother = bar(0, 108, 109, 100, 102)  # the swing low
+        rows = [
+            bar(1, 102, 106, 101, 105),  # green
+            bar(2, 105, 110, 104, 109),  # green, closes above 106 -> arms at its LOW 104
+            bar(3, 109, 110, 103, 104),  # dips through 104 -> fills
+        ]
+        h = Harness.__new__(Harness)
+        h.tape = {}
+        h.engine = TwoRedRecovery(
+            mirror_bar(raw_mother),
+            RecoveryConfig(timeframe="5m"),
+            contract_for=lambda when, index: (24000, EXPIRY),
+            # the engine hands back a MIRRORED index price; a real caller
+            # negates it before asking the chain for a strike
+            premium_lookup=lambda when, strike, expiry: h.tape.get(when),
+            lot_size=LOT,
+        )
+        h.price = Harness.price.__get__(h)
+        h.price(bar(3, 0, 0, 0, 0).timestamp, 100.0)
+        for row in rows:
+            h.engine.on_bar(mirror_bar(row))
+
+        trade = h.engine.trades[0]
+        self.assertIsNotNone(trade.entry_time)
+        # armed at the second GREEN's low, stopped above the entry candle's HIGH
+        self.assertEqual(unmirror_price(trade.trigger), 104.0)
+        self.assertEqual(unmirror_price(trade.sl_level), 110.0)
+        self.assertEqual(unmirror_price(trade.entry_index), 104.0)
+
+
+class RunMothers(unittest.TestCase):
+    """Five consecutive higher highs, the LAST of them being the mother.
+
+    Distinct from a pivot: a pivot is a V needing future bars to confirm, so a
+    live system learns of it late. A run's last bar IS the mother, known the
+    instant it closes.
+    """
+
+    def _series(self, highs):
+        from types import SimpleNamespace
+
+        base = datetime(2026, 2, 2, 9, 15)
+        return [
+            SimpleNamespace(timestamp=base + timedelta(minutes=5 * i), open=h - 5, high=h, low=h - 10, close=h - 2)
+            for i, h in enumerate(highs)
+        ]
+
+    def test_a_staircase_of_five_makes_its_last_bar_the_mother(self):
+        from engine.cascade_mothers import find_run_mothers
+
+        rows = self._series([100, 101, 102, 103, 104, 103, 102])
+        found = find_run_mothers(rows, run=5, atr_period=2)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].index, 4)  # the 5th bar, the highest
+        self.assertEqual(found[0].high, 104)
+        # confirmed by its OWN close -- no future bar consulted
+        self.assertEqual(found[0].confirmed_at, rows[4].timestamp)
+
+    def test_a_break_in_the_run_disqualifies_it(self):
+        from engine.cascade_mothers import find_run_mothers
+
+        rows = self._series([100, 101, 100.5, 102, 103, 104])
+        self.assertEqual(find_run_mothers(rows, run=5, atr_period=2), [])
+
+    def test_mirrored_bars_turn_it_into_five_consecutive_LOWER_LOWS(self):
+        from engine.candle_recovery import mirror_bar
+        from engine.cascade_mothers import find_run_mothers
+
+        base = datetime(2026, 2, 2, 9, 15)
+        lows = [100, 99, 98, 97, 96, 97]  # a falling staircase
+        real = [RecoveryBar(base + timedelta(minutes=5 * i), lo + 8, lo + 10, lo, lo + 2) for i, lo in enumerate(lows)]
+        found = find_run_mothers([mirror_bar(b) for b in real], run=5, atr_period=2)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].index, 4)
+        self.assertEqual(-found[0].high, 96)  # the lowest low, back in real prices

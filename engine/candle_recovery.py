@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_costs
 
@@ -63,6 +63,18 @@ EOD_OPEN_MINUTES: dict[str, int] = {
 # (illiquid strike, exchange pause). The lookup walks forward this far before
 # giving up -- the same tolerance the fib-space pricer uses.
 PREMIUM_FORWARD_MINUTES = 5
+
+
+def round_costs(*, entry: float, exit_price: float, quantity: int, lots: int, model=None) -> float:
+    """Charges for one buy-and-sell round, option basket unless told otherwise."""
+    if model is not None:
+        return float(model(entry=entry, exit_price=exit_price, quantity=quantity, lots=lots))
+    return calculate_nifty_option_basket_round_costs(
+        buys=[OptionCostFill(price=entry, quantity=quantity, lots=lots)],
+        sell_price=exit_price,
+        sell_quantity=quantity,
+        sell_lots=lots,
+    ).total
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,11 @@ class RecoveryConfig:
     itm_steps: int = 2
     min_dte: int = 4
     max_dte: int = 45
+    # WHAT A ROUND COSTS. Defaults to the NIFTY option basket schedule. Cash
+    # equities are charged differently (delivery STT, no lot concept), so the
+    # equity runner injects its own -- the rules are the same either way, and
+    # only the tax on them changes.
+    cost_model: Optional[Callable[..., float]] = None
     # Safety valve: a mother that never recovers must not ladder losses forever.
     max_trades: int = 12
     # And a campaign must end: sessions counted from the mother, inclusive.
@@ -149,6 +166,9 @@ class RecoveryTrade:
     def priced(self) -> bool:
         return self.entry_premium is not None
 
+    # Set by the engine at construction so a trade can charge the right tax.
+    cost_model: Optional[Callable[..., float]] = None
+
     def close_out(self, when: datetime, index_price: float, premium: Optional[float], reason: str) -> None:
         self.exit_time = when
         self.exit_index = index_price
@@ -156,14 +176,17 @@ class RecoveryTrade:
         self.exit_reason = reason
         if premium is not None and self.entry_premium is not None and self.quantity:
             gross = round((premium - self.entry_premium) * self.quantity, 2)
-            costs = calculate_nifty_option_basket_round_costs(
-                buys=[OptionCostFill(price=self.entry_premium, quantity=self.quantity, lots=self.lots)],
-                sell_price=premium,
-                sell_quantity=self.quantity,
-                sell_lots=self.lots,
-            )
             self.gross_pnl = gross
-            self.costs = round(costs.total, 2)
+            self.costs = round(
+                round_costs(
+                    entry=self.entry_premium,
+                    exit_price=premium,
+                    quantity=self.quantity,
+                    lots=self.lots,
+                    model=self.cost_model,
+                ),
+                2,
+            )
             self.net_pnl = round(gross - self.costs, 2)
 
 
@@ -318,7 +341,12 @@ class TwoRedRecovery:
             return
         when = self._bar_close_time(bar)
         if self._pending is None:
-            trade = RecoveryTrade(trade_no=len(self.trades) + 1, armed_at=when, trigger=float(bar.high))
+            trade = RecoveryTrade(
+                trade_no=len(self.trades) + 1,
+                armed_at=when,
+                trigger=float(bar.high),
+                cost_model=self.config.cost_model,
+            )
             self.trades.append(trade)
             self._pending = trade
             self.status = "ARMED"
@@ -430,13 +458,13 @@ class TwoRedRecovery:
         if premium is None or trade.entry_premium is None:
             return
         gross = (premium - trade.entry_premium) * trade.quantity
-        costs = calculate_nifty_option_basket_round_costs(
-            buys=[OptionCostFill(price=trade.entry_premium, quantity=trade.quantity, lots=trade.lots)],
-            sell_price=premium,
-            sell_quantity=trade.quantity,
-            sell_lots=trade.lots,
+        net = gross - round_costs(
+            entry=trade.entry_premium,
+            exit_price=premium,
+            quantity=trade.quantity,
+            lots=trade.lots,
+            model=self.config.cost_model,
         )
-        net = gross - costs.total
         if net >= self.required_recovery:
             trade.close_out(when, float(bar.close), premium, "target")
             self.status = "RECOVERED"
@@ -650,7 +678,12 @@ class FibZoneEntry:
             return
         when = self._bar_close_time(bar)
         if self._pending is None:
-            trade = RecoveryTrade(trade_no=len(self.trades) + 1, armed_at=when, trigger=float(bar.high))
+            trade = RecoveryTrade(
+                trade_no=len(self.trades) + 1,
+                armed_at=when,
+                trigger=float(bar.high),
+                cost_model=self.config.cost_model,
+            )
             self.trades.append(trade)
             self._pending = trade
             self._pending_zone = zone
@@ -716,13 +749,13 @@ class FibZoneEntry:
             premium = self._premium(when, trade)
             if premium is None or trade.entry_premium is None:
                 return None
-            costs = calculate_nifty_option_basket_round_costs(
-                buys=[OptionCostFill(price=trade.entry_premium, quantity=trade.quantity, lots=trade.lots)],
-                sell_price=premium,
-                sell_quantity=trade.quantity,
-                sell_lots=trade.lots,
+            total += (premium - trade.entry_premium) * trade.quantity - round_costs(
+                entry=trade.entry_premium,
+                exit_price=premium,
+                quantity=trade.quantity,
+                lots=trade.lots,
+                model=self.config.cost_model,
             )
-            total += (premium - trade.entry_premium) * trade.quantity - costs.total
         return total
 
     def _close_all(self, bar: RecoveryBar, reason: str, *, at_open_minute: bool = False) -> None:
@@ -814,3 +847,35 @@ class FibZoneEntry:
         if self.status not in {"RECOVERED", "ABANDONED", "ENDED"} and bars:
             self._end_now(bars[-1], "end_of_data")
         return self
+
+
+# ── the PE side ─────────────────────────────────────────────────────────────
+#
+# A put campaign is the same strategy upside down: the mother is a swing LOW,
+# two GREEN candles where the second closes ABOVE the first's HIGH arm the
+# entry, the buy is at the second green's LOW, the stop is the entry candle's
+# HIGH, and every later entry must break HIGHER.
+#
+# Rather than fork the engine and keep two sets of comparisons in step, the
+# BARS are mirrored: negate every price and swap high with low.  Then red
+# becomes green, "closes below the previous low" becomes "closes above the
+# previous high", and the stop flips with them -- the engine is untouched and
+# there is exactly one implementation of the rules to get right.
+#
+# Index-space numbers coming back out (trigger, entry, stop, exit) are in the
+# mirrored frame and must be negated again before a human reads them.
+# Premiums are NOT mirrored: they are real rupees on a real PE contract.
+
+
+def mirror_bar(bar: RecoveryBar) -> RecoveryBar:
+    """Flip a bar through zero. High and low swap as well as negate."""
+    return RecoveryBar(bar.timestamp, -bar.open, -bar.low, -bar.high, -bar.close)
+
+
+def mirror_bars(bars: Iterable[RecoveryBar]) -> list[RecoveryBar]:
+    return [mirror_bar(b) for b in bars]
+
+
+def unmirror_price(value: Optional[float]) -> Optional[float]:
+    """An index-space number from a mirrored run, back in real prices."""
+    return None if value is None else -float(value)

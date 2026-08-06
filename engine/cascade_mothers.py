@@ -273,3 +273,73 @@ def find_wick_mothers(
         last_index = position
 
     return found
+
+
+def find_run_mothers(
+    candles: Sequence,
+    *,
+    run: int = 5,
+    atr_period: int = 14,
+    min_range_atr: float = 0.0,
+    min_separation_bars: int = 0,
+    same_session_only: bool = True,
+) -> list[MotherCandidate]:
+    """Mothers at the end of a run of consecutive HIGHER HIGHS.
+
+    Phil's rule, stated 2026-08-05 for the put side and mirrored for the call
+    side: "five consecutive lows", the mother being the last of them.
+
+    This is NOT the swing pivot the other scanners use, and the difference is
+    the point.  A pivot is a V -- it needs `right_bars` of future to confirm,
+    so a live system learns about it late and a backtest that forgets this is
+    peeking.  A run is a staircase, and its last bar IS the mother: confirmed
+    the instant it closes, which is when a person actually sees it.
+
+    Fed mirrored bars (engine/candle_recovery.mirror_bars) this finds runs of
+    consecutive LOWER LOWS instead, which is what a PE campaign hangs off.
+
+    run
+        How many bars must each beat the one before.  5 means five bars, four
+        comparisons -- the plain reading of "five consecutive highs".
+    min_range_atr
+        Optional floor on the mother's own range, off by default: unlike a
+        pivot, a run has already proved itself by moving.
+    """
+    if run < 2:
+        raise ValueError("run must be at least 2")
+    rows = list(candles)
+    atrs = atr_series(rows, atr_period)
+    out: list[MotherCandidate] = []
+    last_index = -(10**9)
+    for position in range(run - 1, len(rows)):
+        window = rows[position - run + 1 : position + 1]
+        if not all(window[i].high > window[i - 1].high for i in range(1, len(window))):
+            continue
+        if same_session_only and len({row.timestamp.date() for row in window}) != 1:
+            continue
+        candle = rows[position]
+        atr = atrs[position]
+        if atr is None or atr <= 0:
+            continue
+        span = float(candle.high) - float(candle.low)
+        range_atr = span / atr if atr else 0.0
+        if min_range_atr and range_atr < min_range_atr:
+            continue
+        if position - last_index < min_separation_bars:
+            continue
+        last_index = position
+        out.append(
+            MotherCandidate(
+                timestamp=candle.timestamp,
+                high=float(candle.high),
+                low=float(candle.low),
+                index=position,
+                # The run's own last bar confirms it -- no future is consulted.
+                confirmed_at=candle.timestamp,
+                confirmed_index=position,
+                atr=float(atr),
+                range_atr=range_atr,
+                run_green=sum(1 for row in window if row.close >= row.open),
+            )
+        )
+    return out

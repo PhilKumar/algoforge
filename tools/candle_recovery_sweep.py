@@ -31,8 +31,15 @@ from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.candle_recovery import FibZoneEntry, RecoveryBar, RecoveryConfig, TwoRedRecovery  # noqa: E402
-from engine.cascade_mothers import MotherCandidate, find_mother_candles  # noqa: E402
+from engine.candle_recovery import (  # noqa: E402
+    FibZoneEntry,
+    RecoveryBar,
+    RecoveryConfig,
+    TwoRedRecovery,
+    mirror_bar,
+    mirror_bars,
+)
+from engine.cascade_mothers import MotherCandidate, find_mother_candles, find_run_mothers  # noqa: E402
 from engine.cascade_options import CascadeConfig, NiftyContractResolver  # noqa: E402
 from tools.fib_cascade_sweep import SYMBOLS, load_index_candles  # noqa: E402
 
@@ -58,6 +65,7 @@ def replay_one(
     premium_lookup: Callable[[datetime, SimpleNamespace], Optional[float]],
     expiries: list[date],
     mode: str = "ladder",
+    side: str = "CE",
 ) -> tuple[CampaignOutcome, TwoRedRecovery]:
     resolver = NiftyContractResolver(
         expiries=expiries, strike_step=cfg["strike_step"], lot_size=cfg["lot_size"], symbol=cfg["cache"]
@@ -66,7 +74,7 @@ def replay_one(
         mother_timestamp=mother.timestamp,
         mother_high=mother.high,
         mother_low=mother.low,
-        option_type="CE",
+        option_type=side,
         timeframe=timeframe,
         itm_steps=config.itm_steps,
         strike_step=cfg["strike_step"],
@@ -76,8 +84,11 @@ def replay_one(
     )
 
     def contract_for(when: datetime, index_price: float) -> Optional[tuple[int, date]]:
+        # A PE run drives the engine on MIRRORED bars, so the index price coming
+        # back is negative; the chain must be asked for the real spot.
+        spot = -float(index_price) if side == "PE" else float(index_price)
         try:
-            picked = resolver.select(when, index_price, "CE", resolver_config)
+            picked = resolver.select(when, spot, side, resolver_config)
         except Exception:
             return None
         return int(picked.strike), picked.expiry
@@ -85,21 +96,30 @@ def replay_one(
     def lookup(when: datetime, strike: int, expiry: date) -> Optional[float]:
         # The archive keys on .symbol/.strike/.expiry/.option_type -- the same
         # shape the resolver's Contract carries, so a namespace is enough.
-        contract = SimpleNamespace(symbol=cfg["cache"], strike=int(strike), expiry=expiry, option_type="CE")
+        contract = SimpleNamespace(symbol=cfg["cache"], strike=int(strike), expiry=expiry, option_type=side)
         return premium_lookup(when, contract)
 
     mother_row = next(row for row in series if row.timestamp == mother.timestamp)
     mother_bar = RecoveryBar(mother_row.timestamp, mother_row.open, mother_row.high, mother_row.low, mother_row.close)
+    if side == "PE":
+        mother_bar = mirror_bar(mother_bar)
     engine_cls = FibZoneEntry if mode == "fib-zone" else TwoRedRecovery
     engine = engine_cls(
         mother_bar, config, contract_for=contract_for, premium_lookup=lookup, lot_size=int(cfg["lot_size"])
     )
+    # NO LOOKAHEAD. A pivot is not knowable until `right_bars` after it -- the
+    # scanner says so and hands back `confirmed_at` for exactly this. Starting
+    # the watch at the mother's own bar let a pivot campaign arm and fill on
+    # bars a live system had not yet been told about. A run mother confirms on
+    # its own close, so this costs it nothing and the two rules are finally
+    # judged on the same terms.
+    watch_from = getattr(mother, "confirmed_at", None) or mother.timestamp
     bars = [
         RecoveryBar(row.timestamp, row.open, row.high, row.low, row.close)
         for row in series
-        if row.timestamp > mother.timestamp
+        if row.timestamp > watch_from
     ]
-    engine.run(bars)
+    engine.run(mirror_bars(bars) if side == "PE" else bars)
     stops = sum(1 for t in engine.trades if t.exit_reason == "stop")
     outcome = CampaignOutcome(
         mother_timestamp=mother.timestamp,
@@ -138,6 +158,19 @@ def main() -> int:
     ap.add_argument("--right-bars", type=int, default=3)
     ap.add_argument("--min-range-atr", type=float, default=0.8)
     ap.add_argument("--min-separation-bars", type=int, default=0)
+    ap.add_argument(
+        "--mother-rule",
+        choices=["pivot", "run"],
+        default="pivot",
+        help="pivot = a swing V confirmed `right-bars` late; run = N consecutive higher highs (lower lows on PE), the last being the mother",
+    )
+    ap.add_argument("--run", type=int, default=5, help="bars in the run when --mother-rule run")
+    ap.add_argument(
+        "--side",
+        choices=["CE", "PE"],
+        default="CE",
+        help="CE buys falls from a swing-high mother; PE buys rallies from a swing-LOW mother",
+    )
     ap.add_argument(
         "--mode",
         choices=["ladder", "fib-zone"],
@@ -199,14 +232,34 @@ def main() -> int:
         max_trades=args.max_trades,
         horizon_sessions=args.horizon_sessions,
     )
-    mothers = find_mother_candles(
-        series,
-        left_bars=args.left_bars,
-        right_bars=args.right_bars,
-        min_range_atr=args.min_range_atr,
-        min_separation_bars=args.min_separation_bars,
-    )
-    print(f"[mothers] {len(mothers)} swing mothers, applied mechanically\n")
+    # A PE campaign hangs off a swing LOW. The scanner only knows how to find
+    # swing highs, so for PE it is shown the mirrored series -- its highs are
+    # the real series' lows. Timestamps are untouched, and replay_one re-derives
+    # the mother from the REAL bar, so only the timestamp is taken from here.
+    scan_series = series
+    if args.side == "PE":
+        scan_series = [
+            SimpleNamespace(timestamp=r.timestamp, open=-r.open, high=-r.low, low=-r.high, close=-r.close)
+            for r in series
+        ]
+    if args.mother_rule == "run":
+        mothers = find_run_mothers(
+            scan_series,
+            run=args.run,
+            min_range_atr=args.min_range_atr,
+            min_separation_bars=args.min_separation_bars,
+        )
+        shape = f"{args.run} consecutive {'lower lows' if args.side == 'PE' else 'higher highs'}"
+    else:
+        mothers = find_mother_candles(
+            scan_series,
+            left_bars=args.left_bars,
+            right_bars=args.right_bars,
+            min_range_atr=args.min_range_atr,
+            min_separation_bars=args.min_separation_bars,
+        )
+        shape = f"{args.left_bars}/{args.right_bars}-bar swing-{'low' if args.side == 'PE' else 'high'} pivots"
+    print(f"[mothers] {len(mothers)} mothers from {shape}, applied mechanically ({args.side})\n")
 
     outcomes: list[CampaignOutcome] = []
     engines: list[TwoRedRecovery] = []
@@ -220,6 +273,7 @@ def main() -> int:
             premium_lookup=premium_lookup,
             expiries=expiries,
             mode=args.mode,
+            side=args.side,
         )
         outcomes.append(outcome)
         engines.append(engine)

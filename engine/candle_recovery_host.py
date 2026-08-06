@@ -28,10 +28,14 @@ from engine.candle_recovery import (
     RecoveryBar,
     RecoveryConfig,
     TwoRedRecovery,
+    mirror_bar,
+    mirror_bars,
+    unmirror_price,
 )
 from engine.cascade_options import is_nse_cash_session
 
 MODES = ("ladder", "fib-zone")
+SIDES = ("CE", "PE")
 
 # A campaign is replayed from its own mother, so the fetch must reach back far
 # enough to cover the oldest one still running -- not just far enough to see
@@ -115,12 +119,15 @@ class CandleRecoveryHost:
         select_contract: Callable[[datetime, float], object],
         config: RecoveryConfig,
         mode: str = "ladder",
+        side: str = "CE",
         lot_size: int = 75,
         dhan_symbol: Optional[str] = None,
         min_lookback_days: int = MIN_LOOKBACK_DAYS,
     ) -> None:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
+        if str(side).upper() not in SIDES:
+            raise ValueError(f"side must be one of {SIDES}")
         self.symbol = symbol
         self.adapter = adapter
         self.dhan_symbol = dhan_symbol or symbol.upper()
@@ -128,6 +135,10 @@ class CandleRecoveryHost:
         self.select_contract = select_contract
         self.config = config
         self.mode = mode
+        # A PE campaign runs the SAME engine on MIRRORED bars: swing-low mother,
+        # two greens, buy at the second green's low, stop above the entry candle's
+        # high. One implementation of the rules, flipped through zero.
+        self.side = str(side).upper()
         self.lot_size = int(lot_size)
         self.min_lookback_days = min_lookback_days
         self.campaigns: dict[str, RecoveryCampaign] = {}
@@ -143,9 +154,16 @@ class CandleRecoveryHost:
 
     # ── the engine's two callbacks ──────────────────────────────────────────
 
+    @property
+    def mirrored(self) -> bool:
+        return self.side == "PE"
+
     def _contract_for(self, when: datetime, index_price: float):
+        # On a PE run the engine hands back a mirrored (negative) index price;
+        # the chain must be asked for the real spot.
+        spot = -float(index_price) if self.mirrored else float(index_price)
         try:
-            picked = self.select_contract(when, float(index_price))
+            picked = self.select_contract(when, spot)
         except Exception:
             return None
         return int(picked.strike), picked.expiry
@@ -203,7 +221,8 @@ class CandleRecoveryHost:
             premium_lookup=self._premium_for,
             lot_size=self.lot_size,
         )
-        engine.run([b for b in bars if b.timestamp > campaign.mother.timestamp])
+        window = [b for b in bars if b.timestamp > campaign.mother.timestamp]
+        engine.run(mirror_bars(window) if self.mirrored else window)
         return engine
 
     async def start_named_mother(self, when: datetime, *, now: datetime) -> RecoveryCampaign:
@@ -228,7 +247,7 @@ class CandleRecoveryHost:
         campaign_id = f"{self.symbol}:{self.config.timeframe}:{when:%Y%m%dT%H%M}"
         if campaign_id in self.campaigns:
             raise ValueError(f"a campaign is already running on the {when:%d %b %Y %H:%M} mother")
-        campaign = RecoveryCampaign(campaign_id, bar, self.mode, now)
+        campaign = RecoveryCampaign(campaign_id, mirror_bar(bar) if self.mirrored else bar, self.mode, now)
         campaign.engine = self._replay(campaign, bars)
         self.campaigns[campaign_id] = campaign
         return campaign
@@ -294,14 +313,18 @@ class CandleRecoveryHost:
 
     # ── what the panel reads ────────────────────────────────────────────────
 
+    def _px(self, value):
+        """An index-space number from the engine, in real prices."""
+        return unmirror_price(value) if self.mirrored else value
+
     def _trade_row(self, t) -> dict:
         return {
             "trade_no": t.trade_no,
             "armed_at": t.armed_at.isoformat() if t.armed_at else None,
-            "trigger": t.trigger,
+            "trigger": self._px(t.trigger),
             "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-            "entry_index": t.entry_index,
-            "sl_level": t.sl_level,
+            "entry_index": self._px(t.entry_index),
+            "sl_level": self._px(t.sl_level),
             "strike": t.strike,
             "expiry": t.expiry.isoformat() if t.expiry else None,
             "lots": t.lots,
@@ -323,10 +346,12 @@ class CandleRecoveryHost:
             "campaign_id": campaign.campaign_id,
             "mode": campaign.mode,
             "timeframe": self.config.timeframe,
+            "side": self.side,
             "mother": {
                 "timestamp": campaign.mother.timestamp.isoformat(),
-                "high": campaign.mother.high,
-                "low": campaign.mother.low,
+                # a mirrored mother's high is the real low, and vice versa
+                "high": self._px(campaign.mother.low) if self.mirrored else campaign.mother.high,
+                "low": self._px(campaign.mother.high) if self.mirrored else campaign.mother.low,
             },
             "status": campaign.status,
             "end_reason": getattr(engine, "end_reason", None),
@@ -337,11 +362,11 @@ class CandleRecoveryHost:
             "open_trades": len(open_trades),
             "trades": [self._trade_row(t) for t in trades],
             "zones": [
-                {"level": z.level, "upper": z.upper, "lower": z.lower, "lots": z.lots}
+                {"level": z.level, "upper": self._px(z.upper), "lower": self._px(z.lower), "lots": z.lots}
                 for z in (getattr(engine, "zones", None) or [])
             ],
-            "swing_low": getattr(engine, "swing_low", None),
-            "buyer_high": getattr(engine, "buyer_high", None),
+            "swing_low": self._px(getattr(engine, "swing_low", None)),
+            "buyer_high": self._px(getattr(engine, "buyer_high", None)),
         }
 
     def snapshot(self) -> dict:
@@ -351,6 +376,7 @@ class CandleRecoveryHost:
             "symbol": self.symbol,
             "dhan_symbol": self.dhan_symbol,
             "mode": self.mode,
+            "side": self.side,
             "timeframe": self.config.timeframe,
             "lot_size": self.lot_size,
             "config": {
@@ -368,4 +394,4 @@ class CandleRecoveryHost:
         }
 
 
-__all__ = ["CandleRecoveryHost", "RecoveryCampaign", "PollReport", "MODES", "bars_from_candles"]
+__all__ = ["CandleRecoveryHost", "RecoveryCampaign", "PollReport", "MODES", "SIDES", "bars_from_candles"]
