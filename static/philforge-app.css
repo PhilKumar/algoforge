@@ -14,7 +14,12 @@
     --border-acc: rgba(var(--pf-tint-primary-rgb),  0.18);
     --text:       #dde3ee;
     --text-dim:   rgba(221, 227, 238, 0.65);
-    --muted:      rgba(180, 195, 215, 0.5);
+    /* Opaque, not 50% alpha: composited over the app's grounds the old value
+       landed at 3.4:1, under the 4.5:1 AA floor, and it carries every form
+       label, empty state and nav label. Now 5.35:1 worst case, still dimmer
+       than --text-dim so the type hierarchy holds. Light theme has its own
+       --muted further down and is unaffected. */
+    --muted:      #8491a3;
     --accent:     #00bfa5;
     --accent2:    #4f8ef7;
     --green:      #34d399;
