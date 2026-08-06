@@ -592,8 +592,13 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-levels-hint')).toContainText('L16');
 
   // Every chart a mother may be read on. Entries stay 1m whichever is picked.
-  await expect(page.locator('#fibx-timeframe option')).toHaveCount(4);
-  await expect(page.locator('#fibx-timeframe')).toHaveValue('1m');
+  // A button row, not a dropdown -- all four charts visible at once.
+  await expect(page.locator('#fibx-timeframe .fibx-tf')).toHaveCount(4);
+  await expect(page.locator('#fibx-timeframe')).toHaveAttribute('data-value', '1m');
+  await page.click('#fibx-timeframe .fibx-tf[data-tf="15m"]');
+  await expect(page.locator('#fibx-timeframe')).toHaveAttribute('data-value', '15m');
+  await expect(page.locator('#fibx-timeframe .fibx-tf[data-tf="15m"]')).toHaveClass(/is-active/);
+  await page.click('#fibx-timeframe .fibx-tf[data-tf="1m"]');
 
   // Paper is what you get by default, and live says it is not armed BEFORE
   // it is picked -- finding that out at the first touch helps nobody.
@@ -700,7 +705,11 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // Start is never silently dead: with a ladder running it names the one to
   // kill, which is what "BANKNIFTY is not working" actually was.
   await expect(page.locator('#fibx-start')).toBeEnabled();
-  await expect(page.locator('#fibx-start')).toContainText('Kill NIFTY first');
+  await expect(page.locator('#fibx-start')).toContainText('Kill the running ladder first');
+  // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
+  await expect(page.locator('#fibx-blocked table')).toBeVisible();
+  await expect(page.locator('#fibx-blocked')).toContainText('NIFTY CE');
+  await expect(page.locator('#fibx-blocked')).toContainText('15M mother');
   await expect(page.locator('#fibx-anchor')).toContainText('24,700');
   await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
   // The strip names the mother's chart and the mode it is running in.

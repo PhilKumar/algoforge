@@ -9475,11 +9475,17 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         # Name it. "A ladder is already running" sent Phil hunting for why
         # BANKNIFTY would not start when the answer was a NIFTY ladder holding
         # the slot.
+        running = existing.engine
+        same = running.config.symbol == terms.symbol
         raise HTTPException(
             status_code=409,
             detail=(
-                f"A {existing.engine.config.symbol} {existing.engine.side} ladder is already running. "
-                f"Kill it before starting {terms.symbol}."
+                f"A {running.config.symbol} {running.side} ladder is already running"
+                + (
+                    " on this instrument. Kill it to start a new mother."
+                    if same
+                    else f". Kill it before starting {terms.symbol}."
+                )
             ),
         )
 

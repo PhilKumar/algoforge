@@ -238,6 +238,11 @@ function _pfChartCanvasTimeAt(axis, idx) {
 }
 
 // How many bars of context frame the trade on either side.
+// How far past the candles a level may drag the y-axis, in multiples of the
+// visible candle range. ONE: the candles are the subject of the chart, and a
+// rung a full range away is already the furthest thing worth seeing beside
+// them. Deeper ones stay drawn and return on zoom-out.
+var _PF_CHART_LEVEL_FIT_SPANS = 1;
 var _PF_CHART_TRADE_PAD_BARS = 25;
 
 // Initial fit: the TRADE, not the whole fetch.  With entries the window is 25
@@ -292,12 +297,23 @@ function _pfChartCanvasFit(c) {
     hi = Math.max(hi, Number(d.tp_price));
     lo = Math.min(lo, Number(d.tp_price));
   }
-  // A rung that never filled can sit outside the candles it was measured from.
-  // Leaving it out of the fit draws it off-screen, which reads as "no rung".
+  // Levels are allowed to PULL the fit only as far as the price action itself.
+  // A fib ladder extrapolates: L16 sits sixteen swing-spans below the swing
+  // high, which on BANKNIFTY put it 3,600 points under anything that ever
+  // traded and squeezed every candle into the top tenth of the pane. So a level
+  // joins the fit only if it is already near the market; the deep ones are
+  // still DRAWN, and come back into view on zoom-out because hline() skips
+  // whatever is off-axis. Same rule CryptoForge's cascade chart has always
+  // used -- fit the prices the market printed, never the extrapolation.
+  var candleSpan = (hi - lo) || Math.max(Math.abs(hi) * 0.02, 1);
+  var nearLo = lo - candleSpan * _PF_CHART_LEVEL_FIT_SPANS;
+  var nearHi = hi + candleSpan * _PF_CHART_LEVEL_FIT_SPANS;
   (d.lines || []).forEach(function (line) {
     if (!line || line.price == null) return;
-    hi = Math.max(hi, Number(line.price));
-    lo = Math.min(lo, Number(line.price));
+    var price = Number(line.price);
+    if (!isFinite(price) || price < nearLo || price > nearHi) return;
+    hi = Math.max(hi, price);
+    lo = Math.min(lo, price);
   });
   var priceSpan = (hi - lo) || Math.max(Math.abs(hi) * 0.02, 1);
   var padP = priceSpan * 0.06;

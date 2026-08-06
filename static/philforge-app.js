@@ -1457,6 +1457,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
   'showInsightsTab',
+  'pickFibTimeframe',
   'recoveryStart',
   'recoveryStop',
   'recoveryAddMother',
@@ -2672,7 +2673,7 @@ function _syncFibLevelsHint() {
   if (!mother) return;
   // The picker must offer only the minutes this chart can open on: 5m gets
   // multiples of 5, 15m multiples of 15, 1H only :15, and 1m every minute.
-  const tf = document.getElementById('fibx-timeframe')?.value || '1m';
+  const tf = _fibTimeframe();
   mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[tf] || '';
   _fibSnapMotherToTimeframe(mother, tf);
 }
@@ -2680,6 +2681,20 @@ function _syncFibLevelsHint() {
 // Read off Dhan's own scrip master (2026-08-05) and the premium sources that
 // actually exist. NSE withdrew the BANKNIFTY/FINNIFTY/MIDCPNIFTY weeklies, so
 // "current week" cannot mean anything on those three.
+function pickFibTimeframe(event, el) {
+  const btn = el || event?.currentTarget;
+  const row = document.getElementById('fibx-timeframe');
+  if (!btn || !row) return;
+  row.dataset.value = btn.getAttribute('data-tf') || '1m';
+  row.querySelectorAll('.fibx-tf').forEach(b => b.classList.toggle('is-active', b === btn));
+  _syncFibLevelsHint();
+}
+
+// The picker is a button row, so `.value` no longer exists on it.
+function _fibTimeframe() {
+  return document.getElementById('fibx-timeframe')?.dataset.value || '1m';
+}
+
 const _FIBX_SYMBOL_NOTES = {
   NIFTY: '',
   BANKNIFTY: 'Monthly expiries only.',
@@ -2797,7 +2812,7 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  ['fibx-symbol', 'fibx-timeframe', 'fibx-mode'].forEach(id => {
+  ['fibx-symbol', 'fibx-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) { sel.addEventListener('change', _syncFibLevelsHint); sel._fibHintBound = true; }
   });
@@ -2927,7 +2942,19 @@ function _renderFibBoundaryStatus(payload) {
   // instrument did nothing and said nothing; now it answers.
   if (startBtn) {
     startBtn.disabled = false;
-    startBtn.textContent = isRunning ? `▶ Kill ${symbol} first` : '▶ Start fib-boundary paper';
+    startBtn.textContent = isRunning ? '▶ Kill the running ladder first' : '▶ Start fib-boundary paper';
+  }
+  // One ladder at a time, and WHICH one is a table rather than a sentence that
+  // read as "kill BANKNIFTY before starting BANKNIFTY".
+  const blocked = document.getElementById('fibx-blocked');
+  if (blocked) {
+    blocked.innerHTML = isRunning ? `<table class="fibx-blocked">`
+      + `<tr><th>Running</th><td><strong>${escapeHtml(symbol)} ${escapeHtml(side)}</strong> · ${escapeHtml(tf)} mother</td></tr>`
+      + `<tr><th>Mother</th><td>${escapeHtml(_cascadeOptionsTimestamp(campaign.mother_timestamp))}</td></tr>`
+      + `<tr><th>State</th><td>${escapeHtml(state)} · ${funded}/${levels.length} levels bought</td></tr>`
+      + `<tr><th>Mode</th><td>${escapeHtml(mode)}${campaign.is_live ? (campaign.armed ? ' · ARMED' : ' · not armed') : ''}</td></tr>`
+      + `<tr><th>To start another</th><td>Press <strong>Kill</strong> on the monitor.</td></tr>`
+      + `</table>` : '';
   }
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
 
@@ -3036,7 +3063,7 @@ async function startFibBoundaryPaper() {
     symbol: el('fibx-symbol')?.value || 'NIFTY',
     mother_timestamp: el('fibx-mother-timestamp')?.value,
     side: el('fibx-side')?.value || 'CE',
-    timeframe: el('fibx-timeframe')?.value || '1m',
+    timeframe: _fibTimeframe(),
     mode: el('fibx-mode')?.value || 'paper',
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
@@ -3224,7 +3251,7 @@ async function loadFibBoundaryChart() {
   const timestamp = campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
   const symbol = campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
   const side = campaign?.side || el('fibx-side')?.value || 'CE';
-  const timeframe = campaign?.timeframe || el('fibx-timeframe')?.value || '1m';
+  const timeframe = campaign?.timeframe || _fibTimeframe();
   const chart = el('fibx-chart');
   const meta = el('fibx-chart-meta');
   const overlay = el('fibx-chart-overlay');
