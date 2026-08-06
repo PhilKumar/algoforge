@@ -1783,8 +1783,6 @@ function _renderCascadeOptionsStatus(payload) {
   if (startBtn) startBtn.disabled = isRunning;
   if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
-  const armBtn = document.getElementById('fibx-arm');
-  if (armBtn) armBtn.style.display = (isRunning && campaign.is_live && !campaign.armed) ? '' : 'none';
   const motherTimestamp = campaign?.mother?.timestamp;
   const motherInput = _cascadeOptionsEl('cascade-options-mother-timestamp');
   if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
@@ -2248,7 +2246,9 @@ window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 //  OPTIONS CASCADE — two-tab paper (Fib-boundary + Candle-entry)
 // ══════════════════════════════════════════════════════════════
 let _fibBoundaryPollTimer = null;
-let _lastFibBoundaryStatus = null;
+// Every running ladder, keyed by symbol -- the chart and the monitor buttons
+// each need THEIR campaign, not "the" campaign.
+let _lastFibBoundaryStatus = {};
 
 // Everything options lives on one page now; each tab owns its own engine.
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
@@ -2816,6 +2816,13 @@ async function initOptionsCascadePage() {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) { sel.addEventListener('change', _syncFibLevelsHint); sel._fibHintBound = true; }
   });
+  // Only the SELECTED instrument can block Start now, so switching instrument
+  // has to re-answer "is this one free?" without waiting for the next poll.
+  const symbolSel = document.getElementById('fibx-symbol');
+  if (symbolSel && !symbolSel._fibClashBound) {
+    symbolSel.addEventListener('change', () => _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {})));
+    symbolSel._fibClashBound = true;
+  }
   const tsSel = document.getElementById('fibx-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
@@ -2843,26 +2850,131 @@ function _fibxLevelTone(status) {
   return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24' }[status] || 'var(--muted)');
 }
 
+// ── One panel per ladder ──────────────────────────────────────────────
+// A user can run one ladder per instrument, so the monitor is a TEMPLATE cloned
+// per campaign and addressed with `data-fx=""` inside its own root. Panels are
+// RECONCILED, never rebuilt: this repaints every 3s when the socket is down, and
+// a rebuild would drop the <details> open state and the events scroll position
+// on every tick.
+function _fibxPanelRoots(symbols) {
+  const monitors = document.getElementById('fibx-monitors');
+  const lower = document.getElementById('fibx-lower');
+  const monitorTpl = document.getElementById('fibx-monitor-tpl');
+  const lowerTpl = document.getElementById('fibx-lower-tpl');
+  if (!monitors || !lower || !monitorTpl || !lowerTpl) return new Map();
+  const roots = new Map();
+  const wanted = symbols.length ? symbols : [''];
+  wanted.forEach(symbol => {
+    const key = String(symbol);
+    let monitor = monitors.querySelector(`[data-fx-symbol="${CSS.escape(key)}"]`);
+    if (!monitor) {
+      monitor = monitorTpl.content.firstElementChild.cloneNode(true);
+      monitor.dataset.fxSymbol = key;
+      monitors.appendChild(monitor);
+    }
+    let pair = lower.querySelector(`[data-fx-symbol="${CSS.escape(key)}"]`);
+    if (!pair) {
+      pair = lowerTpl.content.firstElementChild.cloneNode(true);
+      pair.dataset.fxSymbol = key;
+      lower.appendChild(pair);
+    }
+    roots.set(key, { monitor, pair });
+  });
+  // A killed-and-cleared instrument leaves; the survivors keep their DOM.
+  [monitors, lower].forEach(host => {
+    Array.from(host.children).forEach(node => {
+      if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
+    });
+  });
+  // Only touch the order when it is actually wrong -- re-appending a node the
+  // user is scrolling costs them their place.
+  [[monitors, 'monitor'], [lower, 'pair']].forEach(([host, which]) => {
+    const desired = wanted.map(symbol => roots.get(String(symbol))[which]);
+    if (desired.some((node, i) => host.children[i] !== node)) desired.forEach(node => host.appendChild(node));
+  });
+  return roots;
+}
+
 function _renderFibBoundaryStatus(payload) {
-  _lastFibBoundaryStatus = payload || null;
-  const campaign = payload?.campaign;
-  const badge = document.getElementById('fibx-badge');
-  const contract = document.getElementById('fibx-contract');
-  const summary = document.getElementById('fibx-summary');
-  const empty = document.getElementById('fibx-empty');
-  const active = document.getElementById('fibx-active');
-  const gist = document.getElementById('fibx-gist');
-  const win = document.getElementById('fibx-window');
-  const startBtn = document.getElementById('fibx-start');
-  const killBtn = document.getElementById('fibx-kill');
-  const eventsTf = document.getElementById('fibx-events-tf');
+  const campaigns = Array.isArray(payload?.campaigns)
+    ? payload.campaigns
+    : (payload?.campaign ? [payload.campaign] : []);
+  _lastFibBoundaryStatus = {};
+  campaigns.forEach(row => { _lastFibBoundaryStatus[String(row.symbol || 'NIFTY')] = row; });
+
+  const roots = _fibxPanelRoots(campaigns.map(row => String(row.symbol || 'NIFTY')));
+  if (campaigns.length) campaigns.forEach(row => {
+    const root = roots.get(String(row.symbol || 'NIFTY'));
+    if (root) _renderFibBoundaryCampaign(root, row);
+  });
+  else { const root = roots.get(''); if (root) _renderFibBoundaryCampaign(root, null); }
+
+  // The page's live gate is shared by every tab, so with N ladders it reports
+  // the LOUDEST state on the board -- armed beats live, live beats paper.
   const liveGate = document.getElementById('options-cascade-live-gate');
-  const setLiveGate = (label, detail, state = '') => {
-    if (!liveGate) return;
+  if (liveGate) {
+    const running = campaigns.filter(row => row.running);
+    const live = running.filter(row => row.is_live);
+    const armed = live.filter(row => row.armed);
+    const suffix = running.length > 1 ? ` · ${running.length} ladders` : '';
+    let label = 'LIVE LOCKED', detail = 'Paper validation required', state = '';
+    if (armed.length) { label = 'LIVE ARMED'; detail = `Real orders reach Dhan${suffix}`; state = 'is-replay'; }
+    else if (live.length) { label = 'LIVE · NOT ARMED'; detail = `Decisions run; orders are refused${suffix}`; state = 'is-replay'; }
+    else if (running.length) { label = 'PAPER LIVE'; detail = `Quote-backed paper monitor active${suffix}`; state = 'is-paper-live'; }
+    else if (campaigns.length) { label = 'PAPER STOPPED'; detail = 'No live order is ever sent'; state = 'is-paused'; }
     liveGate.classList.remove('is-paper-live', 'is-replay', 'is-paused');
     if (state) liveGate.classList.add(state);
     liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
-  };
+  }
+  _renderFibBoundaryRunningTable(campaigns);
+}
+
+// What is running right now, and whether it stands in the way of THIS form. A
+// different instrument never does any more -- only the selected one can 409.
+function _renderFibBoundaryRunningTable(campaigns) {
+  const blocked = document.getElementById('fibx-blocked');
+  const startBtn = document.getElementById('fibx-start');
+  const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const running = campaigns.filter(row => row.running);
+  const clash = running.some(row => String(row.symbol) === String(picked));
+  if (startBtn) {
+    startBtn.disabled = false;
+    startBtn.textContent = clash ? `▶ Kill the ${picked} ladder first` : '▶ Start fib-boundary paper';
+  }
+  if (!blocked) return;
+  blocked.innerHTML = running.length
+    ? `<table class="fibx-blocked">`
+      + `<tr><th>Running now</th><td>${running.length} ladder${running.length === 1 ? '' : 's'} · one per instrument</td></tr>`
+      + running.map(row => {
+        const isClash = String(row.symbol) === String(picked);
+        const state = String(row.status || '').replaceAll('_', ' ').toUpperCase();
+        return `<tr><th>${escapeHtml(String(row.symbol))}</th><td>`
+          + `<strong style="color:${isClash ? 'var(--warn)' : 'var(--text)'};">${escapeHtml(String(row.side))} · ${escapeHtml(String(row.timeframe || '1m').toUpperCase())} mother</strong>`
+          + ` · ${escapeHtml(state)}`
+          + (row.is_live ? (row.armed ? ' · <strong>ARMED</strong>' : ' · not armed') : '')
+          + (isClash ? '<br><span style="color:var(--warn);">Kill this one to start a new mother on it.</span>' : '')
+          + `</td></tr>`;
+      }).join('')
+      + (clash ? '' : `<tr><th>${escapeHtml(picked)}</th><td>Free — Start runs it alongside the others.</td></tr>`)
+      + `</table>`
+    : '';
+}
+
+function _renderFibBoundaryCampaign(root, campaign) {
+  const { monitor, pair } = root;
+  const fx = key => monitor.querySelector(`[data-fx="${key}"]`);
+  const px = key => pair.querySelector(`[data-fx="${key}"]`);
+  const badge = fx('badge');
+  const contract = fx('contract');
+  const summary = fx('summary');
+  const empty = fx('empty');
+  const active = fx('active');
+  const gist = fx('gist');
+  const title = fx('title');
+  const startBtn = document.getElementById('fibx-start');
+  const killBtn = fx('kill');
+  const armBtn = fx('arm');
+  const eventsTf = px('events-tf');
   if (!campaign) {
     if (badge) {
       badge.textContent = 'IDLE';
@@ -2870,17 +2982,18 @@ function _renderFibBoundaryStatus(payload) {
       badge.style.color = 'var(--muted)';
       badge.style.borderColor = 'var(--border)';
     }
+    if (title) title.textContent = 'Campaign monitor';
     if (contract) contract.textContent = 'No active campaign';
     if (summary) summary.innerHTML = '';
     if (empty) empty.style.display = '';
     if (active) active.style.display = 'none';
     if (gist) gist.textContent = 'Pick an instrument, a side and a mother candle — the swing is found for you.';
-    if (win) win.classList.remove('is-active');
+    monitor.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (killBtn) killBtn.style.display = 'none';
-    setLiveGate('LIVE LOCKED', 'Paper validation required');
-    _renderFibBoundaryRounds(null);
-    _renderFibBoundaryEvents([]);
+    if (armBtn) armBtn.style.display = 'none';
+    _renderFibBoundaryRounds(pair, null);
+    _renderFibBoundaryEvents(pair, []);
     return;
   }
   const isRunning = !!campaign.running;
@@ -2908,19 +3021,20 @@ function _renderFibBoundaryStatus(payload) {
   }
   const tf = String(campaign.timeframe || '1m').toUpperCase();
   const mode = String(campaign.mode || 'paper').toUpperCase();
+  // Every panel names its own instrument, because four of them look alike.
+  if (title) title.textContent = `${symbol} ${side} monitor`;
+  const roundsTitle = px('rounds-title');
+  if (roundsTitle) roundsTitle.textContent = `${symbol} closed paper round · net P&L`;
+  const eventsTitle = px('events-title');
+  if (eventsTitle) eventsTitle.textContent = `${symbol} campaign events`;
   if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
-  if (campaign.is_live) {
-    setLiveGate(campaign.armed ? 'LIVE ARMED' : 'LIVE · NOT ARMED',
-      campaign.armed ? 'Real orders reach Dhan' : 'Decisions run; orders are refused', 'is-replay');
-  } else if (isRunning) setLiveGate('PAPER LIVE', 'Quote-backed paper monitor active', 'is-paper-live');
-  else setLiveGate('PAPER STOPPED', 'No live order is ever sent', 'is-paused');
   const funded = levels.filter(l => l.status === 'FILLED').length;
   if (gist) {
     gist.textContent = anchor
       ? `${mode} · ${side} · ${tf} mother, 1m entries · ${funded}/${levels.length} levels bought · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
       : `${mode} · ${side} · ${tf} mother · waiting for the first involvement to freeze the swing`;
   }
-  if (win) win.classList.toggle('is-active', isRunning);
+  monitor.classList.toggle('is-active', isRunning);
   const deployed = Number(campaign.deployed_inr || 0);
   const cap = Number(campaign.capital_cap_inr || 0);
   const pct = cap > 0 ? Math.min(100, Math.round((deployed / cap) * 100)) : 0;
@@ -2938,27 +3052,11 @@ function _renderFibBoundaryStatus(payload) {
   }
   if (empty) empty.style.display = 'none';
   if (active) active.style.display = '';
-  // Left ENABLED on purpose. Disabling it meant a click on a different
-  // instrument did nothing and said nothing; now it answers.
-  if (startBtn) {
-    startBtn.disabled = false;
-    startBtn.textContent = isRunning ? '▶ Kill the running ladder first' : '▶ Start fib-boundary paper';
-  }
-  // One ladder at a time, and WHICH one is a table rather than a sentence that
-  // read as "kill BANKNIFTY before starting BANKNIFTY".
-  const blocked = document.getElementById('fibx-blocked');
-  if (blocked) {
-    blocked.innerHTML = isRunning ? `<table class="fibx-blocked">`
-      + `<tr><th>Running</th><td><strong>${escapeHtml(symbol)} ${escapeHtml(side)}</strong> · ${escapeHtml(tf)} mother</td></tr>`
-      + `<tr><th>Mother</th><td>${escapeHtml(_cascadeOptionsTimestamp(campaign.mother_timestamp))}</td></tr>`
-      + `<tr><th>State</th><td>${escapeHtml(state)} · ${funded}/${levels.length} levels bought</td></tr>`
-      + `<tr><th>Mode</th><td>${escapeHtml(mode)}${campaign.is_live ? (campaign.armed ? ' · ARMED' : ' · not armed') : ''}</td></tr>`
-      + `<tr><th>To start another</th><td>Press <strong>Kill</strong> on the monitor.</td></tr>`
-      + `</table>` : '';
-  }
   if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  // Arming is per instrument: this button opens THIS ladder and no other.
+  if (armBtn) armBtn.style.display = (isRunning && campaign.is_live && !campaign.armed) ? '' : 'none';
 
-  const anchorEl = document.getElementById('fibx-anchor');
+  const anchorEl = fx('anchor');
   if (anchorEl) {
     anchorEl.innerHTML = anchor
       ? `<table class="fibx-anchor-table">`
@@ -2970,7 +3068,7 @@ function _renderFibBoundaryStatus(payload) {
       : '<div style="color:var(--muted);">No fib yet — waiting for the swing to settle.</div>';
   }
 
-  const fillsEl = document.getElementById('fibx-fills');
+  const fillsEl = fx('fills');
   if (fillsEl) {
     fillsEl.innerHTML = fills.length ? fills.map(fill => `<tr style="border-bottom:1px solid var(--border);">`
       + `<td style="padding:8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(fill.buy_number))}</strong></td>`
@@ -2985,10 +3083,10 @@ function _renderFibBoundaryStatus(payload) {
       + `<td style="padding:8px;text-align:right;font-weight:800;color:#fde68a;">${escapeHtml(_cascadeOptionsMoney(fill.funded_inr))}</td>`
       + `</tr>`).join('') : '<tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
   }
-  const fillSummary = document.getElementById('fibx-fill-summary');
+  const fillSummary = fx('fill-summary');
   if (fillSummary) fillSummary.textContent = fills.length ? `${fills.length} buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
 
-  const boundEl = document.getElementById('fibx-boundaries');
+  const boundEl = fx('boundaries');
   if (boundEl) {
     boundEl.innerHTML = levels.length ? levels.map(level => {
       const stateColor = _fibxLevelTone(level.status);
@@ -3002,20 +3100,20 @@ function _renderFibBoundaryStatus(payload) {
     }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No ladder yet — the swing has not been frozen.</div>';
   }
 
-  const gapsEl = document.getElementById('fibx-gaps');
+  const gapsEl = fx('gaps');
   if (gapsEl) {
     const gaps = Array.isArray(campaign.data_gaps) ? campaign.data_gaps : [];
     gapsEl.innerHTML = gaps.length
       ? `<div style="padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font:10.5px/1.5 'JetBrains Mono',monospace;"><strong>${gaps.length} pricing gap${gaps.length === 1 ? '' : 's'}</strong><br>${gaps.slice(-4).map(escapeHtml).join('<br>')}</div>`
       : '';
   }
-  _renderFibBoundaryRounds(campaign);
-  _renderFibBoundaryEvents(campaign.events || []);
+  _renderFibBoundaryRounds(pair, campaign);
+  _renderFibBoundaryEvents(pair, campaign.events || []);
 }
 
-function _renderFibBoundaryRounds(campaign) {
-  const body = document.getElementById('fibx-rounds');
-  const count = document.getElementById('fibx-round-count');
+function _renderFibBoundaryRounds(pair, campaign) {
+  const body = pair.querySelector('[data-fx="rounds"]');
+  const count = pair.querySelector('[data-fx="round-count"]');
   // The ladder is one-and-done: one target closes the whole basket and ends
   // the campaign, so there is at most one round to show.
   const closed = campaign && ['CLOSED', 'EXPIRED', 'KILLED'].includes(String(campaign.status || ''));
@@ -3039,8 +3137,8 @@ function _renderFibBoundaryRounds(campaign) {
     + `<td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(campaign.exit_reason || '').replaceAll('_', ' '))}</td>`
     + `</tr>`;
 }
-function _renderFibBoundaryEvents(events) {
-  const el = document.getElementById('fibx-events');
+function _renderFibBoundaryEvents(pair, events) {
+  const el = pair.querySelector('[data-fx="events"]');
   if (!el) return;
   const scrollTop = el.scrollTop;
   el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${event.level != null ? ` <span style="color:#38bdf8;">L${escapeHtml(String(event.level))}</span>` : ''}</div>`).join('') : 'No events yet.';
@@ -3051,11 +3149,11 @@ async function refreshFibBoundaryStatus() {
   try {
     const response = await fetch('/api/fib-boundary/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.detail || 'Unable to load fib-boundary campaign');
-    _renderFibBoundaryStatus(data.status === 'not_started' ? {} : data);
+    if (!response.ok) throw new Error(data?.detail || 'Unable to load fib-boundary campaigns');
+    _renderFibBoundaryStatus(data);
   } catch (error) {
-    const summary = document.getElementById('fibx-summary');
-    if (summary && !summary.innerHTML) summary.textContent = error.message || 'Unable to load fib-boundary campaign.';
+    const summary = document.querySelector('#fibx-monitors [data-fx="summary"]');
+    if (summary && !summary.innerHTML) summary.textContent = error.message || 'Unable to load fib-boundary campaigns.';
   }
 }
 
@@ -3083,9 +3181,10 @@ async function startFibBoundaryPaper() {
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Ladder did not start (${response.status})`));
     const anchored = data.campaign?.anchor;
     _fibSetFormStatus(anchored
-      ? `Armed · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
-      : 'Started · waiting for the swing to freeze', 'success');
-    _renderFibBoundaryStatus({ campaign: data.campaign });
+      ? `${payload.symbol} started · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
+      : `${payload.symbol} started · waiting for the swing to freeze`, 'success');
+    // No optimistic single-campaign paint here: rendering one campaign would
+    // tear down every OTHER ladder's panel. The refresh below repaints the board.
   } catch (error) {
     _fibSetFormStatus(error.message || 'Ladder start failed.', 'error');
   } finally {
@@ -3094,22 +3193,29 @@ async function startFibBoundaryPaper() {
   }
 }
 
-async function killFibBoundaryPaper() {
-  const confirmed = await customConfirm('Kill this <strong>paper-only</strong> fib-boundary campaign and close any open paper basket at the current quote? No Dhan order is sent.', { title: 'Kill fib-boundary', icon: ICO.warn(28), okText: 'Kill & close', danger: true });
+// Which ladder a monitor button means: the panel it sits in owns the symbol.
+function _fibxSymbolFor(el) {
+  return String(el?.closest('[data-fx-symbol]')?.dataset.fxSymbol || '');
+}
+
+async function killFibBoundaryPaper(_event, button) {
+  const symbol = _fibxSymbolFor(button);
+  if (!symbol) { _fibSetFormStatus('No ladder to kill.', 'error'); return; }
+  // Name the instrument. With four monitors on screen, "this campaign" is not
+  // enough to know which basket is about to be closed.
+  const confirmed = await customConfirm(`Kill the <strong>${escapeHtml(symbol)}</strong> <strong>paper-only</strong> fib-boundary campaign and close any open paper basket at the current quote? No Dhan order is sent. Other ladders keep running.`, { title: `Kill ${symbol} fib-boundary`, icon: ICO.warn(28), okText: 'Kill & close', danger: true });
   if (!confirmed) return;
-  const button = document.getElementById('fibx-kill');
   if (button) { button.disabled = true; button.textContent = 'Closing…'; }
   try {
-    const response = await fetch('/api/fib-boundary/paper/kill', { method: 'POST', credentials: 'same-origin' });
+    const response = await fetch(`/api/fib-boundary/paper/kill?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, `Kill failed (${response.status})`));
-    _fibSetFormStatus('Fib-boundary campaign killed.', 'success');
-    _renderFibBoundaryStatus({ campaign: data.campaign });
+    _fibSetFormStatus(`${symbol} fib-boundary campaign killed.`, 'success');
   } catch (error) {
     _fibSetFormStatus(error.message || 'Kill & close could not be confirmed.', 'error');
-    await refreshFibBoundaryStatus();
   } finally {
     if (button) { button.disabled = false; button.textContent = '■ Kill'; }
+    await refreshFibBoundaryStatus();
   }
 }
 
@@ -3124,8 +3230,10 @@ async function killFibBoundaryPaper() {
 // This function is now only a translator: it reshapes the chart route's payload
 // (plus the live campaign on `_lastFibBoundaryStatus`) into the renderer's
 // vocabulary. Every pixel decision lives in philforge-bench-chart.js.
-function _fibBoundaryCanvasPayload(payload) {
-  const campaign = _lastFibBoundaryStatus?.campaign || {};
+function _fibBoundaryCanvasPayload(payload, symbol) {
+  // The campaign whose panel was clicked -- with several ladders running, the
+  // buys drawn on a chart have to be that instrument's own.
+  const campaign = (symbol && _lastFibBoundaryStatus?.[symbol]) || {};
   // The renderer does arithmetic on `t`, so every timestamp crosses as epoch
   // SECONDS -- never the ISO string the route speaks.
   const epoch = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null; };
@@ -3227,31 +3335,35 @@ function _fibBoundaryCanvasPayload(payload) {
   };
 }
 
-async function armFibBoundaryLive() {
+async function armFibBoundaryLive(_event, button) {
+  const symbol = _fibxSymbolFor(button);
+  if (!symbol) { _fibSetFormStatus('No ladder to arm.', 'error'); return; }
   // Real money. The confirm is this site's own dialog, and the route behind it
-  // demands a password and an authenticator code on top.
+  // demands a password and an authenticator code on top. It names the ONE
+  // instrument being opened -- arming is per ladder, never the whole board.
   const ok = await customConfirm(
-    'From the next decision on, this ladder places <strong>REAL F&amp;O orders</strong> on Dhan. '
-    + 'Rungs it already refused stay refused. You will be asked for your password and authenticator code.',
-    { title: 'Arm live execution?', okText: 'Arm live', cancelText: 'Stay unarmed' },
+    `From the next decision on, the <strong>${escapeHtml(symbol)}</strong> ladder places <strong>REAL F&amp;O orders</strong> on Dhan. `
+    + 'Rungs it already refused stay refused, and no other ladder is armed by this. '
+    + 'You will be asked for your password and authenticator code.',
+    { title: `Arm ${symbol} live execution?`, okText: 'Arm live', cancelText: 'Stay unarmed' },
   );
   if (!ok) return;
   try {
-    const response = await fetch('/api/fib-boundary/paper/arm', { method: 'POST', credentials: 'same-origin' });
+    const response = await fetch(`/api/fib-boundary/paper/arm?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(_apiErrorMessage(data, `Could not arm (${response.status})`));
-    _fibSetFormStatus('LIVE ARMED — orders from here on reach the exchange.', 'success');
-    _renderFibBoundaryStatus({ campaign: data.campaign });
+    _fibSetFormStatus(`${symbol} LIVE ARMED — its orders from here on reach the exchange.`, 'success');
   } catch (error) {
     _fibSetFormStatus(error.message || 'Could not arm live execution.', 'error');
   }
+  await refreshFibBoundaryStatus();
 }
 
-async function loadFibBoundaryChart() {
+async function loadFibBoundaryChart(_event, button) {
   const el = id => document.getElementById(id);
-  const campaign = _lastFibBoundaryStatus?.campaign;
-  // A running campaign owns the question; otherwise the form does, so the chart
-  // can be read before anything is started.
+  // The clicked panel's own campaign owns the question; the idle panel has no
+  // symbol, so the form answers instead and the chart can be read before Start.
+  const campaign = _lastFibBoundaryStatus?.[_fibxSymbolFor(button)];
   const timestamp = campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
   const symbol = campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
   const side = campaign?.side || el('fibx-side')?.value || 'CE';
@@ -3273,7 +3385,7 @@ async function loadFibBoundaryChart() {
     // surfaces by a fixed id. Fold the backtest journal chart away first so the
     // overlay does not mount behind a duplicate host.
     _fibBoundaryCollapseBacktestChart();
-    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data));
+    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data, campaign ? symbol : ''));
     if (meta) {
       meta.textContent = data.anchor
         ? `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`

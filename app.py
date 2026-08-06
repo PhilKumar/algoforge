@@ -1499,7 +1499,10 @@ class _TerminalCascadeRuntime:
 
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
 _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
-_fib_boundary_engines: Dict[int, _CascadeRuntime] = {}
+# One ladder PER SYMBOL per user: picking an instrument in the form is what a
+# second Start is for, so five instruments can run five ladders side by side.
+# Starting the same symbol twice is still a 409.
+_fib_boundary_engines: Dict[int, Dict[str, _CascadeRuntime]] = {}
 _terminal_cascade_engines: Dict[int, Dict[str, _TerminalCascadeRuntime]] = {}
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _candle_entry_open_state_last_save: Dict[int, float] = defaultdict(float)
@@ -1668,13 +1671,30 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
-    await _save_specialized_cascade_state(
-        user_id,
-        _fib_boundary_engines,
-        _fib_boundary_open_state_key(user_id),
-        _fib_boundary_open_state_last_save,
-        force=force,
-    )
+    """Persist every ladder this user has running, keyed by its own symbol.
+
+    One row still holds the lot, as a ``campaigns`` list rather than the single
+    snapshot it used to be -- see the restore for how the old shape survives.
+    """
+    runtimes = _fib_boundary_engines.get(int(user_id), {})
+    if not runtimes:
+        return
+    now = time.time()
+    if not force and now - _fib_boundary_open_state_last_save[int(user_id)] < _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC:
+        return
+    payload = {
+        "campaigns": [
+            {
+                "running": bool(runtime.running),
+                "last_candle_timestamp": runtime.last_candle_timestamp.isoformat(),
+                "engine": runtime.engine.to_dict(),
+            }
+            for _symbol, runtime in sorted(runtimes.items())
+        ],
+        "saved_at": datetime.now(IST).isoformat(),
+    }
+    await _db_mod.set_app_state(_fib_boundary_open_state_key(user_id), json.dumps(payload, default=str))
+    _fib_boundary_open_state_last_save[int(user_id)] = now
 
 
 async def _restore_candle_entry_open_state(
@@ -1710,54 +1730,77 @@ async def _restore_candle_entry_open_state(
 
 async def _restore_fib_boundary_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
-) -> _CascadeRuntime | None:
-    """Bring a ladder back after a restart, always UNARMED.
+) -> Dict[str, _CascadeRuntime]:
+    """Bring every ladder back after a restart, all of them UNARMED.
 
     A deploy restarts this process, and a restart is not a person deciding to
     trade real money.  So a live ladder resumes with its executor closed and the
     console showing LIVE / NOT ARMED again -- the gated arm route is the only
     way back to sending, exactly as it was the first time.
+
+    One malformed campaign is skipped on its own; it does not cost the user the
+    other ladders in the same row.
     """
     existing = _fib_boundary_engines.get(int(user_id))
     if existing is not None:
         return existing
     if broker is None:
-        return None
+        return {}
     raw = await _db_mod.get_app_state(_fib_boundary_open_state_key(user_id))
     if not raw:
-        return None
+        return {}
     try:
         payload = json.loads(raw)
-        engine_state = payload["engine"]
-        if int(engine_state.get("version") or 0) != 1:
-            # A snapshot from the retired typed-mother engine. Left in place
-            # rather than guessed at; the ladder simply starts fresh.
-            return None
-        symbol = str(engine_state["config"]["symbol"])
-        adapter = CascadeOptionsAdapter(broker, paper_only=True)
-        executor = (
-            _FibTouchLiveExecutor(broker, symbol)
-            if str(engine_state.get("mode")) == "live"
-            else _FibTouchPaperExecutor()
-        )
-        engine = FibTouchLadder.from_dict(
-            engine_state,
-            premium_lookup=_fib_touch_premium_lookup(broker, symbol),
-            expiry_source=_fib_touch_expiry_source(broker, symbol),
-            executor=executor,
-        )
-        last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=IST)
-        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
-        runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
-        _fib_boundary_engines[int(user_id)] = runtime
-        if running and activate and _engine_restore_owner_is_active_instance():
-            runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(int(user_id), runtime))
-        return runtime
+        if not isinstance(payload, dict):
+            return {}
     except Exception as exc:
-        _logger.warning("[FIB TOUCH] Skipping invalid persisted ladder for user %s: %s", user_id, exc)
-        return None
+        _logger.warning("[FIB TOUCH] Unreadable persisted ladders for user %s: %s", user_id, exc)
+        return {}
+    # A row written before ladders were per-symbol holds ONE snapshot at the top
+    # level. Read it as a one-entry list so a ladder in flight survives the
+    # upgrade; from the next save on it is always the `campaigns` shape.
+    records = payload.get("campaigns")
+    if not isinstance(records, list):
+        records = [payload] if payload.get("engine") else []
+
+    runtimes: Dict[str, _CascadeRuntime] = {}
+    for record in records:
+        if not isinstance(record, dict) or not record.get("engine"):
+            continue
+        try:
+            engine_state = record["engine"]
+            if int(engine_state.get("version") or 0) != 1:
+                # A snapshot from the retired typed-mother engine. Left in place
+                # rather than guessed at; the ladder simply starts fresh.
+                continue
+            symbol = str(engine_state["config"]["symbol"])
+            adapter = CascadeOptionsAdapter(broker, paper_only=True)
+            executor = (
+                _FibTouchLiveExecutor(broker, symbol)
+                if str(engine_state.get("mode")) == "live"
+                else _FibTouchPaperExecutor()
+            )
+            engine = FibTouchLadder.from_dict(
+                engine_state,
+                premium_lookup=_fib_touch_premium_lookup(broker, symbol),
+                expiry_source=_fib_touch_expiry_source(broker, symbol),
+                executor=executor,
+            )
+            last = datetime.fromisoformat(str(record.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=IST)
+            running = bool(record.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
+            runtimes[symbol] = _CascadeRuntime(engine, adapter, broker, last, running=running)
+        except Exception as exc:
+            _logger.warning("[FIB TOUCH] Skipping invalid persisted ladder for user %s: %s", user_id, exc)
+    if not runtimes:
+        return {}
+    _fib_boundary_engines[int(user_id)] = runtimes
+    if activate and _engine_restore_owner_is_active_instance():
+        for runtime in runtimes.values():
+            if runtime.running:
+                runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(int(user_id), runtime))
+    return runtimes
 
 
 async def _run_cascade_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
@@ -2489,8 +2532,8 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
                 restored["cascade"] += 1
             if await _restore_candle_entry_open_state(user_id, broker_client, activate=True) is not None:
                 restored["candle_entry"] += 1
-            if await _restore_fib_boundary_open_state(user_id, broker_client, activate=True) is not None:
-                restored["fib_boundary"] += 1
+            fib_ladders = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
+            restored["fib_boundary"] += len(fib_ladders)
             terminal = await _restore_terminal_cascade_open_state(user_id, broker_client)
             if terminal:
                 restored["terminal_cascade"] += len(terminal)
@@ -5618,7 +5661,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
     scalp_running = bool(scalp and getattr(scalp, "_running", False))
     cascade_running = bool(_cascade_engines.get(owner_id) and _cascade_engines[owner_id].running)
     candle_running = bool(_candle_entry_engines.get(owner_id) and _candle_entry_engines[owner_id].running)
-    fib_running = bool(_fib_boundary_engines.get(owner_id) and _fib_boundary_engines[owner_id].running)
+    fib_running = sum(1 for runtime in _fib_boundary_engines.get(owner_id, {}).values() if runtime.running)
     terminal_running = sum(1 for runtime in _terminal_cascade_engines.get(owner_id, {}).values() if runtime.running)
     any_running = bool(
         paper_running
@@ -5839,12 +5882,16 @@ async def emergency_stop(request: Request):
             except Exception as exc:
                 results[f"candle-entry:{owner_id}"] = f"error: {exc}"
 
-        fib = _fib_boundary_engines.get(owner_id)
-        if fib and fib.running:
+        fib_ladders = _fib_boundary_engines.get(owner_id, {})
+        for fib_symbol, fib in list(fib_ladders.items()):
+            if not fib.running:
+                continue
             try:
                 now = datetime.now(IST)
                 try:
-                    ticker = await asyncio.to_thread(fib.adapter.get_ticker, "NIFTY")
+                    # The ladder's OWN index, not NIFTY: a BANKNIFTY basket
+                    # closed at a NIFTY print is a fabricated exit.
+                    ticker = await asyncio.to_thread(fib.adapter.get_ticker, fib_symbol)
                     index_price = float(ticker["last_price"])
                 except Exception:
                     index_price = float(fib.engine.history[-1].close)
@@ -5853,12 +5900,13 @@ async def emergency_stop(request: Request):
                     if fib.task and not fib.task.done():
                         fib.task.cancel()
                     stopped_count += 1
-                    results[f"fib-boundary:{owner_id}"] = "stopped"
+                    results[f"fib-boundary:{owner_id}:{fib_symbol}"] = "stopped"
                 else:
-                    results[f"fib-boundary:{owner_id}"] = "exit_quote_unavailable_engine_left_running"
-                await _save_fib_boundary_open_state(owner_id, force=True)
+                    results[f"fib-boundary:{owner_id}:{fib_symbol}"] = "exit_quote_unavailable_engine_left_running"
             except Exception as exc:
-                results[f"fib-boundary:{owner_id}"] = f"error: {exc}"
+                results[f"fib-boundary:{owner_id}:{fib_symbol}"] = f"error: {exc}"
+        if fib_ladders:
+            await _save_fib_boundary_open_state(owner_id, force=True)
 
         terminal = _terminal_cascade_engines.get(owner_id, {})
         for symbol, terminal_runtime in list(terminal.items()):
@@ -9356,7 +9404,7 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
     # Touches are watched on 1m however slow the mother's chart is, so the poll
     # runs at the ENTRY cadence, not the geometry one.
     poll = _FIB_TIMEFRAME_POLL_SEC.get(engine.config.entry_timeframe, 15)
-    while runtime.running and _fib_boundary_engines.get(int(user_id)) is runtime:
+    while runtime.running and _fib_boundary_engines.get(int(user_id), {}).get(symbol) is runtime:
         try:
             today = datetime.now(IST).date()
             start = engine.config.mother_timestamp.date()
@@ -9408,10 +9456,12 @@ async def fib_touch_symbols(_request: Request):
 
 @app.get("/api/fib-boundary/paper/status")
 async def fib_boundary_paper_status(request: Request):
-    runtime = _fib_boundary_engines.get(_request_user_id(request))
-    if runtime is None:
-        return {"status": "not_started", "mode": "paper"}
-    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+    """Every ladder this user has, one entry per symbol, ordered by symbol."""
+    runtimes = _fib_boundary_engines.get(_request_user_id(request), {})
+    campaigns = [
+        {**runtime.engine.get_status(), "running": runtime.running} for _symbol, runtime in sorted(runtimes.items())
+    ]
+    return {"status": "ok" if campaigns else "not_started", "mode": "paper", "campaigns": campaigns}
 
 
 @app.post("/api/fib-boundary/paper/start")
@@ -9470,22 +9520,16 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a ladder.")
-    existing = _fib_boundary_engines.get(user_id)
+    # One ladder per symbol: a NIFTY ladder no longer blocks a BANKNIFTY start.
+    # The same instrument twice is still refused -- two mothers on one symbol
+    # would compete for the same cap and the same strikes.
+    existing = _fib_boundary_engines.get(user_id, {}).get(terms.symbol)
     if existing is not None and existing.running:
-        # Name it. "A ladder is already running" sent Phil hunting for why
-        # BANKNIFTY would not start when the answer was a NIFTY ladder holding
-        # the slot.
-        running = existing.engine
-        same = running.config.symbol == terms.symbol
         raise HTTPException(
             status_code=409,
             detail=(
-                f"A {running.config.symbol} {running.side} ladder is already running"
-                + (
-                    " on this instrument. Kill it to start a new mother."
-                    if same
-                    else f". Kill it before starting {terms.symbol}."
-                )
+                f"A {terms.symbol} {existing.engine.side} ladder is already running on this "
+                "instrument. Kill it to start a new mother."
             ),
         )
 
@@ -9561,7 +9605,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         last_candle_timestamp=last_candle_timestamp,
         running=True,
     )
-    _fib_boundary_engines[user_id] = runtime
+    _fib_boundary_engines.setdefault(user_id, {})[terms.symbol] = runtime
     runtime.task = asyncio.create_task(_run_fib_boundary_paper_loop(user_id, runtime))
     await _save_fib_boundary_open_state(user_id, force=True)
     return {
@@ -9571,8 +9615,25 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     }
 
 
+def _fib_boundary_runtime(request: Request, symbol: str) -> tuple[str, _CascadeRuntime]:
+    """The one ladder this call means, named by its instrument.
+
+    `symbol` rides the QUERY STRING rather than a body: the arm route's action
+    token is bound to `request.url.path`, which excludes the query, so this
+    keeps one MFA-gated path instead of one per instrument.
+    """
+    try:
+        terms = symbol_terms(symbol)
+    except FibTouchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    runtime = _fib_boundary_engines.get(_request_user_id(request), {}).get(terms.symbol)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail=f"No {terms.symbol} ladder is active.")
+    return terms.symbol, runtime
+
+
 @app.post("/api/fib-boundary/paper/arm")
-async def fib_boundary_paper_arm(request: Request):
+async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
     """Arm a LIVE ladder so its next decision reaches the exchange.
 
     This is the deliberate step the executor refuses without. It is a separate
@@ -9582,10 +9643,11 @@ async def fib_boundary_paper_arm(request: Request):
 
     Arming does NOT retro-fill anything. Rungs the ladder decided on while it
     was refused stay refused; only decisions made from here on are sent.
+
+    It arms exactly ONE ladder -- the named symbol's. A user running four is
+    arming one instrument, not the whole board.
     """
-    runtime = _fib_boundary_engines.get(_request_user_id(request))
-    if runtime is None:
-        raise HTTPException(status_code=404, detail="No ladder is active.")
+    _symbol, runtime = _fib_boundary_runtime(request, symbol)
     executor = getattr(runtime.engine, "executor", None)
     if not getattr(executor, "is_live", False):
         raise HTTPException(
@@ -9608,12 +9670,10 @@ async def fib_boundary_paper_arm(request: Request):
 
 
 @app.post("/api/fib-boundary/paper/kill")
-async def fib_boundary_paper_kill(request: Request):
-    runtime = _fib_boundary_engines.get(_request_user_id(request))
-    if runtime is None:
-        raise HTTPException(status_code=404, detail="No fib-boundary campaign is active.")
+async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
+    """Kill ONE ladder. The others keep running and keep their baskets."""
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
     now = datetime.now(IST)
-    symbol = runtime.engine.config.symbol
     try:
         quote = await asyncio.to_thread(runtime.adapter.get_ticker, symbol)
         price = float(quote["last_price"])
@@ -15367,19 +15427,27 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved paper Cascade campaign: {owner_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save paper Cascade campaign {owner_id}: {e}")
-    for label, registry, saver in (
-        ("Candle Entry", _candle_entry_engines, _save_candle_entry_open_state),
-        ("Fib Boundary", _fib_boundary_engines, _save_fib_boundary_open_state),
-    ):
-        for owner_id, runtime in list(registry.items()):
-            try:
-                await saver(owner_id, force=True)
+    for owner_id, runtime in list(_candle_entry_engines.items()):
+        try:
+            await _save_candle_entry_open_state(owner_id, force=True)
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+            print(f"🛑 [Shutdown] Saved Candle Entry campaign: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save Candle Entry campaign {owner_id}: {e}")
+    # Nested one level deeper than Candle Entry: a user can hold one ladder per
+    # instrument, and each has its own poll task to cancel.
+    for owner_id, ladders in list(_fib_boundary_engines.items()):
+        try:
+            await _save_fib_boundary_open_state(owner_id, force=True)
+            for runtime in ladders.values():
                 runtime.running = False
                 if runtime.task and not runtime.task.done():
                     runtime.task.cancel()
-                print(f"🛑 [Shutdown] Saved {label} campaign: {owner_id}")
-            except Exception as e:
-                print(f"🛑 [Shutdown] Failed to save {label} campaign {owner_id}: {e}")
+            print(f"🛑 [Shutdown] Saved Fib Boundary campaigns: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save Fib Boundary campaigns {owner_id}: {e}")
     for owner_id, runtimes in list(_terminal_cascade_engines.items()):
         try:
             await _save_terminal_cascade_open_state(owner_id, force=True)

@@ -1930,35 +1930,48 @@
         </div>
       </details>
 
-      <details id="fibx-window" class="cascade-options-window fibx-monitor-window" open>
+      <!-- One monitor PER LADDER. The panel below is a template cloned per
+           campaign and addressed with data-fx="" inside its own root, because
+           42 fixed ids cannot become N of anything. -->
+      <div id="fibx-monitors" class="fibx-monitors"></div>
+    </div>
+
+    <!-- And one results+events pair per ladder, for the same reason: a single
+         "Campaign events" card cannot serve four instruments. -->
+    <div id="fibx-lower"></div>
+
+    <template id="fibx-monitor-tpl">
+      <details class="cascade-options-window fibx-monitor-window" open>
         <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Campaign monitor</h3><span id="fibx-badge" class="cascade-options-state">IDLE</span></div><div id="fibx-contract" class="cascade-options-contract">No active campaign</div></div>
-          <div id="fibx-gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
-          <div class="cascade-options-strip-actions"><button id="fibx-load-chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button id="fibx-arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button id="fibx-kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
+          <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
+          <div class="cascade-options-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
         </summary>
         <div class="cascade-options-window-body">
-          <div id="fibx-summary" class="cascade-options-summary"></div>
-          <div id="fibx-empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
-          <div id="fibx-active" style="display:none;margin-top:16px;">
+          <div data-fx="summary" class="cascade-options-summary"></div>
+          <div data-fx="empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
+          <div data-fx="active" style="display:none;margin-top:16px;">
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Fib levels are measured from</div>
-            <div id="fibx-anchor" style="font:11px/1.6 'JetBrains Mono',monospace;color:var(--text);"></div>
-            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:16px 0 7px;"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;">Every buy, in order</span><span id="fibx-fill-summary" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"></span></div>
-            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Buy</th><th style="padding:7px 8px;text-align:left;">Level</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:left;">Expiry</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Funded ₹</th></tr></thead><tbody id="fibx-fills"><tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr></tbody></table></div>
+            <div data-fx="anchor" style="font:11px/1.6 'JetBrains Mono',monospace;color:var(--text);"></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:16px 0 7px;"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;">Every buy, in order</span><span data-fx="fill-summary" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"></span></div>
+            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Buy</th><th style="padding:7px 8px;text-align:left;">Level</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:left;">Expiry</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Funded ₹</th></tr></thead><tbody data-fx="fills"><tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr></tbody></table></div>
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Fib ladder</div>
-            <div id="fibx-boundaries" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;"></div>
-            <div id="fibx-gaps" style="margin-top:12px;"></div>
+            <div data-fx="boundaries" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;"></div>
+            <div data-fx="gaps" style="margin-top:12px;"></div>
           </div>
         </div>
       </details>
-    </div>
+    </template>
 
-    <div class="oc-fib-lower-grid">
-      <div class="card oc-fib-results-card" style="padding:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span id="fibx-round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
-        <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody id="fibx-rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
+    <template id="fibx-lower-tpl">
+      <div class="oc-fib-lower-grid">
+        <div class="card oc-fib-results-card" style="padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 data-fx="rounds-title" style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
+          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody data-fx="rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
+        </div>
+        <div class="card oc-fib-events-card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 data-fx="events-title" style="margin:0;font-size:15px;">Campaign events</h3><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div data-fx="events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
       </div>
-      <div class="card oc-fib-events-card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">Campaign events</h3><span id="fibx-events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div id="fibx-events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
-    </div>
+    </template>
 
     <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
       <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">

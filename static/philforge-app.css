@@ -5679,11 +5679,22 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* Match the shared Dashboard and Portfolio glass-panel treatment. */
   border-radius: 18px;
 }
-#options-cascade-page .fibx-monitor-window {
+/* The COLUMN holds the grid slot now, not one panel: a user can run one ladder
+   per instrument, and each gets its own monitor stacked inside that slot. */
+#options-cascade-page .fibx-monitors {
   grid-column: 2;
   grid-row: 1;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+#options-cascade-page .fibx-monitor-window {
   border-color: rgba(56,189,248,.27);
 }
+/* Each ladder gets its own results + events pair, so the pairs stack too. No
+   gap here: .oc-fib-lower-grid already carries margin-top:14px, and both would
+   double the space between pairs. */
+#options-cascade-page #fibx-lower { display: grid; gap: 0; }
 #options-cascade-page .fibx-monitor-window.is-active {
   border-color: rgba(52,211,153,.52);
   box-shadow: 0 0 0 1px rgba(52,211,153,.12), 0 12px 30px -23px rgba(52,211,153,.55);
@@ -5841,7 +5852,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 
 @media (max-width: 1180px) {
   #options-cascade-page .oc-fib-workspace { grid-template-columns: 1fr; }
-  #options-cascade-page .fibx-monitor-window,
+  #options-cascade-page .fibx-monitors,
   #options-cascade-page .fibx-backtest-window { grid-column: auto; grid-row: auto; }
 }
 @media (max-width: 760px) {

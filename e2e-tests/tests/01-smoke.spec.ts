@@ -124,7 +124,8 @@ async function installOfflineE2E(page: Page) {
       await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });
     }
     else if (path === '/api/cascade/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_gate: { enabled: false } } });
-    else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    // A LIST now — one ladder per instrument, so the console reads `campaigns`.
+    else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', campaigns: [] } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/fib-space/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
@@ -619,13 +620,13 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await page.selectOption('#fibx-symbol', 'NIFTY');
 
   // The monitor renders from a not_started payload rather than staying blank.
-  await expect(page.locator('#fibx-badge')).toHaveText('IDLE');
+  await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('IDLE');
   await expect(page.locator('#fibx-start')).toBeVisible();
-  await expect(page.locator('#fibx-kill')).toBeHidden();
+  await expect(page.locator('#fibx-monitors [data-fx="kill"]')).toBeHidden();
 
   // The chart is rewired and back; only the backtest is still parked, and it
   // says so rather than going silently missing.
-  await expect(page.locator('#fibx-load-chart')).toBeVisible();
+  await expect(page.locator('#fibx-monitors [data-fx="chart"]')).toBeVisible();
   await expect(page.locator('#fibx-backtest-btn')).toBeHidden();
   await expect(page.locator('#fibx-parked-note')).toContainText('Backtest is parked');
 
@@ -692,7 +693,7 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await login(page);
   // Registered after login, so these win over the table in the fixture.
   await page.route('**/api/fib-boundary/paper/status**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaign: fibTouchCampaign }) }));
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaigns: [fibTouchCampaign] }) }));
   await page.route('**/api/fib-boundary/paper/chart**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fibTouchChart) }));
 
@@ -700,29 +701,30 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await page.click('#oc-tabbtn-fib');
 
   // The monitor renders the running ladder before the chart is even opened.
-  await expect(page.locator('#fibx-badge')).toHaveText('OPEN');
-  await expect(page.locator('#fibx-fills tr')).toHaveCount(2);
+  await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('OPEN');
+  await expect(page.locator('#fibx-monitors [data-fx="fills"] tr')).toHaveCount(2);
   // Start is never silently dead: with a ladder running it names the one to
   // kill, which is what "BANKNIFTY is not working" actually was.
   await expect(page.locator('#fibx-start')).toBeEnabled();
-  await expect(page.locator('#fibx-start')).toContainText('Kill the running ladder first');
+  await expect(page.locator('#fibx-start')).toContainText('Kill the NIFTY ladder first');
   // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
   await expect(page.locator('#fibx-blocked table')).toBeVisible();
-  await expect(page.locator('#fibx-blocked')).toContainText('NIFTY CE');
-  await expect(page.locator('#fibx-blocked')).toContainText('15M mother');
+  await expect(page.locator('#fibx-blocked')).toContainText('NIFTY');
+  await expect(page.locator('#fibx-blocked')).toContainText('CE · 15M mother');
+  await expect(page.locator('#fibx-blocked')).toContainText('1 ladder · one per instrument');
   // The anchor block is a table now, labelled fib high/low, and it no longer
   // spells out the involvement rule.
-  await expect(page.locator('#fibx-anchor table')).toBeVisible();
-  await expect(page.locator('#fibx-anchor')).toContainText('Fib high');
-  await expect(page.locator('#fibx-anchor')).toContainText('Fib low');
-  await expect(page.locator('#fibx-anchor')).toContainText('24,700');
-  await expect(page.locator('#fibx-anchor')).not.toContainText('consecutive candles');
-  await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
+  await expect(page.locator('#fibx-monitors [data-fx="anchor"] table')).toBeVisible();
+  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('Fib high');
+  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('Fib low');
+  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('24,700');
+  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).not.toContainText('consecutive candles');
+  await expect(page.locator('#fibx-monitors [data-fx="summary"]')).toContainText('₹24,700');
   // The strip names the mother's chart and the mode it is running in.
-  await expect(page.locator('#fibx-gist')).toContainText('15M mother, 1m entries');
-  await expect(page.locator('#fibx-gist')).toContainText('PAPER');
+  await expect(page.locator('#fibx-monitors [data-fx="gist"]')).toContainText('15M mother, 1m entries');
+  await expect(page.locator('#fibx-monitors [data-fx="gist"]')).toContainText('PAPER');
 
-  await page.click('#fibx-load-chart');
+  await page.click('#fibx-monitors [data-fx="chart"]');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
 
   const paint = await page.evaluate(() => {

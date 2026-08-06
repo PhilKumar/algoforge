@@ -20,7 +20,11 @@ class _Request:
 
 
 class _Adapter:
-    def get_ticker(self, _symbol):
+    def __init__(self):
+        self.asked = []
+
+    def get_ticker(self, symbol):
+        self.asked.append(symbol)
         return {"last_price": 24000}
 
 
@@ -108,7 +112,7 @@ class RuntimeControlPlaneTests(unittest.IsolatedAsyncioTestCase):
         )
         app_module._cascade_engines[7] = runtime(_CascadeEngine())
         app_module._candle_entry_engines[7] = runtime(_CandleEngine())
-        app_module._fib_boundary_engines[7] = runtime(_FibEngine())
+        app_module._fib_boundary_engines[7] = {"NIFTY": runtime(_FibEngine()), "SENSEX": runtime(_FibEngine())}
         app_module._terminal_cascade_engines[7] = {
             "RELIANCE": app_module._TerminalCascadeRuntime(
                 engine=_TerminalEngine(),
@@ -124,7 +128,8 @@ class RuntimeControlPlaneTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["any_running"])
         self.assertTrue(row["cascade_running"])
         self.assertTrue(row["candle_entry_running"])
-        self.assertTrue(row["fib_boundary_running"])
+        # A COUNT now, not a flag -- two instruments, two ladders.
+        self.assertEqual(row["fib_boundary_running"], 2)
         self.assertEqual(row["terminal_cascade_running"], 1)
 
         health = await app_module.health()
@@ -140,7 +145,8 @@ class RuntimeControlPlaneTests(unittest.IsolatedAsyncioTestCase):
         )
         app_module._cascade_engines[7] = runtime(_CascadeEngine())
         app_module._candle_entry_engines[7] = runtime(_CandleEngine())
-        app_module._fib_boundary_engines[7] = runtime(_FibEngine())
+        nifty, sensex = runtime(_FibEngine()), runtime(_FibEngine())
+        app_module._fib_boundary_engines[7] = {"NIFTY": nifty, "SENSEX": sensex}
         app_module._terminal_cascade_engines[7] = {
             "RELIANCE": app_module._TerminalCascadeRuntime(
                 engine=_TerminalEngine(),
@@ -163,10 +169,15 @@ class RuntimeControlPlaneTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await app_module.emergency_stop(_Request(role="admin"))
 
-        self.assertEqual(result["stopped"], 4)
+        self.assertEqual(result["stopped"], 5)
         self.assertEqual(result["results"]["cascade:7"], "stopped")
         self.assertEqual(result["results"]["candle-entry:7"], "stopped")
-        self.assertEqual(result["results"]["fib-boundary:7"], "stopped")
+        # Both ladders stop, each named, and each priced off ITS OWN index --
+        # a SENSEX basket closed at a NIFTY print would be a fabricated exit.
+        self.assertEqual(result["results"]["fib-boundary:7:NIFTY"], "stopped")
+        self.assertEqual(result["results"]["fib-boundary:7:SENSEX"], "stopped")
+        self.assertEqual(nifty.adapter.asked, ["NIFTY"])
+        self.assertEqual(sensex.adapter.asked, ["SENSEX"])
         self.assertEqual(result["results"]["terminal-cascade:7:RELIANCE"], "stopped")
 
     async def test_emergency_stop_keeps_unpriced_candle_entry_monitored(self):
