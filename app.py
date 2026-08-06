@@ -11414,7 +11414,13 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
         requested_days = max(1, (_to_dt - _from_dt).days + 1)
         strategy_config["allow_synthetic_option_fallback"] = requested_days >= _OPTION_REAL_DATA_MAX_DAYS
-        option_pricing = _fetch_backtest_option_histories(strategy_config, tf_spec, from_date, to_date)
+        # Runs off the event loop: this fetch is synchronous, network-bound and
+        # throttles itself with time.sleep between Dhan chunks. Left inline it
+        # stalls every live/paper engine task and the /ws stream for its whole
+        # duration, since they all share this loop and the app runs one worker.
+        option_pricing = await asyncio.to_thread(
+            _fetch_backtest_option_histories, strategy_config, tf_spec, from_date, to_date
+        )
         if option_pricing["errors"]:
             error_msg = "Historical option data unavailable for this backtest:\n- " + "\n- ".join(
                 option_pricing["errors"]
