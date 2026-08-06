@@ -759,7 +759,7 @@ class PersistenceTests(unittest.TestCase):
 
 
 class MotherBreakTests(unittest.TestCase):
-    """Phil: "If mother candle broken, stop the trade.\" """
+    """Phil: "If mother candle broken, stop the trade.\""""
 
     def test_a_close_above_the_mother_high_ends_a_ce_campaign(self):
         engine, candles, _ = ladder()
@@ -832,7 +832,7 @@ class MotherBreakTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()
