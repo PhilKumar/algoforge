@@ -710,7 +710,13 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await expect(page.locator('#fibx-blocked table')).toBeVisible();
   await expect(page.locator('#fibx-blocked')).toContainText('NIFTY CE');
   await expect(page.locator('#fibx-blocked')).toContainText('15M mother');
+  // The anchor block is a table now, labelled fib high/low, and it no longer
+  // spells out the involvement rule.
+  await expect(page.locator('#fibx-anchor table')).toBeVisible();
+  await expect(page.locator('#fibx-anchor')).toContainText('Fib high');
+  await expect(page.locator('#fibx-anchor')).toContainText('Fib low');
   await expect(page.locator('#fibx-anchor')).toContainText('24,700');
+  await expect(page.locator('#fibx-anchor')).not.toContainText('consecutive candles');
   await expect(page.locator('#fibx-summary')).toContainText('₹24,700');
   // The strip names the mother's chart and the mode it is running in.
   await expect(page.locator('#fibx-gist')).toContainText('15M mother, 1m entries');

@@ -2961,9 +2961,13 @@ function _renderFibBoundaryStatus(payload) {
   const anchorEl = document.getElementById('fibx-anchor');
   if (anchorEl) {
     anchorEl.innerHTML = anchor
-      ? `<div>Swing high <strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong> at ${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))} · swing low <strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong> at ${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</div>`
-        + `<div style="color:var(--muted);">Span ${escapeHtml(_cascadeNumber(anchor.span))} pts · frozen by ${escapeHtml(String(anchor.involvement_candles))} consecutive candles, confirmed ${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))} · every level below is one span apart</div>`
-      : '<div style="color:var(--muted);">No swing yet — the ladder is priced only once two consecutive candles close the other way after the mother.</div>';
+      ? `<table class="fibx-anchor-table">`
+        + `<tr><th>Fib high</th><td><strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong></td><td class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))}</td></tr>`
+        + `<tr><th>Fib low</th><td><strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong></td><td class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</td></tr>`
+        + `<tr><th>Span</th><td>${escapeHtml(_cascadeNumber(anchor.span))} pts</td><td class="fibx-when">every level is one span apart</td></tr>`
+        + `<tr><th>Confirmed</th><td colspan="2" class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))}</td></tr>`
+        + `</table>`
+      : '<div style="color:var(--muted);">No fib yet — waiting for the swing to settle.</div>';
   }
 
   const fillsEl = document.getElementById('fibx-fills');
