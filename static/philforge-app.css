@@ -409,6 +409,19 @@
   @media (max-width: 768px) {
     input, select, textarea { font-size: 16px !important; }
   }
+  /* The `width: 100%` above was landing on checkboxes too, which is why
+     #enforce-capital rendered 13x16 rather than square. Boxes are square again,
+     and on touch widths they take the WCAG 2.2 AA 24x24 minimum — a checkbox is
+     one of the few controls that is simply better bigger on a phone. This also
+     covers the 16px .tbl-chk boxes and, more to the point, #stock-after-market
+     and #stock-slice-order on the order ticket: at 13x13 those were a quarter
+     of the minimum area, and they change what the order does. */
+  input[type="checkbox"], input[type="radio"] { width: auto; }
+  @media (max-width: 768px) {
+    input[type="checkbox"], input[type="radio"], .tbl-chk {
+      width: 24px; height: 24px; min-width: 24px; min-height: 24px;
+    }
+  }
   #bt-from-date::-webkit-calendar-picker-indicator,
   #bt-to-date::-webkit-calendar-picker-indicator {
     filter: brightness(0) saturate(100%) invert(66%) sepia(88%) saturate(1510%) hue-rotate(357deg) brightness(102%) contrast(96%);
@@ -5990,7 +6003,12 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      ⓘ and appears on demand, so the page leads with controls and the
      explanation is one tap away rather than always in the way. */
   .pf-info { display: contents; }
+  /* The painted disc stays 20px — at 24px it stops reading as a footnote
+     marker beside its heading and starts reading as a button. The ::after
+     below is an invisible 24x24 square centred on it, so the tap target meets
+     the minimum while the drawing and the layout are untouched. */
   .pf-info-btn {
+    position: relative;
     width: 20px; height: 20px; border-radius: 999px; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid var(--border-hi, rgba(255,255,255,0.12));
@@ -6002,6 +6020,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
     padding: 0;
     transition: color .15s, border-color .15s, background .15s;
     vertical-align: middle;
+  }
+  .pf-info-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 24px; height: 24px;
+    transform: translate(-50%, -50%);
   }
   .pf-info-btn:hover { color: var(--accent); border-color: var(--border-acc); }
   .pf-info.is-open > .pf-info-btn,
