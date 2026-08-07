@@ -706,6 +706,13 @@ class FibTouchLadder:
         # and a rebased campaign can span days -- so the near ones settle while
         # the rest keep running.
         self._settled: list[tuple[TouchFill, float]] = []
+        # ONE expiry per campaign, fixed by the first buy. Before this, every
+        # rung re-resolved its own expiry, so a ladder that ran past its own
+        # contract kept laddering into the NEXT one: the 24-Dec-2025 campaign
+        # bought five legs on the 30-Dec expiry, watched them die, then opened
+        # an L12 on the 6-Jan expiry -- Rs 57,885 gone, the worst loss in
+        # thirteen months. A ladder is a position in one contract series.
+        self.expiry_locked: Optional[date] = None
         # Trailing exit state: armed once the target is reached, then the best
         # price seen since. Both reset with the campaign, never across one.
         self._trail_armed = False
@@ -811,13 +818,19 @@ class FibTouchLadder:
     def _resolve_contract(self, when: datetime, spot: float) -> tuple[float, date]:
         """Strike and expiry for a buy happening now, at this index level.
 
-        Re-resolved per rung on purpose: as the index walks down, ATM-2 walks
-        with it, so a deeper CE buy takes a lower strike.  The basket therefore
-        holds several strikes, which is what Phil asked for when he checked
-        whether the strike updates on each buy.
+        The STRIKE is re-resolved per rung on purpose: as the index walks down,
+        ATM-2 walks with it, so a deeper CE buy takes a lower strike.  The basket
+        therefore holds several strikes, which is what Phil asked for when he
+        checked whether the strike updates on each buy.
+
+        The EXPIRY is not. It is chosen once, by the first buy, and every later
+        rung joins that same contract series -- see `expiry_locked`.
         """
-        expiries = list(self.expiry_source(when.date()))
-        expiry = select_expiry(expiries, when.date(), min_dte=self.config.min_dte)
+        if self.expiry_locked is not None:
+            expiry = self.expiry_locked
+        else:
+            expiries = list(self.expiry_source(when.date()))
+            expiry = select_expiry(expiries, when.date(), min_dte=self.config.min_dte)
         atm = atm_strike(spot, self.config.strike_step)
         offset = self.config.itm_steps * self.config.strike_step
         strike = atm - offset if self.side == "CE" else atm + offset
@@ -832,6 +845,23 @@ class FibTouchLadder:
                 # Levels are ordered shallow-first, so the first untouched one
                 # ends the walk: nothing deeper can have been reached.
                 break
+            # The ladder never buys into its own contract's last days. Once the
+            # locked expiry is inside `min_dte` the remaining rungs are closed
+            # off: the legs already held run on to the target or to expiry, but
+            # a fresh L12 bought two days out is a lottery ticket, not a rung.
+            if self.expiry_locked is not None:
+                left = (self.expiry_locked - bar.timestamp.date()).days
+                if left < self.config.min_dte:
+                    for remaining in self.rungs:
+                        if remaining.status == "PENDING":
+                            remaining.status = "EXPIRING"
+                    self._log(
+                        bar.timestamp,
+                        "ladder_closed_near_expiry",
+                        expiry=self.expiry_locked.isoformat(),
+                        days_left=left,
+                    )
+                    return
             # Fill AT the level, not at the close -- a touch is a limit order
             # resting on the line, and the line is the price it gets.
             fill_index = rung.index_price
@@ -902,6 +932,8 @@ class FibTouchLadder:
                 order_id=str(receipt.get("order_id") or ""),
             )
             self.fills.append(fill)
+            # The first buy fixes the campaign's contract series for good.
+            self.expiry_locked = expiry
             self._last_fill_timestamp = bar.timestamp
             rung.status = "FILLED"
             rung.filled_at = bar.timestamp
@@ -946,7 +978,7 @@ class FibTouchLadder:
         if not broken:
             return False
 
-        if not self.fills:
+        if not self.fills and not self._settled:
             # NOTHING IS BOUGHT, so nothing has failed -- the setup has moved.
             # Phil, 2026-08-07: "before if it breaks, then mother is changed."
             # Ending here threw away 20 of 24 campaigns before they could trade.
@@ -1023,6 +1055,9 @@ class FibTouchLadder:
         self.anchor = None
         self.rungs = []
         self._rebase_watch = []
+        # A rebase only ever runs before the first buy, so no contract is
+        # committed yet and the next ladder picks its own expiry afresh.
+        self.expiry_locked = None
         # The old mother's geometry stream is meaningless now; the new mother
         # lives on the 1m series, so the swing is searched there.
         self.geometry_history = list(watched)
@@ -1401,6 +1436,7 @@ class FibTouchLadder:
                 for fill in self.fills
             ],
             "settled": [{**fill.as_dict(), "settled_at": price} for fill, price in self._settled],
+            "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
             "exit_reason": self.exit_reason,
@@ -1508,6 +1544,14 @@ class FibTouchLadder:
             )
             for row in raw.get("settled") or []
         ]
+        locked = raw.get("expiry_locked")
+        # A ladder written before the expiry lock existed still has one contract
+        # series in its fills; take it from there rather than leaving it free to
+        # roll into the next expiry on the first tick after a restart.
+        if locked:
+            engine.expiry_locked = date.fromisoformat(locked)
+        elif engine.fills:
+            engine.expiry_locked = min(fill.expiry for fill in engine.fills)
         stamp = raw.get("last_fill_timestamp")
         engine._last_fill_timestamp = datetime.fromisoformat(stamp) if stamp else None
         engine.mother_high = raw.get("mother_high")
@@ -1566,6 +1610,8 @@ class FibTouchLadder:
             "strike_step": self.config.strike_step,
             "itm_steps": self.config.itm_steps,
             "min_dte": self.config.min_dte,
+            # The one contract series this ladder trades, fixed by the first buy.
+            "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "capital_cap_inr": self.config.capital_cap_inr,
             "deployed_inr": self.deployed_inr,
             "remaining_inr": self.remaining_inr,

@@ -1073,15 +1073,19 @@ class PartialExpiryTests(unittest.TestCase):
     """A basket holds several expiries; each leg settles on its own."""
 
     def two_expiry_basket(self):
-        """One leg expiring 11 Aug, one 18 Aug, both bought and open."""
+        """One leg expiring 11 Aug, one 18 Aug, both bought and open.
+
+        A ladder started TODAY can no longer reach this state -- the first buy
+        locks the expiry (see :class:`ExpiryLockTests`). It survives only in a
+        ladder restored from before that rule, so the per-leg settlement below
+        still has to be right; releasing the lock between the two fills is how
+        that pre-lock ladder is reproduced here.
+        """
         candles = falling_then_bouncing()
         config = FibTouchConfig(
             symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
         )
         chain = [date(2026, 8, 11), date(2026, 8, 18)]
-        # The first buy takes the near expiry; once it is held, the chain has
-        # rolled and the next rung is forced to the far one -- which is exactly
-        # what a ladder running across an expiry does.
         holder: dict = {}
 
         def expiries(on):
@@ -1090,11 +1094,19 @@ class PartialExpiryTests(unittest.TestCase):
 
         engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
         holder["engine"] = engine
-        for bar in candles:
+
+        def step(bar):
             engine.on_candle(bar)
+            # Clearing the lock after every bar is the OLD engine exactly: each
+            # rung re-resolved its own expiry. Nothing else can produce a
+            # two-expiry basket now.
+            engine.expiry_locked = None
+
+        for bar in candles:
+            step(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
+        step(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        step(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
         return engine
 
     def test_the_near_expiry_settles_and_the_far_leg_keeps_running(self):
@@ -1139,6 +1151,92 @@ class PartialExpiryTests(unittest.TestCase):
         self.assertIn(far, engine.fills)
         self.assertEqual(engine._settled[0][1], 0.0)
         self.assertIsNone(engine.net_pnl)
+
+
+class ExpiryLockTests(unittest.TestCase):
+    """One campaign, one contract series -- fixed by the first buy.
+
+    The 24-Dec-2025 campaign bought five legs on the 30-Dec expiry, watched all
+    five die, and then opened an L12 on the 6-Jan expiry: Rs 57,885, the worst
+    loss in thirteen months of NIFTY history. A ladder that outlives its own
+    contract must stop laddering, not roll.
+    """
+
+    def _rolling_chain(self):
+        """A chain that would hand out a LATER expiry once a leg is held."""
+        chain = [date(2026, 8, 11), date(2026, 8, 18)]
+        holder: dict = {}
+
+        def expiries(on):
+            engine = holder.get("engine")
+            return chain[1:] if engine is not None and engine.fills else chain
+
+        return expiries, holder
+
+    def _laddered(self, expiries, holder):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
+        holder["engine"] = engine
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
+        return engine
+
+    def test_every_leg_shares_the_first_buys_expiry(self):
+        engine = self._laddered(*self._rolling_chain())
+        self.assertGreater(len(engine.fills), 1, "the ladder must actually add rungs for this to prove anything")
+        self.assertEqual(
+            {fill.expiry for fill in engine.fills},
+            {date(2026, 8, 11)},
+            "a later rung followed the chain into the next expiry",
+        )
+        self.assertEqual(engine.expiry_locked, date(2026, 8, 11))
+
+    def test_the_whole_campaign_ends_on_its_one_expiry(self):
+        engine = self._laddered(*self._rolling_chain())
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        self.assertEqual(engine.status, "EXPIRED")
+        self.assertEqual(engine.fills, [])
+        self.assertIsNotNone(engine.net_pnl, "an expired campaign is booked, not left hanging")
+
+    def test_no_new_rung_is_bought_inside_min_dte(self):
+        """The L12-two-days-out leg that made the Rs 57,885 loss."""
+        engine = self._laddered(*self._rolling_chain())
+        pending = [rung for rung in engine.rungs if rung.status == "PENDING"]
+        self.assertTrue(pending, "need an untouched rung left to prove the guard")
+        held = len(engine.fills)
+        # 10 Aug: one day to the locked expiry, and the index drops far enough
+        # to touch every level still pending.
+        engine.on_candle(Bar(datetime(2026, 8, 10, 11, 0), 24_000, 24_005, 20_000, 24_000))
+        self.assertEqual(len(engine.fills), held, "a rung was bought a day before its own expiry")
+        self.assertEqual({rung.status for rung in pending}, {"EXPIRING"})
+
+    def test_a_rebase_frees_the_expiry_again(self):
+        """No buy has happened, so no contract is committed."""
+        expiries, holder = self._rolling_chain()
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
+        holder["engine"] = engine
+        engine.expiry_locked = date(2026, 8, 11)
+        engine._rebase(candles[:5])
+        self.assertIsNone(engine.expiry_locked)
+
+    def test_a_ladder_saved_before_the_lock_comes_back_locked(self):
+        engine = self._laddered(*self._rolling_chain())
+        raw = engine.to_dict()
+        del raw["expiry_locked"]  # written by an older build
+        restored = FibTouchLadder.from_dict(
+            raw, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 18)]
+        )
+        self.assertEqual(restored.expiry_locked, date(2026, 8, 11))
 
 
 class DeepTargetTests(unittest.TestCase):

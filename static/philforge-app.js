@@ -2847,7 +2847,7 @@ function _fibSetFormStatus(message, tone = 'muted') {
 }
 
 function _fibxLevelTone(status) {
-  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24' }[status] || 'var(--muted)');
+  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24', EXPIRING: '#fbbf24' }[status] || 'var(--muted)');
 }
 
 // ── One panel per ladder ──────────────────────────────────────────────
@@ -3091,7 +3091,9 @@ function _renderFibBoundaryCampaign(root, campaign) {
     boundEl.innerHTML = levels.length ? levels.map(level => {
       const stateColor = _fibxLevelTone(level.status);
       const toneClass = _cascadeOptionsToneClass(stateColor);
-      const note = level.status === 'UNFUNDED' ? 'cap spent' : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
+      const note = level.status === 'UNFUNDED' ? 'cap spent'
+        : level.status === 'EXPIRING' ? 'contract too near expiry'
+        : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
       return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
         + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>${escapeHtml(String(level.key))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
         + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(level.index_price))}</div>`
