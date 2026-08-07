@@ -35,8 +35,12 @@ from data import cascade_upstox  # noqa: E402
 MOTHER_AT = "2026-07-17T14:15"
 MOTHER_HIGH, MOTHER_LOW = 24367.30, 24280.55  # L4 = 24,020.30 · L8 = 23,673.30
 
-# 15m NIFTY walk on 2026-07-20: two reds through L4, fill, two reds through
-# L8, fill, then the snap back through the 0.25 target.
+# A 15m NIFTY walk on 2026-07-20 shaped for the SWING TOUCH LADDER: a low,
+# two greens that freeze it, a bounce, two reds that freeze the high, the touch
+# of L2, and the snap back through the 0.25 target.
+#
+#   swing low 24,000 · swing high 24,100 · span 100
+#   L2 = 24,100 - 2x100 = 23,900   target = 23,900 + 0.25x200 = 23,950
 D = date(2026, 7, 20)
 
 
@@ -46,19 +50,20 @@ def _dt(hh, mm):
 
 INDEX_CANDLES = {
     datetime(2026, 7, 17, 14, 15): (24300.0, MOTHER_HIGH, MOTHER_LOW, 24290.0),
-    _dt(9, 15): (24100.0, 24110.0, 24000.0, 24010.0),
-    _dt(9, 30): (24010.0, 24015.0, 23950.0, 23960.0),
-    _dt(9, 45): (23960.0, 24050.0, 23940.0, 24040.0),
-    _dt(10, 0): (24040.0, 24045.0, 23650.0, 23660.0),
-    _dt(10, 15): (23660.0, 23665.0, 23600.0, 23610.0),
-    _dt(10, 30): (23610.0, 23640.0, 23600.0, 23630.0),
-    _dt(10, 45): (23630.0, 23920.0, 23620.0, 23900.0),
+    _dt(9, 15): (24100.0, 24110.0, 24000.0, 24010.0),  # red   -> low 24,000
+    _dt(9, 30): (24010.0, 24060.0, 24005.0, 24050.0),  # green
+    _dt(9, 45): (24050.0, 24080.0, 24040.0, 24075.0),  # green -> LOW frozen
+    _dt(10, 0): (24075.0, 24100.0, 24070.0, 24095.0),  # green -> high 24,100
+    _dt(10, 15): (24095.0, 24098.0, 24080.0, 24085.0),  # red
+    # Second red freezes the high AND wicks through L2 in the same bar.
+    _dt(10, 30): (24085.0, 24088.0, 23890.0, 23900.0),  # red   -> HIGH frozen + L2 fill
+    _dt(10, 45): (23900.0, 23960.0, 23895.0, 23955.0),  # green -> target 23,950
 }
 
-# Two deliberately thin minutes: the L8 fill (10:30) has no bar — nearest is
-# 10:27, priced from the last trade — and the exit (10:45) first prints at
-# 10:47, priced from the next trade inside the exit candle.  Neither gaps.
-OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 47): 520.0}
+# One deliberately thin minute: the L2 fill (10:30) has no bar of its own and
+# is priced from the last real trade at 10:27 -- disclosed, never a gap. The
+# exit minute does print, so the round settles.
+OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 45): 520.0}
 
 
 class _StubDhanClient:
@@ -157,10 +162,11 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
                 (
                     "/api/fib-boundary/backtest",
                     {
+                        "symbol": "NIFTY",
                         "mother_timestamp": MOTHER_AT,
                         "side": "CE",
                         "timeframe": "15m",
-                        "rung_inr": 75000,
+                        "capital_cap_inr": 75000,
                         "itm_steps": 2,
                     },
                 )
@@ -168,30 +174,38 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        result = body["result"]
+
+        # It is the SAME engine the Start button trades, not a second one.
+        self.assertEqual(body["engine"], "fib_touch_ladder")
+        self.assertEqual(body["pricing"], "recorded_history")
+
+        campaign = body["campaign"]
+        # The swing the ladder measured from, found by the engine -- not typed.
+        self.assertEqual(campaign["anchor"]["low"], 24_000.0)
+        self.assertEqual(campaign["anchor"]["high"], 24_100.0)
+        self.assertEqual(campaign["anchor"]["span"], 100.0)
 
         # The whole point: real numbers on the panel, nothing withheld.
-        self.assertEqual(result["status"], "closed", result)
-        self.assertEqual(len(result["entries"]), 2)
-        self.assertTrue(all(entry["option_price"] is not None for entry in result["entries"]))
-        self.assertEqual(result["data_gaps"], [])
-        self.assertEqual(result["premium_failures"], [])
-        self.assertIsNotNone(result["net_pnl"])
-        self.assertIsNotNone(result["gross_pnl"])
-        self.assertGreater(result["costs_total"], 0)
-        self.assertAlmostEqual(result["gross_pnl"], (520 - 500) * 65 + (520 - 300) * 2 * 65, places=2)
+        self.assertEqual(campaign["status"], "CLOSED")
+        self.assertEqual(campaign["exit_reason"], "target")
+        self.assertEqual(len(campaign["fills"]), 1)
+        fill = campaign["fills"][0]
+        self.assertEqual(fill["level"], 2)
+        self.assertEqual(fill["index_price"], 23_900.0)
+        self.assertEqual(fill["premium"], 300.0)  # the 10:27 trade, 3 min back
+        self.assertEqual(fill["quantity"], 65)
+        self.assertEqual(campaign["data_gaps"], [])
+        self.assertEqual(body["premium_failures"], [])
+        self.assertAlmostEqual(campaign["gross_pnl"], (520 - 300) * 65, places=2)
+        self.assertIsNotNone(campaign["net_pnl"])
+        self.assertGreater(campaign["costs_total"], 0)
+        # Net is gross minus real statutory cost, never the same number.
+        self.assertLess(campaign["net_pnl"], campaign["gross_pnl"])
 
-        # The L8 fill minute had no bar (priced from the 10:27 trade) and the
-        # exit's first print came 2 min into its candle — both disclosed,
-        # neither withholding anything.
-        self.assertEqual(len(result["premium_stale_fills"]), 3)
-        notes = "\n".join(result["premium_stale_fills"])
+        # The fill minute had no bar of its own and was priced from a real
+        # neighbouring trade -- disclosed, not silently substituted.
+        notes = "\n".join(body["premium_stale_fills"])
         self.assertIn("3 min earlier", notes)
-        self.assertIn("2 min into the candle", notes)
-
-        # The mother came off the stub Dhan frame, not typed numbers.
-        self.assertAlmostEqual(body["mother"]["high"], MOTHER_HIGH)
-        self.assertAlmostEqual(body["mother"]["low"], MOTHER_LOW)
 
     def test_a_dead_premium_source_is_named_not_disguised_as_a_gap(self):
         broken = _StubDhanClient()
@@ -210,16 +224,25 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         app_module._request_broker_context = _broker_context
         try:
             [response] = self._post(
-                [("/api/fib-boundary/backtest", {"mother_timestamp": MOTHER_AT, "side": "CE", "timeframe": "15m"})]
+                [
+                    (
+                        "/api/fib-boundary/backtest",
+                        {"symbol": "NIFTY", "mother_timestamp": MOTHER_AT, "side": "CE", "timeframe": "15m"},
+                    )
+                ]
             )
         finally:
             app_module._request_broker_context = previous
 
         self.assertEqual(response.status_code, 200, response.text)
-        result = response.json()["result"]
-        self.assertEqual(result["status"], "data_gap")
-        self.assertTrue(result["premium_failures"], result)
-        self.assertIn("DH-901", result["premium_failures"][0])
+        body = response.json()
+        # A dead token is NOT a market gap. The route has to say which one
+        # happened, or a broken replay reads as "the market did not trade".
+        self.assertTrue(body["premium_failures"], body)
+        self.assertIn("DH-901", "\n".join(body["premium_failures"]))
+        # And nothing is invented: no fill, no P&L.
+        self.assertEqual(body["campaign"]["fills"], [])
+        self.assertIsNone(body["campaign"]["net_pnl"])
 
 
 if __name__ == "__main__":

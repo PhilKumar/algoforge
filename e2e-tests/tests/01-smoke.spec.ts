@@ -624,11 +624,11 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-start')).toBeVisible();
   await expect(page.locator('#fibx-monitors [data-fx="kill"]')).toBeHidden();
 
-  // The chart is rewired and back; only the backtest is still parked, and it
-  // says so rather than going silently missing.
+  // Nothing is parked any more: the Backtest replays the SAME ladder Start
+  // trades, so both are live and the parked note is gone.
   await expect(page.locator('#fibx-monitors [data-fx="chart"]')).toBeVisible();
-  await expect(page.locator('#fibx-backtest-btn')).toBeHidden();
-  await expect(page.locator('#fibx-parked-note')).toContainText('Backtest is parked');
+  await expect(page.locator('#fibx-backtest-btn')).toBeVisible();
+  await expect(page.locator('#fibx-parked-note')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
 });

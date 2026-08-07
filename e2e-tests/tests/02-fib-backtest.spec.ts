@@ -1,7 +1,11 @@
 /**
  * 02-fib-backtest.spec.ts
- * The fib-boundary Backtest panel shows rupee P&L, and never lies about why
+ * The Fib Boundary Backtest panel shows rupee P&L, and never lies about why
  * it couldn't.
+ *
+ * REWRITTEN 2026-08-07: the button now replays the SWING TOUCH LADDER -- the
+ * same engine Start trades -- so the response shape changed completely and
+ * these specs were rewritten against it rather than restored.
  *
  * Born from the 2026-08-01 session: every backtest of a recent mother died as
  * "1 premium gap … net P&L withheld" while Dhan had the bar all along (the
@@ -14,15 +18,6 @@
 
 import { test, expect, Page } from '@playwright/test';
 
-// PARKED 2026-08-06. The Fib Boundary tab now trades the swing-anchored touch
-// ladder (engine/fib_touch_ladder.py), and the Backtest button still replays
-// the OLD typed-mother L4/L8 geometry -- so it is hidden in the UI rather than
-// shipped alongside a Start button that trades something else. These three
-// specs drive that hidden button. Restore them, unchanged, the moment the
-// backtest is rewired to the ladder; the server side they guard
-// (tests/test_fib_backtest_route_e2e.py) is still running and still green.
-test.describe.configure({ mode: 'default' });
-test.skip(true, 'Backtest button is parked while it is rewired to the swing ladder');
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -174,52 +169,74 @@ async function openFibPanel(page: Page, backtestBody: object) {
   if (process.env.E2E_SHOT) await page.locator('#fibx-backtest').screenshot({ path: process.env.E2E_SHOT });
 }
 
-test('Backtest panel shows real rupee P&L with a stale leg disclosed, not withheld', async ({ page }) => {
-  await openFibPanel(page, backtestSuccess);
+// A closed round on the swing ladder, shaped exactly like the route returns.
+const ladderBacktest = {
+  status: 'ok', mode: 'backtest', engine: 'fib_touch_ladder', pricing: 'recorded_history',
+  symbol: 'NIFTY', side: 'CE', timeframe: '15m', lot_size: 65,
+  mother: { timestamp: '2026-08-06T09:21:00+05:30' },
+  candles_replayed: 812, horizon_to: '2026-08-16',
+  note: 'NIFTY CE swing touch ladder on a 15m mother, 1m entries.',
+  campaign: {
+    symbol: 'NIFTY', side: 'CE', timeframe: '15m', status: 'CLOSED',
+    anchor: { high: 24700, low: 24600, span: 100, high_timestamp: '2026-08-06T09:16:00+05:30', low_timestamp: '2026-08-06T09:21:00+05:30', confirmed_at: '2026-08-06T09:23:00+05:30', involvement_candles: 2 },
+    levels: [
+      { level: 2, key: 'L2', index_price: 24500, status: 'FILLED', filled_at: '2026-08-06T09:30:00+05:30' },
+      { level: 3, key: 'L3', index_price: 24400, status: 'PENDING', filled_at: null },
+    ],
+    fills: [
+      { buy_number: 1, level: 2, timestamp: '2026-08-06T09:30:00+05:30', index_price: 24500, premium: 200, lots: 1, quantity: 65, strike: 24400, expiry: '2026-08-11', option_type: 'CE', funded_inr: 13000, order_id: 'paper-1' },
+    ],
+    open_lots: 1, open_quantity: 65, deployed_inr: 13000, remaining_inr: 62000,
+    average_index_entry: 24500, target_index: 24550, exit_reason: 'target',
+    exit_premiums: [260], gross_pnl: 3900, costs_total: 128.4, net_pnl: 3771.6,
+    data_gaps: [], events: [],
+  },
+  chart: { status: 'ok', symbol: 'NIFTY', timeframe: '15m', side: 'CE', candles: [], anchor: null, levels: [], trendline: null },
+};
+
+test('Backtest replays the ladder Start trades and shows its rupee P&L', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (e) => jsErrors.push(String(e)));
+  await openFibPanel(page, ladderBacktest);
 
   await expect(page.locator('#fibx-backtest-badge')).toHaveText('REAL PREMIUMS');
-  const summary = page.locator('#fibx-backtest-summary');
-  await expect(summary).toContainText('29,631.74');       // net P&L in rupees
-  await expect(summary).toContainText('29,900');          // gross
-  await expect(summary).not.toContainText('withheld');
-  await expect(summary).toContainText('2/2');             // legs priced
-
-  // Both legs in the table with premiums, no GAP cell.
-  const legs = page.locator('#fibx-backtest-legs tr');
-  await expect(legs).toHaveCount(2);
-  await expect(page.locator('#fibx-backtest-legs')).not.toContainText('GAP');
-
-  // The illiquid minute is disclosed as a quiet note, not an amber warning.
-  const gapsBox = page.locator('#fibx-backtest-gaps');
-  await expect(gapsBox.locator('.fibx-premium-stale')).toContainText('priced without an exact minute bar');
-  await expect(gapsBox.locator('.fibx-premium-gaps')).toHaveCount(0);
-  await expect(gapsBox.locator('.fibx-premium-failures')).toHaveCount(0);
+  await expect(page.locator('#fibx-backtest-summary')).toContainText('TARGET');
+  await expect(page.locator('#fibx-backtest-summary')).toContainText('₹3,771.60');
+  // The header names the same geometry the Start button runs.
+  await expect(page.locator('#fibx-backtest-contract')).toContainText('15M mother, 1m entries');
+  // One priced leg, entry AND exit premium on it.
+  await expect(page.locator('#fibx-backtest-legs tr')).toHaveCount(1);
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹200.00');
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹260.00');
+  expect(jsErrors).toEqual([]);
 });
 
-test('A dead premium source is named as a failure, never dressed up as a market gap', async ({ page }) => {
-  await openFibPanel(page, backtestSourceFailure);
+test('A replay with no recorded prices says so instead of showing zeros', async ({ page }) => {
+  const unpriced = {
+    ...ladderBacktest,
+    pricing: 'unpriced',
+    note: 'No recorded option history was reachable, so this replay is geometry only — no prices, no P&L.',
+    campaign: { ...ladderBacktest.campaign, fills: [], gross_pnl: null, costs_total: null, net_pnl: null, exit_reason: null, status: 'ARMED' },
+  };
+  await openFibPanel(page, unpriced);
 
-  await expect(page.locator('#fibx-backtest-badge')).toHaveText('PARTIAL · GAPS');
-  await expect(page.locator('#fibx-backtest-summary')).toContainText('withheld');
-
-  const gapsBox = page.locator('#fibx-backtest-gaps');
-  const failures = gapsBox.locator('.fibx-premium-failures');
-  await expect(failures).toContainText('NOT a market gap');
-  await expect(failures).toContainText('DH-901');
-  // The real market gap list still renders alongside, with the new copy.
-  await expect(gapsBox.locator('.fibx-premium-gaps')).toContainText('no tradable bar near the fill');
+  await expect(page.locator('#fibx-backtest-badge')).toHaveText('GEOMETRY ONLY');
+  // A dash, never a zero: an absent P&L must not read as a break-even trade.
+  // Asserting the dash alone is too weak -- Gross and Costs show one too, so
+  // it passes even when Net renders ₹0.00. Assert the LIE is absent.
+  await expect(page.locator('#fibx-backtest-summary')).not.toContainText('₹0.00');
+  await expect(page.locator('#fibx-backtest-summary')).toContainText('—');
+  await expect(page.locator('#fibx-backtest-gist')).toContainText('geometry only');
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('No level was touched');
 });
 
-test('A replay that hit its target shows the settled round with rupee P&L', async ({ page }) => {
-  await openCascadePage(page, backtestSuccess, replayClosedStatus);
+test('Pricing gaps are disclosed on the badge and listed, not buried', async ({ page }) => {
+  const gappy = {
+    ...ladderBacktest,
+    campaign: { ...ladderBacktest.campaign, data_gaps: ['L3: no NIFTY 24300CE 2026-08-11 quote (x4, last 11:20)'] },
+  };
+  await openFibPanel(page, gappy);
 
-  await expect(page.locator('#fibx-badge')).toHaveText('REPLAY · CLOSED');
-  // The settled round carries the P&L the old replay withheld.
-  const rounds = page.locator('#fibx-rounds');
-  await expect(rounds).toContainText('27,088.40');
-  await expect(rounds).toContainText('target');
-  // And the pricing note says the premiums were real, not withheld.
-  await expect(page.locator('.fibx-pricing-warning')).toContainText('real Upstox/Dhan bars');
-  await expect(page.locator('.fibx-pricing-warning')).not.toContainText('withheld');
-  if (process.env.E2E_SHOT_REPLAY) await page.locator('#fibx-window').screenshot({ path: process.env.E2E_SHOT_REPLAY });
+  await expect(page.locator('#fibx-backtest-badge')).toHaveText('PRICED · 1 GAP');
+  await expect(page.locator('#fibx-backtest-gaps')).toContainText('no NIFTY 24300CE');
 });

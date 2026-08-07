@@ -92,7 +92,6 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
-from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig
 from engine.cascade_fib_geometry import boundaries_for_timeframe
 from engine.cascade_options import (
     CascadeConfig,
@@ -124,6 +123,7 @@ from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
 from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
 from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
+from engine.fib_touch_ladder import SwingAnchor as _FibTouchSwingAnchor
 from engine.fib_touch_ladder import find_swing_anchor as _fib_touch_find_anchor
 from engine.fib_touch_ladder import find_trendline as _fib_touch_find_trendline
 from engine.fib_touch_ladder import level_price as _fib_touch_level_price
@@ -3670,6 +3670,25 @@ class TestBenchPayload(BaseModel):
     itm_steps: int = Field(default=2, ge=0, le=10)
     # Replay even when this exact question already has a stored answer.
     force: bool = Field(default=False)
+
+
+class FibTouchBacktestPayload(BaseModel):
+    """A past mother replayed through the SAME ladder the Start button trades.
+
+    Deliberately mirrors FibTouchStartPayload field for field, plus a horizon,
+    so a backtest and a live run differ only in where their prices come from.
+    """
+
+    symbol: str = Field(default="NIFTY")
+    side: str = Field(default="CE")
+    mother_timestamp: str
+    timeframe: str = Field(default="1m")
+    capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
+    itm_steps: int = Field(default=2, ge=0, le=10)
+    min_dte: int = Field(default=4, ge=0, le=45)
+    # The ladder ends at its target, a broken mother or expiry. Ten days covers
+    # the overwhelming majority; the ceiling allows a contract held to expiry.
+    horizon_days: int = Field(default=10, ge=1, le=60)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -10097,182 +10116,204 @@ def _serialize_fib_boundary_backtest(result, lot_size: int) -> dict:
 
 
 @app.post("/api/fib-boundary/backtest")
-async def fib_boundary_backtest(payload: FibBoundaryBacktestPayload, request: Request):
-    """Replay a past mother with REAL fixed-strike Upstox premiums.
+async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Request):
+    """Replay a past mother through the SWING TOUCH LADDER, on real premiums.
 
-    Unlike the live paper engine -- which withholds P&L for an old mother because
-    Dhan only quotes 'now' -- this prices every leg off Upstox's expired-option
-    1-minute history and returns real per-round P&L.  It never places an order.
+    This is the same engine the Start button trades -- `FibTouchLadder` -- fed
+    historical candles and priced from recorded option history rather than a
+    live quote.  That identity is the whole point: the tab spent a day carrying
+    a backtest of one ladder beside a Start button trading another, and the two
+    could not be compared.  They run the same code now.
+
+    Nothing is placed: the executor is the paper one, and the route never
+    touches an order API.
     """
 
+    try:
+        terms = symbol_terms(payload.symbol)
+    except FibTouchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     side = str(payload.side).upper()
     if side not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="side must be CE or PE.")
     timeframe = str(payload.timeframe).lower()
-    if timeframe not in _FIB_TIMEFRAME_MINUTES:
-        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-    typed = payload.mother_high is not None and payload.mother_low is not None
-    if typed and payload.mother_high <= payload.mother_low:
-        raise HTTPException(status_code=400, detail="Mother high must exceed mother low.")
+    if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
     if mother_timestamp.date() > now.date():
         raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
     if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
-        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
-
-    _user, broker_client, _source = await _request_broker_context(request)
-    if broker_client is None:
-        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the NIFTY index candles.")
-    # PE used to be refused here because the auto-geometry engine only ran CE.
-    # FibBoundaryCascade mirrors the ladder above the mother low, so both sides
-    # replay.
-    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=payload.horizon_days))
-    try:
-        index_candles = await adapter.async_get_candles(
-            "NIFTY", timeframe, from_date=mother_timestamp.date(), to_date=horizon_to
+        raise HTTPException(status_code=400, detail="Mother candle must be within the 09:15-15:30 session.")
+    tf_minutes = _FIB_TOUCH_TF_MINUTES[timeframe]
+    if timeframe == "1h":
+        if mother_timestamp.minute != 15:
+            raise HTTPException(status_code=400, detail="A 1H mother opens at 09:15, 10:15 ... 15:15 IST.")
+    elif mother_timestamp.minute % tf_minutes:
+        raise HTTPException(
+            status_code=400, detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open in IST."
         )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
 
-    # The mother candle comes from the real market data -- its high and low ARE
-    # the fib ladder, the same two numbers the live paper engine measures from.
-    # A typed pair is only an explicit override; with neither, the mother is
-    # wrong, not guessed.
-    mother_row = next((row for row in index_candles if row.timestamp == mother_timestamp), None)
-    if mother_row is not None and not typed:
-        mother = mother_row
-    elif typed:
-        spot = (float(payload.mother_high) + float(payload.mother_low)) / 2.0
-        mother = IndexCandle(mother_timestamp, spot, float(payload.mother_high), float(payload.mother_low), spot)
-    else:
+    if not terms.backtestable:
+        # FINNIFTY and MIDCPNIFTY have no premium source at all. Returning a
+        # zero-filled replay would look like a result; saying so is the honest
+        # answer, and the same fact the form already shows on the picker.
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Dhan has no NIFTY {timeframe} candle opening at "
+                f"{terms.symbol} has no recorded option history, so a backtest of it would have no prices. "
+                f"Priced today: {', '.join(t.symbol for t in _FIB_TOUCH_SYMBOLS.values() if t.backtestable)}."
+            ),
+        )
+
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load {terms.symbol} candles.")
+
+    horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=int(payload.horizon_days)))
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        geometry_candles = await adapter.async_get_candles(
+            terms.symbol, timeframe, from_date=mother_timestamp.date(), to_date=horizon_to
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail=f"Unable to load {terms.symbol} {timeframe} candles: {exc}"
+        ) from exc
+    if not any(row.timestamp == mother_timestamp for row in geometry_candles):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dhan has no {terms.symbol} {timeframe} candle opening at "
                 f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
             ),
         )
-    forward = [row for row in index_candles if row.timestamp > mother_timestamp]
-    if not forward:
-        raise HTTPException(status_code=400, detail="No NIFTY candles after the mother in that window.")
+    entry_candles = (
+        geometry_candles
+        if timeframe == "1m"
+        else await adapter.async_get_candles(terms.symbol, "1m", from_date=mother_timestamp.date(), to_date=horizon_to)
+    )
 
-    # Sized at the lot that was real when this mother printed, not today's.
-    lot_size = _nifty_lot_size_on(mother_timestamp.date())
-
-    # The ladder is the two typed numbers, nothing else: no trendline, no leg
-    # detection, no swing. Exactly what FibBoundaryPaper measures live, so this
-    # replay proves the geometry the Start button actually trades.
-    fib_config = FibBoundaryConfig(
+    lot_size = _nifty_lot_size_on(mother_timestamp.date()) if terms.symbol == "NIFTY" else terms.lot_size
+    config = FibTouchConfig(
+        symbol=terms.symbol,
+        side=side,
         mother_timestamp=mother_timestamp,
-        mother_high=mother.high,
-        mother_low=mother.low,
-        option_type=side,
-        timeframe=timeframe,
-        rung_inr=float(payload.rung_inr),
-        itm_steps=int(payload.itm_steps),
-        strike_step=50.0,
         lot_size=lot_size,
-        target_fraction=0.25,
+        strike_step=terms.strike_step,
+        timeframe=timeframe,
+        capital_cap_inr=float(payload.capital_cap_inr),
+        itm_steps=int(payload.itm_steps),
+        min_dte=int(payload.min_dte),
     )
 
     def _run() -> dict:
-        # Upstox construction + the coverage probe both hit the network and read
-        # UPSTOX_ACCESS_TOKEN, so the whole batch runs off the event loop.
-        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
-        from engine.cascade_options import OptionCandle
-        from engine.test_bench import fib_boundary_chart
+        # Upstox construction and every per-contract fetch block, so the whole
+        # replay runs off the event loop.
+        history = _fib_touch_history_lookup(broker_client, terms.symbol, mother_timestamp.date(), horizon_to)
+        expiries = _fib_touch_expiry_source(broker_client, terms.symbol)
 
-        # Dhan-style self-heal: mint a fresh Upstox token if the daily one is dead
-        # and headless-login creds are configured; a no-op otherwise.
-        try:
-            from upstox_token_manager import ensure_fresh_token
-
-            ensure_fresh_token()
-        except Exception as exc:  # never let the refresher's failure mask the real error
-            _logger.warning("[fib-backtest] Upstox token pre-check skipped: %s", exc)
-
-        # Upstox for expired contracts, Dhan's own candles for a contract that
-        # is still listed — so "too recent for Upstox" is no longer a refusal.
-        upstox_expiries: list = []
-        premium_source = None
-        try:
-            premium_source = UpstoxPremiumSource(backfill_missing=True)
-            upstox_expiries = sorted(premium_source.available_expiries())
-        except UpstoxAccessError as exc:
-            _logger.warning("[fib-backtest] Upstox premium history unavailable, using Dhan only: %s", exc)
-
-        expiries = _known_option_expiries("NIFTY", upstox_expiries)
-        if not expiries:
-            raise HTTPException(
-                status_code=503, detail="Neither Upstox nor Dhan could name an option expiry for NIFTY."
-            )
-        resolver = NiftyContractResolver(expiries=expiries, strike_step=50.0, lot_size=lot_size, symbol="NIFTY")
-        premium_lookup = _hybrid_premium_lookup(
-            broker_client,
-            "NIFTY",
-            premium_source,
-            set(upstox_expiries),
-            mother_timestamp.date(),
-            horizon_to,
-            forward_minutes=_FIB_TIMEFRAME_MINUTES[timeframe],
-        )
-
-        def option_lookup(timestamp, contract):
-            # The hybrid lookup answers in rupees; this engine reads bars. A
-            # missing minute stays None so it is recorded as a gap rather than
-            # priced from a neighbour.
-            price = premium_lookup(timestamp, contract)
-            if price is None:
+        def priced(when: datetime, strike: float, expiry: date, option_side: str) -> float | None:
+            if history is None:
                 return None
-            return OptionCandle(timestamp, float(price), float(price), float(price), float(price))
+            try:
+                value = history(
+                    when,
+                    SimpleNamespace(
+                        symbol=terms.symbol,
+                        underlying=terms.symbol,
+                        strike=float(strike),
+                        expiry=expiry,
+                        option_type=str(option_side).upper(),
+                    ),
+                )
+                return float(value) if value is not None and float(value) > 0 else None
+            except Exception:
+                return None
 
-        result = FibBoundaryCascade(fib_config, resolver, option_lookup).run(forward)
-        serialized = _serialize_fib_boundary_backtest(result, lot_size)
-        # A dead token or a rate-limited fetch is not a market gap; say which
-        # one happened so a failed replay never masquerades as missing data.
-        serialized["premium_failures"] = list(premium_lookup.source_failures)
-        # Neighbouring-trade fills from the lookup, intrinsic-floor exits from
-        # the engine: one disclosure list, each line saying how it was priced.
-        serialized["premium_stale_fills"] = list(premium_lookup.stale_fills) + list(result.pricing_notes or [])
-        serialized["_chart"] = fib_boundary_chart(fib_config, result, forward, timeframe=timeframe)
-        return serialized
+        engine = FibTouchLadder(config, premium_lookup=priced, expiry_source=expiries)
+        if timeframe != "1m":
+            for row in geometry_candles:
+                engine.on_geometry_candle(row)
+        for row in entry_candles:
+            engine.on_candle(row)
+            if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
+                break
+        return {
+            "campaign": engine.get_status(),
+            "priced": history is not None,
+            "last_bar": (engine.history[-1].timestamp.isoformat() if engine.history else None),
+            # A dead token or a rate-limited fetch is NOT a market gap. The
+            # hybrid lookup separates the two, and the panel has to keep
+            # saying which happened -- a failed replay must never be able to
+            # masquerade as "the market simply did not trade".
+            "premium_failures": list(getattr(history, "source_failures", []) or []),
+            "premium_stale_fills": list(getattr(history, "stale_fills", []) or []),
+        }
 
     try:
-        backtest = await asyncio.to_thread(_run)
+        outcome = await asyncio.to_thread(_run)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
 
-    chart = backtest.pop("_chart", None)
-    response_payload = {
+    campaign = outcome["campaign"]
+    anchor = campaign.get("anchor")
+    # The chart speaks the SAME payload the live chart route does, so the
+    # console draws both through one translator.
+    chart = {
+        "status": "ok",
+        "symbol": terms.symbol,
+        "timeframe": timeframe,
+        "side": side,
+        "chart_mode": "visual_gap_adjusted",
+        "candles": _cascade_gap_adjusted_candles(geometry_candles, mother_timestamp),
+        "anchor": anchor,
+        "levels": [{"level": row["level"], "price": row["index_price"]} for row in (campaign.get("levels") or [])],
+        "trendline": None,
+    }
+    if anchor is not None:
+        line = _fib_touch_find_trendline(
+            geometry_candles,
+            mother_timestamp,
+            side,
+            _FibTouchSwingAnchor(
+                high=float(anchor["high"]),
+                low=float(anchor["low"]),
+                high_timestamp=datetime.fromisoformat(anchor["high_timestamp"]),
+                low_timestamp=datetime.fromisoformat(anchor["low_timestamp"]),
+                confirmed_at=datetime.fromisoformat(anchor["confirmed_at"]),
+                involvement_candles=int(anchor.get("involvement_candles") or 2),
+            ),
+        )
+        chart["trendline"] = line.as_dict() if line is not None else None
+
+    return {
         "status": "ok",
         "mode": "backtest",
-        "pricing": "upstox_real_premiums",
+        "engine": "fib_touch_ladder",
+        "pricing": "recorded_history" if outcome["priced"] else "unpriced",
+        "symbol": terms.symbol,
         "side": side,
         "timeframe": timeframe,
-        "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
-        "candles_replayed": len(forward),
-        "horizon_to": horizon_to.isoformat(),
         "lot_size": lot_size,
-        "result": backtest,
+        "mother": {"timestamp": mother_timestamp.isoformat()},
+        "candles_replayed": len(entry_candles),
+        "horizon_to": horizon_to.isoformat(),
+        "campaign": campaign,
+        "premium_failures": outcome["premium_failures"],
+        "premium_stale_fills": outcome["premium_stale_fills"],
         "chart": chart,
         "note": (
-            f"Typed-mother fib ladder — {' and '.join('L' + str(level) for level in fib_config.ordered_boundaries())} "
-            f"measured straight off {mother.high:,.2f} / {mother.low:,.2f}, two closes beyond a line arm the buy. "
-            f"1/2/3 lot ladder, each rung buying ATM-{payload.itm_steps} against the index at that depth, "
-            "monthly expiry at 15-45 DTE. Every premium is a real Upstox or Dhan bar, or a recorded gap."
+            f"{terms.symbol} {side} swing touch ladder on a {timeframe} mother, 1m entries. "
+            f"Same engine the Start button trades; every price is a recorded option trade, "
+            f"and a minute nothing printed is a listed gap, never a fabricated zero."
+            if outcome["priced"]
+            else "No recorded option history was reachable, so this replay is geometry only — no prices, no P&L."
         ),
     }
-    run_id = await _db_mod.save_fib_backtest_run(_request_user_id(request), response_payload)
-    response_payload["run_id"] = run_id
-    response_payload["downloads"] = {
-        "json": f"/api/fib-boundary/backtests/{run_id}/export.json",
-        "csv": f"/api/fib-boundary/backtests/{run_id}/export.csv",
-    }
-    return response_payload
 
 
 @app.get("/api/fib-boundary/backtests")

@@ -3230,10 +3230,12 @@ async function killFibBoundaryPaper(_event, button) {
 // This function is now only a translator: it reshapes the chart route's payload
 // (plus the live campaign on `_lastFibBoundaryStatus`) into the renderer's
 // vocabulary. Every pixel decision lives in philforge-bench-chart.js.
-function _fibBoundaryCanvasPayload(payload, symbol) {
+function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // The campaign whose panel was clicked -- with several ladders running, the
-  // buys drawn on a chart have to be that instrument's own.
-  const campaign = (symbol && _lastFibBoundaryStatus?.[symbol]) || {};
+  // buys drawn on a chart have to be that instrument's own. A BACKTEST has no
+  // running campaign at all, so it passes its own result straight in; either
+  // way one translator draws both charts.
+  const campaign = campaignOverride || (symbol && _lastFibBoundaryStatus?.[symbol]) || {};
   // The renderer does arithmetic on `t`, so every timestamp crosses as epoch
   // SECONDS -- never the ISO string the route speaks.
   const epoch = value => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null; };
@@ -3419,24 +3421,30 @@ function hideFibBoundaryChart() {
 
 async function runFibBoundaryBacktest() {
   const el = id => document.getElementById(id);
-  // The mother's high/low come from Dhan on the server, same as the Test Bench.
+  // Field for field the same as Start. The two engines are one now, so the
+  // two payloads have to be too -- a route test pins that.
   const payload = {
+    symbol: el('fibx-symbol')?.value || 'NIFTY',
     mother_timestamp: el('fibx-mother-timestamp')?.value,
     side: el('fibx-side')?.value || 'CE',
-    timeframe: el('fibx-timeframe')?.value || '5m',
-    rung_inr: Number(el('fibx-rung-inr')?.value),
+    timeframe: _fibTimeframe(),
+    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
   const button = el('fibx-backtest-btn');
-  if (button) { button.disabled = true; button.textContent = 'Pricing legs off Upstox history…'; }
-  _fibSetFormStatus('Replaying the index geometry and pricing every leg with real Upstox premiums…', 'busy');
+  if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
+  _fibSetFormStatus(`Replaying ${payload.symbol} ${payload.side} on recorded prices…`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/backtest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Backtest failed (${response.status})`));
     _renderFibBoundaryBacktest(data);
-    _fibSetFormStatus(`Backtest saved as run #${data.run_id} — download it any time. No order sent.`, 'success');
+    const net = data.campaign?.net_pnl;
+    _fibSetFormStatus(
+      net == null ? 'Replayed — no completed round to price.' : `Replayed · net ${_cascadeOptionsMoney(net)}`,
+      net == null ? 'muted' : (net >= 0 ? 'success' : 'error'),
+    );
   } catch (error) {
     _fibSetFormStatus(error.message || 'Backtest failed.', 'error');
   } finally {
@@ -3447,86 +3455,80 @@ async function runFibBoundaryBacktest() {
 function _renderFibBoundaryBacktest(data) {
   const panel = document.getElementById('fibx-backtest');
   if (panel) panel.style.display = '';
-  const result = data.result || {};
-  // Stash for the journal chart toggle; reset the chart to hidden on each run.
-  _lastFibBacktest = { result, meta: data };
+  const c = data.campaign || {};
+  // The chart payload is the SAME shape the live chart route returns, so the
+  // one translator draws both.
+  _lastFibBacktest = { meta: data, chart: data.chart };
   const hasChart = !!(data.chart && Array.isArray(data.chart.candles) && data.chart.candles.length);
   _fibBoundaryCollapseBacktestChart();
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
-  const csvLink = document.getElementById('fibx-backtest-csv');
-  const jsonLink = document.getElementById('fibx-backtest-json');
-  if (csvLink) {
-    csvLink.href = data.downloads?.csv || '#';
-    csvLink.style.display = data.downloads?.csv ? '' : 'none';
-  }
-  if (jsonLink) {
-    jsonLink.href = data.downloads?.json || '#';
-    jsonLink.style.display = data.downloads?.json ? '' : 'none';
-  }
+
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {
-    const priced = !!result.fully_priced;
-    badge.textContent = priced ? 'REAL PREMIUMS' : 'PARTIAL · GAPS';
-    const tone = priced ? '#6ee7b7' : 'var(--warn)';
-    badge.classList.toggle('is-positive', priced);
-    badge.classList.toggle('is-warning', !priced);
-    badge.style.color = tone; badge.style.borderColor = tone;
+    const priced = data.pricing === 'recorded_history';
+    const gaps = (c.data_gaps || []).length;
+    badge.textContent = !priced ? 'GEOMETRY ONLY' : gaps ? `PRICED · ${gaps} GAP${gaps === 1 ? '' : 'S'}` : 'REAL PREMIUMS';
+    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
+    badge.style.borderColor = badge.style.color;
   }
-  const c = result.contract;
   const contract = document.getElementById('fibx-backtest-contract');
-  if (contract) contract.textContent = c ? `NIFTY ${Number(c.strike).toLocaleString('en-IN')} ${c.option_type} · ${c.expiry} · ${c.lot_size} units/lot` : 'No leg filled in the replay window';
+  if (contract) {
+    contract.textContent = `${data.symbol} ${data.side} · ${String(data.timeframe).toUpperCase()} mother, 1m entries · ${data.lot_size} units/lot`;
+  }
   const gist = document.getElementById('fibx-backtest-gist');
-  if (gist) gist.textContent = `${data.side} · ${String(data.timeframe).toUpperCase()} · ${data.candles_replayed} candles → expiry/close by ${data.horizon_to}`;
-  const net = result.net_pnl;
-  const netColor = net == null ? 'var(--muted)' : net > 0 ? '#6ee7b7' : net < 0 ? '#fca5a5' : 'var(--text)';
+  if (gist) gist.textContent = data.note || '';
+
   const summary = document.getElementById('fibx-backtest-summary');
   if (summary) {
+    const outcome = String(c.exit_reason || c.status || '—').replaceAll('_', ' ');
     summary.innerHTML = [
-      _cascadeOptionsMetric('Net P&L', net == null ? '— withheld' : _cascadeOptionsMoney(net), netColor),
-      _cascadeOptionsMetric('Gross P&L', result.gross_pnl == null ? '—' : _cascadeOptionsMoney(result.gross_pnl)),
-      _cascadeOptionsMetric('Costs', _cascadeOptionsMoney(result.costs_total || 0), '#fca5a5'),
-      _cascadeOptionsMetric('Index move', result.index_move == null ? '—' : `${_cascadeNumber(result.index_move)} pts`),
-      _cascadeOptionsMetric('Avg entry idx', _cascadeNumber(result.average_spot)),
-      _cascadeOptionsMetric('Target idx', _cascadeNumber(result.target_index)),
-      _cascadeOptionsMetric('Exit', String(result.exit_reason || result.status || '—').replaceAll('_', ' ')),
-      _cascadeOptionsMetric('Legs priced', `${(result.entries || []).filter(e => e.option_price != null).length}/${(result.entries || []).length}`, '#6ee7b7'),
+      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? '#6ee7b7' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
+      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5'),
+      _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
+      _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
+      _cascadeOptionsMetric('Funded', _cascadeOptionsMoney(c.deployed_inr || 0), '#fde68a'),
+      _cascadeOptionsMetric('Lots', `${c.open_lots || 0} · ${(c.fills || []).length} buys`),
     ].join('');
   }
+
   const note = document.getElementById('fibx-backtest-note');
-  if (note) note.textContent = data.note || '';
-  const gaps = Array.isArray(result.data_gaps) ? result.data_gaps : [];
-  const failures = Array.isArray(result.premium_failures) ? result.premium_failures : [];
-  const staleFills = Array.isArray(result.premium_stale_fills) ? result.premium_stale_fills : [];
+  if (note) {
+    const a = c.anchor;
+    note.textContent = a
+      ? `Fib ${a.low}–${a.high} (${a.span} pts), confirmed ${_cascadeOptionsTimestamp(a.confirmed_at)} · ${data.candles_replayed} 1m bars to ${data.horizon_to}`
+      : `No fib formed in ${data.candles_replayed} bars to ${data.horizon_to} — the swing never settled.`;
+  }
+
   const gapsEl = document.getElementById('fibx-backtest-gaps');
   if (gapsEl) {
-    const blocks = [];
-    if (failures.length) {
-      // A dead token / rate limit / missing scrip id — the data source broke,
-      // the market didn't go quiet. Re-run once the source is healthy.
-      blocks.push(`<details class="fibx-premium-failures" open style="border:1px solid rgba(252,165,165,.4);border-radius:7px;padding:8px 10px;"><summary style="color:#fca5a5;font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${failures.length} premium source failure${failures.length === 1 ? '' : 's'} — the data feed broke, this is NOT a market gap. Fix the source and re-run.</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${failures.slice(0, 20).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
-    }
-    if (gaps.length) {
-      blocks.push(`<details class="fibx-premium-gaps" style="border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:8px 10px;"><summary style="color:var(--warn);font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${gaps.length} premium gap${gaps.length === 1 ? '' : 's'} — no tradable bar near the fill (net P&L is withheld when a leg stays unpriced)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${gaps.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
-    }
-    if (staleFills.length) {
-      blocks.push(`<details class="fibx-premium-stale" style="border:1px solid var(--border);border-radius:7px;padding:8px 10px;"><summary style="color:var(--muted);font:10.5px 'JetBrains Mono',monospace;cursor:pointer;">${staleFills.length} leg${staleFills.length === 1 ? '' : 's'} priced without an exact minute bar (each line says how — neighbouring real trade, or intrinsic floor at an exit)</summary><div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">${staleFills.slice(0, 40).map(g => escapeHtml(String(g))).join('<br>')}</div></details>`);
-    }
-    gapsEl.innerHTML = blocks.join('');
+    const gaps = c.data_gaps || [];
+    gapsEl.innerHTML = gaps.length
+      ? `<div style="padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font:10.5px/1.5 'JetBrains Mono',monospace;"><strong>${gaps.length} pricing gap${gaps.length === 1 ? '' : 's'}</strong><br>${gaps.slice(-5).map(escapeHtml).join('<br>')}</div>`
+      : '';
   }
+
   const legs = document.getElementById('fibx-backtest-legs');
   if (legs) {
-    const rows = result.entries || [];
-    legs.innerHTML = rows.length ? rows.map(e => {
-      const priced = e.option_price != null;
-      return `<tr style="border-top:1px solid var(--border);text-align:right;"><td style="text-align:left;padding:7px 8px;">L${escapeHtml(String(e.level))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(e.timestamp))}</td><td style="padding:7px 8px;">${escapeHtml(_cascadeNumber(e.spot))}</td><td style="padding:7px 8px;">${escapeHtml(Number(e.strike).toLocaleString('en-IN'))} ${escapeHtml(String(e.option_type))}</td><td class="${priced ? '' : 'is-warning'}" style="padding:7px 8px;color:${priced ? 'var(--text)' : 'var(--warn)'};">${priced ? '₹' + escapeHtml(_cascadeNumber(e.option_price)) : 'GAP'}</td><td style="padding:7px 8px;">${escapeHtml(String(e.lots))}</td><td style="padding:7px 8px;">${escapeHtml(String(e.quantity))}</td></tr>`;
-    }).join('') : '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--muted);">No leg filled — price never reached the deep boundaries in this window.</td></tr>';
+    const fills = c.fills || [];
+    const exits = c.exit_premiums || [];
+    legs.innerHTML = fills.length ? fills.map((f, i) => {
+      const out = exits[i];
+      const pnl = out == null ? null : (Number(out) - Number(f.premium)) * Number(f.quantity);
+      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+      return `<tr style="border-bottom:1px solid var(--border);">`
+        + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.buy_number))}</strong> L${escapeHtml(String(f.level))}</td>`
+        + `<td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(f.timestamp))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(_cascadeNumber(f.index_price))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(Number(f.strike).toLocaleString('en-IN'))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">₹${escapeHtml(_cascadeNumber(f.premium))}${out == null ? '' : ' → ₹' + escapeHtml(_cascadeNumber(out))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.lots))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.quantity))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;color:${color};font-weight:800;">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`
+        + `</tr>`;
+    }).join('') : '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--muted);">No level was touched in this window.</td></tr>';
   }
 }
-
-// The last backtest response, kept so the journal chart can be drawn on demand
-// without re-running the (slow, network-bound) Upstox-priced replay.
-let _lastFibBacktest = null;
 
 function toggleFibBoundaryBacktestChart() {
   const box = document.getElementById('fibx-backtest-chart');
@@ -3542,10 +3544,14 @@ function toggleFibBoundaryBacktestChart() {
   // The same Canvas renderer the Test Bench draws with — bar-index axis, gap
   // blocks, trade markers — instead of the old wall-clock SVG.  Visible
   // first, then drawn: a display:none host measures zero.
-  const chart = _lastFibBacktest && _lastFibBacktest.meta && _lastFibBacktest.meta.chart;
+  const chart = _lastFibBacktest && _lastFibBacktest.chart;
   if (!chart) return;
   box.style.display = '';
-  if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(box, chart);
+  // Through the SAME translator the live chart uses, with the backtest's own
+  // campaign so its fills and level states are the ones drawn.
+  if (typeof pfBenchDrawChart === 'function') {
+    pfBenchDrawChart(box, _fibBoundaryCanvasPayload(chart, null, _lastFibBacktest.meta?.campaign));
+  }
   if (btn) btn.textContent = '× Hide chart';
 }
 

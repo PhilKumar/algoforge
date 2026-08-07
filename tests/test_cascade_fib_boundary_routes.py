@@ -495,27 +495,53 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 404)
 
     async def test_backtest_rejects_bad_side(self):
-        payload = app_module.FibBoundaryBacktestPayload(
-            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24180, mother_low=24050, side="XX"
-        )
+        payload = app_module.FibTouchBacktestPayload(mother_timestamp=_today_1m_mother().isoformat(), side="XX")
         with self.assertRaises(app_module.HTTPException) as raised:
             await app_module.fib_boundary_backtest(payload, _DummyRequest())
         self.assertEqual(raised.exception.status_code, 400)
         self.assertIn("side must be CE or PE", str(raised.exception.detail))
 
-    async def test_backtest_rejects_high_not_above_low(self):
-        payload = app_module.FibBoundaryBacktestPayload(
-            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24050, mother_low=24180
-        )
+    async def test_backtest_rejects_an_unknown_symbol(self):
+        payload = app_module.FibTouchBacktestPayload(mother_timestamp=_today_1m_mother().isoformat(), symbol="RELIANCE")
         with self.assertRaises(app_module.HTTPException) as raised:
             await app_module.fib_boundary_backtest(payload, _DummyRequest())
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertIn("Mother high must exceed mother low", str(raised.exception.detail))
+        self.assertIn("Unknown symbol", str(raised.exception.detail))
+
+    async def test_backtest_refuses_a_symbol_with_no_recorded_prices(self):
+        """A zero-filled replay would LOOK like a result. Say so instead."""
+        for symbol in ("FINNIFTY", "MIDCPNIFTY"):
+            payload = app_module.FibTouchBacktestPayload(mother_timestamp=_today_1m_mother().isoformat(), symbol=symbol)
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_backtest(payload, _DummyRequest())
+            self.assertEqual(raised.exception.status_code, 400, symbol)
+            self.assertIn("no recorded option history", str(raised.exception.detail), symbol)
+
+    async def test_backtest_accepts_the_symbols_that_do_have_prices(self):
+        for symbol in ("NIFTY", "BANKNIFTY", "SENSEX"):
+            payload = app_module.FibTouchBacktestPayload(mother_timestamp=_today_1m_mother().isoformat(), symbol=symbol)
+            with patch.object(
+                app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))
+            ):
+                with self.assertRaises(app_module.HTTPException) as raised:
+                    await app_module.fib_boundary_backtest(payload, _DummyRequest())
+            self.assertIn("Connect a Dhan account", str(raised.exception.detail), symbol)
+
+    async def test_backtest_and_start_read_the_same_fields(self):
+        """The two must not drift apart again.
+
+        The tab spent a day carrying a backtest of one ladder beside a Start
+        button trading another. Every field that shapes the geometry has to
+        exist on BOTH payloads with the same default.
+        """
+        start = app_module.FibTouchStartPayload.model_fields
+        back = app_module.FibTouchBacktestPayload.model_fields
+        for name in ("symbol", "side", "mother_timestamp", "timeframe", "capital_cap_inr", "itm_steps", "min_dte"):
+            self.assertIn(name, back, name)
+            self.assertEqual(back[name].default, start[name].default, name)
 
     async def test_backtest_without_broker_asks_to_connect_dhan(self):
-        payload = app_module.FibBoundaryBacktestPayload(
-            mother_timestamp=_recent_5m_mother().isoformat(), mother_high=24180, mother_low=24050, side="CE"
-        )
+        payload = app_module.FibTouchBacktestPayload(mother_timestamp=_today_1m_mother().isoformat())
         with patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))):
             with self.assertRaises(app_module.HTTPException) as raised:
                 await app_module.fib_boundary_backtest(payload, _DummyRequest())
