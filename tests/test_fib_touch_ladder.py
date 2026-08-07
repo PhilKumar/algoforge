@@ -943,7 +943,7 @@ class MotherRebaseTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()
