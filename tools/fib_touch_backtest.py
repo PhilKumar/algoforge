@@ -131,17 +131,127 @@ def build_premium_lookup(underlying_key: str, symbol: str):
     return lookup, source
 
 
+def sweep(args) -> None:
+    """Sequential, NON-OVERLAPPING campaigns across a date range.
+
+    Every campaign starts at the first bar after the previous one ended, so the
+    result is a real series rather than a pile of overlapping runs. That matters
+    here: with the rebase rule, campaigns started at different times converge on
+    the same setup, and counting each as a separate trade triple-counts the
+    same rupees. The starting mother barely matters either -- a rebase walks it
+    to wherever the market actually sets up.
+    """
+    terms = symbol_terms(args.symbol)
+    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}[args.timeframe]
+    first, last = date.fromisoformat(args.from_day), date.fromisoformat(args.to_day)
+
+    every = [b for b in load_index_1m(terms.symbol) if first <= b.timestamp.date() <= last]
+    if not every:
+        raise SystemExit(f"No cached 1m {terms.symbol} candles between {first} and {last}")
+    lookup, source = build_premium_lookup(
+        f"NSE_INDEX|Nifty {'Bank' if terms.symbol == 'BANKNIFTY' else '50'}", terms.symbol
+    )
+    expiries = sorted(source.available_expiries())
+
+    rows: list[dict] = []
+    index = 0
+    while index < len(every) - 30:
+        # Start on the next candle that opens a bar of the mother's chart.
+        start = every[index]
+        session_open = start.timestamp.replace(hour=9, minute=15, second=0, microsecond=0)
+        offset = int((start.timestamp - session_open).total_seconds() // 60)
+        if start.timestamp < session_open or offset % tf_minutes:
+            index += 1
+            continue
+
+        config = FibTouchConfig(
+            symbol=terms.symbol,
+            side=args.side,
+            mother_timestamp=start.timestamp,
+            lot_size=65 if terms.symbol == "NIFTY" else terms.lot_size,
+            strike_step=terms.strike_step,
+            timeframe=args.timeframe,
+            capital_cap_inr=args.cap,
+            itm_steps=args.itm_steps,
+            min_dte=args.min_dte,
+            deep_target=not args.flat_target,
+            trailing_stop=args.trail > 0,
+            trail_span_multiple=args.trail or 1.0,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lookup, expiry_source=lambda on: expiries)
+        window = every[index : index + args.horizon_days * 400]
+        if args.timeframe != "1m":
+            for bar in resample(window, tf_minutes):
+                engine.on_geometry_candle(bar)
+        consumed = 0
+        for bar in window:
+            engine.on_candle(bar)
+            consumed += 1
+            if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
+                break
+        st = engine.get_status()
+        if st["fills"]:
+            rows.append(
+                {
+                    "mother": start.timestamp,
+                    "status": st["status"],
+                    "exit": st["exit_reason"],
+                    "fills": len(st["fills"]),
+                    "net": st["net_pnl"],
+                    "gaps": len(st["data_gaps"]),
+                    "rebases": sum(1 for e in st["events"] if e["event"] == "mother_rebased"),
+                }
+            )
+        # Next campaign begins after this one finished -- never overlapping.
+        index += max(consumed, 1)
+
+    priced = [r for r in rows if r["net"] is not None]
+    unpriced = len(rows) - len(priced)
+    wins = [r for r in priced if r["net"] > 0]
+    losses = [r for r in priced if r["net"] <= 0]
+    net = sum(r["net"] for r in priced)
+    mode = "flat 0.25" if args.flat_target else "0.25/0.5 deep"
+    mode += f" · trail {args.trail} span" if args.trail else " · no trail"
+    print(f"\n=== {terms.symbol} {args.side} · {args.timeframe} mother · {mode} · {first} to {last} ===")
+    print(f"campaigns that bought : {len(rows)}   priced {len(priced)}   unpriced {unpriced}")
+    if priced:
+        print(f"win / loss            : {len(wins)} / {len(losses)}  ({100 * len(wins) / len(priced):.0f}% green)")
+        print(f"NET                   : Rs {net:,.2f}")
+        print(
+            f"best / worst          : Rs {max(r['net'] for r in priced):,.2f} / Rs {min(r['net'] for r in priced):,.2f}"
+        )
+        print(f"avg per trade         : Rs {net / len(priced):,.2f}")
+        by_exit: dict = {}
+        for r in priced:
+            by_exit[r["exit"]] = by_exit.get(r["exit"], 0) + 1
+        print(f"exits                 : {by_exit}")
+        drop5 = sorted(r["net"] for r in priced)[:-5] if len(priced) > 5 else []
+        if drop5:
+            print(f"NET minus best 5      : Rs {sum(drop5):,.2f}")
+    print()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
-    ap.add_argument("--mother", required=True, help="IST, e.g. 2026-07-17T14:15")
+    ap.add_argument("--mother", help="single run, IST, e.g. 2026-07-17T14:15")
     ap.add_argument("--side", default="CE", choices=["CE", "PE"])
     ap.add_argument("--timeframe", default="15m", choices=["1m", "5m", "15m", "1h"])
     ap.add_argument("--cap", type=float, default=75_000.0)
     ap.add_argument("--itm-steps", type=int, default=2)
     ap.add_argument("--min-dte", type=int, default=4)
     ap.add_argument("--horizon-days", type=int, default=10)
+    ap.add_argument("--from", dest="from_day", help="sweep mode: first day, e.g. 2026-05-01")
+    ap.add_argument("--to", dest="to_day", help="sweep mode: last day")
+    ap.add_argument("--flat-target", action="store_true", help="keep 0.25 at every depth")
+    ap.add_argument("--trail", type=float, default=0.0, help="trailing exit, in fib spans (0 = off)")
     args = ap.parse_args()
+
+    if args.from_day:
+        sweep(args)
+        return
+    if not args.mother:
+        raise SystemExit("Give either --mother for one run, or --from/--to to sweep.")
 
     terms = symbol_terms(args.symbol)
     mother_at = datetime.fromisoformat(args.mother)

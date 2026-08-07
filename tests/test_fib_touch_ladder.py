@@ -942,8 +942,207 @@ class MotherRebaseTests(unittest.TestCase):
         self.assertIsNone(engine.exit_reason)
 
 
+class TrailingStopTests(unittest.TestCase):
+    """Phil: "make a trailing SL to catch the higher move as far as it goes.\" """
+
+    def trailing(self, multiple=1.0):
+        # The standard fixture's mother tops at 24,780, and a trailing move has
+        # to ride well past that -- which would trip the mother break and test
+        # the wrong rule. This one is identical apart from a mother tall enough
+        # to stay out of the way.
+        candles = bars(
+            [
+                (24_660, 26_000, 24_640, 24_642),  # 0 red   <- MOTHER, high 26,000
+                (24_642, 24_644, 24_620, 24_622),
+                (24_622, 24_624, 24_600, 24_602),  # low 24,600
+                (24_602, 24_612, 24_600, 24_610),  # green
+                (24_610, 24_620, 24_608, 24_618),  # green -> LOW frozen
+                (24_618, 24_650, 24_615, 24_645),
+                (24_645, 24_700, 24_640, 24_695),  # high 24,700
+                (24_695, 24_698, 24_680, 24_682),  # red
+                (24_682, 24_684, 24_670, 24_672),  # red -> HIGH frozen
+            ]
+        )
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            trailing_stop=True,
+            trail_span_multiple=multiple,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        # One buy at L2 (24,500); span 100, so the target sits at 24,550.
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        return engine, base
+
+    def test_reaching_the_target_arms_the_trail_instead_of_selling(self):
+        engine, base = self.trailing()
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
+        self.assertEqual(engine.status, "OPEN", "the target must no longer end the trade")
+        self.assertTrue(engine.get_status()["trail_armed"])
+        self.assertEqual(engine.get_status()["trail_best"], 24_560.0)
+
+    def test_it_rides_the_move_and_keeps_raising_the_best(self):
+        engine, base = self.trailing()
+        for i, high in enumerate((24_560, 24_620, 24_700, 24_800), start=2):
+            engine.on_candle(Bar(base + timedelta(minutes=i), high - 20, high, high - 30, high - 5))
+        self.assertEqual(engine.status, "OPEN")
+        self.assertEqual(engine.get_status()["trail_best"], 24_800.0)
+
+    def test_it_leaves_when_price_gives_back_one_span(self):
+        engine, base = self.trailing(multiple=1.0)
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
+        # Best 24,800, span 100 -> the stop sits at 24,700.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_650, 24_690))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "trail_stop")
+        self.assertEqual(engine.exit_index, 24_700.0)
+
+    def test_a_wick_through_the_stop_does_not_end_the_move(self):
+        engine, base = self.trailing(multiple=1.0)
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
+        # Low pierces 24,700 but the CLOSE holds above it.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_650, 24_720))
+        self.assertEqual(engine.status, "OPEN")
+
+    def test_a_tighter_trail_leaves_sooner(self):
+        engine, base = self.trailing(multiple=0.25)
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
+        # Best 24,800, 0.25 span = 25 -> stop 24,775, and 24,770 closes under it.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_760, 24_770))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_index, 24_775.0)
+
+    def test_the_trail_beats_the_plain_target_on_a_move_that_keeps_going(self):
+        """The whole point: a quarter-way exit leaves the rest on the table."""
+        walk = [(24_510, 24_800, 24_505, 24_790), (24_790, 24_795, 24_650, 24_690)]
+
+        plain, base = self.trailing()
+        object.__setattr__(plain.config, "trailing_stop", False)
+        for i, row in enumerate(walk, start=2):
+            plain.on_candle(Bar(base + timedelta(minutes=i), *row))
+
+        trailed, base2 = self.trailing()
+        for i, row in enumerate(walk, start=2):
+            trailed.on_candle(Bar(base2 + timedelta(minutes=i), *row))
+
+        self.assertEqual(plain.exit_index, 24_550.0)  # the 0.25 target
+        self.assertEqual(trailed.exit_index, 24_700.0)  # rode 150 points further
+        self.assertGreater(trailed.exit_index, plain.exit_index)
+
+
+class FlatTargetTests(unittest.TestCase):
+    """`deep_target=False` keeps the quarter at every depth."""
+
+    def build(self, deep: bool):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            deep_target=deep,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        # Sweep L2, L3 and L4 in one bar so the deep rule would apply.
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        return engine
+
+    def test_deep_target_on_asks_for_half(self):
+        self.assertEqual(self.build(True).target_fraction, 0.5)
+
+    def test_deep_target_off_keeps_the_quarter(self):
+        self.assertEqual(self.build(False).target_fraction, 0.25)
+
+    def test_the_flat_target_is_LOWER_and_so_easier_to_reach(self):
+        """Raising the bar when the ladder is deepest is what this measures."""
+        deep, flat = self.build(True), self.build(False)
+        self.assertEqual(deep.average_index_entry, flat.average_index_entry)
+        self.assertLess(flat.target_index, deep.target_index)
+
+
+class PartialExpiryTests(unittest.TestCase):
+    """A basket holds several expiries; each leg settles on its own."""
+
+    def two_expiry_basket(self):
+        """One leg expiring 11 Aug, one 18 Aug, both bought and open."""
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+        )
+        chain = [date(2026, 8, 11), date(2026, 8, 18)]
+        # The first buy takes the near expiry; once it is held, the chain has
+        # rolled and the next rung is forced to the far one -- which is exactly
+        # what a ladder running across an expiry does.
+        holder: dict = {}
+
+        def expiries(on):
+            engine = holder.get("engine")
+            return chain[1:] if engine is not None and engine.fills else chain
+
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
+        holder["engine"] = engine
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
+        return engine
+
+    def test_the_near_expiry_settles_and_the_far_leg_keeps_running(self):
+        engine = self.two_expiry_basket()
+        self.assertEqual(len(engine.fills), 2)
+        self.assertEqual({f.expiry for f in engine.fills}, {date(2026, 8, 11), date(2026, 8, 18)})
+
+        # 11 Aug 15:15: only the leg that actually expired is booked.
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        self.assertEqual(engine.status, "OPEN")
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(engine.fills[0].expiry, date(2026, 8, 18))
+        self.assertEqual(len(engine._settled), 1)
+        self.assertIsNone(engine.net_pnl, "nothing is booked while a leg is still live")
+
+    def test_the_campaign_ends_when_the_LAST_leg_expires(self):
+        engine = self.two_expiry_basket()
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_300, 24_310, 24_290, 24_300))
+        self.assertEqual(engine.status, "EXPIRED")
+        self.assertEqual(engine.fills, [])
+        self.assertIsNotNone(engine.net_pnl)
+
+    def test_both_legs_are_in_the_final_pnl_not_just_the_last(self):
+        engine = self.two_expiry_basket()
+        entries = [(f.strike, f.premium, f.quantity) for f in engine.fills]
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_300, 24_310, 24_290, 24_300))
+        # 24,400 settles the 11 Aug leg; 24,500 settles the 18 Aug one.
+        expected = sum(
+            (max(close - strike, 0.0) - premium) * qty
+            for (strike, premium, qty), close in zip(entries, (24_400.0, 24_300.0))
+        )
+        self.assertAlmostEqual(engine.gross_pnl, expected, places=2)
+
+    def test_a_leg_with_life_left_is_never_zeroed_by_an_earlier_expiry(self):
+        """The bug this rule exists for: -Rs 67,209 on 25 Jun 2026."""
+        engine = self.two_expiry_basket()
+        far = next(f for f in engine.fills if f.expiry == date(2026, 8, 18))
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 23_000, 23_005, 22_995, 23_000))
+        # The near leg is worthless at 23,000, but the far one is untouched.
+        self.assertIn(far, engine.fills)
+        self.assertEqual(engine._settled[0][1], 0.0)
+        self.assertIsNone(engine.net_pnl)
+
+
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()

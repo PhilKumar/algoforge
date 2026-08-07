@@ -523,6 +523,16 @@ class FibTouchConfig:
     target_fraction: float = 0.25
     itm_steps: int = 2
     min_dte: int = 4
+    # Deep ladders normally ask for half the way back instead of a quarter.
+    # Turning this off keeps the quarter at every depth -- worth measuring,
+    # because raising the bar when the ladder is deepest is counter-intuitive.
+    deep_target: bool = True
+    # TRAILING EXIT. With this on, reaching the target no longer sells: it ARMS
+    # a trail, and the position rides the move until price gives back
+    # `trail_span_multiple` fibs' worth from the best it saw. Phil, 2026-08-07:
+    # "make a trailing SL to catch the higher move as far as it goes."
+    trailing_stop: bool = False
+    trail_span_multiple: float = 1.0
     lookback_bars: int = 240
     involvement_candles: int = INVOLVEMENT_CANDLES
 
@@ -543,6 +553,8 @@ class FibTouchConfig:
             raise FibTouchError("target_fraction must be between 0 and 1")
         if self.itm_steps < 0:
             raise FibTouchError("itm_steps cannot be negative")
+        if self.trail_span_multiple <= 0:
+            raise FibTouchError("trail_span_multiple must be positive")
         if self.min_dte < 0:
             raise FibTouchError("min_dte cannot be negative")
         if str(self.timeframe).lower() not in GEOMETRY_TIMEFRAMES:
@@ -689,6 +701,15 @@ class FibTouchLadder:
         self.costs_total: Optional[float] = None
         self.net_pnl: Optional[float] = None
         self._exit_premiums: list[Optional[float]] = []
+        # Legs already settled at their OWN expiry, with the price each got. A
+        # basket holds several expiries -- every rung re-resolves its contract,
+        # and a rebased campaign can span days -- so the near ones settle while
+        # the rest keep running.
+        self._settled: list[tuple[TouchFill, float]] = []
+        # Trailing exit state: armed once the target is reached, then the best
+        # price seen since. Both reset with the campaign, never across one.
+        self._trail_armed = False
+        self._trail_best: Optional[float] = None
 
     # ── derived views ─────────────────────────────────────────────
 
@@ -731,7 +752,7 @@ class FibTouchLadder:
         quarter; once it has bought at L4 or deeper it has paid for a much
         bigger move and should ask for half of one.
         """
-        if any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
+        if self.config.deep_target and any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
             return DEEP_TARGET_FRACTION
         return self.config.target_fraction
 
@@ -1024,9 +1045,35 @@ class FibTouchLadder:
         target = self.target_index
         if target is None:
             return False
+
         # The target is a resting sell limit, so a wick through it is a fill.
-        hit = float(bar.high) >= target if self.side == "CE" else float(bar.low) <= target
-        if not hit:
+        reached = float(bar.high) >= target if self.side == "CE" else float(bar.low) <= target
+
+        if self.config.trailing_stop:
+            # Reaching the target ARMS the trail rather than selling. From then
+            # on the position rides the move and only leaves when price gives
+            # back a fib's worth from the best it has seen.
+            if not self._trail_armed:
+                if not reached:
+                    return False
+                self._trail_armed = True
+                self._trail_best = float(bar.high) if self.side == "CE" else float(bar.low)
+                self._log(bar.timestamp, "trail_armed", target=round(target, 2), best=round(self._trail_best, 2))
+                return False
+            assert self._trail_best is not None
+            self._trail_best = (
+                max(self._trail_best, float(bar.high)) if self.side == "CE" else min(self._trail_best, float(bar.low))
+            )
+            span = self.anchor.span if self.anchor else 0.0
+            give_back = span * self.config.trail_span_multiple
+            stop = self._trail_best - give_back if self.side == "CE" else self._trail_best + give_back
+            # A CLOSE through the stop, not a wick: the same standard the mother
+            # break uses, so one poke does not end a move that is still running.
+            stopped = float(bar.close) <= stop if self.side == "CE" else float(bar.close) >= stop
+            if not stopped:
+                return False
+            target = stop
+        elif not reached:
             return False
         prices: list[Optional[float]] = []
         for fill in self.fills:
@@ -1070,25 +1117,30 @@ class FibTouchLadder:
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
         self.exit_index = target
-        self.exit_reason = "target"
+        self.exit_reason = "trail_stop" if self.config.trailing_stop else "target"
         self.status = "CLOSED"
         self._settle(prices)
-        self._log(bar.timestamp, "target", target=round(target, 2), net=self.net_pnl)
+        self._log(
+            bar.timestamp,
+            "trail_stop" if self.config.trailing_stop else "target",
+            price=round(target, 2),
+            best=round(self._trail_best, 2) if self._trail_best is not None else None,
+            net=self.net_pnl,
+        )
         return True
 
     def _settle(self, exit_prices: Sequence[Optional[float]]) -> None:
-        if not self.fills or any(price is None for price in exit_prices):
+        """Book the open legs at ``exit_prices``, plus anything already settled."""
+        if any(price is None for price in exit_prices):
             return
-        self.gross_pnl = round(
-            sum(
-                (float(exit_price) - fill.premium) * fill.quantity for exit_price, fill in zip(exit_prices, self.fills)
-            ),
-            2,
-        )
-        self.costs_total = round(self._costs(exit_prices), 2)
+        pairs = list(zip(self.fills, [float(p) for p in exit_prices])) + self._settled
+        if not pairs:
+            return
+        self.gross_pnl = round(sum((price - fill.premium) * fill.quantity for fill, price in pairs), 2)
+        self.costs_total = round(self._costs_for(pairs), 2)
         self.net_pnl = round(self.gross_pnl - self.costs_total, 2)
 
-    def _costs(self, exit_prices: Sequence[Optional[float]]) -> float:
+    def _costs_for(self, pairs: Sequence[tuple[TouchFill, float]]) -> float:
         """Statutory round costs, charged per contract the basket holds."""
         from cascade_costs import (
             OptionCostFill,
@@ -1096,7 +1148,7 @@ class FibTouchLadder:
         )
 
         grouped: dict[tuple[float, date], list[tuple[TouchFill, float]]] = {}
-        for fill, exit_price in zip(self.fills, exit_prices):
+        for fill, exit_price in pairs:
             grouped.setdefault((fill.strike, fill.expiry), []).append((fill, float(exit_price)))
         total = 0.0
         for rows in grouped.values():
@@ -1112,35 +1164,61 @@ class FibTouchLadder:
         return total
 
     def _try_expiry_exit(self, bar: Bar) -> bool:
-        """Settle at intrinsic on the expiry the basket's nearest leg carries.
+        """Settle each leg on ITS OWN expiry, not the whole basket on the first.
 
-        With no stop loss, expiry is the only thing besides the target that can
-        end this campaign -- so it has to be exact, not approximate.
+        Every rung re-resolves its contract, so a ladder routinely holds two or
+        three expiries at once -- and a rebased campaign can run for days, which
+        widens the spread. Settling all of them the moment the NEAREST one
+        expires wrote off the later legs' entire remaining life at intrinsic.
+        On 25 Jun that turned a basket into -Rs 67,209: three legs genuinely
+        expired worthless and two more, with a week left to run, were zeroed
+        alongside them.
+
+        With no stop loss, expiry is still the only thing besides the target and
+        a broken mother that can end this campaign -- it just ends leg by leg.
         """
         if not self.fills:
             return False
         from datetime import time as dt_time
 
-        expiry = min(fill.expiry for fill in self.fills)
-        if bar.timestamp.date() < expiry:
+        def _expired(fill: TouchFill) -> bool:
+            if bar.timestamp.date() > fill.expiry:
+                return True
+            return bar.timestamp.date() == fill.expiry and bar.timestamp.time() >= dt_time(15, 15)
+
+        due = [fill for fill in self.fills if _expired(fill)]
+        if not due:
             return False
-        if bar.timestamp.date() == expiry and bar.timestamp.time() < dt_time(15, 15):
+
+        def _intrinsic(fill: TouchFill) -> float:
+            # An option at expiry is worth intrinsic, which the index settles
+            # exactly -- no premium history is needed for the loss to be real.
+            if self.side == "CE":
+                return max(float(bar.close) - fill.strike, 0.0)
+            return max(fill.strike - float(bar.close), 0.0)
+
+        for fill in due:
+            self._settled.append((fill, _intrinsic(fill)))
+            self.rungs_expired = getattr(self, "rungs_expired", 0) + 1
+        self.fills = [fill for fill in self.fills if fill not in due]
+        self._log(
+            bar.timestamp,
+            "legs_expired",
+            legs=len(due),
+            expiry=min(f.expiry for f in due).isoformat(),
+            still_open=len(self.fills),
+        )
+        if self.fills:
+            # The rest are still live; the campaign carries on.
             return False
-        prices = [
-            (
-                max(float(bar.close) - fill.strike, 0.0)
-                if self.side == "CE"
-                else max(fill.strike - float(bar.close), 0.0)
-            )
-            for fill in self.fills
-        ]
-        self._exit_premiums = list(prices)
+
+        self._exit_premiums = [price for _fill, price in self._settled]
         self.exit_timestamp = bar.timestamp
         self.exit_index = float(bar.close)
         self.exit_reason = "expiry_square_off"
         self.status = "EXPIRED"
-        self._settle(prices)
-        self._log(bar.timestamp, "expiry_exit", expiry=expiry.isoformat(), net=self.net_pnl)
+        self._settle([])
+        self._log(bar.timestamp, "expiry_exit", net=self.net_pnl)
         return True
 
     # ── entry point ───────────────────────────────────────────────
@@ -1322,6 +1400,7 @@ class FibTouchLadder:
                 }
                 for fill in self.fills
             ],
+            "settled": [{**fill.as_dict(), "settled_at": price} for fill, price in self._settled],
             "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
             "exit_reason": self.exit_reason,
@@ -1410,6 +1489,25 @@ class FibTouchLadder:
             )
             for row in raw.get("fills") or []
         ]
+        engine._settled = [
+            (
+                TouchFill(
+                    buy_number=int(row["buy_number"]),
+                    level=int(row["level"]),
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                    index_price=float(row["index_price"]),
+                    premium=float(row["premium"]),
+                    lots=int(row["lots"]),
+                    quantity=int(row["quantity"]),
+                    strike=float(row["strike"]),
+                    expiry=date.fromisoformat(row["expiry"]),
+                    option_type=str(row["option_type"]),
+                    order_id=str(row.get("order_id") or ""),
+                ),
+                float(row["settled_at"]),
+            )
+            for row in raw.get("settled") or []
+        ]
         stamp = raw.get("last_fill_timestamp")
         engine._last_fill_timestamp = datetime.fromisoformat(stamp) if stamp else None
         engine.mother_high = raw.get("mother_high")
@@ -1460,6 +1558,10 @@ class FibTouchLadder:
             ),
             "levels": [rung.as_dict() for rung in self.rungs],
             "fills": [fill.as_dict() for fill in self.fills],
+            # Legs already settled at their own expiry. They leave `fills` when
+            # they settle, and without this the panel and the chart would show a
+            # campaign that quietly forgot three of its five buys.
+            "settled_fills": [{**fill.as_dict(), "settled_at": round(price, 2)} for fill, price in self._settled],
             "lot_size": self.config.lot_size,
             "strike_step": self.config.strike_step,
             "itm_steps": self.config.itm_steps,
@@ -1475,6 +1577,9 @@ class FibTouchLadder:
             "average_premium": (round(self.average_premium, 2) if self.average_premium is not None else None),
             "target_index": round(self.target_index, 2) if self.target_index is not None else None,
             "target_fraction": self.target_fraction,
+            "trailing_stop": self.config.trailing_stop,
+            "trail_armed": self._trail_armed,
+            "trail_best": round(self._trail_best, 2) if self._trail_best is not None else None,
             "mother_high": self.mother_high,
             "mother_low": self.mother_low,
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
