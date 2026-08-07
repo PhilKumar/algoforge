@@ -759,7 +759,8 @@ class PersistenceTests(unittest.TestCase):
 
 
 class MotherBreakTests(unittest.TestCase):
-    """Phil: "If mother candle broken, stop the trade.\""""
+    """Phil: "If mother candle broken, stop the trade" -- but only once the
+    ladder has actually bought. Before that the setup has MOVED, not failed."""
 
     def test_a_close_above_the_mother_high_ends_a_ce_campaign(self):
         engine, candles, _ = ladder()
@@ -783,26 +784,129 @@ class MotherBreakTests(unittest.TestCase):
         engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_770))
         self.assertNotEqual(engine.status, "MOTHER_BROKEN")
 
-    def test_the_break_is_checked_before_any_rung_can_buy(self):
-        engine, candles, _ = ladder()
-        for bar in candles:
-            engine.on_candle(bar)
-        # One bar that both touches L2 (24,500) and closes above the mother.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_700, 24_800, 24_495, 24_790))
-        self.assertEqual(engine.status, "MOTHER_BROKEN")
-        self.assertEqual(engine.fills, [], "a bar that kills the trade must not also buy into it")
-
     def test_a_broken_campaign_ignores_later_candles(self):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_790, 24_795, 24_100, 24_110))
-        self.assertEqual(engine.fills, [])
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_100, 24_110))
+        self.assertEqual(len(engine.fills), 1)
         self.assertEqual(engine.status, "MOTHER_BROKEN")
 
-    def test_a_pe_breaks_on_a_close_below_the_mother_low(self):
+
+class MotherRebaseTests(unittest.TestCase):
+    """Phil, 2026-08-07: "before if it breaks, then mother is changed."
+
+    A first measurement killed 20 of 24 campaigns on a mother break before any
+    buy. Nothing was at risk in any of them -- the setup had simply moved on.
+    """
+
+    def unfilled(self):
+        """A ladder that is armed on the swing but has bought nothing."""
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        self.assertEqual(engine.status, "ARMED")
+        self.assertEqual(engine.fills, [])
+        return engine, candles[-1].timestamp
+
+    def test_a_break_with_nothing_bought_does_not_end_the_campaign(self):
+        engine, base = self.unfilled()
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
+        self.assertNotEqual(engine.status, "MOTHER_BROKEN")
+        self.assertIsNone(engine.exit_reason)
+
+    def test_it_watches_five_bars_then_takes_the_best_as_the_new_mother(self):
+        engine, base = self.unfilled()
+        old_mother = engine.config.mother_timestamp
+        # Five bars from the break; the THIRD prints the highest high.
+        walk = [
+            (24_700, 24_800, 24_690, 24_790),
+            (24_790, 24_820, 24_780, 24_810),
+            (24_810, 24_900, 24_800, 24_890),  # <- highest high 24,900
+            (24_890, 24_895, 24_870, 24_880),
+            (24_880, 24_885, 24_860, 24_870),
+        ]
+        stamps = []
+        for i, (o, h, low, c) in enumerate(walk, start=1):
+            stamp = base + timedelta(minutes=i)
+            stamps.append(stamp)
+            engine.on_candle(Bar(stamp, o, h, low, c))
+
+        self.assertEqual(engine.config.mother_timestamp, stamps[2])
+        self.assertEqual(engine.mother_high, 24_900.0)
+        self.assertNotEqual(engine.config.mother_timestamp, old_mother)
+        # The old geometry belonged to a setup that no longer exists.
+        self.assertIsNone(engine.anchor)
+        self.assertEqual(engine.rungs, [])
+        self.assertEqual(engine.status, "WAITING_FOR_SWING")
+
+    def test_the_first_bar_through_does_not_automatically_win(self):
+        """The whole reason for waiting: it is usually not the best one."""
+        engine, base = self.unfilled()
+        walk = [
+            (24_700, 24_800, 24_690, 24_790),  # first through, high 24,800
+            (24_790, 24_950, 24_780, 24_940),  # <- the real high
+            (24_940, 24_945, 24_920, 24_930),
+            (24_930, 24_935, 24_910, 24_920),
+            (24_920, 24_925, 24_900, 24_910),
+        ]
+        for i, (o, h, low, c) in enumerate(walk, start=1):
+            engine.on_candle(Bar(base + timedelta(minutes=i), o, h, low, c))
+        self.assertEqual(engine.mother_high, 24_950.0)
+
+    def test_it_can_rebase_again_and_again(self):
+        engine, base = self.unfilled()
+        step = 0
+        for _round in range(2):
+            for high in (24_800, 24_900, 25_000, 25_100, 25_200):
+                step += 1
+                engine.on_candle(Bar(base + timedelta(minutes=step), high - 20, high, high - 40, high - 10))
+        # Two full rebases, each taking the best of its own five bars.
+        self.assertEqual(engine.mother_high, 25_200.0)
+        self.assertEqual(engine.status, "WAITING_FOR_SWING")
+
+    def test_a_rebased_ladder_finds_a_new_swing_and_trades_again(self):
+        engine, base = self.unfilled()
+        step = 0
+
+        def push(o, h, low, c):
+            nonlocal step
+            step += 1
+            engine.on_candle(Bar(base + timedelta(minutes=step), o, h, low, c))
+
+        for row in [
+            (24_700, 24_800, 24_690, 24_790),
+            (24_790, 24_820, 24_780, 24_810),
+            (24_810, 25_000, 24_800, 24_990),  # best -> new mother, high 25,000
+            (24_990, 24_995, 24_970, 24_980),
+            (24_980, 24_985, 24_960, 24_970),
+        ]:
+            push(*row)
+        self.assertEqual(engine.mother_high, 25_000.0)
+
+        # A fresh fall, buyers in, a bounce, sellers back: a new swing forms.
+        for row in [
+            (24_970, 24_975, 24_900, 24_905),
+            (24_905, 24_910, 24_800, 24_805),  # low 24,800
+            (24_805, 24_830, 24_800, 24_825),  # green
+            (24_825, 24_845, 24_820, 24_840),  # green -> LOW frozen
+            (24_840, 24_900, 24_835, 24_895),  # high 24,900
+            (24_895, 24_898, 24_880, 24_882),  # red
+            (24_882, 24_884, 24_870, 24_872),  # red -> HIGH frozen
+        ]:
+            push(*row)
+        assert engine.anchor is not None
+        self.assertEqual(engine.anchor.low, 24_800.0)
+        self.assertEqual(engine.anchor.high, 24_900.0)
+        # L2 = 24,900 - 2x100 = 24,700, and a touch buys it.
+        push(24_870, 24_875, 24_695, 24_710)
+        self.assertEqual([f.level for f in engine.fills], [2])
+
+    def test_a_pe_rebases_on_the_lowest_low(self):
         candles = bars(
             [
                 (24_640, 24_660, 24_500, 24_658),  # 0 green <- MOTHER, low 24,500
@@ -813,26 +917,33 @@ class MotherBreakTests(unittest.TestCase):
                 (24_682, 24_684, 24_650, 24_652),
                 (24_652, 24_654, 24_600, 24_602),
                 (24_602, 24_612, 24_600, 24_610),
-                (24_610, 24_620, 24_608, 24_618),  # LOW frozen
+                (24_610, 24_620, 24_608, 24_618),  # LOW frozen -> ARMED
             ]
         )
         config = FibTouchConfig(
-            symbol="NIFTY",
-            side="PE",
-            mother_timestamp=candles[0].timestamp,
-            lot_size=65,
-            strike_step=50.0,
+            symbol="NIFTY", side="PE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
         )
         engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
         for bar in candles:
             engine.on_candle(bar)
-        self.assertEqual(engine.mother_low, 24_500.0)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_600, 24_610, 24_400, 24_450))
-        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.fills, [])
+        base = candles[-1].timestamp
+        walk = [
+            (24_490, 24_495, 24_480, 24_485),  # closes below the mother's 24,500
+            (24_485, 24_490, 24_400, 24_410),
+            (24_410, 24_415, 24_300, 24_310),  # <- lowest low 24,300
+            (24_310, 24_320, 24_305, 24_315),
+            (24_315, 24_325, 24_310, 24_320),
+        ]
+        for i, (o, h, low, c) in enumerate(walk, start=1):
+            engine.on_candle(Bar(base + timedelta(minutes=i), o, h, low, c))
+        self.assertEqual(engine.mother_low, 24_300.0)
+        self.assertEqual(engine.status, "WAITING_FOR_SWING")
+        self.assertIsNone(engine.exit_reason)
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()

@@ -88,6 +88,12 @@ INVOLVEMENT_CANDLES = 2
 DEEP_TARGET_FROM_LEVEL = 4
 DEEP_TARGET_FRACTION = 0.5
 
+# When the mother breaks before the ladder has bought anything, the setup has
+# not failed -- it has MOVED. Watch this many 1-minute bars from the break and
+# take the best of them as the new mother, rather than grabbing the first bar
+# that happened to poke through.
+REBASE_WATCH_BARS = 5
+
 # Statuses no further candle can change.
 _TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
 
@@ -672,6 +678,10 @@ class FibTouchLadder:
         # high that pays and the low that buys are unordered inside one bar, so
         # settling on the entry bar would be reading the future half the time.
         self._last_fill_timestamp: Optional[datetime] = None
+        # Bars gathered since an unfilled mother broke, waiting to pick the
+        # best replacement. Empty whenever no rebase is in flight.
+        self._rebase_watch: list[Bar] = []
+        self._rebased = False
         self.exit_timestamp: Optional[datetime] = None
         self.exit_reason: Optional[str] = None
         self.exit_index: Optional[float] = None
@@ -903,9 +913,28 @@ class FibTouchLadder:
         edge = self.mother_high if self.side == "CE" else self.mother_low
         if edge is None:
             return False
+
+        # A rebase already under way keeps collecting until it has seen enough.
+        if self._rebase_watch:
+            self._rebase_watch.append(bar)
+            if len(self._rebase_watch) >= REBASE_WATCH_BARS:
+                self._rebase(self._rebase_watch)
+            return False
+
         broken = float(bar.close) > edge if self.side == "CE" else float(bar.close) < edge
         if not broken:
             return False
+
+        if not self.fills:
+            # NOTHING IS BOUGHT, so nothing has failed -- the setup has moved.
+            # Phil, 2026-08-07: "before if it breaks, then mother is changed."
+            # Ending here threw away 20 of 24 campaigns before they could trade.
+            # The first bar through is not necessarily the best mother, so five
+            # minutes are watched and the best of them wins.
+            self._rebase_watch = [bar]
+            self._log(bar.timestamp, "mother_break_rebasing", close=round(float(bar.close), 2), edge=round(edge, 2))
+            return False
+
         if self.fills:
             prices: list[Optional[float]] = []
             for fill in self.fills:
@@ -949,6 +978,42 @@ class FibTouchLadder:
         self.status = "MOTHER_BROKEN"
         self._log(bar.timestamp, "mother_broken", close=round(float(bar.close), 2), edge=round(edge, 2))
         return True
+
+    def _rebase(self, watched: list[Bar]) -> None:
+        """Move the mother to the best of the watched bars and start over.
+
+        Best means the extreme in the working direction: the highest high for a
+        CE, the lowest low for a PE. Everything measured from the old mother --
+        the swing, the levels, the rung states -- is discarded, because it was
+        geometry for a setup that no longer exists.
+
+        The new mother is a ONE-MINUTE candle, so the swing is measured on the
+        1m stream from here on. The chosen mother chart describes where the
+        FIRST mother came from; once the market has moved past it, the ladder
+        re-anchors at the resolution it actually watches.
+        """
+        best = (
+            max(watched, key=lambda row: float(row.high))
+            if self.side == "CE"
+            else min(watched, key=lambda row: float(row.low))
+        )
+        object.__setattr__(self.config, "mother_timestamp", best.timestamp)
+        self.mother_high, self.mother_low = float(best.high), float(best.low)
+        self.anchor = None
+        self.rungs = []
+        self._rebase_watch = []
+        # The old mother's geometry stream is meaningless now; the new mother
+        # lives on the 1m series, so the swing is searched there.
+        self.geometry_history = list(watched)
+        self._rebased = True
+        self.status = "WAITING_FOR_SWING"
+        self._log(
+            best.timestamp,
+            "mother_rebased",
+            high=round(float(best.high), 2),
+            low=round(float(best.low), 2),
+            watched=len(watched),
+        )
 
     def _try_exit(self, bar: Bar) -> bool:
         """Close the whole basket when the index reaches the target."""
@@ -1119,8 +1184,9 @@ class FibTouchLadder:
             return
         self.history.append(bar)
         # A 1m mother needs no separate stream -- the entry bars ARE the
-        # geometry bars, so feed them through as well.
-        if self.config.timeframe == self.config.entry_timeframe:
+        # geometry bars, so feed them through as well. A rebased campaign is in
+        # the same position: its new mother came off the 1m series.
+        if self.config.timeframe == self.config.entry_timeframe or self._rebased:
             self.on_geometry_candle(bar)
         if self.anchor is None:
             return
