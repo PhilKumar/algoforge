@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -31,9 +31,18 @@ class _DummyRequest:
 
 
 def _today_1m_mother() -> datetime:
-    """A completed 1m candle inside today's session, which is all the paper
-    ladder accepts -- history belongs to the Backtest button."""
-    return datetime.now(app_module.IST).replace(hour=9, minute=20, second=0, microsecond=0)
+    """A 1m candle that has definitely CLOSED, whenever the suite is run.
+
+    The old version always used 09:20 today, so the whole file failed on any
+    run before 09:21 IST -- every morning, and passing in CI only because CI
+    happened to run at night. It steps back a day when today's session has not
+    reached that minute yet; a past mother is a valid paper start now.
+    """
+    now = datetime.now(app_module.IST)
+    mother = now.replace(hour=9, minute=20, second=0, microsecond=0)
+    if mother + timedelta(minutes=1) > now:
+        mother -= timedelta(days=1)
+    return mother
 
 
 def _recent_5m_mother() -> datetime:
@@ -148,14 +157,56 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
                     await app_module.fib_boundary_paper_start(payload, _DummyRequest())
             self.assertIn("Connect a Dhan account", str(raised.exception.detail), symbol)
 
-    async def test_start_rejects_a_mother_from_an_earlier_day(self):
-        # A past minute has no live quote, and the Backtest button owns history.
+    async def test_a_mother_from_an_earlier_day_is_accepted(self):
+        """Phil, 2026-08-07: a paper campaign must run on past days too.
+
+        It is priced from RECORDED history rather than today's LTP, so the only
+        limit is how far back Dhan still serves candles -- not a window this
+        code invents. Reaching broker validation proves the date guard is gone.
+        """
         stale = (datetime.now(app_module.IST) - timedelta(days=3)).replace(hour=11, minute=30, second=0, microsecond=0)
         payload = app_module.FibTouchStartPayload(mother_timestamp=stale.isoformat())
-        with self.assertRaises(app_module.HTTPException) as raised:
-            await app_module.fib_boundary_paper_start(payload, _DummyRequest())
+        with patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_paper_start(payload, _DummyRequest())
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertIn("Backtest", str(raised.exception.detail))
+        self.assertIn("Connect a Dhan account", str(raised.exception.detail))
+        self.assertNotIn("Backtest", str(raised.exception.detail))
+
+    async def test_a_recent_bar_is_never_priced_from_history(self):
+        """The rule that made the old restriction look necessary, kept.
+
+        A minute young enough to still have a live quote must NOT fall through
+        to recorded history -- history has not written it yet. A failed live
+        quote returns None rather than reaching for the older source.
+        """
+        calls: list = []
+        broker = SimpleNamespace(get_option_ltp=lambda *a, **k: 0)
+        lookup = app_module._fib_touch_premium_lookup(broker, "NIFTY", history=lambda *a, **k: calls.append(a) or 123.0)
+        fresh = datetime.now(app_module.IST).replace(second=0, microsecond=0)
+        self.assertIsNone(lookup(fresh, 24_400, date(2026, 8, 11), "CE"))
+        self.assertEqual(calls, [], "a live-window bar must never read history")
+
+    async def test_an_old_bar_is_priced_from_history_not_the_live_quote(self):
+        quoted: list = []
+
+        def _ltp(*a, **k):
+            quoted.append(a)
+            return 999.0
+
+        lookup = app_module._fib_touch_premium_lookup(
+            SimpleNamespace(get_option_ltp=_ltp), "NIFTY", history=lambda when, contract: 88.5
+        )
+        old_bar = datetime.now(app_module.IST) - timedelta(days=2)
+        self.assertEqual(lookup(old_bar, 24_400, date(2026, 8, 11), "CE"), 88.5)
+        self.assertEqual(quoted, [], "an old bar must never read today's LTP")
+
+    async def test_an_old_bar_with_no_history_source_has_no_price(self):
+        lookup = app_module._fib_touch_premium_lookup(
+            SimpleNamespace(get_option_ltp=lambda *a, **k: 999.0), "NIFTY", history=None
+        )
+        old_bar = datetime.now(app_module.IST) - timedelta(days=2)
+        self.assertIsNone(lookup(old_bar, 24_400, date(2026, 8, 11), "CE"))
 
     async def test_start_rejects_a_timestamp_outside_the_session(self):
         payload = app_module.FibTouchStartPayload(

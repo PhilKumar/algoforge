@@ -1780,9 +1780,17 @@ async def _restore_fib_boundary_open_state(
                 if str(engine_state.get("mode")) == "live"
                 else _FibTouchPaperExecutor()
             )
+            mother_day = datetime.fromisoformat(engine_state["config"]["mother_timestamp"]).date()
+            # Same rule as the start route: only an old mother pays for the
+            # blocking Upstox construction.
+            history = (
+                _fib_touch_history_lookup(broker, symbol, mother_day, datetime.now(IST).date())
+                if mother_day != datetime.now(IST).date()
+                else None
+            )
             engine = FibTouchLadder.from_dict(
                 engine_state,
-                premium_lookup=_fib_touch_premium_lookup(broker, symbol),
+                premium_lookup=_fib_touch_premium_lookup(broker, symbol, history),
                 expiry_source=_fib_touch_expiry_source(broker, symbol),
                 executor=executor,
             )
@@ -9378,18 +9386,51 @@ def _fib_touch_expiry_source(broker: DhanClient, symbol: str):
     return source
 
 
-def _fib_touch_premium_lookup(broker: DhanClient, symbol: str):
-    """Current quote only -- never a past minute paired with today's LTP."""
+# A quote is "current" for this long. Past it, the LTP describes a different
+# minute than the bar being priced, and using it would be a fabrication.
+_FIB_TOUCH_LIVE_QUOTE_SECONDS = 7 * 60
+
+
+def _fib_touch_premium_lookup(broker: DhanClient, symbol: str, history=None):
+    """Price a fill by the AGE of its bar, never by what is convenient.
+
+    A minute recent enough to still have a live quote gets the LTP. Anything
+    older is priced from RECORDED history -- Upstox for a contract that has
+    expired, Dhan's own option candles for one still listed -- which is what
+    lets a paper campaign start on a mother from an earlier day at all.
+
+    ``history`` is that hybrid lookup, built per symbol by the caller because
+    constructing it blocks. Without one, an old bar simply has no price and the
+    engine records a gap; it never falls back to today's quote.
+    """
 
     def lookup(when: datetime, strike: float, expiry: date, side: str) -> float | None:
         now = datetime.now(IST)
         stamp = when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
-        if abs((now - stamp).total_seconds()) > 7 * 60:
+        if abs((now - stamp).total_seconds()) <= _FIB_TOUCH_LIVE_QUOTE_SECONDS:
+            try:
+                value = broker.get_option_ltp(symbol, strike, expiry.isoformat(), side)
+                if float(value or 0) > 0:
+                    return float(value)
+            except Exception:
+                pass
+            # A live quote that failed still must not fall through to history
+            # for a bar this recent -- history has not recorded it yet.
+            return None
+        if history is None:
             return None
         try:
-            value = broker.get_option_ltp(symbol, strike, expiry.isoformat(), side)
-            return float(value) if float(value or 0) > 0 else None
-        except Exception:
+            contract = SimpleNamespace(
+                symbol=symbol,
+                underlying=symbol,
+                strike=float(strike),
+                expiry=expiry,
+                option_type=str(side).upper(),
+            )
+            value = history(stamp, contract)
+            return float(value) if value is not None and float(value) > 0 else None
+        except Exception as exc:
+            _logger.warning("[FIB TOUCH] %s history lookup failed at %s: %s", symbol, stamp, exc)
             return None
 
     return lookup
@@ -9507,14 +9548,12 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     effective = 15 if (timeframe == "1h" and mother_timestamp.hour == 15) else tf_minutes
     if mother_timestamp + timedelta(minutes=effective) > now:
         raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
-    if mother_timestamp.date() != now.date():
-        # A past mother has no live quote, and pairing one with today's LTP is
-        # exactly the fabrication this stack refuses.  History belongs to the
-        # Backtest button, which prices off real expired-option bars.
-        raise HTTPException(
-            status_code=400,
-            detail="A paper campaign runs on today's session. Use Backtest for a mother from an earlier day.",
-        )
+    # A past mother is allowed. What must never happen is pairing a past minute
+    # with today's LTP -- so the premium lookup below routes by the BAR'S AGE:
+    # a live quote only for a minute recent enough to have one, real recorded
+    # history for everything older. How far back is not a number invented here;
+    # it is however far Dhan still serves candles, and the fetch below says so
+    # plainly when it runs out.
 
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
@@ -9582,9 +9621,17 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     # path exist with the exchange call still closed, so arming stays a separate
     # explicit act rather than something a payload can flip.
     executor = _FibTouchLiveExecutor(broker_client, terms.symbol) if mode == "live" else _FibTouchPaperExecutor()
+    # A mother from an earlier day needs RECORDED prices; today's needs none,
+    # and building the Upstox source blocks, so it is only paid for when the
+    # campaign will actually read from it.
+    history = None
+    if mother_timestamp.date() != now.date():
+        history = await asyncio.to_thread(
+            _fib_touch_history_lookup, broker_client, terms.symbol, mother_timestamp.date(), now.date()
+        )
     engine = FibTouchLadder(
         config,
-        premium_lookup=_fib_touch_premium_lookup(broker_client, terms.symbol),
+        premium_lookup=_fib_touch_premium_lookup(broker_client, terms.symbol, history),
         expiry_source=_fib_touch_expiry_source(broker_client, terms.symbol),
         executor=executor,
     )
@@ -9719,11 +9766,8 @@ async def fib_boundary_paper_chart(
         raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     now = datetime.now(IST)
-    if mother.date() > now.date() or (now.date() - mother.date()).days > _FIB_BOUNDARY_HISTORY_DAYS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Chart is available for mothers in the last {_FIB_BOUNDARY_HISTORY_DAYS} calendar days.",
-        )
+    if mother.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {terms.symbol} chart.")
@@ -10528,6 +10572,48 @@ def _hybrid_premium_lookup(
     lookup.source_failures = source_failures
     lookup.stale_fills = stale_fills
     return lookup
+
+
+def _fib_touch_history_lookup(broker: DhanClient, symbol: str, from_day: date, to_day: date):
+    """Recorded option prices for a symbol over a window, or None.
+
+    Upstox records a contract's minutes only once it has EXPIRED; Dhan serves a
+    still-listed one now. Between them a replay can price most contracts the
+    resolver picks. BLOCKING (Upstox construction, per-contract fetches) -- call
+    it off the event loop.
+
+    Returns None rather than raising when no source is reachable, so starting a
+    campaign on an old mother degrades to "no price, recorded gap" instead of
+    failing outright.
+    """
+    try:
+        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+
+        try:
+            from upstox_token_manager import ensure_fresh_token
+
+            ensure_fresh_token()
+        except Exception as exc:
+            _logger.warning("[FIB TOUCH] Upstox token pre-check skipped: %s", exc)
+        premium_source = None
+        upstox_expiries: list = []
+        try:
+            premium_source = UpstoxPremiumSource(backfill_missing=True)
+            upstox_expiries = sorted(premium_source.available_expiries())
+        except UpstoxAccessError as exc:
+            _logger.warning("[FIB TOUCH] %s Upstox history unavailable, Dhan only: %s", symbol, exc)
+        return _hybrid_premium_lookup(
+            broker,
+            symbol,
+            premium_source,
+            set(upstox_expiries),
+            from_day,
+            to_day,
+            forward_minutes=1,
+        )
+    except Exception as exc:
+        _logger.warning("[FIB TOUCH] %s history lookup unavailable: %s", symbol, exc)
+        return None
 
 
 def _fib_replay_premium_lookup(broker: DhanClient, from_day: date, to_day: date, timeframe: str):
