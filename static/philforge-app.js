@@ -14399,6 +14399,9 @@ fetchRuns = async function() {
   let _chLoaded = false;
   let _cjCurrentDate = '';   // YYYY-MM-DD of selected day
   let _cjSaveTimer = null;
+  let _cjLoadController = null;
+  let _cjLoadGeneration = 0;
+  const _cjSaveChains = new Map();
   let _cjCurrentDayMeta = null;  // {year, monthFolder, dayFolder}
   let _cjPanelMode = 'journal';
   let _cjPlanTimer = null;
@@ -14439,6 +14442,8 @@ fetchRuns = async function() {
     _chDateLabel = '';
     _cjCurrentDate = '';
     _cjCurrentDayMeta = null;
+    _cjLoadGeneration += 1;
+    if (_cjLoadController) _cjLoadController.abort();
     document.querySelectorAll('.chday-btn.active').forEach((btn) => btn.classList.remove('active'));
     document.querySelectorAll('.cj-entry-item.active').forEach((el) => el.classList.remove('active'));
     const dateLabel = document.getElementById('cj-date-label');
@@ -15414,7 +15419,9 @@ fetchRuns = async function() {
   function _cjScheduleSave() {
     if (!_cjCurrentDate) return;
     clearTimeout(_cjSaveTimer);
-    _cjSaveTimer = setTimeout(() => _cjSaveJournal(_cjCurrentDate), 800);
+    const dateStr = _cjCurrentDate;
+    const snapshot = _cjGetFormData();
+    _cjSaveTimer = setTimeout(() => _cjSaveJournal(dateStr, snapshot), 800);
   }
 
   function _cjGetFormData() {
@@ -15465,39 +15472,70 @@ fetchRuns = async function() {
   }
 
   async function _cjLoadJournal(dateStr) {
+    const generation = ++_cjLoadGeneration;
+    if (_cjLoadController) _cjLoadController.abort();
+    const controller = new AbortController();
+    _cjLoadController = controller;
     _cjClearForm();
     const lsKey = 'cj_journal_' + dateStr;
     try {
       const cached = localStorage.getItem(lsKey);
-      if (cached) _cjSetFormData(JSON.parse(cached));
+      if (cached && _cjCurrentDate === dateStr) _cjSetFormData(JSON.parse(cached));
     } catch(e) {}
     try {
-      const r = await fetch('/api/journal/' + dateStr, { credentials: 'same-origin' });
+      const r = await fetch('/api/journal/' + encodeURIComponent(dateStr), {
+        credentials: 'same-origin',
+        signal: controller.signal,
+      });
+      if (!r.ok) throw new Error('Journal load failed (' + r.status + ')');
       const d = await r.json();
+      if (generation !== _cjLoadGeneration || _cjCurrentDate !== dateStr) return;
       if (d.data) {
         _cjSetFormData(d.data);
         try { localStorage.setItem(lsKey, JSON.stringify(d.data)); } catch(e) {}
       }
     } catch(e) {
-      console.warn('[Journal] Backend load failed, using localStorage:', e);
+      if (e.name !== 'AbortError') console.warn('[Journal] Backend load failed, using localStorage:', e);
+    } finally {
+      if (_cjLoadController === controller) _cjLoadController = null;
     }
   }
 
-  async function _cjSaveJournal(dateStr) {
-    const data = _cjGetFormData();
+  async function _cjSaveJournal(dateStr, dataOverride = null) {
+    const data = dataOverride || _cjGetFormData();
     try { localStorage.setItem('cj_journal_' + dateStr, JSON.stringify(data)); } catch(e) {}
-    try {
-      await fetch('/api/journal/' + dateStr, {
+    const previous = _cjSaveChains.get(dateStr) || Promise.resolve();
+    const task = previous.catch(() => {}).then(async () => {
+      const r = await fetch('/api/journal/' + encodeURIComponent(dateStr), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify(data),
       });
+      if (!r.ok) {
+        let detail = 'Journal save failed (' + r.status + ')';
+        try {
+          const payload = await r.json();
+          detail = payload.detail || payload.error?.detail || detail;
+        } catch(e) {}
+        throw new Error(detail);
+      }
+      return true;
+    });
+    _cjSaveChains.set(dateStr, task);
+    try {
+      await task;
       const dot = document.getElementById('cj-save-dot');
-      dot.classList.add('show');
-      setTimeout(() => dot.classList.remove('show'), 1500);
+      if (dot) {
+        dot.classList.add('show');
+        setTimeout(() => dot.classList.remove('show'), 1500);
+      }
+      return true;
     } catch(e) {
       console.warn('[Journal] Backend save failed:', e);
+      return false;
+    } finally {
+      if (_cjSaveChains.get(dateStr) === task) _cjSaveChains.delete(dateStr);
     }
   }
 
@@ -15513,10 +15551,12 @@ fetchRuns = async function() {
     const btn = document.getElementById('cj-submit-btn');
     btn.innerHTML = ICO.hour(14) + ' Saving...';
     btn.disabled = true;
-    await _cjSaveJournal(_cjCurrentDate);
-    btn.innerHTML = ICO.check(14) + ' Saved!';
+    const dateStr = _cjCurrentDate;
+    const saved = await _cjSaveJournal(dateStr, _cjGetFormData());
+    btn.innerHTML = saved ? ICO.check(14) + ' Saved!' : '⚠ Save failed';
+    if (!saved) showToast('Journal remains in this browser, but the server save failed.', 'error');
     setTimeout(() => { btn.innerHTML = ICO.save(14) + ' Save Journal'; btn.disabled = false; }, 1500);
-    _cjLoadEntries();
+    if (saved) _cjLoadEntries();
   };
 
   // ══════════════════════════════════════════════════════════

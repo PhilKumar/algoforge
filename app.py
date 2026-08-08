@@ -224,7 +224,14 @@ app.add_middleware(
 )
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["philforge.in", "www.philforge.in", "127.0.0.1", "localhost", "testserver"],
+    allowed_hosts=[
+        "philforge.in",
+        "www.philforge.in",
+        "philforge.test",
+        "127.0.0.1",
+        "localhost",
+        "testserver",
+    ],
 )
 
 from error_handlers import register_error_handlers
@@ -3415,7 +3422,7 @@ def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 
             pipe = r.pipeline()
             pipe.zremrangebyscore(key, 0, now_ms - window_sec * 1000)
             pipe.zcard(key)
-            pipe.zadd(key, {str(now_ms): now_ms})
+            pipe.zadd(key, {f"{now_ms}:{secrets.token_hex(8)}": now_ms})
             pipe.expire(key, window_sec + 1)
             _, count, *_ = pipe.execute()
             if count >= max_calls:
@@ -3482,43 +3489,43 @@ class LiveStartRequest(BaseModel):
 
 
 class OrderRequest(BaseModel):
-    security_id: str
-    exchange_segment: str = "NSE_EQ"
-    transaction_type: str
+    security_id: str = Field(min_length=1, max_length=64)
+    exchange_segment: str = Field(default="NSE_EQ", min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
-    order_type: str = "MARKET"
-    product_type: str = "INTRADAY"
+    order_type: str = Field(default="MARKET", min_length=2, max_length=32)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=32)
     price: float = Field(default=0, ge=0)
     trigger_price: float = Field(default=0, ge=0)
-    validity: str = "DAY"
+    validity: str = Field(default="DAY", min_length=3, max_length=3)
     disclosed_quantity: int = Field(default=0, ge=0)
     after_market_order: bool = False
-    amo_time: str = ""
+    amo_time: str = Field(default="", max_length=16)
     bo_profit_value: float = Field(default=0, ge=0)
     bo_stop_loss_value: float = Field(default=0, ge=0)
     slice_order: bool = False
 
 
 class StockTerminalOrderRequest(BaseModel):
-    symbol: str
-    transaction_type: str
+    symbol: str = Field(min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
-    order_type: str = "MARKET"
-    product_type: str = "INTRADAY"
+    order_type: str = Field(default="MARKET", min_length=2, max_length=32)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=32)
     price: float = Field(default=0, ge=0)
     trigger_price: float = Field(default=0, ge=0)
-    validity: str = "DAY"
+    validity: str = Field(default="DAY", min_length=3, max_length=3)
     disclosed_quantity: int = Field(default=0, ge=0)
     after_market_order: bool = False
-    amo_time: str = ""
+    amo_time: str = Field(default="", max_length=16)
     bo_profit_value: float = Field(default=0, ge=0)
     bo_stop_loss_value: float = Field(default=0, ge=0)
     slice_order: bool = False
 
 
 class StockTerminalGttRequest(BaseModel):
-    symbol: str
-    transaction_type: str
+    symbol: str = Field(min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
     order_flag: str = "SINGLE"
     order_type: str = "LIMIT"
@@ -3530,6 +3537,43 @@ class StockTerminalGttRequest(BaseModel):
     trigger_price1: float = Field(default=0, ge=0)
     quantity1: int = Field(default=0, ge=0)
     disclosed_quantity: int = Field(default=0, ge=0)
+
+
+_ORDER_EXCHANGES = {"NSE_EQ", "NSE_FNO", "NSE_CURRENCY", "BSE_EQ", "BSE_FNO", "BSE_CURRENCY", "MCX_COMM"}
+_ORDER_PRODUCTS = {"CNC", "INTRADAY", "MARGIN", "MTF", "CO", "BO"}
+_ORDER_TYPES = {"MARKET", "LIMIT", "STOP_LOSS", "STOP_LOSS_MARKET"}
+_ORDER_VALIDITIES = {"DAY", "IOC"}
+_AMO_TIMES = {"", "PRE_OPEN", "OPEN", "OPEN_30", "OPEN_60"}
+
+
+def _validated_order_values(req: OrderRequest) -> dict[str, str]:
+    values = {
+        "transaction_type": str(req.transaction_type or "").upper(),
+        "exchange_segment": str(req.exchange_segment or "").upper(),
+        "order_type": str(req.order_type or "").upper(),
+        "product_type": str(req.product_type or "").upper(),
+        "validity": str(req.validity or "").upper(),
+        "amo_time": str(req.amo_time or "").upper(),
+    }
+    if values["transaction_type"] not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if values["exchange_segment"] not in _ORDER_EXCHANGES:
+        raise HTTPException(status_code=400, detail="Unsupported exchange_segment")
+    if values["order_type"] not in _ORDER_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported order_type")
+    if values["product_type"] not in _ORDER_PRODUCTS:
+        raise HTTPException(status_code=400, detail="Unsupported product_type")
+    if values["validity"] not in _ORDER_VALIDITIES:
+        raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    if values["order_type"] in {"LIMIT", "STOP_LOSS"} and req.price <= 0:
+        raise HTTPException(status_code=400, detail=f"{values['order_type']} requires price")
+    if values["order_type"] in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
+        raise HTTPException(status_code=400, detail=f"{values['order_type']} requires trigger_price")
+    if req.after_market_order and values["amo_time"] not in _AMO_TIMES:
+        raise HTTPException(status_code=400, detail="Unsupported AMO time")
+    return values
 
 
 class StrategyPayload(BaseModel):
@@ -3901,24 +3945,34 @@ def _parse_month_folder(name: str):
 
 def _parse_day_folder(name: str, *, year_hint: int | None = None, month_hint: int | None = None):
     """Parse day folder → (sort_key, display_label) or fallback to name itself."""
+
+    def _valid_date_parts(year_value: int, month_value: int, day_value: int) -> bool:
+        try:
+            date(year_value, month_value, day_value)
+            return True
+        except (TypeError, ValueError):
+            return False
+
     # DD_MM_YYYY or DD-MM-YYYY (all numeric)
     m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", name)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
+        if _valid_date_parts(yyyy, mm, dd):
+            return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
     # DD-Mon-YYYY (e.g. 01-Feb-2026)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
-        if num:
-            return f"{int(m.group(3)):04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
+        yyyy = int(m.group(3))
+        if num and _valid_date_parts(yyyy, num, dd):
+            return f"{yyyy:04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # DD-Mon (no year, e.g. 13-Feb)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
-        if num:
+        if num and _valid_date_parts(int(year_hint) if year_hint else 2000, num, dd):
             yyyy = int(year_hint) if year_hint else 9999
             return f"{yyyy:04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # Mon-DD-DD or Mon-DD-DD-DD (ranges like Feb-12-15, Feb-4-5-6)
@@ -3926,12 +3980,12 @@ def _parse_day_folder(name: str, *, year_hint: int | None = None, month_hint: in
     if m:
         num = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3])
         dd = int(m.group(2))
-        if num:
+        if num and _valid_date_parts(int(year_hint) if year_hint else 2000, num, dd):
             yyyy = int(year_hint) if year_hint else 9999
             return f"{yyyy:04d}-{num:02d}-{dd:02d}", name
     # DD only — infer month/year from the enclosing folder when possible
     m = _re.match(r"^(\d{1,2})$", name)
-    if m and year_hint and month_hint:
+    if m and year_hint and month_hint and _valid_date_parts(int(year_hint), int(month_hint), int(m.group(1))):
         dd = int(m.group(1))
         return f"{int(year_hint):04d}-{int(month_hint):02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[int(month_hint)]}"
     # Fallback — sort after all dated entries
@@ -3944,35 +3998,48 @@ def _canonicalize_chart_day_folder_name(year: str, month_folder: str, day_name: 
         return ""
     parsed_month = _parse_month_folder(str(month_folder or ""))
     if parsed_month is None:
-        return safe_name
-    month_num, month_label = parsed_month
+        return ""
+    month_num, _month_label = parsed_month
+    if not _re.fullmatch(r"\d{4}", str(year or "")):
+        return ""
     year_int = int(year)
+    month_parts = _re.split(r"[_-]", str(month_folder or ""), maxsplit=1)
+    if len(month_parts) != 2 or month_parts[1] != str(year_int):
+        return ""
+
+    def _canonical_date(day_value: int, month_value: int, year_value: int) -> str:
+        try:
+            parsed = date(year_value, month_value, day_value)
+        except ValueError:
+            return ""
+        if parsed.year != year_int or parsed.month != month_num:
+            return ""
+        return f"{parsed.day:02d}-{_cal.month_abbr[parsed.month]}-{parsed.year:04d}"
 
     m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", safe_name)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        month_abbr = _cal.month_abbr[mm] if 1 <= mm <= 12 else month_label
-        return f"{dd:02d}-{month_abbr}-{yyyy:04d}"
+        return _canonical_date(dd, mm, yyyy)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", safe_name)
     if m:
         dd = int(m.group(1))
         mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{int(m.group(3)):04d}"
+        return _canonical_date(dd, int(mon), int(m.group(3)))
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", safe_name)
     if m:
         dd = int(m.group(1))
         mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+        return _canonical_date(dd, int(mon), year_int)
     m = _re.match(r"^([A-Za-z]+)[\s_-](\d{1,2})$", safe_name)
     if m:
         mon = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3]) or month_num
         dd = int(m.group(2))
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+        return _canonical_date(dd, int(mon), year_int)
     m = _re.match(r"^(\d{1,2})$", safe_name)
     if m:
         dd = int(m.group(1))
-        return f"{dd:02d}-{month_label}-{year_int:04d}"
-    return safe_name
+        return _canonical_date(dd, month_num, year_int)
+    return ""
 
 
 def _resolve_legacy_chart_date(user_id: int, date_str: str) -> str:
@@ -4297,6 +4364,69 @@ async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+def _chart_upload_target(
+    target_year: str | None,
+    target_month: str | None,
+    target_day: str | None,
+) -> tuple[str, str, str, date]:
+    supplied = [target_year is not None, target_month is not None, target_day is not None]
+    if any(supplied) and not all(supplied):
+        raise HTTPException(status_code=400, detail="target_year, target_month, and target_day are required together")
+
+    if not any(supplied):
+        target_date = datetime.now(IST).date()
+        month_abbr = _cal.month_abbr[target_date.month]
+        return (
+            str(target_date.year),
+            f"{month_abbr}-{target_date.year}",
+            f"{target_date.day:02d}-{month_abbr}-{target_date.year}",
+            target_date,
+        )
+
+    year_str = str(target_year or "")
+    month_folder = str(target_month or "")
+    day_folder = str(target_day or "")
+    if not _re.fullmatch(r"\d{4}", year_str):
+        raise HTTPException(status_code=400, detail="Invalid target year")
+    parsed_month = _parse_month_folder(month_folder)
+    if parsed_month is None:
+        raise HTTPException(status_code=400, detail="Invalid target month")
+    month_num, _month_abbr = parsed_month
+    month_parts = _re.split(r"[_-]", month_folder, maxsplit=1)
+    if len(month_parts) != 2 or month_parts[1] != year_str:
+        raise HTTPException(status_code=400, detail="Target month does not match its year")
+    sort_key, _day_label = _parse_day_folder(day_folder, year_hint=int(year_str), month_hint=month_num)
+    try:
+        target_date = date.fromisoformat(sort_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid target day") from exc
+    if target_date.year != int(year_str) or target_date.month != month_num:
+        raise HTTPException(status_code=400, detail="Invalid target day")
+    return year_str, month_folder, day_folder, target_date
+
+
+def _write_unique_chart(data: bytes, day_path: str, date_tag: str, extension: str) -> tuple[str, str]:
+    for counter in range(10_000):
+        suffix = "" if counter == 0 else f"_{counter}"
+        filename = f"Nifty_{date_tag}{suffix}{extension}"
+        file_path = os.path.join(day_path, filename)
+        try:
+            fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+        except Exception:
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
+            raise
+        return filename, file_path
+    raise HTTPException(status_code=409, detail="Too many chart files exist for this date")
+
+
 @app.post("/api/upload-chart")
 async def upload_chart(
     request: Request,
@@ -4320,19 +4450,11 @@ async def upload_chart(
     data = sanitized.data
     ext = sanitized.extension
 
-    # Use target folder if provided, otherwise default to today's date
-    if target_year and target_month and target_day:
-        year_str = target_year
-        month_folder = target_month
-        day_folder = target_day
-    else:
-        from datetime import timezone as _tz
-
-        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
-        year_str = str(now_ist.year)
-        month_abbr = _cal.month_abbr[now_ist.month]
-        month_folder = f"{month_abbr}-{year_str}"
-        day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
+    year_str, month_folder, day_folder, target_date = _chart_upload_target(
+        target_year,
+        target_month,
+        target_day,
+    )
 
     day_path = _safe_charts_subpath(_request_user_id(request), year_str, month_folder, day_folder, create_root=True)
     if day_path is None:
@@ -4340,24 +4462,8 @@ async def upload_chart(
     os.makedirs(day_path, exist_ok=True)
     print(f"[CHARTS] Upload target dir: {day_path}")
 
-    # Generate filename: Nifty_DD-MM-YYYY[_N].ext
-    if target_year and target_month and target_day:
-        from datetime import timezone as _tz
-
-        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
-    date_tag = now_ist.strftime("%d-%m-%Y")
-    filename = f"Nifty_{date_tag}{ext}"
-    file_path = os.path.join(day_path, filename)
-
-    # Avoid overwrite
-    counter = 1
-    while os.path.exists(file_path):
-        filename = f"Nifty_{date_tag}_{counter}{ext}"
-        file_path = os.path.join(day_path, filename)
-        counter += 1
-
-    with open(file_path, "wb") as f:
-        f.write(data)
+    date_tag = target_date.strftime("%d-%m-%Y")
+    filename, file_path = _write_unique_chart(data, day_path, date_tag, ext)
     # Remove .keep placeholder if present (created by create-folder)
     keep_file = os.path.join(day_path, ".keep")
     if os.path.isfile(keep_file):
@@ -13261,23 +13367,24 @@ async def websocket_endpoint(ws: WebSocket):
 @app.post("/api/orders/place")
 async def place_order(req: OrderRequest, request: Request):
     check_rate_limit("place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
+    values = _validated_order_values(req)
     user, broker_client, source = await _request_broker_context(request)
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
         return broker_client.place_order(
             security_id=req.security_id,
-            exchange_segment=req.exchange_segment,
-            transaction_type=req.transaction_type,
+            exchange_segment=values["exchange_segment"],
+            transaction_type=values["transaction_type"],
             quantity=req.quantity,
-            order_type=req.order_type,
-            product_type=req.product_type,
+            order_type=values["order_type"],
+            product_type=values["product_type"],
             price=req.price,
             trigger_price=req.trigger_price,
-            validity=req.validity,
+            validity=values["validity"],
             disclosed_quantity=req.disclosed_quantity,
             after_market_order=req.after_market_order,
-            amo_time=req.amo_time,
+            amo_time=values["amo_time"],
             bo_profit_value=req.bo_profit_value,
             bo_stop_loss_value=req.bo_stop_loss_value,
             slice_order=req.slice_order,
@@ -13888,6 +13995,11 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
         raise HTTPException(status_code=400, detail="Unsupported Dhan product_type")
     if validity not in {"DAY", "IOC"}:
         raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    amo_time = str(req.amo_time or "").upper()
+    if req.after_market_order and amo_time not in _AMO_TIMES:
+        raise HTTPException(status_code=400, detail="Unsupported AMO time")
     if order_type in {"LIMIT", "STOP_LOSS"} and req.price <= 0:
         raise HTTPException(status_code=400, detail=f"{order_type} requires price")
     if order_type in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
@@ -13909,7 +14021,7 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
             validity=validity,
             disclosed_quantity=req.disclosed_quantity,
             after_market_order=req.after_market_order,
-            amo_time=req.amo_time,
+            amo_time=amo_time,
             bo_profit_value=req.bo_profit_value,
             bo_stop_loss_value=req.bo_stop_loss_value,
             slice_order=req.slice_order,
@@ -13953,6 +14065,10 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
         raise HTTPException(status_code=400, detail="GTT LIMIT requires price")
     if order_flag == "OCO" and (req.trigger_price1 <= 0 or req.price1 <= 0):
         raise HTTPException(status_code=400, detail="OCO requires target price and target trigger")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    if req.quantity1 > req.quantity:
+        raise HTTPException(status_code=400, detail="quantity1 cannot exceed quantity")
 
     user, broker_client, source = await _request_broker_context(request)
     if not broker_client:
@@ -14461,28 +14577,60 @@ async def stop_scalp_engine(request: Request):
 
 
 class ScalpEntryReq(BaseModel):
-    underlying: str
-    strike: int
-    option_type: str
-    expiry: str
-    product_type: str = "INTRADAY"
-    transaction_type: str = "BUY"
-    lots: int = 1
-    lot_size: int = 75
-    target_premium: float = 0.0
-    sl_premium: float = 0.0
-    target_pct: float = 0.0
-    sl_pct: float = 0.0
-    target_rupees: float = 0.0
-    sl_rupees: float = 0.0
-    sqoff_time: str = ""
-    mode: str = "live"
-    entry_limit_price: float = 0.0
-    entry_limit_max: float = 0.0
+    underlying: str = Field(min_length=1, max_length=20)
+    strike: int = Field(gt=0, le=1_000_000)
+    option_type: str = Field(min_length=2, max_length=2)
+    expiry: str = Field(min_length=10, max_length=10)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=16)
+    transaction_type: str = Field(default="BUY", min_length=3, max_length=4)
+    lots: int = Field(default=1, ge=1, le=500)
+    lot_size: int = Field(default=75, ge=1, le=10_000)
+    target_premium: float = Field(default=0.0, ge=0, le=1_000_000)
+    sl_premium: float = Field(default=0.0, ge=0, le=1_000_000)
+    target_pct: float = Field(default=0.0, ge=0, le=1_000)
+    sl_pct: float = Field(default=0.0, ge=0, le=1_000)
+    target_rupees: float = Field(default=0.0, ge=0, le=1_000_000_000)
+    sl_rupees: float = Field(default=0.0, ge=0, le=1_000_000_000)
+    sqoff_time: str = Field(default="", max_length=8)
+    mode: str = Field(default="live", min_length=4, max_length=5)
+    entry_limit_price: float = Field(default=0.0, ge=0, le=1_000_000)
+    entry_limit_max: float = Field(default=0.0, ge=0, le=1_000_000)
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
 _last_scalp_entry_ts: Dict[int, float] = {}
+
+_SCALP_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"}
+
+
+def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
+    req.underlying = str(req.underlying or "").strip().upper()
+    req.option_type = str(req.option_type or "").strip().upper()
+    req.transaction_type = str(req.transaction_type or "").strip().upper()
+    req.product_type = str(req.product_type or "").strip().upper()
+    req.mode = str(req.mode or "").strip().lower()
+    if req.underlying not in _SCALP_UNDERLYINGS:
+        raise HTTPException(status_code=400, detail="Unsupported scalp underlying")
+    if req.option_type not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="option_type must be CE or PE")
+    if req.transaction_type not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if req.product_type in {"NORMAL", "NRML"}:
+        req.product_type = "MARGIN"
+    if req.product_type not in {"INTRADAY", "MARGIN"}:
+        raise HTTPException(status_code=400, detail="Scalp product must be INTRADAY or MARGIN")
+    if req.mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="Scalp mode must be paper or live")
+    try:
+        expiry_date = date.fromisoformat(req.expiry)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="expiry must be a real YYYY-MM-DD date") from exc
+    if expiry_date < datetime.now(IST).date():
+        raise HTTPException(status_code=400, detail="expiry cannot be in the past")
+    if bool(req.entry_limit_price) != bool(req.entry_limit_max):
+        raise HTTPException(status_code=400, detail="Stop-limit entry requires both minimum and maximum premiums")
+    if req.mode == "live" and (req.target_premium <= 0 or req.sl_premium <= 0):
+        raise HTTPException(status_code=400, detail="Live scalp requires both Target Premium and SL Premium")
 
 
 def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
@@ -14491,6 +14639,7 @@ def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
 
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq, request: Request):
+    _validate_scalp_entry_request(req)
     user_id = _request_user_id(request)
     lock = _get_scalp_entry_lock(user_id)
     async with lock:
@@ -14507,11 +14656,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 return {"status": "error", "message": _broker_not_configured_message(user, source)}
         eng = _get_scalp_engine(user_id, broker_client=broker_client)
         try:
-            product_type = str(req.product_type or "INTRADAY").strip().upper()
-            if product_type in {"NORMAL", "NRML"}:
-                product_type = "MARGIN"
-            if product_type not in {"INTRADAY", "MARGIN"}:
-                return {"status": "error", "message": "Scalp product must be INTRADAY or MARGIN"}
+            product_type = req.product_type
             result = await eng.enter_trade(
                 underlying=req.underlying,
                 strike=req.strike,
@@ -14604,13 +14749,13 @@ async def scalp_kill_all(request: Request):
 
 
 class ScalpTargetsReq(BaseModel):
-    target_premium: Optional[float] = None
-    sl_premium: Optional[float] = None
-    target_rupees: Optional[float] = None
-    sl_rupees: Optional[float] = None
-    sqoff_time: Optional[str] = None
-    entry_limit_price: Optional[float] = None
-    entry_limit_max: Optional[float] = None
+    target_premium: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    sl_premium: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    target_rupees: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    sl_rupees: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    sqoff_time: Optional[str] = Field(default=None, max_length=8)
+    entry_limit_price: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    entry_limit_max: Optional[float] = Field(default=None, ge=0, le=1_000_000)
 
 
 @app.put("/api/scalp/trades/{trade_id}/targets")

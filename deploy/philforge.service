@@ -24,13 +24,13 @@ RestartSec=5
 UMask=0077
 
 # First-stage service sandbox. The application still needs write access to its
-# own tree for SQLite, per-user files, engine recovery state, and caches.
+# deploy tree and migrated state root for SQLite, per-user files, recovery, and caches.
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/ec2-user/philforge
+ReadWritePaths=/home/ec2-user/philforge /home/ec2-user/.local/share/philforge
 ProtectHostname=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
