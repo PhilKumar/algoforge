@@ -10913,9 +10913,9 @@ async function runBacktest() {
     } else if(data.status === 'no_trades') {
       emptyDiv.innerHTML = '<h2 style="color:var(--warn);">No trades generated</h2>';
     } else {
-      emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Failed: ' + (data.message||'Error') + '</h2>';
+      emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Failed: ' + escapeHtml(data.message || 'Error') + '</h2>';
     }
-  } catch(err) { clearInterval(cdI); emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Error: '+err.message+'</h2>'; }
+  } catch(err) { clearInterval(cdI); emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Error: ' + escapeHtml(err.message || 'Unknown error') + '</h2>'; }
 }
 
 function fmt(n) { return '\u20B9' + Math.round(n).toLocaleString('en-IN'); }
@@ -15622,18 +15622,20 @@ fetchRuns = async function() {
         const mo = months[key];
         const isOpen = key === selectedMonthKey ? ' open' : '';
         h += '<div>';
-        h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + mo.label + '<span class="cnt">' + mo.entries.length + '</span></button>';
+        h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + escapeHtml(mo.label) + '<span class="cnt">' + mo.entries.length + '</span></button>';
         h += '<div class="cj-month-children' + isOpen + '">';
         mo.entries.forEach(e => {
-          const day = e.date.split('-')[2];
-          const active = e.date === _cjCurrentDate ? ' active' : '';
-          const gradeEl = e.grade ? '<span class="cj-entry-grade g-' + e.grade + '">' + e.grade + '</span>' : '';
-          const esc = e.date.replace(/'/g, "\\'");
-          h += '<div class="cj-entry-item' + active + '" data-date="' + e.date + '" onclick="window._cjSelectEntry(\'' + esc + '\')">';
-          h += '<span class="cj-entry-date">' + day + '</span>';
-          h += '<span class="cj-entry-asset">' + (e.asset || e.strategy || '—') + '</span>';
+          const entryDate = String(e.date || '');
+          const day = entryDate.split('-')[2] || '—';
+          const active = entryDate === _cjCurrentDate ? ' active' : '';
+          const grade = ['A', 'B', 'C', 'D'].includes(e.grade) ? e.grade : '';
+          const gradeEl = grade ? '<span class="cj-entry-grade g-' + grade + '">' + grade + '</span>' : '';
+          const safeDateJs = escapeJsAttr(entryDate);
+          h += '<div class="cj-entry-item' + active + '" data-date="' + escapeAttr(entryDate) + '" onclick="window._cjSelectEntry(\'' + safeDateJs + '\')">';
+          h += '<span class="cj-entry-date">' + escapeHtml(day) + '</span>';
+          h += '<span class="cj-entry-asset">' + escapeHtml(e.asset || e.strategy || '—') + '</span>';
           h += gradeEl;
-          h += '<button class="cj-entry-del" title="Delete entry" onclick="event.stopPropagation();window._cjDeleteEntry(\'' + esc + '\')">✕</button>';
+          h += '<button class="cj-entry-del" title="Delete entry" onclick="event.stopPropagation();window._cjDeleteEntry(\'' + safeDateJs + '\')">✕</button>';
           h += '</div>';
         });
         h += '</div></div>';

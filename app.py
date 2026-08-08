@@ -75,6 +75,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import auth as _auth_mod
 import config
@@ -141,7 +142,11 @@ from engine.timeframes import (
     describe_timeframe,
     resolve_strategy_timeframe,
 )
+from image_uploads import ImageValidationError, sanitize_image
+from journal_validation import JournalValidationError, clean_journal_payload, validate_journal_date
 from market_movers import get_nifty50_market_movers_snapshot
+from request_security import request_client_ip as _request_client_ip
+from request_security import request_rate_subject as _request_rate_subject
 from study_content import get_study_library, sanitize_study_asset
 
 try:
@@ -216,6 +221,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-ID", "X-PhilForge-Action-Token"],
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["philforge.in", "www.philforge.in", "127.0.0.1", "localhost", "testserver"],
 )
 
 from error_handlers import register_error_handlers
@@ -4274,6 +4283,20 @@ _ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @app.post("/api/upload-chart")
 async def upload_chart(
     request: Request,
@@ -4285,20 +4308,17 @@ async def upload_chart(
     """Receive a pasted screenshot, save to Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/."""
     from urllib.parse import quote
 
-    # Validate file type
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Only image files are allowed")
-
-    # Read with size limit
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+    data = await _read_upload_limited(file, _MAX_UPLOAD_SIZE)
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
-
-    # Determine extension from content type
-    ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-    ext = ext_map.get(file.content_type, ".png")
+    try:
+        sanitized = await asyncio.to_thread(sanitize_image, data, file.content_type or "")
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(sanitized.data) > _MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="Sanitized image is too large (max 10 MB)")
+    data = sanitized.data
+    ext = sanitized.extension
 
     # Use target folder if provided, otherwise default to today's date
     if target_year and target_month and target_day:
@@ -4488,6 +4508,13 @@ async def reorder_chart_folders(request: Request):
 
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
+def _validated_journal_date(date_str: str) -> str:
+    try:
+        return validate_journal_date(date_str)
+    except JournalValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/journal/list")
 async def list_journals(request: Request):
     """Return list of all journal dates that have entries."""
@@ -4510,8 +4537,7 @@ async def list_journals(request: Request):
 @app.get("/api/journal/{date_str}")
 async def get_journal(date_str: str, request: Request):
     """Load journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     data = await _db_mod.get_journal_entry(user_id, normalized_date)
@@ -4521,14 +4547,14 @@ async def get_journal(date_str: str, request: Request):
 @app.put("/api/journal/{date_str}")
 async def save_journal(date_str: str, request: Request):
     """Save journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     body = await request.json()
-    # Sanitize: only allow known fields
-    allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
-    clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
+    try:
+        clean = clean_journal_payload(body)
+    except JournalValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _db_mod.upsert_journal_entry(user_id, normalized_date, clean)
     return {"status": "ok", "date": normalized_date}
 
@@ -4536,8 +4562,7 @@ async def save_journal(date_str: str, request: Request):
 @app.delete("/api/journal/{date_str}")
 async def delete_journal(date_str: str, request: Request):
     """Delete a journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     deleted = await _db_mod.delete_journal_entry(user_id, normalized_date)
@@ -4636,17 +4661,28 @@ def _login_lockout_message() -> str:
 def _login_key(username: str, client_ip: str) -> str:
     username = (username or "").strip().lower()
     if username:
-        return f"user:{username}"
+        return f"user:{username}:ip:{client_ip or 'unknown'}"
     return f"ip:{client_ip or 'unknown'}"
 
 
-def _check_login_rate(login_key: str):
+def _login_rate_dimensions(username: str, client_ip: str) -> list[tuple[str, int]]:
+    """Limit one account/IP pair and also slow distributed spraying."""
+    username = (username or "").strip().lower()
+    ip = client_ip or "unknown"
+    broad_limit = max(_LOGIN_MAX_ATTEMPTS * 4, 20)
+    dimensions = [(_login_key(username, ip), _LOGIN_MAX_ATTEMPTS), (f"ip:{ip}", broad_limit)]
+    if username:
+        dimensions.append((f"account:{username}", broad_limit))
+    return dimensions
+
+
+def _check_login_rate(login_key: str, max_attempts: int = _LOGIN_MAX_ATTEMPTS):
     r = _get_redis()
     if r is not None:
         try:
             key = f"{_LOGIN_RL_PREFIX}{login_key}"
             count = int(r.get(key) or 0)
-            if count >= _LOGIN_MAX_ATTEMPTS:
+            if count >= max_attempts:
                 raise HTTPException(status_code=429, detail=_login_lockout_message())
             return
         except HTTPException:
@@ -4655,7 +4691,7 @@ def _check_login_rate(login_key: str):
             _logger.warning(f"[Redis] _check_login_rate failed, using in-memory: {e}")
     now = time.time()
     _login_attempts[login_key] = [t for t in _login_attempts[login_key] if now - t < _LOGIN_LOCKOUT_SEC]
-    if len(_login_attempts[login_key]) >= _LOGIN_MAX_ATTEMPTS:
+    if len(_login_attempts[login_key]) >= max_attempts:
         raise HTTPException(status_code=429, detail=_login_lockout_message())
 
 
@@ -4688,12 +4724,13 @@ def _clear_login_attempts(login_key: str):
 # ── Authentication Endpoints ──────────────────────────────────────
 @app.post("/api/auth/login")
 async def auth_login(request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     body = await request.json()
     username = body.get("username", "").strip()
     password = body.get("password", body.get("pin", ""))
-    login_key = _login_key(username or config.ADMIN_USERNAME, ip)
-    _check_login_rate(login_key)
+    login_dimensions = _login_rate_dimensions(username or config.ADMIN_USERNAME, ip)
+    for login_key, max_attempts in login_dimensions:
+        _check_login_rate(login_key, max_attempts)
 
     # If no username provided, treat as legacy PIN login → look up configured admin user
     if username:
@@ -4701,14 +4738,16 @@ async def auth_login(request: Request):
     else:
         user = await _get_preferred_admin_user()
     if not user:
-        _record_failed_login(login_key)
+        for login_key, _max_attempts in login_dimensions:
+            _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
     if not _auth_mod.verify_password(password, user["password_hash"]):
-        _record_failed_login(login_key)
+        for login_key, _max_attempts in login_dimensions:
+            _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if bool(user.get("mfa_enabled")):
@@ -4722,11 +4761,14 @@ async def auth_login(request: Request):
                 },
             )
         if not await _auth_mod.verify_user_totp(user, totp_code):
-            _record_failed_login(login_key)
+            for login_key, _max_attempts in login_dimensions:
+                _record_failed_login(login_key)
             raise HTTPException(status_code=401, detail="Invalid credentials or authenticator code")
 
     # Success — create DB session
-    _clear_login_attempts(login_key)
+    for login_key, _max_attempts in login_dimensions:
+        if not login_key.startswith("ip:"):
+            _clear_login_attempts(login_key)
     await _db_mod.cleanup_expired_sessions()
     token = await _auth_mod.create_session(user["id"])
     await _db_mod.update_last_login(user["id"])
@@ -4790,7 +4832,7 @@ async def auth_mfa_enroll_start(request: Request):
     if not _auth_mod.encryption_enabled():
         raise HTTPException(status_code=503, detail="Encrypted secret storage is not configured")
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4820,7 +4862,7 @@ async def auth_mfa_enroll_verify(request: Request):
     """Activate a pending authenticator secret after proving one fresh code."""
     user = await _auth_mod.get_current_user(request)
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4865,7 +4907,7 @@ async def auth_mfa_disable(request: Request):
     """Disable MFA only after fresh password and current-factor proof."""
     user = await _auth_mod.get_current_user(request)
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4907,7 +4949,7 @@ async def auth_action_token(request: Request):
     if not bool(user.get("mfa_enabled")):
         raise HTTPException(status_code=428, detail="Set up an authenticator before this protected action")
 
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     step_key = _login_key(f"stepup:{user['username']}", ip)
     _check_login_rate(step_key)
     password = str(body.get("password", "") or "")
@@ -11794,15 +11836,15 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             return {"status": "error", "message": str(tf_err)}
         candle_interval = str(tf_spec.fetch)
 
-        print(f"\n{'=' * 60}")
-        print(f"[BACKTEST] Run: {payload.run_name}")
-        print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
-        print(f"[BACKTEST] Timeframe: {describe_timeframe(tf_spec)}")
-        print(f"[BACKTEST] Indicators: {normalized_indicators}")
-        print(f"[BACKTEST] Entry conditions: {entry_conditions}")
-        print(f"[BACKTEST] Exit conditions: {exit_conditions}")
-        print(f"[BACKTEST] Legs: {payload.legs}")
-        print(f"{'=' * 60}")
+        _logger.info(
+            "[BACKTEST] Validated request timeframe=%s indicator_count=%s entry_condition_count=%s "
+            "exit_condition_count=%s leg_count=%s",
+            describe_timeframe(tf_spec),
+            len(normalized_indicators),
+            len(entry_conditions),
+            len(exit_conditions),
+            len(payload.legs or []),
+        )
 
         # 1. Fetch data with segment-aware routing + fallback
         print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
@@ -12331,21 +12373,13 @@ async def export_live_trades_csv(request: Request, run_id: str = ""):
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload, request: Request):
     """Start paper trading with real live market data"""
-    _crash_log = os.path.join(_HERE, "crash.log")
-    with open(_crash_log, "a") as _f:
-        _f.write(f"\n[PAPER] paper_start ENTERED at {datetime.now()}\n")
-        _f.write(f"[PAPER] payload.instrument={payload.instrument}, run_name={payload.run_name}\n")
     try:
         return await _paper_start_impl(payload, _request_user_id(request))
-    except Exception as e:
-        import traceback
-
-        tb = traceback.format_exc()
-        msg = f"[PAPER] paper_start crashed: {e}\n{tb}"
-        print(msg, flush=True)
-        _logger.error("[PAPER] paper_start crashed: %s\n%s", e, tb)
-        with open(_crash_log, "a") as _f:
-            _f.write(f"\n{'=' * 60}\n{msg}\n")
+    except Exception:
+        _logger.exception(
+            "[PAPER] Start failed request_id=%s",
+            getattr(request.state, "request_id", "-"),
+        )
         raise
 
 
@@ -12725,7 +12759,7 @@ async def _save_single_trade_to_history(
             print(f"[{mode.upper()}] Identical single-trade history already exists — skipping duplicate save")
             return
         saved = await _db_mod.create_run_record(user_id, run_entry)
-        print(f"[{mode.upper()}] Saved trade to history as Run #{saved['id']}: {instrument} {side} P&L=₹{pnl}")
+        _logger.info("[%s] Saved one trade to run history record_id=%s", mode.upper(), saved["id"])
     except Exception as e:
         print(f"[{mode.upper()}] Failed to save trade to history: {e}")
 
@@ -12808,7 +12842,7 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
             return
 
         saved = await _db_mod.create_run_record(user_id, paper_run)
-        print(f"[PAPER] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[PAPER] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[PAPER] Failed to save run to history: {e}")
 
@@ -12854,7 +12888,7 @@ async def _save_scalp_run_to_history(eng, explicit_user_id: int | None = None) -
         }
 
         saved = await _db_mod.create_run_record(user_id, scalp_run)
-        print(f"[SCALP] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[SCALP] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[SCALP] Failed to save run to history: {e}")
 
@@ -12937,7 +12971,7 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
             return
 
         saved = await _db_mod.create_run_record(user_id, live_run)
-        print(f"[LIVE] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[LIVE] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[LIVE] Failed to save run to history: {e}")
 
@@ -13144,7 +13178,8 @@ def _ws_serialize(payload: dict) -> bytes:
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     origin = _normalize_origin_value(ws.headers.get("origin", ""))
-    if origin and origin not in _allowed_request_origins(ws):
+    websocket_origins = {_normalize_origin_value(value) for value in _CORS_ALLOWED_ORIGINS}
+    if origin and origin not in websocket_origins:
         await ws.close(code=4003, reason="Forbidden origin")
         return
     # Authenticate WebSocket via session cookie (DB-backed)
@@ -13154,11 +13189,16 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4001, reason="Unauthorized")
         return
     user_id = int(session["user_id"])
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user or not user.get("is_active"):
+        await ws.close(code=4001, reason="Account disabled or not found")
+        return
     await ws.accept()
     _user_ws_clients(user_id).append(ws)
 
     scalp_evt = _get_scalp_ws_event()
     engine_tick = 0  # counter: send full engine status every 20 cycles (~5s)
+    authorization_tick = 0
 
     try:
         while True:
@@ -13185,6 +13225,14 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Engine status — every ~5s (20 × 250ms) to avoid waste
             engine_tick += 1
+            authorization_tick += 1
+            if authorization_tick >= 240:
+                authorization_tick = 0
+                current_session = await _validate_session_async(token)
+                current_user = await _db_mod.get_user_by_id(user_id) if current_session else None
+                if not current_user or not current_user.get("is_active"):
+                    await ws.close(code=4001, reason="Session expired or account disabled")
+                    break
             if engine_tick >= 20:
                 engine_tick = 0
                 paper_sts = {
@@ -13203,6 +13251,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
+        pass
+    finally:
         if ws in _user_ws_clients(user_id):
             _user_ws_clients(user_id).remove(ws)
 
@@ -13210,8 +13260,7 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Orders / Positions / Funds ────────────────────────────────────
 @app.post("/api/orders/place")
 async def place_order(req: OrderRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
+    check_rate_limit("place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
     user, broker_client, source = await _request_broker_context(request)
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
@@ -13363,8 +13412,7 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
 
 @app.post("/api/terminal/cascade/start")
 async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_cascade_start", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_cascade_start", _request_rate_subject(request), max_calls=3, window_sec=5)
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(payload.timeframe)
     now = datetime.now(IST)
@@ -13823,8 +13871,7 @@ async def terminal_quote(symbol: str, request: Request):
 
 @app.post("/api/terminal/order")
 async def terminal_place_order(req: StockTerminalOrderRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_place_order", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
     stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
@@ -13880,8 +13927,7 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
 
 @app.post("/api/terminal/gtt")
 async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_place_gtt", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_place_gtt", _request_rate_subject(request), max_calls=3, window_sec=5)
     stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
