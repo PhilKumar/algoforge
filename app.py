@@ -111,6 +111,7 @@ from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_touch_ladder import FIB_TOUCH_LIVE_EXECUTION_ENABLED as _FIB_TOUCH_LIVE_EXECUTION_ENABLED
 from engine.fib_touch_ladder import GEOMETRY_TIMEFRAMES as _FIB_TOUCH_GEOMETRY_TF
 from engine.fib_touch_ladder import (
     HALVING_LEVELS,
@@ -9499,6 +9500,7 @@ async def fib_touch_symbols(_request: Request):
     """
     return {
         "levels": list(HALVING_LEVELS),
+        "live_available": _FIB_TOUCH_LIVE_EXECUTION_ENABLED,
         "symbols": [
             {
                 "symbol": terms.symbol,
@@ -9521,12 +9523,19 @@ async def fib_boundary_paper_status(request: Request):
     campaigns = [
         {**runtime.engine.get_status(), "running": runtime.running} for _symbol, runtime in sorted(runtimes.items())
     ]
-    return {"status": "ok" if campaigns else "not_started", "mode": "paper", "campaigns": campaigns}
+    modes = {str(campaign.get("mode") or "paper").lower() for campaign in campaigns}
+    board_mode = modes.pop() if len(modes) == 1 else ("mixed" if modes else "paper")
+    return {
+        "status": "ok" if campaigns else "not_started",
+        "mode": board_mode,
+        "live_available": _FIB_TOUCH_LIVE_EXECUTION_ENABLED,
+        "campaigns": campaigns,
+    }
 
 
 @app.post("/api/fib-boundary/paper/start")
 async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Request):
-    """Start a swing-anchored touch ladder. Never calls Dhan order APIs.
+    """Start a swing-anchored paper ladder; fail closed for unavailable live mode.
 
     The mother candle only names where to look; the ladder's anchors are the
     first involvement on each side of it, found by the engine.  Everything from
@@ -9547,6 +9556,14 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     mode = str(payload.mode).lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Fib Boundary live execution is temporarily disabled until Dhan fill verification, "
+                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+            ),
+        )
 
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
@@ -9676,18 +9693,13 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     await _save_fib_boundary_open_state(user_id, force=True)
     return {
         "status": "started",
-        "mode": "paper",
+        "mode": str(getattr(engine.executor, "mode", "paper")),
         "campaign": {**engine.get_status(), "running": runtime.running},
     }
 
 
 def _fib_boundary_runtime(request: Request, symbol: str) -> tuple[str, _CascadeRuntime]:
-    """The one ladder this call means, named by its instrument.
-
-    `symbol` rides the QUERY STRING rather than a body: the arm route's action
-    token is bound to `request.url.path`, which excludes the query, so this
-    keeps one MFA-gated path instead of one per instrument.
-    """
+    """Resolve the one ladder named by a route or query-string instrument."""
     try:
         terms = symbol_terms(symbol)
     except FibTouchError as exc:
@@ -9698,8 +9710,8 @@ def _fib_boundary_runtime(request: Request, symbol: str) -> tuple[str, _CascadeR
     return terms.symbol, runtime
 
 
-@app.post("/api/fib-boundary/paper/arm")
-async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
+@app.post("/api/fib-boundary/live/{symbol}/arm")
+async def fib_boundary_live_arm(symbol: str, request: Request):
     """Arm a LIVE ladder so its next decision reaches the exchange.
 
     This is the deliberate step the executor refuses without. It is a separate
@@ -9720,6 +9732,11 @@ async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
             status_code=400,
             detail="This ladder is running in paper. Kill it and start one in live mode before arming.",
         )
+    if not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Fib Boundary live arming is disabled until its broker order lifecycle is verified.",
+        )
     if getattr(executor, "armed", False):
         return {"status": "already_armed", "campaign": runtime.engine.get_status()}
     executor.armed = True
@@ -9735,10 +9752,15 @@ async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
     return {"status": "armed", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
 
 
-@app.post("/api/fib-boundary/paper/kill")
-async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
-    """Kill ONE ladder. The others keep running and keep their baskets."""
-    symbol, runtime = _fib_boundary_runtime(request, symbol)
+@app.post("/api/fib-boundary/paper/arm")
+async def fib_boundary_legacy_arm(_request: Request, symbol: str = "NIFTY"):
+    """Fail closed for cached clients that pre-date symbol-bound live routes."""
+    del symbol
+    raise HTTPException(status_code=410, detail="Reload PhilForge and use the symbol-bound live arm control.")
+
+
+async def _kill_fib_boundary_runtime(user_id: int, symbol: str, runtime: _CascadeRuntime) -> dict:
+    """Price and close one ladder only after its executor confirms the exit."""
     now = datetime.now(IST)
     try:
         quote = await asyncio.to_thread(runtime.adapter.get_ticker, symbol)
@@ -9747,13 +9769,43 @@ async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
         price = float(runtime.engine.history[-1].close) if runtime.engine.history else 0.0
     if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
         raise HTTPException(
-            status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
+            status_code=409, detail="Current option quote or broker exit unavailable; the basket remains monitored."
         )
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
-    await _save_fib_boundary_open_state(_request_user_id(request), force=True)
-    return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
+    await _save_fib_boundary_open_state(user_id, force=True)
+    mode = str(getattr(runtime.engine.executor, "mode", "paper"))
+    return {"status": "killed", "mode": mode, "campaign": {**runtime.engine.get_status(), "running": False}}
+
+
+@app.post("/api/fib-boundary/paper/kill")
+async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
+    """Kill one paper ladder; live exits use the MFA-gated live route."""
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
+    if bool(getattr(runtime.engine.executor, "is_live", False)):
+        raise HTTPException(
+            status_code=409,
+            detail="This is a live ladder. Reload PhilForge and use its MFA-gated live Kill & close control.",
+        )
+    return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
+
+
+@app.post("/api/fib-boundary/live/{symbol}/kill")
+async def fib_boundary_live_kill(symbol: str, request: Request):
+    """Exit one live ladder through its broker executor, then stop it."""
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
+    if not bool(getattr(runtime.engine.executor, "is_live", False)):
+        raise HTTPException(status_code=400, detail="This ladder is paper-only; use its paper Kill control.")
+    if not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Automatic Fib Boundary live exit is disabled because multi-leg fills are not yet reconciled. "
+                "No PhilForge state was changed; manage any real position in Dhan and reconcile before stopping."
+            ),
+        )
+    return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
 
 
 @app.get("/api/fib-boundary/paper/chart")

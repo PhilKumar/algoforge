@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from types import SimpleNamespace
+from unittest.mock import patch
 
 from engine.fib_touch_ladder import (
     DEEP_TARGET_FRACTION,
@@ -535,9 +535,52 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(engine.get_status()["mode"], "live")
         self.assertFalse(engine.get_status()["armed"])
 
-    def test_an_unarmed_live_executor_raises_rather_than_returning_quietly(self):
-        live = LiveExecutor(broker=object(), symbol="NIFTY")
-        with self.assertRaises(ExecutionRefused):
+    def test_an_unarmed_live_executor_refuses_new_risk_but_allows_exit(self):
+        sent = []
+
+        class _Broker:
+            def place_option_order(self, **order):
+                sent.append(
+                    (
+                        order["underlying"],
+                        order["strike_price"],
+                        order["expiry"],
+                        order["option_type"],
+                        order["transaction_type"],
+                        order["quantity"],
+                    )
+                )
+                return {"orderId": "DHAN-EXIT-1"}
+
+        live = LiveExecutor(broker=_Broker(), symbol="NIFTY")
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            with self.assertRaises(ExecutionRefused):
+                live.buy(
+                    when=IST_START,
+                    strike=24_400,
+                    expiry=date(2026, 8, 11),
+                    option_type="CE",
+                    quantity=65,
+                    lots=1,
+                    premium=200.0,
+                )
+            receipt = live.sell_all(
+                when=IST_START,
+                legs=[
+                    {
+                        "strike": 24_400,
+                        "expiry": "2026-08-11",
+                        "option_type": "CE",
+                        "quantity": 65,
+                    }
+                ],
+            )
+        self.assertEqual(receipt, {"order_id": "DHAN-EXIT-1", "mode": "live"})
+        self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "SELL", 65)])
+
+    def test_live_executor_is_safety_locked_even_when_armed(self):
+        live = LiveExecutor(broker=object(), symbol="NIFTY", armed=True)
+        with self.assertRaisesRegex(ExecutionRefused, "temporarily disabled"):
             live.buy(
                 when=IST_START,
                 strike=24_400,
@@ -547,8 +590,52 @@ class ExecutorTests(unittest.TestCase):
                 lots=1,
                 premium=200.0,
             )
-        with self.assertRaises(ExecutionRefused):
-            live.sell_all(when=IST_START, legs=[])
+
+    def test_manual_kill_sends_live_exit_before_marking_the_campaign_killed(self):
+        sent = []
+
+        class _Broker:
+            def place_option_order(self, **order):
+                sent.append(
+                    (
+                        order["underlying"],
+                        order["strike_price"],
+                        order["expiry"],
+                        order["option_type"],
+                        order["transaction_type"],
+                        order["quantity"],
+                    )
+                )
+                return {"orderId": f"DHAN-{order['transaction_type']}-1"}
+
+        candles = falling_then_bouncing()
+        executor = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
+        engine = FibTouchLadder(
+            FibTouchConfig(
+                symbol="NIFTY",
+                side="CE",
+                mother_timestamp=candles[0].timestamp,
+                lot_size=65,
+                strike_step=50.0,
+            ),
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+            executor=executor,
+        )
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            for bar in candles:
+                engine.on_candle(bar)
+            engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+            self.assertEqual(sent[0][4], "BUY")
+
+            # A restart disarms new entries; it must never disarm an exit.
+            executor.armed = False
+            killed = engine.kill_and_close(
+                Bar(candles[-1].timestamp + timedelta(minutes=2), 24_510, 24_512, 24_500, 24_505)
+            )
+        self.assertTrue(killed)
+        self.assertEqual(engine.status, "KILLED")
+        self.assertEqual([row[4] for row in sent], ["BUY", "SELL"])
 
     def test_arming_is_explicit_and_never_a_default(self):
         import inspect
@@ -561,20 +648,30 @@ class ExecutorTests(unittest.TestCase):
         sent = []
 
         class _Broker:
-            def place_option_order(self, symbol, strike, expiry, option_type, *, side, quantity):
-                sent.append((symbol, strike, expiry, option_type, side, quantity))
-                return SimpleNamespace(order_id="DHAN-1")
+            def place_option_order(self, **order):
+                sent.append(
+                    (
+                        order["underlying"],
+                        order["strike_price"],
+                        order["expiry"],
+                        order["option_type"],
+                        order["transaction_type"],
+                        order["quantity"],
+                    )
+                )
+                return {"orderId": "DHAN-1"}
 
         live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
-        receipt = live.buy(
-            when=IST_START,
-            strike=24_400,
-            expiry=date(2026, 8, 11),
-            option_type="CE",
-            quantity=65,
-            lots=1,
-            premium=200.0,
-        )
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.buy(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                lots=1,
+                premium=200.0,
+            )
         self.assertEqual(receipt, {"order_id": "DHAN-1", "mode": "live"})
         self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "BUY", 65)])
 
@@ -659,9 +756,18 @@ class _StubBroker:
     def __init__(self):
         self.sent = []
 
-    def place_option_order(self, symbol, strike, expiry, option_type, *, side, quantity):
-        self.sent.append((symbol, strike, expiry, option_type, side, quantity))
-        return SimpleNamespace(order_id=f"DHAN-{len(self.sent)}")
+    def place_option_order(self, **order):
+        self.sent.append(
+            (
+                order["underlying"],
+                order["strike_price"],
+                order["expiry"],
+                order["option_type"],
+                order["transaction_type"],
+                order["quantity"],
+            )
+        )
+        return {"orderId": f"DHAN-{len(self.sent)}"}
 
 
 class PersistenceTests(unittest.TestCase):
@@ -671,9 +777,10 @@ class PersistenceTests(unittest.TestCase):
         engine, candles, _ = ladder()
         if executor is not None:
             engine.executor = executor
-        for bar in candles:
-            engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            for bar in candles:
+                engine.on_candle(bar)
+            engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
         return engine
 
     def revive(self, engine, executor=None):
@@ -943,7 +1050,7 @@ class MotherRebaseTests(unittest.TestCase):
 
 
 class TrailingStopTests(unittest.TestCase):
-    """Phil: "make a trailing SL to catch the higher move as far as it goes.\""""
+    """Phil: "make a trailing SL to catch the higher move as far as it goes.\" """
 
     def trailing(self, multiple=1.0):
         # The standard fixture's mother tops at 24,780, and a trailing move has
@@ -1240,7 +1347,7 @@ class ExpiryLockTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()

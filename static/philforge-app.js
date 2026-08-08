@@ -2249,6 +2249,7 @@ let _fibBoundaryPollTimer = null;
 // Every running ladder, keyed by symbol -- the chart and the monitor buttons
 // each need THEIR campaign, not "the" campaign.
 let _lastFibBoundaryStatus = {};
+let _fibBoundaryLiveAvailable = false;
 
 // Everything options lives on one page now; each tab owns its own engine.
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
@@ -2658,13 +2659,13 @@ function _syncFibLevelsHint() {
     note.style.display = terms ? '' : 'none';
   }
 
-  // Live is built but not armed, and the form has to say so before it is
-  // picked -- discovering it at the first touch is not a discovery anyone wants.
+  // Do not advertise a real-money path while the server's fill/reconciliation
+  // safety gate is closed.
   const mode = document.getElementById('fibx-mode')?.value || 'paper';
   const modeNote = document.getElementById('fibx-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
-      ? 'Starts UNARMED — decides, refuses to send. Arm on the running campaign.'
+      ? 'Unavailable — broker fill verification and restart reconciliation are still pending.'
       : 'Records fills, sends nothing. Same rules as live.';
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
@@ -2814,15 +2815,14 @@ function _syncFibModeHint() {
 async function initOptionsCascadePage() {
   ['fibx-symbol', 'fibx-mode'].forEach(id => {
     const sel = document.getElementById(id);
-    if (sel && !sel._fibHintBound) { sel.addEventListener('change', _syncFibLevelsHint); sel._fibHintBound = true; }
+    if (sel && !sel._fibHintBound) {
+      sel.addEventListener('change', () => {
+        _syncFibLevelsHint();
+        _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+      });
+      sel._fibHintBound = true;
+    }
   });
-  // Only the SELECTED instrument can block Start now, so switching instrument
-  // has to re-answer "is this one free?" without waiting for the next poll.
-  const symbolSel = document.getElementById('fibx-symbol');
-  if (symbolSel && !symbolSel._fibClashBound) {
-    symbolSel.addEventListener('change', () => _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {})));
-    symbolSel._fibClashBound = true;
-  }
   const tsSel = document.getElementById('fibx-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
@@ -2896,6 +2896,7 @@ function _fibxPanelRoots(symbols) {
 }
 
 function _renderFibBoundaryStatus(payload) {
+  _fibBoundaryLiveAvailable = payload?.live_available === true;
   const campaigns = Array.isArray(payload?.campaigns)
     ? payload.campaigns
     : (payload?.campaign ? [payload.campaign] : []);
@@ -2918,7 +2919,8 @@ function _renderFibBoundaryStatus(payload) {
     const armed = live.filter(row => row.armed);
     const suffix = running.length > 1 ? ` · ${running.length} ladders` : '';
     let label = 'LIVE LOCKED', detail = 'Paper validation required', state = '';
-    if (armed.length) { label = 'LIVE ARMED'; detail = `Real orders reach Dhan${suffix}`; state = 'is-replay'; }
+    if (live.length && !_fibBoundaryLiveAvailable) { label = 'LIVE SAFETY LOCKED'; detail = `Automatic orders and exits disabled; reconcile in Dhan${suffix}`; state = 'is-replay'; }
+    else if (armed.length) { label = 'LIVE ARMED'; detail = `Real orders reach Dhan${suffix}`; state = 'is-replay'; }
     else if (live.length) { label = 'LIVE · NOT ARMED'; detail = `Decisions run; orders are refused${suffix}`; state = 'is-replay'; }
     else if (running.length) { label = 'PAPER LIVE'; detail = `Quote-backed paper monitor active${suffix}`; state = 'is-paper-live'; }
     else if (campaigns.length) { label = 'PAPER STOPPED'; detail = 'No live order is ever sent'; state = 'is-paused'; }
@@ -2935,11 +2937,16 @@ function _renderFibBoundaryRunningTable(campaigns) {
   const blocked = document.getElementById('fibx-blocked');
   const startBtn = document.getElementById('fibx-start');
   const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const selectedMode = document.getElementById('fibx-mode')?.value || 'paper';
   const running = campaigns.filter(row => row.running);
   const clash = running.some(row => String(row.symbol) === String(picked));
   if (startBtn) {
-    startBtn.disabled = false;
-    startBtn.textContent = clash ? `▶ Kill the ${picked} ladder first` : '▶ Start fib-boundary paper';
+    startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
+    startBtn.textContent = clash
+      ? `▶ Kill the ${picked} ladder first`
+      : selectedMode === 'live'
+        ? (_fibBoundaryLiveAvailable ? '▶ Start LIVE monitor · unarmed' : '🔒 Live safety verification pending')
+        : '▶ Start fib-boundary paper';
   }
   if (!blocked) return;
   blocked.innerHTML = running.length
@@ -3021,10 +3028,11 @@ function _renderFibBoundaryCampaign(root, campaign) {
   }
   const tf = String(campaign.timeframe || '1m').toUpperCase();
   const mode = String(campaign.mode || 'paper').toUpperCase();
+  const isLiveCampaign = !!campaign.is_live || mode === 'LIVE';
   // Every panel names its own instrument, because four of them look alike.
   if (title) title.textContent = `${symbol} ${side} monitor`;
   const roundsTitle = px('rounds-title');
-  if (roundsTitle) roundsTitle.textContent = `${symbol} closed paper round · net P&L`;
+  if (roundsTitle) roundsTitle.textContent = `${symbol} closed ${mode.toLowerCase()} round · net P&L`;
   const eventsTitle = px('events-title');
   if (eventsTitle) eventsTitle.textContent = `${symbol} campaign events`;
   if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
@@ -3052,9 +3060,12 @@ function _renderFibBoundaryCampaign(root, campaign) {
   }
   if (empty) empty.style.display = 'none';
   if (active) active.style.display = '';
-  if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  if (killBtn) {
+    killBtn.style.display = isRunning ? '' : 'none';
+    killBtn.textContent = isLiveCampaign && !_fibBoundaryLiveAvailable ? '⚠ Manage in Dhan' : '■ Kill';
+  }
   // Arming is per instrument: this button opens THIS ladder and no other.
-  if (armBtn) armBtn.style.display = (isRunning && campaign.is_live && !campaign.armed) ? '' : 'none';
+  if (armBtn) armBtn.style.display = (isRunning && isLiveCampaign && !campaign.armed && _fibBoundaryLiveAvailable) ? '' : 'none';
 
   const anchorEl = fx('anchor');
   if (anchorEl) {
@@ -3122,7 +3133,8 @@ function _renderFibBoundaryRounds(pair, campaign) {
   if (count) count.textContent = `${closed ? 1 : 0} round${closed ? '' : 's'}`;
   if (!body) return;
   if (!closed) {
-    body.innerHTML = '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+    const mode = campaign && (campaign.is_live || String(campaign.mode || '').toLowerCase() === 'live') ? 'live' : 'paper';
+    body.innerHTML = `<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed ${mode} round</td></tr>`;
     return;
   }
   const pnl = Number(campaign.net_pnl || 0);
@@ -3175,16 +3187,22 @@ async function startFibBoundaryPaper() {
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
-  if (button) { button.disabled = true; button.textContent = 'Finding the swing and starting the paper monitor…'; }
+  if (button) {
+    button.disabled = true;
+    button.textContent = payload.mode === 'live'
+      ? 'Finding the swing and starting an UNARMED live monitor…'
+      : 'Finding the swing and starting the paper monitor…';
+  }
   _fibSetFormStatus(`Reading ${payload.symbol} ${payload.timeframe}…`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Ladder did not start (${response.status})`));
     const anchored = data.campaign?.anchor;
+    const modeLabel = payload.mode === 'live' ? 'LIVE monitor started UNARMED' : 'paper monitor started';
     _fibSetFormStatus(anchored
-      ? `${payload.symbol} started · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
-      : `${payload.symbol} started · waiting for the swing to freeze`, 'success');
+      ? `${payload.symbol} ${modeLabel} · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
+      : `${payload.symbol} ${modeLabel} · waiting for the swing to freeze`, 'success');
     // No optimistic single-campaign paint here: rendering one campaign would
     // tear down every OTHER ladder's panel. The refresh below repaints the board.
   } catch (error) {
@@ -3203,13 +3221,29 @@ function _fibxSymbolFor(el) {
 async function killFibBoundaryPaper(_event, button) {
   const symbol = _fibxSymbolFor(button);
   if (!symbol) { _fibSetFormStatus('No ladder to kill.', 'error'); return; }
+  const campaign = _lastFibBoundaryStatus?.[symbol] || {};
+  const isLive = !!campaign.is_live || String(campaign.mode || '').toLowerCase() === 'live';
+  if (isLive && !_fibBoundaryLiveAvailable) {
+    _fibSetFormStatus(
+      `${symbol} live automation is safety-locked. PhilForge changed nothing — manage any real position in Dhan, then reconcile before stopping the campaign.`,
+      'error',
+    );
+    return;
+  }
   // Name the instrument. With four monitors on screen, "this campaign" is not
   // enough to know which basket is about to be closed.
-  const confirmed = await customConfirm(`Kill the <strong>${escapeHtml(symbol)}</strong> <strong>paper-only</strong> fib-boundary campaign and close any open paper basket at the current quote? No Dhan order is sent. Other ladders keep running.`, { title: `Kill ${symbol} fib-boundary`, icon: ICO.warn(28), okText: 'Kill & close', danger: true });
+  const message = isLive
+    ? `Exit every recorded <strong>${escapeHtml(symbol)} LIVE</strong> option leg on Dhan, then kill this ladder? `
+      + 'This sends real SELL orders. Other ladders keep running. You will be asked for your password and authenticator code.'
+    : `Kill the <strong>${escapeHtml(symbol)}</strong> <strong>paper-only</strong> fib-boundary campaign and close its paper basket at the current quote? No Dhan order is sent. Other ladders keep running.`;
+  const confirmed = await customConfirm(message, { title: `${isLive ? 'Exit & kill LIVE' : 'Kill'} ${symbol} fib-boundary`, icon: ICO.warn(28), okText: isLive ? 'Exit real legs & kill' : 'Kill & close', danger: true });
   if (!confirmed) return;
   if (button) { button.disabled = true; button.textContent = 'Closing…'; }
   try {
-    const response = await fetch(`/api/fib-boundary/paper/kill?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
+    const endpoint = isLive
+      ? `/api/fib-boundary/live/${encodeURIComponent(symbol)}/kill`
+      : `/api/fib-boundary/paper/kill?symbol=${encodeURIComponent(symbol)}`;
+    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, `Kill failed (${response.status})`));
     _fibSetFormStatus(`${symbol} fib-boundary campaign killed.`, 'success');
@@ -3353,7 +3387,7 @@ async function armFibBoundaryLive(_event, button) {
   );
   if (!ok) return;
   try {
-    const response = await fetch(`/api/fib-boundary/paper/arm?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
+    const response = await fetch(`/api/fib-boundary/live/${encodeURIComponent(symbol)}/arm`, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(_apiErrorMessage(data, `Could not arm (${response.status})`));
     _fibSetFormStatus(`${symbol} LIVE ARMED — its orders from here on reach the exchange.`, 'success');

@@ -106,5 +106,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_broker_check.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_order_submission_safety.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_mfa_action_authorization.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_fib_touch_ladder.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_cascade_fib_boundary_routes.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_hybrid_premium_lookup.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_fib_backtest_route_e2e.py'

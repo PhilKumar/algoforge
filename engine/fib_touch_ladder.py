@@ -426,6 +426,13 @@ class ExecutionRefused(RuntimeError):
     """An order was decided but the executor would not send it."""
 
 
+# This strategy's live adapter does not yet reconcile Dhan acknowledgements,
+# partial fills and ambiguous submissions into its persisted rung state.  Keep
+# every real order path closed until that lifecycle is implemented and tested;
+# an `armed` flag alone is not an execution-safety boundary.
+FIB_TOUCH_LIVE_EXECUTION_ENABLED = False
+
+
 class PaperExecutor:
     """Records the fill and sends nothing anywhere."""
 
@@ -458,7 +465,15 @@ class LiveExecutor:
         self.symbol = symbol
         self.armed = bool(armed)
 
+    def _availability_guard(self) -> None:
+        if not FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+            raise ExecutionRefused(
+                "Fib Boundary live execution is temporarily disabled until broker fills, partial fills "
+                "and restart reconciliation are verified. Use Paper or Backtest."
+            )
+
     def _guard(self) -> None:
+        self._availability_guard()
         if not self.armed:
             raise ExecutionRefused(
                 "Live execution is built but not armed. Watch a paper ladder run first, "
@@ -468,28 +483,37 @@ class LiveExecutor:
     def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
         self._guard()
         order = self.broker.place_option_order(
-            self.symbol,
-            float(strike),
-            expiry.isoformat(),
-            str(option_type),
-            side="BUY",
+            underlying=self.symbol,
+            strike_price=float(strike),
+            option_type=str(option_type),
+            expiry=expiry.isoformat(),
+            transaction_type="BUY",
             quantity=int(quantity),
+            tag="PF_FIB_BOUNDARY_BUY",
         )
-        return {"order_id": getattr(order, "order_id", None) or str(order), "mode": "live"}
+        order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
+        return {"order_id": order_id or str(order), "mode": "live"}
 
     def sell_all(self, *, when, legs) -> dict:
-        self._guard()
+        # Exits do not require the entry `armed` flag, but the execution-
+        # availability gate covers them for now. A multi-strike basket cannot
+        # be marked closed from order acknowledgements alone: one leg may fill
+        # while another rejects. The caller keeps the runtime open and surfaces
+        # EXIT_REFUSED instead of inventing a flat broker position.
+        self._availability_guard()
         ids = []
         for leg in legs:
             order = self.broker.place_option_order(
-                self.symbol,
-                float(leg["strike"]),
-                str(leg["expiry"]),
-                str(leg["option_type"]),
-                side="SELL",
+                underlying=self.symbol,
+                strike_price=float(leg["strike"]),
+                option_type=str(leg["option_type"]),
+                expiry=str(leg["expiry"]),
+                transaction_type="SELL",
                 quantity=int(leg["quantity"]),
+                tag="PF_FIB_BOUNDARY_EXIT",
             )
-            ids.append(getattr(order, "order_id", None) or str(order))
+            order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
+            ids.append(order_id or str(order))
         return {"order_id": ",".join(str(i) for i in ids), "mode": "live"}
 
 
@@ -1345,6 +1369,25 @@ class FibTouchLadder:
             if price is None:
                 return False
             prices.append(price)
+        try:
+            self.executor.sell_all(
+                when=bar.timestamp,
+                legs=[
+                    {
+                        "strike": fill.strike,
+                        "expiry": fill.expiry.isoformat(),
+                        "option_type": fill.option_type,
+                        "quantity": fill.quantity,
+                    }
+                    for fill in self.fills
+                ],
+            )
+        except ExecutionRefused as exc:
+            # Never report KILLED when the execution boundary refused the exit.
+            self.data_gaps.append(f"manual kill exit not sent: {exc}")
+            self._log(bar.timestamp, "exit_refused", detail=str(exc))
+            self.status = "EXIT_REFUSED"
+            return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
         self.exit_index = float(bar.close)
