@@ -1583,11 +1583,27 @@ function showPage(id, btn, options = {}) {
   }
   const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
   if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
-  document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById(id).classList.add('active-page');
+  document.querySelectorAll('.page-section').forEach(p => {
+    p.classList.remove('active-page');
+    p.setAttribute('aria-hidden', 'true');
+  });
+  document.querySelectorAll('.nav-tab').forEach(b => {
+    b.classList.remove('active');
+    b.removeAttribute('aria-current');
+  });
+  const activePage = document.getElementById(id);
+  activePage.classList.add('active-page');
+  activePage.removeAttribute('aria-hidden');
   const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
-  if (activeBtn) activeBtn.classList.add('active');
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.setAttribute('aria-current', 'page');
+  }
+  const mainContent = document.getElementById('main-content');
+  if (mainContent) {
+    const pageLabel = activeBtn?.querySelector('.tab-label')?.textContent?.trim() || 'PhilForge';
+    mainContent.setAttribute('aria-label', pageLabel + ' workspace');
+  }
   closeCascadeMenu();
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
@@ -2261,11 +2277,19 @@ const _INSIGHTS_TABS = ['heatmap', 'study'];
 
 function showInsightsTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
-  document.querySelectorAll('#insights-page .oc-tab').forEach(b =>
-    b.classList.toggle('is-active', b.getAttribute('data-insights-tab') === tab));
+  document.querySelectorAll('#insights-page .oc-tab').forEach(b => {
+    const selected = b.getAttribute('data-insights-tab') === tab;
+    b.classList.toggle('is-active', selected);
+    b.setAttribute('aria-selected', String(selected));
+    b.tabIndex = selected ? 0 : -1;
+  });
   _INSIGHTS_TABS.forEach(name => {
     const panel = document.getElementById(`insights-${name}`);
-    if (panel) panel.style.display = name === tab ? '' : 'none';
+    if (panel) {
+      const selected = name === tab;
+      panel.style.display = selected ? '' : 'none';
+      panel.setAttribute('aria-hidden', String(!selected));
+    }
   });
   _insightsStartTab(tab);
 }
@@ -2292,10 +2316,19 @@ function initInsightsPage() {
 
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
-  document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => b.classList.toggle('is-active', b.getAttribute('data-oc-tab') === tab));
+  document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
+    const selected = b.getAttribute('data-oc-tab') === tab;
+    b.classList.toggle('is-active', selected);
+    b.setAttribute('aria-selected', String(selected));
+    b.tabIndex = selected ? 0 : -1;
+  });
   _OC_TABS.forEach(name => {
     const panel = document.getElementById(`oc-tab-${name}`);
-    if (panel) panel.style.display = name === tab ? '' : 'none';
+    if (panel) {
+      const selected = name === tab;
+      panel.style.display = selected ? '' : 'none';
+      panel.setAttribute('aria-hidden', String(!selected));
+    }
   });
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'bench') initTestBenchPage();
@@ -3706,6 +3739,22 @@ function restoreExecutionSettings(source) {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[role="tablist"]').forEach(tablist => {
+    tablist.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const tabs = Array.from(tablist.querySelectorAll('[role="tab"]')).filter(tab => !tab.disabled);
+      const current = tabs.indexOf(document.activeElement);
+      if (current < 0 || !tabs.length) return;
+      event.preventDefault();
+      let next = current;
+      if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % tabs.length;
+      else next = (current - 1 + tabs.length) % tabs.length;
+      tabs[next].focus();
+      tabs[next].click();
+    });
+  });
   try {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   } catch(e) { console.warn('scroll restoration setup failed:', e); }
@@ -4073,7 +4122,7 @@ function _buildRunsTable(runs, opts = {}) {
   const thStyle = 'padding:10px;cursor:pointer;user-select:none;white-space:nowrap;';
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
-      ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>' : ''}
+      ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" aria-label="Select all runs" onchange="toggleAllRuns(this)"></th>' : ''}
       <th style="${thStyle}" onclick="_toggleRunsSort('mode')">Mode ${_sortArrow('mode')}</th>
       <th style="${thStyle}" onclick="_toggleRunsSort('run_name')">Run Name ${_sortArrow('run_name')}</th>
       <th style="${thStyle}" onclick="_toggleRunsSort('instrument')">Instrument ${_sortArrow('instrument')}</th>
@@ -4092,7 +4141,7 @@ function _buildRunsTable(runs, opts = {}) {
     const safeRunTitle = escapeAttr(r.run_name || 'Unnamed');
     const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
-      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
+      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" aria-label="Select run ' + escapeAttr(r.run_name || r.id) + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
       <td style="padding: 10px;">${instName}</td>
@@ -4658,7 +4707,7 @@ function _renderDashboardTransactions(transactions = null) {
       : '<span style="font-size:11px;color:var(--muted);">Active</span>';
     return `
       <tr>
-        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
+        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" aria-label="Select ${escapeAttr(txn.symbol || 'transaction')}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
         <td>
           <div class="dash-txn-symbol-row">
             <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
@@ -4779,7 +4828,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
 
     let tableHtml = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
-        <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpRuns(this)"></th>
+        <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" aria-label="Select all open scalp trades" onchange="toggleAllScalpRuns(this)"></th>
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
         <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
       </tr></thead><tbody>`;
@@ -4792,7 +4841,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
       const runName = name + (entryDate ? ' ' + entryDate : '');
       const chk = _selectedScalpRunIds.has(t.trade_id) ? ' checked' : '';
       tableHtml += `<tr style="border-bottom: 1px solid var(--border);">
-        <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}></td>
+        <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" aria-label="Select scalp trade ${escapeAttr(t.trade_id)}" onchange="toggleScalpRunCheck(this)"${chk}></td>
         <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
         <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
         <td style="padding: 10px; font-weight: 600; color: var(--accent);">${escapeHtml(runName)}</td>
@@ -8498,7 +8547,7 @@ function _renderScalpHistoryPage() {
       const lotsStr = lots > 1 ? `${lots} <span style="font-size:9px;color:var(--muted);">(${qty})</span>` : `${lots}`;
       const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
-        <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
+        <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" aria-label="Select scalp history trade ${escapeAttr(t.trade_id)}" onchange="toggleScalpHistCheck(this)"${chk}></td>
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
         <td style="padding:7px 10px;font-size:12px;">${escapeHtml(t.underlying||'')} ${escapeHtml(t.strike||'')}${escapeHtml(t.option_type||'')}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${escapeHtml(t.transaction_type||'')}</span></td>
@@ -9886,7 +9935,7 @@ let myIndicators = [];
 function renderIndicatorFields() {
   const name = document.getElementById('new-indicator-name').value;
   const c = document.getElementById('dynamic-indicator-fields');
-  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>`;
+  const tf = `<select id="ind-tf" aria-label="Indicator timeframe" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>`;
   if (name === 'EMA' || name === 'SMA') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
   else if (name === 'Supertrend') c.innerHTML = `<input type="number" id="ind-period" value="10" style="width:80px"><input type="number" id="ind-multiplier" value="3" step="0.1" style="width:80px">` + tf;
   else if (name === 'RSI') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
@@ -15182,7 +15231,7 @@ fetchRuns = async function() {
     const wrap = document.getElementById('cj-plan-table-wrap');
     if (!wrap) return;
     const field = (id, value, opts = {}) =>
-      `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
+      `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" aria-label="${escapeAttr(opts.label || id)}" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
     const label = (text, subhint = '') =>
       `<div><div class="cj-plan-label">${escapeHtml(text)}</div>${subhint ? `<div class="cj-plan-subhint">${escapeHtml(subhint)}</div>` : ''}</div>`;
     const rowValue = (id, value, variant = '') =>
@@ -15201,19 +15250,19 @@ fetchRuns = async function() {
           <div class="cj-plan-form">
             <div class="cj-plan-row">
               ${label('MONTHLY EXPENSE', 'Your monthly burn rate')}
-              ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100' })}
+              ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100', label: 'Monthly expense' })}
             </div>
             <div class="cj-plan-row">
               ${label('CURRENT ASSETS', 'Cash + investments already built')}
-              ${field('cj-plan-assets-value', calc.assets_value, { step: '100' })}
+              ${field('cj-plan-assets-value', calc.assets_value, { step: '100', label: 'Current assets' })}
             </div>
             <div class="cj-plan-row">
               ${label('YEARS TO 1 YEAR RESERVE', 'Target timeline for emergency reserve')}
-              ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
+              ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0, label: 'Years to one year reserve' })}
             </div>
             <div class="cj-plan-row">
               ${label('YEARS TO FFV', 'Target timeline for long-term freedom')}
-              ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
+              ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0, label: 'Years to financial freedom value' })}
             </div>
           </div>
         </section>
@@ -15222,11 +15271,11 @@ fetchRuns = async function() {
           <div class="cj-plan-form">
             <div class="cj-plan-row">
               ${label('MONTHLY INCOME', 'Stable take-home or recurring income')}
-              ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
+              ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100', label: 'Monthly income' })}
             </div>
             <div class="cj-plan-row">
               ${label('INCREASE PHV', `Extra hourly value target (₹/hour) over ${_CJ_PLAN_WORK_HOURS_PER_MONTH} work hours/month`)}
-              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '10' })}
+              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '10', label: 'Increase personal hourly value' })}
             </div>
             <div class="cj-plan-row">
               ${label('P D V', `${_CJ_PLAN_WORK_DAYS_PER_MONTH} working days/month`)}
@@ -15394,10 +15443,25 @@ fetchRuns = async function() {
     const journalTab = document.getElementById('cj-tab-journal');
     const planTab = document.getElementById('cj-tab-plan');
     const shell = document.getElementById('charts-shell');
-    if (journal) journal.classList.toggle('active', _cjPanelMode === 'journal');
-    if (plan) plan.classList.toggle('active', _cjPanelMode === 'plan');
-    if (journalTab) journalTab.classList.toggle('active', _cjPanelMode === 'journal');
-    if (planTab) planTab.classList.toggle('active', _cjPanelMode === 'plan');
+    const journalSelected = _cjPanelMode === 'journal';
+    if (journal) {
+      journal.classList.toggle('active', journalSelected);
+      journal.setAttribute('aria-hidden', String(!journalSelected));
+    }
+    if (plan) {
+      plan.classList.toggle('active', !journalSelected);
+      plan.setAttribute('aria-hidden', String(journalSelected));
+    }
+    if (journalTab) {
+      journalTab.classList.toggle('active', journalSelected);
+      journalTab.setAttribute('aria-selected', String(journalSelected));
+      journalTab.tabIndex = journalSelected ? 0 : -1;
+    }
+    if (planTab) {
+      planTab.classList.toggle('active', !journalSelected);
+      planTab.setAttribute('aria-selected', String(!journalSelected));
+      planTab.tabIndex = journalSelected ? -1 : 0;
+    }
     if (shell) shell.classList.toggle('planner-mode', _cjPanelMode === 'plan');
     if (_cjPanelMode === 'plan' && !_cjPlanner) _cjLoadPlanner();
   };

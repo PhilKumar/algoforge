@@ -228,6 +228,7 @@ app.add_middleware(
         "philforge.in",
         "www.philforge.in",
         "philforge.test",
+        "e2e.local",
         "127.0.0.1",
         "localhost",
         "testserver",
@@ -9544,8 +9545,6 @@ def _fib_touch_expiry_source(broker: DhanClient, symbol: str):
     changes: NSE withdrew the BANKNIFTY / FINNIFTY / MIDCPNIFTY weeklies, and a
     hard-coded rhythm would have kept selecting contracts that stopped existing.
     """
-
-    from broker.dhan import ScripMaster
 
     def source(on: date) -> list[date]:
         rows = ScripMaster.get_expiries(symbol) or []
