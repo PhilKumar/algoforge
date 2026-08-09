@@ -12090,6 +12090,15 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 f"Upstox omitted {len(option_data_gaps)} premium-target signal(s) with incomplete historical option data."
             )
             results["option_data_gaps"] = option_data_gaps
+        premium_selector = strategy_config.get("_upstox_premium_selector")
+        if premium_selector is not None and hasattr(premium_selector, "cache_summary"):
+            selection_cache = premium_selector.cache_summary()
+            option_pricing["upstox_selection_cache"] = selection_cache
+            option_pricing["warnings"].append(
+                "Upstox premium-selection cache: "
+                f"{selection_cache['selection_hits']} reused, {selection_cache['selection_misses']} newly resolved; "
+                f"{selection_cache['candle_requests']} Upstox request(s)."
+            )
 
         print(f"[BACKTEST] Result: {results.get('status')}, Trades: {results.get('stats', {}).get('total_trades', 0)}")
 
@@ -12138,6 +12147,7 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "option_pricing": {
                     "historical_legs": option_pricing["historical_legs"],
                     "synthetic_legs": option_pricing["synthetic_legs"],
+                    "upstox_selection_cache": option_pricing.get("upstox_selection_cache"),
                 },
                 "option_pricing_warnings": option_pricing["warnings"],
                 "stats": results["stats"],
@@ -12165,6 +12175,7 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         results["option_pricing"] = {
             "historical_legs": option_pricing["historical_legs"],
             "synthetic_legs": option_pricing["synthetic_legs"],
+            "upstox_selection_cache": option_pricing.get("upstox_selection_cache"),
         }
         results["timeframe_info"] = {
             "requested_minutes": tf_spec.requested,

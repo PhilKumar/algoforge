@@ -9,6 +9,7 @@ fixed contract's OHLC data to the existing backtest engine.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -42,7 +43,61 @@ class UpstoxHistoricalPremiumSelector:
         )
         self.expiries = sorted(self.source.available_expiries())
         self._frames: dict[tuple[str, date, int], pd.DataFrame] = {}
+        self._selection_cache_path = self.source._cache_dir / "premium_target_selections_v1.json"
+        self._selection_cache = self._load_selection_cache()
+        self.selection_cache_hits = 0
+        self.selection_cache_misses = 0
         self.last_gap = ""
+
+    def _load_selection_cache(self) -> dict[str, dict]:
+        """Load resolved strikes from earlier identical historical replays.
+
+        The minute-candle cache keeps every contract response.  This small
+        companion cache prevents a repeat backtest from reopening and
+        resampling a whole ATM-to-ITM strike ladder merely to rediscover the
+        same contract at the same signal candle.
+        """
+        try:
+            raw = json.loads(self._selection_cache_path.read_text())
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _write_selection_cache(self) -> None:
+        tmp_path = self._selection_cache_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(json.dumps(self._selection_cache, separators=(",", ":"), sort_keys=True))
+            tmp_path.replace(self._selection_cache_path)
+        except OSError:
+            # The raw candle cache remains the source of truth.  A failure to
+            # record this optional speed-up must never affect backtest prices.
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _selection_cache_key(
+        entry_time: datetime,
+        atm: int,
+        expiry: date,
+        option_type: str,
+        strike_type: str,
+        target: float,
+        timeframe: int,
+    ) -> str:
+        return "|".join(
+            (
+                "v1",
+                entry_time.isoformat(timespec="minutes"),
+                str(atm),
+                expiry.isoformat(),
+                option_type,
+                strike_type,
+                f"{target:.8f}",
+                str(int(timeframe)),
+            )
+        )
 
     @staticmethod
     def _expiry_for(expiries: list[date], on: date, selection: str) -> date | None:
@@ -97,6 +152,30 @@ class UpstoxHistoricalPremiumSelector:
             return None
         contracts = self.source._contract_index(expiry)
         atm = round_to_nearest_step(entry_spot, 50)
+        cache_key = self._selection_cache_key(
+            entry_time, atm, expiry, option_type, strike_type, target, int(timeframe_minutes)
+        )
+        cached_selection = self._selection_cache.get(cache_key)
+        if cached_selection:
+            instrument_key = str(cached_selection.get("instrument_key") or "")
+            try:
+                strike = int(cached_selection.get("strike") or 0)
+            except (TypeError, ValueError):
+                strike = 0
+            if instrument_key and strike and contracts.get((strike, option_type)) == instrument_key:
+                frame = self._frame(instrument_key, expiry, strike, int(timeframe_minutes))
+                if not frame.empty and entry_time in frame.index:
+                    self.selection_cache_hits += 1
+                    return HistoricalOptionSelection(
+                        f"upstox|{instrument_key}|{expiry.isoformat()}|{strike}|{option_type}",
+                        frame,
+                        strike,
+                        expiry,
+                        float(frame.loc[entry_time, "open"]),
+                    )
+            # Do not retain stale entries after an archive/cache migration.
+            self._selection_cache.pop(cache_key, None)
+        self.selection_cache_misses += 1
         if strike_type == "premium_above":
             offsets = range(0, -16, -1) if option_type == "CE" else range(0, 16)
         elif strike_type == "premium_below":
@@ -118,6 +197,8 @@ class UpstoxHistoricalPremiumSelector:
             if (strike_type == "premium_above" and price >= target) or (
                 strike_type == "premium_below" and price <= target
             ):
+                self._selection_cache[cache_key] = {"instrument_key": instrument_key, "strike": strike}
+                self._write_selection_cache()
                 return HistoricalOptionSelection(
                     f"upstox|{instrument_key}|{expiry.isoformat()}|{strike}|{option_type}",
                     frame,
@@ -129,6 +210,16 @@ class UpstoxHistoricalPremiumSelector:
             self.last_gap = f"no complete Upstox {option_type} candle series at {entry_time:%Y-%m-%d %H:%M}"
             return None
         price, strike, instrument_key, frame = min(candidates, key=lambda item: abs(item[0] - target))
+        self._selection_cache[cache_key] = {"instrument_key": instrument_key, "strike": strike}
+        self._write_selection_cache()
         return HistoricalOptionSelection(
             f"upstox|{instrument_key}|{expiry.isoformat()}|{strike}|{option_type}", frame, strike, expiry, price
         )
+
+    def cache_summary(self) -> dict[str, int]:
+        return {
+            "selection_hits": self.selection_cache_hits,
+            "selection_misses": self.selection_cache_misses,
+            "stored_selections": len(self._selection_cache),
+            "candle_requests": self.source.requests_made,
+        }
