@@ -139,6 +139,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     const monitor = page.locator('#fibx-monitors > [data-fx-symbol="BANKNIFTY"]');
     const summary = monitor.locator('summary');
     const body = monitor.locator('.cascade-options-window-body');
+    await expect(summary.locator('button')).toHaveCount(0);
     await expect(monitor).toHaveAttribute('open', '');
     await expect(body).toContainText('Fib levels are measured from');
     await expect(body).not.toHaveCSS('grid-template-rows', '0px');

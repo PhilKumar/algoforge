@@ -5727,7 +5727,17 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   min-width: 0;
 }
 #options-cascade-page .fibx-monitor-window {
+  position: relative;
   border-color: rgba(56,189,248,.27);
+}
+#options-cascade-page .fibx-monitor-window > .cascade-options-window-head {
+  padding-right: 300px;
+}
+#options-cascade-page .fibx-monitor-strip-actions {
+  position: absolute;
+  z-index: 2;
+  top: 13px;
+  right: 15px;
 }
 /* Keep the native details/summary state, but override the browser's abrupt
    display:none close so the monitor can fold up and flow down smoothly. The
@@ -5917,6 +5927,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 @media (max-width: 760px) {
   #options-cascade-page .oc-hero { padding: 17px; }
   #options-cascade-page .oc-hero-content { flex-direction: column; gap: 14px; }
+  #options-cascade-page .fibx-monitor-window > .cascade-options-window-head { padding-right: 13px; }
+  #options-cascade-page .fibx-monitor-strip-actions {
+    position: static;
+    justify-content: flex-end;
+    width: auto;
+    margin: 0 13px 12px 37px;
+  }
   #options-cascade-page .oc-live-gate { width: 100%; min-width: 0; }
   #options-cascade-page .oc-tabs { width: 100%; }
   /* No `flex: 1 1 0` here. The ≤900px rule above already turned .oc-tabs into a
