@@ -11336,154 +11336,342 @@ function downloadCSV() {
   toast('CSV Downloaded', 'success');
 }
 
+// ── Equity curve ──────────────────────────────────────────────
+//
+// Drawn in the same visual language as the bench Canvas chart: the shared
+// _pfChartPalette(), monospace axis labels, and a crosshair with axis chips.
+// It is NOT routed through pfBenchDrawChart — that renderer draws candles,
+// fibs and trendlines against a bar index, and an equity series is a line
+// against a calendar.
+//
+// Three things the old version got wrong, all of which hid what the curve was
+// saying:
+//
+//   * It smoothed with a Catmull-Rom spline at tension 0.5. Equity only moves
+//     when a trade closes, so the spline invented values between trades and
+//     overshot at every turn — a single big winner came out as a gentle ramp
+//     instead of the one vertical step it really was.
+//   * X was the array index, so a trade every day and a trade every three
+//     months occupied the same width. Time is the axis now, which is what
+//     shows that one session did the work and the rest of the year drifted.
+//   * The dashed line sat at values[0] and was labelled starting capital. The
+//     series is cumulative P&L, so the line that matters is ZERO — the point
+//     where the strategy has given back everything it made.
+//
+// What it adds: nice rounded ticks, dates on the x-axis, green above zero and
+// red below, the peak marked, and the deepest drawdown shaded, because "how
+// much of the peak did it hand back" is the first question worth asking.
+
+var _pfEquityChart = null;
+
+function _pfEquityTeardown() {
+  if (!_pfEquityChart) return;
+  if (_pfEquityChart.ro) _pfEquityChart.ro.disconnect();
+  if (_pfEquityChart.themeObserver) _pfEquityChart.themeObserver.disconnect();
+  (_pfEquityChart.handlers || []).forEach(function(h) {
+    h.target.removeEventListener(h.type, h.fn);
+  });
+  _pfEquityChart = null;
+}
+
+// A "nice" axis step: 1, 2, 2.5 or 5 times a power of ten. Without this the
+// ticks read ₹2,44,209 / ₹1,84,212 — exact, unrounded, and unreadable.
+function _pfEquityNiceStep(rough) {
+  if (!(rough > 0)) return 1;
+  var pow = Math.pow(10, Math.floor(Math.log10(rough)));
+  var norm = rough / pow;
+  var step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function _pfEquityParseTime(value) {
+  // "YYYY-MM-DD HH:MM" from the backtest. Date parses it inconsistently across
+  // browsers with the space, so normalise to ISO first.
+  var text = String(value || '').trim().replace(' ', 'T');
+  var ms = Date.parse(text);
+  return isFinite(ms) ? ms : null;
+}
+
+function _pfEquityDateLabel(ms, span) {
+  var d = new Date(ms);
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  if (span > 200 * 86400000) return months[d.getMonth()] + " '" + String(d.getFullYear()).slice(2);
+  if (span > 3 * 86400000) return d.getDate() + ' ' + months[d.getMonth()];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + String(d.getHours()).padStart(2, '0')
+    + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 function renderEquityChart(equityData) {
-  const canvas = document.getElementById('equity-chart');
+  var canvas = document.getElementById('equity-chart');
   if (!canvas || !equityData || equityData.length < 2) return;
-  const ctx = canvas.getContext('2d');
 
-  // Wait a frame for DOM to be visible, then render
-  requestAnimationFrame(() => {
-    const parentW = canvas.parentElement.clientWidth - 40;
-    const w = Math.max(parentW, 400);
-    const h = 300;
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const padding = { top: 20, right: 20, bottom: 30, left: 70 };
-  const plotW = w - padding.left - padding.right;
-  const plotH = h - padding.top - padding.bottom;
+  // Points carry a timestamp where the backtest gave one; a run without them
+  // falls back to even spacing rather than refusing to draw.
+  var points = [];
+  for (var i = 0; i < equityData.length; i++) {
+    var value = Number(equityData[i].equity);
+    if (!isFinite(value)) continue;
+    points.push({ t: _pfEquityParseTime(equityData[i].time), v: value, i: points.length });
+  }
+  if (points.length < 2) return;
+  var dated = points.every(function(p) { return p.t !== null; });
+  if (!dated) points.forEach(function(p, idx) { p.t = idx; });
 
-  const values = equityData.map(e => e.equity);
-  const minVal = Math.min(...values) * 0.998;
-  const maxVal = Math.max(...values) * 1.002;
-  const range = maxVal - minVal || 1;
-  const startVal = values[0];
+  _pfEquityTeardown();
+  _pfEquityChart = { canvas: canvas, points: points, dated: dated, ro: null, themeObserver: null, handlers: [], base: null, geom: null };
+  var state = _pfEquityChart;
 
-  // Theme-aware colors
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  const gridCol = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
-  const frameCol = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)';
-  const labelCol = isLight ? 'rgba(15,23,42,0.62)' : 'rgba(255,255,255,0.3)';
-  const dashCol = isLight ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.1)';
-  // Canvas APIs do not resolve CSS var() expressions. Resolve the selected
-  // appearance tint once into an actual CSS color before passing it to canvas.
-  const tintParts = getComputedStyle(document.documentElement)
-    .getPropertyValue('--pf-tint-primary-rgb')
-    .split(',')
-    .map(value => Number(value.trim()));
-  const tintRgb = tintParts.length === 3 && tintParts.every(value => Number.isFinite(value) && value >= 0 && value <= 255)
-    ? tintParts.join(',')
-    : '0,200,150';
-  const tint = alpha => `rgba(${tintRgb},${alpha})`;
+  var draw = function() { _pfEquityDraw(state); };
+  state.ro = new ResizeObserver(draw);
+  state.ro.observe(canvas.parentElement || canvas);
+  state.themeObserver = new MutationObserver(draw);
+  state.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  // Background
-  if (!isLight) {
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-    bgGrad.addColorStop(0, 'rgba(16,24,38,0.75)');
-    bgGrad.addColorStop(1, 'rgba(8,12,20,0.8)');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, w, h);
-  } else {
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, w, h);
+  var move = function(event) { _pfEquityHover(state, event); };
+  var leave = function() { _pfEquityHover(state, null); };
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseleave', leave);
+  state.handlers.push({ target: canvas, type: 'mousemove', fn: move });
+  state.handlers.push({ target: canvas, type: 'mouseleave', fn: leave });
+
+  requestAnimationFrame(draw);
+}
+
+function _pfEquityDraw(state) {
+  var canvas = state.canvas;
+  if (!canvas.isConnected) { _pfEquityTeardown(); return; }
+  var host = canvas.parentElement;
+  var w = Math.max((host ? host.clientWidth : 0) - 40, 360);
+  var h = 320;
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  var PAL = (typeof _pfChartPalette === 'function') ? _pfChartPalette() : {
+    grid: 'rgba(148,163,184,0.12)', axis: 'rgba(148,163,184,0.55)',
+    up: '#3fae56', down: '#d9534f', avg: '#e2e8f0', fillRing: '#0b1220'
+  };
+  var money = (typeof _pfChartInr === 'function') ? _pfChartInr
+    : function(v) { return '₹' + Math.round(v).toLocaleString('en-IN'); };
+
+  var pts = state.points;
+  var pad = { top: 18, right: 16, bottom: 26, left: 74 };
+  var plotW = w - pad.left - pad.right;
+  var plotH = h - pad.top - pad.bottom;
+
+  // Zero always belongs on a cumulative-P&L axis: a curve that never shows the
+  // line it started from cannot show that it came back to it.
+  var lo = 0, hi = 0;
+  pts.forEach(function(p) { if (p.v < lo) lo = p.v; if (p.v > hi) hi = p.v; });
+  var headroom = (hi - lo) * 0.08 || 1;
+  lo -= headroom; hi += headroom;
+  var step = _pfEquityNiceStep((hi - lo) / 5);
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  var range = (hi - lo) || 1;
+
+  var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  var tSpan = (t1 - t0) || 1;
+  var xOf = function(t) { return pad.left + ((t - t0) / tSpan) * plotW; };
+  var yOf = function(v) { return pad.top + ((hi - v) / range) * plotH; };
+  state.geom = { pad: pad, plotW: plotW, plotH: plotH, xOf: xOf, yOf: yOf, w: w, h: h, t0: t0, t1: t1, tSpan: tSpan };
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Horizontal grid and the ₹ ticks.
+  ctx.font = '9.5px monospace';
+  ctx.textAlign = 'right';
+  for (var v = lo; v <= hi + step / 2; v += step) {
+    var y = yOf(v);
+    ctx.strokeStyle = PAL.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+    ctx.fillStyle = PAL.axis;
+    ctx.fillText(money(v), pad.left - 8, y + 3.2);
   }
 
-  // Rounded frame
-  ctx.strokeStyle = frameCol;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-
-  // Grid lines
-  ctx.strokeStyle = gridCol;
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i <= 5; i++) {
-    const y = padding.top + (plotH / 5) * i;
-    ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(w - padding.right, y); ctx.stroke();
-    const val = maxVal - (range / 5) * i;
-    ctx.fillStyle = labelCol;
-    ctx.font = '10px JetBrains Mono';
-    ctx.textAlign = 'right';
-    ctx.fillText('₹' + Math.round(val).toLocaleString('en-IN'), padding.left - 8, y + 3);
-  }
-
-  // Starting capital line
-  const startY = padding.top + ((maxVal - startVal) / range) * plotH;
-  ctx.strokeStyle = dashCol;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(padding.left, startY); ctx.lineTo(w - padding.right, startY); ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Equity line with glow — Catmull-Rom spline for true smooth curves
-  // Densify: insert midpoints between each pair for visibly smoother rendering
-  const rawPoints = values.map((v, i) => ({
-    x: padding.left + (i / (values.length - 1)) * plotW,
-    y: padding.top + ((maxVal - v) / range) * plotH
-  }));
-  const points = [];
-  for (let i = 0; i < rawPoints.length; i++) {
-    points.push(rawPoints[i]);
-    if (i < rawPoints.length - 1) {
-      points.push({ x: (rawPoints[i].x + rawPoints[i+1].x) / 2, y: (rawPoints[i].y + rawPoints[i+1].y) / 2 });
+  // Dates along the bottom.
+  if (state.dated) {
+    ctx.textAlign = 'center';
+    var ticks = Math.max(2, Math.min(6, Math.floor(plotW / 110)));
+    for (var k = 0; k <= ticks; k++) {
+      var tv = t0 + (tSpan / ticks) * k;
+      var tx = xOf(tv);
+      ctx.strokeStyle = PAL.grid;
+      ctx.beginPath(); ctx.moveTo(tx, pad.top); ctx.lineTo(tx, pad.top + plotH); ctx.stroke();
+      ctx.fillStyle = PAL.axis;
+      ctx.fillText(_pfEquityDateLabel(tv, tSpan), tx, pad.top + plotH + 15);
     }
   }
 
+  var zeroY = yOf(0);
+  var line = pts.map(function(p) { return { x: xOf(p.t), y: yOf(p.v), v: p.v, t: p.t }; });
+
+  // The deepest peak-to-trough stretch, shaded. This is the question the curve
+  // exists to answer, and reading it off an unmarked line is guesswork.
+  var peak = -Infinity, peakX = null, worst = 0, ddFrom = null, ddTo = null, runFrom = null;
+  line.forEach(function(p) {
+    if (p.v > peak) { peak = p.v; peakX = p; runFrom = p; }
+    var drop = peak - p.v;
+    if (drop > worst) { worst = drop; ddFrom = runFrom; ddTo = p; }
+  });
+  if (ddFrom && ddTo && ddTo.x > ddFrom.x) {
+    ctx.fillStyle = PAL.down;
+    ctx.globalAlpha = 0.07;
+    ctx.fillRect(ddFrom.x, pad.top, ddTo.x - ddFrom.x, plotH);
+    ctx.globalAlpha = 1;
+  }
+
+  // Fill to the zero line, coloured by which side of it the curve is on.
+  var fillSide = function(above) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.left, above ? pad.top : zeroY, plotW, above ? Math.max(zeroY - pad.top, 0) : Math.max(pad.top + plotH - zeroY, 0));
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(line[0].x, zeroY);
+    line.forEach(function(p) { ctx.lineTo(p.x, p.y); });
+    ctx.lineTo(line[line.length - 1].x, zeroY);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, above ? pad.top : zeroY, 0, above ? zeroY : pad.top + plotH);
+    var base = above ? PAL.up : PAL.down;
+    grad.addColorStop(0, _pfEquityAlpha(base, above ? 0.26 : 0.04));
+    grad.addColorStop(1, _pfEquityAlpha(base, above ? 0.04 : 0.26));
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.restore();
+  };
+  fillSide(true);
+  fillSide(false);
+
+  // Zero: the line the whole curve is measured against.
+  ctx.strokeStyle = PAL.axis;
+  ctx.globalAlpha = 0.75;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, zeroY); ctx.lineTo(pad.left + plotW, zeroY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  // The curve itself: straight segments. Equity does not move between trades,
+  // so a curved join would be drawing money that was never made.
   ctx.beginPath();
-  ctx.strokeStyle = tint(1);
-  ctx.lineWidth = 2.2;
+  ctx.moveTo(line[0].x, line[0].y);
+  for (var s = 1; s < line.length; s++) ctx.lineTo(line[s].x, line[s].y);
+  ctx.strokeStyle = pts[pts.length - 1].v >= 0 ? PAL.up : PAL.down;
+  ctx.lineWidth = 1.8;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.shadowColor = tint(0.35);
-  ctx.shadowBlur = 12;
-  ctx.moveTo(points[0].x, points[0].y);
-
-  // Catmull-Rom → cubic Bezier conversion (tension 0.5 = pronounced smoothing)
-  const tension = 0.5;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
-    const cp1x = p1.x + (p2.x - p0.x) * tension;
-    const cp1y = p1.y + (p2.y - p0.y) * tension;
-    const cp2x = p2.x - (p3.x - p1.x) * tension;
-    const cp2y = p2.y - (p3.y - p1.y) * tension;
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-  }
+  ctx.shadowColor = _pfEquityAlpha(ctx.strokeStyle, 0.35);
+  ctx.shadowBlur = 10;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Fill gradient
-  const lastX = points[points.length - 1].x;
-  const lastY = points[points.length - 1].y;
-  ctx.lineTo(lastX, padding.top + plotH);
-  ctx.lineTo(padding.left, padding.top + plotH);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + plotH);
-  grad.addColorStop(0, tint(0.12));
-  grad.addColorStop(1, tint(0.01));
-  ctx.fillStyle = grad;
-  ctx.fill();
+  // Peak and final markers.
+  if (peakX) _pfEquityMarker(ctx, peakX.x, peakX.y, PAL.avg, PAL.fillRing);
+  var last = line[line.length - 1];
+  _pfEquityMarker(ctx, last.x, last.y, pts[pts.length - 1].v >= 0 ? PAL.up : PAL.down, PAL.fillRing);
 
-  // End point marker
-  const endX = padding.left + plotW;
-  const endY = padding.top + ((maxVal - values[values.length - 1]) / range) * plotH;
-  ctx.beginPath();
-  ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = tint(1);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(endX, endY, 7, 0, Math.PI * 2);
-  ctx.strokeStyle = tint(0.25);
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  }); // end requestAnimationFrame
+  // A one-line verdict, in the corner where it cannot cover the curve.
+  ctx.textAlign = 'left';
+  ctx.font = '9.5px monospace';
+  ctx.fillStyle = PAL.axis;
+  var gaveBack = peak > 0 ? Math.round((peak - pts[pts.length - 1].v) / peak * 100) : 0;
+  ctx.fillText('peak ' + money(peak) + '   ·   final ' + money(pts[pts.length - 1].v)
+    + (peak > 0 ? '   ·   gave back ' + gaveBack + '%' : ''), pad.left + 4, pad.top + 11);
+
+  // Keep a clean copy so the crosshair can blit instead of redrawing.
+  state.base = document.createElement('canvas');
+  state.base.width = canvas.width;
+  state.base.height = canvas.height;
+  state.base.getContext('2d').drawImage(canvas, 0, 0);
 }
 
+function _pfEquityMarker(ctx, x, y, color, ring) {
+  ctx.beginPath(); ctx.arc(x, y, 3.4, 0, Math.PI * 2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = ring; ctx.lineWidth = 1.4; ctx.stroke();
+}
+
+// Palette entries are hex or rgba; both need to become a translucent fill.
+function _pfEquityAlpha(color, alpha) {
+  var text = String(color).trim();
+  if (text.charAt(0) === '#') {
+    var hex = text.slice(1);
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    var num = parseInt(hex, 16);
+    return 'rgba(' + ((num >> 16) & 255) + ',' + ((num >> 8) & 255) + ',' + (num & 255) + ',' + alpha + ')';
+  }
+  var parts = text.replace(/^rgba?\(|\)$/g, '').split(',');
+  if (parts.length >= 3) return 'rgba(' + parts[0].trim() + ',' + parts[1].trim() + ',' + parts[2].trim() + ',' + alpha + ')';
+  return 'rgba(148,163,184,' + alpha + ')';
+}
+
+function _pfEquityHover(state, event) {
+  if (!state || !state.base || !state.geom) return;
+  var canvas = state.canvas;
+  var ctx = canvas.getContext('2d');
+  var g = state.geom;
+  var dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, g.w, g.h);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(state.base, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!event) return;
+
+  var rect = canvas.getBoundingClientRect();
+  var mx = event.clientX - rect.left;
+  if (mx < g.pad.left || mx > g.pad.left + g.plotW) return;
+
+  // Nearest point in time, so the readout is a real trade and not an
+  // interpolation between two of them.
+  var wanted = g.t0 + ((mx - g.pad.left) / g.plotW) * g.tSpan;
+  var best = null, bestGap = Infinity;
+  state.points.forEach(function(p) {
+    var gap = Math.abs(p.t - wanted);
+    if (gap < bestGap) { bestGap = gap; best = p; }
+  });
+  if (!best) return;
+
+  var PAL = (typeof _pfChartPalette === 'function') ? _pfChartPalette() : { axis: 'rgba(148,163,184,0.55)', fillRing: '#0b1220', up: '#3fae56', down: '#d9534f' };
+  var money = (typeof _pfChartInr === 'function') ? _pfChartInr : function(v) { return '₹' + Math.round(v).toLocaleString('en-IN'); };
+  var x = g.xOf(best.t), y = g.yOf(best.v);
+
+  ctx.save();
+  ctx.strokeStyle = PAL.axis; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.8; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(g.pad.left, y); ctx.lineTo(g.pad.left + g.plotW, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, g.pad.top); ctx.lineTo(x, g.pad.top + g.plotH); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+  ctx.fillStyle = best.v >= 0 ? PAL.up : PAL.down; ctx.fill();
+
+  // Axis chips, the same shape the bench chart uses.
+  ctx.font = '9.5px monospace';
+  var valueText = money(best.v);
+  var chipW = Math.max(ctx.measureText(valueText).width + 10, 52);
+  ctx.fillStyle = PAL.axis;
+  ctx.fillRect(g.pad.left - chipW - 2, y - 8, chipW, 16);
+  ctx.fillStyle = PAL.fillRing;
+  ctx.textAlign = 'right';
+  ctx.fillText(valueText, g.pad.left - 6, y + 3.2);
+
+  if (state.dated) {
+    var whenText = _pfEquityDateLabel(best.t, 0);
+    var timeW = Math.max(ctx.measureText(whenText).width + 10, 80);
+    ctx.fillStyle = PAL.axis;
+    ctx.fillRect(Math.min(Math.max(x - timeW / 2, g.pad.left), g.pad.left + g.plotW - timeW), g.h - 19, timeW, 15);
+    ctx.fillStyle = PAL.fillRing;
+    ctx.textAlign = 'center';
+    ctx.fillText(whenText, Math.min(Math.max(x, g.pad.left + timeW / 2), g.pad.left + g.plotW - timeW / 2), g.h - 8);
+  }
+  ctx.restore();
+}
 // ══════════════════════════════════════════════════════════════
 //  FOLDER HELPER
 // ══════════════════════════════════════════════════════════════
