@@ -11370,6 +11370,16 @@ function renderEquityChart(equityData) {
   const frameCol = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)';
   const labelCol = isLight ? 'rgba(15,23,42,0.62)' : 'rgba(255,255,255,0.3)';
   const dashCol = isLight ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.1)';
+  // Canvas APIs do not resolve CSS var() expressions. Resolve the selected
+  // appearance tint once into an actual CSS color before passing it to canvas.
+  const tintParts = getComputedStyle(document.documentElement)
+    .getPropertyValue('--pf-tint-primary-rgb')
+    .split(',')
+    .map(value => Number(value.trim()));
+  const tintRgb = tintParts.length === 3 && tintParts.every(value => Number.isFinite(value) && value >= 0 && value <= 255)
+    ? tintParts.join(',')
+    : '0,200,150';
+  const tint = alpha => `rgba(${tintRgb},${alpha})`;
 
   // Background
   if (!isLight) {
@@ -11423,11 +11433,11 @@ function renderEquityChart(equityData) {
   }
 
   ctx.beginPath();
-  ctx.strokeStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),1)';
+  ctx.strokeStyle = tint(1);
   ctx.lineWidth = 2.2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.shadowColor = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.35)';
+  ctx.shadowColor = tint(0.35);
   ctx.shadowBlur = 12;
   ctx.moveTo(points[0].x, points[0].y);
 
@@ -11454,8 +11464,8 @@ function renderEquityChart(equityData) {
   ctx.lineTo(padding.left, padding.top + plotH);
   ctx.closePath();
   const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + plotH);
-  grad.addColorStop(0, 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.12)');
-  grad.addColorStop(1, 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.01)');
+  grad.addColorStop(0, tint(0.12));
+  grad.addColorStop(1, tint(0.01));
   ctx.fillStyle = grad;
   ctx.fill();
 
@@ -11464,11 +11474,11 @@ function renderEquityChart(equityData) {
   const endY = padding.top + ((maxVal - values[values.length - 1]) / range) * plotH;
   ctx.beginPath();
   ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),1)';
+  ctx.fillStyle = tint(1);
   ctx.fill();
   ctx.beginPath();
   ctx.arc(endX, endY, 7, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.25)';
+  ctx.strokeStyle = tint(0.25);
   ctx.lineWidth = 2;
   ctx.stroke();
   }); // end requestAnimationFrame
