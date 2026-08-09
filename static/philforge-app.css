@@ -5729,6 +5729,27 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .fibx-monitor-window {
   border-color: rgba(56,189,248,.27);
 }
+/* Keep the native details/summary state, but override the browser's abrupt
+   display:none close so the monitor can fold up and flow down smoothly. The
+   inner min-height is what lets a CSS grid row animate all the way to zero
+   even when the campaign contains wide tables and a full fib ladder. */
+#options-cascade-page .fibx-monitor-window > .cascade-options-window-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  padding: 0 15px;
+  opacity: 0;
+  transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1), padding .28s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+}
+#options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body {
+  grid-template-rows: 1fr;
+  padding: 13px 15px 15px;
+  opacity: 1;
+}
+#options-cascade-page .fibx-monitor-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
 /* Each ladder gets its own results + events pair, so the pairs stack too. No
    gap here: .oc-fib-lower-grid already carries margin-top:14px, and both would
    double the space between pairs. */

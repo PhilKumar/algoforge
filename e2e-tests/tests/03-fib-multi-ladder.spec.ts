@@ -132,6 +132,31 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await expect(pairs.nth(1).locator('[data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
   });
 
+  test('a monitor folds up and flows down without polling reopening it', async ({ page }) => {
+    await login(page, () => [campaign('BANKNIFTY')]);
+    await openFibTab(page);
+
+    const monitor = page.locator('#fibx-monitors > [data-fx-symbol="BANKNIFTY"]');
+    const summary = monitor.locator('summary');
+    const body = monitor.locator('.cascade-options-window-body');
+    await expect(monitor).toHaveAttribute('open', '');
+    await expect(body).toContainText('Fib levels are measured from');
+    await expect(body).not.toHaveCSS('grid-template-rows', '0px');
+
+    await summary.press('Enter');
+    await expect(monitor).not.toHaveAttribute('open', '');
+    await expect(body).toHaveCSS('grid-template-rows', '0px');
+
+    // The status poll reconciles existing panels instead of rebuilding them.
+    // A user's closed monitor therefore stays closed after a repaint.
+    await page.waitForTimeout(3_200);
+    await expect(monitor).not.toHaveAttribute('open', '');
+
+    await summary.press('Enter');
+    await expect(monitor).toHaveAttribute('open', '');
+    await expect(body).not.toHaveCSS('grid-template-rows', '0px');
+  });
+
   test('killing one ladder sends that symbol and leaves the other running', async ({ page }) => {
     const live = new Set(['NIFTY', 'SENSEX']);
     let killed = '';

@@ -1941,13 +1941,14 @@
     <div id="fibx-lower"></div>
 
     <template id="fibx-monitor-tpl">
-      <div class="cascade-options-window fibx-monitor-window">
-        <div class="cascade-options-window-head">
+      <details class="cascade-options-window fibx-monitor-window" open>
+        <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
           <div class="cascade-options-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
-        </div>
+        </summary>
         <div class="cascade-options-window-body">
+          <div class="fibx-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>
           <div data-fx="empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
           <div data-fx="active" style="display:none;margin-top:16px;">
@@ -1959,8 +1960,9 @@
             <div data-fx="boundaries" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;"></div>
             <div data-fx="gaps" style="margin-top:12px;"></div>
           </div>
+          </div>
         </div>
-      </div>
+      </details>
     </template>
 
     <template id="fibx-lower-tpl">
