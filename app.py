@@ -22,6 +22,7 @@ try:
     import orjson as _orjson
 except ImportError:
     _orjson = None
+import contextvars
 import logging
 import os
 import secrets
@@ -8636,6 +8637,21 @@ _OPTION_HISTORY_CACHE_DIR = os.getenv(
 )
 _OPTION_REAL_DATA_MAX_DAYS = 730
 
+# Set by the background job so the deep fetch can report where it is. A
+# ContextVar rather than an argument because api_run_backtest is a route and
+# must keep the signature FastAPI parses; asyncio.to_thread copies the context,
+# so the worker thread doing the fetching sees it.
+_backtest_stage: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar("backtest_stage", default=None)
+
+
+def _say_stage(text: str) -> None:
+    report = _backtest_stage.get()
+    if report is not None:
+        try:
+            report(text)
+        except Exception:  # a progress line must never fail a replay
+            pass
+
 
 def _option_history_cache_path(history_key: str) -> str:
     digest = hashlib.sha256(history_key.encode("utf-8")).hexdigest()
@@ -8668,6 +8684,89 @@ def _save_option_history_cache(history_key: str, df: pd.DataFrame) -> None:
         cache_df.to_csv(path, index_label="timestamp")
     except Exception as exc:
         print(f"[BACKTEST] ⚠️  Failed to write option cache {path}: {exc}")
+
+
+# A weekend plus holidays on the Friday and the Monday puts five calendar days
+# between two sessions. Six is the widest hole that is still just a closed
+# exchange; anything wider is candles we never fetched.
+_MAX_SESSION_GAP_DAYS = 6
+
+
+def _option_history_gaps(
+    cached: pd.DataFrame | None,
+    from_dt: datetime,
+    to_dt: datetime,
+    max_session_gap_days: int = _MAX_SESSION_GAP_DAYS,
+) -> list[tuple[datetime, datetime]]:
+    """The calendar days of this range that are NOT already on disk.
+
+    The previous test asked whether the cache ran from midnight of from_date to
+    23:59 of to_date. Option candles run 09:15–15:30, so neither end could ever
+    be true and the answer was always "no": every replay re-downloaded, chunk by
+    chunk, a range it already had in full. A year is 13 Dhan calls per leg, and
+    that is the wait.
+
+    Coverage is read back off the cached index rather than trusted from a
+    sidecar, so a cache written by an older build counts immediately. Runs of
+    session days separated by no more than a long weekend are one covered span;
+    a real hole (a month never fetched, or a run killed midway) is wider than
+    that and comes back as a gap. The last day of a covered span is re-fetched
+    with the gap that follows it, because a run that stopped mid-session wrote
+    a partial day.
+    """
+    if cached is None or cached.empty:
+        return [(from_dt, to_dt)]
+
+    days = sorted({ts.normalize().to_pydatetime() for ts in cached.index})
+    spans: list[tuple[datetime, datetime]] = []
+    span_start = span_end = days[0]
+    for day in days[1:]:
+        if (day - span_end).days > max_session_gap_days:
+            spans.append((span_start, span_end))
+            span_start = day
+        span_end = day
+    spans.append((span_start, span_end))
+
+    gaps: list[tuple[datetime, datetime]] = []
+    cursor = from_dt
+    for start, end in spans:
+        if end < cursor:
+            continue
+        if start > cursor:
+            gaps.append((cursor, min(start, to_dt)))
+        cursor = max(cursor, end)
+        if cursor >= to_dt:
+            break
+    if cursor < to_dt:
+        gaps.append((cursor, to_dt))
+    return [(start, end) for start, end in gaps if start <= end and start <= to_dt]
+
+
+def _concat_option_history(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Fold cached and freshly fetched candles into one series.
+
+    keep="first" leaves the cached copy in place where the two overlap, which
+    is what makes re-fetching the last cached day harmless.
+    """
+    merged = pd.concat(frames).sort_index()
+    return merged[~merged.index.duplicated(keep="first")]
+
+
+def _option_history_chunks(
+    gaps: list[tuple[datetime, datetime]], chunk_days: int = ROLLING_OPTION_CHUNK_DAYS
+) -> list[tuple[datetime, datetime]]:
+    """Split the missing windows into the fixed-size chunks Dhan will serve.
+
+    Counted up front so the page can say "month 4 of 13" instead of spinning.
+    """
+    chunks: list[tuple[datetime, datetime]] = []
+    for gap_start, gap_end in gaps:
+        chunk_start = gap_start
+        while chunk_start <= gap_end:
+            chunk_end_exclusive = min(chunk_start + timedelta(days=chunk_days), gap_end + timedelta(days=1))
+            chunks.append((chunk_start, chunk_end_exclusive))
+            chunk_start = chunk_end_exclusive
+    return chunks
 
 
 def _resolve_rolling_strike_alias(leg: dict, strike_step: int, max_offset: int) -> tuple[str | None, str | None]:
@@ -8821,43 +8920,50 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
         if history_key not in history_cache:
             cached_raw = _load_option_history_cache(history_key)
             all_dfs = [cached_raw] if cached_raw is not None and not cached_raw.empty else []
-            chunk_start = from_dt
             last_error = None
-            cache_covers_range = (
-                cached_raw is not None
-                and not cached_raw.empty
-                and cached_raw.index.min() <= from_dt
-                and cached_raw.index.max() >= (to_dt + timedelta(hours=23, minutes=59))
-            )
-            if not cache_covers_range:
-                while chunk_start <= to_dt:
-                    chunk_end_exclusive = min(
-                        chunk_start + timedelta(days=ROLLING_OPTION_CHUNK_DAYS), to_dt + timedelta(days=1)
+            chunks = _option_history_chunks(_option_history_gaps(cached_raw, from_dt, to_dt))
+            leg_label = f"leg {leg_index + 1} of {len(option_legs)} ({strike_alias} {option_side})"
+            if not chunks:
+                print(f"[BACKTEST] Option candles for {leg_label}: already cached, no fetch needed")
+            # Per leg, because each one starts from its own cache and may have
+            # a different number of months to fetch. A clock shared across legs
+            # would quote leg 2's remaining work at leg 1's elapsed time.
+            leg_started = _time.monotonic()
+            for chunk_index, (chunk_start, chunk_end_exclusive) in enumerate(chunks):
+                eta = ""
+                if chunk_index:
+                    per_chunk = (_time.monotonic() - leg_started) / chunk_index
+                    remaining = per_chunk * (len(chunks) - chunk_index)
+                    eta = f" · about {max(1, round(remaining / 60))} min left"
+                _say_stage(f"Downloading option candles — {leg_label}, month {chunk_index + 1} of {len(chunks)}{eta}")
+                try:
+                    df_chunk = dhan.get_rolling_option_data(
+                        security_id=inst_info["dhan_id"],
+                        exchange_segment=option_exchange_segment,
+                        instrument_type=option_instrument_type,
+                        expiry_flag=expiry_flag,
+                        expiry_code=expiry_code,
+                        strike=strike_alias,
+                        option_type=option_side,
+                        from_date=chunk_start.strftime("%Y-%m-%d"),
+                        to_date=chunk_end_exclusive.strftime("%Y-%m-%d"),
+                        interval=str(tf_spec.fetch),
                     )
-                    try:
-                        df_chunk = dhan.get_rolling_option_data(
-                            security_id=inst_info["dhan_id"],
-                            exchange_segment=option_exchange_segment,
-                            instrument_type=option_instrument_type,
-                            expiry_flag=expiry_flag,
-                            expiry_code=expiry_code,
-                            strike=strike_alias,
-                            option_type=option_side,
-                            from_date=chunk_start.strftime("%Y-%m-%d"),
-                            to_date=chunk_end_exclusive.strftime("%Y-%m-%d"),
-                            interval=str(tf_spec.fetch),
-                        )
-                        if df_chunk is not None and not df_chunk.empty:
-                            all_dfs.append(df_chunk)
-                    except Exception as exc:
-                        last_error = str(exc)
-                        break
-                    _time.sleep(0.25)
-                    chunk_start = chunk_end_exclusive
+                    if df_chunk is not None and not df_chunk.empty:
+                        all_dfs.append(df_chunk)
+                        # Banked after every chunk. Left to the end, a restart
+                        # or an OOM on this box threw away the whole download
+                        # and the next attempt began again at month one — which
+                        # is how a replay could be waited on three times over
+                        # and never get further.
+                        _save_option_history_cache(history_key, _concat_option_history(all_dfs))
+                except Exception as exc:
+                    last_error = str(exc)
+                    break
+                _time.sleep(0.25)
 
             if all_dfs:
-                df_hist_raw = pd.concat(all_dfs).sort_index()
-                df_hist_raw = df_hist_raw[~df_hist_raw.index.duplicated(keep="first")]
+                df_hist_raw = _concat_option_history(all_dfs)
                 _save_option_history_cache(history_key, df_hist_raw)
                 coverage_end = to_dt + timedelta(days=1)
                 df_hist_raw = df_hist_raw[(df_hist_raw.index >= from_dt) & (df_hist_raw.index < coverage_end)]
@@ -11929,11 +12035,23 @@ _backtest_active_by_user: Dict[int, str] = {}
 
 
 async def _run_backtest_job(job_id: str, payload: StrategyPayload, request: Request) -> None:
-    """Run the existing exact backtest outside the browser request lifetime."""
+    """Run the existing exact backtest outside the browser request lifetime.
+
+    The Request is only still here because api_run_backtest reads the owner off
+    request.state to save the run. Nothing else about it may be touched: by the
+    time this runs the response has been sent and the connection may be gone.
+    """
     job = _backtest_jobs.get(job_id)
     if job is None:
         return
     job["status"] = "running"
+    job["started_at"] = datetime.now().isoformat(timespec="seconds")
+    job["stage"] = "Preparing the replay…"
+
+    def _report(text: str) -> None:
+        job["stage"] = text
+
+    _backtest_stage.set(_report)
     try:
         job["result"] = await api_run_backtest(payload, request)
         job["status"] = "complete"
@@ -11955,12 +12073,16 @@ async def start_backtest_job(payload: StrategyPayload, request: Request):
     active_id = _backtest_active_by_user.get(user_id)
     active_job = _backtest_jobs.get(active_id or "")
     if active_job and active_job.get("status") in {"queued", "running"}:
+        # 409 carries the running job's id so the page can ATTACH to it. Only
+        # one replay may run per account, but the answer to "you already have
+        # one" is to show it, not to leave the user with no way to reach it.
         return JSONResponse(
             status_code=409,
             content={
-                "status": "error",
-                "message": "A backtest is already running for this account.",
+                "status": active_job.get("status"),
+                "message": "A backtest is already running for this account — showing that one.",
                 "job_id": active_id,
+                "attach": True,
             },
         )
 
@@ -11969,6 +12091,11 @@ async def start_backtest_job(payload: StrategyPayload, request: Request):
         "user_id": user_id,
         "status": "queued",
         "created_at": datetime.now().isoformat(timespec="seconds"),
+        # Kept so a page ATTACHING to this job renders it against the strategy
+        # it actually ran. Without it, changing the strategy and pressing Run
+        # while an older replay was still going would draw that replay's
+        # numbers under the new strategy's name.
+        "payload": payload.model_dump(),
     }
     _backtest_active_by_user[user_id] = job_id
     asyncio.create_task(_run_backtest_job(job_id, payload, request))
@@ -11985,6 +12112,21 @@ async def get_backtest_job(job_id: str, request: Request):
     if job.get("status") == "complete":
         response["result"] = job.get("result")
     return response
+
+
+@app.get("/api/backtest/jobs")
+async def list_backtest_job(request: Request):
+    """The caller's in-flight replay, if there is one.
+
+    This is what lets a reloaded Results page pick a running backtest back up
+    instead of showing an empty screen while the work carries on unseen.
+    """
+    user_id = _request_user_id(request)
+    job_id = _backtest_active_by_user.get(user_id)
+    job = _backtest_jobs.get(job_id or "")
+    if not job or job.get("status") not in {"queued", "running"}:
+        return {"status": "idle"}
+    return {"status": job.get("status"), "job_id": job_id, "payload": job.get("payload")}
 
 
 @app.post("/api/backtest")

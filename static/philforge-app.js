@@ -10943,35 +10943,96 @@ async function runBacktest() {
   }, 1000);
 
   try {
+    // The replay runs in a server-side job that outlives any one HTTP request.
+    // A 502/504 from nginx therefore says nothing about the backtest — it says
+    // this one poll did not get through, usually because a long replay is
+    // holding the worker. Treating it as fatal threw away runs that were still
+    // going perfectly well, and told the user to "open Results again shortly"
+    // for a result the page could simply have waited for. Transient failures
+    // are retried; only a run of them in a row is an actual failure.
+    const TRANSIENT_LIMIT = 12;   // ~2 minutes of consecutive bad polls
+    let consecutiveFailures = 0;
+
     const parseBacktestResponse = async (res) => {
       const text = await res.text();
       try { return JSON.parse(text); }
       catch (_) {
-        const timeout = res.status === 504 || res.status === 502;
-        throw new Error(timeout
-          ? 'The backtest gateway timed out. The server may still be caching candles; open Results again shortly.'
+        const err = new Error(res.status === 504 || res.status === 502
+          ? 'The gateway is busy (HTTP ' + res.status + ').'
           : 'Backtest service returned HTML instead of JSON (HTTP ' + res.status + ').');
+        err.transient = res.status === 502 || res.status === 503 || res.status === 504;
+        throw err;
       }
     };
-    const startRes = await fetch('/api/backtest/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const started = await parseBacktestResponse(startRes);
-    if (!startRes.ok || !started.job_id) throw new Error(started.message || 'Could not start the backtest.');
+
     const stage = document.getElementById('bt-stage');
-    if (stage) stage.textContent = 'Fetching and caching exact historical option candles…';
+    const say = (text) => { if (stage) stage.textContent = text; };
+
+    const startRes = await fetch('/api/backtest/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload), credentials: 'same-origin'
+    });
+    const started = await parseBacktestResponse(startRes);
+    // 409 means this account already has a replay in flight — and it carries
+    // that job's id. Attaching to it is what the user wanted; the old code
+    // raised "a backtest is already running" and left them with no way to see
+    // the one that was.
+    const jobId = started.job_id;
+    if (!jobId) throw new Error(started.message || 'Could not start the backtest.');
+    // When attaching, the run belongs to whatever strategy STARTED it. Render
+    // it against that, or a strategy edited while the old replay was still
+    // going would have someone else's numbers drawn under its name.
+    let renderPayload = payload;
+    if (startRes.status === 409) {
+      say('Rejoining the backtest already running on this account…');
+      toast('A backtest was already running — showing that one', 'warn', 6000);
+    } else if (!startRes.ok) {
+      throw new Error(started.message || 'Could not start the backtest.');
+    } else {
+      say('Fetching and caching exact historical option candles…');
+    }
+
     let data;
     while (true) {
       await new Promise(resolve => setTimeout(resolve, 2000));
-      const statusRes = await fetch('/api/backtest/jobs/' + encodeURIComponent(started.job_id), { credentials: 'same-origin' });
-      const status = await parseBacktestResponse(statusRes);
-      if (!statusRes.ok) throw new Error(status.message || 'Could not read backtest progress.');
+      let status;
+      try {
+        const statusRes = await fetch('/api/backtest/jobs/' + encodeURIComponent(jobId), { credentials: 'same-origin' });
+        // A 404 is the one status worth believing immediately: the job is gone,
+        // so no amount of waiting will produce it.
+        if (statusRes.status === 404) throw new Error('The backtest job is no longer on the server.');
+        status = await parseBacktestResponse(statusRes);
+        if (!statusRes.ok) {
+          const err = new Error(status.message || 'Could not read backtest progress.');
+          err.transient = statusRes.status >= 500;
+          throw err;
+        }
+      } catch (pollErr) {
+        // fetch() itself rejects on a dropped connection; that is transient too.
+        const transient = pollErr.transient || pollErr.name === 'TypeError';
+        if (!transient) throw pollErr;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= TRANSIENT_LIMIT) {
+          throw new Error('Lost contact with the backtest for ' + (TRANSIENT_LIMIT * 2)
+            + 's. It may still be running — reopen Results to pick it up.');
+        }
+        say('Still replaying — the server is busy (' + consecutiveFailures + ' slow checks). Waiting…');
+        continue;
+      }
+      consecutiveFailures = 0;
+      if (status.payload) renderPayload = status.payload;
       if (status.status === 'complete') { data = status.result; break; }
       if (status.status === 'error') throw new Error(status.message || 'Backtest failed.');
+      // The server counts the months it still has to download. Saying which
+      // one it is on is the difference between a wait and a hang: the old
+      // line never changed, so a 30-minute fetch and a dead job looked alike.
+      say(status.status === 'queued' ? 'Queued…' : (status.stage || 'Fetching and caching exact historical option candles…'));
     }
     clearInterval(cdI);
     if(data.status === 'success') {
       lastBacktestData = data;
-      lastBacktestPayload = payload;
-      renderResults(data, payload);
+      lastBacktestPayload = renderPayload;
+      renderResults(data, renderPayload);
       if (data.data_range_warning) {
         toast(data.data_range_warning, 'warn', 8000);
       }
