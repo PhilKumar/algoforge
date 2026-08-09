@@ -10931,22 +10931,43 @@ async function runBacktest() {
   document.getElementById('results-empty').style.display = 'block';
   document.getElementById('results-content').style.display = 'none';
 
-  let countdown = 10;
+  const startedAt = Date.now();
   const emptyDiv = document.getElementById('results-empty');
-  emptyDiv.innerHTML = '<div style="text-align:center;"><div style="font-size:48px;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace;" id="bt-cd">' + countdown + '</div><div style="color:var(--muted);margin-top:8px;">Fetching candles & running backtest...</div><div style="margin-top:12px;"><div style="width:200px;height:4px;background:var(--card2);border-radius:2px;margin:0 auto;overflow:hidden;"><div id="bt-pr" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 1s linear;"></div></div></div></div>';
+  emptyDiv.innerHTML = '<div style="text-align:center;"><div style="font-size:48px;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace;" id="bt-cd">0:00</div><div id="bt-stage" style="color:var(--muted);margin-top:8px;">Queueing historical replay…</div><div style="margin-top:12px;"><div style="width:200px;height:4px;background:var(--card2);border-radius:2px;margin:0 auto;overflow:hidden;"><div id="bt-pr" style="height:100%;background:var(--accent);border-radius:2px;width:35%;transition:width 1s linear;"></div></div></div></div>';
   const cdI = setInterval(() => {
-    countdown--;
     const el = document.getElementById('bt-cd');
     const pr = document.getElementById('bt-pr');
-    if(el) el.textContent = Math.max(0, countdown);
-    if(pr) pr.style.width = Math.min(100, (10-countdown)*10) + '%';
-    if(countdown<=0) clearInterval(cdI);
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    if(el) el.textContent = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+    if(pr) pr.style.width = (35 + (elapsed % 40)) + '%';
   }, 1000);
 
   try {
-    const res = await fetch('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const parseBacktestResponse = async (res) => {
+      const text = await res.text();
+      try { return JSON.parse(text); }
+      catch (_) {
+        const timeout = res.status === 504 || res.status === 502;
+        throw new Error(timeout
+          ? 'The backtest gateway timed out. The server may still be caching candles; open Results again shortly.'
+          : 'Backtest service returned HTML instead of JSON (HTTP ' + res.status + ').');
+      }
+    };
+    const startRes = await fetch('/api/backtest/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const started = await parseBacktestResponse(startRes);
+    if (!startRes.ok || !started.job_id) throw new Error(started.message || 'Could not start the backtest.');
+    const stage = document.getElementById('bt-stage');
+    if (stage) stage.textContent = 'Fetching and caching exact historical option candles…';
+    let data;
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const statusRes = await fetch('/api/backtest/jobs/' + encodeURIComponent(started.job_id), { credentials: 'same-origin' });
+      const status = await parseBacktestResponse(statusRes);
+      if (!statusRes.ok) throw new Error(status.message || 'Could not read backtest progress.');
+      if (status.status === 'complete') { data = status.result; break; }
+      if (status.status === 'error') throw new Error(status.message || 'Backtest failed.');
+    }
     clearInterval(cdI);
-    const data = await res.json();
     if(data.status === 'success') {
       lastBacktestData = data;
       lastBacktestPayload = payload;

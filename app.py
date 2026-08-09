@@ -11924,6 +11924,69 @@ async def cascade_live_gate(request: Request):
 
 
 # ── Backtest ──────────────────────────────────────────────────────
+_backtest_jobs: Dict[str, dict] = {}
+_backtest_active_by_user: Dict[int, str] = {}
+
+
+async def _run_backtest_job(job_id: str, payload: StrategyPayload, request: Request) -> None:
+    """Run the existing exact backtest outside the browser request lifetime."""
+    job = _backtest_jobs.get(job_id)
+    if job is None:
+        return
+    job["status"] = "running"
+    try:
+        job["result"] = await api_run_backtest(payload, request)
+        job["status"] = "complete"
+    except Exception as exc:
+        _logger.exception("[BACKTEST] Background job %s crashed", job_id)
+        job["status"] = "error"
+        job["message"] = f"Backtest failed: {exc}"
+    finally:
+        job["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        owner_id = int(job["user_id"])
+        if _backtest_active_by_user.get(owner_id) == job_id:
+            _backtest_active_by_user.pop(owner_id, None)
+
+
+@app.post("/api/backtest/jobs")
+async def start_backtest_job(payload: StrategyPayload, request: Request):
+    """Queue a long historical replay and return before any gateway timeout."""
+    user_id = _request_user_id(request)
+    active_id = _backtest_active_by_user.get(user_id)
+    active_job = _backtest_jobs.get(active_id or "")
+    if active_job and active_job.get("status") in {"queued", "running"}:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "error",
+                "message": "A backtest is already running for this account.",
+                "job_id": active_id,
+            },
+        )
+
+    job_id = secrets.token_urlsafe(18)
+    _backtest_jobs[job_id] = {
+        "user_id": user_id,
+        "status": "queued",
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _backtest_active_by_user[user_id] = job_id
+    asyncio.create_task(_run_backtest_job(job_id, payload, request))
+    return {"status": "queued", "job_id": job_id}
+
+
+@app.get("/api/backtest/jobs/{job_id}")
+async def get_backtest_job(job_id: str, request: Request):
+    """Return progress or the completed result, scoped to the owner."""
+    job = _backtest_jobs.get(job_id)
+    if not job or int(job.get("user_id") or 0) != _request_user_id(request):
+        raise HTTPException(status_code=404, detail="Backtest job not found")
+    response = {key: value for key, value in job.items() if key not in {"user_id", "result"}}
+    if job.get("status") == "complete":
+        response["result"] = job.get("result")
+    return response
+
+
 @app.post("/api/backtest")
 async def api_run_backtest(payload: StrategyPayload, request: Request):
     try:
