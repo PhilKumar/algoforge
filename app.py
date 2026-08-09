@@ -8772,7 +8772,7 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
     requested_days = max(1, (to_dt - from_dt).days + 1)
     history_cache = {}
 
-    if requested_days >= _OPTION_REAL_DATA_MAX_DAYS:
+    if requested_days >= _OPTION_REAL_DATA_MAX_DAYS and strategy_config.get("_upstox_premium_selector") is None:
         pricing_info["allow_synthetic"] = True
         pricing_info["warnings"].append(
             f"Date range is {requested_days} days (>= {_OPTION_REAL_DATA_MAX_DAYS}); using synthetic option pricing by rule."
@@ -8784,6 +8784,16 @@ def _fetch_backtest_option_histories(strategy_config: dict, tf_spec, from_date: 
 
     for leg_index, leg in enumerate(legs):
         if leg.get("option_type") not in ("CE", "PE"):
+            continue
+
+        # A premium-target leg chooses a different fixed strike at each signal.
+        # When the route has attached the Upstox selector, defer resolution to
+        # the replay instead of asking Dhan for an impossible rolling series.
+        if strategy_config.get("_upstox_premium_selector") is not None and str(
+            leg.get("strike_type") or ""
+        ).lower() in {"premium_near", "premium_above", "premium_below"}:
+            pricing_info["historical_legs"] += 1
+            pricing_info["synthetic_legs"] -= 1
             continue
 
         expiry_selection = str(leg.get("expiry") or "current_week")
@@ -12006,7 +12016,24 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
         requested_days = max(1, (_to_dt - _from_dt).days + 1)
-        strategy_config["allow_synthetic_option_fallback"] = requested_days >= _OPTION_REAL_DATA_MAX_DAYS
+        premium_target_legs = [
+            leg
+            for leg in (payload.legs or [])
+            if str((leg or {}).get("strike_type") or "").lower() in {"premium_near", "premium_above", "premium_below"}
+        ]
+        if premium_target_legs:
+            try:
+                from data.backtest_upstox import UpstoxHistoricalPremiumSelector
+
+                strategy_config["_upstox_premium_selector"] = UpstoxHistoricalPremiumSelector(payload.instrument)
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "message": f"Upstox historical premium data unavailable for this backtest: {exc}",
+                }
+        strategy_config["allow_synthetic_option_fallback"] = (
+            requested_days >= _OPTION_REAL_DATA_MAX_DAYS and not premium_target_legs
+        )
         # Runs off the event loop: this fetch is synchronous, network-bound and
         # throttles itself with time.sleep between Dhan chunks. Left inline it
         # stalls every live/paper engine task and the /ws stream for its whole
@@ -12056,6 +12083,13 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
 
             traceback.print_exc()
             return {"status": "error", "message": error_msg}
+
+        option_data_gaps = strategy_config.get("_option_data_gaps", []) or []
+        if option_data_gaps:
+            option_pricing["warnings"].append(
+                f"Upstox omitted {len(option_data_gaps)} premium-target signal(s) with incomplete historical option data."
+            )
+            results["option_data_gaps"] = option_data_gaps
 
         print(f"[BACKTEST] Result: {results.get('status')}, Trades: {results.get('stats', {}).get('total_trades', 0)}")
 

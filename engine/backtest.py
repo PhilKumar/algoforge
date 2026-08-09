@@ -705,6 +705,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     instrument = sc.get("instrument", "26000")
     strike_step = get_strike_step(instrument)
     option_history_map = sc.get("_option_history", {}) or {}
+    historical_premium_selector = sc.get("_upstox_premium_selector")
+    option_data_gaps = sc.setdefault("_option_data_gaps", [])
     spread_bps = max(0.0, float(sc.get("spread_bps", 0) or 0))
     entry_slippage_bps = max(0.0, float(sc.get("entry_slippage_bps", 0) or 0))
     exit_slippage_bps = max(0.0, float(sc.get("exit_slippage_bps", 0) or 0))
@@ -992,6 +994,34 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     strike_step,
                 )
                 pricing_mode = "synthetic"
+                premium_target = str(leg.get("strike_type") or "").lower() in {
+                    "premium_near",
+                    "premium_above",
+                    "premium_below",
+                }
+                if premium_target and historical_premium_selector is not None:
+                    resolution = historical_premium_selector.select(
+                        entry_ts,
+                        entry_spot,
+                        leg,
+                        execution_timeframe,
+                    )
+                    if resolution is None:
+                        option_data_gaps.append(
+                            {
+                                "timestamp": entry_ts.isoformat(timespec="minutes"),
+                                "leg": leg_num,
+                                "reason": historical_premium_selector.last_gap
+                                or "Upstox premium selection unavailable",
+                            }
+                        )
+                        return []
+                    history_key = resolution.history_key
+                    option_history_map[history_key] = resolution.history
+                    strike_used = resolution.strike
+                    entry_price = resolution.entry_price
+                    display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
+                    pricing_mode = "historical"
                 if history_key:
                     history_row = None
                     history_df = _history_frame({"option_history_key": history_key})
@@ -1320,7 +1350,13 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 if pending_entry["remaining"] <= 0:
                     signal_candle = dict(pending_entry["signal_candle"])
                     trade_entry_time = ts
-                    _open_entry_positions(_build_entry_positions(float(row["open"]), ts, cd, lot_size))
+                    positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
+                    if positions:
+                        _open_entry_positions(positions)
+                    else:
+                        # A missing premium chain consumes the day's one signal;
+                        # do not repeatedly re-enter on each following candle.
+                        trades_today += 1
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
                 prev_prev_row = prev_row
                 prev_row = row
@@ -1340,7 +1376,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 else:
                     signal_candle = dict(next_signal_candle)
                     trade_entry_time = ts
-                    _open_entry_positions(_build_entry_positions(float(row["open"]), ts, cd, lot_size))
+                    positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
+                    if positions:
+                        _open_entry_positions(positions)
+                    else:
+                        # See pending-entry handling above.
+                        trades_today += 1
 
         equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
         prev_prev_row = prev_row
