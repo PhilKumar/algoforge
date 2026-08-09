@@ -94,7 +94,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now philforge-backup.timer
 
 log "Running blue-green deploy..."
-bash "$APP_DIR/deploy/cd-deploy.sh"
+PHILFORGE_DEPLOY_LOCK_HELD=1 bash "$APP_DIR/deploy/cd-deploy.sh"
 
 log "Running post-deploy migration..."
 python3 "$APP_DIR/scripts/migrate_to_sqlite.py"

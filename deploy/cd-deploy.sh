@@ -37,9 +37,12 @@ die()  { log "ERROR: $*"; exit 1; }
 
 # Serialize all deploy/cutover activity on the server. This prevents a manual
 # rollout and the GitHub Actions deploy workflow from swapping/stopping ports
-# at the same time.
-exec 9>"$LOCK_FILE"
-flock 9
+# at the same time. rollout-main.sh already owns this lock, so it explicitly
+# marks the child invocation and avoids waiting on its own parent forever.
+if [[ "${PHILFORGE_DEPLOY_LOCK_HELD:-0}" != "1" ]]; then
+    exec 9>"$LOCK_FILE"
+    flock 9
+fi
 
 health_check() {
     local port=$1
