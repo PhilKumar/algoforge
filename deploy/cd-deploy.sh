@@ -192,6 +192,23 @@ fi
 sudo nginx -s reload
 log "Nginx reloaded. New traffic → port $STANDBY_PORT"
 
+# ── 9. Point systemd's boot-start at the port that is now live ──
+# Neither templated unit was enabled, so the reboot on 2026-08-10 brought the
+# box back with CryptoForge running and PhilForge dead: nginx answered, the
+# upstream did not, and the site served 502 indefinitely with no process to
+# restart. Enabling one port once is not the fix either — the next deploy flips
+# to the other and boot would start the wrong worker, which is worse, because
+# systemd would then hold the port nginx is not pointing at. Enabling here, in
+# step with the flip, is what keeps the two in agreement.
+if sudo systemctl enable "${APP}@${STANDBY_PORT}" >/dev/null 2>&1; then
+    sudo systemctl disable "${APP}@${ACTIVE_PORT}" >/dev/null 2>&1 || true
+    log "Boot-start now points at port $STANDBY_PORT"
+else
+    # Not fatal: traffic is already served. It only means an unattended reboot
+    # would come back without PhilForge, so it must be loud rather than silent.
+    log "⚠ Could not enable ${APP}@${STANDBY_PORT} for boot — a reboot will NOT bring PhilForge back until this is fixed"
+fi
+
 log "═══════════════════════════════════════════════"
 log "  DEPLOY COMPLETE — $APP active on port $STANDBY_PORT"
 log "═══════════════════════════════════════════════"

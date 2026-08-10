@@ -23,6 +23,39 @@ Restart=on-failure
 RestartSec=5
 UMask=0077
 
+# ── Memory ceiling ──────────────────────────────────────────────
+# This box has 1 GB and also runs CryptoForge, whose live engine trades real
+# money. PhilForge had no ceiling at all, so a backtest loading a year of
+# option candles into pandas could grow without limit; the kernel then paged
+# to network-attached storage until nothing on the box could answer — not
+# nginx, not CryptoForge, not even sshd's banner. On 2026-08-10 that took both
+# sites down for over an hour and the only way back was a console stop.
+#
+# With a ceiling the cgroup reclaims at MemoryHigh and, failing that, kills
+# THIS service alone; Restart=on-failure brings it back. One backtest failing
+# is the correct blast radius. It must never be the whole box.
+#
+# MemorySwapMax is the specific fix for the leak recorded in RUNBOOK.md: this
+# service had accumulated 1.22 GB of swap against an 88 MB RSS. Swap on
+# network storage is what turns memory pressure into a box-wide stall, so
+# PhilForge gets a small cushion rather than the run of the swapfile.
+#
+# Sized against what the box actually reports, not against what is spare:
+# 916 MB total, CryptoForge capped at 340M and already running at ~271M, nginx
+# and the system about 130M. The ceilings here must SUM to something that fits,
+# because two cgroups that each stay under their own limit can still exhaust
+# the machine — and then the global OOM killer picks the victim, which is how
+# nginx gets taken down and the whole site disappears instead of one service.
+# 340 + 380 + 130 leaves roughly 65M of headroom.
+#
+# 380M is still four times the ~88M steady state, so ordinary use is unaffected;
+# MemoryHigh at 300M means a heavy backtest is reclaimed and slowed first, and
+# only a genuine runaway reaches the hard kill.
+MemoryAccounting=true
+MemoryHigh=300M
+MemoryMax=380M
+MemorySwapMax=64M
+
 # First-stage service sandbox. The application still needs write access to its
 # deploy tree and migrated state root for SQLite, per-user files, recovery, and caches.
 NoNewPrivileges=true
