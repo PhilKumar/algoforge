@@ -8737,6 +8737,26 @@ function _buildScalpActiveRow(t) {
 
 let _scalpOptionChartRequest = 0;
 let _scalpOptionChartTradeId = null;
+let _scalpOptionChartPollTimer = null;
+let _scalpOptionChartPollInFlight = false;
+
+function _stopScalpOptionChartPolling() {
+  if (_scalpOptionChartPollTimer) clearInterval(_scalpOptionChartPollTimer);
+  _scalpOptionChartPollTimer = null;
+  _scalpOptionChartPollInFlight = false;
+}
+
+function _startScalpOptionChartPolling() {
+  _stopScalpOptionChartPolling();
+  _scalpOptionChartPollTimer = setInterval(() => {
+    const overlay = document.getElementById('scalp-option-chart-overlay');
+    if (!overlay?.classList.contains('is-open') || !_scalpOptionChartTradeId || _scalpOptionChartPollInFlight) return;
+    _scalpOptionChartPollInFlight = true;
+    openScalpOptionChart(_scalpOptionChartTradeId, { liveRefresh: true }).finally(() => {
+      _scalpOptionChartPollInFlight = false;
+    });
+  }, 2000);
+}
 
 function _ensureScalpOptionChartOverlay() {
   let overlay = document.getElementById('scalp-option-chart-overlay');
@@ -8768,9 +8788,10 @@ function _ensureScalpOptionChartOverlay() {
   return overlay;
 }
 
-async function openScalpOptionChart(tradeId) {
+async function openScalpOptionChart(tradeId, options = {}) {
   const id = Number(tradeId);
   if (!Number.isInteger(id) || id <= 0) return;
+  const liveRefresh = !!options.liveRefresh;
   _scalpOptionChartTradeId = id;
   const requestId = ++_scalpOptionChartRequest;
   const overlay = _ensureScalpOptionChartOverlay();
@@ -8778,7 +8799,7 @@ async function openScalpOptionChart(tradeId) {
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.classList.add('terminal-cascade-chart-open');
-  if (body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
+  if (!liveRefresh && body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
   try {
     const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
@@ -8789,14 +8810,21 @@ async function openScalpOptionChart(tradeId) {
     const title = document.getElementById('scalp-option-chart-title');
     const meta = document.getElementById('scalp-option-chart-meta');
     if (title) title.textContent = symbol || 'Option Chart';
-    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · 5-minute premium candles · Entry, target and stop are marked`;
+    if (meta) {
+      const live = Number(data.live_price || 0);
+      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · 5-minute candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)}` : 'Waiting for live premium'} · Entry, target and stop are marked`;
+    }
     if (body) {
-      body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
+      if (!liveRefresh) body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
       const host = document.getElementById('scalp-option-chart-canvas');
-      if (!host || typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(host, data)) {
+      const view = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#scalp-option-chart-canvas') === host;
+      const refreshed = liveRefresh && canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+      if (!refreshed && (!host || typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(host, data))) {
         throw new Error('Option chart renderer is unavailable');
       }
     }
+    if (!liveRefresh) _startScalpOptionChartPolling();
   } catch (error) {
     if (requestId !== _scalpOptionChartRequest) return;
     if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Option chart unavailable')}</div>`;
@@ -8810,6 +8838,7 @@ function refreshScalpOptionChart() {
 function hideScalpOptionChart() {
   _scalpOptionChartRequest++;
   _scalpOptionChartTradeId = null;
+  _stopScalpOptionChartPolling();
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
   const overlay = document.getElementById('scalp-option-chart-overlay');
   if (overlay) {

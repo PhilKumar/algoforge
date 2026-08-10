@@ -22,6 +22,9 @@ class _Request:
 
 
 class _Trade:
+    def __init__(self, current_premium=128.0):
+        self.current_premium = current_premium
+
     def to_dict(self):
         return {
             "trade_id": 41,
@@ -31,6 +34,7 @@ class _Trade:
             "expiry": "2026-08-13",
             "entry_time": "2026-08-10 09:35:00",
             "entry_premium": 125.5,
+            "current_premium": self.current_premium,
             "target_premium": 145.0,
             "sl_premium": 110.0,
         }
@@ -79,12 +83,27 @@ class ScalpOptionChartTests(unittest.IsolatedAsyncioTestCase):
             first["candles"][0], {"t": 1786334400, "o": 120.0, "h": 126.0, "l": 118.0, "c": 125.0, "v": 10}
         )
         self.assertEqual(first["entries"][0]["price"], 125.5)
-        self.assertEqual([line["label"] for line in first["lines"]], ["TARGET", "STOP"])
+        self.assertEqual([line["label"] for line in first["lines"]], ["TARGET", "STOP", "LIVE"])
+        self.assertEqual(first["live_price"], 128.0)
         self.assertEqual(len(broker.calls), 1)
         self.assertTrue(second["cached"])
         self.assertEqual(broker.calls[0]["exchange_segment"], "NSE_FNO")
         self.assertEqual(broker.calls[0]["instrument_type"], "OPTIDX")
         self.assertEqual(broker.calls[0]["candle_type"], "5")
+
+    async def test_cached_chart_keeps_its_candles_but_updates_the_live_price(self):
+        broker = _Broker()
+        trade = _Trade(current_premium=128.0)
+        app_module._scalp_engines[7] = SimpleNamespace(open_trades={41: trade}, dhan=broker)
+        with patch.object(app_module.ScripMaster, "lookup", return_value="555"):
+            first = await app_module.get_scalp_option_chart(41, _Request())
+            trade.current_premium = 131.5
+            second = await app_module.get_scalp_option_chart(41, _Request())
+
+        self.assertEqual(first["live_price"], 128.0)
+        self.assertTrue(second["cached"])
+        self.assertEqual(second["live_price"], 131.5)
+        self.assertEqual(len(broker.calls), 1)
 
     async def test_chart_never_constructs_an_engine_for_a_missing_trade(self):
         with (

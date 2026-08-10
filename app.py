@@ -14756,6 +14756,20 @@ def _scalp_option_chart_timestamp(value: Any) -> int | None:
     return int(parsed.timestamp())
 
 
+def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
+    """Layer the monitored premium onto cached OHLC without inventing a candle."""
+    try:
+        live_price = float(trade.get("current_premium") or 0)
+    except (TypeError, ValueError):
+        live_price = 0.0
+    result = {**payload, "lines": list(payload.get("lines") or [])}
+    if live_price > 0:
+        result["lines"].append({"label": "LIVE", "price": live_price, "filled": True})
+        result["live_price"] = live_price
+        result["live_timestamp"] = int(datetime.now(IST).timestamp())
+    return result
+
+
 @app.get("/api/scalp/trades/{trade_id}/chart")
 async def get_scalp_option_chart(trade_id: int, request: Request):
     """Return native Dhan OHLC candles for the exact option contract in an open scalp."""
@@ -14767,7 +14781,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
     cache_key = (int(user_id), int(trade_id))
     cached = _SCALP_OPTION_CHART_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
-        return {**cached[1], "cached": True}
+        return {**_scalp_option_chart_with_live_price(cached[1], trade), "cached": True}
 
     underlying = str(trade.get("underlying") or "").strip().upper()
     strike = int(trade.get("strike") or 0)
@@ -14845,7 +14859,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
         "trade_id": int(trade_id),
     }
     _SCALP_OPTION_CHART_CACHE[cache_key] = (time.monotonic(), payload)
-    return payload
+    return _scalp_option_chart_with_live_price(payload, trade)
 
 
 def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
