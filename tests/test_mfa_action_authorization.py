@@ -237,8 +237,10 @@ class MfaActionAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/fib-boundary/live/NIFTY/kill"), "live_trading")
         self.assertIsNone(auth.classify_sensitive_action("POST", "/api/fib-boundary/paper/arm"))
         self.assertIsNone(auth.classify_sensitive_action("POST", "/api/fib-boundary/paper/kill"))
-        self.assertEqual(auth.classify_sensitive_action("POST", "/api/scalp/kill-all"), "live_scalp")
-        self.assertEqual(auth.classify_sensitive_action("POST", "/api/scalp/entry"), "live_scalp")
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/scalp/kill-all"))
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/scalp/entry"))
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/scalp/exit/123"))
+        self.assertIsNone(auth.classify_sensitive_action("PUT", "/api/scalp/trades/123/targets"))
 
     async def test_fib_live_token_is_bound_to_the_instrument_path(self):
         timestamp = 1_700_000_000.0

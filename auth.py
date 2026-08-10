@@ -206,11 +206,9 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # query string.
     ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/arm$"), "live_trading"),
     ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/kill$"), "live_trading"),
-    ("POST", re.compile(r"^/api/scalp/entry$"), "live_scalp"),
-    ("POST", re.compile(r"^/api/scalp/stop$"), "live_scalp"),
-    ("POST", re.compile(r"^/api/scalp/exit/[^/]+$"), "live_scalp"),
-    ("POST", re.compile(r"^/api/scalp/kill-all$"), "live_scalp"),
-    ("PUT", re.compile(r"^/api/scalp/trades/[^/]+/targets$"), "live_scalp"),
+    # Scalp orders retain the normal authenticated user session and explicit
+    # order/exit confirmations, but do not interrupt execution with a fresh
+    # password + TOTP challenge on every entry, exit, stop, or target change.
     ("PUT", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("DELETE", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("POST", re.compile(r"^/api/refresh-token$"), "broker_credentials"),
