@@ -7908,6 +7908,7 @@ async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
   await _restoreScalpFormState();
+  _updateScalpExitRulesNote();
   _scalpFormInitialized = true;
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
@@ -7938,6 +7939,15 @@ function _syncScalpToggleGroup(groupId, inputId) {
   });
 }
 
+function _updateScalpExitRulesNote() {
+  const note = document.getElementById('scalp-exit-rules-note');
+  const mode = document.getElementById('scalp-mode')?.value;
+  if (!note) return;
+  note.textContent = mode === 'live'
+    ? 'Exit Rules (Live: 0 uses Target ₹300 / SL ₹100)'
+    : 'Exit Rules (optional — leave 0 to skip)';
+}
+
 function setScalpOptionType(value) {
   const input = document.getElementById('scalp-option-type');
   if (!input || input.value === value) return;
@@ -7953,6 +7963,7 @@ function setScalpMode(value) {
   if (!input || input.value === value) return;
   input.value = value;
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+  _updateScalpExitRulesNote();
   _persistScalpFormState();
 }
 
