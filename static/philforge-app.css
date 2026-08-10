@@ -5466,6 +5466,12 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .terminal-cascade-chart-control:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,.28), inset 0 2px 2px rgba(0,0,0,.25); }
 .terminal-cascade-chart-control.is-danger { border-color: rgba(252,165,165,.54); background: linear-gradient(180deg, rgba(248,113,113,.30), rgba(153,27,27,.52)); color: #fee2e2; }
 .terminal-cascade-chart-control .ico { position: relative; z-index: 1; display: inline-flex; }
+.scalp-option-chart-overlay { z-index: 1300; }
+.scalp-option-chart-dialog { border-color: rgba(var(--pf-tint-primary-rgb, 6,182,212),.32); }
+.scalp-option-chart-canvas { min-height: min(64vh, 620px); }
+.scalp-option-chart-canvas .pf-bench-canvas-host { min-height: min(64vh, 620px); aspect-ratio: auto; }
+.scalp-option-chart-refresh { padding: 5px 11px; font-size: 11px; }
+.scalp-option-chart-btn { --btn-bg: linear-gradient(180deg, rgba(96,165,250,.30), rgba(30,64,175,.48)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,.52); }
 .cascade-options-workspace { display: grid; grid-template-columns: minmax(300px, .72fr) minmax(420px, 1.28fr); gap: 16px; align-items: start; }
 .cascade-options-setup-card { min-width: 0; }
 .cascade-options-window { min-width: 0; overflow: hidden; border: 1px solid rgba(148,163,184,.16); border-radius: 11px; background: rgba(7,16,29,.58); transition: border-color .15s ease, box-shadow .15s ease; }

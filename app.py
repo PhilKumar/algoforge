@@ -14708,6 +14708,142 @@ async def delete_scalp_trade(tid: int, request: Request):
 
 # ── Scalp Engine (live session, in-memory) ───────────────────────
 
+# A chart can be opened repeatedly while a scalp is managed.  Keep the recent
+# exact-contract response briefly so that it does not add a Dhan charts call to
+# every click/refresh; the cache is display-only and is never used for pricing
+# or order decisions.
+_SCALP_OPTION_CHART_CACHE: Dict[tuple[int, int], tuple[float, dict]] = {}
+_SCALP_OPTION_CHART_CACHE_TTL_SEC = 20.0
+
+
+async def _scalp_open_trade_for_chart(user_id: int, trade_id: int) -> dict | None:
+    """Return one active scalp's persisted display fields without creating an engine."""
+    engine = _scalp_engines.get(int(user_id))
+    trade = getattr(engine, "open_trades", {}).get(int(trade_id)) if engine is not None else None
+    if trade is not None:
+        return trade.to_dict()
+    # The status route deliberately shows saved open rows while the engine is
+    # recovering after a restart. Keep their chart button useful too, without
+    # constructing a monitoring engine or touching the broker.
+    raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
+    try:
+        saved = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        saved = {}
+    for row in (saved.get("open_trades") or []) if isinstance(saved, dict) else []:
+        if isinstance(row, dict) and int(row.get("trade_id") or 0) == int(trade_id):
+            return row
+    return None
+
+
+def _scalp_option_chart_timestamp(value: Any) -> int | None:
+    """Normalize an engine's IST datetime/string to epoch seconds for Canvas."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=IST)
+    return int(parsed.timestamp())
+
+
+@app.get("/api/scalp/trades/{trade_id}/chart")
+async def get_scalp_option_chart(trade_id: int, request: Request):
+    """Return native Dhan OHLC candles for the exact option contract in an open scalp."""
+    user_id = _request_user_id(request)
+    trade = await _scalp_open_trade_for_chart(user_id, trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Active scalp trade not found")
+
+    cache_key = (int(user_id), int(trade_id))
+    cached = _SCALP_OPTION_CHART_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+        return {**cached[1], "cached": True}
+
+    underlying = str(trade.get("underlying") or "").strip().upper()
+    strike = int(trade.get("strike") or 0)
+    expiry = str(trade.get("expiry") or "").strip()
+    option_type = str(trade.get("option_type") or "").strip().upper()
+    if not underlying or strike <= 0 or option_type not in {"CE", "PE"}:
+        raise HTTPException(status_code=422, detail="Active scalp has an incomplete option contract")
+
+    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
+    if not security_id:
+        raise HTTPException(status_code=404, detail="Option contract is unavailable in the current Scrip Master")
+
+    engine = _scalp_engines.get(int(user_id))
+    broker_client = getattr(engine, "dhan", None) if engine is not None else None
+    if broker_client is None:
+        _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Broker connection is required to load the option chart")
+
+    today = datetime.now(IST).date()
+    # Dhan intraday requests need business-day room across weekends/holidays.
+    from_date = (today - timedelta(days=4)).isoformat()
+    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(security_id),
+            exchange_segment=exchange_segment,
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=today.isoformat(),
+            candle_type="5",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Option candle request failed: {exc}") from exc
+    if frame is None or frame.empty:
+        raise HTTPException(status_code=404, detail="No intraday candles returned for this option contract")
+
+    candles = []
+    for timestamp, row in frame.iterrows():
+        stamp = _scalp_option_chart_timestamp(timestamp)
+        if stamp is None:
+            continue
+        candles.append(
+            {
+                "t": stamp,
+                "o": round(float(row["open"]), 4),
+                "h": round(float(row["high"]), 4),
+                "l": round(float(row["low"]), 4),
+                "c": round(float(row["close"]), 4),
+                "v": int(row.get("volume", 0) or 0),
+            }
+        )
+    if not candles:
+        raise HTTPException(status_code=404, detail="Option candles contained no usable timestamps")
+
+    entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
+    entry_price = float(trade.get("entry_premium") or 0)
+    payload = {
+        "status": "ok",
+        "timeframe": "5m",
+        "instrument": {
+            "underlying": underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": str(security_id),
+        },
+        "candles": candles,
+        "entries": ([{"t": entry_time, "price": entry_price}] if entry_time and entry_price > 0 else []),
+        "lines": [
+            {"label": "TARGET", "price": float(trade.get("target_premium") or 0)},
+            {"label": "STOP", "price": float(trade.get("sl_premium") or 0)},
+        ],
+        "trade_id": int(trade_id),
+    }
+    _SCALP_OPTION_CHART_CACHE[cache_key] = (time.monotonic(), payload)
+    return payload
+
 
 def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
     if not _HAS_SCALP:

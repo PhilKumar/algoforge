@@ -8703,6 +8703,7 @@ function _buildScalpActiveRow(t) {
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
         <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
+        <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </div></td>
     </tr>`;
@@ -8720,10 +8721,103 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
+      <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
     </div></td>
   </tr>`;
 }
+
+let _scalpOptionChartRequest = 0;
+let _scalpOptionChartTradeId = null;
+
+function _ensureScalpOptionChartOverlay() {
+  let overlay = document.getElementById('scalp-option-chart-overlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'scalp-option-chart-overlay';
+  overlay.className = 'pf-cascade-chart-overlay terminal-cascade-chart-overlay scalp-option-chart-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Scalp option chart');
+  overlay.innerHTML = `<section class="pf-cascade-chart-dialog terminal-cascade-chart-dialog scalp-option-chart-dialog">
+    <div class="terminal-cascade-chart-toolbar">
+      <div class="terminal-cascade-chart-title">
+        <h3 id="scalp-option-chart-title">Option Chart</h3>
+        <div id="scalp-option-chart-meta">Exact traded option premium candles.</div>
+      </div>
+      <div class="terminal-cascade-chart-actions">
+        <button type="button" class="btn btn-sm scalp-option-chart-refresh" onclick="refreshScalpOptionChart()">Refresh</button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="hideScalpOptionChart()">Close</button>
+      </div>
+    </div>
+    <div id="scalp-option-chart-body" class="terminal-cascade-chart-body"><div class="pf-cascade-chart-empty">Loading option candles...</div></div>
+  </section>`;
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) hideScalpOptionChart();
+  });
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+async function openScalpOptionChart(tradeId) {
+  const id = Number(tradeId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  _scalpOptionChartTradeId = id;
+  const requestId = ++_scalpOptionChartRequest;
+  const overlay = _ensureScalpOptionChartOverlay();
+  const body = document.getElementById('scalp-option-chart-body');
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('terminal-cascade-chart-open');
+  if (body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
+  try {
+    const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (requestId !== _scalpOptionChartRequest || _scalpOptionChartTradeId !== id) return;
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    const instrument = data.instrument || {};
+    const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
+    const title = document.getElementById('scalp-option-chart-title');
+    const meta = document.getElementById('scalp-option-chart-meta');
+    if (title) title.textContent = symbol || 'Option Chart';
+    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · 5-minute premium candles · Entry, target and stop are marked`;
+    if (body) {
+      body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
+      const host = document.getElementById('scalp-option-chart-canvas');
+      if (!host || typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(host, data)) {
+        throw new Error('Option chart renderer is unavailable');
+      }
+    }
+  } catch (error) {
+    if (requestId !== _scalpOptionChartRequest) return;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Option chart unavailable')}</div>`;
+  }
+}
+
+function refreshScalpOptionChart() {
+  if (_scalpOptionChartTradeId) openScalpOptionChart(_scalpOptionChartTradeId);
+}
+
+function hideScalpOptionChart() {
+  _scalpOptionChartRequest++;
+  _scalpOptionChartTradeId = null;
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+  const overlay = document.getElementById('scalp-option-chart-overlay');
+  if (overlay) {
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+  if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')) {
+    document.body.classList.remove('terminal-cascade-chart-open');
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.getElementById('scalp-option-chart-overlay')?.classList.contains('is-open')) {
+    hideScalpOptionChart();
+  }
+});
 
 function _applyScalpEngineState(running, rootGetter = (id) => document.getElementById(id)) {
   const dot = rootGetter('scalp-status-dot');
