@@ -30,6 +30,11 @@ SCALP_REST_LTP_BACKOFF_BASE_SEC = 2.0
 SCALP_REST_LTP_BACKOFF_MAX_SEC = 16.0
 SCALP_REST_LTP_SNAPSHOT_SEC = 5.0
 SCALP_REST_LTP_LOG_COOLDOWN_SEC = 5.0
+# Match the Scalp form's prefilled exit values.  Live Super Orders require
+# both prices at placement, so blank/zero values deliberately resolve here
+# instead of rejecting the entry.  Explicit values always take precedence.
+SCALP_DEFAULT_TARGET_PREMIUM = 300.0
+SCALP_DEFAULT_SL_PREMIUM = 100.0
 
 
 def _now_ist():
@@ -309,11 +314,9 @@ class ScalpEngine:
             return {"status": "error", "message": "Stop-limit entry requires both premium boundaries"}
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
-        if mode == "live" and (target_premium <= 0 or sl_premium <= 0):
-            return {
-                "status": "error",
-                "message": "Live scalp now uses Dhan Super Order and requires both Target Premium and SL Premium",
-            }
+        if mode == "live":
+            target_premium = float(target_premium) if target_premium > 0 else SCALP_DEFAULT_TARGET_PREMIUM
+            sl_premium = float(sl_premium) if sl_premium > 0 else SCALP_DEFAULT_SL_PREMIUM
 
         # ── Stop-limit entry: create pending trade, no order yet ──
         if entry_limit_price > 0 and entry_limit_max > 0:

@@ -7826,6 +7826,8 @@ let _scalpLTPTimer = null;
 let _scalpFormInitialized = false;
 let _scalpRestoringState = false;
 const _SCALP_FORM_STORAGE_KEY = 'philforge_scalp_form_state_v1';
+const _SCALP_DEFAULT_TARGET_PREMIUM = 300;
+const _SCALP_DEFAULT_SL_PREMIUM = 100;
 // Correct lot sizes as of Jan 2026
 const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
 // Strike step intervals per underlying
@@ -8298,10 +8300,16 @@ async function submitScalpEntry(direction) {
       statusEl.style.color = 'var(--danger)';
       return;
     }
-    if (payload.mode === 'live' && (payload.target_premium <= 0 || payload.sl_premium <= 0)) {
-      statusEl.textContent = 'Live mode needs both Target Premium and SL Premium for Dhan Super Order';
-      statusEl.style.color = 'var(--danger)';
-      return;
+    if (payload.mode === 'live') {
+      if (payload.target_premium <= 0) {
+        payload.target_premium = _SCALP_DEFAULT_TARGET_PREMIUM;
+        document.getElementById('scalp-target-prem').value = _SCALP_DEFAULT_TARGET_PREMIUM;
+      }
+      if (payload.sl_premium <= 0) {
+        payload.sl_premium = _SCALP_DEFAULT_SL_PREMIUM;
+        document.getElementById('scalp-sl-prem').value = _SCALP_DEFAULT_SL_PREMIUM;
+      }
+      _persistScalpFormState();
     }
     // Pre-flight validation: warn if SL premium is on the wrong side of entry
     const liveLtp = parseFloat(document.getElementById('scalp-live-ltp')?.textContent?.replace(/[₹,]/g, '')) || 0;

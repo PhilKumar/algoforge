@@ -151,6 +151,7 @@ from request_security import request_rate_subject as _request_rate_subject
 from study_content import get_study_library, sanitize_study_asset
 
 try:
+    from scalp import SCALP_DEFAULT_SL_PREMIUM, SCALP_DEFAULT_TARGET_PREMIUM
     from scalp import ScalpEngine as _ScalpEngineClass
     from scalp import ScalpTrade as _ScalpTradeClass
 
@@ -159,6 +160,8 @@ except ImportError:
     _HAS_SCALP = False
     _ScalpEngineClass = None
     _ScalpTradeClass = None
+    SCALP_DEFAULT_TARGET_PREMIUM = 300.0
+    SCALP_DEFAULT_SL_PREMIUM = 100.0
 import alerter
 from token_manager import auto_generate_token, token_renewal_loop
 
@@ -15014,8 +15017,14 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
         raise HTTPException(status_code=400, detail="expiry cannot be in the past")
     if bool(req.entry_limit_price) != bool(req.entry_limit_max):
         raise HTTPException(status_code=400, detail="Stop-limit entry requires both minimum and maximum premiums")
-    if req.mode == "live" and (req.target_premium <= 0 or req.sl_premium <= 0):
-        raise HTTPException(status_code=400, detail="Live scalp requires both Target Premium and SL Premium")
+    if req.mode == "live":
+        # A Dhan Super Order needs both exit prices.  Treat blank/zero fields
+        # as the same defaults the Scalp form shows, while retaining any value
+        # the trader explicitly entered.
+        if req.target_premium <= 0:
+            req.target_premium = SCALP_DEFAULT_TARGET_PREMIUM
+        if req.sl_premium <= 0:
+            req.sl_premium = SCALP_DEFAULT_SL_PREMIUM
 
 
 def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:

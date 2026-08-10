@@ -98,8 +98,51 @@ class OrderInputValidationTests(unittest.TestCase):
         with self.assertRaises(app_module.HTTPException):
             app_module._validate_scalp_entry_request(partial_stop)
 
+    def test_live_scalp_blank_premium_exits_use_the_form_defaults(self):
+        req = app_module.ScalpEntryReq(
+            underlying="NIFTY",
+            strike=25000,
+            option_type="CE",
+            expiry=(app_module.datetime.now(app_module.IST).date() + timedelta(days=7)).isoformat(),
+            mode="live",
+            target_premium=0,
+            sl_premium=0,
+        )
+        app_module._validate_scalp_entry_request(req)
+        self.assertEqual(req.target_premium, 300.0)
+        self.assertEqual(req.sl_premium, 100.0)
+
 
 class ScalpEngineInputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_scalp_engine_uses_defaults_for_blank_premium_exits(self):
+        class Broker:
+            def __init__(self):
+                self.super_order_args = None
+
+            def place_super_order(self, **kwargs):
+                self.super_order_args = kwargs
+                return {"orderId": "SO1", "orderStatus": "PENDING"}
+
+            def get_option_ltp(self, *_args):
+                return 150.0
+
+        broker = Broker()
+        engine = ScalpEngine(broker)
+        engine.start = lambda: None
+        result = await engine.enter_trade(
+            underlying="NIFTY",
+            strike=25000,
+            option_type="CE",
+            expiry="2099-01-01",
+            transaction_type="BUY",
+            lots=1,
+            lot_size=65,
+            mode="live",
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(broker.super_order_args["target_price"], 300.0)
+        self.assertEqual(broker.super_order_args["stop_loss_price"], 100.0)
+
     async def test_paper_entry_without_a_real_premium_is_not_created(self):
         broker = type("Broker", (), {"get_option_ltp": lambda self, *args, **kwargs: 0.0})()
         engine = ScalpEngine(broker)
