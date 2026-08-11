@@ -40,14 +40,22 @@
       : tone === 'success' ? 'var(--success)' : 'var(--muted)';
   }
 
-  /* ── the strategy switcher ──────────────────────────────────────
-   * Two groups of panels on one page. Switching hides one and shows the other
-   * rather than re-rendering, so an open chart or a half-typed mother survives
-   * a trip to the other strategy and back.
+  /* ── the section switcher ───────────────────────────────────────
+   * Three groups of panels on one page: the two strategies, and the manual
+   * desk (scrip list, order ticket, broker book) which is not a strategy at
+   * all. Switching hides and shows rather than re-rendering, so an open chart
+   * or a half-typed mother survives a trip to another section and back.
+   *
+   * The desk is exported on window because philforge-app.js has to ask whether
+   * it is on screen before spending a quote poll on it.
    */
   function showStrategy(which) {
-    var groups = { cascade: $('equity-strategy-cascade'), tworeds: $('equity-strategy-tworeds') };
-    if (!groups.cascade || !groups.tworeds) return;
+    var groups = {
+      cascade: $('equity-strategy-cascade'),
+      tworeds: $('equity-strategy-tworeds'),
+      desk: $('equity-strategy-desk')
+    };
+    if (!groups.cascade || !groups.tworeds || !groups.desk) return;
     Object.keys(groups).forEach(function (key) {
       groups[key].style.display = key === which ? '' : 'none';
     });
@@ -308,6 +316,14 @@
   }
 
   /* ── wiring ─────────────────────────────────────────────────── */
+
+  // philforge-app.js polls the LTP and the order book on timers. Those cost
+  // Dhan calls against an ACCOUNT-WIDE rate budget, and both are useless while
+  // the desk is hidden behind another section, so it asks this first.
+  window.pfEquityDeskVisible = function pfEquityDeskVisible() {
+    var desk = document.getElementById('equity-strategy-desk');
+    return !!desk && desk.style.display !== 'none';
+  };
 
   function init() {
     var page = $('stock-terminal-page');

@@ -1415,9 +1415,10 @@
        two-red ladder waits for an 8% fall and buys a recovery. Keeping them on
        one switcher rather than two tabs is the same call as CryptoForge's
        Strategies tab — the instrument list is the thing they have in common. -->
-  <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Equity strategy" id="equity-strategy-switch" style="margin-bottom:16px;">
+  <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Equity section" id="equity-strategy-switch" style="margin-bottom:16px;">
     <button type="button" class="terminal-cascade-tf-option is-active" data-equity-strategy="cascade" role="radio" aria-checked="true">Cash Cascade</button>
     <button type="button" class="terminal-cascade-tf-option" data-equity-strategy="tworeds" role="radio" aria-checked="false">Two-red ladder</button>
+    <button type="button" class="terminal-cascade-tf-option" data-equity-strategy="desk" role="radio" aria-checked="false">Manual desk</button>
   </div>
 
   <div id="equity-strategy-cascade">
@@ -1782,6 +1783,11 @@
 
   </div><!-- /equity-strategy-tworeds -->
 
+  <!-- THE MANUAL DESK. Not a strategy: the scrip list, the order ticket and
+       the broker's own book. It used to sit below both strategies and so
+       appeared under whichever one was showing, which read as part of them. -->
+  <div id="equity-strategy-desk" style="display:none;">
+
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
     <div class="card" style="padding: 18px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
@@ -1991,6 +1997,8 @@
       </div>
     </div>
   </div>
+
+  </div><!-- /equity-strategy-desk -->
 </div>
 
 <!-- ═══ TEST BENCH · one mother candle, replayed in full ═══ -->

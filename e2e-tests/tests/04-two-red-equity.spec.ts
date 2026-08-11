@@ -43,15 +43,32 @@ test('the Equity tab carries both strategies and switches between them', async (
 
   const cascade = page.locator('#equity-strategy-cascade');
   const tworeds = page.locator('#equity-strategy-tworeds');
+  const desk = page.locator('#equity-strategy-desk');
 
-  // Cash Cascade is the default half.
+  // Cash Cascade is the default section.
   await expect(cascade).toBeVisible();
   await expect(tworeds).toBeHidden();
+  await expect(desk).toBeHidden();
 
   // Switch to the ladder.
   await page.click('[data-equity-strategy="tworeds"]');
   await expect(tworeds).toBeVisible();
   await expect(cascade).toBeHidden();
+  await expect(desk).toBeHidden();
+
+  // The manual desk is its own section, not a footer under both strategies.
+  // Its panels must not appear while a strategy is showing.
+  await expect(page.locator('#stock-terminal-search')).toBeHidden();
+  await page.click('[data-equity-strategy="desk"]');
+  await expect(desk).toBeVisible();
+  await expect(cascade).toBeHidden();
+  await expect(tworeds).toBeHidden();
+  await expect(page.locator('#stock-terminal-search')).toBeVisible();
+  await expect(page.locator('#stock-terminal-orders-body')).toBeVisible();
+
+  await page.click('[data-equity-strategy="tworeds"]');
+  await expect(tworeds).toBeVisible();
+  await expect(desk).toBeHidden();
 
   // Its own panels are really there.
   await expect(page.locator('#tworeds-scan-panel')).toBeVisible();

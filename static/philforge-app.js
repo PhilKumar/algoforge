@@ -5567,6 +5567,9 @@ async function initStockTerminalPage(force = false) {
   if (!_stockTerminalQuoteTimer) {
     _stockTerminalQuoteTimer = setInterval(() => {
       if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      // The ticket lives on the Manual desk section. Behind another section it
+      // shows nobody a price, and the Dhan budget is account-wide.
+      if (window.pfEquityDeskVisible && !window.pfEquityDeskVisible()) return;
       // Off-session the LTP cannot move; one refresh every 2 minutes keeps
       // the number honest without spending Dhan's rate limit all night.
       if (!_nseSessionLikelyOpen() && (_stockTerminalQuoteTick++ % 24 !== 0)) return;
@@ -5576,6 +5579,7 @@ async function initStockTerminalPage(force = false) {
   if (!_stockTerminalOrdersTimer) {
     _stockTerminalOrdersTimer = setInterval(() => {
       if (!_isPageVisible() || !_isPageActive('stock-terminal-page')) return;
+      if (window.pfEquityDeskVisible && !window.pfEquityDeskVisible()) return;
       // Off-session the order book cannot change on a fresh action, and the
       // Dhan rate budget is account-wide — the same trap behind the 4AM 429
       // storm. GTT/AMO can still move outside cash hours, so don't stop, just
