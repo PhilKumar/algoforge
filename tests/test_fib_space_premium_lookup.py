@@ -25,13 +25,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+from cryptography.fernet import Fernet
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 os.environ["PHILFORGE_PIN"] = "123456"
 os.environ["PHILFORGE_SKIP_STARTUP_JOBS"] = "1"
-os.environ.setdefault("ENCRYPTION_KEY", "QmG8YWqLPtWFDn7gCAiHJXoX7zH5zi89kUnkkMvibU=")
+# Generated, never written down. A literal Fernet key in the file is high
+# enough entropy that the secret scanner blocks the push, and rightly so — a
+# committed key reads the same to a scanner whether or not it guards anything.
+os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 import app as app_module  # noqa: E402
 
