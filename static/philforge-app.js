@@ -2378,7 +2378,7 @@ function _renderFibSpaceStatus(payload) {
     if (badge) { badge.textContent = payload?.status === 'ok' ? 'STOPPED' : 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; badge.style.borderColor = 'var(--border)'; }
     if (contract) contract.textContent = 'No paper run';
     if (gist) gist.textContent = 'Start a run to watch it find mothers and ladder into them.';
-    if (summary) summary.innerHTML = '';
+    _fsxPaint(summary, '');
     if (empty) empty.style.display = '';
     if (active) active.style.display = 'none';
     if (errorEl) errorEl.style.display = 'none';
@@ -2393,14 +2393,12 @@ function _renderFibSpaceStatus(payload) {
   const lastPoll = book.last_poll ? new Date(book.last_poll).toLocaleTimeString('en-IN', { hour12: false }) : 'not yet';
   if (gist) gist.textContent = `${book.campaigns || 0} campaign${book.campaigns === 1 ? '' : 's'} · last poll ${lastPoll} IST`;
 
-  if (summary) {
-    summary.innerHTML = [
-      _cascadeOptionsMetric('Campaigns', String(book.campaigns ?? 0)),
-      _cascadeOptionsMetric('Trading now', String(book.trading ?? 0), (book.trading || 0) > 0 ? '#6ee7b7' : 'var(--text)'),
-      _cascadeOptionsMetric('Open qty', String(book.open_quantity ?? 0)),
-      _cascadeOptionsMetric('Realised ₹', _cascadeOptionsMoney(book.realised || 0), (book.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
-    ].join('');
-  }
+  _fsxPaint(summary, [
+    _cascadeOptionsMetric('Campaigns', String(book.campaigns ?? 0)),
+    _cascadeOptionsMetric('Trading now', String(book.trading ?? 0), (book.trading || 0) > 0 ? '#6ee7b7' : 'var(--text)'),
+    _cascadeOptionsMetric('Open qty', String(book.open_quantity ?? 0)),
+    _cascadeOptionsMetric('Realised ₹', _cascadeOptionsMoney(book.realised || 0), (book.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
+  ].join(''));
 
   if (errorEl) {
     if (payload.last_error) { errorEl.style.display = ''; errorEl.textContent = `Last poll error — ${payload.last_error}`; }
@@ -2413,7 +2411,7 @@ function _renderFibSpaceStatus(payload) {
 
   const body = document.getElementById('fsx-campaigns');
   if (body) {
-    body.innerHTML = rows.map(row => {
+    _fsxPaint(body, rows.map(row => {
       const halted = row.status === 'halted';
       const stateColour = halted ? 'var(--danger)' : row.status === 'trading' ? '#6ee7b7' : 'var(--muted)';
       // Three different states that must not look alike:
@@ -2448,7 +2446,7 @@ function _renderFibSpaceStatus(payload) {
         <td style="padding:6px 8px;color:${netColour};" title="${escapeHtml(netTitle)}">${escapeHtml(net)}</td>
         <td style="padding:6px 8px;color:#38bdf8;" title="Open premiums, capital and chart">↗</td>
       </tr>`;
-    }).join('');
+    }).join(''));
   }
 
   const note = document.getElementById('fsx-unpriced-note');
@@ -2477,6 +2475,20 @@ async function refreshFibSpaceStatus() {
 // The campaign currently opened in the detail drawer, so the 3s poll can
 // refresh its numbers without the drawer closing under the cursor.
 let _fsxOpenCampaignId = null;
+
+// Write only when the markup actually changed.
+//
+// The book poll rebuilds the summary, the campaign table and the open trade
+// sheet every 3 seconds, and between polls they are usually identical — a
+// paper run makes a decision once every 60 seconds at most. Assigning
+// innerHTML anyway destroys and rebuilds those nodes, and the chart overlay
+// above them is glass (backdrop-filter: blur), so the browser re-composites
+// the blurred backdrop on every rebuild. That is the flicker seen through the
+// open chart: the chart itself never redraws, the page under it does.
+function _fsxPaint(el, html) {
+  if (!el || el.innerHTML === html) return;
+  el.innerHTML = html;
+}
 
 function _fsxMoney(value) {
   return value === null || value === undefined ? '—' : _cascadeOptionsMoney(value);
@@ -2532,21 +2544,21 @@ function _renderFibSpaceDetail(c) {
     // Capital spent is premium paid, which for a bought option IS the money at
     // risk — there is no margin beyond it. Mark-to-market is shown apart from
     // realised and never folded into it.
-    money.innerHTML = [
+    _fsxPaint(money, [
       _cascadeOptionsMetric('Capital spent', _fsxMoney(c.capital_spent)),
       _cascadeOptionsMetric('Still at risk', _fsxMoney(c.capital_open), (c.capital_open || 0) > 0 ? 'var(--warn)' : 'var(--text)'),
       _cascadeOptionsMetric('Realised ₹', _fsxMoney(c.realised), (c.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
       _cascadeOptionsMetric('Open now ₹', _fsxMoney(c.unrealised), (c.unrealised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
-    ].join('');
+    ].join(''));
   }
 
   const rounds = document.getElementById('fsx-detail-rounds');
   if (!rounds) return;
   if (!c.rounds.length) {
-    rounds.innerHTML = '<div class="cascade-options-empty">Nothing bought yet — the geometry is drawn and it is waiting for price to reach a zone.</div>';
+    _fsxPaint(rounds, '<div class="cascade-options-empty">Nothing bought yet — the geometry is drawn and it is waiting for price to reach a zone.</div>');
     return;
   }
-  rounds.innerHTML = c.rounds.map(r => {
+  _fsxPaint(rounds, c.rounds.map(r => {
     const head = `Round ${r.round} · ${r.lots} lot${r.lots === 1 ? '' : 's'} / ${r.quantity} qty · avg premium ${r.average_premium ?? '—'} · spent ${_fsxMoney(r.capital_spent)}`;
     const tail = r.exit
       ? `<span style="color:${(r.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(String(r.exit.reason || 'exit').toUpperCase())} @ ${_cascadeNumber(r.exit.index_price)} · premium ${r.exit.premium ?? '—'} · ${_fsxMoney(r.realised)}</span>`
@@ -2566,7 +2578,7 @@ function _renderFibSpaceDetail(c) {
       <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:10.5px 'JetBrains Mono',monospace;">
         <thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:5px 8px;">Bought</th><th style="padding:5px 8px;">Index</th><th style="padding:5px 8px;">Strike</th><th style="padding:5px 8px;">Lots</th><th style="padding:5px 8px;">Qty</th><th style="padding:5px 8px;">Premium</th><th style="padding:5px 8px;">Capital ₹</th><th style="text-align:left;padding:5px 8px;">Zone</th></tr></thead>
         <tbody>${legs}</tbody></table></div></div>`;
-  }).join('');
+  }).join(''));
 }
 
 async function loadFibSpaceChart() {
