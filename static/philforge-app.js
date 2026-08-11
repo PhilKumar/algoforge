@@ -2392,13 +2392,27 @@ function _renderFibSpaceStatus(payload) {
   // The last poll is the honest liveness signal: outside the session the loop
   // deliberately does nothing, so "no new fills" is not evidence either way.
   const lastPoll = book.last_poll ? new Date(book.last_poll).toLocaleTimeString('en-IN', { hour12: false }) : 'not yet';
-  if (gist) gist.textContent = `${book.campaigns || 0} campaign${book.campaigns === 1 ? '' : 's'} · last poll ${lastPoll} IST`;
+  // "last poll not yet" on a RUNNING book looks like a fault. Usually it just
+  // means the market is shut: outside 09:15–15:30 the loop makes no broker call
+  // at all, so a mother named in the evening sits at zero fills until morning.
+  // Saying so is the difference between waiting and broken.
+  const waiting = book.skipped ? ` · waiting — ${book.skipped}` : '';
+  if (gist) gist.textContent = `${book.campaigns || 0} campaign${book.campaigns === 1 ? '' : 's'} · last poll ${lastPoll} IST${waiting}`;
 
+  // Rs 0.00 is a RESULT — it says the book traded and came out level. Until a
+  // round has actually banked there is no result, and a confident zero there
+  // reads as one; a campaign that has not bought anything yet showed Rs 0.00
+  // all evening. A dash is the honest answer.
+  const bookBanked = Number(book.closed_rounds || 0) > 0;
   _fsxPaint(summary, [
     _cascadeOptionsMetric('Campaigns', String(book.campaigns ?? 0)),
     _cascadeOptionsMetric('Trading now', String(book.trading ?? 0), (book.trading || 0) > 0 ? '#6ee7b7' : 'var(--text)'),
     _cascadeOptionsMetric('Open qty', String(book.open_quantity ?? 0)),
-    _cascadeOptionsMetric('Realised ₹', _cascadeOptionsMoney(book.realised || 0), (book.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
+    _cascadeOptionsMetric(
+      'Realised ₹',
+      bookBanked ? _cascadeOptionsMoney(book.realised || 0) : '—',
+      !bookBanked ? 'var(--muted)' : (book.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'
+    ),
   ].join(''));
 
   if (errorEl) {
@@ -2585,10 +2599,17 @@ function _renderFibSpaceDetail(c) {
     // Capital spent is premium paid, which for a bought option IS the money at
     // risk — there is no margin beyond it. Mark-to-market is shown apart from
     // realised and never folded into it.
+    // Same rule as the book summary: no banked round, no result — a dash, not
+    // a zero. See the comment there.
+    const banked = Number(c.closed_rounds || 0) > 0;
     _fsxPaint(money, [
       _cascadeOptionsMetric('Capital spent', _fsxMoney(c.capital_spent)),
       _cascadeOptionsMetric('Still at risk', _fsxMoney(c.capital_open), (c.capital_open || 0) > 0 ? 'var(--warn)' : 'var(--text)'),
-      _cascadeOptionsMetric('Realised ₹', _fsxMoney(c.realised), (c.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
+      _cascadeOptionsMetric(
+        'Realised ₹',
+        banked ? _fsxMoney(c.realised) : '—',
+        !banked ? 'var(--muted)' : (c.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'
+      ),
       _cascadeOptionsMetric('Open now ₹', _fsxMoney(c.unrealised), (c.unrealised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'),
     ].join(''));
   }

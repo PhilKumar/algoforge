@@ -737,6 +737,11 @@ class FibSpacePaperBook:
             "halted": [c.campaign_id for c in self.campaigns.values() if c.status == "halted"],
             "open_quantity": sum(c.open_quantity for c in self.campaigns.values()),
             "unpriced_legs": sum(c.unpriced for c in self.campaigns.values()),
+            # Rounds that have actually banked, across the book. Without this
+            # the panel cannot tell "traded and made nothing" from "has not
+            # traded yet", and both render as a confident Rs 0.00 -- which is
+            # what a watching campaign showed all evening.
+            "closed_rounds": sum(c.closed_rounds for c in self.campaigns.values()),
             "history_priced_legs": sum(
                 1 for c in self.campaigns.values() for leg in list(c.fills) + list(c.exits) if leg.pricing == "history"
             ),

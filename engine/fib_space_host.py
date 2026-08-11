@@ -340,6 +340,12 @@ class FibSpacePaperHost:
     def snapshot(self) -> dict:
         snap = self.book.snapshot()
         snap["last_poll"] = self.last_poll.isoformat() if self.last_poll else None
+        # Why the last poll did nothing. Outside the NSE session the loop makes
+        # no broker call at all, so a run started in the evening sits at zero
+        # fills and zero rupees with nothing on screen to say it is waiting for
+        # 09:15 rather than broken. last_poll stays None on a skip, so the panel
+        # cannot infer it from timestamps either.
+        snap["skipped"] = self.last_report.skipped if self.last_report else None
         snap["entry_timeframe"] = self.entry_timeframe
         snap["geometry_timeframe"] = self.geometry_timeframe
         snap["campaign_rows"] = [

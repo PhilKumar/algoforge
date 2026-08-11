@@ -651,6 +651,31 @@ class CampaignDetailTests(unittest.TestCase):
         self.assertIsNotNone(detail["realised"])
         self.assertGreater(detail["history_priced_legs"], 0)
 
+    def test_a_book_that_has_banked_nothing_says_so_instead_of_zero(self):
+        """Rs 0.00 is a result: it says the book traded and came out level.
+
+        A campaign still watching has realised nothing, and the panel decides
+        between a number and a dash from this count — without it a mother named
+        in the evening reported a confident Rs 0.00 all night.
+        """
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(100.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        book.adopt_manual_mother(bars[6])
+        self.assertEqual(book.snapshot()["closed_rounds"], 0)
+
+    def test_the_book_counts_rounds_that_actually_banked(self):
+        book, campaign = self._traded()
+        snap = book.snapshot()
+        self.assertEqual(snap["closed_rounds"], len(campaign.exits))
+        self.assertGreater(snap["closed_rounds"], 0, "fixture must close a round")
+
     def test_a_lookup_that_answers_none_still_leaves_the_leg_unpriced(self):
         """The tuple form must not accidentally make None look like a price."""
         book, campaign = self._traded(lookup=lambda when, contract: (None, "history"))

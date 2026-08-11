@@ -158,12 +158,50 @@ function _showCrashScreen(message, source) {
   });
 }
 
+// Browser notices that are NOT application crashes.
+//
+// "ResizeObserver loop ..." is the one that matters here. The browser reports
+// it when a resize callback changes layout, so delivery of that batch could not
+// finish in one frame; it retries on the next. Nothing is broken, nothing is
+// lost, and there is no stack to act on — but it arrives at window.onerror like
+// any other error, and it used to drop a full-page "Something went wrong" over
+// a working app the moment a chart opened.
+//
+// It is suppressed HERE as well as fixed at the source, because it is raised by
+// the browser rather than thrown by us: any future code that resizes inside an
+// observer would put that screen back, and the screen is the harm.
+const _BENIGN_BROWSER_NOTICES = [
+  'ResizeObserver loop limit exceeded',
+  'ResizeObserver loop completed with undelivered notifications',
+];
+
+function _isBenignNotice(message) {
+  const text = String(message ?? '');
+  return _BENIGN_BROWSER_NOTICES.some(notice => text.includes(notice));
+}
+
 // Synchronous JS errors
 window.onerror = function (message, source, lineno, colno, error) {
+  if (_isBenignNotice(message)) return false;
   const loc = source ? `${source.split('/').pop()}:${lineno}` : '';
   _showCrashScreen(message, loc);
   return false; // let browser still log it
 };
+
+// window.onerror does not see errors raised during event DISPATCH in every
+// browser; the capturing listener does, and the ResizeObserver notice arrives
+// through it in Chrome. Stopping it here keeps it out of the console as noise
+// too, without hiding anything real.
+window.addEventListener(
+  'error',
+  function (event) {
+    if (_isBenignNotice(event && event.message)) {
+      event.stopImmediatePropagation();
+      event.preventDefault();
+    }
+  },
+  true
+);
 
 // Unhandled promise rejections
 window.addEventListener('unhandledrejection', function (event) {
@@ -172,7 +210,7 @@ window.addEventListener('unhandledrejection', function (event) {
 
   // Suppress noisy network/abort errors that aren't real crashes
   const ignored = ['AbortError', 'NetworkError', 'Failed to fetch'];
-  if (ignored.some(t => message.includes(t))) return;
+  if (ignored.some(t => message.includes(t)) || _isBenignNotice(message)) return;
 
   _showCrashScreen(message, 'Promise');
 });

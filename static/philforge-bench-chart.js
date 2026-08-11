@@ -98,7 +98,10 @@ function _pfChartCanvasMount(d) {
     data: d, w: 0, h: 0, dpr: 0, ro: null, themeObserver: null,
     // Phase 2 owns this model. Phase 3 changes it through pan/zoom/axis-drag;
     // Phase 4 preserves it across a live refresh.
-    viewport: null, projection: null, paint: null, paintKey: '', handlers: [], drag: null
+    viewport: null, projection: null, paint: null, paintKey: '', handlers: [], drag: null,
+    // Pending requestAnimationFrame id for a coalesced resize; see the
+    // ResizeObserver below for why the work cannot run inline.
+    resizeFrame: 0
   };
   var c = _pfChartCanvas;
   _pfChartCanvasResize();
@@ -116,7 +119,23 @@ function _pfChartCanvasMount(d) {
   // fullscreen, rotating a phone, dragging the window edge — do not all fire a
   // resize event on window. Observe the element itself.
   if (window.ResizeObserver) {
-    _pfChartCanvas.ro = new ResizeObserver(function () { _pfChartCanvasResize(); });
+    // Deferred to the next frame, deliberately. Resizing writes canvas
+    // width/height and inline styles, which mutates layout — do that INSIDE the
+    // observer callback and the browser cannot finish delivering the batch it
+    // is in the middle of, so it aborts with "ResizeObserver loop completed
+    // with undelivered notifications". That is fired at window.onerror, which
+    // on this site puts a full "Something went wrong" screen over the app the
+    // moment a chart opens. Coalescing to one frame keeps the layout write out
+    // of the delivery cycle, and collapses a burst of observations into a
+    // single redraw.
+    _pfChartCanvas.ro = new ResizeObserver(function () {
+      if (c.resizeFrame) return;
+      c.resizeFrame = requestAnimationFrame(function () {
+        c.resizeFrame = 0;
+        // Torn down, or replaced by another chart, between frames.
+        if (_pfChartCanvas === c) _pfChartCanvasResize();
+      });
+    });
     _pfChartCanvas.ro.observe(host);
   } else {
     window.addEventListener('resize', _pfChartCanvasResize);
@@ -128,6 +147,8 @@ function _pfChartCanvasTeardown() {
   _pfChartCanvas = null;
   if (!c) return;
   (c.handlers || []).forEach(function (row) { c.host.removeEventListener(row[0], row[1], row[2]); });
+  // A frame already queued would otherwise resize a chart that is gone.
+  if (c.resizeFrame) { cancelAnimationFrame(c.resizeFrame); c.resizeFrame = 0; }
   if (c.ro) { try { c.ro.disconnect(); } catch (err) {} }
   else window.removeEventListener('resize', _pfChartCanvasResize);
   if (c.themeObserver) { try { c.themeObserver.disconnect(); } catch (err) {} }
@@ -145,6 +166,12 @@ function _pfChartCanvasResize() {
   var cssH = Math.max(Math.round(box.height), 1);
   var dpr = Math.max(window.devicePixelRatio || 1, 1);
   if (cssW === c.w && cssH === c.h && dpr === c.dpr) return;
+  // Ignore a wobble of a pixel or two once the chart is up. Sub-pixel layout
+  // rounding and a scrollbar arriving and leaving can nudge the box back and
+  // forth forever; redrawing on each nudge is a visible flicker and buys
+  // nothing, since a 1px change is not perceptible in the drawing. The first
+  // paint (c.w === 0) and any DPR change always go through.
+  if (c.w && dpr === c.dpr && Math.abs(cssW - c.w) <= 2 && Math.abs(cssH - c.h) <= 2) return;
   c.w = cssW; c.h = cssH; c.dpr = dpr;
   [c.main, c.overlay].forEach(function (cv) {
     cv.width = Math.round(cssW * dpr);

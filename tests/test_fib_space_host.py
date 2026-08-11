@@ -101,6 +101,24 @@ class SessionGateTests(unittest.TestCase):
         self.assertTrue(adapter.calls)
         self.assertGreater(report.geometry_bars, 0)
 
+    def test_the_snapshot_says_WHY_a_running_book_did_nothing(self):
+        """Otherwise "running, last poll not yet" reads as broken.
+
+        Outside 09:15–15:30 the loop makes no broker call, so a mother named in
+        the evening sits at zero fills and no rupees until morning. last_poll
+        stays None on a skip, so the panel cannot work it out from timestamps —
+        the reason has to travel in the snapshot.
+        """
+        adapter = _Adapter(_series())
+        host = _host(adapter)
+        self.assertIsNone(host.snapshot()["skipped"], "nothing polled yet, nothing to explain")
+
+        asyncio.run(host.poll(now=datetime(2026, 3, 3, 4, 0)))
+        self.assertEqual(host.snapshot()["skipped"], "outside NSE cash session")
+
+        asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 0)))
+        self.assertIsNone(host.snapshot()["skipped"], "a real poll must clear the reason")
+
     def test_the_weekend_is_outside_the_session(self):
         adapter = _Adapter(_series())
         host = _host(adapter)

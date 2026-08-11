@@ -176,7 +176,7 @@
     </button>
     <button id="nav-terminal" class="nav-tab" data-pf-nav-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage" style="--accent-tab: #22c55e;">
       <span class="tab-icon" style="color: #22c55e;" id="ico-terminal"></span>
-      <span class="tab-label">Terminal</span>
+      <span class="tab-label">Equity</span>
     </button>
     <button id="nav-scalp" class="nav-tab" data-pf-nav-page="scalp-page" data-pf-after-nav="initScalpPage" style="--accent-tab: #06b6d4;">
       <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
@@ -1395,12 +1395,12 @@
   </div>
 </div>
 
-<!-- ═══ STOCK TERMINAL PAGE ═══ -->
+<!-- ═══ EQUITY PAGE (two strategies: Cash Cascade, Two-red ladder) ═══ -->
 <div id="stock-terminal-page" class="page-section">
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
       <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.28);color:#4ade80;" id="stock-terminal-head-ico"></span>
-      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Nifty 200 + BEES Terminal</span>
+      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Equity &middot; Nifty 200 + BEES</span>
       <span id="stock-terminal-status" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Loading</span>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -2014,28 +2014,27 @@
           <span id="fsx-terms-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">15m geometry · 5m entries</span>
         </div>
         <div id="fsx-info" class="pf-info-pop" style="margin-bottom:14px;"><strong>You give the mother, it runs the trade.</strong> It draws the trendlines and fibs from your mother on 15m, buys where two fibs' levels converge, ladders 1/2/3 lots on the two-red recovery and banks each round at the 0.25 retrace — entries timed on 5m. <strong>Paper only</strong>: no real order is ever sent.</div>
-        <label for="fsx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
+        <label for="fsx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:6px;margin-bottom:4px;">Underlying <button type="button" class="pf-info-btn" data-pf-info="fsx-underlying-info" aria-expanded="false" aria-label="Which contract this buys" title="Which contract this buys">i</button></label>
+        <div id="fsx-underlying-info" class="pf-info-pop" style="margin-bottom:8px;">Monthly contracts, <strong>ATM−2 CE</strong>, 15–45 DTE. Lot size comes from the live chain, not the backtest's assumption.</div>
         <select id="fsx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
           <option value="banknifty" selected>BankNifty — locked config, +₹6.72L / 73% over 22 months</option>
           <option value="nifty">NIFTY — 3-day cooldown, +₹1.95L / 70%</option>
         </select>
-        <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">Monthly contracts, ATM−2 CE, 15–45 DTE. Lot size comes from the live chain, not the backtest's assumption.</div>
         <div class="pf-cascade-campaign-actions"><button id="fsx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibSpacePaper">▶ Start paper run</button><button id="fsx-stop" class="btn cascade-options-control" type="button" data-pf-action="stopFibSpacePaper" style="display:none;">■ Stop</button></div>
         <div id="fsx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
 
         <div id="fsx-mother-box" style="display:none;margin-top:16px;padding-top:15px;border-top:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:9px;">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;">Give it a mother candle</div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;display:flex;align-items:center;gap:6px;">Give it a mother candle <button type="button" class="pf-info-btn" data-pf-info="fsx-mother-info" aria-expanded="false" aria-label="Which candle to name, and how old it may be" title="Which candle to name, and how old it may be">i</button></div>
             <span id="fsx-scan-badge" style="font:9.5px 'JetBrains Mono',monospace;color:var(--muted);"></span>
           </div>
+          <div id="fsx-mother-info" class="pf-info-pop" style="margin-bottom:9px;">A completed <strong>15m</strong> candle open — 09:15, 09:30, 09:45… Its high and low come from Dhan; nothing is typed by hand. Add as many mothers as you like, each runs as its own campaign.<br><br>A mother from a few days back is fine, and its ladder may have <strong>already filled</strong>. Those fills are priced from the contract's own <strong>recorded one-minute candle</strong> and marked <strong>ᴴ</strong> — real traded prices, but not proof the fill would have been got there. Only a leg neither a live quote nor a candle can price is left <strong>unpriced</strong>.</div>
           <label class="sr-only" for="fsx-mother-timestamp">Mother candle timestamp</label>
           <input id="fsx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" data-pf-calendar-minutes="0,15,30,45" type="datetime-local" step="900" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-          <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">A completed <strong style="color:var(--text);">15m</strong> candle open — 09:15, 09:30, 09:45… Its high and low come from Dhan; nothing is typed by hand. Add as many mothers as you like, each runs as its own campaign.</div>
           <div class="pf-cascade-campaign-actions"><button id="fsx-add-mother" class="btn cascade-options-primary-btn" type="button" data-pf-action="addFibSpaceMother">＋ Run this mother</button></div>
           <div id="fsx-mother-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
         </div>
 
-        <div style="margin-top:12px;padding:11px 12px;border:1px dashed var(--border);border-radius:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.6;">A mother from a few days back is fine, and its ladder may have <strong style="color:var(--text);">already filled</strong>. Those fills are priced from the contract's own <strong style="color:var(--text);">recorded one-minute candle</strong> and marked <strong style="color:var(--text);">ᴴ</strong> — real traded prices, but not proof the fill would have been got there. Only a leg neither a live quote nor a candle can price is left <strong style="color:var(--text);">unpriced</strong>.</div>
       </div>
 
       <details id="fsx-window" class="cascade-options-window" open>
@@ -2048,10 +2047,10 @@
           <div id="fsx-error" style="display:none;margin-top:10px;padding:9px 11px;border:1px solid var(--danger);border-radius:7px;font:10.5px 'JetBrains Mono',monospace;color:var(--danger);line-height:1.5;"></div>
           <div id="fsx-empty" class="cascade-options-empty">Nothing running. Once started it polls only during the NSE session (09:15–15:30) — outside those hours it makes no broker call at all, so an idle evening is expected, not a fault.</div>
           <div id="fsx-active" style="display:none;margin-top:16px;">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Campaigns</div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;display:flex;align-items:center;gap:6px;">Campaigns <button type="button" class="pf-info-btn" data-pf-info="fsx-campaigns-info" aria-expanded="false" aria-label="How to read this table" title="How to read this table">i</button></div>
+            <div id="fsx-campaigns-info" class="pf-info-pop" style="margin-bottom:7px;">Click a campaign for its premiums, capital and chart; click it again to collapse. <strong>Net ₹</strong> stays a dash until a round actually banks — a campaign still holding its lots has realised nothing, and a ₹0.00 there would read as a flat result.</div>
             <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Mother</th><th style="padding:6px 8px;">High</th><th style="text-align:left;padding:6px 8px;">State</th><th style="padding:6px 8px;">Fills</th><th style="padding:6px 8px;">Open qty</th><th style="padding:6px 8px;">Net ₹</th><th style="padding:6px 8px;">Open</th></tr></thead><tbody id="fsx-campaigns"></tbody></table></div>
             <div id="fsx-unpriced-note" style="display:none;margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:#fbbf24;line-height:1.5;"></div>
-            <div style="margin-top:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Click a campaign for its premiums, capital and chart · click again to collapse.</div>
           </div>
 
           <!-- One campaign, in full: what it bought, what it cost, what it is worth -->

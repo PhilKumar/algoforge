@@ -101,7 +101,14 @@
   .pf-cascade-chart-empty { min-height: 260px; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.6; }
   .pf-cascade-chart-overlay { display: none; position: fixed; inset: 0; z-index: 1200; padding: clamp(14px, 4vw, 54px); background: rgba(2,6,15,.78); backdrop-filter: blur(8px); }
   .pf-cascade-chart-overlay.is-open { display: grid; place-items: center; }
-  .pf-cascade-chart-dialog { width: min(1240px, 100%); max-height: min(760px, 92vh); overflow: auto; padding: 18px; border: 1px solid rgba(79,142,247,.32); border-radius: 14px; background: linear-gradient(160deg, #111b2d, #080d16); box-shadow: 0 28px 80px rgba(0,0,0,.64); }
+  /* scrollbar-gutter is what stops the chart flickering. The dialog scrolls,
+     and the canvas host inside it is width:100% with an aspect-ratio — so its
+     HEIGHT follows its WIDTH. A scrollbar appearing narrows the content, which
+     shortens the chart, which removes the scrollbar, which widens it again:
+     a loop that repaints every frame and is visible as a flicker. Reserving
+     the gutter breaks the feedback, because the width no longer depends on
+     whether the scrollbar is showing. */
+  .pf-cascade-chart-dialog { width: min(1240px, 100%); max-height: min(760px, 92vh); overflow: auto; scrollbar-gutter: stable; padding: 18px; border: 1px solid rgba(79,142,247,.32); border-radius: 14px; background: linear-gradient(160deg, #111b2d, #080d16); box-shadow: 0 28px 80px rgba(0,0,0,.64); }
   [data-theme="light"] .pf-cascade-chart-overlay { background: rgba(15, 23, 42, .42); }
   [data-theme="light"] .pf-cascade-chart-dialog { border-color: rgba(37,99,235,.22); background: linear-gradient(160deg, #ffffff, #f1f5f9); box-shadow: 0 28px 80px rgba(15,23,42,.24); }
   [data-theme="light"] .pf-cascade-chart { background: radial-gradient(ellipse at 50% 0%, rgba(37,99,235,.09), transparent 55%), #ffffff; }

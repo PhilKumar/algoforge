@@ -963,3 +963,63 @@ test('The action-authorization prompt sits above every other modal', async ({ pa
     expect(layers.actionAuth!, `action-auth must outrank #${name}`).toBeGreaterThan(value);
   }
 });
+
+test('A ResizeObserver notice does not put a crash screen over a working app', async ({ page }) => {
+  await login(page);
+
+  // The browser raises this when a resize callback changes layout, so the batch
+  // could not finish delivering in one frame. It retries on the next; nothing
+  // is broken and there is no stack to act on. But it arrives at window.onerror
+  // like any other error, and it used to drop a full-page "Something went
+  // wrong" over a working app the moment a chart opened — which is the actual
+  // damage, since the app underneath was fine.
+  const dispatched = await page.evaluate(() => {
+    const before = !!document.getElementById('_af-crash-screen');
+    window.dispatchEvent(
+      new ErrorEvent('error', { message: 'ResizeObserver loop completed with undelivered notifications' })
+    );
+    window.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop limit exceeded' }));
+    return before;
+  });
+  expect(dispatched, 'a crash screen was already up before the test dispatched anything').toBe(false);
+  await expect(page.locator('#_af-crash-screen')).toHaveCount(0);
+
+  // And the screen still appears for something that IS a crash — suppressing
+  // the notice must not have disarmed the handler.
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent('error', { message: 'TypeError: genuinely broken' }));
+  });
+  await expect(page.locator('#_af-crash-screen')).toHaveCount(1);
+});
+
+test('The chart dialog cannot flicker its own canvas', async ({ page }) => {
+  await login(page);
+
+  // The flicker: the chart dialog scrolls, and the canvas host inside it is
+  // width:100% with an aspect-ratio, so its HEIGHT follows its WIDTH. A
+  // scrollbar appearing narrows the content -> the chart shortens -> the
+  // scrollbar goes -> it widens again. That loop repaints every frame, and is
+  // both what "the chart flickers" was and what raised the ResizeObserver
+  // notice that put a crash screen over the app.
+  //
+  // Reserving the gutter breaks the feedback at the source: the content width
+  // no longer depends on whether the scrollbar happens to be showing.
+  const gutter = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.className = 'pf-cascade-chart-dialog';
+    document.body.appendChild(probe);
+    const value = getComputedStyle(probe).scrollbarGutter;
+    probe.remove();
+    return value;
+  });
+  expect(gutter, 'the chart dialog must reserve its scrollbar gutter').toContain('stable');
+
+  // The second guard is a dead-band inside the resize routine, so a pixel of
+  // layout wobble never reaches a redraw. It lives in the drawing file rather
+  // than the DOM, so it is pinned where it can actually be exercised.
+  const deadBand = await page.evaluate(async () => {
+    const source = await fetch('/static/philforge-bench-chart.js').then(r => r.text());
+    return /Math\.abs\(cssW - c\.w\) <= 2 && Math\.abs\(cssH - c\.h\) <= 2/.test(source);
+  });
+  expect(deadBand, 'the resize dead-band is gone — a 1px wobble will repaint again').toBe(true);
+});
