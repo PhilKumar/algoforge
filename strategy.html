@@ -1692,6 +1692,10 @@
               <input id="tworeds-mother-timestamp" data-pf-calendar-no-future="1" type="datetime-local" step="300">
             </div>
             <div class="terminal-cascade-field">
+              <label>Or let it find them</label>
+              <button type="button" id="tworeds-find-mothers" class="btn btn-sm btn-outline" data-pf-action="findTwoRedMothers">Find mothers</button>
+            </div>
+            <div class="terminal-cascade-field">
               <label for="tworeds-mother-timeframe">Mother chart</label>
               <!-- Daily by default and that is the finding, not a preference: a
                    mother read on the entry chart sits ~0.15% above the buy, so
@@ -1725,8 +1729,14 @@
               </select>
             </div>
           </div>
+          <!-- WHY THIS LIST EXISTS. With an 8% gate most candles are not live
+               setups, so naming one by hand and being told "spent" afterwards
+               leaves nowhere to go. This is the same detector the backtest
+               used, run on the scrip's own daily chart. -->
+          <div id="tworeds-mothers" class="terminal-cascade-selected" style="display:none;"></div>
           <div class="terminal-cascade-start-panel-actions">
             <button id="tworeds-start" class="btn btn-sm terminal-cascade-start-btn" data-pf-action="startTwoRedCampaign">Start Paper</button>
+            <button id="tworeds-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" data-pf-action="loadTwoRedChart">Chart</button>
           </div>
           <div id="tworeds-form-status" class="terminal-cascade-form-status"></div>
         </section>
@@ -1766,6 +1776,26 @@
       <div id="tworeds-campaigns-body">
         <div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>
       </div>
+    </div>
+
+    <div class="pf-cascade-chart-overlay" id="tworeds-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Two-red ladder chart">
+      <section class="pf-cascade-chart-dialog">
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title">
+            <h3 id="tworeds-chart-title">Ladder chart</h3>
+            <div id="tworeds-chart-meta">Mother high, the level the first buy waits for, and every fill.</div>
+          </div>
+          <div class="terminal-cascade-chart-actions">
+            <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="tworeds-chart-tf">
+              <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="1h" role="radio" aria-checked="false">1H</button>
+              <button type="button" class="terminal-cascade-tf-option is-active" data-tworeds-tf="1d" role="radio" aria-checked="true">1D</button>
+              <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="1w" role="radio" aria-checked="false">1W</button>
+            </div>
+            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close" aria-label="Close chart">&#10005;</button>
+          </div>
+        </div>
+        <div id="tworeds-chart" class="pf-cascade-chart"></div>
+      </section>
     </div>
 
     <div class="card terminal-cascade-shell" id="tworeds-closed-panel">

@@ -19,6 +19,7 @@ from engine.two_red_equity import (
     TwoRedEquityInstrument,
     TwoRedEquityPaperEngine,
     complete_weeks,
+    find_mothers,
     ladder_for,
     regroup_weekly,
 )
@@ -328,6 +329,113 @@ class TestWeeklyBars:
         done = complete_weeks(weekly, date(2026, 3, 10))  # inside the 9 Mar week
         assert len(done) == 1
         assert done[0].timestamp == datetime(2026, 3, 2)
+
+
+class TestMotherFinder:
+    """The piece that makes the page usable: which mothers are still live."""
+
+    @staticmethod
+    def _run_up(start_day: int, base: float, bars: int = 6, warmup: int = 20) -> list:
+        """Warm-up bars, then a run of consecutive higher highs.
+
+        The warm-up is not padding: `find_run_mothers` skips any bar whose ATR
+        is not yet defined, and ATR needs `atr_period` (14) bars behind it. A
+        fixture without it finds nothing and looks like a broken detector.
+        """
+        day = datetime(2026, 1, 1) + timedelta(days=start_day)
+        flat = [
+            LadderCandle("1d", day + timedelta(days=i), base - 40, base - 32, base - 48, base - 36)
+            for i in range(warmup)
+        ]
+        run = [
+            LadderCandle(
+                "1d",
+                day + timedelta(days=warmup + i),
+                base + i * 10,
+                base + i * 10 + 8,
+                base + i * 10 - 4,
+                base + i * 10 + 6,
+            )
+            for i in range(bars)
+        ]
+        return flat + run
+
+    @staticmethod
+    def _after(rows: list, offset: int) -> datetime:
+        return rows[-1].timestamp + timedelta(days=offset)
+
+    def test_a_mother_that_fell_far_enough_reads_ready(self):
+        rows = self._run_up(0, 900.0)
+        top = rows[-1].high
+        # Drift well below the gate without ever closing back above the high.
+        rows += [
+            LadderCandle(
+                "1d",
+                self._after(rows, 1 + i),
+                top - 20 - i * 20,
+                top - 15 - i * 20,
+                top - 30 - i * 20,
+                top - 25 - i * 20,
+            )
+            for i in range(8)
+        ]
+        found = find_mothers(rows, min_fall_pct=8.0)
+        assert found
+        assert found[0].state == "ready"
+        assert found[0].fall_pct >= 8.0
+
+    def test_a_mother_price_climbed_back_over_reads_spent(self):
+        rows = self._run_up(0, 900.0)
+        top = rows[-1].high
+        reclaim_at = self._after(rows, 2)
+        rows += [
+            LadderCandle("1d", self._after(rows, 1), top - 20, top - 15, top - 30, top - 25),
+            LadderCandle("1d", reclaim_at, top - 20, top + 30, top - 25, top + 25),
+        ]
+        found = find_mothers(rows, min_fall_pct=8.0)
+        assert found
+        assert found[0].state == "spent"
+        assert found[0].reclaimed_at == reclaim_at
+
+    def test_a_shallow_fall_reads_waiting_not_ready(self):
+        rows = self._run_up(0, 900.0)
+        top = rows[-1].high
+        rows += [LadderCandle("1d", self._after(rows, 1 + i), top - 5, top - 3, top - 9, top - 7) for i in range(4)]
+        found = find_mothers(rows, min_fall_pct=8.0)
+        assert found
+        assert found[0].state == "waiting"
+        assert found[0].fall_pct < 8.0
+
+    def test_the_fall_is_measured_only_up_to_the_reclaim(self):
+        """A crash AFTER the mother was reclaimed belongs to a later structure."""
+        rows = self._run_up(0, 900.0)
+        top = rows[-1].high
+        rows += [
+            LadderCandle("1d", self._after(rows, 1), top - 20, top - 15, top - 30, top - 25),
+            LadderCandle("1d", self._after(rows, 2), top - 20, top + 40, top - 25, top + 35),
+            # A 40% collapse, but it is not this mother's fall.
+            LadderCandle("1d", self._after(rows, 3), top * 0.7, top * 0.72, top * 0.6, top * 0.62),
+        ]
+        found = find_mothers(rows, min_fall_pct=8.0)
+        assert found[0].state == "spent"
+        assert found[0].fall_pct < 8.0
+
+    def test_daily_bars_are_not_dropped_by_the_same_session_guard(self):
+        """A daily bar IS a session; the intraday guard would find zero here."""
+        rows = self._run_up(0, 900.0)
+        rows += [LadderCandle("1d", self._after(rows, 1), 940, 945, 930, 935)]
+        assert find_mothers(rows, min_fall_pct=8.0)
+
+    def test_newest_first(self):
+        rows = self._run_up(0, 900.0)
+        rows += self._run_up(60, 1200.0)
+        rows += [LadderCandle("1d", self._after(rows, 1), 1200, 1205, 1190, 1195)]
+        found = find_mothers(rows, min_fall_pct=8.0)
+        assert len(found) >= 2
+        assert found[0].timestamp > found[-1].timestamp
+
+    def test_too_short_a_series_returns_nothing_rather_than_raising(self):
+        assert find_mothers([LadderCandle("1d", datetime(2026, 3, 2), 1, 2, 0.5, 1.5)]) == []
 
 
 class TestConfig:

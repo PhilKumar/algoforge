@@ -1468,6 +1468,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   // from this allowlist dies SILENTLY — the click is simply ignored.
   'startTwoRedCampaign',
   'refreshTwoRedCampaigns',
+  'findTwoRedMothers',
+  'loadTwoRedChart',
+  'hideTwoRedChart',
   'armFibBoundaryLive',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',

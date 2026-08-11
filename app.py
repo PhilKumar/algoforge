@@ -151,6 +151,7 @@ from engine.two_red_equity import (
     TwoRedEquityInstrument,
     TwoRedEquityPaperEngine,
     complete_weeks,
+    find_mothers,
     regroup_weekly,
 )
 from image_uploads import ImageValidationError, sanitize_image
@@ -14836,9 +14837,52 @@ async def two_red_delete(request: Request, symbol: str):
     return {"status": "deleted"}
 
 
+@app.get("/api/two-red/mothers")
+async def two_red_mothers(request: Request, symbol: str, timeframe: str = "1d", sessions: int = 400):
+    """The run-mothers on this scrip, each marked spent / waiting / ready.
+
+    Without this the page is unusable: an 8% gate means most candles are not
+    live setups, and naming one by hand only tells you it was spent AFTER the
+    campaign voids. This is the same detector the backtest used.
+    """
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to look for mothers.")
+    normalised = str(timeframe or "1d").lower()
+    if normalised not in {"1h", "1d"}:
+        raise HTTPException(status_code=400, detail="Mother timeframe must be 1h or 1d.")
+    _instrument, stock = _two_red_instrument(symbol)
+    today = datetime.now(IST).date()
+    span = 60 if normalised == "1h" else int(sessions * 7 / 5) + 10
+    charts = await _two_red_load_charts(broker_client, stock, from_date=today - timedelta(days=span), to_date=today)
+    rows = charts.get(normalised, [])
+    mothers = find_mothers(rows, min_fall_pct=float(TWO_RED_DEFAULT_MIN_FALL_PCT))
+    return {
+        "status": "ok",
+        "symbol": stock["symbol"],
+        "timeframe": normalised,
+        "scanned": len(rows),
+        "last_price": rows[-1].close if rows else None,
+        "mothers": [row.to_dict() for row in mothers],
+    }
+
+
 @app.get("/api/two-red/chart")
-async def two_red_chart(request: Request, symbol: str, timeframe: str = "1d", sessions: int = 120):
-    """Candles behind a campaign, on whichever chart is being looked at."""
+async def two_red_chart(
+    request: Request,
+    symbol: str,
+    timeframe: str = "1d",
+    sessions: int = 120,
+    mother_timestamp: str = "",
+):
+    """Candles plus the levels the rule is actually watching.
+
+    The levels are the point. Candles alone say nothing about this strategy --
+    what matters is where the mother high sits, where the first buy becomes
+    legal (the gate), and where the target is. Those are drawn as `lines`,
+    which is the one Canvas renderer's own contract.
+    """
+    user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load candles.")
@@ -14851,8 +14895,54 @@ async def two_red_chart(request: Request, symbol: str, timeframe: str = "1d", se
     charts = await _two_red_load_charts(
         broker_client, stock, from_date=today - timedelta(days=int(span * 7 / 5) + 10), to_date=today
     )
-    rows = charts.get(normalised, [])
+    rows = charts.get(normalised, [])[-int(sessions) :]
+
+    # A running campaign is the best source of the levels; falling back to a
+    # bare mother timestamp lets the chart be read BEFORE Start, which is when
+    # it is most useful.
+    runtimes = _two_red_engines.get(int(user_id), {})
+    runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
+    engine = runtime.engine if runtime else None
+    mother_high = None
+    mother_at = None
+    min_fall = float(TWO_RED_DEFAULT_MIN_FALL_PCT)
+    lines: list[dict] = []
+    entries: list[dict] = []
+    exits: list[dict] = []
+
+    if engine is not None:
+        mother_high = engine.mother.high
+        mother_at = engine.mother.timestamp
+        min_fall = engine.config.min_fall_pct
+        for fill in engine.ladder.fills:
+            entries.append({"t": fill.timestamp.isoformat(), "price": fill.index_price})
+        if engine.ladder.exit_timestamp and engine.ladder.exit_index_price:
+            money = engine.realised
+            exits.append(
+                {
+                    "t": engine.ladder.exit_timestamp.isoformat(),
+                    "price": engine.ladder.exit_index_price,
+                    "pnl": money.net_pnl if money else None,
+                }
+            )
+    elif mother_timestamp:
+        wanted = _parse_cascade_mother_timestamp(mother_timestamp)
+        bar = next((row for row in charts.get(normalised, []) if row.timestamp == wanted), None)
+        if bar is not None:
+            mother_high = bar.high
+            mother_at = bar.timestamp
+
+    if mother_high:
+        lines.append({"price": round(mother_high, 2), "label": "MOTHER HIGH", "filled": True})
+        gate = mother_high * (1 - min_fall / 100.0)
+        lines.append({"price": round(gate, 2), "label": f"FIRST BUY BELOW ({min_fall:g}%)", "filled": False})
+        if engine is not None and engine.ladder.target_index:
+            lines.append({"price": engine.ladder.target_index, "label": "TARGET", "filled": False})
+            if engine.ladder.average_entry:
+                lines.append({"price": engine.ladder.average_entry, "label": "AVG ENTRY", "filled": True})
+
     return {
+        "status": "ok",
         "symbol": stock["symbol"],
         "timeframe": normalised,
         "candles": [
@@ -14862,9 +14952,17 @@ async def two_red_chart(request: Request, symbol: str, timeframe: str = "1d", se
                 "h": row.high,
                 "l": row.low,
                 "c": row.close,
+                "is_mother": bool(mother_at and row.timestamp == mother_at),
             }
-            for row in rows[-int(sessions) :]
+            for row in rows
         ],
+        "mother": ({"high": mother_high, "low": engine.mother.low} if engine is not None else None),
+        "lines": lines,
+        "entries": entries,
+        "exits": exits,
+        "avg_entry_price": engine.ladder.average_entry if engine is not None else None,
+        "tp_price": engine.ladder.target_index if engine is not None else None,
+        "tp_label": "0.75 back to the mother" if engine is not None else "",
     }
 
 

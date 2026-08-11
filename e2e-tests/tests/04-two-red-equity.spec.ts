@@ -162,6 +162,108 @@ test('the ladder screen renders its own columns and arithmetic', async ({ page }
   await expect(page.locator('#tworeds-symbol')).toHaveValue('PAYTM');
 });
 
+test('the mother finder lists live mothers and picking one fills the form', async ({ page }) => {
+  await page.route('**/api/two-red/mothers?**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok', symbol: 'RELIANCE', timeframe: '1d', scanned: 400, last_price: 1200,
+        mothers: [
+          { timestamp: '2026-07-14T09:15:00', high: 1500, low: 1470, state: 'ready',
+            fall_pct: 12.4, now_pct: 20, reclaimed_at: null, bars_since: 20 },
+          { timestamp: '2026-06-02T09:15:00', high: 1400, low: 1380, state: 'waiting',
+            fall_pct: 3.1, now_pct: 14, reclaimed_at: null, bars_since: 50 },
+          { timestamp: '2026-04-01T09:15:00', high: 1300, low: 1280, state: 'spent',
+            fall_pct: 2.0, now_pct: 8, reclaimed_at: '2026-04-09T09:15:00', bars_since: 90 },
+        ],
+      }),
+    });
+  });
+
+  await login(page);
+  await page.click('#nav-terminal');
+  await page.click('[data-equity-strategy="tworeds"]');
+  await page.fill('#tworeds-symbol', 'RELIANCE');
+  await page.click('#tworeds-find-mothers');
+
+  const list = page.locator('#tworeds-mothers');
+  await expect(list).toBeVisible({ timeout: 10_000 });
+  await expect(list).toContainText('ready');
+  await expect(list).toContainText('waiting');
+  await expect(list).toContainText('spent');
+  await expect(page.locator('#tworeds-form-status')).toContainText('1 ready to take');
+
+  // A spent mother cannot be chosen — starting on it would void immediately.
+  await expect(list.locator('[data-two-red-mother="2026-04-01T09:15:00"]')).toBeDisabled();
+
+  // Picking the ready one fills the timestamp the Start button reads.
+  await list.locator('[data-two-red-mother="2026-07-14T09:15:00"]').click();
+  await expect(page.locator('#tworeds-mother-timestamp')).toHaveValue('2026-07-14T09:15');
+});
+
+test('the ladder chart is the Canvas renderer, not a hand-rolled SVG', async ({ page }) => {
+  await page.route('**/api/two-red/chart?**', async (route) => {
+    const candles = [];
+    let base = 1500;
+    for (let i = 0; i < 60; i += 1) {
+      base -= 4;
+      candles.push({
+        t: new Date(Date.UTC(2026, 5, 1 + i, 3, 45)).toISOString().replace('Z', ''),
+        o: base, h: base + 6, l: base - 6, c: base + 1, is_mother: i === 0,
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok', symbol: 'RELIANCE', timeframe: '1d', candles,
+        mother: { high: 1506, low: 1494 },
+        lines: [
+          { price: 1506, label: 'MOTHER HIGH', filled: true },
+          { price: 1385.52, label: 'FIRST BUY BELOW (8%)', filled: false },
+        ],
+        entries: [], exits: [], avg_entry_price: null, tp_price: null, tp_label: '',
+      }),
+    });
+  });
+
+  await login(page);
+  await page.click('#nav-terminal');
+  await page.click('[data-equity-strategy="tworeds"]');
+  await page.fill('#tworeds-symbol', 'RELIANCE');
+  await page.click('#tworeds-chart-btn');
+
+  const overlay = page.locator('#tworeds-chart-overlay');
+  await expect(overlay).toHaveClass(/is-open/, { timeout: 10_000 });
+
+  // The one renderer draws to a CANVAS — two of them, a main surface and an
+  // overlay for the crosshair. An SVG here would mean a second renderer had
+  // crept back in, which is the whole thing being prevented.
+  const canvas = page.locator('#pf-bench-canvas-main');
+  await expect(canvas).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#tworeds-chart canvas')).toHaveCount(2);
+  await expect(page.locator('#tworeds-chart svg')).toHaveCount(0);
+
+  // And it actually painted something, rather than mounting an empty surface.
+  const painted = await canvas.evaluate((el: HTMLCanvasElement) => {
+    const ctx = el.getContext('2d');
+    if (!ctx || !el.width || !el.height) return 0;
+    const data = ctx.getImageData(0, 0, el.width, el.height).data;
+    const seen = new Set<string>();
+    for (let i = 0; i < data.length; i += 4) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+    return seen.size;
+  });
+  expect(painted).toBeGreaterThan(3);
+
+  await expect(page.locator('#tworeds-chart-meta')).toContainText('2 levels');
+
+  // Closing must tear the canvas down, or the renderer's observers leak.
+  await page.click('[data-pf-action="hideTwoRedChart"]');
+  await expect(overlay).not.toHaveClass(/is-open/);
+  await expect(page.locator('#tworeds-chart canvas')).toHaveCount(0);
+});
+
 test('the two-red status endpoint answers and declares itself paper-only', async ({ page }) => {
   await login(page);
   const body = await page.evaluate(async () => {

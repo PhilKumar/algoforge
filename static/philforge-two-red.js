@@ -253,7 +253,11 @@
       // for something that is over reads as a fault when the table shows it
       // closed a second later.
       if (campaign.status === 'VOID') {
-        setStatus('That mother is spent — price closed back above its high before any buy. Nothing is running.', 'error');
+        // Saying only "spent" leaves nowhere to go, and with an 8% gate most
+        // hand-picked candles ARE spent. Point at the finder instead.
+        setStatus('That mother is spent — price closed back above its high, so the fall it was waiting for is over. '
+          + 'Press Find mothers to see which ones are still live.', 'error');
+        if (typeof window.findTwoRedMothers === 'function') window.findTwoRedMothers();
       } else if (campaign.status === 'CLOSED') {
         setStatus('Replayed to now and it has already finished. See the row below.', 'success');
       } else {
@@ -268,6 +272,145 @@
   };
 
   window.refreshTwoRedCampaigns = function refreshTwoRedCampaigns() { refresh(); };
+
+  /* ── the mother finder ──────────────────────────────────────────
+   * The piece that makes this page usable. An 8% gate means most candles are
+   * not live setups: over three years a symbol takes 2-8 trades. Naming one by
+   * hand and being told "spent" afterwards leaves nowhere to go, so this runs
+   * the backtest's own detector and says which mothers are still worth taking.
+   */
+  function motherRow(row) {
+    var tone = row.state === 'ready' ? '#6ee7b7' : row.state === 'waiting' ? '#fbbf24' : 'var(--muted)';
+    var when = String(row.timestamp).slice(0, 10);
+    var why = row.state === 'ready'
+      ? 'fell ' + row.fall_pct.toFixed(1) + '% — deep enough to buy'
+      : row.state === 'waiting'
+        ? 'only ' + row.fall_pct.toFixed(1) + '% down so far'
+        : 'reclaimed ' + (row.reclaimed_at ? String(row.reclaimed_at).slice(0, 10) : '');
+    return '<button type="button" class="cascade-scan-rung' +
+      (row.state === 'spent' ? ' is-short' : '') +
+      '" data-two-red-mother="' + esc(row.timestamp) + '"' +
+      (row.state === 'spent' ? ' disabled' : '') +
+      ' style="text-align:left;cursor:' + (row.state === 'spent' ? 'not-allowed' : 'pointer') + ';">' +
+      '<span style="color:' + tone + ';">' + esc(row.state) + ' · ' + esc(when) + '</span>' +
+      '<strong>' + rupees(row.high, 2) + '</strong>' +
+      '<em>' + esc(why) + '</em>' +
+      '</button>';
+  }
+
+  window.findTwoRedMothers = async function findTwoRedMothers() {
+    var symbol = (($('tworeds-symbol') || {}).value || '').trim().toUpperCase();
+    if (!symbol) { setStatus('Pick a scrip first — then it can look for mothers.', 'error'); return; }
+    var box = $('tworeds-mothers');
+    var button = $('tworeds-find-mothers');
+    if (button) button.disabled = true;
+    setStatus('Looking for run-mothers on ' + symbol + '…');
+    try {
+      var res = await fetch('/api/two-red/mothers?symbol=' + encodeURIComponent(symbol) +
+        '&timeframe=' + encodeURIComponent(($('tworeds-mother-timeframe') || {}).value || '1d'),
+        { credentials: 'same-origin', cache: 'no-store' });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Could not look for mothers.');
+      var rows = data.mothers || [];
+      if (box) {
+        box.style.display = '';
+        if (!rows.length) {
+          box.innerHTML = '<div class="cascade-scan-rung-note">No run-mothers found on ' +
+            esc(symbol) + '. That means no run of five higher highs in the window — not a fault.</div>';
+        } else {
+          box.innerHTML = '<div class="cascade-scan-rungs-strip">' + rows.map(motherRow).join('') +
+            '<div class="cascade-scan-rung-note"><strong>ready</strong> has already fallen far enough to buy · ' +
+            '<strong>waiting</strong> is still under its high but not deep enough yet · ' +
+            '<strong>spent</strong> closed back above its high, so a campaign on it would void at once.</div></div>';
+        }
+      }
+      var ready = rows.filter(function (row) { return row.state === 'ready'; }).length;
+      setStatus(rows.length + ' mother' + (rows.length === 1 ? '' : 's') + ' found · ' +
+        (ready ? ready + ' ready to take. Click one.' : 'none ready — the ones waiting can still be started.'),
+        ready ? 'success' : '');
+    } catch (err) {
+      setStatus(String((err && err.message) || err), 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  };
+
+  /* ── the chart ──────────────────────────────────────────────────
+   * pfBenchDrawChart is the ONE renderer PhilForge draws through. This owns
+   * only the payload translator: `t` as epoch SECONDS, and the levels that
+   * make the picture mean something.
+   */
+  function chartPayload(data) {
+    var epoch = function (value) {
+      var parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null;
+    };
+    var candles = (data.candles || []).map(function (row) {
+      return {
+        t: epoch(row.t), o: Number(row.o), h: Number(row.h),
+        l: Number(row.l), c: Number(row.c), is_mother: !!row.is_mother
+      };
+    }).filter(function (row) {
+      return row.t !== null && [row.o, row.h, row.l, row.c].every(Number.isFinite);
+    });
+    return {
+      timeframe: data.timeframe || '1d',
+      candles: candles,
+      mother: data.mother || null,
+      lines: data.lines || [],
+      entries: (data.entries || []).map(function (row) { return { t: epoch(row.t), price: Number(row.price) }; }),
+      exits: (data.exits || []).map(function (row) {
+        return { t: epoch(row.t), price: Number(row.price), pnl: row.pnl };
+      }),
+      avg_entry_price: data.avg_entry_price || null,
+      tp_price: data.tp_price || null,
+      tp_label: data.tp_label || ''
+    };
+  }
+
+  var chartTf = '1d';
+
+  window.loadTwoRedChart = async function loadTwoRedChart() {
+    var symbol = (($('tworeds-symbol') || {}).value || '').trim().toUpperCase();
+    if (!symbol) { setStatus('Pick a scrip first.', 'error'); return; }
+    var overlay = $('tworeds-chart-overlay');
+    var box = $('tworeds-chart');
+    var title = $('tworeds-chart-title');
+    if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+    if (title) title.textContent = symbol + ' · ' + chartTf.toUpperCase();
+    if (box) box.innerHTML = '<div class="pf-cascade-chart-empty">Loading ' + esc(symbol) + ' candles…</div>';
+    try {
+      var query = 'symbol=' + encodeURIComponent(symbol) + '&timeframe=' + encodeURIComponent(chartTf);
+      var mother = ($('tworeds-mother-timestamp') || {}).value;
+      if (mother) query += '&mother_timestamp=' + encodeURIComponent(mother);
+      var res = await fetch('/api/two-red/chart?' + query, { credentials: 'same-origin', cache: 'no-store' });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Chart failed.');
+      if (typeof window.pfBenchDrawChart !== 'function') throw new Error('Chart renderer not loaded.');
+      // Only ONE canvas may be mounted at a time — the renderer finds its
+      // surfaces by fixed ids, so anything already open has to go first.
+      if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
+      if (box) box.innerHTML = '';
+      window.pfBenchDrawChart(box, chartPayload(data));
+      var meta = $('tworeds-chart-meta');
+      if (meta) {
+        meta.textContent = (data.candles || []).length + ' closed ' + String(data.timeframe).toUpperCase() +
+          ' candles · ' + (data.lines || []).length + ' levels · drag to pan, wheel to zoom, double-click to reset';
+      }
+    } catch (err) {
+      if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
+      if (box) box.innerHTML = '<div class="pf-cascade-chart-empty">' + esc(String((err && err.message) || err)) + '</div>';
+    }
+  };
+
+  window.hideTwoRedChart = function hideTwoRedChart() {
+    var overlay = $('tworeds-chart-overlay');
+    if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+    // Not tearing down leaks the resize/mutation observers the renderer mounts.
+    if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
+    var box = $('tworeds-chart');
+    if (box) box.innerHTML = '';
+  };
 
   async function post(url, symbol) {
     var res = await fetch(url + '?symbol=' + encodeURIComponent(symbol), {
@@ -371,6 +514,49 @@
         var purse = $('tworeds-capital');
         if (capital && purse && capital.value) purse.value = capital.value;
         setStatus(symbol + ' picked. Name the mother candle to start.', '');
+      });
+    }
+
+    // Picking a found mother fills the timestamp field, which is the whole
+    // point of the finder: no typing a datetime and hoping.
+    var mothers = $('tworeds-mothers');
+    if (mothers) {
+      mothers.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-two-red-mother]');
+        if (!button || button.disabled) return;
+        var stamp = button.getAttribute('data-two-red-mother');
+        var field = $('tworeds-mother-timestamp');
+        if (field) {
+          // datetime-local wants YYYY-MM-DDTHH:MM and nothing after it.
+          field.value = String(stamp).slice(0, 16);
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        mothers.querySelectorAll('[data-two-red-mother]').forEach(function (node) {
+          node.classList.toggle('is-picked', node === button);
+        });
+        setStatus('Mother of ' + String(stamp).slice(0, 10) + ' chosen. Start Paper to run it.', 'success');
+      });
+    }
+
+    var tfToggle = $('tworeds-chart-tf');
+    if (tfToggle) {
+      tfToggle.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-tworeds-tf]');
+        if (!button) return;
+        chartTf = button.getAttribute('data-tworeds-tf');
+        tfToggle.querySelectorAll('[data-tworeds-tf]').forEach(function (node) {
+          var active = node === button;
+          node.classList.toggle('is-active', active);
+          node.setAttribute('aria-checked', active ? 'true' : 'false');
+        });
+        window.loadTwoRedChart();
+      });
+    }
+
+    var overlay = $('tworeds-chart-overlay');
+    if (overlay) {
+      overlay.addEventListener('click', function (event) {
+        if (event.target === overlay) window.hideTwoRedChart();
       });
     }
 

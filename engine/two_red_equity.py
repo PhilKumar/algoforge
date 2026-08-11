@@ -542,6 +542,117 @@ def regroup_weekly(daily: Sequence[LadderCandle]) -> list[LadderCandle]:
     return folded
 
 
+@dataclass(frozen=True)
+class MotherState:
+    """One found mother, and whether it is still worth starting a campaign on.
+
+    WHY THIS EXISTS. Naming a mother by hand and hoping is not how this rule was
+    ever tested: the backtest FOUND its mothers, and most of what it found never
+    traded. Over three years a symbol takes 2-8 trades, so the odds that any
+    given candle is a live setup are small, and a form that just says "spent"
+    afterwards leaves no way to find one that is not. This is the finder.
+
+    The three states are the whole decision:
+    * `spent`   -- price has closed back above the high, so the fall it was
+                   waiting for is over and a campaign would void at once.
+    * `waiting` -- still under the high, but not yet the required distance down.
+                   Startable; it will simply sit until it gets there, or die.
+    * `ready`   -- under the high by at least the gate. This is the one to take.
+    """
+
+    timestamp: datetime
+    high: float
+    low: float
+    state: str
+    fall_pct: float  # deepest fall below the high since, as a positive percent
+    now_pct: float  # where price sits now, below the high
+    reclaimed_at: Optional[datetime]
+    bars_since: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "high": self.high,
+            "low": self.low,
+            "state": self.state,
+            "fall_pct": self.fall_pct,
+            "now_pct": self.now_pct,
+            "reclaimed_at": self.reclaimed_at.isoformat() if self.reclaimed_at else None,
+            "bars_since": self.bars_since,
+        }
+
+
+def find_mothers(
+    candles: Sequence[LadderCandle],
+    *,
+    min_fall_pct: float = DEFAULT_MIN_FALL_PCT,
+    run: int = 5,
+    atr_period: int = 14,
+    limit: int = 12,
+) -> list[MotherState]:
+    """Run-mothers on this chart, each judged against what happened after it.
+
+    `find_run_mothers` is the same detector the backtest used -- the last bar of
+    a run of consecutive higher highs, confirmed the moment it closes rather
+    than needing future bars to prove a pivot. `same_session_only` is off
+    because a daily or weekly bar IS a session, and the default would find
+    exactly nothing on those charts.
+    """
+    from engine.cascade_mothers import find_run_mothers
+
+    rows = sorted(candles, key=lambda row: row.timestamp)
+    # ATR WARM-UP, not padding. find_run_mothers skips any bar whose ATR is not
+    # yet defined, and ATR needs its full period behind it -- so a short series
+    # returns nothing at all and reads as a broken detector rather than a thin
+    # one. Say the requirement here instead of discovering it in a fixture.
+    if len(rows) < atr_period + run:
+        return []
+    daily = str(rows[-1].timeframe) in {"1d", "1w"}
+    found = find_run_mothers(rows, run=run, atr_period=atr_period, min_separation_bars=0, same_session_only=not daily)
+
+    by_timestamp = {row.timestamp: index for index, row in enumerate(rows)}
+    last_close = float(rows[-1].close)
+    out: list[MotherState] = []
+    for mother in found:
+        start = by_timestamp.get(mother.timestamp)
+        if start is None:
+            continue
+        after = rows[start + 1 :]
+        if not after:
+            continue
+        high = float(mother.high)
+        if high <= 0:
+            continue
+        reclaimed_at = next((row.timestamp for row in after if row.close > high), None)
+        # The deepest it got BEFORE being reclaimed. Measuring past that point
+        # would credit a mother with a fall that belongs to a later structure.
+        window = after if reclaimed_at is None else [row for row in after if row.timestamp < reclaimed_at]
+        deepest = min((row.low for row in window), default=high)
+        fall_pct = (high - float(deepest)) / high * 100.0
+        if reclaimed_at is not None:
+            state = "spent"
+        elif fall_pct >= min_fall_pct:
+            state = "ready"
+        else:
+            state = "waiting"
+        out.append(
+            MotherState(
+                timestamp=mother.timestamp,
+                high=round(high, 2),
+                low=round(float(mother.low), 2),
+                state=state,
+                fall_pct=round(fall_pct, 2),
+                now_pct=round((high - last_close) / high * 100.0, 2),
+                reclaimed_at=reclaimed_at,
+                bars_since=len(after),
+            )
+        )
+    # Newest first: a live setup is far more likely to be recent, and a
+    # three-year-old spent mother is only ever context.
+    out.sort(key=lambda row: row.timestamp, reverse=True)
+    return out[:limit]
+
+
 def complete_weeks(weekly: Sequence[LadderCandle], today: date) -> list[LadderCandle]:
     """Only weeks that have actually finished.
 

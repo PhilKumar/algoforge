@@ -189,27 +189,14 @@ function createEquityScanner(cfg) {
     restoreScrollState(scrollState);
   }
 
-  /* ── chart ──────────────────────────────────────────────────────
-   * Native exchange OHLC, drawn body-and-wick. Same palette as the campaign
-   * chart so the two read as one system. Nothing here is smoothed or
-   * synthesised: the whole job of this chart is to justify the ranking, and a
-   * lookalike series would be justifying something else.
-   */
-
-  function palette() {
-    var theme = document.documentElement.getAttribute('data-theme');
-    if (!theme || theme === 'auto') {
-      theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    }
-    if (theme === 'light') {
-      return { bg: '#ffffff', grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
-               up: '#0f766e', down: '#be123c', high: '#7c3aed', now: '#334155',
-               zone: 'rgba(190,18,60,.09)', low: '#0369a1', rung: 'rgba(3,105,161,.55)' };
-    }
-    return { bg: '#07101d', grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
-             up: '#3fae56', down: '#d9534f', high: '#a855f7', now: '#e2e8f0',
-             zone: 'rgba(217,83,79,.12)', low: '#38bdf8', rung: 'rgba(56,189,248,.5)' };
-  }
+  /* The chart itself is NOT drawn here. It used to be: a hand-rolled SVG with a
+   * fixed viewBox, a wall-clock x-axis, no session-gap blocks and no pan or
+   * zoom. That is a second renderer, and a second renderer drifts -- the fib
+   * overlay proved it before being ported. PhilForge draws every chart through
+   * pfBenchDrawChart (static/philforge-bench-chart.js); this file owns only the
+   * payload translator, `scanCanvasPayload` below.
+   *
+   * `esc` stays because the table markup uses it. */
 
   function esc(text) {
     return String(text).replace(/[&<>"]/g, function (ch) {
@@ -217,142 +204,6 @@ function createEquityScanner(cfg) {
     });
   }
 
-  function chartSvg(payload) {
-    var PAL = palette();
-    var rows = payload.candles || [];
-    if (!rows.length) return '<div class="cascade-scan-empty">No candles returned.</div>';
-
-    // Same proportions and left price gutter as the campaign chart, so moving
-    // between the two does not mean re-learning where to look.
-    var W = 1320, H = 380, padL = 150, padR = 22, padT = 16, padB = 28;
-    var plotW = W - padL - padR, plotH = H - padT - padB;
-    var n = rows.length, cw = plotW / Math.max(n, 1);
-
-    var lo = rows[0].l, hi = rows[0].h;
-    rows.forEach(function (row) { lo = Math.min(lo, row.l); hi = Math.max(hi, row.h); });
-    hi = Math.max(hi, payload.recent_high);
-    lo = Math.min(lo, payload.last_price);
-    var span = (hi - lo) || 1;
-    var maxP = hi + span * 0.06, minP = lo - span * 0.06;
-
-    // The leg the ranking is reading: the window's highest high, and the lowest
-    // low printed since it. Every number under the chart is measured off this
-    // pair, so it is drawn rather than left implied.
-    var highAt = 0;
-    rows.forEach(function (row, i) { if (row.h >= rows[highAt].h) highAt = i; });
-    var lowAt = highAt;
-    for (var k = highAt; k < n; k += 1) { if (rows[k].l <= rows[lowAt].l) lowAt = k; }
-    var swingLow = rows[lowAt].l;
-    var legRange = payload.recent_high - swingLow;
-    var retraced = legRange > 0 ? ((payload.recent_high - payload.last_price) / legRange) * 100 : 0;
-
-    var X = function (i) { return padL + i * cw + cw / 2; };
-    var Y = function (p) { return padT + ((maxP - p) / ((maxP - minP) || 1)) * plotH; };
-    var num = function (v) { return Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }); };
-    var day = function (t) {
-      return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })
-        .format(new Date(t));
-    };
-
-    var out = ['<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="' + PAL.bg + '"/>'];
-
-    var sharpY = function (v) { return Math.round(v) + 0.5; };
-    // Price labels live in the left gutter, as they do on the campaign chart.
-    var gutter = function (y, text, colour) {
-      out.push('<text x="' + (padL - 8) + '" y="' + (y + 3).toFixed(1) + '" fill="' + colour +
-        '" font-size="10" font-family="monospace" text-anchor="end">' + esc(text) + '</text>');
-    };
-
-    for (var g = 0; g <= 4; g += 1) {
-      var price = minP + (maxP - minP) * (g / 4), y = Y(price);
-      out.push('<line x1="' + padL + '" y1="' + sharpY(y) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(y) +
-        '" stroke="' + PAL.grid + '" stroke-width="1" shape-rendering="crispEdges"/>');
-      gutter(y, num(price), PAL.axis);
-    }
-
-    // The discount being ranked, shaded between the recent high and now.
-    var yHigh = Y(payload.recent_high), yNow = Y(payload.last_price);
-    out.push('<rect x="' + padL + '" y="' + yHigh.toFixed(1) + '" width="' + plotW + '" height="' +
-      Math.max(0, yNow - yHigh).toFixed(1) + '" fill="' + PAL.zone + '"/>');
-
-    // Strokes centred on a half pixel, fills aligned to whole ones -- otherwise
-    // the rasteriser spreads every 1px line across two columns and the whole
-    // chart reads as soft.
-    var sharp = function (v) { return Math.round(v) + 0.5; };
-    var solid = function (v) { return Math.round(v); };
-
-    // Overnight gaps, as synthetic candles spanning prev close -> new open.
-    // These are daily bars, so every one of them opens a session: any
-    // close != open is a real gap and gets drawn. Behind the real candles.
-    rows.forEach(function (row, i) {
-      if (i === 0) return;
-      var prevClose = Number(rows[i - 1].c), openPrice = Number(row.o);
-      if (!isFinite(prevClose) || !isFinite(openPrice) || prevClose === openPrice) return;
-      var gTop = Y(Math.max(prevClose, openPrice)), gBot = Y(Math.min(prevClose, openPrice));
-      var gw = Math.max(1, cw * 0.62) + 4, gx = X(i) - gw / 2;
-      var gColour = openPrice > prevClose ? PAL.up : PAL.down;
-      out.push('<rect x="' + gx.toFixed(1) + '" y="' + gTop.toFixed(1) + '" width="' + gw.toFixed(1) +
-        '" height="' + Math.max(gBot - gTop, 1).toFixed(1) + '" fill="' + gColour +
-        '" opacity=".22" stroke="' + gColour + '" stroke-opacity=".6" stroke-width="0.8"/>');
-    });
-
-    rows.forEach(function (row, i) {
-      var up = row.c >= row.o;
-      var colour = up ? PAL.up : PAL.down;
-      var x = X(i);
-      var bodyTop = solid(Y(Math.max(row.o, row.c)));
-      var bodyBottom = solid(Y(Math.min(row.o, row.c)));
-      var bw = Math.max(1, cw * 0.62);
-      var left = solid(x - bw / 2);
-      var right = Math.max(solid(x + bw / 2), left + 1);
-      out.push('<line x1="' + sharp(x) + '" y1="' + solid(Y(row.h)) + '" x2="' + sharp(x) +
-        '" y2="' + solid(Y(row.l)) + '" stroke="' + colour + '" stroke-width="1" shape-rendering="crispEdges"/>');
-      out.push('<rect x="' + left + '" y="' + bodyTop + '" width="' + (right - left) +
-        '" height="' + Math.max(bodyBottom - bodyTop, 1) + '" fill="' + colour +
-        '" shape-rendering="crispEdges"/>');
-    });
-
-    // The high bar is banded and tagged the way the campaign chart marks its
-    // mother candle -- this is the same role on a different timeframe.
-    var xh = X(highAt), bwh = Math.max(cw * 0.62, 6);
-    out.push('<rect x="' + (xh - bwh / 2 - 3).toFixed(1) + '" y="' + (padT + 1) + '" width="' + (bwh + 6).toFixed(1) +
-      '" height="' + (plotH - 2).toFixed(1) + '" fill="' + PAL.high + '" opacity=".09"/>');
-    out.push('<text x="' + xh.toFixed(1) + '" y="' + Math.max(Y(rows[highAt].h) - 8, padT + 10).toFixed(1) +
-      '" fill="' + PAL.high + '" font-size="9.5" font-family="monospace" font-weight="700" text-anchor="middle">MC</text>');
-
-    out.push('<line x1="' + padL + '" y1="' + sharpY(yHigh) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yHigh) +
-      '" stroke="' + PAL.high + '" stroke-width="1.25" stroke-dasharray="5 3" shape-rendering="crispEdges"/>');
-    gutter(yHigh, payload.recent_high_lookback + 'd high ' + num(payload.recent_high), PAL.high);
-    var yLow = Y(swingLow);
-    out.push('<line x1="' + padL + '" y1="' + sharpY(yLow) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yLow) +
-      '" stroke="' + PAL.low + '" stroke-width="1.25" stroke-dasharray="5 3" shape-rendering="crispEdges"/>');
-    gutter(yLow, 'leg low ' + num(swingLow), PAL.low);
-
-    // Mark which two bars set the leg, so the lines are traceable to candles.
-    [[highAt, PAL.high], [lowAt, PAL.low]].forEach(function (pair) {
-      out.push('<line x1="' + X(pair[0]).toFixed(1) + '" y1="' + padT + '" x2="' + X(pair[0]).toFixed(1) +
-        '" y2="' + (padT + plotH) + '" stroke="' + pair[1] + '" stroke-width="1" stroke-dasharray="1 4" opacity=".55"/>');
-    });
-
-    out.push('<line x1="' + padL + '" y1="' + sharpY(yNow) + '" x2="' + (padL + plotW) + '" y2="' + sharpY(yNow) +
-      '" stroke="' + PAL.now + '" stroke-width="1.25" stroke-dasharray="2 3" shape-rendering="crispEdges"/>');
-    gutter(yNow, 'now ' + num(payload.last_price), PAL.now);
-    out.push('<text x="' + (padL + 6) + '" y="' + (yNow + 13).toFixed(1) + '" fill="' + PAL.now +
-      '" font-size="10" font-family="monospace" opacity=".8">-' + payload.pullback_pct.toFixed(1) +
-      '% off the high · ' + retraced.toFixed(0) + '% down the leg</text>');
-
-    var ticks = Math.min(6, n);
-    for (var t = 0; t < ticks; t += 1) {
-      var at = Math.round((n - 1) * (t / Math.max(ticks - 1, 1)));
-      out.push('<text x="' + X(at).toFixed(1) + '" y="' + (H - 7) + '" fill="' + PAL.axis +
-        '" font-size="10" font-family="monospace" text-anchor="middle">' + esc(day(rows[at].t)) + '</text>');
-    }
-
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" ' +
-      'shape-rendering="geometricPrecision" class="cascade-scan-chart-svg" role="img" ' +
-      'aria-label="Daily candles for ' + esc(payload.symbol) + '">' + out.join('') + '</svg>';
-    return svg + capitalFooter(payload);
-  }
 
   /* What the campaign would actually do with the capital in the box. The ladder
    * itself cannot be drawn here -- its rungs come from 5m trendline anchors that
@@ -439,10 +290,71 @@ function createEquityScanner(cfg) {
         { credentials: 'same-origin', cache: 'no-store' });
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Chart failed');
-      box.innerHTML = chartSvg(data);
+      // THE ONE RENDERER. This used to be a hand-rolled SVG in this file, with
+      // a fixed viewBox, a wall-clock x-axis, no session gaps and no pan or
+      // zoom -- a second renderer that drifted from the real one exactly as
+      // the fib overlay did before it was ported. pfBenchDrawChart is the
+      // Canvas from CryptoForge and the only chart PhilForge draws.
+      if (typeof window.pfBenchDrawChart === 'function') {
+        // Only ONE canvas may be mounted: the renderer finds its surfaces by
+        // fixed ids, so any other open chart has to go first.
+        if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
+        box.innerHTML = '';
+        window.pfBenchDrawChart(box, scanCanvasPayload(data));
+        box.insertAdjacentHTML('beforeend', capitalFooter(data));
+      } else {
+        box.textContent = 'Chart renderer not loaded.';
+      }
     } catch (err) {
+      if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
       box.textContent = 'Could not load candles: ' + ((err && err.message) || err);
     }
+  }
+
+  /* The scan chart, in the renderer's own contract.
+   *
+   * `t` crosses as epoch SECONDS -- the renderer does arithmetic on it and the
+   * route speaks ISO. The levels are what make the picture worth looking at:
+   * the high the ranking is measured from, and for the ladder the price its
+   * first buy becomes legal at. Without those it is just candles.
+   */
+  function scanCanvasPayload(payload) {
+    var epoch = function (value) {
+      var parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null;
+    };
+    var candles = (payload.candles || []).map(function (row) {
+      return { t: epoch(row.t), o: Number(row.o), h: Number(row.h), l: Number(row.l), c: Number(row.c) };
+    }).filter(function (row) {
+      return row.t !== null && [row.o, row.h, row.l, row.c].every(Number.isFinite);
+    });
+
+    var high = Number(payload.recent_high);
+    var lines = [];
+    if (Number.isFinite(high) && high > 0) {
+      lines.push({
+        price: Math.round(high * 100) / 100,
+        label: (payload.recent_high_lookback || 20) + 'D HIGH',
+        filled: true
+      });
+      if (mode === 'ladder') {
+        var gate = high * (1 - (cfg.minPullback || 8) / 100);
+        lines.push({
+          price: Math.round(gate * 100) / 100,
+          label: 'FIRST BUY BELOW (' + (cfg.minPullback || 8) + '%)',
+          filled: false
+        });
+        var price = Number(payload.last_price);
+        if (Number.isFinite(price) && price > 0) {
+          lines.push({
+            price: Math.round((price + 0.75 * (high - price)) * 100) / 100,
+            label: 'TARGET IF BOUGHT NOW',
+            filled: false
+          });
+        }
+      }
+    }
+    return { timeframe: '1d', candles: candles, lines: lines };
   }
 
   function pick(symbol) {
