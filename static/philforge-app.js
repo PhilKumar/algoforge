@@ -1464,6 +1464,10 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryDrop',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
+  // Two-red ladder console (static/philforge-two-red.js). An action missing
+  // from this allowlist dies SILENTLY — the click is simply ignored.
+  'startTwoRedCampaign',
+  'refreshTwoRedCampaigns',
   'armFibBoundaryLive',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',

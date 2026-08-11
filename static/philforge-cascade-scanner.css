@@ -111,6 +111,13 @@
   grid-column: 1 / -1; font-size: 11px; opacity: .5; line-height: 1.45;
 }
 
+/* A cell whose number does not clear its own floor -- the ladder's "under 1"
+ * share count. Its own rule, not appended to the .is-short list above: adding
+ * a selector there would have quietly restyled the rung tiles too. */
+.cascade-scan-short {
+  color: #fca5a5;
+}
+
 /* Flow-down: the chart grows into place instead of snapping open. */
 .cascade-scan-chart-flow {
   max-height: 0; overflow: hidden; opacity: 0;

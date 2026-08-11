@@ -32,7 +32,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(
@@ -83,7 +83,7 @@ import config
 import db as _db_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
-from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES
+from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES, LadderCandle, order_events
 from engine.candle_recovery import RecoveryConfig
 from engine.candle_recovery_host import MODES as RECOVERY_MODES
 from engine.candle_recovery_host import CandleRecoveryHost
@@ -142,6 +142,16 @@ from engine.timeframes import (
     derived_timeframe_warning,
     describe_timeframe,
     resolve_strategy_timeframe,
+)
+from engine.two_red_equity import DEFAULT_MIN_FALL_PCT as TWO_RED_DEFAULT_MIN_FALL_PCT
+from engine.two_red_equity import DEFAULT_TARGET_FRACTION as TWO_RED_DEFAULT_TARGET_FRACTION
+from engine.two_red_equity import (
+    TwoRedEquityConfig,
+    TwoRedEquityError,
+    TwoRedEquityInstrument,
+    TwoRedEquityPaperEngine,
+    complete_weeks,
+    regroup_weekly,
 )
 from image_uploads import ImageValidationError, sanitize_image
 from journal_validation import JournalValidationError, clean_journal_payload, validate_journal_date
@@ -1519,6 +1529,24 @@ class _TerminalCascadeRuntime:
     running: bool = True
 
 
+@dataclass
+class _TwoRedRuntime:
+    """A running two-red ladder campaign.
+
+    There is no `last_candle_timestamp` here as there is on the Cascade above:
+    this campaign reads three charts at once and the engine keeps its own high
+    water mark, so a single timestamp on the runtime would be ambiguous about
+    which chart it belonged to.
+    """
+
+    engine: TwoRedEquityPaperEngine
+    broker: DhanClient
+    stock: dict
+    last_price: float | None = None
+    task: asyncio.Task | None = None
+    running: bool = True
+
+
 _cascade_engines: Dict[int, _CascadeRuntime] = {}
 _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
 # One ladder PER SYMBOL per user: picking an instrument in the form is what a
@@ -1526,6 +1554,10 @@ _candle_entry_engines: Dict[int, _CascadeRuntime] = {}
 # Starting the same symbol twice is still a 409.
 _fib_boundary_engines: Dict[int, Dict[str, _CascadeRuntime]] = {}
 _terminal_cascade_engines: Dict[int, Dict[str, _TerminalCascadeRuntime]] = {}
+# One two-red ladder per scrip per user, same rule as the Cascade above: the
+# instrument in the form is what a second Start is for.
+_two_red_engines: Dict[int, Dict[str, "_TwoRedRuntime"]] = {}
+_two_red_state_last_save: Dict[int, float] = defaultdict(float)
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _candle_entry_open_state_last_save: Dict[int, float] = defaultdict(float)
 _fib_boundary_open_state_last_save: Dict[int, float] = defaultdict(float)
@@ -3902,6 +3934,20 @@ class TerminalCascadePaperStartPayload(BaseModel):
     timeframe: str = "5m"
     target_fraction: float = Field(default=0.25, gt=0, le=1)
     product_type: str = "CNC"
+
+
+class TwoRedStartPayload(BaseModel):
+    symbol: str
+    mother_timestamp: str
+    # The mother is read on a SLOWER chart than the entries on purpose. A
+    # mother on the entry chart sits a fraction of a percent above the buy, so
+    # the fall-sized position is tiny and the target is worth less than the
+    # fees. Daily is the default because that is what the 36-month runs used.
+    mother_timeframe: str = "1d"
+    start_timeframe: str = "1h"
+    capital_inr: float = Field(default=200000, gt=0, le=50_000_000)
+    min_fall_pct: float = Field(default=8.0, ge=0, le=50)
+    target_fraction: float = Field(default=0.75, gt=0, le=1)
 
 
 class OhlcvExportPayload(BaseModel):
@@ -14213,6 +14259,14 @@ async def terminal_cascade_scan(
     capital_inr: float = 100000.0,
     limit: int = 30,
     min_price: float = 200.0,
+    # The pullback band is a parameter because two strategies now screen the
+    # same universe and disagree about what a useful fall is. The Cash Cascade
+    # wants any discount (1%+); the two-red ladder only pays once price is far
+    # enough under its mother for a quarter of the way back to beat the costs,
+    # which the 36-month backtest put at 8%. Defaults keep the Cascade's own
+    # numbers, so an old caller sees no change.
+    min_pullback: float = 1.0,
+    max_pullback: float = 25.0,
     refresh: bool = False,
     load_only: bool = False,
 ):
@@ -14227,7 +14281,7 @@ async def terminal_cascade_scan(
     user, broker_client, _source = await _request_broker_context(request)
     user_id = int((user or {}).get("id") or _request_user_id(request))
     scan_date = datetime.now(IST).date().isoformat()
-    settings_key = f"{scan_date}:{capital_inr:.0f}:{min_price:.0f}:{limit}"
+    settings_key = f"{scan_date}:{capital_inr:.0f}:{min_price:.0f}:{limit}:{min_pullback:.1f}:{max_pullback:.1f}"
     cache_key = f"{user_id}:{settings_key}"
     cached = _CASCADE_SCAN_CACHE.get(cache_key)
     if cached and not refresh and time.time() - cached[0] < _CASCADE_SCAN_TTL_SEC:
@@ -14254,6 +14308,8 @@ async def terminal_cascade_scan(
         rows,
         capital_inr=float(capital_inr),
         min_price=float(min_price),
+        min_pullback_pct=float(min_pullback),
+        max_pullback_pct=float(max_pullback),
         limit=int(limit),
     )
     payload = {
@@ -14382,6 +14438,434 @@ async def terminal_quote(symbol: str, request: Request):
         return {"status": "ok", "stock": stock, "ltp": ltp}
     except Exception as e:
         return {"status": "error", "message": str(e), "stock": stock}
+
+
+# ══ Two-red ladder on cash equity (paper) ═════════════════════════════
+#
+# The second strategy on the Equity page. Geometry is engine/candle_ladder.py,
+# unchanged and shared with Test Bench; the cash wrapper, the money and the
+# 8%/0.75 defaults are engine/two_red_equity.py. This block is only plumbing:
+# candles in, status out, nothing decided here.
+#
+# PAPER ONLY, and unlike the Cash Cascade there is not even a live executor
+# written for it. No route in this file can submit an order for this strategy.
+
+_TWO_RED_CLOSED_LIMIT = 100
+# A campaign climbs 1h -> 1d -> 1w. Only the first two are fetched: a week is
+# arithmetic on daily bars (engine.two_red_equity.regroup_weekly), so the
+# weekly rung costs no broker call at all.
+_TWO_RED_FETCH_TIMEFRAMES = ("1h", "1d")
+
+
+def _two_red_state_key(user_id: int) -> str:
+    return f"two_red_equity_open:{int(user_id)}"
+
+
+def _two_red_closed_state_key(user_id: int) -> str:
+    return f"two_red_equity_closed:{int(user_id)}"
+
+
+def _two_red_instrument(symbol: str) -> tuple[TwoRedEquityInstrument, dict]:
+    stock = _resolve_terminal_stock(symbol)
+    if not stock["security_id"]:
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
+    instrument = TwoRedEquityInstrument(
+        symbol=stock["symbol"],
+        name=stock["name"],
+        security_id=stock["security_id"],
+        exchange_segment=stock["exchange_segment"],
+        instrument_type=stock["instrument_type"],
+    )
+    return instrument, stock
+
+
+async def _two_red_load_charts(
+    broker: DhanClient,
+    stock: Mapping[str, Any],
+    *,
+    from_date: date,
+    to_date: date,
+) -> dict[str, list[LadderCandle]]:
+    """Every chart the ladder reads, keyed by timeframe.
+
+    The weekly chart is folded from the daily one and then trimmed to weeks
+    that have actually finished -- the running week's bar keeps changing until
+    Friday closes, and a ladder acting on it would be reading a candle that has
+    not printed.
+    """
+    hourly, daily = await asyncio.gather(
+        _terminal_cascade_load_candles(broker, stock, "1h", from_date=from_date, to_date=to_date),
+        _terminal_cascade_load_candles(broker, stock, "1d", from_date=from_date, to_date=to_date),
+    )
+    charts: dict[str, list[LadderCandle]] = {
+        "1h": [_two_red_candle(row, "1h") for row in hourly],
+        "1d": [_two_red_candle(row, "1d") for row in daily],
+    }
+    charts["1w"] = complete_weeks(regroup_weekly(charts["1d"]), datetime.now(IST).date())
+    return charts
+
+
+def _two_red_candle(row: IndexCandle, timeframe: str) -> LadderCandle:
+    return LadderCandle(
+        timeframe=timeframe,
+        timestamp=row.timestamp,
+        open=row.open,
+        high=row.high,
+        low=row.low,
+        close=row.close,
+    )
+
+
+def _two_red_feed(
+    charts: Mapping[str, list[LadderCandle]], stages: Sequence[str], after: datetime
+) -> list[LadderCandle]:
+    """Bars from every chart the campaign climbs, after a moment, in close order."""
+    rows = [row for stage in stages for row in charts.get(stage, []) if row.timestamp > after]
+    return order_events(rows)
+
+
+async def _two_red_mother(
+    broker: DhanClient,
+    stock: Mapping[str, Any],
+    timeframe: str,
+    mother_timestamp: datetime,
+) -> LadderCandle:
+    charts = await _two_red_load_charts(
+        broker, stock, from_date=mother_timestamp.date(), to_date=mother_timestamp.date() + timedelta(days=7)
+    )
+    bar = next((row for row in charts.get(timeframe, []) if row.timestamp == mother_timestamp), None)
+    if bar is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No closed {stock['symbol']} {timeframe} candle at that IST timestamp.",
+        )
+    return bar
+
+
+async def _notify_two_red_ws(user_id: int) -> None:
+    runtimes = _two_red_engines.get(int(user_id), {})
+    campaigns = [runtime.engine.get_status(runtime.last_price) for _symbol, runtime in sorted(runtimes.items())]
+    await _broadcast_user_ws_json(
+        int(user_id),
+        {"type": "two_red_status", "two_red": {"campaigns": campaigns}},
+    )
+
+
+async def _save_two_red_state(user_id: int, *, force: bool = False) -> None:
+    runtimes = _two_red_engines.get(int(user_id), {})
+    if not runtimes:
+        return
+    now = time.time()
+    if not force and now - _two_red_state_last_save[int(user_id)] < _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC:
+        return
+    payload = {
+        "campaigns": [
+            {
+                "running": bool(runtime.running),
+                "stock": dict(runtime.stock),
+                "last_price": runtime.last_price,
+                "engine": runtime.engine.to_dict(),
+            }
+            for _symbol, runtime in sorted(runtimes.items())
+        ],
+        "saved_at": datetime.now(IST).isoformat(),
+    }
+    await _db_mod.set_app_state(_two_red_state_key(user_id), json.dumps(payload, default=str))
+    _two_red_state_last_save[int(user_id)] = now
+
+
+async def _restore_two_red_state(user_id: int, broker: DhanClient | None) -> Dict[str, _TwoRedRuntime]:
+    existing = _two_red_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return {}
+    raw = await _db_mod.get_app_state(_two_red_state_key(user_id))
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+        records = payload.get("campaigns") if isinstance(payload, dict) else None
+        if not isinstance(records, list):
+            return {}
+        runtimes: Dict[str, _TwoRedRuntime] = {}
+        for record in records:
+            if not isinstance(record, dict) or not record.get("engine"):
+                continue
+            engine = TwoRedEquityPaperEngine.from_dict(record["engine"])
+            runtime = _TwoRedRuntime(
+                engine=engine,
+                broker=broker,
+                stock=dict(record.get("stock") or {}),
+                last_price=(float(record["last_price"]) if record.get("last_price") is not None else None),
+                running=bool(record.get("running")) and engine.status in {"WATCHING", "ARMED", "HOLDING"},
+            )
+            symbol = ScripMaster.normalize_equity_symbol(engine.instrument.symbol)
+            runtimes[symbol] = runtime
+            if runtime.running:
+                runtime.task = asyncio.create_task(_run_two_red_loop(user_id, runtime))
+        _two_red_engines[int(user_id)] = runtimes
+        return runtimes
+    except Exception as exc:
+        _logger.warning("[TWO RED] Could not restore campaigns for user %s: %s", user_id, exc)
+        return {}
+
+
+async def _archive_two_red_campaign(user_id: int, runtime: _TwoRedRuntime) -> None:
+    """Keep a closed campaign after its runtime is gone."""
+    rows = await _load_two_red_closed(user_id)
+    status = runtime.engine.get_status(runtime.last_price)
+    rows.insert(0, {**status, "archived_at": datetime.now(IST).isoformat()})
+    await _db_mod.set_app_state(
+        _two_red_closed_state_key(user_id),
+        json.dumps(rows[:_TWO_RED_CLOSED_LIMIT], default=str),
+    )
+
+
+async def _load_two_red_closed(user_id: int) -> list:
+    raw = await _db_mod.get_app_state(_two_red_closed_state_key(user_id))
+    if not raw:
+        return []
+    try:
+        rows = json.loads(raw)
+        return rows if isinstance(rows, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+async def _two_red_last_price(runtime: _TwoRedRuntime) -> float | None:
+    try:
+        return await asyncio.to_thread(_terminal_cascade_ltp, runtime.broker, runtime.stock)
+    except Exception:
+        # A missing quote must not stop the campaign: the ladder acts on closed
+        # candles, and the LTP is only used to mark an open basket to market.
+        return None
+
+
+async def _run_two_red_loop(user_id: int, runtime: _TwoRedRuntime) -> None:
+    symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
+    while runtime.running and _two_red_engines.get(int(user_id), {}).get(symbol) is runtime:
+        idle = _terminal_cascade_offsession_sleep_sec()
+        if idle:
+            await asyncio.sleep(idle)
+            continue
+        try:
+            engine = runtime.engine
+            after = engine.last_candle_timestamp or engine.mother.timestamp
+            charts = await _two_red_load_charts(
+                runtime.broker,
+                runtime.stock,
+                # A weekly rung needs weeks of daily bars behind it, so the
+                # window starts at the mother and not at the last bar seen.
+                from_date=engine.mother.timestamp.date(),
+                to_date=datetime.now(IST).date(),
+            )
+            for candle in _two_red_feed(charts, engine.config.stages, after):
+                engine.on_candle(candle)
+            runtime.last_price = await _two_red_last_price(runtime)
+            await _save_two_red_state(user_id)
+            await _notify_two_red_ws(user_id)
+            if engine.status in {"CLOSED", "VOID", "KILLED"}:
+                runtime.running = False
+                await _save_two_red_state(user_id, force=True)
+                await _notify_two_red_ws(user_id)
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[TWO RED] %s poll failed for user %s: %s", symbol, user_id, exc)
+        await asyncio.sleep(20)
+
+
+@app.get("/api/two-red/status")
+async def two_red_status(request: Request):
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtimes = await _restore_two_red_state(user_id, broker_client)
+    return {
+        "campaigns": [runtime.engine.get_status(runtime.last_price) for _symbol, runtime in sorted(runtimes.items())],
+        "closed": await _load_two_red_closed(user_id),
+        "defaults": {
+            "min_fall_pct": TWO_RED_DEFAULT_MIN_FALL_PCT,
+            "target_fraction": TWO_RED_DEFAULT_TARGET_FRACTION,
+            "start_timeframe": "1h",
+        },
+        # Same honesty as the Cascade's gate: say the road is not built rather
+        # than implying a switch exists.
+        "live": {
+            "enabled": False,
+            "reason": (
+                "The two-red ladder is PAPER ONLY. No live executor has been written for it, "
+                "so no code path can place a cash order for this strategy."
+            ),
+        },
+    }
+
+
+@app.post("/api/two-red/start")
+async def two_red_start(payload: TwoRedStartPayload, request: Request):
+    check_rate_limit("two_red_start", _request_rate_subject(request), max_calls=3, window_sec=5)
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    timeframe = str(payload.mother_timeframe or "1d").lower()
+    if timeframe not in {"1h", "1d"}:
+        raise HTTPException(status_code=400, detail="Mother timeframe must be 1h or 1d.")
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future.")
+    if timeframe == "1d" and mother_timestamp.time() != dt_time(9, 15):
+        raise HTTPException(status_code=400, detail="A 1D mother timestamp is the 09:15 IST session open.")
+    if timeframe == "1h" and mother_timestamp.minute != 15:
+        raise HTTPException(status_code=400, detail="A 1H mother timestamp must be NSE aligned at :15 IST.")
+    if not (dt_time(9, 15) <= mother_timestamp.time() < dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15-15:30 session.")
+
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a two-red campaign.")
+    runtimes = await _restore_two_red_state(user_id, broker_client)
+    instrument, stock = _two_red_instrument(payload.symbol)
+    symbol = ScripMaster.normalize_equity_symbol(instrument.symbol)
+    existing = runtimes.get(symbol)
+    if existing is not None and existing.running:
+        raise HTTPException(status_code=409, detail=f"A two-red campaign is already running for {symbol}.")
+
+    mother = await _two_red_mother(broker_client, stock, timeframe, mother_timestamp)
+    try:
+        config = TwoRedEquityConfig(
+            capital_inr=payload.capital_inr,
+            start_timeframe=payload.start_timeframe,
+            min_fall_pct=payload.min_fall_pct,
+            target_fraction=payload.target_fraction,
+        )
+    except TwoRedEquityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    engine = TwoRedEquityPaperEngine(instrument, mother, config)
+
+    # Replay from the mother to now, so a mother named a fortnight back arrives
+    # with the trades it would already have taken rather than an empty sheet.
+    charts = await _two_red_load_charts(broker_client, stock, from_date=mother_timestamp.date(), to_date=now.date())
+    for candle in _two_red_feed(charts, config.stages, mother.timestamp):
+        engine.on_candle(candle)
+
+    runtime = _TwoRedRuntime(engine=engine, broker=broker_client, stock=dict(stock))
+    runtime.last_price = await _two_red_last_price(runtime)
+    runtime.running = engine.status in {"WATCHING", "ARMED", "HOLDING"}
+    runtimes[symbol] = runtime
+    _two_red_engines[user_id] = runtimes
+    if runtime.running:
+        runtime.task = asyncio.create_task(_run_two_red_loop(user_id, runtime))
+    await _save_two_red_state(user_id, force=True)
+    await _notify_two_red_ws(user_id)
+    return {"status": "started", "mode": "paper", "campaign": engine.get_status(runtime.last_price)}
+
+
+@app.post("/api/two-red/stop")
+async def two_red_stop(request: Request, symbol: str):
+    """Stop watching. Anything already bought is LEFT HELD, not sold."""
+    user_id = _request_user_id(request)
+    runtimes = _two_red_engines.get(user_id, {})
+    runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
+    if runtime is None:
+        return {"status": "not_running"}
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_two_red_state(user_id, force=True)
+    await _notify_two_red_ws(user_id)
+    return {"status": "stopped", "mode": "paper", "held": runtime.engine.quantity}
+
+
+@app.post("/api/two-red/kill")
+async def two_red_kill(request: Request, symbol: str):
+    """Stop AND sell the basket at the last traded price."""
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtimes = await _restore_two_red_state(user_id, broker_client)
+    runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No two-red paper campaign is active for that scrip.")
+    price = await _two_red_last_price(runtime)
+    if price is None:
+        raise HTTPException(status_code=502, detail="No live price available to close the basket against.")
+    runtime.last_price = price
+    engine = runtime.engine
+    when = engine.last_candle_timestamp or datetime.now(IST)
+    engine.kill(
+        LadderCandle(
+            timeframe=engine.config.start_timeframe,
+            timestamp=when,
+            open=price,
+            high=price,
+            low=price,
+            close=price,
+        ),
+        price,
+    )
+    runtime.running = False
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    await _save_two_red_state(user_id, force=True)
+    await _notify_two_red_ws(user_id)
+    return {"status": "killed", "mode": "paper", "campaign": engine.get_status(price)}
+
+
+@app.delete("/api/two-red")
+async def two_red_delete(request: Request, symbol: str):
+    """Remove a campaign from the page, archiving it if it ever traded."""
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    runtimes = await _restore_two_red_state(user_id, broker_client)
+    key = ScripMaster.normalize_equity_symbol(symbol)
+    runtime = runtimes.get(key)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No two-red campaign for that scrip.")
+    if runtime.running and runtime.engine.quantity:
+        raise HTTPException(
+            status_code=409,
+            detail="That campaign is still holding shares. Stop or close it before deleting.",
+        )
+    if runtime.task and not runtime.task.done():
+        runtime.task.cancel()
+    if runtime.engine.ladder.fills:
+        await _archive_two_red_campaign(user_id, runtime)
+    runtimes.pop(key, None)
+    _two_red_engines[user_id] = runtimes
+    await _save_two_red_state(user_id, force=True)
+    await _notify_two_red_ws(user_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/two-red/chart")
+async def two_red_chart(request: Request, symbol: str, timeframe: str = "1d", sessions: int = 120):
+    """Candles behind a campaign, on whichever chart is being looked at."""
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load candles.")
+    normalised = str(timeframe or "1d").lower()
+    if normalised not in {"1h", "1d", "1w"}:
+        raise HTTPException(status_code=400, detail="Chart timeframe must be 1h, 1d or 1w.")
+    _instrument, stock = _two_red_instrument(symbol)
+    today = datetime.now(IST).date()
+    span = {"1h": 40, "1d": max(int(sessions), 30), "1w": 400}[normalised]
+    charts = await _two_red_load_charts(
+        broker_client, stock, from_date=today - timedelta(days=int(span * 7 / 5) + 10), to_date=today
+    )
+    rows = charts.get(normalised, [])
+    return {
+        "symbol": stock["symbol"],
+        "timeframe": normalised,
+        "candles": [
+            {
+                "t": row.timestamp.isoformat(),
+                "o": row.open,
+                "h": row.high,
+                "l": row.low,
+                "c": row.close,
+            }
+            for row in rows[-int(sessions) :]
+        ],
+    }
 
 
 @app.post("/api/terminal/order")

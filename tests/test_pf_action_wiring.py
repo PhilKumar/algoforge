@@ -19,10 +19,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
-_SOURCES = {
-    "strategy.html": (ROOT / "strategy.html").read_text(encoding="utf-8"),
-    "static/philforge-app.js": _APP_JS,
-}
+_STRATEGY_HTML = (ROOT / "strategy.html").read_text(encoding="utf-8")
+
+# EVERY script the page loads, not just the big one. A handler may live in any
+# of them -- the two-red console is its own file -- and a guard that reads only
+# philforge-app.js would call a perfectly wired button dead, or worse, miss a
+# genuinely dead one in a newer file. The list comes from the markup so a new
+# script is covered the moment it is added there.
+_SCRIPT_SRC_RE = re.compile(r"""<script\s+src=["']/static/([A-Za-z0-9_.-]+\.js)""")
+
+
+def _page_scripts() -> dict:
+    sources = {}
+    for name in dict.fromkeys(_SCRIPT_SRC_RE.findall(_STRATEGY_HTML)):
+        path = ROOT / "static" / name
+        if path.exists():
+            sources[f"static/{name}"] = path.read_text(encoding="utf-8")
+    return sources
+
+
+_PAGE_SCRIPTS = _page_scripts()
+_SOURCES = {"strategy.html": _STRATEGY_HTML, **_PAGE_SCRIPTS}
 
 _ACTION_RE = re.compile(r"""data-pf-action=\\?["']([A-Za-z0-9_]+)\\?["']""")
 _WINDOW_EXPORT_RE = re.compile(r"^\s*window\.([A-Za-z0-9_]+)\s*=", re.MULTILINE)
@@ -42,13 +59,25 @@ def _allowlisted() -> set:
 class ActionWiringTests(unittest.TestCase):
     def setUp(self):
         self.allowed = _allowlisted()
-        self.exported = set(_WINDOW_EXPORT_RE.findall(_APP_JS)) | set(_TOP_LEVEL_FN_RE.findall(_APP_JS))
+        # A top-level `function name()` only lands on window when the file is a
+        # CLASSIC script, which every one of these is. An IIFE-wrapped file must
+        # assign window.<name> explicitly, and that is what the export regex
+        # catches there.
+        self.exported = set()
+        for text in _PAGE_SCRIPTS.values():
+            self.exported |= set(_WINDOW_EXPORT_RE.findall(text))
+            self.exported |= set(_TOP_LEVEL_FN_RE.findall(text))
         self.used = {(action, where) for where, text in _SOURCES.items() for action in _ACTION_RE.findall(text)}
 
     def test_the_allowlist_was_actually_found(self):
         """A parse that silently found nothing would pass every other test."""
         self.assertGreater(len(self.allowed), 20)
         self.assertIn("loadFibSpaceChart", self.allowed)
+
+    def test_the_page_scripts_were_actually_found(self):
+        """Same blind spot one level up: an empty script list passes everything."""
+        self.assertIn("static/philforge-app.js", _PAGE_SCRIPTS)
+        self.assertIn("static/philforge-two-red.js", _PAGE_SCRIPTS)
 
     def test_every_button_action_is_allowlisted(self):
         missing = sorted({f"{action} ({where})" for action, where in self.used if action not in self.allowed})

@@ -1410,6 +1410,18 @@
     </div>
   </div>
 
+  <!-- Two strategies share this page and this universe. They are not variants
+       of one another: the Cascade buys a fib ladder into any discount, the
+       two-red ladder waits for an 8% fall and buys a recovery. Keeping them on
+       one switcher rather than two tabs is the same call as CryptoForge's
+       Strategies tab — the instrument list is the thing they have in common. -->
+  <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Equity strategy" id="equity-strategy-switch" style="margin-bottom:16px;">
+    <button type="button" class="terminal-cascade-tf-option is-active" data-equity-strategy="cascade" role="radio" aria-checked="true">Cash Cascade</button>
+    <button type="button" class="terminal-cascade-tf-option" data-equity-strategy="tworeds" role="radio" aria-checked="false">Two-red ladder</button>
+  </div>
+
+  <div id="equity-strategy-cascade">
+
   <div class="card cascade-scan-shell" id="cascade-scan-panel">
     <div class="cascade-scan-head">
       <div>
@@ -1614,6 +1626,161 @@
       <div class="terminal-cascade-empty">No closed campaigns yet — deleting a campaign moves it here.</div>
     </div>
   </div>
+
+  </div><!-- /equity-strategy-cascade -->
+
+  <div id="equity-strategy-tworeds" style="display:none;">
+
+    <div class="card cascade-scan-shell" id="tworeds-scan-panel">
+      <div class="cascade-scan-head">
+        <div>
+          <div class="terminal-cascade-eyebrow">Two-red ladder</div>
+          <h3>Scrip Screen</h3>
+          <div class="cascade-scan-sub">
+            The same universe, screened for this rule instead: still trending up, but already <strong>8% or more</strong> below its recent high &mdash; the depth at which a quarter&#39;s worth of recovery stops being eaten by costs.
+          </div>
+        </div>
+        <div class="cascade-scan-controls">
+          <label for="tworeds-scan-capital">Purse</label>
+          <input id="tworeds-scan-capital" type="number" min="1000" step="1000" value="200000">
+          <button type="button" id="tworeds-scan-run" class="btn btn-sm">Scan</button>
+        </div>
+      </div>
+      <div class="cascade-scan-meta-row">
+        <span id="tworeds-scan-status" class="cascade-scan-status">Press Scan to see what has already fallen far enough.</span>
+        <span id="tworeds-scan-meta" class="cascade-scan-meta"></span>
+      </div>
+      <div id="tworeds-scan-body" class="cascade-scan-body">
+        <div class="cascade-scan-empty"><p>No scan run yet.</p></div>
+      </div>
+      <!-- The screen measures the fall from a 20-session high; the campaign
+           measures it from the mother candle you name. They are close but not
+           the same object, and saying so is cheaper than a support question. -->
+      <div class="cascade-scan-sub" style="padding: 0 18px 16px;">
+        &ldquo;Off high&rdquo; here is measured from the 20-session high. A campaign measures its fall from the mother candle you name below, so the two agree in spirit, not to the rupee.
+      </div>
+    </div>
+
+    <div class="card terminal-cascade-shell" id="tworeds-setup-panel">
+      <div class="terminal-cascade-head">
+        <div class="terminal-cascade-title-block">
+          <div class="terminal-cascade-eyebrow">Two-red ladder</div>
+          <h3>Start a campaign</h3>
+          <div class="terminal-cascade-reference" id="tworeds-setup-reference">Name the mother candle. Everything after that runs by itself.</div>
+        </div>
+        <div class="terminal-cascade-actions">
+          <span class="terminal-cascade-pill terminal-cascade-pill-warn">PAPER ONLY</span>
+        </div>
+      </div>
+      <div class="terminal-cascade-workspace">
+        <section class="terminal-cascade-start-panel">
+          <div class="terminal-cascade-section-head">
+            <div>
+              <span>Campaign setup</span>
+              <strong>Mother candle, purse, and how far it waits</strong>
+            </div>
+          </div>
+          <div id="tworeds-selected" class="terminal-cascade-selected">No scrip picked yet — choose one from the screen above.</div>
+          <div class="terminal-cascade-form-grid">
+            <div class="terminal-cascade-field">
+              <label for="tworeds-symbol">Scrip</label>
+              <input id="tworeds-symbol" type="text" placeholder="RELIANCE" autocomplete="off">
+            </div>
+            <div class="terminal-cascade-field">
+              <label for="tworeds-mother-timestamp">Mother candle <span id="tworeds-mother-readable" class="terminal-cascade-field-hint">--</span></label>
+              <input id="tworeds-mother-timestamp" data-pf-calendar-no-future="1" type="datetime-local" step="300">
+            </div>
+            <div class="terminal-cascade-field">
+              <label for="tworeds-mother-timeframe">Mother chart</label>
+              <!-- Daily by default and that is the finding, not a preference: a
+                   mother read on the entry chart sits ~0.15% above the buy, so
+                   the fall-sized position is tiny and the target is worth less
+                   than the fees. -->
+              <select id="tworeds-mother-timeframe">
+                <option value="1d" selected>1D — daily (recommended)</option>
+                <option value="1h">1H — hourly</option>
+              </select>
+            </div>
+            <div class="terminal-cascade-field">
+              <label for="tworeds-capital">Purse INR</label>
+              <input id="tworeds-capital" type="number" min="1000" step="1000" value="200000">
+            </div>
+            <div class="terminal-cascade-field">
+              <label for="tworeds-min-fall">First buy waits for a fall of</label>
+              <select id="tworeds-min-fall">
+                <option value="8" selected>8% — every closed trade green</option>
+                <option value="5">5% — trades more often</option>
+                <option value="12">12% — deepest, strands more</option>
+                <option value="0">0% — no gate (loses to fees)</option>
+              </select>
+            </div>
+            <div class="terminal-cascade-field">
+              <label for="tworeds-target">Target</label>
+              <select id="tworeds-target">
+                <option value="0.75" selected>0.75 back to the mother</option>
+                <option value="0.5">0.50 back to the mother</option>
+                <option value="0.25">0.25 — the original</option>
+                <option value="1">1.00 — all the way (strands)</option>
+              </select>
+            </div>
+          </div>
+          <div class="terminal-cascade-start-panel-actions">
+            <button id="tworeds-start" class="btn btn-sm terminal-cascade-start-btn" data-pf-action="startTwoRedCampaign">Start Paper</button>
+          </div>
+          <div id="tworeds-form-status" class="terminal-cascade-form-status"></div>
+        </section>
+
+        <section class="terminal-cascade-instrument-panel">
+          <div class="terminal-cascade-section-head">
+            <div>
+              <span>The rule</span>
+              <strong>What this campaign will do</strong>
+            </div>
+          </div>
+          <div class="terminal-cascade-scrip-flow" id="tworeds-rule-flow">
+            <div class="cascade-scan-rungs-strip">
+              <div class="cascade-scan-rung"><span>1 · Wait</span><strong>8% down</strong><em>from the mother high</em></div>
+              <div class="cascade-scan-rung"><span>2 · Two reds</span><strong>buy the recovery</strong><em>stop on the first red&#39;s close</em></div>
+              <div class="cascade-scan-rung"><span>3 · Size</span><strong>fall % of purse</strong><em>9% down commits 9%</em></div>
+              <div class="cascade-scan-rung"><span>4 · Climb</span><strong>1H → 1D → 1W</strong><em>only on a new low</em></div>
+              <div class="cascade-scan-rung"><span>5 · Exit</span><strong>0.75 back</strong><em>whole basket, one sale</em></div>
+              <div class="cascade-scan-rung-note">A close back above the mother high ends a campaign that has not bought anything — the fall it was waiting for is over.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="card terminal-cascade-shell" id="tworeds-campaigns-panel">
+      <div class="terminal-cascade-head">
+        <div class="terminal-cascade-title-block">
+          <div class="terminal-cascade-eyebrow">Two-red ladder</div>
+          <h3>Campaigns</h3>
+          <div id="tworeds-campaigns-meta" class="terminal-cascade-reference">Every ladder running or finished, what it holds and what it is worth.</div>
+        </div>
+        <div class="terminal-cascade-actions">
+          <button class="btn btn-sm btn-outline" data-pf-action="refreshTwoRedCampaigns">Refresh</button>
+        </div>
+      </div>
+      <div id="tworeds-campaigns-body">
+        <div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>
+      </div>
+    </div>
+
+    <div class="card terminal-cascade-shell" id="tworeds-closed-panel">
+      <div class="terminal-cascade-head">
+        <div class="terminal-cascade-title-block">
+          <div class="terminal-cascade-eyebrow">Two-red ladder</div>
+          <h3>Closed Campaigns</h3>
+          <div class="terminal-cascade-reference">Deleted campaigns keep their record here — fills, realised money and how they ended.</div>
+        </div>
+      </div>
+      <div id="tworeds-closed-body">
+        <div class="terminal-cascade-empty">No closed campaigns yet.</div>
+      </div>
+    </div>
+
+  </div><!-- /equity-strategy-tworeds -->
 
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
     <div class="card" style="padding: 18px;">
@@ -3111,6 +3278,7 @@
   <script src="/static/market_movers.js?v=__ASSET_VERSION__"></script>
   <script src="/static/study_lounge.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-cascade-scanner.js?v=__ASSET_VERSION__"></script>
+<script src="/static/philforge-two-red.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-bench-chart.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

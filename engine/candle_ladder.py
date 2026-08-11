@@ -46,7 +46,15 @@ from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_co
 LADDER_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
 
 # Minutes per bar, used only to order events by the moment each candle CLOSED.
-TIMEFRAME_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+#
+# 1d and 1w are here but deliberately NOT in LADDER_TIMEFRAMES: nothing in the
+# app offers them, and the live poll has no daily/weekly feed. A backtest can
+# still climb onto them by passing `stages` itself. Their spans are measured to
+# the NSE session, not the clock -- a day closes 375 minutes after its 09:15
+# open, and a Monday-open week closes at Friday 15:30 -- so a slow bar is never
+# acted on before it has really closed. A short week (a holiday) only makes the
+# reckoning LATER, which is the safe direction.
+TIMEFRAME_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "1d": 375, "1w": 6135}
 
 # The lot on each successive rung, deepest last.
 DEFAULT_LOTS: tuple[int, ...] = (1, 2, 3, 4)
@@ -149,6 +157,8 @@ class TwoRedLadder:
         lots: tuple[int, ...] = DEFAULT_LOTS,
         target_fraction: float = 0.25,
         require_new_low: bool = True,
+        quantity_for: Optional[Callable[[float, int], int]] = None,
+        trail_fraction: float = 0.0,
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
@@ -160,6 +170,23 @@ class TwoRedLadder:
         self.premium_lookup = premium_lookup
         self.target_fraction = float(target_fraction)
         self.require_new_low = bool(require_new_low)
+        # HOW BIG A RUNG IS. Left alone, it is the option law: lots x lot size,
+        # so rung 3 is three times rung 1 whatever the price did. Phil's cash
+        # rule sizes off the FALL instead -- "calculate the percent the market
+        # is down from the mother high, and invest that percent of capital", so
+        # a 1% fall commits 1% of the purse and a 6% fall commits 6%. Injected
+        # rather than coded here because it is the caller who knows the purse.
+        # It is given the price the rung fills at and the lots that rung would
+        # have taken, and returns a quantity.
+        self.quantity_for = quantity_for
+        # A TRAIL INSTEAD OF A SALE. Zero keeps the shipped rule: the target is
+        # a resting sell and the campaign ends there. Above zero the target only
+        # ARMS a trail -- the basket then rides the move and leaves when price
+        # CLOSES back this fraction of the run below the best it has seen. A
+        # close, not a wick, so one poke does not end a move still going.
+        self.trail_fraction = float(trail_fraction)
+        self._trail_armed = False
+        self._trail_best: Optional[float] = None
         self.stages = [
             _Stage(rung=index + 1, timeframe=timeframe, lots=int(lots[min(index, len(lots) - 1)]))
             for index, timeframe in enumerate(stages)
@@ -170,6 +197,7 @@ class TwoRedLadder:
         # The low as at the last fill; the next rung may only arm below it.
         self.gate_low: Optional[float] = None
         self.exit_timestamp: Optional[datetime] = None
+        self.exit_timeframe: Optional[str] = None
         self.exit_index_price: Optional[float] = None
         self.exit_premium: Optional[float] = None
         self.exit_reason: Optional[str] = None
@@ -261,7 +289,18 @@ class TwoRedLadder:
     def _fill(self, stage: _Stage, candle: LadderCandle) -> None:
         strike, option_type = self.strike_for(candle.timestamp, stage.stop)
         premium = self.premium_lookup(candle.timestamp, strike, option_type)
-        quantity = stage.lots * self.lot_size
+        if self.quantity_for is not None:
+            quantity = int(self.quantity_for(float(stage.stop), stage.lots))
+            if quantity <= 0:
+                # The fall is too shallow to be worth a share. The rung stays
+                # unfilled and the ladder keeps waiting, which is the rule
+                # working, not an error.
+                self._log(candle, "rung_too_small", rung=stage.rung, index_price=stage.stop)
+                stage.stop = None
+                stage.armed_at = None
+                return
+        else:
+            quantity = stage.lots * self.lot_size
         self.fills.append(
             LadderFill(
                 rung=stage.rung,
@@ -294,9 +333,28 @@ class TwoRedLadder:
 
     def _target_reached(self, candle: LadderCandle) -> bool:
         target = self.target_index
-        if target is None or candle.high < target:
+        if target is None:
             return False
-        self._close(candle, target, "target")
+        if not self.trail_fraction:
+            if candle.high < target:
+                return False
+            self._close(candle, target, "target")
+            return True
+
+        if not self._trail_armed:
+            if candle.high < target:
+                return False
+            self._trail_armed = True
+            self._trail_best = float(candle.high)
+            self._log(candle, "trail_armed", target=target, best=self._trail_best)
+            return False
+        self._trail_best = max(float(self._trail_best or 0.0), float(candle.high))
+        entry = self.average_entry or 0.0
+        give_back = (self._trail_best - entry) * self.trail_fraction
+        stop = self._trail_best - give_back
+        if float(candle.close) > stop:
+            return False
+        self._close(candle, stop, "trail")
         return True
 
     def close_at_expiry(self, candle: LadderCandle, index_price: float) -> None:
@@ -328,6 +386,11 @@ class TwoRedLadder:
 
     def _close(self, candle: LadderCandle, index_price: float, reason: str) -> None:
         self.exit_timestamp = candle.timestamp
+        # WHICH CHART CLOSED IT. `timestamp` is a bar's OPEN, so an exit taken
+        # on a daily or weekly bar is stamped days before the buy that a
+        # 1-hour bar recorded -- hold times then read negative. The exit's own
+        # timeframe is the missing fact, so record it.
+        self.exit_timeframe = candle.timeframe
         self.exit_index_price = float(index_price)
         self.exit_reason = reason
         priced = [fill for fill in self.fills if fill.option_premium is not None]

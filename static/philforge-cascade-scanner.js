@@ -1,10 +1,17 @@
-/* Terminal Cascade instrument scanner.
+/* Equity page instrument scanner.
  *
  * Read-only. It ranks scrips and fills in the campaign form when one is
  * picked; it never starts a campaign or places an order. Kept in its own file
  * so it does not tangle with the rest of the Terminal code.
+ *
+ * TWO STRATEGIES, ONE SCANNER. The Equity page screens the same universe for
+ * the Cash Cascade and for the two-red ladder, and they disagree only about
+ * what counts as a useful fall and what the capital then does with it. That is
+ * a difference in PARAMETERS, not in rendering -- so this is a factory called
+ * twice rather than a second table that merely resembles the first. Everything
+ * below is per-instance state; nothing is shared but the CSS.
  */
-(function () {
+function createEquityScanner(cfg) {
   'use strict';
 
   var els = {};
@@ -15,6 +22,9 @@
   var pendingScrollState = null;
   // Mirrors engine/cascade_scanner.py LEVEL_ALLOCATION. Change both together.
   var LEVEL_ALLOCATION = [0.20, 0.30, 0.50];
+  // 'cascade' ranks for the three-rung fib pool; 'ladder' ranks for the
+  // two-red ladder, whose rung size is a percentage of the FALL.
+  var mode = cfg.mode || 'cascade';
 
   function $(id) { return document.getElementById(id); }
 
@@ -33,6 +43,37 @@
     if (count >= 3) return '<span class="cascade-scan-rungs ok">3 of 3</span>';
     if (count === 2) return '<span class="cascade-scan-rungs warn">2 of 3</span>';
     return '<span class="cascade-scan-rungs bad">' + count + ' of 3</span>';
+  }
+
+  function capitalNow() {
+    return parseFloat((els.capital && els.capital.value) || '0') || 0;
+  }
+
+  /* THE LADDER'S ARITHMETIC ON TODAY'S PRICE.
+   *
+   * Phil's funding rule, the one the 36-month runs were done under: the percent
+   * price is down from the mother high is the percent of the purse the buy
+   * commits. A 9% fall buys 9% of capital. The target is 0.75 of the way back
+   * to that high -- 0.25 was the shipped number and it books about half as
+   * much, because a quarter of a small gap does not clear delivery costs.
+   *
+   * The high here is the 20-session high the ranking is measured from, which is
+   * a PROXY for the daily run-mother of the backtest, not the same object. Near
+   * enough to size a first buy from; not a claim the two agree bar for bar.
+   */
+  function ladderMath(row) {
+    var capital = capitalNow();
+    var price = Number(row.last_price) || 0;
+    var fall = Number(row.pullback_pct) || 0;
+    var commit = capital * (fall / 100);
+    var shares = price > 0 ? Math.floor(commit / price) : 0;
+    var target = price + 0.75 * ((Number(row.recent_high) || price) - price);
+    return {
+      commit: commit,
+      shares: shares,
+      target: target,
+      gainPct: price > 0 ? ((target - price) / price) * 100 : 0
+    };
   }
 
   function captureScrollState() {
@@ -84,6 +125,20 @@
     var pageRows = lastRows.slice(start, start + PAGE_SIZE);
     var rows = pageRows.map(function (row, offset) {
       var index = start + offset;
+      var tail;
+      if (mode === 'ladder') {
+        var math = ladderMath(row);
+        tail =
+          '<td class="num">' + (capitalNow() > 0 ? money(math.commit) : '—') + '</td>' +
+          '<td class="num' + (math.shares >= 1 ? '' : ' cascade-scan-short') + '">' +
+          (math.shares >= 1 ? math.shares : 'under 1') + '</td>' +
+          '<td class="num">' + money(math.target) + ' <span class="cascade-scan-name">+' +
+          math.gainPct.toFixed(1) + '%</span></td>';
+      } else {
+        tail =
+          '<td class="num">' + row.affordable_shares + '</td>' +
+          '<td class="num">' + rungLabel(row.rungs_fundable) + '</td>';
+      }
       return '' +
         '<tr data-symbol="' + esc(row.symbol) + '">' +
         '<td class="cascade-scan-rank">' + (index + 1) + '</td>' +
@@ -91,13 +146,15 @@
         '<td class="num">' + money(row.last_price) + '</td>' +
         '<td class="num cascade-scan-pullback">-' + row.pullback_pct.toFixed(1) + '%</td>' +
         '<td class="num">+' + row.strength_pct.toFixed(1) + '%</td>' +
-        '<td class="num">' + row.affordable_shares + '</td>' +
-        '<td class="num">' + rungLabel(row.rungs_fundable) + '</td>' +
+        tail +
         '<td class="cascade-scan-row-actions">' +
         // Same classes as "Open Chart" in the instrument panel, so the two are
         // the same control rather than two that merely resemble each other.
         '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-chart-btn" data-symbol="' + esc(row.symbol) + '">Chart</button>' +
-        '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-pick" data-symbol="' + esc(row.symbol) + '">Use</button>' +
+        // No "Use" in ladder mode: there is no two-red campaign form to fill
+        // yet, and a button that silently does nothing is worse than no button.
+        (mode === 'ladder' ? '' :
+          '<button type="button" class="btn btn-sm terminal-cascade-chart-launch cascade-scan-pick" data-symbol="' + esc(row.symbol) + '">Use</button>') +
         '</td>' +
         '</tr>';
     }).join('');
@@ -113,14 +170,20 @@
       '</div>'
     ) : '';
 
+    var tailHead = mode === 'ladder'
+      ? '<th class="num" title="Capital this buy commits: the percent price is down from the high">First buy</th>' +
+        '<th class="num" title="Shares that money buys at today&#39;s price">Shares</th>' +
+        '<th class="num" title="0.75 of the way back to the high, from today&#39;s price">Target</th>'
+      : '<th class="num" title="Shares your capital buys">Shares</th>' +
+        '<th class="num" title="How many of the three buy levels your capital can reach">Rungs</th>';
+
     els.body.innerHTML =
       '<div class="cascade-scan-table-wrap"><table class="cascade-scan-table">' +
       '<thead><tr>' +
       '<th>#</th><th>Scrip</th><th class="num">Price</th>' +
       '<th class="num" title="How far below its recent high it is trading">Off high</th>' +
       '<th class="num" title="Trend over the last 60 sessions">Trend</th>' +
-      '<th class="num" title="Shares your capital buys">Shares</th>' +
-      '<th class="num" title="How many of the three buy levels your capital can reach">Rungs</th>' +
+      tailHead +
       '<th></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' + pager;
     restoreScrollState(scrollState);
@@ -302,6 +365,7 @@
     var rupees = function (v) {
       return '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
     };
+    if (mode === 'ladder') return ladderFooter(payload, capital, price, rupees);
     var cells = LEVEL_ALLOCATION.map(function (share, i) {
       var slice = capital * share;
       var shares = Math.floor(slice / price);
@@ -316,10 +380,51 @@
       ' capital. Rung prices are set by the 5m ladder once the campaign starts.</div></div>';
   }
 
+  /* The same footer for the ladder, whose money works differently: one buy
+   * sized by the fall, and only later buys if price makes a new low and prints
+   * another pair of reds on a slower chart. The later rungs cannot be priced
+   * now -- they depend on lows that have not happened -- so the strip shows the
+   * FIRST buy honestly and says the rest is conditional rather than inventing
+   * three numbers the way the Cascade's fixed pool split legitimately can.
+   */
+  function ladderFooter(payload, capital, price, rupees) {
+    var fall = Number(payload.pullback_pct) || 0;
+    var commit = capital * (fall / 100);
+    var shares = Math.floor(commit / price);
+    var high = Number(payload.recent_high) || price;
+    var target = price + 0.75 * (high - price);
+    var profit = shares * (target - price);
+    var cells = '' +
+      '<div class="cascade-scan-rung' + (shares >= 1 ? '' : ' is-short') + '">' +
+      '<span>First buy · ' + fall.toFixed(1) + '% of purse</span>' +
+      '<strong>' + rupees(commit) + '</strong>' +
+      '<em>' + (shares >= 1 ? shares + ' share' + (shares === 1 ? '' : 's') : 'cannot afford one share') + '</em>' +
+      '</div>' +
+      '<div class="cascade-scan-rung">' +
+      '<span>Target · 0.75 back to the high</span>' +
+      '<strong>' + rupees(target) + '</strong>' +
+      '<em>' + rupees(high) + ' high</em>' +
+      '</div>' +
+      '<div class="cascade-scan-rung' + (profit > 100 ? '' : ' is-short') + '">' +
+      '<span>If it gets there</span>' +
+      '<strong>' + rupees(profit) + '</strong>' +
+      // ~Rs 86 is the measured delivery cost of a round trip at these sizes.
+      // A gain that does not clear it is the exact way this rule used to lose.
+      '<em>' + (profit > 100 ? 'clears ~₹86 of costs' : 'too small for ₹86 of costs') + '</em>' +
+      '</div>';
+    return '<div class="cascade-scan-rungs-strip">' + cells +
+      '<div class="cascade-scan-rung-note">Buy at ' + rupees(capital) +
+      ' purse. Rungs 2-4 only exist if price makes a new low and prints two more reds ' +
+      'on a slower chart, so they cannot be priced today.</div></div>';
+  }
+
   async function toggleChart(symbol, row) {
     var existing = row.nextElementSibling;
     if (existing && existing.classList.contains('cascade-scan-chart-row')) { existing.remove(); return; }
-    document.querySelectorAll('.cascade-scan-chart-row').forEach(function (node) { node.remove(); });
+    // Scoped to THIS scanner's body. A document-wide sweep would close the
+    // other strategy's open chart, which is the classic way two instances of
+    // one component start fighting.
+    els.body.querySelectorAll('.cascade-scan-chart-row').forEach(function (node) { node.remove(); });
 
     var holder = document.createElement('tr');
     holder.className = 'cascade-scan-chart-row';
@@ -341,6 +446,10 @@
   }
 
   function pick(symbol) {
+    // Ladder mode has no campaign form to fill; its rows never render a Use
+    // button, and this guard means a stray click cannot half-fill the
+    // Cascade's form with a scrip picked for a different strategy.
+    if (mode === 'ladder') return;
     var row = lastRows.find(function (item) { return item.symbol === symbol; });
     var input = $('terminal-cascade-symbol') || $('terminal-symbol-input') || $('terminal-search-input');
     if (input) {
@@ -357,10 +466,10 @@
     } else {
       setStatus(symbol + ' selected. Set the mother candle to start.', 'ok');
     }
-    document.querySelectorAll('.cascade-scan-table tr.is-picked').forEach(function (node) {
+    els.body.querySelectorAll('.cascade-scan-table tr.is-picked').forEach(function (node) {
       node.classList.remove('is-picked');
     });
-    var picked = document.querySelector('.cascade-scan-table tr[data-symbol="' + symbol + '"]');
+    var picked = els.body.querySelector('.cascade-scan-table tr[data-symbol="' + symbol + '"]');
     if (picked) picked.classList.add('is-picked');
     // Say plainly which scrip the setup below is now for, since the form
     // itself only shows a symbol field that is easy to miss.
@@ -377,6 +486,17 @@
     }
   }
 
+  /* The pullback band, which is the whole difference between the two screens.
+   * Sent explicitly even when it matches the endpoint's default, because the
+   * server's cache key is built from these values -- an omitted parameter and
+   * an equal one would otherwise land on the same saved scan by accident. */
+  function scanParams() {
+    var out = '';
+    if (cfg.minPullback != null) out += '&min_pullback=' + encodeURIComponent(cfg.minPullback);
+    if (cfg.maxPullback != null) out += '&max_pullback=' + encodeURIComponent(cfg.maxPullback);
+    return out;
+  }
+
   async function run(refresh) {
     var capital = parseFloat((els.capital && els.capital.value) || '100000');
     if (!(capital > 0)) { setStatus('Enter the capital you would put on one campaign.', 'warn'); return; }
@@ -389,7 +509,7 @@
       '<div>Pulling daily candles for 223 scrips…</div></div>';
     try {
       var url = '/api/terminal/cascade/scan?capital_inr=' + encodeURIComponent(capital) +
-        (refresh ? '&refresh=true' : '');
+        scanParams() + (refresh ? '&refresh=true' : '');
       var res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Scan failed');
@@ -410,7 +530,7 @@
       var capital = parseFloat((els.capital && els.capital.value) || '100000');
       if (!(capital > 0)) return;
       var res = await fetch(
-        '/api/terminal/cascade/scan?capital_inr=' + encodeURIComponent(capital) + '&load_only=true',
+        '/api/terminal/cascade/scan?capital_inr=' + encodeURIComponent(capital) + scanParams() + '&load_only=true',
         { credentials: 'same-origin', cache: 'no-store' }
       );
       var data = await res.json();
@@ -424,12 +544,14 @@
   }
 
   function init() {
-    els.run = $('cascade-scan-run');
+    var prefix = cfg.prefix;
+    els.run = $(prefix + '-run');
     if (!els.run) return;
-    els.capital = $('cascade-scan-capital');
-    els.status = $('cascade-scan-status');
-    els.meta = $('cascade-scan-meta');
-    els.body = $('cascade-scan-body');
+    els.capital = $(prefix + '-capital');
+    els.status = $(prefix + '-status');
+    els.meta = $(prefix + '-meta');
+    els.body = $(prefix + '-body');
+    if (!els.body) return;
 
     els.run.addEventListener('click', function () { run(true); });
     els.body.addEventListener('click', function (event) {
@@ -451,7 +573,20 @@
   } else {
     init();
   }
-})();
+}
+
+/* The Cash Cascade screen: any discount of 1% or more in a name still trending
+ * up. These are the endpoint's own defaults, kept explicit so the two screens
+ * read side by side. */
+createEquityScanner({ prefix: 'cascade-scan', mode: 'cascade', minPullback: 1, maxPullback: 25 });
+
+/* The two-red ladder screen. The 8% floor is not a taste: at anything shallower
+ * the quarter-of-the-gap target used to be worth ₹8-18 against ₹86 of delivery
+ * costs, and the 36-month run over 23 NSE names only turned every closed trade
+ * green once the first buy waited for an 8% fall. Above 25% it is not a
+ * pullback any more -- the two losers in that run, IRCTC and DMART, were falls
+ * that never came back. */
+createEquityScanner({ prefix: 'tworeds-scan', mode: 'ladder', minPullback: 8, maxPullback: 25 });
 
 /* Mother-candle field: readable IST echo.
  *
