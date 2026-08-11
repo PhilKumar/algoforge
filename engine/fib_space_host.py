@@ -302,8 +302,7 @@ class FibSpacePaperHost:
         # DRAW IT NOW, don't wait for a poll. The geometry needs only closed
         # candles, so a mother named at 8pm can be checked against your own
         # chart the same evening -- the point of naming it is to confirm the
-        # engine sees what you see. preview() records nothing, so no fill gets
-        # priced off a stale quote as a side effect of looking.
+        # engine sees what you see.
         entry_bars = bars
         if self.entry_timeframe != self.geometry_timeframe:
             try:
@@ -312,10 +311,35 @@ class FibSpacePaperHost:
                 # A missing entry series costs the fill marks, not the geometry;
                 # the poll will fill them in. Better a partial chart than none.
                 entry_bars = bars
+
+        # AND RECORD WHAT ALREADY HAPPENED, at any hour.
+        #
+        # This used to preview() only -- draw, record nothing -- because a fill
+        # in the past could only be priced from a live quote, and quoting an old
+        # fill at tonight's premium is a fabrication. That constraint is gone:
+        # the lookup reads the contract's own recorded minute, so a fill from
+        # this afternoon gets the price it actually traded at.
+        #
+        # Previewing only had a cost that was easy to miss. Nothing about a
+        # campaign's fills is persisted -- the replay rebuilds them -- so after
+        # every restart the ladder came back EMPTY and could not refill until
+        # the next session. A deploy at 9pm left a real trade reading "0 fills,
+        # Rs 0.00" until 09:15 the next morning, which is exactly how it looked
+        # to Phil tonight. Recording here makes a restart and a naming both
+        # rebuild the whole ladder in seconds, whatever the clock says.
         try:
-            self.book.preview(campaign, bars, entry_bars)
+            self.book.advance(campaign, bars, entry_bars, now=now)
+        except CampaignHalted:
+            # The campaign is stamped halted and stays; one bad mother must not
+            # abort a restore that is bringing back the others.
+            pass
         except Exception:
-            pass  # the campaign is real either way; the poll redraws it
+            # Fall back to drawing it. The campaign is real either way, and the
+            # next poll records what this missed.
+            try:
+                self.book.preview(campaign, bars, entry_bars)
+            except Exception:
+                pass
         return campaign
 
     async def ensure_drawable(self, campaign, *, now: datetime) -> None:

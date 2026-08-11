@@ -348,12 +348,25 @@ class NamedMotherFetchTests(unittest.TestCase):
         self.assertIn("no closed", str(caught.exception))
 
     def test_a_named_mother_is_advanced_by_the_ordinary_poll(self):
+        """It trades like any other campaign — and is not re-traded.
+
+        Naming now records the ladder that had already filled, so the poll that
+        follows reports no NEW fills; what it must not do is ignore the campaign
+        or record its decisions a second time. The identity guard is the thing
+        under test: a fill once seen has to reappear as the SAME fill on every
+        later poll, never as another one.
+        """
         candles = _series()
         host = _host(_Adapter(candles))
-        asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        recorded = list(campaign.fills)
+        self.assertTrue(recorded, "the fixture's ladder must have filled")
 
         report = asyncio.run(host.poll(now=datetime(2026, 3, 3, 11, 1)))
-        self.assertTrue(report.fills, "the named mother must trade like any other campaign")
+
+        self.assertEqual(report.fills, [], "already recorded — the poll must not re-record them")
+        self.assertEqual([f.key for f in campaign.fills], [f.key for f in recorded])
+        self.assertNotEqual(campaign.status, "halted", "the poll must not contradict what naming recorded")
         self.assertEqual(host.snapshot()["campaign_rows"][0]["source"], "manual")
 
 
@@ -378,13 +391,49 @@ class NamedMotherIsDrawableImmediatelyTests(unittest.TestCase):
 
         self.assertEqual(host.book.campaign_chart(campaign)["status"], "ok")
 
-    def test_naming_a_mother_records_no_trade(self):
+    def test_naming_a_mother_records_what_its_ladder_already_did(self):
+        """Reversed deliberately on 2026-08-11, and worth stating why.
+
+        This used to assert that naming recorded NOTHING. That was right while
+        a past fill could only be priced from a live quote — pricing an old fill
+        at tonight's premium is a fabrication, so refusing was the honest
+        choice. The lookup now reads the contract's own recorded minute, so the
+        fill gets the price it actually traded at and there is nothing left to
+        protect against.
+
+        The cost of not recording was easy to miss: fills are never persisted —
+        the replay rebuilds them — so every restart brought the ladder back
+        EMPTY, and it could not refill until the next session. A deploy at 9pm
+        left a real trade reading "0 fills, Rs 0.00" until 09:15 next morning.
+        """
         candles = _series()
         host = _host(_Adapter(candles))
+        # 20:30 on a weekday: no poll would ever run at this hour.
         campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 20, 30)))
 
-        self.assertEqual(campaign.fills, [])
-        self.assertEqual(host.snapshot()["open_quantity"], 0)
+        self.assertTrue(campaign.fills, "the ladder had already filled; naming it must record that")
+        self.assertGreater(host.snapshot()["open_quantity"], 0)
+        # Recorded means priced, not guessed: this fixture's lookup answers.
+        self.assertTrue(all(f.premium is not None for f in campaign.fills))
+        self.assertEqual(host.snapshot()["unpriced_legs"], 0)
+
+    def test_a_restart_rebuilds_the_ladder_without_waiting_for_the_market(self):
+        """What Phil actually hit: re-adopting a saved mother is this same call."""
+        candles = _series()
+        first = _host(_Adapter(candles))
+        original = asyncio.run(first.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 20, 30)))
+
+        # A restart builds a fresh host and re-adopts the saved mother. Nothing
+        # about the fills is on disk, so they must come back from the replay.
+        rebuilt = _host(_Adapter(candles))
+        restored = asyncio.run(rebuilt.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 20, 30)))
+
+        self.assertEqual(len(restored.fills), len(original.fills))
+        self.assertEqual(
+            [f.key for f in restored.fills],
+            [f.key for f in original.fills],
+            "the rebuilt ladder must be the same decisions, not merely the same count",
+        )
 
 
 class EnsureDrawableTests(unittest.TestCase):
@@ -412,11 +461,17 @@ class EnsureDrawableTests(unittest.TestCase):
         self.assertEqual(host.adapter.calls, [], "a drawable campaign must not spend broker calls")
 
     def test_building_a_chart_records_no_trade(self):
+        """Looking at a chart must never move the ledger.
+
+        Naming a mother DOES record now, so the check is that ensure_drawable
+        adds nothing of its own — not that the campaign is empty.
+        """
         candles = _series()
         host = _host(_Adapter(candles))
         campaign = asyncio.run(host.start_named_mother(candles[26].timestamp, now=datetime(2026, 3, 3, 11, 0)))
+        before = [f.key for f in campaign.fills]
         campaign.last_result = None
 
         asyncio.run(host.ensure_drawable(campaign, now=datetime(2026, 3, 3, 20, 30)))
-        self.assertEqual(campaign.fills, [])
+        self.assertEqual([f.key for f in campaign.fills], before, "drawing must not add a fill")
         self.assertEqual(campaign.unpriced, 0)
