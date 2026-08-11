@@ -321,6 +321,20 @@ class FibSpacePaperBook:
         self.campaigns[key] = campaign
         return campaign
 
+    def drop_campaign(self, campaign_id: str) -> Optional[LiveCampaign]:
+        """Forget a campaign entirely, so its mother can be named again.
+
+        Nothing here is recoverable and nothing pretends to be: the fills are
+        paper, the geometry is rederived from bars, and the point of dropping
+        one is to run the same mother over from a clean sheet — which
+        adopt_manual_mother refuses to do while the old campaign holds the key.
+
+        The alternative, marking it dead and leaving it in the book, would keep
+        that key taken and quietly report the dead campaign's legs in every
+        book total. Removal is the honest operation.
+        """
+        return self.campaigns.pop(str(campaign_id), None)
+
     # -- the poll -----------------------------------------------------------
 
     def _replay(self, campaign: LiveCampaign, geometry_bars: Sequence[Bar], entry_bars: Sequence[Bar]):

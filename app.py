@@ -11894,6 +11894,35 @@ async def fib_space_paper_campaign(campaign_id: str, request: Request):
     return {"status": "ok", "mode": "paper", "campaign": runtime.host.book.campaign_detail(campaign, now=now)}
 
 
+@app.post("/api/fib-space/paper/campaign/delete")
+async def fib_space_paper_campaign_delete(request: Request):
+    """Drop a campaign so its mother can be named again from a clean sheet.
+
+    adopt_manual_mother refuses to open a second campaign on a mother that is
+    already running, which is right -- a double submit must not put two
+    campaigns on one fall. But it also means a campaign recorded on the wrong
+    terms is stuck there, and the first one that mattered was priced before the
+    driver could read recorded candles: real fills, real target, no rupees.
+    Deleting and re-naming re-runs the same geometry and prices it properly.
+
+    Paper only, and nothing here is recoverable -- which is why the UI asks
+    first. The saved manual-mother list is rewritten from the book afterwards,
+    so a restart cannot quietly bring the deleted campaign back.
+    """
+    user_id = _request_user_id(request)
+    body = await request.json() if await request.body() else {}
+    campaign_id = str(body.get("campaign_id") or "").strip()
+    runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
+    dropped = runtime.host.book.drop_campaign(campaign.campaign_id)
+    await _save_fib_space_state(user_id, runtime)
+    return {
+        "status": "deleted",
+        "mode": "paper",
+        "campaign_id": campaign.campaign_id,
+        "mother": dropped.mother.timestamp.isoformat() if dropped else None,
+    }
+
+
 @app.get("/api/fib-space/paper/chart")
 async def fib_space_paper_chart(campaign_id: str, request: Request):
     """The campaign drawn: geometry, fills and target, for the shared renderer."""

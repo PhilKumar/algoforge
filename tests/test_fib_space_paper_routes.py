@@ -500,6 +500,61 @@ class CampaignDetailRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("capital_open", detail)
         self.assertEqual(detail["rounds"], [], "nothing bought yet")
 
+    async def test_deleting_a_campaign_frees_its_mother_to_be_named_again(self):
+        """The reason the button exists.
+
+        A campaign recorded before the driver could read recorded candles has
+        real fills and no rupees, and adopt_manual_mother rightly refuses to
+        open a second campaign on the same mother — so without a delete there is
+        no way to re-run it properly.
+        """
+        runtime = await self._start()
+        from engine.fib_space_geometry import Bar
+
+        bar = Bar(index=0, timestamp=datetime(2026, 3, 3, 10, 15), open=57000, high=57200, low=56900, close=56950)
+        campaign = runtime.host.book.adopt_manual_mother(bar)
+        with self.assertRaises(ValueError):
+            runtime.host.book.adopt_manual_mother(bar)
+
+        result = await app_module.fib_space_paper_campaign_delete(_Request(body={"campaign_id": campaign.campaign_id}))
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertNotIn(campaign.campaign_id, runtime.host.book.campaigns)
+        # The whole point: the mother is free again.
+        again = runtime.host.book.adopt_manual_mother(bar)
+        self.assertEqual(again.campaign_id, campaign.campaign_id)
+
+    async def test_a_deleted_campaign_does_not_come_back_on_restart(self):
+        """The named mother is persisted, so deleting must rewrite that record.
+
+        Otherwise the next start re-adopts it and the trade the trader just
+        removed reappears with nothing on screen to explain it.
+        """
+        runtime = await self._start()
+        from engine.fib_space_geometry import Bar
+
+        bar = Bar(index=0, timestamp=datetime(2026, 3, 3, 10, 15), open=57000, high=57200, low=56900, close=56950)
+        campaign = runtime.host.book.adopt_manual_mother(bar)
+        await app_module._save_fib_space_state(7, runtime)
+        saved = json.loads(await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7)))
+        self.assertIn("2026-03-03T10:15:00", saved["manual_mothers"])
+
+        await app_module.fib_space_paper_campaign_delete(_Request(body={"campaign_id": campaign.campaign_id}))
+
+        saved = json.loads(await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7)))
+        self.assertEqual(saved["manual_mothers"], [])
+
+    async def test_deleting_an_unknown_campaign_is_a_404(self):
+        await self._start()
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_campaign_delete(_Request(body={"campaign_id": "banknifty:20260101T0915"}))
+        self.assertEqual(caught.exception.status_code, 404)
+
+    async def test_deleting_without_a_run_is_refused(self):
+        with self.assertRaises(HTTPException) as caught:
+            await app_module.fib_space_paper_campaign_delete(_Request(body={"campaign_id": "anything"}))
+        self.assertEqual(caught.exception.status_code, 409)
+
     async def test_a_chart_with_no_replay_yet_is_a_409_not_an_empty_canvas(self):
         runtime = await self._start()
         from engine.fib_space_geometry import Bar

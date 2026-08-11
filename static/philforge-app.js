@@ -1473,6 +1473,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'stopFibSpacePaper',
   'addFibSpaceMother',
   'openFibSpaceCampaign',
+  'deleteFibSpaceCampaign',
   'loadFibSpaceChart',
   'hideFibSpaceChart',
   'runTestBench',
@@ -2513,6 +2514,37 @@ async function openFibSpaceCampaign(event, el) {
   if (_fsxOpenCampaignId === id) { closeFibSpaceDetail(); return; }
   _fsxOpenCampaignId = id;
   await _fsxLoadCampaignDetail();
+}
+
+async function deleteFibSpaceCampaign() {
+  // The mother's own timestamp is what the trader recognises — "delete
+  // banknifty:20260803T1515" would not be.
+  const id = _fsxOpenCampaignId;
+  if (!id) return;
+  const title = document.getElementById('fsx-detail-title')?.textContent || 'this campaign';
+  const confirmed = await customConfirm(
+    `Forget <strong>${escapeHtml(title.replace(/^[◈◇]\s*/, ''))}</strong>? Its paper fills and P&L go for good. The mother becomes free to run again, which is how a campaign recorded without prices gets a clean re-run. No Dhan order is involved.`,
+    { title: 'Delete paper campaign', icon: ICO.warn(28), okText: 'Delete & free the mother', danger: true }
+  );
+  if (!confirmed) return;
+  let data = {};
+  try {
+    const response = await fetch('/api/fib-space/paper/campaign/delete', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: id }),
+    });
+    data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'deleted') throw new Error(_apiErrorMessage(data, `Delete failed (${response.status})`));
+  } catch (error) {
+    _fsxSetMotherStatus(error.message || 'Could not delete that campaign.', 'error');
+    return;
+  }
+  // The drawer and any open chart belong to a campaign that no longer exists.
+  closeFibSpaceDetail();
+  _fsxSetMotherStatus('Campaign deleted — name that mother again for a fresh, priced run.', 'success');
+  await refreshFibSpaceStatus();
 }
 
 function closeFibSpaceDetail() {
@@ -3656,6 +3688,7 @@ window.stopFibSpacePaper = stopFibSpacePaper;
 window.addFibSpaceMother = addFibSpaceMother;
 window.openFibSpaceCampaign = openFibSpaceCampaign;
 window.closeFibSpaceDetail = closeFibSpaceDetail;
+window.deleteFibSpaceCampaign = deleteFibSpaceCampaign;
 window.loadFibSpaceChart = loadFibSpaceChart;
 window.hideFibSpaceChart = hideFibSpaceChart;
 window.refreshFibSpaceStatus = refreshFibSpaceStatus;
