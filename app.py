@@ -2128,6 +2128,127 @@ def _fib_space_state_key(user_id: int) -> str:
     return f"fib_space_paper:{int(user_id)}"
 
 
+# How far back the recorded-candle fallback will fetch. It matches
+# _FIB_SPACE_MOTHER_HISTORY_DAYS: a mother older than that cannot be named, so
+# nothing the driver can be asked to price lies further back than this.
+_FIB_SPACE_PREMIUM_HISTORY_DAYS = 15
+
+
+def _fib_space_premium_lookup(broker: DhanClient, instrument: str):
+    """Quote it live if it is happening now; read the recorded minute if not.
+
+    A live LTP is the only honest price for a decision seen as it happens, and
+    for a while that was the only thing the paper driver had — so a mother named
+    after its ladder had already filled produced a campaign with no rupee P&L
+    at all (Phil, 2026-08-11: a real BANKNIFTY target hit, reported "unpriced").
+
+    That was a wiring gap, not a data limit. Dhan serves one-minute candles for
+    any still-listed contract, and the fib-space BACKTEST already prices every
+    fill from them through _hybrid_premium_lookup. This gives the paper run the
+    same second source, and labels which one answered so the two never blur:
+    a recorded bar proves the price existed, not that this fill would have been
+    got at it.
+
+    One fetch per contract, cached in process and on disk, refetched only when
+    asked about a day beyond what was fetched. The Dhan budget is account-wide.
+    """
+    live = _cascade_premium_lookup(broker)
+    series_cache: dict[tuple, dict] = {}
+    fetched_to: dict[tuple, date] = {}
+
+    def _recorded_series(contract) -> dict:
+        from data.option_archive import OptionDataArchive
+
+        expiry = contract.expiry
+        key = (int(contract.strike), str(expiry), str(contract.option_type))
+        today = datetime.now(IST).date()
+        required_end = min(today, expiry)
+        if key in series_cache and fetched_to.get(key, date.min) >= required_end:
+            return series_cache[key]
+
+        archive = OptionDataArchive()
+        label = f"{instrument} {int(contract.strike)}{contract.option_type} {expiry.isoformat()}"
+        start = max(today - timedelta(days=_FIB_SPACE_PREMIUM_HISTORY_DAYS), required_end - timedelta(days=365))
+        series: dict = {}
+        archived = archive.load(
+            provider="dhan",
+            underlying=instrument,
+            expiry=expiry,
+            strike=contract.strike,
+            option_type=contract.option_type,
+        )
+        covered_to = max(archived, default=None)
+        if archived and covered_to is not None and covered_to.date() >= required_end:
+            series = {minute: float(row["open"]) for minute, row in archived.items()}
+        else:
+            try:
+                security_id = str(getattr(contract, "security_id", "") or "") or ScripMaster.lookup(
+                    instrument, int(contract.strike), expiry.isoformat(), contract.option_type
+                )
+                if security_id:
+                    frame = broker.get_historical_data(
+                        str(security_id),
+                        "NSE_FNO",
+                        "OPTIDX",
+                        0,
+                        start.isoformat(),
+                        required_end.isoformat(),
+                        "1",
+                    )
+                    raw_bars = {
+                        _premium_minute(index.to_pydatetime()): {
+                            "open": float(row["open"]),
+                            "high": float(row.get("high", row["open"])),
+                            "low": float(row.get("low", row["open"])),
+                            "close": float(row.get("close", row["open"])),
+                        }
+                        for index, row in frame.iterrows()
+                    }
+                    series = {minute: float(row["open"]) for minute, row in raw_bars.items()}
+                    if raw_bars:
+                        archive.store(
+                            provider="dhan",
+                            underlying=instrument,
+                            expiry=expiry,
+                            strike=contract.strike,
+                            option_type=contract.option_type,
+                            bars=raw_bars,
+                            instrument_key=str(security_id),
+                        )
+                else:
+                    _logger.warning("[FIBSPACE] no security id for %s; leg stays unpriced", label)
+            except Exception as exc:
+                # A broken fetch must never halt a paper run or invent a price.
+                # The leg simply stays unpriced, which is the old behaviour.
+                _logger.warning("[FIBSPACE] recorded candles unavailable for %s: %s", label, exc)
+
+        series_cache[key] = series
+        fetched_to[key] = required_end
+        return series
+
+    def lookup(when: datetime, contract):
+        if contract is None:
+            return None
+        quoted = live(when, contract)
+        if quoted is not None:
+            return quoted, "live"
+        minute = _premium_minute(when)
+        series = _recorded_series(contract)
+        # An illiquid strike can go minutes without a trade; a real order would
+        # still have filled near the last one. Walk back within the same day
+        # only — across a session boundary it is a different market.
+        for step in range(_PREMIUM_STALE_LIMIT_MINUTES + 1):
+            candidate = minute - timedelta(minutes=step)
+            if candidate.date() != minute.date():
+                break
+            price = series.get(candidate)
+            if price is not None:
+                return price, "history"
+        return None
+
+    return lookup
+
+
 def _build_fib_space_host(
     symbol: str, adapter: CascadeOptionsAdapter, broker: DhanClient, *, auto_scan: bool = False
 ) -> FibSpacePaperHost:
@@ -2140,7 +2261,7 @@ def _build_fib_space_host(
     in FIB_SPACE_SYMBOLS and asserted against the sweep's config in the tests.
     """
     terms = FIB_SPACE_SYMBOLS[symbol]
-    quote = _cascade_premium_lookup(broker)
+    quote = _fib_space_premium_lookup(broker, terms["dhan_symbol"])
 
     def select_contract(when: datetime, index_price: float):
         return adapter.select_campaign_contract(
@@ -11764,7 +11885,13 @@ def _fib_space_campaign_or_404(request: Request, campaign_id: str):
 async def fib_space_paper_campaign(campaign_id: str, request: Request):
     """One campaign's money: every fill's premium, what it cost, what it is worth."""
     runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
-    return {"status": "ok", "mode": "paper", "campaign": runtime.host.book.campaign_detail(campaign)}
+    # "Worth now" must be quoted at NOW. Without this the mark reaches for the
+    # fill's own minute, which the recorded-candle fallback would answer with
+    # the entry premium — every open position frozen at exactly zero.
+    # Deliberately NOT off-loaded to a thread: the poll loop mutates this same
+    # book on the event loop, and everything here stays serialised with it.
+    now = datetime.now(IST).replace(tzinfo=None)
+    return {"status": "ok", "mode": "paper", "campaign": runtime.host.book.campaign_detail(campaign, now=now)}
 
 
 @app.get("/api/fib-space/paper/chart")

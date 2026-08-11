@@ -2452,10 +2452,19 @@ function _renderFibSpaceStatus(payload) {
   const note = document.getElementById('fsx-unpriced-note');
   if (note) {
     const unpriced = Number(book.unpriced_legs || 0);
+    const fromHistory = Number(book.history_priced_legs || 0);
+    // Two different caveats, and the weaker one must not hide the stronger.
+    // Unpriced means no P&L exists at all; history-priced means the rupees are
+    // real traded prices but were not quoted as the decision happened.
+    const lines = [];
     if (unpriced) {
-      note.style.display = '';
-      note.textContent = `${unpriced} leg${unpriced === 1 ? '' : 's'} could not be quoted when the decision was first seen — usually the run was restarting. Those campaigns report no P&L rather than a guessed one.`;
-    } else note.style.display = 'none';
+      lines.push(`${unpriced} leg${unpriced === 1 ? '' : 's'} could not be priced at all — neither a live quote nor a recorded candle. Those campaigns report no P&L rather than a guessed one.`);
+    }
+    if (fromHistory) {
+      lines.push(`${fromHistory} leg${fromHistory === 1 ? '' : 's'} marked ᴴ were priced from the contract's own recorded minute, not quoted as it happened — a real traded price, but not proof the fill would have been got there.`);
+    }
+    note.style.display = lines.length ? '' : 'none';
+    note.textContent = lines.join(' ');
   }
 }
 
@@ -2561,7 +2570,7 @@ function _renderFibSpaceDetail(c) {
   _fsxPaint(rounds, c.rounds.map(r => {
     const head = `Round ${r.round} · ${r.lots} lot${r.lots === 1 ? '' : 's'} / ${r.quantity} qty · avg premium ${r.average_premium ?? '—'} · spent ${_fsxMoney(r.capital_spent)}`;
     const tail = r.exit
-      ? `<span style="color:${(r.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(String(r.exit.reason || 'exit').toUpperCase())} @ ${_cascadeNumber(r.exit.index_price)} · premium ${r.exit.premium ?? '—'} · ${_fsxMoney(r.realised)}</span>`
+      ? `<span style="color:${(r.realised || 0) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(String(r.exit.reason || 'exit').toUpperCase())} @ ${_cascadeNumber(r.exit.index_price)} · premium ${r.exit.premium ?? '—'}${r.exit.pricing === 'history' ? ' ᴴ' : ''} · ${_fsxMoney(r.realised)}</span>`
       : `<span style="color:var(--warn);">OPEN${r.mark_value !== undefined ? ` · worth ${_fsxMoney(r.mark_value)} now (${_fsxMoney(r.unrealised)})` : ''}</span>`;
     const legs = r.fills.map(f => `<tr style="text-align:right;border-top:1px solid var(--border);">
         <td style="text-align:left;padding:5px 8px;">${escapeHtml(new Date(f.at).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
@@ -2569,7 +2578,9 @@ function _renderFibSpaceDetail(c) {
         <td style="padding:5px 8px;">${f.strike === null ? '—' : Number(f.strike).toLocaleString('en-IN')}</td>
         <td style="padding:5px 8px;">${f.lots}</td>
         <td style="padding:5px 8px;">${f.quantity}</td>
-        <td style="padding:5px 8px;">${f.premium ?? '<span style="color:var(--warn);">unpriced</span>'}</td>
+        <td style="padding:5px 8px;">${f.premium === null || f.premium === undefined
+          ? '<span style="color:var(--warn);">unpriced</span>'
+          : `${f.premium}${f.pricing === 'history' ? '<span title="Read back from this contract\'s own recorded minute, not quoted as it happened" style="color:var(--muted);"> ᴴ</span>' : ''}`}</td>
         <td style="padding:5px 8px;">${_fsxMoney(f.outlay)}</td>
         <td style="text-align:left;padding:5px 8px;color:var(--muted);">${escapeHtml(f.space || '')}</td>
       </tr>`).join('');

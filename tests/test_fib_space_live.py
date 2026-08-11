@@ -582,17 +582,84 @@ class CampaignDetailTests(unittest.TestCase):
         # Stop before the recovery so a round is still open to mark.
         book.advance(campaign, bars[:60], bars[:60], now=bars[59].timestamp)
 
-        detail = book.campaign_detail(campaign, mark_to_market=True)
+        detail = book.campaign_detail(campaign, mark_to_market=True, now=bars[59].timestamp)
         self.assertGreater(detail["capital_open"], 0)
         self.assertIsNotNone(detail["open_value"])
         self.assertAlmostEqual(detail["unrealised"], detail["open_value"] - detail["capital_open"], places=2)
         self.assertEqual(detail["realised"], 0.0, "nothing banked yet")
+
+    def test_marking_without_a_clock_is_skipped_rather_than_faked(self):
+        """The mark must be quoted at NOW, and there is no honest now here.
+
+        Marking used to re-quote at the FILL's own timestamp, which was harmless
+        only while the lookup could answer nothing about the past. Now that it
+        can read recorded candles, that same call would hand back the entry
+        premium and report it as the present value — every open position frozen
+        at exactly zero unrealised, forever.
+        """
+        bars = bars_from_candles(_falling_market())
+        book = FibSpacePaperBook(
+            "banknifty",
+            config=SpaceCascadeConfig(lot_size=30),
+            premium_lookup=_always(100.0),
+            select_contract=_select,
+            entry_timeframe="15m",
+            geometry_timeframe="15m",
+        )
+        campaign = book.adopt_manual_mother(bars[6])
+        book.advance(campaign, bars[:60], bars[:60], now=bars[59].timestamp)
+
+        detail = book.campaign_detail(campaign, mark_to_market=True)
+        self.assertGreater(detail["capital_open"], 0)
+        self.assertIsNone(detail["open_value"])
+        self.assertIsNone(detail["unrealised"])
 
     def test_the_contract_actually_bought_is_named(self):
         book, campaign = self._traded()
         detail = book.campaign_detail(campaign, mark_to_market=False)
         self.assertIsNotNone(detail["contract"])
         self.assertIsNotNone(detail["contract"]["strike"])
+
+    def test_a_bare_price_still_means_it_was_quoted_live(self):
+        """Every existing lookup and test fake answers a bare float."""
+        book, campaign = self._traded()
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        legs = [f for r in detail["rounds"] for f in r["fills"]]
+        self.assertTrue(legs)
+        for row in legs:
+            self.assertEqual(row["pricing"], "live")
+        self.assertEqual(detail["history_priced_legs"], 0)
+
+    def test_a_recorded_price_is_counted_and_labelled_apart_from_a_live_one(self):
+        """The rupees are real, so they count — but the caveat has to survive.
+
+        A price read back from the contract's own candle proves the price
+        existed, not that this fill would have been got at it. Folding it into
+        the total unlabelled would quietly turn a caveat into a result.
+        """
+        book, campaign = self._traded(lookup=lambda when, contract: (120.0, "history"))
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        legs = [f for r in detail["rounds"] for f in r["fills"]]
+        self.assertTrue(legs)
+        for row in legs:
+            self.assertEqual(row["pricing"], "history")
+            self.assertEqual(row["premium"], 120.0)
+        # Priced is priced: the money is known, unlike an unpriced leg.
+        self.assertEqual(detail["unpriced_legs"], 0)
+        self.assertIsNotNone(detail["realised"])
+        self.assertGreater(detail["history_priced_legs"], 0)
+
+    def test_a_lookup_that_answers_none_still_leaves_the_leg_unpriced(self):
+        """The tuple form must not accidentally make None look like a price."""
+        book, campaign = self._traded(lookup=lambda when, contract: (None, "history"))
+        detail = book.campaign_detail(campaign, mark_to_market=False)
+
+        self.assertGreater(detail["unpriced_legs"], 0)
+        self.assertIsNone(detail["realised"])
+        for row in (f for r in detail["rounds"] for f in r["fills"]):
+            self.assertIsNone(row["pricing"])
 
 
 class CampaignChartTests(unittest.TestCase):

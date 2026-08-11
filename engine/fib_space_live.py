@@ -16,11 +16,18 @@ few milliseconds per campaign and buys three things worth far more:
 
 WHAT IT REFUSES TO DO, each because the alternative fabricates a result:
 
-  * **Never price a fill it did not see happen.**  A premium is a live quote.
-    If the driver was asleep when the bar closed, the quote it can fetch now is
-    not the fill that would have happened then, so the fill is recorded UNPRICED
-    and the campaign is flagged.  A paper P&L built from late quotes flatters
-    itself exactly where the market moved fastest.
+  * **Never price a fill from a quote taken at the wrong moment.**  A live LTP
+    fetched now is not the fill that would have happened an hour ago, and a
+    paper P&L built from late quotes flatters itself exactly where the market
+    moved fastest.  A RECORDED one-minute bar from the fill's own minute is a
+    different thing entirely -- a real traded price, which is what the backtest
+    prices every fill from -- so the lookup may answer with one, and says so:
+    each leg carries ``pricing`` of ``"live"`` (quoted as it happened) or
+    ``"history"`` (read back from the contract's own candle).  A leg neither
+    source can price stays UNPRICED and the campaign reports no P&L at all.
+    The distinction is kept end to end because it is the honest caveat: a
+    recorded bar proves the price existed, not that this fill would have been
+    got at it.
   * **Never rewrite a decision it already recorded.**  The replay is causal, so
     a fill once seen must reappear identically on every later poll.  If one
     changes or vanishes, that is a real defect -- the campaign halts for a human
@@ -31,7 +38,10 @@ WHAT IT REFUSES TO DO, each because the alternative fabricates a result:
 
 The driver holds no broker.  Premium comes from an injected lookup with the same
 signature the options cascade already uses -- ``(timestamp, contract) -> float |
-None`` -- so paper and live differ only in what that callable does.
+None`` -- so paper and live differ only in what that callable does.  A lookup
+that can tell live quotes from recorded bars may answer ``(price, source)``
+instead; a bare price still means "live", so every existing caller and every
+test fake keeps working untouched.
 """
 
 from __future__ import annotations
@@ -69,7 +79,11 @@ class PaperFill:
     space_label: str
     strike: Optional[float] = None
     expiry: Optional[object] = None
-    premium: Optional[float] = None  # None => seen too late to quote honestly
+    premium: Optional[float] = None  # None => neither source could price it
+    # "live"    quoted at the moment the decision was seen
+    # "history" read back from the contract's own recorded minute
+    # None      unpriced
+    pricing: Optional[str] = None
     recorded_at: Optional[datetime] = None
 
     @property
@@ -90,6 +104,7 @@ class PaperExit:
     exit_index: float
     exit_reason: str
     premium: Optional[float] = None
+    pricing: Optional[str] = None  # see PaperFill.pricing
     quantity: int = 0
     recorded_at: Optional[datetime] = None
 
@@ -100,6 +115,20 @@ class PaperExit:
     @property
     def proceeds(self) -> Optional[float]:
         return None if self.premium is None else self.premium * self.quantity
+
+
+def _unpack_premium(quoted) -> tuple:
+    """Normalise a lookup's answer to ``(price, source)``.
+
+    A lookup that only has live quotes answers a bare float, which means it was
+    quoted as the decision happened. One that can also read recorded candles
+    answers ``(price, "history")`` so the record can keep the two apart. Both
+    shapes are supported so no existing caller or test fake has to change.
+    """
+    value, source = quoted if isinstance(quoted, tuple) else (quoted, "live")
+    if value is None:
+        return None, None
+    return float(value), str(source or "live")
 
 
 class CampaignHalted(RuntimeError):
@@ -371,9 +400,9 @@ class FibSpacePaperBook:
                 if probe.key in seen:
                     continue
                 contract = self.select_contract(fill.timestamp, fill.index_price)
-                premium = self.premium_lookup(fill.timestamp, contract)
+                premium, pricing = _unpack_premium(self.premium_lookup(fill.timestamp, contract))
                 recorded = self._as_paper_fill(
-                    campaign, round_no, fill, premium=premium, recorded_at=now, contract=contract
+                    campaign, round_no, fill, premium=premium, pricing=pricing, recorded_at=now, contract=contract
                 )
                 campaign.fills.append(recorded)
                 if premium is None:
@@ -394,7 +423,7 @@ class FibSpacePaperBook:
             if key in seen:
                 continue
             contract = campaign.contract or self.select_contract(rnd.exit_timestamp, rnd.exit_index)
-            premium = self.premium_lookup(rnd.exit_timestamp, contract)
+            premium, pricing = _unpack_premium(self.premium_lookup(rnd.exit_timestamp, contract))
             quantity = sum(f.quantity for f in campaign.fills if f.round_no == round_no)
             recorded = PaperExit(
                 campaign_id=campaign.campaign_id,
@@ -403,6 +432,7 @@ class FibSpacePaperBook:
                 exit_index=float(rnd.exit_index),
                 exit_reason=str(rnd.exit_reason or "target"),
                 premium=premium,
+                pricing=pricing,
                 quantity=quantity,
                 recorded_at=now,
             )
@@ -413,7 +443,15 @@ class FibSpacePaperBook:
         return fresh
 
     def _as_paper_fill(
-        self, campaign: LiveCampaign, round_no: int, fill: SpaceFill, *, premium, recorded_at, contract=None
+        self,
+        campaign: LiveCampaign,
+        round_no: int,
+        fill: SpaceFill,
+        *,
+        premium,
+        recorded_at,
+        contract=None,
+        pricing=None,
     ) -> PaperFill:
         return PaperFill(
             campaign_id=campaign.campaign_id,
@@ -426,6 +464,7 @@ class FibSpacePaperBook:
             strike=getattr(contract, "strike", None),
             expiry=getattr(contract, "expiry", None),
             premium=premium,
+            pricing=pricing,
             recorded_at=recorded_at,
         )
 
@@ -452,7 +491,7 @@ class FibSpacePaperBook:
 
     # -- reporting ----------------------------------------------------------
 
-    def campaign_detail(self, campaign: LiveCampaign, *, mark_to_market: bool = True) -> dict:
+    def campaign_detail(self, campaign: LiveCampaign, *, mark_to_market: bool = True, now: datetime = None) -> dict:
         """Every rupee of one campaign: what was paid, what came back, what is still on.
 
         ``capital_spent`` is premium actually paid out, which for a bought
@@ -463,6 +502,15 @@ class FibSpacePaperBook:
         number moves every tick and is not a result; it is what the position
         would fetch if closed now.  It is reported separately from ``realised``
         and never added into it.
+
+        It asks for the price AT ``now``, never at the fill's own timestamp.
+        That distinction did not matter while the lookup could only answer with
+        a live quote -- asking about an old minute simply returned None.  It
+        matters absolutely once the lookup can read recorded candles: asking
+        about the fill's minute would hand back the entry premium and report it
+        as "worth this now", so every open position would show exactly zero
+        unrealised P&L forever.  Without a ``now`` there is nothing honest to
+        mark against, so the marking is skipped rather than guessed.
         """
         closed_rounds = {e.round_no for e in campaign.exits}
         by_round: dict = {}
@@ -493,6 +541,7 @@ class FibSpacePaperBook:
                         "strike": f.strike,
                         "expiry": str(f.expiry) if f.expiry else None,
                         "premium": f.premium,
+                        "pricing": f.pricing,
                         "outlay": None if f.premium is None else round(f.outlay, 2),
                         "space": f.space_label,
                     }
@@ -513,6 +562,7 @@ class FibSpacePaperBook:
                     "index_price": round(exit_.exit_index, 2),
                     "reason": exit_.exit_reason,
                     "premium": exit_.premium,
+                    "pricing": exit_.pricing,
                     "proceeds": None if proceeds is None else round(proceeds, 2),
                 }
                 if proceeds is not None and not unpriced:
@@ -524,8 +574,8 @@ class FibSpacePaperBook:
                 row["exit"] = None
                 row["realised"] = None
                 open_cost += spent
-                if mark_to_market and not unpriced and fills:
-                    quote = self.premium_lookup(fills[-1].timestamp, campaign.contract)
+                if mark_to_market and not unpriced and fills and now is not None:
+                    quote, _ = _unpack_premium(self.premium_lookup(now, campaign.contract))
                     if quote is not None:
                         value = quote * row["quantity"]
                         row["mark_premium"] = quote
@@ -551,6 +601,13 @@ class FibSpacePaperBook:
             "rounds": rounds,
             "closed_rounds": len(closed_rounds),
             "unpriced_legs": campaign.unpriced,
+            # Legs priced from a recorded candle rather than quoted as they
+            # happened. The rupees are real traded prices, but they are not
+            # proof this fill would have been got — so the caveat travels with
+            # the number instead of being lost in the total.
+            "history_priced_legs": sum(
+                1 for leg in list(campaign.fills) + list(campaign.exits) if leg.pricing == "history"
+            ),
             # Totals. capital_spent is every rupee ever paid; capital_open is
             # what is still tied up in positions that have not closed.
             "capital_spent": round(spent_total, 2),
@@ -666,6 +723,9 @@ class FibSpacePaperBook:
             "halted": [c.campaign_id for c in self.campaigns.values() if c.status == "halted"],
             "open_quantity": sum(c.open_quantity for c in self.campaigns.values()),
             "unpriced_legs": sum(c.unpriced for c in self.campaigns.values()),
+            "history_priced_legs": sum(
+                1 for c in self.campaigns.values() for leg in list(c.fills) + list(c.exits) if leg.pricing == "history"
+            ),
             "realised": round(sum(priced), 2),
         }
 
