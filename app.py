@@ -14080,6 +14080,29 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
     last = await _terminal_cascade_replay_to_now(
         broker_client, engine, signal_instrument, trade_instrument, mother_timestamp
     )
+    # DEAD ON ARRIVAL. Replaying to now can finish the campaign before it ever
+    # runs: price has already printed above the mother high (broken) or come
+    # back to touch it after leaving (retested), and no leg can ever form
+    # again. It used to start anyway and sit in the list drawing nothing, which
+    # is what Phil hit -- "0 fib(s), 0 trendline(s) · MOTHER BROKEN" -- with no
+    # hint that the candle itself was the problem. The two-red console has said
+    # this plainly since it shipped; the Cascade never did.
+    state = engine.geometry.campaign.state
+    if state in {"MOTHER_BROKEN", "MOTHER_RETESTED"} and not engine.open_fills:
+        why = (
+            f"price has already traded above its high of {engine.geometry.campaign.mother_high:,.2f}"
+            if state == "MOTHER_BROKEN"
+            else f"price left its high of {engine.geometry.campaign.mother_high:,.2f} and has come back to touch it"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"That {normalised_tf} mother is spent — {why}, so no fib leg can form and the campaign "
+                f"would be over before it started. Note the mother is read on {normalised_tf}: a candle "
+                f"picked off a higher chart is a different, higher candle. Open the scanner chart on "
+                f"{normalised_tf} and press Use this mother."
+            ),
+        )
     runtime = _TerminalCascadeRuntime(
         engine=engine,
         broker=broker_client,
