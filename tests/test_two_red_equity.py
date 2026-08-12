@@ -13,6 +13,8 @@ import pytest
 
 from engine.candle_ladder import LadderCandle
 from engine.two_red_equity import (
+    CHART_DERIVED,
+    CHART_NATIVE,
     CHART_TIMEFRAMES,
     DP_PER_SELL_DAY,
     TwoRedEquityConfig,
@@ -490,10 +492,17 @@ class TestDerivedChartTimeframes:
 
     def test_the_ladder_is_not_changed_by_the_viewing_charts(self):
         """2H/4H must never leak into what the campaign actually trades."""
-        assert "2h" not in ladder_for("1h")
+        assert "15m" not in ladder_for("1h")
         assert "4h" not in ladder_for("1h")
         assert ladder_for("1h") == ("1h", "1d", "1w")
-        assert "2h" in CHART_TIMEFRAMES and "4h" in CHART_TIMEFRAMES
+        assert CHART_TIMEFRAMES == ("15m", "1h", "4h", "1d", "1w")
+
+    def test_every_offered_chart_is_native_or_derivable(self):
+        """A chart in the menu with no source behind it would 500 on click."""
+        for timeframe in CHART_TIMEFRAMES:
+            assert timeframe in CHART_NATIVE or timeframe in CHART_DERIVED
+        for derived, source in CHART_DERIVED.items():
+            assert source in CHART_NATIVE
 
 
 class TestConfig:

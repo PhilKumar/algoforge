@@ -1786,12 +1786,13 @@
             <div id="tworeds-chart-meta">Mother high, the level the first buy waits for, and every fill.</div>
           </div>
           <div class="terminal-cascade-chart-actions">
-            <!-- 2H and 4H are folded from the hourly bars for viewing only.
-                 The ladder itself still climbs 1H → 1D → 1W, which is what was
-                 backtested; these do not change what it trades. -->
+            <!-- The same five charts the scanner offers. 4H is folded from the
+                 hourly bars and 1W from the daily ones, so neither costs a
+                 broker call. FOR LOOKING ONLY: the ladder still climbs
+                 1H → 1D → 1W, which is what was backtested. -->
             <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="tworeds-chart-tf">
+              <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="15m" role="radio" aria-checked="false">15M</button>
               <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="1h" role="radio" aria-checked="false">1H</button>
-              <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="2h" role="radio" aria-checked="false">2H</button>
               <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="4h" role="radio" aria-checked="false">4H</button>
               <button type="button" class="terminal-cascade-tf-option is-active" data-tworeds-tf="1d" role="radio" aria-checked="true">1D</button>
               <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="1w" role="radio" aria-checked="false">1W</button>

@@ -258,10 +258,9 @@ test('the ladder chart is the Canvas renderer, not a hand-rolled SVG', async ({ 
 
   await expect(page.locator('#tworeds-chart-meta')).toContainText('2 levels');
 
-  // Five charts to look at, 1H through 1W — and the two derived ones must not
-  // have leaked into what the ladder trades.
+  // Five charts to look at, 15m through 1W.
   await expect(page.locator('#tworeds-chart-tf [data-tworeds-tf]')).toHaveCount(5);
-  for (const tf of ['1h', '2h', '4h', '1d', '1w']) {
+  for (const tf of ['15m', '1h', '4h', '1d', '1w']) {
     await expect(page.locator(`#tworeds-chart-tf [data-tworeds-tf="${tf}"]`)).toBeVisible();
   }
   await page.click('#tworeds-chart-tf [data-tworeds-tf="4h"]');
@@ -272,6 +271,72 @@ test('the ladder chart is the Canvas renderer, not a hand-rolled SVG', async ({ 
   await page.click('[data-pf-action="hideTwoRedChart"]');
   await expect(overlay).not.toHaveClass(/is-open/);
   await expect(page.locator('#tworeds-chart canvas')).toHaveCount(0);
+});
+
+test('the scanner chart is the Canvas renderer and carries all five timeframes', async ({ page }) => {
+  const asked: string[] = [];
+  await page.route('**/api/terminal/cascade/scan?**', async (route) => {
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok', scanned_at: new Date().toISOString(), universe: 223, no_history: 0,
+        candidates: [{
+          symbol: 'PHOENIXLTD', name: 'Phoenix Mills', last_price: 1908.7, strength_pct: 10.7,
+          pullback_pct: 12.6, recent_high: 2149, affordable_shares: 104, rungs_fundable: 3,
+          score: 1, etf: false,
+        }],
+        rejected_sample: [], rejected_total: 0, cached: false,
+      }),
+    });
+  });
+  await page.route('**/api/terminal/cascade/scan/chart?**', async (route) => {
+    const url = new URL(route.request().url());
+    asked.push(url.searchParams.get('timeframe') || '(none)');
+    const candles = [];
+    let base = 2149;
+    for (let i = 0; i < 80; i += 1) {
+      base -= 3;
+      candles.push({
+        t: new Date(Date.UTC(2026, 4, 1 + i, 3, 45)).toISOString().replace('Z', ''),
+        o: base, h: base + 8, l: base - 8, c: base + 2,
+      });
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok', symbol: 'PHOENIXLTD', name: 'Phoenix Mills', chart_mode: 'native_ohlc',
+        timeframe: url.searchParams.get('timeframe') || '1d', candles,
+        recent_high: 2149, recent_high_lookback: 20, last_price: 1908.7, pullback_pct: 12.6,
+      }),
+    });
+  });
+
+  await login(page);
+  await page.click('#nav-terminal');
+  await page.click('[data-equity-strategy="tworeds"]');
+  await page.click('#tworeds-scan-run');
+  await expect(page.locator('#tworeds-scan-body table')).toBeVisible({ timeout: 10_000 });
+
+  await page.click('#tworeds-scan-body .cascade-scan-chart-btn');
+
+  // The scan chart draws through the ONE Canvas renderer, not an SVG.
+  await expect(page.locator('#pf-bench-canvas-main')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.cascade-scan-chart svg')).toHaveCount(0);
+
+  // All five timeframes are offered on the scanner chart too.
+  const strip = page.locator('.cascade-scan-chart-tf');
+  await expect(strip).toBeVisible();
+  await expect(strip.locator('[data-scan-tf]')).toHaveCount(5);
+  for (const tf of ['15m', '1h', '4h', '1d', '1w']) {
+    await expect(strip.locator(`[data-scan-tf="${tf}"]`)).toBeVisible();
+  }
+  expect(asked).toContain('1d');
+
+  // Switching redraws the SAME row rather than closing it.
+  await strip.locator('[data-scan-tf="15m"]').click();
+  await expect(page.locator('.cascade-scan-chart-tf [data-scan-tf="15m"]')).toHaveClass(/is-active/, { timeout: 10_000 });
+  await expect(page.locator('#pf-bench-canvas-main')).toBeVisible();
+  expect(asked).toContain('15m');
 });
 
 test('the two-red status endpoint answers and declares itself paper-only', async ({ page }) => {

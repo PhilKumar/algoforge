@@ -518,9 +518,14 @@ def _candle_from_dict(payload: Mapping[str, Any]) -> LadderCandle:
 # these are for looking at the same tape at a coarser grain, because a 1H chart
 # of a three-month fall is unreadable and a daily one hides the shape of the
 # recovery. `LADDERS` is untouched.
-CHART_TIMEFRAMES: tuple[str, ...] = ("1h", "2h", "4h", "1d", "1w")
+CHART_TIMEFRAMES: tuple[str, ...] = ("15m", "1h", "4h", "1d", "1w")
 
-# How many 1H bars make one bar of each derived chart.
+# Which charts come straight from the broker, and which are folded from one of
+# those. Folding costs no request, which matters on an account-wide rate budget.
+CHART_NATIVE: tuple[str, ...] = ("15m", "1h", "1d")
+CHART_DERIVED: dict[str, str] = {"4h": "1h", "1w": "1d"}
+
+# How many 1H bars make one bar of each derived hourly chart.
 _HOURS_PER_BAR: dict[str, int] = {"2h": 2, "4h": 4}
 
 

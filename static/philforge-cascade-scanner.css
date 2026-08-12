@@ -118,6 +118,11 @@
   color: #fca5a5;
 }
 
+/* The timeframe strip above an expanded chart. */
+.cascade-scan-chart-tf {
+  margin: 0 0 10px;
+}
+
 /* Flow-down: the chart grows into place instead of snapping open. */
 .cascade-scan-chart-flow {
   max-height: 0; overflow: hidden; opacity: 0;

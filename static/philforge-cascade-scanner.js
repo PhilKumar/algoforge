@@ -269,9 +269,27 @@ function createEquityScanner(cfg) {
       'on a slower chart, so they cannot be priced today.</div></div>';
   }
 
-  async function toggleChart(symbol, row) {
+  // The charts a scanned scrip can be looked at on. 4H is folded from hourly
+  // bars and 1W from daily ones, so those two cost no extra broker call.
+  var CHART_TFS = ['15m', '1h', '4h', '1d', '1w'];
+  // Per-scanner, so the Cascade screen and the ladder screen can sit on
+  // different charts without fighting over one variable.
+  var chartTf = '1d';
+
+  function tfToggleHtml() {
+    return '<div class="terminal-cascade-tf-toggle cascade-scan-chart-tf" role="radiogroup" aria-label="Chart timeframe">' +
+      CHART_TFS.map(function (tf) {
+        return '<button type="button" class="terminal-cascade-tf-option' +
+          (tf === chartTf ? ' is-active' : '') + '" data-scan-tf="' + tf +
+          '" role="radio" aria-checked="' + (tf === chartTf ? 'true' : 'false') + '">' +
+          tf.toUpperCase() + '</button>';
+      }).join('') + '</div>';
+  }
+
+  async function toggleChart(symbol, row, keepOpen) {
     var existing = row.nextElementSibling;
-    if (existing && existing.classList.contains('cascade-scan-chart-row')) { existing.remove(); return; }
+    var isChartRow = existing && existing.classList.contains('cascade-scan-chart-row');
+    if (isChartRow && !keepOpen) { existing.remove(); return; }
     // Scoped to THIS scanner's body. A document-wide sweep would close the
     // other strategy's open chart, which is the classic way two instances of
     // one component start fighting.
@@ -279,14 +297,19 @@ function createEquityScanner(cfg) {
 
     var holder = document.createElement('tr');
     holder.className = 'cascade-scan-chart-row';
-    holder.innerHTML = '<td colspan="8"><div class="cascade-scan-chart-flow">' +
-      '<div class="cascade-scan-chart">Loading ' + esc(symbol) + ' daily candles…</div></div></td>';
+    holder.dataset.symbol = symbol;
+    // The ladder table carries one more column than the Cascade's, so the
+    // chart row has to span the right number or the layout shears.
+    holder.innerHTML = '<td colspan="' + (mode === 'ladder' ? 9 : 8) + '"><div class="cascade-scan-chart-flow">' +
+      tfToggleHtml() +
+      '<div class="cascade-scan-chart">Loading ' + esc(symbol) + ' ' + chartTf + ' candles…</div></div></td>';
     row.parentNode.insertBefore(holder, row.nextSibling);
     var flow = holder.querySelector('.cascade-scan-chart-flow');
     requestAnimationFrame(function () { flow.classList.add('open'); });
     var box = holder.querySelector('.cascade-scan-chart');
     try {
-      var res = await fetch('/api/terminal/cascade/scan/chart?symbol=' + encodeURIComponent(symbol),
+      var res = await fetch('/api/terminal/cascade/scan/chart?symbol=' + encodeURIComponent(symbol) +
+        '&timeframe=' + encodeURIComponent(chartTf),
         { credentials: 'same-origin', cache: 'no-store' });
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Chart failed');
@@ -471,6 +494,16 @@ function createEquityScanner(cfg) {
       if (use) { pick(use.dataset.symbol); return; }
       var chart = event.target.closest('.cascade-scan-chart-btn');
       if (chart) { toggleChart(chart.dataset.symbol, chart.closest('tr')); return; }
+      var tf = event.target.closest('[data-scan-tf]');
+      if (tf) {
+        chartTf = tf.getAttribute('data-scan-tf');
+        var chartRow = tf.closest('.cascade-scan-chart-row');
+        var owner = chartRow && chartRow.previousElementSibling;
+        // Redraw the SAME row on the new chart. `keepOpen` stops the toggle
+        // reading as a close, which is what a plain re-click would do.
+        if (owner) toggleChart(chartRow.dataset.symbol, owner, true);
+        return;
+      }
       var pager = event.target.closest('[data-page]');
       if (pager && !pager.disabled) {
         page += pager.dataset.page === 'next' ? 1 : -1;

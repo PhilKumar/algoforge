@@ -144,6 +144,8 @@ from engine.timeframes import (
     resolve_strategy_timeframe,
 )
 from engine.two_red_equity import (
+    CHART_DERIVED,
+    CHART_NATIVE,
     CHART_TIMEFRAMES,
     TwoRedEquityConfig,
     TwoRedEquityError,
@@ -14356,13 +14358,25 @@ async def terminal_cascade_scan(
     return payload
 
 
+# How far back each chart is fetched, in CALENDAR days. A finer chart needs a
+# shorter window to hold a readable number of bars -- and 15m over a year would
+# be thousands of chunked requests against an account-wide rate budget.
+_SCAN_CHART_SPAN_DAYS: dict[str, int] = {"15m": 12, "1h": 45, "4h": 130, "1d": 210, "1w": 900}
+
+
 @app.get("/api/terminal/cascade/scan/chart")
-async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: int = 90):
-    """Real daily OHLC for one scanned scrip, plus the levels the rank is based on.
+async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: int = 90, timeframe: str = "1d"):
+    """Real OHLC for one scanned scrip, plus the levels the rank is based on.
 
     Native exchange OHLC only.  The whole point of the scanner is to justify a
     ranking, and a smoothed or synthesised series would be justifying something
     other than what the ranking was computed from.
+
+    THE HIGH IS ALWAYS THE DAILY ONE. `recent_high` is the 20-SESSION high the
+    ranking measured its pullback against, so it stays daily whatever chart is
+    being looked at. Recomputing it from 15m bars would move the line to a
+    number the table never used, and the whole point of drawing it is that the
+    two agree.
     """
     stock = _resolve_terminal_stock(symbol)
     if not stock.get("security_id"):
@@ -14370,47 +14384,49 @@ async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: i
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load the scanner chart.")
+    normalised = str(timeframe or "1d").lower()
+    if normalised not in CHART_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Chart timeframe must be one of {', '.join(CHART_TIMEFRAMES)}.")
 
     sessions = max(20, min(int(sessions or 90), 250))
     today = datetime.now(IST).date()
+    span = _SCAN_CHART_SPAN_DAYS[normalised]
     try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
-            security_id=str(stock["security_id"]),
-            exchange_segment=str(stock["exchange_segment"]),
-            instrument_type=str(stock["instrument_type"]),
-            from_date=(today - timedelta(days=int(sessions * 1.6) + 30)).isoformat(),
-            to_date=today.isoformat(),
-            candle_type="D",
+        charts = await _two_red_load_charts(
+            broker_client, stock, from_date=today - timedelta(days=span), to_date=today, want=[normalised]
         )
+        if "1d" not in charts:
+            # The daily series is needed only for the 20-bar high, so it is
+            # fetched over its own short window rather than the fine chart's.
+            extra = await _two_red_load_charts(
+                broker_client, stock, from_date=today - timedelta(days=60), to_date=today, want=["1d"]
+            )
+            charts["1d"] = extra.get("1d", [])
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=502, detail=f"Dhan did not return candles for {stock['symbol']}: {exc}"
         ) from exc
-    if frame is None or getattr(frame, "empty", True):
-        raise HTTPException(status_code=404, detail=f"No daily candles returned for {stock['symbol']}.")
+
+    bars = charts.get(normalised) or []
+    daily_bars = charts.get("1d") or []
+    if not bars or not daily_bars:
+        raise HTTPException(status_code=404, detail=f"No {normalised} candles returned for {stock['symbol']}.")
 
     rows = [
-        {
-            "t": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
-            "o": float(row["open"]),
-            "h": float(row["high"]),
-            "l": float(row["low"]),
-            "c": float(row["close"]),
-        }
-        for timestamp, row in frame.iterrows()
+        {"t": bar.timestamp.isoformat(), "o": bar.open, "h": bar.high, "l": bar.low, "c": bar.close} for bar in bars
     ][-sessions:]
 
-    # The same 20-session window the ranking measures the pullback against, so
-    # the line on the chart is the number in the table and not a lookalike.
-    window = rows[-CASCADE_SCAN_HIGH_LOOKBACK:] if len(rows) >= CASCADE_SCAN_HIGH_LOOKBACK else rows
-    recent_high = max(item["h"] for item in window)
-    last_price = rows[-1]["c"]
+    window = daily_bars[-CASCADE_SCAN_HIGH_LOOKBACK:]
+    recent_high = max(bar.high for bar in window)
+    last_price = daily_bars[-1].close
     return {
         "status": "ok",
         "symbol": stock["symbol"],
         "name": stock.get("name") or stock["symbol"],
         "chart_mode": "native_ohlc",
+        "timeframe": normalised,
         "candles": rows,
         "recent_high": round(recent_high, 2),
         "recent_high_lookback": CASCADE_SCAN_HIGH_LOOKBACK,
@@ -14488,28 +14504,38 @@ async def _two_red_load_charts(
     *,
     from_date: date,
     to_date: date,
+    want: Sequence[str] = ("1h", "1d", "1w"),
 ) -> dict[str, list[LadderCandle]]:
-    """Every chart the ladder reads, keyed by timeframe.
+    """The charts asked for, keyed by timeframe.
 
-    The weekly chart is folded from the daily one and then trimmed to weeks
-    that have actually finished -- the running week's bar keeps changing until
-    Friday closes, and a ladder acting on it would be reading a candle that has
-    not printed.
+    `want` exists because the poll loop runs every 20 seconds and needs only
+    1h/1d/1w, while a chart request may want 15m. Fetching 15m on every tick
+    would spend the account-wide Dhan budget for nobody -- the same budget
+    behind the 4AM 429 storm.
+
+    Derived charts cost no request at all: 4H is folded from the hourly bars and
+    a week from the daily ones. The weekly chart is then trimmed to weeks that
+    have actually FINISHED -- the running week's bar keeps changing until Friday
+    closes, and a ladder acting on it would be reading a candle that has not
+    printed.
     """
-    hourly, daily = await asyncio.gather(
-        _terminal_cascade_load_candles(broker, stock, "1h", from_date=from_date, to_date=to_date),
-        _terminal_cascade_load_candles(broker, stock, "1d", from_date=from_date, to_date=to_date),
+    needed = set(want)
+    # Pull in whatever the derived charts are folded from.
+    for derived, source in CHART_DERIVED.items():
+        if derived in needed:
+            needed.add(source)
+    fetch = [tf for tf in CHART_NATIVE if tf in needed]
+
+    frames = await asyncio.gather(
+        *(_terminal_cascade_load_candles(broker, stock, tf, from_date=from_date, to_date=to_date) for tf in fetch)
     )
     charts: dict[str, list[LadderCandle]] = {
-        "1h": [_two_red_candle(row, "1h") for row in hourly],
-        "1d": [_two_red_candle(row, "1d") for row in daily],
+        tf: [_two_red_candle(row, tf) for row in rows] for tf, rows in zip(fetch, frames)
     }
-    charts["1w"] = complete_weeks(regroup_weekly(charts["1d"]), datetime.now(IST).date())
-    # 2H and 4H are FOR LOOKING ONLY -- folded from the hourly bars already
-    # fetched, so they cost no broker call, and deliberately not in LADDERS:
-    # the ladder still climbs 1h -> 1d -> 1w, which is what was backtested.
-    for derived in ("2h", "4h"):
-        charts[derived] = regroup_hours(charts["1h"], derived)
+    if "1w" in needed and "1d" in charts:
+        charts["1w"] = complete_weeks(regroup_weekly(charts["1d"]), datetime.now(IST).date())
+    if "4h" in needed and "1h" in charts:
+        charts["4h"] = regroup_hours(charts["1h"], "4h")
     return charts
 
 
@@ -14861,7 +14887,9 @@ async def two_red_mothers(request: Request, symbol: str, timeframe: str = "1d", 
     _instrument, stock = _two_red_instrument(symbol)
     today = datetime.now(IST).date()
     span = 60 if normalised == "1h" else int(sessions * 7 / 5) + 10
-    charts = await _two_red_load_charts(broker_client, stock, from_date=today - timedelta(days=span), to_date=today)
+    charts = await _two_red_load_charts(
+        broker_client, stock, from_date=today - timedelta(days=span), to_date=today, want=[normalised]
+    )
     rows = charts.get(normalised, [])
     mothers = find_mothers(rows, min_fall_pct=float(TWO_RED_DEFAULT_MIN_FALL_PCT))
     return {
@@ -14898,11 +14926,12 @@ async def two_red_chart(
         raise HTTPException(status_code=400, detail=f"Chart timeframe must be one of {', '.join(CHART_TIMEFRAMES)}.")
     _instrument, stock = _two_red_instrument(symbol)
     today = datetime.now(IST).date()
-    # Calendar days to fetch. A coarser chart needs a longer window to show the
-    # same number of bars, and 2H/4H are folded from the same hourly fetch.
-    span = {"1h": 40, "2h": 70, "4h": 120, "1d": max(int(sessions), 30), "1w": 400}[normalised]
+    # Calendar days to fetch. A finer chart needs a shorter window to hold a
+    # readable number of bars — and 15m over a year would be thousands of
+    # chunked requests against an account-wide rate budget.
+    span = _SCAN_CHART_SPAN_DAYS[normalised]
     charts = await _two_red_load_charts(
-        broker_client, stock, from_date=today - timedelta(days=int(span * 7 / 5) + 10), to_date=today
+        broker_client, stock, from_date=today - timedelta(days=span), to_date=today, want=[normalised]
     )
     rows = charts.get(normalised, [])[-int(sessions) :]
 
