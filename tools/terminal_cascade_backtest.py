@@ -40,6 +40,7 @@ from datetime import date, datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.cascade_equity import (  # noqa: E402
+    CashCascadeChain,
     CashCascadeInstrument,
     CashCascadePaperConfig,
     CashCascadePaperEngine,
@@ -73,13 +74,32 @@ HORIZON_BARS = 800
 # REFERENCE_INDEX_BY_TRADED_SYMBOL, and the backtest has to honour it or it
 # would be drawing geometry on the ETF instead of the index it tracks.
 UNIVERSE = {
+    # Five large caps that move slowly -- the original audit set, kept so its
+    # numbers stay comparable.
     "RELIANCE": dict(key="NSE_EQ|INE002A01018", name="Reliance Industries"),
     "TCS": dict(key="NSE_EQ|INE467B01029", name="Tata Consultancy Services"),
     "HDFCBANK": dict(key="NSE_EQ|INE040A01034", name="HDFC Bank"),
     "INFY": dict(key="NSE_EQ|INE009A01021", name="Infosys"),
     "ICICIBANK": dict(key="NSE_EQ|INE090A01021", name="ICICI Bank"),
+    # Four more index heavyweights, for breadth rather than temperament.
+    "SBIN": dict(key="NSE_EQ|INE062A01020", name="State Bank of India"),
+    "AXISBANK": dict(key="NSE_EQ|INE238A01034", name="Axis Bank"),
+    "ITC": dict(key="NSE_EQ|INE154A01025", name="ITC"),
+    "LT": dict(key="NSE_EQ|INE018A01030", name="Larsen & Toubro"),
+    # Six that actually fall far enough to pay a quarter-of-the-fall target.
+    # The cascade needs range; a stock that never gives back 8% never ladders.
+    "ADANIENT": dict(key="NSE_EQ|INE423A01024", name="Adani Enterprises"),
+    "ETERNAL": dict(key="NSE_EQ|INE758T01015", name="Eternal (formerly Zomato)"),
+    "TATASTEEL": dict(key="NSE_EQ|INE081A01020", name="Tata Steel"),
+    "HINDALCO": dict(key="NSE_EQ|INE038A01020", name="Hindalco Industries"),
+    "TATAPOWER": dict(key="NSE_EQ|INE245A01021", name="Tata Power"),
+    "TITAN": dict(key="NSE_EQ|INE280A01028", name="Titan Company"),
+    # Not one of the fifteen: the ETF whose SIGNAL is the index it tracks.
     "NIFTYBEES": dict(key="NSE_EQ|INF204KB14I2", name="Nippon India ETF Nifty BeES", signal="NIFTY"),
 }
+# The fifteen the report covers. NIFTYBEES is reachable by name but sits out --
+# it is an ETF on an index, not a stock, and it dilutes a stock table.
+DEFAULT_SYMBOLS = [s for s in UNIVERSE if s != "NIFTYBEES"]
 SIGNAL_KEYS = {"NIFTY": "NSE_INDEX|Nifty 50"}
 
 # The same pivot width the fib-space design settled on: 3 promotes every minor
@@ -185,7 +205,13 @@ def to_candles(rows: list[list], timeframe: str = "1d") -> list[IndexCandle]:
     return out
 
 
-def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, timeframe: str = "1d") -> dict:
+def prepare(symbol: str, *, years: float, cache_only: bool, timeframe: str) -> dict:
+    """Everything both runners need: aligned series, mothers, instrument.
+
+    Split out of run_symbol so the chain runner reads the SAME candles and the
+    SAME mothers -- otherwise a difference between the two modes could be a
+    difference in the data rather than in the strategy.
+    """
     spec = UNIVERSE[symbol]
     end = date.today()
     start = end - timedelta(days=int(365 * years) + 20)
@@ -206,7 +232,7 @@ def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, t
     signal_by_stamp = {c.timestamp: c for c in signal_candles}
     shared = sorted(set(by_stamp) & set(signal_by_stamp))
     if len(shared) < 120:
-        return {"symbol": symbol, "error": f"only {len(shared)} shared sessions", "campaigns": []}
+        return {"symbol": symbol, "error": f"only {len(shared)} shared sessions"}
 
     aligned_signal = [signal_by_stamp[s] for s in shared]
     mothers = find_mother_candles(aligned_signal, left_bars=MOTHER_PIVOT_BARS, right_bars=MOTHER_PIVOT_BARS)
@@ -219,6 +245,29 @@ def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, t
         signal_security_id="",
         signal_instrument_type="INDEX" if signal_symbol != symbol else "EQUITY",
     )
+    return {
+        "symbol": symbol,
+        "signal": signal_symbol,
+        "shared": shared,
+        "by_stamp": by_stamp,
+        "signal_by_stamp": signal_by_stamp,
+        "aligned_signal": aligned_signal,
+        "mothers": mothers,
+        "instrument": instrument,
+    }
+
+
+def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, timeframe: str = "1d") -> dict:
+    data = prepare(symbol, years=years, cache_only=cache_only, timeframe=timeframe)
+    if data.get("error"):
+        return {"symbol": symbol, "error": data["error"], "campaigns": []}
+    shared = data["shared"]
+    by_stamp = data["by_stamp"]
+    signal_by_stamp = data["signal_by_stamp"]
+    aligned_signal = data["aligned_signal"]
+    mothers = data["mothers"]
+    instrument = data["instrument"]
+    signal_symbol = data["signal"]
 
     campaigns = []
     for mother in mothers:
@@ -269,6 +318,86 @@ def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, t
     return {"symbol": symbol, "signal": signal_symbol, "sessions": len(shared), "campaigns": campaigns}
 
 
+def run_symbol_chain(symbol: str, *, years: float, capital: float, cache_only: bool, timeframe: str = "1d") -> dict:
+    """The same rule with the successor mechanism switched on.
+
+    `run_symbol` above replays what the Terminal page actually does today: one
+    campaign per mother, and when that mother breaks or is retested the geometry
+    is finished -- it can draw no further leg, so the ladder stops laddering
+    while the stock keeps falling. `CashCascadeChain` is the missing half,
+    already written and matching CryptoForge's `_auto_restart`: the broken
+    generation stops entering and keeps working its own position, a successor
+    starts on a fresh mother, and the ladder walks down with the price.
+
+    Nothing calls the chain in the shipped app, which is exactly why the two
+    modes are reported side by side: the difference IS the value of wiring it.
+
+    One chain per symbol, started at the first confirmed mother and run to the
+    end of the window -- a continuous cascade, not a campaign per pivot, so
+    generations are never counted twice.
+    """
+    data = prepare(symbol, years=years, cache_only=cache_only, timeframe=timeframe)
+    if data.get("error"):
+        return {"symbol": symbol, "error": data["error"], "campaigns": []}
+    shared = data["shared"]
+    by_stamp = data["by_stamp"]
+    signal_by_stamp = data["signal_by_stamp"]
+    aligned_signal = data["aligned_signal"]
+    mothers = data["mothers"]
+
+    seed = next((m for m in mothers if m.index + MOTHER_PIVOT_BARS + 20 < len(shared)), None)
+    if seed is None:
+        return {"symbol": symbol, "error": "no usable mother", "campaigns": []}
+
+    index = seed.index
+    try:
+        chain = CashCascadeChain(
+            aligned_signal[index],
+            by_stamp[shared[index]],
+            data["instrument"],
+            CashCascadePaperConfig(capital_inr=capital, timeframe=timeframe),
+        )
+    except CascadeError as exc:
+        return {"symbol": symbol, "error": str(exc), "campaigns": []}
+
+    # PEAK DEPLOYMENT is the number the return is measured against, not the
+    # Rs 3L allocation. The size gate keeps a cascade's working capital far
+    # below its pot, so a profit quoted against the allocation understates the
+    # rule and a profit quoted against nothing is unreadable.
+    peak_invested = 0.0
+    for position in range(index + MOTHER_PIVOT_BARS, len(shared)):
+        stamp = shared[position]
+        chain.on_candle(signal_by_stamp[stamp], by_stamp[stamp])
+        peak_invested = max(peak_invested, chain.open_invested_inr)
+
+    last_close = float(by_stamp[shared[-1]].close)
+    open_quantity = chain.open_quantity
+    invested = chain.open_invested_inr
+    # A generation is only a "campaign" for reporting if it did something --
+    # banked a round or still holds stock. A generation that was born, broke and
+    # retired without drawing a fib is chain bookkeeping, not a trade.
+    live = [e for e in chain.all_engines if e.rounds or e.open_fills]
+    return {
+        "symbol": symbol,
+        "signal": data["signal"],
+        "sessions": len(shared),
+        "generations": len(chain.all_engines),
+        "chain_stopped": chain.chain_stopped_reason,
+        "peak_invested": round(peak_invested, 2),
+        "campaigns": [
+            {
+                "mother": seed and aligned_signal[index].timestamp.date().isoformat(),
+                "rounds": [row.to_dict() if hasattr(row, "to_dict") else row for e in live for row in e.rounds],
+                "open_quantity": open_quantity,
+                "open_invested_inr": invested,
+                "open_value_inr": round(open_quantity * last_close, 2),
+                "unrealised_inr": round(open_quantity * last_close - invested, 2),
+                "status": chain.chain_stopped_reason or "RUNNING",
+            }
+        ],
+    }
+
+
 def summarise(result: dict) -> dict:
     rounds = [r for c in result.get("campaigns", []) for r in c.get("rounds", [])]
     nets = [float(r.get("net_pnl") or 0.0) for r in rounds]
@@ -291,6 +420,8 @@ def summarise(result: dict) -> dict:
         "still_holding": stranded,
         "open_invested": sum(float(c.get("open_invested_inr") or 0.0) for c in result.get("campaigns", [])),
         "unrealised": sum(float(c.get("unrealised_inr") or 0.0) for c in result.get("campaigns", [])),
+        "peak_invested": float(result.get("peak_invested") or 0.0),
+        "generations": int(result.get("generations") or 0),
         "error": result.get("error"),
     }
 
@@ -299,9 +430,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--years", type=float, default=2.0)
     parser.add_argument("--capital", type=float, default=300000.0)
-    parser.add_argument("--symbols", default=",".join(UNIVERSE))
+    parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS))
     parser.add_argument("--tf", default="1d", choices=sorted(TIMEFRAMES))
     parser.add_argument("--cache-only", action="store_true")
+    parser.add_argument(
+        "--chain",
+        action="store_true",
+        help="drive CashCascadeChain (successor campaigns) instead of one frozen campaign per mother",
+    )
+    parser.add_argument("--json", dest="json_out", default="", help="write the per-symbol rows to this file")
     args = parser.parse_args()
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -309,24 +446,36 @@ def main() -> None:
     if unknown:
         raise SystemExit(f"unknown symbol(s): {', '.join(unknown)}")
 
-    print(f"[backtest] Terminal cash Cascade · {args.tf} · {args.years}y · Rs {args.capital:,.0f} per campaign")
+    runner = run_symbol_chain if args.chain else run_symbol
+    mode = "CHAIN (successors on)" if args.chain else "SHIPPED (one campaign per mother)"
+    print(f"[backtest] Terminal cash Cascade · {mode} · {args.tf} · {args.years}y · Rs {args.capital:,.0f}")
     print(f"[backtest] mothers: {MOTHER_PIVOT_BARS}-bar swing pivots, applied mechanically\n")
 
     rows = []
     for symbol in symbols:
-        result = run_symbol(
-            symbol, years=args.years, capital=args.capital, cache_only=args.cache_only, timeframe=args.tf
-        )
+        result = runner(symbol, years=args.years, capital=args.capital, cache_only=args.cache_only, timeframe=args.tf)
         row = summarise(result)
         rows.append(row)
         if row["error"]:
             print(f"  {symbol:<11} ERROR: {row['error']}")
             continue
-        print(
-            f"  {symbol:<11}{row['campaigns']:>3} camp {row['rounds']:>3} rnd  win {row['win_rate']:>5.1f}%  "
-            f"banked Rs {row['net']:>9,.0f}   held {row['still_holding']:>2} "
-            f"({row['unrealised']:>+11,.0f})   TRUE Rs {row['net'] + row['unrealised']:>11,.0f}"
-        )
+        true = row["net"] + row["unrealised"]
+        if args.chain:
+            peak = row["peak_invested"]
+            # Return is measured against the most money the chain ever had at
+            # work, annualised over the window -- not against the allocation.
+            per_year = (100.0 * true / peak / args.years) if peak else 0.0
+            print(
+                f"  {symbol:<11}{row['generations']:>3} gen {row['rounds']:>3} rnd  "
+                f"banked Rs {row['net']:>8,.0f}   held Rs {row['unrealised']:>+9,.0f}   "
+                f"peak Rs {peak:>8,.0f}   TRUE Rs {true:>9,.0f}  {per_year:>+6.1f}%/yr"
+            )
+        else:
+            print(
+                f"  {symbol:<11}{row['campaigns']:>3} camp {row['rounds']:>3} rnd  win {row['win_rate']:>5.1f}%  "
+                f"banked Rs {row['net']:>9,.0f}   held {row['still_holding']:>2} "
+                f"({row['unrealised']:>+11,.0f})   TRUE Rs {true:>11,.0f}"
+            )
 
     traded = [r for r in rows if not r["error"]]
     banked = sum(r["net"] for r in traded)
@@ -350,6 +499,11 @@ def main() -> None:
     # is why the held line sits next to it and the true total sums both.
     print("\n  Costs charged. NO slippage or spread. Mothers mechanical, not picked.")
     print("  Win rate counts CLOSED rounds only — the held pile is where losses hide.\n")
+
+    if args.json_out:
+        with open(args.json_out, "w", encoding="utf-8") as handle:
+            json.dump({"mode": mode, "tf": args.tf, "years": args.years, "capital": args.capital, "rows": rows}, handle)
+        print(f"  rows -> {args.json_out}\n")
 
 
 if __name__ == "__main__":
