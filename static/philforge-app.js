@@ -6897,35 +6897,58 @@ function _terminalCascadeChartHtml(payload) {
   const referenceMode = instrument.reference_mode === 'reference_index';
   const signal = instrument.signal_symbol || instrument.symbol || 'Signal';
   const trade = instrument.symbol || signal;
+  // THE LEGEND READS ITS COLOURS FROM THE PALETTE THE CHART ACTUALLY USES.
+  // Hard-coded swatches are how a legend starts lying: this one said trendlines
+  // were blue and fib levels green, when both are coloured PER LEG from the same
+  // three-colour ramp, and called fills green when they are white.
+  const P = _terminalCascadeChartPalette();
+  const swatch = (color, text) => `<span style="color:${color};">${escapeHtml(text)}</span>`;
   const legend = `<div class="terminal-cascade-chart-legend">
-    <span style="color:#a78bfa;">MC / mother high</span>
-    <span style="color:#60a5fa;">trendlines</span>
-    <span style="color:var(--green);">fib buy levels</span>
-    <span style="color:#6ee7b7;">fills</span>
+    ${swatch(P.mother, 'MC / mother high')}
+    <span class="terminal-cascade-legend-ramp">trendline + its fibs:
+      ${P.fibs.map((color, i) => `<b style="color:${color};">leg ${i + 1}</b>`).join('')}</span>
+    ${swatch(P.buyMark, 'buys')}
+    ${swatch(P.tp, 'target')}
+    ${swatch(P.avg, 'avg entry')}
     ${referenceMode ? `<em>${escapeHtml(signal)} signal chart -> ${escapeHtml(trade)} trade/TP</em>` : '<em>Own chart, own trade and TP scale</em>'}
   </div>`;
   return legend + _terminalCascadeCanvasHtml() + _terminalCascadeChartDetails(payload);
 }
 
 function _terminalCascadeChartPalette() {
+  // ONE palette, from the one renderer. This used to be a private copy, and it
+  // drifted in the way private copies do: its dark fib colours were written
+  // `var(--green)` and `var(--red)`. Canvas does not resolve CSS variables, and
+  // assigning an unparseable colour to strokeStyle is SILENTLY IGNORED -- the
+  // context simply keeps the colour it already had. So fib leg 2 and leg 3, and
+  // every trendline after the first, and every entry mark, all drew in leg 1's
+  // blue. Nothing errored; the chart just quietly lost its colour coding.
+  const shared = typeof window.pfChartPalette === 'function' ? window.pfChartPalette() : null;
   let theme = document.documentElement.getAttribute('data-theme');
   if (!theme || theme === 'auto') {
     theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   }
-  if (theme === 'light') {
-    return {
-      bg: '#ffffff', grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
-      up: '#0f766e', down: '#be123c', mother: '#7c3aed',
-      tp: '#047857', avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
+  // Only the page background is this chart's own: it fills its pane, which the
+  // shared renderer leaves to CSS.
+  const bg = theme === 'light' ? '#ffffff' : '#07101d';
+  if (shared) return Object.assign({ bg: bg }, shared);
+  // The renderer script is always loaded before this one; this branch exists so
+  // a load-order mistake degrades to correct colours rather than to no chart.
+  return theme === 'light'
+    ? {
+      bg: bg, grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
+      up: '#0f766e', down: '#be123c', mother: '#7c3aed', tp: '#047857',
+      avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
+      buyMark: '#1e293b', sellMark: '#b45309', markRing: '#ffffff',
       fibs: ['#1d4ed8', '#15803d', '#be123c'],
+    }
+    : {
+      bg: bg, grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
+      up: '#3fae56', down: '#d9534f', mother: '#a855f7', tp: '#10b981',
+      avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
+      buyMark: '#ffffff', sellMark: '#fbbf24', markRing: '#0b1220',
+      fibs: ['#3b82f6', '#22c55e', '#ef4444'],
     };
-  }
-  return {
-    bg: '#07101d', grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
-    up: '#3fae56', down: '#d9534f', mother: '#a855f7',
-    tp: 'var(--green)', avg: '#e2e8f0', fill: 'var(--green)', fillRing: '#0b1220',
-    fibs: ['#3b82f6', 'var(--green)', 'var(--red)'],
-  };
 }
 
 // ── Canvas chart renderer ─────────────────────────────────────────────
@@ -7350,9 +7373,12 @@ function _terminalCascadeCanvasDraw() {
     if (!inView(price)) return;
     ctx.beginPath();
     ctx.arc(X(_tcvBarIndexAt(fill.timestamp)), Y(price), 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = PAL.fill;
+    // Buy marks are WHITE and sells AMBER across every PhilForge chart,
+    // deliberately off the candle palette -- a green dot on a green candle is
+    // camouflage, and these are the marks you most need to find.
+    ctx.fillStyle = PAL.buyMark;
     ctx.fill();
-    ctx.strokeStyle = PAL.fillRing;
+    ctx.strokeStyle = PAL.markRing;
     ctx.lineWidth = 1;
     ctx.stroke();
   });

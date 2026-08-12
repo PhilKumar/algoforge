@@ -80,6 +80,14 @@ function _pfChartPalette() {
   return theme === 'light' ? _PF_CHART_LIGHT : _PF_CHART_DARK;
 }
 
+// THE ONE PALETTE, exported so a second chart cannot invent its own. The
+// Terminal campaign chart kept a private copy and it drifted: two of its three
+// dark fib colours were written `var(--green)` and `var(--red)`, and Canvas does
+// not resolve CSS variables -- assigning one to strokeStyle is silently ignored,
+// so the context keeps whatever colour it had. Every leg after the first, every
+// trendline after the first and every fill drew in leg 1's blue.
+window.pfChartPalette = _pfChartPalette;
+
 
 // Live canvas state, or null when no canvas chart is mounted. Holding the
 // ResizeObserver here is what makes teardown possible — without it, every

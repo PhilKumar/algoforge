@@ -5460,6 +5460,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .terminal-cascade-chart-body svg { width: 100%; height: auto; border-radius: 10px; background: #07101d; }
 .terminal-cascade-chart-legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; color: var(--muted); font: 12px var(--font-mono); }
 .terminal-cascade-chart-legend em { color: var(--muted); font-style: normal; margin-left: auto; }
+/* One swatch per leg, so the legend shows the ramp the chart colours legs and
+   their trendlines from rather than naming one colour for all three. */
+.terminal-cascade-legend-ramp { display: inline-flex; align-items: center; gap: 6px; }
+.terminal-cascade-legend-ramp b { font-weight: 700; }
 .terminal-cascade-chart-details { margin-top: 12px; border: 1px solid rgba(148,163,184,.16); border-radius: 10px; background: rgba(255,255,255,.025); overflow: hidden; }
 .terminal-cascade-chart-details summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; font-size: 12px; font-weight: 800; }
 .terminal-cascade-chart-details summary::-webkit-details-marker { display: none; }
