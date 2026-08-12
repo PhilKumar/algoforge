@@ -6131,6 +6131,46 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .pf-info-pop.is-open { display: block; }
   [data-theme="light"] .pf-info-btn { background: rgba(15,23,42,0.04); }
 
+  /* ── ⓘ, at the length of a whole strategy ────────────────────────────
+     A one-paragraph reveal needs no structure. A settled strategy does:
+     Phil asked to be able to read, on the page, exactly what the engine is
+     doing after all the tuning, and a wall of 11.5px prose is not readable.
+     Same reveal, same toggle, same colours — this adds only the headings,
+     rhythm and one warning tone that a document of that length needs.
+     Every rule below is scoped to .pf-info-doc so the short pops on the
+     options page keep the shape they already have. */
+  .pf-info-doc { padding: 14px 16px 15px; max-width: 78ch; }
+  .pf-info-doc p { margin: 0 0 9px; }
+  .pf-info-doc p:last-child { margin-bottom: 0; }
+  .pf-info-doc em { font-style: normal; color: var(--text); opacity: .85; }
+  .pf-info-doc code {
+    font: 600 10.5px 'JetBrains Mono', monospace;
+    padding: 1px 5px; border-radius: 5px;
+    background: rgba(255,255,255,0.06); color: var(--text);
+  }
+  /* The lede is the answer for anyone who reads one sentence and stops. */
+  .pf-info-doc .pf-info-lede {
+    font-size: 12.5px; line-height: 1.55; color: var(--text);
+    margin-bottom: 13px; padding-bottom: 11px;
+    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  }
+  .pf-info-doc h5 {
+    margin: 15px 0 5px;
+    font: 800 10px 'JetBrains Mono', monospace;
+    letter-spacing: .7px; text-transform: uppercase;
+    color: var(--accent, #38bdf8);
+  }
+  .pf-info-doc h5:first-of-type { margin-top: 4px; }
+  /* The measurement that says the feature loses money has to be as hard to
+     skim past as the feature itself. */
+  .pf-info-doc .pf-info-warn {
+    margin-top: 8px; padding: 9px 11px;
+    border-radius: 8px;
+    border: 1px solid rgba(251,191,36,0.28);
+    background: rgba(251,191,36,0.07);
+  }
+  [data-theme="light"] .pf-info-doc code { background: rgba(15,23,42,0.06); }
+
 /* ═════════════════════════════════════════════════════════════════════
    DEPTH PASS — CryptoForge's material grade, in PhilForge's own palette.
    Appended last so it wins the cascade over the flatter originals above.

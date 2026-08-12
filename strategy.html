@@ -1471,13 +1471,56 @@
     <div class="terminal-cascade-head">
       <div class="terminal-cascade-title-block">
         <div class="terminal-cascade-eyebrow">Cash Cascade</div>
-        <h3>BEES &amp; Equity Cascade</h3>
+        <h3>BEES &amp; Equity Cascade <button type="button" class="pf-info-btn" data-pf-info="cash-cascade-rules" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
         <div id="terminal-cascade-reference" class="terminal-cascade-reference">Select a symbol</div>
       </div>
       <div class="terminal-cascade-actions">
         <span id="terminal-cascade-badge" class="terminal-cascade-pill">IDLE</span>
         <span id="terminal-cascade-live-gate" class="terminal-cascade-pill terminal-cascade-pill-warn">LIVE LOCKED</span>
       </div>
+    </div>
+
+    <!-- THE STRATEGY, AS THE ENGINE ACTUALLY RUNS IT.
+         Phil: "as we have worked on n number of strategies fine tuning many
+         times, I want to know this in each page.. what is the final of this".
+         So this is not a pitch and not history: every number below is the
+         value the code uses today, and the losing measurement is stated as
+         plainly as the winning one. When a rule changes, this changes with it.
+         Sources: engine/cascade_scanner.py (steps 1), engine/cascade_options.py
+         (2-4), engine/cascade_equity.py (5-11). -->
+    <div id="cash-cascade-rules" class="pf-info-pop pf-info-doc">
+      <p class="pf-info-lede">You pick the stock and name one candle. Everything after that runs by itself: the engine draws the fall, decides where to buy on the way down, waits for a turn before spending, and sells the whole basket at one target. <strong>Paper only</strong> — no order reaches Dhan while this says LIVE LOCKED.</p>
+
+      <h5>1 &middot; What gets on the list</h5>
+      <p>Nifty 200 above &#8377;200, plus every BEES ETF (the price floor is a stock-quality test, so ETFs are exempt). A name is shown only if it is <strong>up over the last 60 sessions</strong>, sits <strong>1&ndash;25% below its highest high of the last 20 sessions</strong>, and your capital buys at least one share. Deeper than 25% is not a pullback any more, it is a broken trend, and it is dropped rather than ranked first. Ranking is discount &times; trend &times; how many of the three rungs can afford a share.</p>
+
+      <h5>2 &middot; The mother candle</h5>
+      <p>You name it; nothing is auto-picked. Its <strong>high is the ceiling</strong> of the whole campaign &mdash; every fall is measured down from there and the target is measured back up toward it. NIFTYBEES and BANKBEES read their geometry from NIFTY and BANKNIFTY; every other name signals off its own chart.</p>
+
+      <h5>3 &middot; Trendline, then a leg</h5>
+      <p>A line is drawn from the mother's high down across the last lower high. A leg is cut when price <strong>touches that line, fails, and a red candle closes decisively below the running low</strong>. The leg's high is the highest touch on the line; its low is the low frozen when the touch began. A leg must span at least 0.1%, must close <strong>below the previous leg's low</strong> (no second leg on the same shelf), and never rewrites a leg already drawn.</p>
+
+      <h5>4 &middot; Where it buys &mdash; the fib rungs</h5>
+      <p>Each leg gets rungs at <strong>L2, L4 and L8</strong>, priced <code>high &minus; n &times; (high &minus; low)</code>. So L2 is one leg-length below the leg's low, L8 is seven. A rung priced below zero on a very wide leg is dropped and its money shared over the rungs that can actually trade.</p>
+
+      <h5>5 &middot; How much money each leg gets</h5>
+      <p>The pool is the <strong>size of the fall, as a percentage of capital</strong>: a 4% fall funds 4% of your capital. Leg 1 measures from the mother high; every later leg measures from the previous leg's low. That pool splits <strong>20% to L2, 30% to L4, 50% to L8</strong> &mdash; deliberately bottom-heavy, because the deepest rung is the cheapest stock. This is why a &#8377;1,00,000 campaign on a &#8377;1,789 share can show a pool of &#8377;380 and still be working correctly: that is one rung's share of one small leg, and it waits, collecting, until it can buy.</p>
+
+      <h5>6 &middot; The entry &mdash; a rung does not buy</h5>
+      <p>Touching a rung price only <strong>collects that rung's money</strong> into the pending pot. Buying then needs the fall to turn: <strong>two red closes</strong> below the collecting line arm a <strong>buy-stop at the first red's close</strong>, and every further lower red moves that stop down with the market. Only a rise back <em>through</em> the stop fills. A knife that never turns is never bought. Whatever the pot cannot spend in whole shares is carried forward to the next fill, not discarded.</p>
+
+      <h5>7 &middot; The exit &mdash; one target for the basket</h5>
+      <p>Every share bought in a round leaves together at <strong>average entry + 0.25 &times; (mother high &minus; average entry)</strong> &mdash; a quarter of the way back to the ceiling, not a fixed percentage. There is <strong>no stop-loss</strong>: only the target, or your Kill, closes a round. After a round banks, the rungs can be used again, but only once price makes a <strong>new low below the campaign's lowest low</strong>, so it can never re-buy the same shelf.</p>
+
+      <h5>8 &middot; The ladder &mdash; how the campaign ages</h5>
+      <p>Set to <em>Climb to 1W</em>, the structure moves up one rung after 200 bars: <strong>5m &rarr; 15m &rarr; 1H &rarr; 1D &rarr; 1W</strong>. 4H is skipped &mdash; the NSE session is 375 minutes, so 4H is not a clean fraction of it. Only the <strong>structure</strong> climbs; entries, fills and exits stay on the base candles, so a stop still fills the moment price touches it. It will not climb while a buy-stop is resting. Nothing already drawn is touched.</p>
+      <p class="pf-info-warn"><strong>Climbing is not free money.</strong> Measured over 2 years on 15 NSE stocks: starting at 15m and climbing returned <strong>+&#8377;19,804</strong>, where simply running a <strong>fixed 1H</strong> returned <strong>+&#8377;32,764</strong> &mdash; 40% less money from 44% more rounds, because climbing ladders the first and best part of a fall on candles too fine to fund much. Both settings are offered; 1H fixed is the one that measured best.</p>
+
+      <h5>9 &middot; How a campaign ends</h5>
+      <p>The geometry dies when the mother is <strong>broken</strong> (any candle prints above the mother high) or <strong>retested</strong> (price falls 0.5% clear of it, then comes back within 0.15%). No new legs form after that. Shares already held are still worked to their target; once flat, the campaign is finished. <strong>It does not start a successor by itself</strong> &mdash; if the fall continues under a new high, you name a new mother. (The backtest can chain generations; this page runs one.)</p>
+
+      <h5>10 &middot; What it costs</h5>
+      <p>Delivery only &mdash; <strong>CNC</strong>, never MTF, because MTF interest and pledge costs are not modelled and a months-long campaign would report a profit it never made. Every round is netted for brokerage (0.03%, capped &#8377;20 an order), STT 0.1%, exchange and SEBI charges, stamp duty 0.015% on buys, and 18% GST. <strong>Net &#8377; on this page is after all of it.</strong></p>
     </div>
 
     <div class="terminal-cascade-workspace">

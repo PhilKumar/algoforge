@@ -279,3 +279,67 @@ test('a ladder that can never reach one share says THAT, and names the capital',
   await expect(waiting).toContainText('10,000');
   await expect(waiting).not.toContainText('two red closes');
 });
+
+/* ── The strategy, written on the page ────────────────────────────────
+   Phil: "as we have worked on n number of strategies fine tuning many times,
+   I want to know this in each page.. inside something like (i).. what is the
+   final of this". So the doc is a deliverable, not decoration, and these
+   tests hold it to two things a stale doc always fails: it must state the
+   numbers the ENGINE uses, and it must not sell the ladder as free money. */
+
+async function openStrategyDoc(page: Page) {
+  await openEquityCascade(page, { status: 'ok', campaigns: [] });
+  const doc = page.locator('#cash-cascade-rules');
+  await expect(doc).toBeHidden();
+  await page.click('[data-pf-info="cash-cascade-rules"]');
+  await expect(doc).toBeVisible();
+  return doc;
+}
+
+test('the (i) opens the complete Cash Cascade strategy', async ({ page }) => {
+  const doc = await openStrategyDoc(page);
+  // Every step of the loop, in the order the engine runs it.
+  for (const heading of ['What gets on the list', 'The mother candle', 'Trendline',
+                         'the fib rungs', 'How much money each leg gets', 'a rung does not buy',
+                         'one target for the basket', 'how the campaign ages',
+                         'How a campaign ends', 'What it costs']) {
+    await expect(doc).toContainText(heading);
+  }
+  // And it closes again — a manual you cannot put away is in the way.
+  await page.click('[data-pf-info="cash-cascade-rules"]');
+  await expect(doc).toBeHidden();
+});
+
+test('the doc quotes the numbers the engine actually runs on', async ({ page }) => {
+  const doc = await openStrategyDoc(page);
+  const text = (await doc.innerText()).replace(/\s+/g, ' ');
+
+  // Rungs and their split: LEVEL_ALLOCATION = {2: 0.20, 4: 0.30, 8: 0.50}.
+  expect(text).toContain('L2, L4 and L8');
+  expect(text).toMatch(/20% to L2, 30% to L4, 50% to L8/);
+  // target_fraction 0.25, measured to the MOTHER HIGH, not a fixed percent.
+  expect(text).toMatch(/0\.25 × \(mother high − average entry\)/);
+  // The scanner's gates: min_price 200, 60-session trend, 20-session high, 1-25%.
+  expect(text).toContain('60 sessions');
+  expect(text).toContain('20 sessions');
+  expect(text).toContain('1–25% below');
+  // ESCALATION_BARS and the ladder, with 4h deliberately absent.
+  expect(text).toContain('200 bars');
+  expect(text).toMatch(/5m → 15m → 1H → 1D → 1W/);
+  // CNC only, and the reason MTF is refused.
+  expect(text).toContain('CNC');
+  expect(text).toContain('never MTF');
+});
+
+test('the doc admits the climbing ladder measured worse than fixed 1H', async ({ page }) => {
+  // The one paragraph a strategy page is most tempted to leave out. Both
+  // figures come from the 15-stock, 2-year run and are in the config's own
+  // comment; if that verdict is ever re-measured, this test is the reminder
+  // that the page says it too.
+  const doc = await openStrategyDoc(page);
+  const warn = doc.locator('.pf-info-warn');
+  await expect(warn).toBeVisible();
+  await expect(warn).toContainText('19,804');
+  await expect(warn).toContainText('32,764');
+  await expect(warn).toContainText('fixed 1H');
+});
