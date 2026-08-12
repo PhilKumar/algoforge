@@ -418,19 +418,28 @@ test('on a phone it is one column and the page never scrolls sideways', async ({
  *  page auto-selects the first name in the list, which is exactly the state
  *  the bug hid in: a scrip IS selected and the chart drew a campaign instead. */
 async function pickScrip(page: Page) {
-  return page.evaluate(() => {
-    const input = document.getElementById('stock-terminal-symbol') as HTMLInputElement;
-    // The page auto-selects the first name in the scrip list, and that is
-    // exactly the state the bug hid in: a scrip IS picked and the chart drew a
-    // campaign anyway. `selectStockTerminal` keeps this input in step with
-    // `_stockTerminalSelected`, so reading it is faithful either way.
-    if (input.value) return input.value;
-    // CI has no ScripMaster data, so the list is empty and nothing is
-    // auto-selected. The hidden input is the same fallback Start Paper reads,
-    // which keeps the test about the RESOLVER rather than about the fixtures.
-    input.value = 'INFY';
-    return 'INFY';
+  // WAIT for the page's own auto-selection, do not race it. The scrip list is
+  // fetched asynchronously and `selectStockTerminal` then writes BOTH the
+  // module-scope `_stockTerminalSelected` and this input. A test that reads or
+  // writes the input before that lands is overwritten a moment later — and the
+  // resolver reads the module binding first, so no input write can win. Locally
+  // the list is instant and the race never showed; CI is slower and it failed
+  // three times.
+  await page.waitForFunction(() => {
+    const el = document.getElementById('stock-terminal-symbol') as HTMLInputElement | null;
+    return !!(el && el.value);
+  }, null, { timeout: 8_000 }).catch(() => { /* no list in this environment */ });
+
+  const selected = await page.locator('#stock-terminal-symbol').inputValue();
+  // Whatever the page selected IS the picked scrip — that is precisely the
+  // state the bug hid in: a scrip is picked and the chart drew a campaign.
+  if (selected) return selected;
+  // No list at all: the hidden input is the same fallback Start Paper reads,
+  // and with no list nothing will come along and overwrite it.
+  await page.evaluate(() => {
+    (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value = 'INFY';
   });
+  return 'INFY';
 }
 
 function twoRunningCampaigns() {
