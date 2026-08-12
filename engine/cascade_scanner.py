@@ -168,3 +168,47 @@ def scan(
 
     candidates.sort(key=lambda row: (-row.score, -row.pullback_pct, row.symbol))
     return candidates[:limit], rejected
+
+
+# Bars to show BEFORE the one that made the high. A high on the left edge tells
+# you nothing about what led into it.
+CHART_LEAD_BARS = 30
+# Ceiling on what one chart payload carries. 900 15m bars is about seven weeks.
+CHART_MAX_BARS = 900
+
+
+def chart_window(bars, high_date, *, minimum: int, lead: int = CHART_LEAD_BARS, cap: int = CHART_MAX_BARS):
+    """The slice of a scanned scrip's candles to draw, and whether the high is in it.
+
+    The scanner ranks a scrip on how far it has fallen from a 20-SESSION high, so
+    a chart that does not reach that high cannot justify the row it belongs to --
+    and, more practically, the mother candle cannot be picked from it. This used
+    to be a blind `bars[-minimum:]` tail with minimum defaulting to 90: ninety
+    15m bars is under four NSE sessions, so a scrip 11% off a high set three
+    weeks earlier drew a chart that started well after the high.
+
+    The window therefore begins a lead BEFORE the first bar of the high's
+    session and runs to now, with three guards:
+
+    * a high made this morning would leave a chart of thirty bars, so never
+      fewer than `minimum` are returned;
+    * `cap` bounds the payload however far back the high is;
+    * `high_in_view` is decided ONCE, at the end, on the bars actually being
+      returned. Deciding it per-branch got it wrong: when the high predates the
+      whole series, `>= high_date` matches the very first bar, so the window
+      looked complete while the high was nowhere in it.
+
+    Returns `(selected, high_in_view)`.
+    """
+    if not bars:
+        return [], False
+    first_at_high = next((i for i, bar in enumerate(bars) if bar.timestamp.date() >= high_date), None)
+    if first_at_high is None:
+        selected = bars[-minimum:]
+    else:
+        selected = bars[max(0, first_at_high - lead) :]
+        if len(selected) < minimum:
+            selected = bars[-minimum:]
+    if len(selected) > cap:
+        selected = selected[-cap:]
+    return selected, selected[0].timestamp.date() <= high_date

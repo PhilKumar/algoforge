@@ -105,6 +105,28 @@
   display: block; margin-top: 3px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .cascade-scan-rung em { display: block; margin-top: 2px; font-size: 11px; font-style: normal; opacity: .55; }
+
+/* THE MOTHER CANDIDATE, IN TYPEABLE FORM. The chart marks the bar that made the
+   high; this says which timestamp to put in the campaign box, because reading it
+   off a compressed axis of several hundred candles is not a thing anyone can do
+   accurately. */
+.cascade-scan-mother-hint {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 10px; padding: 8px 11px; border-radius: 9px;
+  border: 1px solid rgba(253, 230, 138, .28);
+  background: rgba(253, 230, 138, .07);
+}
+.cascade-scan-mother-hint span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em; opacity: .6;
+}
+.cascade-scan-mother-hint strong {
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: #fde68a;
+}
+.cascade-scan-mother-hint em { font-size: 11px; font-style: normal; opacity: .6; }
+.cascade-scan-mother-warn {
+  flex-basis: 100%; margin-top: 2px; font-size: 11px; font-style: normal;
+  color: #fca5a5; opacity: 1;
+}
 .cascade-scan-rung.is-short { border-color: rgba(252, 165, 165, .3); }
 .cascade-scan-rung.is-short em { color: #fca5a5; opacity: .9; }
 .cascade-scan-rung-note {

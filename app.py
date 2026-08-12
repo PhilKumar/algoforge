@@ -108,6 +108,7 @@ from engine.cascade_options import (
 )
 from engine.cascade_scanner import HIGH_LOOKBACK as CASCADE_SCAN_HIGH_LOOKBACK
 from engine.cascade_scanner import ScanInput
+from engine.cascade_scanner import chart_window as cascade_scan_chart_window
 from engine.cascade_scanner import scan as cascade_scan
 from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
@@ -14378,7 +14379,12 @@ async def terminal_cascade_scan(
 # How far back each chart is fetched, in CALENDAR days. A finer chart needs a
 # shorter window to hold a readable number of bars -- and 15m over a year would
 # be thousands of chunked requests against an account-wide rate budget.
-_SCAN_CHART_SPAN_DAYS: dict[str, int] = {"15m": 12, "1h": 45, "4h": 130, "1d": 210, "1w": 900}
+# Calendar days to FETCH per timeframe. 15m used to be 12 days, which could not
+# reach a high set three weeks ago -- and the 20-session daily lookback the
+# ranking uses reaches exactly that far, so the fine chart could not show the
+# thing the row was ranked on. 45 days covers 20 sessions plus the lead below,
+# and stays inside Dhan's 90-day intraday chunk, so it is still one request.
+_SCAN_CHART_SPAN_DAYS: dict[str, int] = {"15m": 45, "1h": 45, "4h": 130, "1d": 210, "1w": 900}
 
 
 @app.get("/api/terminal/cascade/scan/chart")
@@ -14431,13 +14437,24 @@ async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: i
     if not bars or not daily_bars:
         raise HTTPException(status_code=404, detail=f"No {normalised} candles returned for {stock['symbol']}.")
 
-    rows = [
-        {"t": bar.timestamp.isoformat(), "o": bar.open, "h": bar.high, "l": bar.low, "c": bar.close} for bar in bars
-    ][-sessions:]
-
+    # THE WINDOW HAS TO CONTAIN THE HIGH THE RANKING USED.
+    # This used to be a blind `[-sessions:]` tail, and `sessions` defaults to 90:
+    # ninety 15m bars is under four NSE sessions. So a scrip sitting 11% off a
+    # high set three weeks ago drew a 15m chart that never reached the high, and
+    # the mother candle -- the whole reason to open the chart -- could not be
+    # picked from it. The window now starts a lead BEFORE the bar that made the
+    # high and runs to now.
     window = daily_bars[-CASCADE_SCAN_HIGH_LOOKBACK:]
-    recent_high = max(bar.high for bar in window)
+    high_bar = max(window, key=lambda bar: bar.high)
+    recent_high = high_bar.high
     last_price = daily_bars[-1].close
+
+    high_date = high_bar.timestamp.date()
+    selected, high_in_view = cascade_scan_chart_window(bars, high_date, minimum=sessions)
+
+    rows = [
+        {"t": bar.timestamp.isoformat(), "o": bar.open, "h": bar.high, "l": bar.low, "c": bar.close} for bar in selected
+    ]
     return {
         "status": "ok",
         "symbol": stock["symbol"],
@@ -14447,6 +14464,8 @@ async def terminal_cascade_scan_chart(request: Request, symbol: str, sessions: i
         "candles": rows,
         "recent_high": round(recent_high, 2),
         "recent_high_lookback": CASCADE_SCAN_HIGH_LOOKBACK,
+        "recent_high_date": high_date.isoformat(),
+        "high_in_view": high_in_view,
         "last_price": round(last_price, 2),
         "pullback_pct": round((recent_high - last_price) / recent_high * 100.0, 2) if recent_high else 0.0,
     }

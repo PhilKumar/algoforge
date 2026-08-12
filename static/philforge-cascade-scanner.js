@@ -324,6 +324,7 @@ function createEquityScanner(cfg) {
         if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
         box.innerHTML = '';
         window.pfBenchDrawChart(box, scanCanvasPayload(data));
+        box.insertAdjacentHTML('beforeend', motherHint(data));
         box.insertAdjacentHTML('beforeend', capitalFooter(data));
       } else {
         box.textContent = 'Chart renderer not loaded.';
@@ -377,7 +378,46 @@ function createEquityScanner(cfg) {
         }
       }
     }
-    return { timeframe: '1d', candles: candles, lines: lines };
+    // MARK THE CANDLE THAT MADE THE HIGH. This is the mother candidate, and
+    // finding it by eye on several hundred bars is the thing Phil could not do.
+    // The high is a DAILY number, so on a finer chart it is the bar that printed
+    // it -- matched on price rather than assumed from the timestamp, because one
+    // daily high maps to exactly one intraday bar and that bar's high IS it.
+    var motherIndex = -1;
+    for (var i = 0; i < candles.length; i += 1) {
+      if (motherIndex < 0 || candles[i].h > candles[motherIndex].h) motherIndex = i;
+    }
+    var mother = null;
+    if (motherIndex >= 0) {
+      candles[motherIndex].is_mother = true;
+      mother = { high: candles[motherIndex].h, low: candles[motherIndex].l };
+    }
+    return {
+      timeframe: payload.timeframe || '1d',
+      candles: candles,
+      lines: lines,
+      mother: mother
+    };
+  }
+
+  /* The exact bar to name as the mother, in the form the campaign box wants.
+   * The chart marks it; this says what to type. */
+  function motherHint(payload) {
+    var rows = payload.candles || [];
+    if (!rows.length) return '';
+    var best = rows[0];
+    rows.forEach(function (row) { if (Number(row.h) > Number(best.h)) best = row; });
+    var stamp = String(best.t || '').slice(0, 16);
+    var warn = payload.high_in_view === false
+      ? '<em class="cascade-scan-mother-warn">The ' + (payload.recent_high_lookback || 20) +
+        'D high was set on ' + esc(String(payload.recent_high_date || '')) +
+        ', before this window starts — switch to a higher timeframe to see it.</em>'
+      : '';
+    return '<div class="cascade-scan-mother-hint">' +
+      '<span>Highest ' + esc(payload.timeframe || '') + ' candle in view</span>' +
+      '<strong>' + esc(stamp.replace('T', ' ')) + ' IST</strong>' +
+      '<em>high ' + Number(best.h).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + '</em>' +
+      warn + '</div>';
   }
 
   function pick(symbol) {
