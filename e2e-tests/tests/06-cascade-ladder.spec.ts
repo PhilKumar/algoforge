@@ -218,3 +218,64 @@ test('changing the start timeframe snaps the mother onto that grid', async ({ pa
   await page.selectOption('#terminal-cascade-timeframe', '1d');
   await expect(stamp).toHaveValue('2026-08-03T09:15');
 });
+
+
+/** A campaign pooling money it cannot yet spend: Rs 379.78 against a Rs 1,789 share. */
+function underfundedCampaign() {
+  const c: any = climbingCampaign();
+  const row = c.campaigns[0];
+  row.instrument = { symbol: 'ADANIENSOL', name: 'Adani Energy Solutions', signal_symbol: 'ADANIENSOL', reference_mode: 'own_scrip' };
+  row.status = 'WAITING';
+  row.config = { capital_inr: 10000, timeframe: '1h', target_fraction: 0.25, product_type: 'CNC', escalates: true };
+  row.structure = { timeframe: '1h', started_on: '1h', bars: 106, bars_to_next: 94,
+                    next_timeframe: '1d', escalated: false, climbs: true, ladder: ['1h', '1d', '1w'] };
+  row.average_entry_price = 0; row.target_price = 0; row.open_quantity = 0;
+  row.open_invested_inr = 0; row.pending_inr = 379.78; row.cash_carry_inr = 0;
+  row.last_trade_close = 1789;
+  row.open_fills = []; row.rounds = [];
+  row.rungs = [
+    { leg_id: 1, level: 2, signal_price: 1700, budget_inr: 379.78, status: 'COLLECTED' },
+    { leg_id: 1, level: 4, signal_price: 1600, budget_inr: 569.67, status: 'PENDING' },
+    { leg_id: 1, level: 8, signal_price: 1400, budget_inr: 949.45, status: 'PENDING' },
+  ];
+  return c;
+}
+
+test('a pool short of one share says so, instead of blaming red candles', async ({ page }) => {
+  // Phil: "How can this go for a buy when it has only reached Rs 378 while the
+  // stock price is Rs 1789?" He was right, and the ENGINE agreed with him — it
+  // will not arm a buy-stop until the pool clears one share. The card was the
+  // liar: it said "waiting for two red closes", naming a condition that was not
+  // the blocker at all.
+  //
+  // These are the REAL ADANIENSOL numbers: Rs 379.78 pooled at L2, Rs 1,898.90
+  // across the whole leg, one share Rs 1,789. It CAN buy — exactly one share,
+  // and only once price has fallen through L8.
+  await openEquityCascade(page, underfundedCampaign());
+  const card = page.locator('[data-terminal-cascade-symbol="ADANIENSOL"]');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await card.locator('summary').click();
+
+  const waiting = card.locator('.pf-campaign-waiting');
+  await expect(waiting).not.toContainText('two red closes');
+  await expect(waiting).toContainText('short of one share');
+  await expect(waiting).toContainText('1,409.22');   // 1,789.00 - 379.78
+  await expect(waiting).not.toContainText('cannot buy');
+});
+
+test('a ladder that can never reach one share says THAT, and names the capital', async ({ page }) => {
+  const payload: any = underfundedCampaign();
+  // Halve the two rungs still to come: Rs 379.78 + Rs 759.56 never reaches
+  // Rs 1,789, so no amount of waiting fixes it. That is a capital problem.
+  payload.campaigns[0].rungs[1].budget_inr = 284.83;
+  payload.campaigns[0].rungs[2].budget_inr = 474.73;
+  await openEquityCascade(page, payload);
+  const card = page.locator('[data-terminal-cascade-symbol="ADANIENSOL"]');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await card.locator('summary').click();
+
+  const waiting = card.locator('.pf-campaign-waiting');
+  await expect(waiting).toContainText('cannot buy');
+  await expect(waiting).toContainText('10,000');
+  await expect(waiting).not.toContainText('two red closes');
+});
