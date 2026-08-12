@@ -3939,6 +3939,10 @@ class TerminalCascadePaperStartPayload(BaseModel):
     timeframe: str = "5m"
     target_fraction: float = Field(default=0.25, gt=0, le=1)
     product_type: str = "CNC"
+    # Whether the structure climbs the ladder as the campaign ages. The form
+    # offers both because the backtest says they are genuinely different bets,
+    # not a good option and a worse one.
+    escalates: bool = True
 
 
 class TwoRedStartPayload(BaseModel):
@@ -12440,7 +12444,10 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             try:
                 from data.backtest_upstox import UpstoxHistoricalPremiumSelector
 
-                strategy_config["_upstox_premium_selector"] = UpstoxHistoricalPremiumSelector(payload.instrument)
+                strategy_config["_upstox_premium_selector"] = UpstoxHistoricalPremiumSelector(
+                    payload.instrument,
+                    progress=_say_stage,
+                )
             except Exception as exc:
                 return {
                     "status": "error",
@@ -12456,6 +12463,16 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         option_pricing = await asyncio.to_thread(
             _fetch_backtest_option_histories, strategy_config, tf_spec, from_date, to_date
         )
+        premium_selector = strategy_config.get("_upstox_premium_selector")
+        if premium_selector is not None and getattr(premium_selector, "expiries", None):
+            first_expiry = premium_selector.expiries[0]
+            last_expiry = premium_selector.expiries[-1]
+            if _from_dt.date() < first_expiry or _to_dt.date() > last_expiry:
+                option_pricing["warnings"].append(
+                    "Upstox expired-option coverage currently spans expiries "
+                    f"{first_expiry.isoformat()} to {last_expiry.isoformat()}. "
+                    "Signals outside that provider window are reported as gaps and are never synthetically priced."
+                )
         if option_pricing["errors"]:
             error_msg = "Historical option data unavailable for this backtest:\n- " + "\n- ".join(
                 option_pricing["errors"]
@@ -12505,7 +12522,6 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 f"Upstox omitted {len(option_data_gaps)} premium-target signal(s) with incomplete historical option data."
             )
             results["option_data_gaps"] = option_data_gaps
-        premium_selector = strategy_config.get("_upstox_premium_selector")
         if premium_selector is not None and hasattr(premium_selector, "cache_summary"):
             selection_cache = premium_selector.cache_summary()
             option_pricing["upstox_selection_cache"] = selection_cache
@@ -14033,6 +14049,7 @@ async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, requ
             target_fraction=payload.target_fraction,
             timeframe=normalised_tf,
             product_type=payload.product_type,
+            escalates=payload.escalates,
         ),
     )
     last = await _terminal_cascade_replay_to_now(

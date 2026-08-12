@@ -549,11 +549,11 @@
   <div id="premium-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
     <div style="font-size: 24px; color: var(--warn);"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span></div>
     <div style="flex: 1;">
-      <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Premium Estimation Notice</div>
+      <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Historical Option Data Notice</div>
       <div class="premium-notice-text" style="font-size: 11px; color: rgba(255,255,255,0.8); line-height: 1.5;">
-        This backtest uses <strong>estimated option premiums</strong> based on spot price + volatility models, not real historical option chain data.
-        Premium "Near 500₹" finds the strike whose <em>estimated</em> premium is closest to 500₹.
-        For real option pricing, use live/paper trading mode or paid historical option data providers.
+        NIFTY legs using <strong>Premium Near / Above / Below</strong> are selected and priced from real Upstox
+        expired-contract one-minute candles. Missing contracts or candles are reported as data gaps and are never
+        replaced with synthetic prices. Other strike modes use the data source stated in the completed result.
       </div>
     </div>
   </div>
@@ -1482,6 +1482,7 @@
           </div>
         </div>
         <div id="terminal-cascade-selected" class="terminal-cascade-selected">No scrip picked yet — choose one from the scanner above.</div>
+        <div id="terminal-cascade-ladder-note" class="terminal-cascade-ladder-note"></div>
         <div class="terminal-cascade-form-grid">
           <div class="terminal-cascade-field">
             <label for="terminal-cascade-mother-timestamp">Mother candle <span id="terminal-cascade-mother-readable" class="terminal-cascade-field-hint">--</span></label>
@@ -1492,12 +1493,19 @@
             <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000">
           </div>
           <div class="terminal-cascade-field">
-            <label for="terminal-cascade-timeframe">Timeframe</label>
+            <label for="terminal-cascade-timeframe">Start on</label>
             <select id="terminal-cascade-timeframe" onchange="terminalCascadeTimeframeChanged()">
-              <option value="5m" selected>5m</option>
-              <option value="15m">15m</option>
+              <option value="5m">5m</option>
+              <option value="15m" selected>15m</option>
               <option value="1h">1H</option>
               <option value="1d">1D</option>
+            </select>
+          </div>
+          <div class="terminal-cascade-field">
+            <label for="terminal-cascade-escalates">Ladder</label>
+            <select id="terminal-cascade-escalates" onchange="terminalCascadeLadderChanged()">
+              <option value="1" selected>Climb to 1W</option>
+              <option value="0">Stay on the start timeframe</option>
             </select>
           </div>
           <input id="terminal-cascade-target-pct" type="hidden" value="25">

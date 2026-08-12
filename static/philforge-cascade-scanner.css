@@ -327,6 +327,40 @@
 .cascade-scan-table tr.is-picked { background: rgba(110, 231, 183, .1); }
 .cascade-scan-table tr.is-picked td:first-child { box-shadow: inset 3px 0 0 #6ee7b7; }
 
+/* THE LADDER. A campaign starts where you put it and climbs as it ages, so both
+   the setup form and every running campaign draw the rungs rather than
+   describing them in a sentence. One rung is lit: the one the structure is
+   being drawn on right now. */
+.terminal-cascade-ladder-note { margin: 8px 13px 0; font-size: 12px; }
+.terminal-cascade-ladder-note small {
+  display: block; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5;
+}
+.terminal-cascade-ladder-chain,
+.terminal-cascade-ladder-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.terminal-cascade-ladder-strip { margin: 0 13px 10px; }
+.terminal-cascade-rung {
+  padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; border: 1px solid rgba(148, 163, 184, .28);
+  color: var(--muted); background: rgba(148, 163, 184, .06);
+}
+.terminal-cascade-rung-arrow { color: rgba(148, 163, 184, .45); font-size: 11px; }
+/* Lit = where the structure is now. Both selectors are spelled out separately
+   because is-now is the form's preview and data-state is a live campaign. */
+.terminal-cascade-rung.is-now,
+.terminal-cascade-rung[data-state="now"] {
+  color: #6ee7b7; border-color: rgba(110, 231, 183, .5);
+  background: rgba(110, 231, 183, .14);
+}
+.terminal-cascade-rung[data-state="done"] { opacity: .45; }
+.terminal-cascade-ladder-fixed {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  color: #93c5fd; border: 1px solid rgba(147, 197, 253, .42);
+  background: rgba(147, 197, 253, .1);
+}
+
 /* Setup and instrument sit side by side. The fields could not pair up in the
    original 270-320px column -- two 150px columns plus a gap needs 312px -- so
    the column is widened rather than the layout stacked. */

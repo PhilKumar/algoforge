@@ -232,6 +232,18 @@ class CashCascadePaperConfig:
     # at 900 and L4 at 523 with the stock at 1,167, both positive and neither
     # ever going to fill.
     min_rung_price_pct: float = 0.0
+    # Does the structure climb the ladder as the campaign ages? True is Phil's
+    # rule -- name a mother on 15m and work it to target however long that takes,
+    # "even if it goes till Week". False pins the campaign to the timeframe it
+    # started on.
+    #
+    # NOT a free win, and the page says so: measured over 2 years on 15 NSE
+    # stocks, starting at 15m and climbing returned +Rs 19,804 where simply
+    # running fixed 1H returned +Rs 32,764 -- 40% less money from 44% more
+    # rounds, because climbing early ladders the first and best part of a fall
+    # on candles too fine to fund much. The choice is Phil's, so it is a field
+    # rather than a constant.
+    escalates: bool = True
 
     @property
     def level_allocation(self) -> dict[int, float]:
@@ -936,6 +948,8 @@ class CashCascadePaperEngine:
         finishes that arm on its current rung first. Switching underneath a
         resting order would move the structure the order was placed against.
         """
+        if not self.config.escalates:
+            return False
         if self.pending_stop is not None:
             return False
         if self.structure_bars <= ESCALATION_BARS:
@@ -1021,6 +1035,7 @@ class CashCascadePaperEngine:
                 "timeframe": self.config.timeframe,
                 "product_type": self.config.product_type,
                 "min_order_inr": self.config.min_order_inr,
+                "escalates": self.config.escalates,
             },
             "mother": {
                 "signal": _candle_to_dict(self.geometry.history[0]),
@@ -1036,8 +1051,20 @@ class CashCascadePaperEngine:
                 "started_on": self.config.timeframe,
                 "bars": self.structure_bars,
                 "bars_to_next": max(ESCALATION_BARS + 1 - self.structure_bars, 0),
-                "next_timeframe": next_timeframe_up(self.structure_timeframe),
+                "next_timeframe": next_timeframe_up(self.structure_timeframe) if self.config.escalates else None,
                 "escalated": self.structure_timeframe != self.config.timeframe,
+                "climbs": self.config.escalates,
+                # The rungs this campaign can still reach, so the page can draw
+                # the ladder instead of describing it.
+                "ladder": (
+                    [
+                        rung
+                        for rung in EQUITY_ESCALATION_LADDER
+                        if TIMEFRAME_MINUTES[rung] >= TIMEFRAME_MINUTES.get(self.config.timeframe, 0)
+                    ]
+                    if self.config.escalates
+                    else [self.config.timeframe]
+                ),
             },
             "average_entry_price": self.average_entry_price,
             "target_price": self.target_price,
@@ -1090,6 +1117,7 @@ class CashCascadePaperEngine:
                 "timeframe": self.config.timeframe,
                 "product_type": self.config.product_type,
                 "min_order_inr": self.config.min_order_inr,
+                "escalates": self.config.escalates,
                 "cost_schedule": dict(self.config.cost_schedule.__dict__),
             },
             "signal_history": [_candle_to_dict(row) for row in self.geometry.history],
@@ -1131,6 +1159,9 @@ class CashCascadePaperEngine:
             timeframe=str(raw_config.get("timeframe") or "5m"),
             product_type=str(raw_config.get("product_type") or "CNC"),
             min_order_inr=float(raw_config.get("min_order_inr") or 0),
+            # Campaigns saved before the ladder existed were fixed by definition,
+            # so an absent flag must NOT silently start them climbing.
+            escalates=bool(raw_config.get("escalates", False)),
             cost_schedule=CashMarketCostSchedule(**raw_schedule) if raw_schedule else CashMarketCostSchedule(),
         )
         engine = cls(

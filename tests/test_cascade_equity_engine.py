@@ -343,3 +343,33 @@ class TimeframeEscalationTests(unittest.TestCase):
         self.assertEqual(structure["next_timeframe"], "1w")
         self.assertEqual(structure["bars_to_next"], 11)
         self.assertTrue(structure["escalated"])
+
+    def test_a_fixed_campaign_never_climbs(self):
+        """Measured, fixed 1H beats the climbing ladder, so staying put is a
+        real choice and not a fallback -- it has to actually hold."""
+        engine = CashCascadePaperEngine(
+            candle(0, 100, 100, 99, 99.5),
+            candle(0, 250, 250, 249, 249.5),
+            instrument("RELIANCE"),
+            CashCascadePaperConfig(capital_inr=100000, timeframe="1h", escalates=False),
+        )
+        engine.structure_bars = ESCALATION_BARS * 5
+        self.assertFalse(engine._maybe_escalate(candle(1, 99, 99, 98, 98.5)))
+        self.assertEqual(engine.structure_timeframe, "1h")
+        structure = engine.get_status()["structure"]
+        self.assertFalse(structure["climbs"])
+        self.assertIsNone(structure["next_timeframe"])
+        self.assertEqual(structure["ladder"], ["1h"])
+
+    def test_the_ladder_the_page_draws_starts_at_the_chosen_timeframe(self):
+        engine = self.engine("15m")
+        self.assertEqual(engine.get_status()["structure"]["ladder"], ["15m", "1h", "1d", "1w"])
+        # A campaign started on 1h has a shorter ladder, not the whole one.
+        self.assertEqual(self.engine("1h").get_status()["structure"]["ladder"], ["1h", "1d", "1w"])
+
+    def test_a_campaign_saved_before_the_flag_existed_stays_fixed(self):
+        """Absent flag must not silently start an old campaign climbing."""
+        engine = self.engine()
+        payload = engine.to_dict()
+        payload["config"].pop("escalates")
+        self.assertFalse(CashCascadePaperEngine.from_dict(payload).config.escalates)

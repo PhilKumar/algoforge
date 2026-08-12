@@ -5558,6 +5558,8 @@ async function initStockTerminalPage(force = false) {
   }
   if (_stockTerminalSelected) refreshStockTerminalQuote(true);
   updateTerminalCascadeReference();
+  // Draw the ladder preview on arrival, not only after the selects are touched.
+  terminalCascadeLadderChanged();
   refreshTerminalCascadeStatus();
   refreshTerminalClosedCampaigns();
   refreshStockTerminalOrders();
@@ -5988,11 +5990,28 @@ function _terminalCascadeWindow(campaign) {
     stat(
       'Drawing on',
       rung.toUpperCase(),
-      structure.next_timeframe
-        ? `${structure.bars_to_next} more ${rung} bars to ${structure.next_timeframe.toUpperCase()}`
-        : 'top of the ladder — it stays here',
+      structure.climbs === false
+        ? 'fixed — this campaign does not climb'
+        : (structure.next_timeframe
+          ? `${structure.bars_to_next} more ${rung} bars to ${structure.next_timeframe.toUpperCase()}`
+          : 'top of the ladder — it stays here'),
     ),
   ].join('');
+
+  // The ladder as a strip, so where a campaign is and where it can still go is
+  // one glance rather than a sentence to parse.
+  const ladderRungs = Array.isArray(structure.ladder) && structure.ladder.length
+    ? structure.ladder
+    : _terminalCascadeLadderFrom(timeframe);
+  const ladderMarkup = (structure.climbs === false || ladderRungs.length < 2)
+    ? ''
+    : `<div class="terminal-cascade-ladder-strip" role="img" aria-label="Structure timeframe ${escapeAttr(rung)} of ${escapeAttr(ladderRungs.join(', '))}">`
+      + ladderRungs.map((row) => {
+        const passed = TERMINAL_CASCADE_LADDER.indexOf(row) < TERMINAL_CASCADE_LADDER.indexOf(rung);
+        const state = row === rung ? 'now' : (passed ? 'done' : 'ahead');
+        return `<span class="terminal-cascade-rung" data-state="${state}">${escapeHtml(row.toUpperCase())}</span>`;
+      }).join('<span class="terminal-cascade-rung-arrow">&rarr;</span>')
+      + '</div>';
 
   const button = (label, handler, kind) =>
     `<button class="btn btn-sm ${kind || 'btn-outline'}" onclick="event.preventDefault();event.stopPropagation();${handler}">${escapeHtml(label)}</button>`;
@@ -6017,6 +6036,7 @@ function _terminalCascadeWindow(campaign) {
     </summary>
     <div class="terminal-cascade-scrip-window-body">
       <div class="pf-campaign-waiting">${escapeHtml(_terminalCampaignWaitingFor(campaign))}</div>
+      ${ladderMarkup}
       <div class="pf-campaign-stats">${stats}</div>
     <div class="terminal-cascade-ladder-panel"><div class="terminal-cascade-section-head"><div><span>Ladder and order flow</span><strong>${(campaign.rungs || []).length} fib rungs</strong></div></div>${_terminalCascadeRungsMarkup(campaign.rungs || [])}</div>
     <div class="terminal-cascade-bottom-grid">
@@ -6208,6 +6228,7 @@ async function startTerminalCascadePaper() {
     timeframe,
     target_fraction: targetPct / 100,
     product_type: _terminalCascadeEl('terminal-cascade-product')?.value || 'CNC',
+    escalates: _terminalCascadeEl('terminal-cascade-escalates')?.value !== '0',
   };
   const ref = _stockTerminalSelected?.cascade_reference || {};
   const ok = await customConfirm(
@@ -6750,6 +6771,36 @@ function terminalCascadeTimeframeChanged() {
   if (tf === '1d' && input.value) input.value = `${input.value.slice(0, 10)}T09:15`;
   if (tf === '1d') { input.step = 86400; input.title = 'Daily mother: pick the date — the time is always 09:15 IST.'; }
   else { input.step = 300; input.title = ''; }
+  terminalCascadeLadderChanged();
+}
+
+// The rungs an equity campaign can climb. 4H is missing on purpose: an NSE
+// session is 375 minutes, so a 4H bucket is one full bar plus a 2h15m stub.
+const TERMINAL_CASCADE_LADDER = ['5m', '15m', '1h', '1d', '1w'];
+const TERMINAL_CASCADE_LADDER_BARS = 200;
+
+function _terminalCascadeLadderFrom(timeframe) {
+  const start = TERMINAL_CASCADE_LADDER.indexOf(String(timeframe || '').toLowerCase());
+  return start < 0 ? [] : TERMINAL_CASCADE_LADDER.slice(start);
+}
+
+function terminalCascadeLadderChanged() {
+  const note = _terminalCascadeEl('terminal-cascade-ladder-note');
+  if (!note) return;
+  const tf = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '15m';
+  const climbs = _terminalCascadeEl('terminal-cascade-escalates')?.value !== '0';
+  const rungs = _terminalCascadeLadderFrom(tf);
+  if (!climbs || rungs.length < 2) {
+    note.innerHTML = `<span class="terminal-cascade-ladder-fixed">Fixed on ${escapeHtml(tf.toUpperCase())}</span>`
+      + '<small>Structure stays on this timeframe for the life of the campaign. Measured over 2 years on 15 stocks, fixed 1H was the best of everything tried.</small>';
+    return;
+  }
+  const chain = rungs
+    .map((rung, i) => `<span class="terminal-cascade-rung${i === 0 ? ' is-now' : ''}">${escapeHtml(rung.toUpperCase())}</span>`)
+    .join('<span class="terminal-cascade-rung-arrow">&rarr;</span>');
+  note.innerHTML = `<div class="terminal-cascade-ladder-chain">${chain}</div>`
+    + `<small>Climbs one rung every ${TERMINAL_CASCADE_LADDER_BARS} bars &mdash; the mother, the position and the target never move. `
+    + 'It ends when the target is hit, however long that takes. Measured, climbing earned ~40% less than staying on 1H.</small>';
 }
 
 function setTerminalCascadeChartTimeframe(tf) {
