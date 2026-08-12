@@ -275,6 +275,26 @@ function createEquityScanner(cfg) {
   // Per-scanner, so the Cascade screen and the ladder screen can sit on
   // different charts without fighting over one variable.
   var chartTf = '1d';
+  // A chart that has not answered in this long is not going to. Long enough for
+  // Dhan's own 30s historical timeout plus one retry, short enough that nobody
+  // sits watching a placeholder.
+  // Overridable so a test can assert the timeout BEHAVIOUR without waiting the
+  // real 45 seconds for it. Production never sets the global.
+  var CHART_TIMEOUT_MS = Number(window.pfScanChartTimeoutMs) || 45000;
+  // Monotonic id for the newest chart request; a reply that is not the newest is
+  // dropped rather than painted into a row that has since been replaced.
+  var chartRequest = 0;
+
+  /* The server's own reason for a refusal.
+   *
+   * error_handlers.py answers 4xx as { success:false, error:{...detail} }; this
+   * used to read `data.detail`, which is never there, so every refusal read
+   * "Chart failed" and said nothing about why. */
+  function chartError(body) {
+    if (typeof window.pfErrorText === 'function') return window.pfErrorText(body, 'Chart failed');
+    var error = body && body.error;
+    return (error && (error.detail || error.message)) || (body && body.detail) || 'Chart failed';
+  }
 
   function tfToggleHtml() {
     return '<div class="terminal-cascade-tf-toggle cascade-scan-chart-tf" role="radiogroup" aria-label="Chart timeframe">' +
@@ -307,12 +327,31 @@ function createEquityScanner(cfg) {
     var flow = holder.querySelector('.cascade-scan-chart-flow');
     requestAnimationFrame(function () { flow.classList.add('open'); });
     var box = holder.querySelector('.cascade-scan-chart');
+    // EVERY CHART REQUEST GETS A DEADLINE AND AN OWNER.
+    //
+    // "Loading PHOENIXLTD 1d candles…" sat on screen indefinitely: the fetch had
+    // no timeout, so anything slow upstream -- Dhan retrying a 30s call, the
+    // account-wide rate budget, a browser connection queued behind the page's
+    // pollers -- left the box on its placeholder with nothing to click. A chart
+    // that cannot load must SAY so.
+    //
+    // The token guards the other half: clicking through the timeframe strip
+    // replaces this row, and a reply from an abandoned request would otherwise
+    // paint into a detached box while the visible one still said Loading.
+    chartRequest += 1;
+    var token = chartRequest;
+    var timer = null;
     try {
+      var controller = typeof AbortController === 'function' ? new AbortController() : null;
+      var deadline = Number(window.pfScanChartTimeoutMs) || CHART_TIMEOUT_MS;
+      if (controller) timer = setTimeout(function () { controller.abort(); }, deadline);
       var res = await fetch('/api/terminal/cascade/scan/chart?symbol=' + encodeURIComponent(symbol) +
         '&timeframe=' + encodeURIComponent(chartTf),
-        { credentials: 'same-origin', cache: 'no-store' });
-      var data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Chart failed');
+        { credentials: 'same-origin', cache: 'no-store', signal: controller ? controller.signal : undefined });
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (token !== chartRequest) return;
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(chartError(data));
       // THE ONE RENDERER. This used to be a hand-rolled SVG in this file, with
       // a fixed viewBox, a wall-clock x-axis, no session gaps and no pan or
       // zoom -- a second renderer that drifted from the real one exactly as
@@ -330,8 +369,17 @@ function createEquityScanner(cfg) {
         box.textContent = 'Chart renderer not loaded.';
       }
     } catch (err) {
+      if (timer) clearTimeout(timer);
+      if (token !== chartRequest) return;
       if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
-      box.textContent = 'Could not load candles: ' + ((err && err.message) || err);
+      var aborted = err && err.name === 'AbortError';
+      var reason = aborted
+        ? ('The chart did not answer within ' + Math.max(1, Math.round(deadline / 1000)) + 's. '
+           + 'Dhan is slow or rate limited right now.')
+        : ((err && err.message) || String(err));
+      box.innerHTML = '<div class="cascade-scan-chart-error"><p>' + esc(reason) + '</p>'
+        + '<button type="button" class="btn btn-sm btn-outline" data-scan-chart-retry="'
+        + esc(symbol) + '">Try again</button></div>';
     }
   }
 
@@ -534,6 +582,13 @@ function createEquityScanner(cfg) {
       if (use) { pick(use.dataset.symbol); return; }
       var chart = event.target.closest('.cascade-scan-chart-btn');
       if (chart) { toggleChart(chart.dataset.symbol, chart.closest('tr')); return; }
+      var retry = event.target.closest('[data-scan-chart-retry]');
+      if (retry) {
+        var retryRow = retry.closest('.cascade-scan-chart-row');
+        var retryOwner = retryRow && retryRow.previousElementSibling;
+        if (retryOwner) toggleChart(retryRow.dataset.symbol, retryOwner, true);
+        return;
+      }
       var tf = event.target.closest('[data-scan-tf]');
       if (tf) {
         chartTf = tf.getAttribute('data-scan-tf');
