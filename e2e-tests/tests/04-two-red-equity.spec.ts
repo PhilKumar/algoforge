@@ -408,3 +408,124 @@ test('a refused chart shows the server reason, not "Chart failed"', async ({ pag
   await expect(error).toContainText('Connect a Dhan account');
   await expect(error).not.toContainText('Chart failed');
 });
+
+/* ── 2026-08-12: three reports in one message ─────────────────────────
+   "In 2 red-ladder section, the chart is flickering" · "Move the Campaigns
+   under THE RULE" · "add a chart button before delete or stop for each
+   campaign". The flicker's cause: the 15s poll rewrote both tables with
+   innerHTML whether anything changed or not, and behind the chart overlay's
+   blurred translucent backdrop every wipe read as a flash of the picture. */
+
+function twoRedStatus() {
+  return {
+    status: 'ok',
+    campaigns: [
+      { symbol: 'LUPIN', status: 'VOID', running: false, quantity: 0, rung: 0, rungs: 3,
+        mother: { timestamp: '2026-07-16T09:15:00+05:30', timeframe: '1h', high: 2517.3 } },
+      { symbol: 'PHOENIXLTD', status: 'WATCHING', running: true, quantity: 0, rung: 0, rungs: 3,
+        mother: { timestamp: '2026-08-11T09:15:00+05:30', timeframe: '1d', high: 1939.5 } },
+    ],
+    closed: [],
+  };
+}
+
+async function openTwoReds(page: Page, status: object) {
+  await page.route('**/api/two-red/status**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(status),
+  }));
+  await login(page);
+  await page.click('#nav-terminal');
+  await page.click('[data-equity-strategy="tworeds"]');
+  await expect(page.locator('#tworeds-campaigns-body table')).toBeVisible({ timeout: 10_000 });
+}
+
+test('an unchanged status poll does not rewrite the campaigns table', async ({ page }) => {
+  await openTwoReds(page, twoRedStatus());
+  await page.evaluate(() => {
+    (window as any).__wipes = 0;
+    const mo = new MutationObserver(() => { (window as any).__wipes++; });
+    mo.observe(document.getElementById('tworeds-campaigns-body')!, { childList: true });
+  });
+  // Same payload, three more polls' worth of refreshes.
+  for (let i = 0; i < 3; i += 1) await page.evaluate(() => (window as any).refreshTwoRedCampaigns());
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as any).__wipes)).toBe(0);
+});
+
+test('nothing repaints behind an open chart, and closing it catches up', async ({ page }) => {
+  await openTwoReds(page, twoRedStatus());
+  await page.route('**/api/two-red/chart?**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ok', symbol: 'PHOENIXLTD', timeframe: '1d',
+      candles: [{ t: '2026-08-11T09:15:00+05:30', o: 1910, h: 1939.5, l: 1905.7, c: 1920, is_mother: true }],
+      mother: { high: 1939.5, low: 1905.7 }, lines: [], entries: [], exits: [],
+    }),
+  }));
+  await page.fill('#tworeds-symbol', 'PHOENIXLTD');
+  await page.click('#tworeds-chart-btn');
+  await expect(page.locator('#tworeds-chart-overlay')).toHaveClass(/is-open/);
+
+  // While the overlay is up, a poll must not touch the table at all — the
+  // wipe behind the blurred backdrop IS the reported flicker.
+  await page.evaluate(() => {
+    (window as any).__wipes = 0;
+    const mo = new MutationObserver(() => { (window as any).__wipes++; });
+    mo.observe(document.getElementById('tworeds-campaigns-body')!, { childList: true, subtree: true });
+  });
+  await page.evaluate(() => (window as any).refreshTwoRedCampaigns());
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as any).__wipes)).toBe(0);
+
+  // Closing refreshes once, so the table is not stale after a long look.
+  let polled = 0;
+  await page.route('**/api/two-red/status**', route => {
+    polled += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(twoRedStatus()) });
+  });
+  await page.click('[data-pf-action="hideTwoRedChart"]');
+  await expect.poll(() => polled).toBeGreaterThan(0);
+});
+
+test('Campaigns sits under THE RULE, in the same column', async ({ page }) => {
+  await openTwoReds(page, twoRedStatus());
+  // Same section: the rule strip and the campaigns table share one panel...
+  const panel = page.locator('#tworeds-campaigns-panel');
+  await expect(panel.locator('#tworeds-rule-flow')).toHaveCount(1);
+  await expect(panel.locator('#tworeds-campaigns-body')).toHaveCount(1);
+  // ...and the table is BELOW the rule, not beside it.
+  const rule = (await page.locator('#tworeds-rule-flow').boundingBox())!;
+  const table = (await page.locator('#tworeds-campaigns-body').boundingBox())!;
+  expect(table.y).toBeGreaterThan(rule.y + rule.height - 1);
+});
+
+test('each campaign row charts ITS OWN mother, ahead of Stop or Delete', async ({ page }) => {
+  await openTwoReds(page, twoRedStatus());
+
+  let asked: URLSearchParams | null = null;
+  await page.route('**/api/two-red/chart?**', route => {
+    asked = new URL(route.request().url()).searchParams;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ok', symbol: 'LUPIN', timeframe: '1h',
+      candles: [{ t: '2026-07-16T09:15:00+05:30', o: 2500, h: 2517.3, l: 2494, c: 2510, is_mother: true }],
+      mother: { high: 2517.3, low: 2494 }, lines: [], entries: [], exits: [],
+    }) });
+  });
+
+  // The form deliberately holds a DIFFERENT scrip: the row must win.
+  await page.fill('#tworeds-symbol', 'PHOENIXLTD');
+
+  const lupin = page.locator('#tworeds-campaigns-body tr', { hasText: 'LUPIN' });
+  // Chart comes before the destructive action on every row.
+  const buttons = lupin.locator('button');
+  await expect(buttons.first()).toHaveText('Chart');
+  await expect(lupin.locator('[data-two-red-delete]')).toHaveCount(1);
+
+  await lupin.locator('[data-two-red-chart]').click();
+  await expect(page.locator('#tworeds-chart-overlay')).toHaveClass(/is-open/);
+  await expect.poll(() => asked).not.toBeNull();
+  expect(asked!.get('symbol')).toBe('LUPIN');
+  expect(asked!.get('mother_timestamp')).toBe('2026-07-16T09:15');
+  // A 1H mother opens on its own chart, not the default daily.
+  expect(asked!.get('timeframe')).toBe('1h');
+  await expect(page.locator('#tworeds-chart-tf [data-tworeds-tf="1h"]')).toHaveClass(/is-active/);
+});

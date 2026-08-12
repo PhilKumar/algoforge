@@ -8461,6 +8461,13 @@ async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCasca
         await asyncio.sleep(12)
 
 
+# Bars drawn BEFORE the mother on the campaign chart — the scanner's own
+# CHART_LEAD_BARS, restated here so the two ends of the flow agree: the candle
+# picked on the scanner's chart is judged against the same run-up when the
+# campaign chart opens.
+CASCADE_CHART_LEAD_BARS = 30
+
+
 async def _terminal_cascade_replay_to_now(
     broker: DhanClient,
     engine: CashCascadePaperEngine,
@@ -8491,17 +8498,30 @@ async def _terminal_cascade_replay_with_candles(
     trade_instrument: Mapping[str, Any],
     mother_timestamp: datetime,
 ) -> list[IndexCandle]:
-    """Replay to now and return every signal candle from the mother onward.
+    """Replay to now and return the signal candles, with a lead-in BEFORE the mother.
 
     The chart draws from this list rather than ``engine.geometry.history``:
     the geometry stops recording the moment the mother breaks or retests, and
     a chart built from it freezes at that candle forever — which reads as
     "the chart is not refreshing" when the campaign is simply over.
+
+    The lead-in is Phil's chart standard, set on the scanner and repeated here
+    because this chart ignored it: a mother on the left edge with nothing
+    before it says NOTHING about whether it was a real high or a candle in the
+    middle of a climb. The replay is untouched — pairing already refuses
+    anything at or before the mother — only the picture reaches further back.
     """
     today = datetime.now(IST).date()
+    # Calendar days that comfortably hold CASCADE_CHART_LEAD_BARS of each
+    # timeframe (an NSE session prints 75/25/7/1 of them).
+    lead_days = {"5m": 3, "15m": 5, "1h": 10, "4h": 10, "1d": 60}.get(engine.config.timeframe, 5)
     signal_candles, trade_candles = await asyncio.gather(
         _terminal_cascade_load_candles(
-            broker, signal_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
+            broker,
+            signal_instrument,
+            engine.config.timeframe,
+            from_date=mother_timestamp.date() - timedelta(days=lead_days),
+            to_date=today,
         ),
         _terminal_cascade_load_candles(
             broker, trade_instrument, engine.config.timeframe, from_date=mother_timestamp.date(), to_date=today
@@ -8509,7 +8529,11 @@ async def _terminal_cascade_replay_with_candles(
     )
     for signal, trade in _terminal_cascade_pair_candles(signal_candles, trade_candles, mother_timestamp):
         engine.on_candle(signal, trade)
-    return [row for row in signal_candles if row.timestamp >= mother_timestamp]
+    ordered = sorted(signal_candles, key=lambda row: row.timestamp)
+    first_at_mother = next(
+        (index for index, row in enumerate(ordered) if row.timestamp >= mother_timestamp), len(ordered)
+    )
+    return ordered[max(0, first_at_mother - CASCADE_CHART_LEAD_BARS) :]
 
 
 # ── Data Fetch (Dhan only — variable timeframe via chunking) ──────────
@@ -14990,6 +15014,7 @@ async def two_red_chart(
     runtime = runtimes.get(ScripMaster.normalize_equity_symbol(symbol))
     engine = runtime.engine if runtime else None
     mother_high = None
+    mother_low = None
     mother_at = None
     min_fall = float(TWO_RED_DEFAULT_MIN_FALL_PCT)
     lines: list[dict] = []
@@ -14998,6 +15023,7 @@ async def two_red_chart(
 
     if engine is not None:
         mother_high = engine.mother.high
+        mother_low = engine.mother.low
         mother_at = engine.mother.timestamp
         min_fall = engine.config.min_fall_pct
         for fill in engine.ladder.fills:
@@ -15016,10 +15042,15 @@ async def two_red_chart(
         bar = next((row for row in charts.get(normalised, []) if row.timestamp == wanted), None)
         if bar is not None:
             mother_high = bar.high
+            mother_low = bar.low
             mother_at = bar.timestamp
 
     if mother_high:
-        lines.append({"price": round(mother_high, 2), "label": "MOTHER HIGH", "filled": True})
+        # The mother's own lines come from the `mother` payload object -- the
+        # renderer draws MOTHER and MOTHER LOW from it. Sending a "MOTHER HIGH"
+        # line here as well stacked two labels on the same price, which is how
+        # the chart came to read MOTHER (1,939.5) and MOTHER HIGH (1,939.5) at
+        # once. One source per line.
         gate = mother_high * (1 - min_fall / 100.0)
         lines.append({"price": round(gate, 2), "label": f"FIRST BUY BELOW ({min_fall:g}%)", "filled": False})
         if engine is not None and engine.ladder.target_index:
@@ -15042,7 +15073,9 @@ async def two_red_chart(
             }
             for row in rows
         ],
-        "mother": ({"high": mother_high, "low": engine.mother.low} if engine is not None else None),
+        # Present for the bare-timestamp preview too: reading the chart BEFORE
+        # Start is when it matters most, and it must look like the same chart.
+        "mother": ({"high": mother_high, "low": mother_low} if mother_high else None),
         "lines": lines,
         "entries": entries,
         "exits": exits,

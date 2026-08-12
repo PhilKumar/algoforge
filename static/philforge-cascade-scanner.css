@@ -457,3 +457,12 @@
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
   }
 }
+
+/* ── Two-red: Campaigns embedded under THE RULE ──────────────────────
+   Phil: "Move the Campaigns under THE RULE" — the rule strip is four rungs
+   tall and its column used to trail off into a screenful of empty while the
+   campaigns sat in a separate full-width card below. They share the column
+   now; only the body needs the panel's side padding, the section-head brings
+   its own. */
+#tworeds-campaigns-body { padding: 12px 13px 14px; }
+#tworeds-campaigns-body .terminal-cascade-empty { margin: 0; }
