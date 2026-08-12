@@ -86,12 +86,43 @@ function _pfChartPalette() {
 // refresh would leave another observer watching a detached element.
 var _pfChartCanvas = null;
 
-function _pfChartCanvasMount(d) {
+/* Retire every OTHER canvas host in the document.
+ *
+ * The renderer addresses its surfaces by fixed ids, so only one chart can be
+ * live at a time -- that has always been true. What made it bite is that the
+ * Equity page grew charts that stay in the DOM after you navigate away (an
+ * expanded scanner row, the ladder overlay). With two hosts present,
+ * getElementById returns whichever comes FIRST in document order, so opening
+ * the scalp option chart painted into the scanner's canvas and left the scalp
+ * dialog blank -- no error, nothing in the console, just an empty box.
+ *
+ * Retiring the strays here keeps the ids unique by construction, which is the
+ * only way this stays fixed as more charts are added.
+ */
+function _pfChartCanvasRetireOthers(keep) {
+  var hosts = document.querySelectorAll('#pf-bench-canvas-host');
+  for (var i = 0; i < hosts.length; i += 1) {
+    var node = hosts[i];
+    if (node === keep || !node.parentNode) continue;
+    var note = document.createElement('p');
+    note.className = 'pf-bench-empty';
+    note.textContent = 'Chart closed — only one chart can be open at a time.';
+    node.parentNode.replaceChild(note, node);
+  }
+}
+
+function _pfChartCanvasMount(d, scope) {
   _pfChartCanvasTeardown();
-  var host = document.getElementById('pf-bench-canvas-host');
-  var main = document.getElementById('pf-bench-canvas-main');
-  var overlay = document.getElementById('pf-bench-canvas-overlay');
-  if (!host || !main || !overlay) return;
+  // Scoped to the container the caller just wrote the host into. A global
+  // lookup finds the first host in the document, which is not necessarily the
+  // one being drawn -- see _pfChartCanvasRetireOthers.
+  var host = (scope && scope.querySelector('#pf-bench-canvas-host'))
+    || document.getElementById('pf-bench-canvas-host');
+  if (!host) return;
+  _pfChartCanvasRetireOthers(host);
+  var main = host.querySelector('#pf-bench-canvas-main');
+  var overlay = host.querySelector('#pf-bench-canvas-overlay');
+  if (!main || !overlay) return;
   _pfChartCanvas = {
     host: host, main: main, overlay: overlay,
     ctx: main.getContext('2d'), octx: overlay.getContext('2d'),
@@ -932,6 +963,8 @@ function pfBenchDrawChart(container, payload) {
     return false;
   }
   container.innerHTML = _pfBenchChartHostHtml();
-  _pfChartCanvasMount(payload);
+  // Pass the container so the mount addresses THIS chart's surfaces, not
+  // whichever host happens to come first in the document.
+  _pfChartCanvasMount(payload, container);
   return true;
 }

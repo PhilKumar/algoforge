@@ -8919,8 +8919,17 @@ async function openScalpOptionChart(tradeId, options = {}) {
       const view = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#scalp-option-chart-canvas') === host;
       const refreshed = liveRefresh && canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
-      if (!refreshed && (!host || typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(host, data))) {
-        throw new Error('Option chart renderer is unavailable');
+      if (!refreshed) {
+        // These are three different faults and they used to share one message.
+        // "Renderer is unavailable" for a contract Dhan simply has no candles
+        // for sends you looking at the front end for a data problem.
+        if (!host || typeof pfBenchDrawChart !== 'function') {
+          throw new Error('Option chart renderer is unavailable');
+        }
+        if (!(data.candles || []).length) {
+          throw new Error('No 5-minute candles for this contract yet — it may not have traded in the last few sessions.');
+        }
+        if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
       }
     }
     if (!liveRefresh) _startScalpOptionChartPolling();
