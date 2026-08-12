@@ -351,3 +351,60 @@ test('the two-red status endpoint answers and declares itself paper-only', async
   expect(body.data.defaults.target_fraction).toBe(0.75);
   expect(Array.isArray(body.data.campaigns)).toBeTruthy();
 });
+
+const SCAN_ONE = {
+  status: 'ok', scanned_at: new Date().toISOString(), universe: 223, no_history: 0,
+  candidates: [{
+    symbol: 'PHOENIXLTD', name: 'Phoenix Mills', last_price: 1908.7, strength_pct: 10.7,
+    pullback_pct: 12.6, recent_high: 2149, affordable_shares: 104, rungs_fundable: 3,
+    score: 1, etf: false,
+  }],
+  rejected_sample: [], rejected_total: 0, cached: false,
+};
+
+async function openScanChart(page: Page) {
+  await page.route('**/api/terminal/cascade/scan?**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(SCAN_ONE),
+  }));
+  await login(page);
+  // Shrink the chart deadline so the timeout BEHAVIOUR can be asserted without
+  // waiting the real 45 seconds for it.
+  await page.evaluate(() => { (window as any).pfScanChartTimeoutMs = 400; });
+  await page.click('#nav-terminal');
+  await page.click('[data-equity-strategy="cascade"]');
+  await page.click('#cascade-scan-run');
+  await expect(page.locator('#cascade-scan-body table')).toBeVisible({ timeout: 10_000 });
+  await page.click('#cascade-scan-body .cascade-scan-chart-btn');
+}
+
+test('a chart that never answers times out and offers a retry', async ({ page }) => {
+  // "Loading PHOENIXLTD 1d candles…" sat on screen indefinitely: the fetch had
+  // no deadline, so anything slow upstream -- Dhan retrying a 30s call, the
+  // account-wide rate budget, a browser connection queued behind the page's
+  // pollers -- left the row on its placeholder with nothing to click.
+  await page.route('**/api/terminal/cascade/scan/chart?**', () => { /* never answers */ });
+  await openScanChart(page);
+  const error = page.locator('.cascade-scan-chart-error');
+  await expect(error).toBeVisible({ timeout: 15_000 });
+  await expect(error).toContainText('did not answer');
+  await expect(page.locator('[data-scan-chart-retry]')).toBeVisible();
+});
+
+test('a refused chart shows the server reason, not "Chart failed"', async ({ page }) => {
+  // error_handlers.py answers 4xx as { success:false, error:{...detail} }. The
+  // scanner read `data.detail`, which is never there, so every refusal said
+  // "Chart failed" and nothing about why.
+  await page.route('**/api/terminal/cascade/scan/chart?**', route => route.fulfill({
+    status: 400, contentType: 'application/json',
+    body: JSON.stringify({
+      success: false,
+      error: { code: 400, title: 'Bad Request', message: 'generic',
+               detail: 'Connect a Dhan account to load the scanner chart.' },
+    }),
+  }));
+  await openScanChart(page);
+  const error = page.locator('.cascade-scan-chart-error');
+  await expect(error).toBeVisible({ timeout: 15_000 });
+  await expect(error).toContainText('Connect a Dhan account');
+  await expect(error).not.toContainText('Chart failed');
+});
