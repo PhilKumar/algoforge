@@ -512,6 +512,51 @@ def _candle_from_dict(payload: Mapping[str, Any]) -> LadderCandle:
     )
 
 
+# ── derived chart timeframes ─────────────────────────────────
+#
+# CHART ONLY. The ladder climbs 1h -> 1d -> 1w and nothing here changes that:
+# these are for looking at the same tape at a coarser grain, because a 1H chart
+# of a three-month fall is unreadable and a daily one hides the shape of the
+# recovery. `LADDERS` is untouched.
+CHART_TIMEFRAMES: tuple[str, ...] = ("1h", "2h", "4h", "1d", "1w")
+
+# How many 1H bars make one bar of each derived chart.
+_HOURS_PER_BAR: dict[str, int] = {"2h": 2, "4h": 4}
+
+
+def regroup_hours(hourly: Sequence[LadderCandle], timeframe: str) -> list[LadderCandle]:
+    """1H bars folded into 2H or 4H, never crossing a session.
+
+    NSE trades 09:15-15:30, which is six and a quarter hours -- so a session
+    holds seven hourly bars and the last is a stub. Grouping by a running count
+    across days would slide the boundary a little further into each session
+    every day, and after a week the "4H" bar would start mid-afternoon. Bars
+    are therefore counted from each day's own open, and a short group at the
+    close is left short rather than borrowed from tomorrow.
+    """
+    per_bar = _HOURS_PER_BAR.get(str(timeframe))
+    if not per_bar:
+        raise TwoRedEquityError(f"{timeframe!r} is not a derived hourly chart")
+    by_day: dict[date, list[LadderCandle]] = {}
+    for candle in sorted(hourly, key=lambda row: row.timestamp):
+        by_day.setdefault(candle.timestamp.date(), []).append(candle)
+    folded: list[LadderCandle] = []
+    for _day, bars in sorted(by_day.items()):
+        for start in range(0, len(bars), per_bar):
+            group = bars[start : start + per_bar]
+            folded.append(
+                LadderCandle(
+                    timeframe=str(timeframe),
+                    timestamp=group[0].timestamp,
+                    open=group[0].open,
+                    high=max(row.high for row in group),
+                    low=min(row.low for row in group),
+                    close=group[-1].close,
+                )
+            )
+    return folded
+
+
 # ── weekly bars ──────────────────────────────────────────────
 def regroup_weekly(daily: Sequence[LadderCandle]) -> list[LadderCandle]:
     """Daily bars folded into Monday-to-Friday weeks.

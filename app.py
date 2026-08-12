@@ -143,17 +143,19 @@ from engine.timeframes import (
     describe_timeframe,
     resolve_strategy_timeframe,
 )
-from engine.two_red_equity import DEFAULT_MIN_FALL_PCT as TWO_RED_DEFAULT_MIN_FALL_PCT
-from engine.two_red_equity import DEFAULT_TARGET_FRACTION as TWO_RED_DEFAULT_TARGET_FRACTION
 from engine.two_red_equity import (
+    CHART_TIMEFRAMES,
     TwoRedEquityConfig,
     TwoRedEquityError,
     TwoRedEquityInstrument,
     TwoRedEquityPaperEngine,
     complete_weeks,
     find_mothers,
+    regroup_hours,
     regroup_weekly,
 )
+from engine.two_red_equity import DEFAULT_MIN_FALL_PCT as TWO_RED_DEFAULT_MIN_FALL_PCT
+from engine.two_red_equity import DEFAULT_TARGET_FRACTION as TWO_RED_DEFAULT_TARGET_FRACTION
 from image_uploads import ImageValidationError, sanitize_image
 from journal_validation import JournalValidationError, clean_journal_payload, validate_journal_date
 from market_movers import get_nifty50_market_movers_snapshot
@@ -14503,6 +14505,11 @@ async def _two_red_load_charts(
         "1d": [_two_red_candle(row, "1d") for row in daily],
     }
     charts["1w"] = complete_weeks(regroup_weekly(charts["1d"]), datetime.now(IST).date())
+    # 2H and 4H are FOR LOOKING ONLY -- folded from the hourly bars already
+    # fetched, so they cost no broker call, and deliberately not in LADDERS:
+    # the ladder still climbs 1h -> 1d -> 1w, which is what was backtested.
+    for derived in ("2h", "4h"):
+        charts[derived] = regroup_hours(charts["1h"], derived)
     return charts
 
 
@@ -14887,11 +14894,13 @@ async def two_red_chart(
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load candles.")
     normalised = str(timeframe or "1d").lower()
-    if normalised not in {"1h", "1d", "1w"}:
-        raise HTTPException(status_code=400, detail="Chart timeframe must be 1h, 1d or 1w.")
+    if normalised not in CHART_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Chart timeframe must be one of {', '.join(CHART_TIMEFRAMES)}.")
     _instrument, stock = _two_red_instrument(symbol)
     today = datetime.now(IST).date()
-    span = {"1h": 40, "1d": max(int(sessions), 30), "1w": 400}[normalised]
+    # Calendar days to fetch. A coarser chart needs a longer window to show the
+    # same number of bars, and 2H/4H are folded from the same hourly fetch.
+    span = {"1h": 40, "2h": 70, "4h": 120, "1d": max(int(sessions), 30), "1w": 400}[normalised]
     charts = await _two_red_load_charts(
         broker_client, stock, from_date=today - timedelta(days=int(span * 7 / 5) + 10), to_date=today
     )

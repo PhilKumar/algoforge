@@ -258,6 +258,16 @@ test('the ladder chart is the Canvas renderer, not a hand-rolled SVG', async ({ 
 
   await expect(page.locator('#tworeds-chart-meta')).toContainText('2 levels');
 
+  // Five charts to look at, 1H through 1W — and the two derived ones must not
+  // have leaked into what the ladder trades.
+  await expect(page.locator('#tworeds-chart-tf [data-tworeds-tf]')).toHaveCount(5);
+  for (const tf of ['1h', '2h', '4h', '1d', '1w']) {
+    await expect(page.locator(`#tworeds-chart-tf [data-tworeds-tf="${tf}"]`)).toBeVisible();
+  }
+  await page.click('#tworeds-chart-tf [data-tworeds-tf="4h"]');
+  await expect(page.locator('#tworeds-chart-tf [data-tworeds-tf="4h"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#pf-bench-canvas-main')).toBeVisible();
+
   // Closing must tear the canvas down, or the renderer's observers leak.
   await page.click('[data-pf-action="hideTwoRedChart"]');
   await expect(overlay).not.toHaveClass(/is-open/);

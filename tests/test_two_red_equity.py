@@ -13,6 +13,7 @@ import pytest
 
 from engine.candle_ladder import LadderCandle
 from engine.two_red_equity import (
+    CHART_TIMEFRAMES,
     DP_PER_SELL_DAY,
     TwoRedEquityConfig,
     TwoRedEquityError,
@@ -21,6 +22,7 @@ from engine.two_red_equity import (
     complete_weeks,
     find_mothers,
     ladder_for,
+    regroup_hours,
     regroup_weekly,
 )
 
@@ -436,6 +438,62 @@ class TestMotherFinder:
 
     def test_too_short_a_series_returns_nothing_rather_than_raising(self):
         assert find_mothers([LadderCandle("1d", datetime(2026, 3, 2), 1, 2, 0.5, 1.5)]) == []
+
+
+class TestDerivedChartTimeframes:
+    """2H and 4H are for looking at, folded from the hourly bars."""
+
+    @staticmethod
+    def _session(day: int, base: float) -> list:
+        # NSE hourly bars: 09:15 through 15:15 is seven, the last a stub.
+        return [
+            LadderCandle(
+                "1h",
+                datetime(2026, 3, day, 9 + i, 15),
+                base + i,
+                base + i + 5,
+                base + i - 5,
+                base + i + 2,
+            )
+            for i in range(7)
+        ]
+
+    def test_two_hourly_bars_make_one(self):
+        rows = self._session(2, 100.0)
+        folded = regroup_hours(rows, "2h")
+        assert len(folded) == 4  # 2+2+2+1, the last a stub
+        assert folded[0].open == rows[0].open
+        assert folded[0].close == rows[1].close
+        assert folded[0].high == max(rows[0].high, rows[1].high)
+        assert folded[0].low == min(rows[0].low, rows[1].low)
+        assert folded[0].timeframe == "2h"
+
+    def test_a_group_never_crosses_a_session(self):
+        """Counting across days would slide the boundary later every day."""
+        rows = self._session(2, 100.0) + self._session(3, 200.0)
+        folded = regroup_hours(rows, "4h")
+        for bar in folded:
+            assert bar.high < 150 or bar.low > 150  # no bar mixes the two days
+        # Two sessions of seven bars at 4 per group: 4+3 and 4+3.
+        assert len(folded) == 4
+        assert folded[0].timestamp.date() != folded[2].timestamp.date()
+
+    def test_the_stub_at_the_close_is_left_short(self):
+        rows = self._session(2, 100.0)
+        folded = regroup_hours(rows, "4h")
+        assert len(folded) == 2
+        assert folded[-1].close == rows[-1].close
+
+    def test_an_unknown_derived_chart_is_refused(self):
+        with pytest.raises(TwoRedEquityError):
+            regroup_hours([], "3h")
+
+    def test_the_ladder_is_not_changed_by_the_viewing_charts(self):
+        """2H/4H must never leak into what the campaign actually trades."""
+        assert "2h" not in ladder_for("1h")
+        assert "4h" not in ladder_for("1h")
+        assert ladder_for("1h") == ("1h", "1d", "1w")
+        assert "2h" in CHART_TIMEFRAMES and "4h" in CHART_TIMEFRAMES
 
 
 class TestConfig:
