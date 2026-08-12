@@ -40,6 +40,7 @@ from datetime import date, datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.cascade_equity import (  # noqa: E402
+    TIMEFRAME_MINUTES,
     CashCascadeChain,
     CashCascadeInstrument,
     CashCascadePaperConfig,
@@ -318,6 +319,20 @@ def run_symbol(symbol: str, *, years: float, capital: float, cache_only: bool, t
     return {"symbol": symbol, "signal": signal_symbol, "sessions": len(shared), "campaigns": campaigns}
 
 
+def _rung_census(chain: CashCascadeChain) -> dict[str, int]:
+    """How many generations ended up on each rung of the escalation ladder."""
+    census: dict[str, int] = {}
+    for engine in chain.all_engines:
+        rung = getattr(engine, "structure_timeframe", None) or engine.config.timeframe
+        census[rung] = census.get(rung, 0) + 1
+    return census
+
+
+def _highest_rung(chain: CashCascadeChain) -> str:
+    reached = [getattr(e, "structure_timeframe", None) or e.config.timeframe for e in chain.all_engines]
+    return max(reached, key=lambda tf: TIMEFRAME_MINUTES.get(tf, 0), default="")
+
+
 def run_symbol_chain(symbol: str, *, years: float, capital: float, cache_only: bool, timeframe: str = "1d") -> dict:
     """The same rule with the successor mechanism switched on.
 
@@ -384,6 +399,11 @@ def run_symbol_chain(symbol: str, *, years: float, capital: float, cache_only: b
         "generations": len(chain.all_engines),
         "chain_stopped": chain.chain_stopped_reason,
         "peak_invested": round(peak_invested, 2),
+        # PROOF THE LADDER ACTUALLY CLIMBED. A run can look healthy while every
+        # campaign quietly sits on the rung it started on, so the rung each
+        # generation reached is counted rather than assumed.
+        "rungs": _rung_census(chain),
+        "highest_rung": _highest_rung(chain),
         "campaigns": [
             {
                 "mother": seed and aligned_signal[index].timestamp.date().isoformat(),
@@ -422,6 +442,8 @@ def summarise(result: dict) -> dict:
         "unrealised": sum(float(c.get("unrealised_inr") or 0.0) for c in result.get("campaigns", [])),
         "peak_invested": float(result.get("peak_invested") or 0.0),
         "generations": int(result.get("generations") or 0),
+        "rungs": result.get("rungs") or {},
+        "highest_rung": result.get("highest_rung") or "",
         "error": result.get("error"),
     }
 
@@ -469,6 +491,7 @@ def main() -> None:
                 f"  {symbol:<11}{row['generations']:>3} gen {row['rounds']:>3} rnd  "
                 f"banked Rs {row['net']:>8,.0f}   held Rs {row['unrealised']:>+9,.0f}   "
                 f"peak Rs {peak:>8,.0f}   TRUE Rs {true:>9,.0f}  {per_year:>+6.1f}%/yr"
+                f"   top {row['highest_rung'] or '--':>3}"
             )
         else:
             print(

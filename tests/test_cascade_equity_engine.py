@@ -2,12 +2,15 @@ import unittest
 from datetime import datetime, timedelta
 
 from engine.cascade_equity import (
+    ESCALATION_BARS,
     CashCascadeInstrument,
     CashCascadePaperConfig,
     CashCascadePaperEngine,
     CashCascadeRung,
     cash_budget_to_quantity,
     cash_cascade_reference_symbol,
+    next_timeframe_up,
+    structure_bucket,
 )
 from engine.cascade_options import CascadeError, IndexCandle
 
@@ -209,3 +212,134 @@ class ProductTypeTests(unittest.TestCase):
         fields = set(CashMarketCostSchedule().__dataclass_fields__)
         self.assertNotIn("interest_pct", fields)
         self.assertNotIn("mtf_interest_pct", fields)
+
+
+class TimeframeEscalationTests(unittest.TestCase):
+    """A campaign named on 15m must be able to end up drawing weekly candles.
+
+    Phil's rule: he gives the mother, the campaign starts on 15m and works it to
+    target however long that takes -- "even if it goes till Week". Frozen on 15m
+    a months-old campaign draws every trendline off noise, so the STRUCTURE
+    climbs while the mother, the position and the execution stay where they are.
+    """
+
+    def engine(self, timeframe: str = "15m") -> CashCascadePaperEngine:
+        return CashCascadePaperEngine(
+            candle(0, 100, 100, 99, 99.5),
+            candle(0, 250, 250, 249, 249.5),
+            instrument("RELIANCE"),
+            CashCascadePaperConfig(capital_inr=100000, timeframe=timeframe),
+        )
+
+    def test_the_ladder_skips_4h_but_a_campaign_started_there_still_climbs(self):
+        self.assertEqual(next_timeframe_up("15m"), "1h")
+        self.assertEqual(next_timeframe_up("1h"), "1d")
+        self.assertEqual(next_timeframe_up("1d"), "1w")
+        # 4h is offered as a start and drawn on charts, but an NSE session is
+        # 375 minutes so it is not a rung. A campaign started there goes to 1d.
+        self.assertEqual(next_timeframe_up("4h"), "1d")
+        # The top of the ladder has nowhere to go.
+        self.assertIsNone(next_timeframe_up("1w"))
+
+    def test_intraday_buckets_are_measured_from_the_open_not_from_midnight(self):
+        """09:15-10:15 is one hourly bar; 09:15 and 09:45 must not straddle two."""
+        day = datetime(2026, 7, 20)
+        first = structure_bucket(day.replace(hour=9, minute=15), "1h")
+        same = structure_bucket(day.replace(hour=9, minute=45), "1h")
+        second = structure_bucket(day.replace(hour=10, minute=15), "1h")
+        self.assertEqual(first, same)
+        self.assertNotEqual(first, second)
+        # And the short 15:15-15:30 stub at the end of the session is its own bar.
+        self.assertNotEqual(second, structure_bucket(day.replace(hour=15, minute=15), "1h"))
+
+    def test_a_week_is_one_bucket_monday_to_friday(self):
+        monday = datetime(2026, 7, 20, 9, 15)
+        friday = datetime(2026, 7, 24, 15, 15)
+        next_monday = datetime(2026, 7, 27, 9, 15)
+        self.assertEqual(structure_bucket(monday, "1w"), structure_bucket(friday, "1w"))
+        self.assertNotEqual(structure_bucket(monday, "1w"), structure_bucket(next_monday, "1w"))
+
+    def test_an_unescalated_campaign_passes_candles_straight_through(self):
+        """The regression that matters: no lag until something actually climbs.
+
+        If the stepper buffered from the start, every existing campaign would see
+        its structure one bar later than it does today and every measured number
+        would move for a reason that has nothing to do with the strategy.
+        """
+        engine = self.engine()
+        bar = candle(1, 99, 99.5, 98, 98.2)
+        self.assertIs(engine._step_structure(bar), bar)
+        self.assertEqual(engine.structure_timeframe, "15m")
+
+    def test_it_climbs_after_200_bars_and_keeps_the_mother(self):
+        engine = self.engine()
+        mother_high = engine.geometry.campaign.mother_high
+        engine.structure_bars = ESCALATION_BARS + 1
+        self.assertTrue(engine._maybe_escalate(candle(1, 99, 99, 98, 98.5)))
+        self.assertEqual(engine.structure_timeframe, "1h")
+        # Counting restarts on the new rung, and the mother is untouched.
+        self.assertEqual(engine.structure_bars, 0)
+        self.assertEqual(engine.geometry.campaign.mother_high, mother_high)
+        self.assertEqual(engine.events[-1]["event"], "escalated")
+        self.assertEqual(engine.events[-1]["to_timeframe"], "1h")
+
+    def test_it_does_not_climb_out_from_under_a_resting_buy_stop(self):
+        """Mid-arm the structure the order was placed against must not move."""
+        engine = self.engine()
+        engine.structure_bars = ESCALATION_BARS + 50
+        engine.pending_stop = 97.5
+        self.assertFalse(engine._maybe_escalate(candle(1, 99, 99, 98, 98.5)))
+        self.assertEqual(engine.structure_timeframe, "15m")
+        # Once the arm resolves it climbs on the next bar.
+        engine.pending_stop = None
+        self.assertTrue(engine._maybe_escalate(candle(2, 99, 99, 98, 98.5)))
+
+    def test_a_climbed_campaign_hands_the_geometry_whole_bars_only(self):
+        """Four 15m candles make one hourly bar, and it is emitted once, closed."""
+        engine = self.engine()
+        engine.structure_timeframe = "1h"
+        base = datetime(2026, 7, 20, 9, 15)
+        quarters = [IndexCandle(base + timedelta(minutes=15 * i), 100 - i, 101 - i, 97 - i, 99 - i) for i in range(4)]
+        for bar in quarters:
+            self.assertIsNone(engine._step_structure(bar), "an unfinished hour must not reach the geometry")
+        # The candle that OPENS the next hour is what closes this one.
+        hourly = engine._step_structure(IndexCandle(base + timedelta(minutes=60), 96, 96, 95, 95.5))
+        self.assertIsNotNone(hourly)
+        self.assertEqual(hourly.timestamp, base)  # stamped at its open
+        self.assertEqual(hourly.open, 100)  # first open
+        self.assertEqual(hourly.high, 101)  # highest high
+        self.assertEqual(hourly.low, 94)  # lowest low (97 - 3)
+        self.assertEqual(hourly.close, 96)  # last close (99 - 3)
+
+    def test_the_rung_survives_a_restart(self):
+        """A restart used to be invisible; a campaign silently dropping from 1D
+        back to 15m under an open position is the worst kind of silent."""
+        engine = self.engine()
+        engine.structure_timeframe = "1d"
+        engine.structure_bars = 37
+        engine._step_structure(candle(1, 99, 99.5, 98, 98.2))
+        restored = CashCascadePaperEngine.from_dict(engine.to_dict())
+        self.assertEqual(restored.structure_timeframe, "1d")
+        self.assertEqual(restored.structure_bars, 37)
+        self.assertIsNotNone(restored._structure_open)
+        self.assertEqual(restored._structure_key, engine._structure_key)
+
+    def test_a_campaign_saved_before_escalation_existed_resumes_where_it_was(self):
+        engine = self.engine("1h")
+        payload = engine.to_dict()
+        payload.pop("structure_timeframe")
+        payload.pop("structure_bars")
+        restored = CashCascadePaperEngine.from_dict(payload)
+        self.assertEqual(restored.structure_timeframe, "1h")
+        self.assertEqual(restored.structure_bars, 0)
+
+    def test_the_status_says_which_rung_it_is_on(self):
+        engine = self.engine()
+        engine.structure_timeframe = "1d"
+        engine.structure_bars = 190
+        structure = engine.get_status()["structure"]
+        self.assertEqual(structure["timeframe"], "1d")
+        self.assertEqual(structure["started_on"], "15m")
+        self.assertEqual(structure["next_timeframe"], "1w")
+        self.assertEqual(structure["bars_to_next"], 11)
+        self.assertTrue(structure["escalated"])

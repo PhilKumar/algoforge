@@ -426,6 +426,90 @@ def _costs_from_dict(payload: Mapping[str, Any]) -> CashRoundCosts:
     )
 
 
+# ---------------------------------------------------------------------------
+# TIMEFRAME ESCALATION
+#
+# Phil names a mother on 15m and the campaign is expected to work it to target
+# however long that takes -- "even if it goes till Week". A campaign frozen on
+# 15m candles cannot do that: after a few weeks the mother is hundreds of bars
+# behind, every trendline is drawn off noise, and the ladder funds money against
+# structure far too fine to matter. So the campaign CLIMBS: same mother, same
+# open position, bigger candles.
+#
+# THE LADDER SKIPS 4H DELIBERATELY. CryptoForge climbs 5m/15m/1h/4h/1d/1w
+# because a crypto day is 24 hours and 4h tiles it exactly six times. An NSE
+# session is 375 minutes, so a 4h bucket cuts it into one full bar and a 2h15m
+# stub -- a bar shape that exists on no chart Phil reads. The rungs an equity
+# actually has are the ones the two-red ladder already uses (15m -> 1h -> 1d),
+# plus the weekly at the top. 4h remains a valid START and a valid chart view;
+# it is just not a rung something climbs to.
+EQUITY_ESCALATION_LADDER = ("5m", "15m", "1h", "1d", "1w")
+# Minutes of MARKET time per bar. A day is the 375-minute session, not 1440, and
+# a week is five of those -- the ladder is measured in trading time because that
+# is what the geometry is drawn on.
+TIMEFRAME_MINUTES = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 375, "1w": 375 * 5}
+# When a campaign has more than this many bars of its current rung behind it, the
+# mother has slid off the left edge of its own chart and it climbs. 200 is
+# CryptoForge's number and it maps onto NSE cleanly: 8 sessions on 15m, about six
+# weeks on 1h, then ten months on 1d before the weekly. A campaign that reaches
+# 1W has been running the better part of a year, which is the point.
+ESCALATION_BARS = 200
+
+
+def next_timeframe_up(timeframe: str) -> Optional[str]:
+    """The next rung above `timeframe`, or None at the top of the ladder.
+
+    Compared by minutes rather than by index, so a campaign STARTED on 4h -- a
+    timeframe the picker offers but the ladder skips -- climbs to 1d rather than
+    falling off the end of a lookup.
+    """
+    minutes = TIMEFRAME_MINUTES.get(str(timeframe or "").lower())
+    if minutes is None:
+        return None
+    for rung in EQUITY_ESCALATION_LADDER:
+        if TIMEFRAME_MINUTES[rung] > minutes:
+            return rung
+    return None
+
+
+def structure_bucket(timestamp: datetime, timeframe: str) -> tuple:
+    """Which bucket of `timeframe` this timestamp falls in, as a sortable key.
+
+    Intraday buckets are measured from the 09:15 OPEN, not from midnight, so an
+    hourly bar runs 09:15-10:15 and the last one of the day is the short
+    15:15-15:30 stub -- the same shape `normalise_frame` already produces and the
+    same one every NSE chart draws. Bucketing from midnight instead would split
+    every session at 10:00 and put two half-bars either side of the open.
+
+    Weeks are ISO weeks, so a bucket starts on Monday and a holiday-shortened
+    week is still one bar.
+    """
+    tf = str(timeframe or "").lower()
+    if tf == "1w":
+        year, week, _weekday = timestamp.isocalendar()
+        return ("w", year, week)
+    minutes = TIMEFRAME_MINUTES.get(tf, 5)
+    if minutes >= CashCascadePaperEngine.DAILY_BAR_MINUTES:
+        return ("d", timestamp.date())
+    since_open = (timestamp.hour * 60 + timestamp.minute) - (9 * 60 + 15)
+    return ("i", timestamp.date(), since_open // minutes)
+
+
+def merge_candles(base: IndexCandle, addition: IndexCandle) -> IndexCandle:
+    """Fold one more base candle into the bucket being built.
+
+    The bucket keeps the FIRST timestamp and the FIRST open, because a bar is
+    stamped at its open everywhere else in this engine.
+    """
+    return IndexCandle(
+        base.timestamp,
+        base.open,
+        max(base.high, addition.high),
+        min(base.low, addition.low),
+        addition.close,
+    )
+
+
 class CashCascadePaperEngine:
     """Paper execution of Cascade for CNC-style cash instruments."""
 
@@ -458,6 +542,14 @@ class CashCascadePaperEngine:
         self.reuse_below: Optional[float] = None
         self.status = "WAITING"
         self.events: list[dict[str, Any]] = []
+        # The rung the GEOMETRY is drawn on. Entries, fills and exits always run
+        # on the base candles the feed delivers -- only structure climbs. That
+        # split is the same one the crypto engine settled on: fine bars detect,
+        # coarse bars anchor.
+        self.structure_timeframe = config.timeframe
+        self.structure_bars = 0
+        self._structure_open: Optional[IndexCandle] = None
+        self._structure_key: Optional[tuple] = None
 
     # A daily bar spans the whole NSE session: 09:15 + 375 minutes = 15:30.
     DAILY_BAR_MINUTES = 375
@@ -776,7 +868,15 @@ class CashCascadePaperEngine:
         trade_candle = _normalise_candle(trade_candle)
         if not is_nse_cash_session(signal_candle.timestamp):
             return
-        self.geometry.on_candle(signal_candle)
+        # STRUCTURE climbs, EXECUTION does not. The geometry is fed whole bars of
+        # whatever rung the campaign has reached; everything below this line
+        # still runs on the base candle, so a stop fills the moment the price
+        # touches it rather than at the end of a weekly bar.
+        structure_candle = self._step_structure(signal_candle)
+        if structure_candle is not None:
+            self.geometry.on_candle(structure_candle)
+            self.structure_bars += 1
+            self._maybe_escalate(signal_candle)
         if trade_candle.timestamp > self.trade_history[-1].timestamp:
             self.trade_history.append(trade_candle)
         self._sync_new_rungs(signal_candle)
@@ -799,6 +899,63 @@ class CashCascadePaperEngine:
         ):
             self.status = geometry_state
             self._log(signal_candle, "campaign_ended", reason=geometry_state.lower())
+
+    def _step_structure(self, signal_candle: IndexCandle) -> Optional[IndexCandle]:
+        """Fold a base candle into the current rung; return a bar when one closes.
+
+        While the rung still equals the timeframe the feed delivers, the candle
+        passes straight through -- an unescalated campaign must behave EXACTLY as
+        it did before this existed, not one bar later.
+
+        Once the rung is coarser, a bucket is only handed to the geometry when
+        the next bucket opens. Half a weekly bar is not a weekly bar, and drawing
+        a trendline off one would anchor on a high that has not finished forming.
+        """
+        if self.structure_timeframe == self.config.timeframe:
+            return signal_candle
+        key = structure_bucket(signal_candle.timestamp, self.structure_timeframe)
+        if self._structure_key is None:
+            self._structure_key, self._structure_open = key, signal_candle
+            return None
+        if key == self._structure_key:
+            self._structure_open = merge_candles(self._structure_open, signal_candle)
+            return None
+        closed = self._structure_open
+        self._structure_key, self._structure_open = key, signal_candle
+        return closed
+
+    def _maybe_escalate(self, signal_candle: IndexCandle) -> bool:
+        """Climb one rung once the campaign has outgrown the one it is on.
+
+        Forward-only, and nothing already built is touched: existing trendlines,
+        fibs, rungs and the open position all stay exactly as they are, and only
+        structure drawn AFTER the switch uses bigger candles. The mother's high
+        is never revisited.
+
+        A campaign mid-arm -- a buy stop resting and walking the fall down --
+        finishes that arm on its current rung first. Switching underneath a
+        resting order would move the structure the order was placed against.
+        """
+        if self.pending_stop is not None:
+            return False
+        if self.structure_bars <= ESCALATION_BARS:
+            return False
+        higher = next_timeframe_up(self.structure_timeframe)
+        if higher is None:
+            return False
+        previous = self.structure_timeframe
+        self.structure_timeframe = higher
+        self.structure_bars = 0
+        self._structure_key = None
+        self._structure_open = None
+        self._log(
+            signal_candle,
+            "escalated",
+            from_timeframe=previous,
+            to_timeframe=higher,
+            after_bars=ESCALATION_BARS,
+        )
+        return True
 
     def run(self, pairs: Iterable[tuple[IndexCandle, IndexCandle]]) -> "CashCascadePaperEngine":
         for signal_candle, trade_candle in sorted(pairs, key=lambda row: row[0].timestamp):
@@ -870,6 +1027,18 @@ class CashCascadePaperEngine:
                 "trade": _candle_to_dict(self.trade_mother),
                 "geometry_state": self.geometry.campaign.state,
             },
+            # The rung the structure is being drawn on RIGHT NOW, and how close
+            # it is to the next one. A campaign that has quietly become a daily
+            # position should say so on the page rather than still claiming the
+            # 15m it was started on.
+            "structure": {
+                "timeframe": self.structure_timeframe,
+                "started_on": self.config.timeframe,
+                "bars": self.structure_bars,
+                "bars_to_next": max(ESCALATION_BARS + 1 - self.structure_bars, 0),
+                "next_timeframe": next_timeframe_up(self.structure_timeframe),
+                "escalated": self.structure_timeframe != self.config.timeframe,
+            },
             "average_entry_price": self.average_entry_price,
             "target_price": self.target_price,
             # The newest traded candle close is the mark the UI values open
@@ -939,6 +1108,13 @@ class CashCascadePaperEngine:
             "reuse_below": self.reuse_below,
             "status": self.status,
             "events": list(self.events[-100:]),
+            # Without these a restart drops the campaign back to its starting
+            # rung and restarts the 200-bar count -- a campaign that had climbed
+            # to 1D would quietly go back to drawing 15m structure under an open
+            # position, and nobody would see it happen.
+            "structure_timeframe": self.structure_timeframe,
+            "structure_bars": self.structure_bars,
+            "structure_open": _candle_to_dict(self._structure_open) if self._structure_open else None,
         }
 
     @classmethod
@@ -986,6 +1162,17 @@ class CashCascadePaperEngine:
         engine.reuse_below = float(payload["reuse_below"]) if payload.get("reuse_below") not in (None, "") else None
         engine.status = str(payload.get("status") or "WAITING")
         engine.events = list(payload.get("events") or [])
+        # A campaign saved before escalation existed has no rung recorded, so it
+        # resumes on the timeframe it started on -- which is exactly where it was.
+        engine.structure_timeframe = str(payload.get("structure_timeframe") or config.timeframe).lower()
+        engine.structure_bars = int(payload.get("structure_bars") or 0)
+        raw_open = payload.get("structure_open")
+        engine._structure_open = _candle_from_dict(raw_open) if raw_open else None
+        engine._structure_key = (
+            structure_bucket(engine._structure_open.timestamp, engine.structure_timeframe)
+            if engine._structure_open
+            else None
+        )
         return engine
 
 

@@ -5951,6 +5951,11 @@ function _terminalCascadeWindow(campaign) {
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const mother = String(campaign?.mother?.signal?.timestamp || '');
   const timeframe = String(config.timeframe || '5m');
+  // A campaign climbs as it ages, so the chip must say which candles the
+  // structure is being drawn on RIGHT NOW. Showing the timeframe it was started
+  // on would keep calling a nine-month-old daily position "15M".
+  const structure = campaign.structure || {};
+  const rung = String(structure.timeframe || timeframe);
   const cardClass = campaign.running ? ' is-active' : '';
   const open = _terminalCascadeOpenSymbols.has(symbol) ? ' open' : '';
   const rounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
@@ -5980,6 +5985,13 @@ function _terminalCascadeWindow(campaign) {
     stat('In position', _terminalCascadeMoney(campaign.open_invested_inr || 0), `of ${_terminalCascadeMoney(config.capital_inr || 0)} capital`),
     stat('Waiting to buy', _terminalCascadeMoney(campaign.pending_inr || 0), `${_terminalCascadeMoney(campaign.cash_carry_inr || 0)} carried`),
     stat('Rounds closed', String(rounds.length), `realised ${_terminalCascadeMoney(realised)}`),
+    stat(
+      'Drawing on',
+      rung.toUpperCase(),
+      structure.next_timeframe
+        ? `${structure.bars_to_next} more ${rung} bars to ${structure.next_timeframe.toUpperCase()}`
+        : 'top of the ladder — it stays here',
+    ),
   ].join('');
 
   const button = (label, handler, kind) =>
@@ -5991,7 +6003,7 @@ function _terminalCascadeWindow(campaign) {
         <strong>${escapeHtml(symbol)}</strong>
         ${pill(state, campaign.running ? 'ok' : 'warn')}
         ${pill(mode, mode === 'LIVE' ? 'warn' : 'ok')}
-        ${pill(timeframe)}
+        ${structure.escalated ? pill(`${timeframe} → ${rung}`, 'info') : pill(rung)}
         ${inst.reference_mode === 'reference_index' ? pill(`${signal} signal`, 'info') : ''}
         ${halted ? pill('HALTED', 'danger') : ''}
         <span class="pf-campaign-gist" title="${escapeAttr(_terminalCampaignWaitingFor(campaign))}">${escapeHtml(gist)}</span>
@@ -11278,6 +11290,7 @@ async function runBacktest() {
       if (data.timeframe_warning) {
         toast(data.timeframe_warning, 'warn', 8000);
       }
+      (data.option_pricing_warnings || []).forEach(message => toast(message, 'warn', 10000));
       toast('Backtest Complete! ' + data.stats.total_trades + ' trades', 'success');
       fetchRuns();
     } else if(data.status === 'no_trades') {
