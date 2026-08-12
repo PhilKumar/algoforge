@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Callable, Optional
 
 import pandas as pd
 
@@ -33,7 +34,13 @@ class HistoricalOptionSelection:
 class UpstoxHistoricalPremiumSelector:
     """Resolve premium-target NIFTY option legs with exact historical OHLC."""
 
-    def __init__(self, instrument: str, *, cache_only: bool = False) -> None:
+    def __init__(
+        self,
+        instrument: str,
+        *,
+        cache_only: bool = False,
+        progress: Optional[Callable[[str], None]] = None,
+    ) -> None:
         if str(instrument or "26000") not in {"26000", "NIFTY"}:
             raise ValueError("Upstox premium-target backtests currently support NIFTY 50 only.")
         self.source = UpstoxPremiumSource(
@@ -48,6 +55,7 @@ class UpstoxHistoricalPremiumSelector:
         self.selection_cache_hits = 0
         self.selection_cache_misses = 0
         self.last_gap = ""
+        self._progress = progress
 
     def _load_selection_cache(self) -> dict[str, dict]:
         """Load resolved strikes from earlier identical historical replays.
@@ -121,6 +129,11 @@ class UpstoxHistoricalPremiumSelector:
         cached = self._frames.get(cache_key)
         if cached is not None:
             return cached
+        if self._progress is not None:
+            self._progress(
+                f"Resolving real Upstox options — expiry {expiry.isoformat()}, "
+                f"strike {strike:,} · {self.source.requests_made} request(s)"
+            )
         series = self.source._minute_series(instrument_key, expiry)
         if not series:
             return pd.DataFrame()

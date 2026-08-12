@@ -30,6 +30,27 @@ class _FakeUpstoxSource:
 
 
 class PremiumTargetSelectionCacheTests(unittest.TestCase):
+    def test_progress_callback_is_accepted_and_reports_resolution(self):
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("data.backtest_upstox.UpstoxPremiumSource", _FakeUpstoxSource),
+        ):
+            _FakeUpstoxSource.cache_dir = tmpdir
+            messages = []
+            selector = UpstoxHistoricalPremiumSelector("NIFTY", progress=messages.append)
+
+            selection = selector.select(
+                datetime(2026, 3, 18, 9, 15),
+                25010,
+                {"option_type": "CE", "strike_type": "premium_above", "strike_value": 250},
+                5,
+            )
+
+            self.assertIsNotNone(selection)
+            self.assertTrue(messages)
+            self.assertIn("Resolving real Upstox options", messages[0])
+            self.assertIn("expiry 2026-03-19", messages[0])
+
     def test_repeat_selection_reuses_persisted_strike(self):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
