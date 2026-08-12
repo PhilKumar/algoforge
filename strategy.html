@@ -205,10 +205,10 @@
 
 <!-- ═══ DASHBOARD ═══ -->
 <main id="main-content" tabindex="-1" aria-label="Dashboard workspace">
-<div id="dashboard-page" class="page-section active-page">
+<div id="dashboard-page" class="page-section active-page pf-unified-page">
 
 
-    <div style="margin: 0 0 12px;">
+    <div class="pf-dashboard-overview" style="margin: 0 0 12px;">
     <div id="dash-fiidii-card" class="card-glass" style="display: none;">
       <div class="dash-fiidii-head">
         <div class="dash-fiidii-title">
@@ -351,7 +351,7 @@
     </div>
 
     <!-- Greatest Conquest / Battle Scars -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+    <div class="pf-dashboard-highlights" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
       <div class="card" style="padding: 0; border-left: 3px solid var(--success); cursor: pointer; overflow: hidden; position: relative;" id="dash-best-run" onclick="openDashboardLeaderboardCard(this)">
         <div style="position: absolute; top: -8px; right: -8px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(4,120,87,0.12) 0%, transparent 70%); pointer-events: none;"></div>
         <div style="padding: 16px 16px 12px;">
@@ -544,9 +544,9 @@
 </div>
 
 <!-- ═══ STRATEGY BUILDER ═══ -->
-<div id="builder-page" class="page-section">
+<div id="builder-page" class="page-section pf-unified-page">
   <!-- Warning Banner -->
-  <div id="premium-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+  <div id="premium-notice" class="pf-page-notice" style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 2px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
     <div style="font-size: 24px; color: var(--warn);"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span></div>
     <div style="flex: 1;">
       <div style="font-weight: 700; color: var(--warn); margin-bottom: 4px; font-size: 13px;">Historical Option Data Notice</div>
@@ -824,14 +824,14 @@
 </div>
 
 <!-- ═══ RESULTS ═══ -->
-<div id="results-page" class="page-section">
+<div id="results-page" class="page-section pf-unified-page">
 
-  <div id="results-empty" class="card" style="margin: 0 0 20px; text-align: center; padding: 50px;">
+  <div id="results-empty" class="card pf-page-empty" style="margin: 0 0 20px; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
   </div>
   <div id="results-content" style="display: none;">
     <!-- Run Summary Header — Glossy -->
-    <div class="card-glass" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
+    <div class="card-glass pf-results-command" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
       <div style="background: linear-gradient(135deg, rgba(0,200,150,0.1), rgba(0,200,150,0.03)); border: 1px solid rgba(0,200,150,0.2); border-radius: 10px; padding: 14px 22px; box-shadow: 0 4px 20px rgba(0,200,150,0.08);">
         <div style="font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px;">Total Profit</div>
         <div id="res-header-pnl" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -1px;">₹0</div>
@@ -1290,25 +1290,25 @@
 </div>
 
 <!-- ═══ PORTFOLIO / PROFILE PAGE ═══ -->
-<div id="portfolio-page" class="page-section">
+<div id="portfolio-page" class="page-section pf-unified-page">
   <!-- Account Summary Cards -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px;">
-    <div class="card" style="padding: 20px;">
+  <div class="pf-portfolio-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px;">
+    <div class="card pf-summary-card" style="padding: 20px;">
       <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Available Balance</div>
       <div style="font-size: 28px; font-weight: 700; color: var(--accent);" id="portfolio-balance">₹0.00</div>
       <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Total Funds Available</div>
     </div>
-    <div class="card" style="padding: 20px;">
+    <div class="card pf-summary-card" style="padding: 20px;">
       <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Today's P&L</div>
       <div style="font-size: 28px; font-weight: 700; color: var(--success);" id="portfolio-today-pnl">₹0.00</div>
       <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Daily Profit/Loss</div>
     </div>
-    <div class="card" style="padding: 20px;">
+    <div class="card pf-summary-card" style="padding: 20px;">
       <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Trades Today</div>
       <div style="font-size: 28px; font-weight: 700; color: var(--accent2);" id="portfolio-total-trades">0</div>
       <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Executed Today</div>
     </div>
-    <div class="card" style="padding: 20px;">
+    <div class="card pf-summary-card" style="padding: 20px;">
       <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Win Rate</div>
       <div style="font-size: 28px; font-weight: 700; color: var(--success);" id="portfolio-win-rate">0%</div>
       <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Success Percentage</div>
@@ -2707,10 +2707,10 @@
   </div>
 </div>
 
-<div id="scalp-page" class="page-section">
+<div id="scalp-page" class="page-section pf-unified-page">
 
   <!-- Engine Status Bar -->
-  <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+  <div class="card-glass pf-page-command" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
       <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
       <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>

@@ -6285,3 +6285,364 @@ input:focus, select:focus {
 /* Scrollbar and selection join the tint. */
 ::-webkit-scrollbar-thumb { background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.22); border-radius: 3px; }
 ::selection { background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.28); }
+
+/* ═════════════════════════════════════════════════════════════════════
+   UNIFIED WORKSPACE SURFACES
+   Dashboard, Builder, Results, Portfolio, and Scalp now use the same
+   panel rhythm as Equity and Cascade. This layer is deliberately scoped
+   to presentation: no functional selectors, states, or visibility rules.
+   ═════════════════════════════════════════════════════════════════════ */
+.pf-unified-page {
+  width: min(100%, 1800px);
+  margin-inline: auto;
+  padding-bottom: 28px;
+  --pf-workspace-gap: 14px;
+  --pf-workspace-radius: 18px;
+  --pf-workspace-inset: rgba(7, 16, 29, .58);
+  --pf-workspace-line: rgba(148, 163, 184, .16);
+}
+
+.pf-unified-page :is(.card, .card-glass, .stat-box) {
+  border-radius: var(--pf-workspace-radius);
+}
+.pf-unified-page :is(.card, .card-glass)::after {
+  border-radius: var(--pf-workspace-radius);
+}
+.pf-unified-page > :is(.card, .card-glass),
+.pf-unified-page > div > :is(.card, .card-glass) {
+  border-color: rgba(148, 163, 184, .18);
+}
+.pf-unified-page :is(.card, .card-glass) > h3:first-child,
+.pf-unified-page :is(.card, .card-glass) > div:first-child > h3:first-child {
+  letter-spacing: -.2px;
+}
+.pf-unified-page :is(input, select) {
+  min-height: 40px;
+  border-radius: 10px;
+}
+.pf-unified-page .btn {
+  border-radius: 999px;
+}
+.pf-unified-page table {
+  font-variant-numeric: tabular-nums;
+}
+.pf-unified-page table thead th {
+  height: 42px;
+  color: var(--muted);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, rgba(78,90,120,.50), rgba(16,23,42,.96));
+}
+.pf-unified-page table tbody td {
+  border-bottom-color: rgba(148, 163, 184, .10);
+}
+.pf-unified-page table tbody tr:nth-child(even) td {
+  background: rgba(255,255,255,.018);
+}
+.pf-unified-page table tbody tr:hover td {
+  background: rgba(var(--pf-tint-primary-rgb, 0,191,165), .06);
+}
+
+/* Compact command surfaces echo the Equity/Cascade opening panel. */
+.pf-page-command,
+.pf-results-command {
+  min-height: 72px;
+  border-color: rgba(var(--pf-tint-primary-rgb, 0,191,165), .28) !important;
+  background:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-primary-rgb, 0,191,165), .16), transparent 38%),
+    linear-gradient(140deg, rgba(24,31,48,.96), rgba(8,14,26,.94)) !important;
+}
+.pf-page-empty {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  border-style: dashed !important;
+  border-color: rgba(148,163,184,.24) !important;
+}
+.pf-page-empty h2 {
+  max-width: 560px;
+  margin: 0;
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.4;
+}
+
+/* Dashboard: one measured card rhythm from snapshot to ledgers. */
+#dashboard-page .pf-dashboard-overview {
+  display: grid;
+  gap: var(--pf-workspace-gap);
+}
+#dashboard-page .pf-dashboard-overview > * {
+  margin-bottom: 0 !important;
+}
+#dashboard-page #dash-summary-grid {
+  gap: var(--pf-workspace-gap);
+  margin-bottom: var(--pf-workspace-gap);
+}
+#dashboard-page #dash-summary-grid > .stat-box {
+  min-height: 126px;
+  padding: 18px;
+}
+#dashboard-page #dash-active-engines,
+#dashboard-page #strategy-arsenal-card,
+#dashboard-page > .card {
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#dashboard-page .pf-dashboard-highlights {
+  gap: var(--pf-workspace-gap) !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#dashboard-page .pf-dashboard-highlights > .card {
+  min-height: 118px;
+  margin-bottom: 0;
+}
+#dashboard-page :is(.dash-table-wrap, .trade-log-wrap) {
+  border-radius: 12px;
+  border-color: var(--pf-workspace-line);
+  background: var(--pf-workspace-inset);
+}
+
+/* Builder: aligned columns, consistent wells, and restrained warning panel. */
+#builder-page .pf-page-notice {
+  padding: 16px 18px !important;
+  border-width: 1px !important;
+  border-radius: var(--pf-workspace-radius) !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+  box-shadow: 0 16px 34px -28px rgba(245,158,11,.76), inset 0 1px 0 rgba(255,255,255,.08);
+}
+#builder-page .builder-grid {
+  grid-template-columns: minmax(250px, .62fr) minmax(370px, 1fr) minmax(470px, 1.28fr);
+  gap: var(--pf-workspace-gap);
+  align-items: start;
+}
+#builder-page .builder-grid > * {
+  min-width: 0;
+}
+#builder-page .builder-grid .card,
+#builder-page #builder-live-preview {
+  padding: 18px !important;
+  margin-bottom: var(--pf-workspace-gap);
+}
+#builder-page .settings-col .card {
+  margin-bottom: var(--pf-workspace-gap);
+}
+#builder-page .settings-col label,
+#builder-page .builder-grid label {
+  letter-spacing: .06em;
+}
+#builder-page :is(.combined-pnl-bar, .builder-status-card),
+#builder-page .builder-grid div[style*="background: rgba(0,200,150,0.03)"],
+#builder-page .builder-grid div[style*="background: rgba(245,158,11,0.05)"] {
+  border-radius: 12px !important;
+  border-color: var(--pf-workspace-line) !important;
+  background: var(--pf-workspace-inset) !important;
+}
+#builder-page .add-leg-row {
+  gap: 8px;
+}
+#builder-page #execution-mode {
+  min-width: 0;
+  padding-inline: 10px 26px;
+  font-size: 12px;
+}
+#builder-page .add-leg-btn {
+  min-height: 38px;
+  border-radius: 999px;
+}
+#builder-page #legs-empty {
+  margin-top: 12px;
+  border: 1px dashed var(--pf-workspace-line);
+  border-radius: 12px;
+  background: rgba(7,16,29,.34);
+}
+#builder-page #builder-live-preview {
+  margin-top: 0;
+}
+
+/* Results: the run summary leads, analysis and ledger panels follow. */
+#results-page #results-content > :is(.card, .card-glass),
+#results-page :is(.results-metrics-grid, .results-pair-grid) {
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#results-page .pf-results-command {
+  gap: 22px !important;
+}
+#results-page .pf-results-command > div:first-child {
+  min-width: 170px;
+  border-radius: 14px !important;
+}
+#results-page .results-metrics-grid,
+#results-page .results-pair-grid {
+  gap: var(--pf-workspace-gap);
+}
+#results-page .results-metrics-grid > .stat-box {
+  min-height: 118px;
+  padding: 18px;
+}
+#results-page .results-pair-grid > .stat-box {
+  min-height: 104px;
+  padding: 18px;
+}
+#results-page .analytics-inner {
+  border-radius: 12px;
+  background: var(--pf-workspace-inset);
+  border-color: var(--pf-workspace-line);
+}
+#results-page :is(.trade-log-wrap, #monthly-pnl-grid, #pnl-heatmap) {
+  border-radius: 12px;
+}
+
+/* Portfolio: summary tiles, monthly book, and session ledgers share one grid. */
+#portfolio-page .pf-portfolio-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: var(--pf-workspace-gap) !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#portfolio-page .pf-summary-card {
+  min-height: 126px;
+  margin-bottom: 0;
+  padding: 18px !important;
+  border-color: rgba(var(--pf-tint-primary-rgb, 0,191,165), .22);
+}
+#portfolio-page #portfolio-dual-grid {
+  gap: var(--pf-workspace-gap) !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#portfolio-page #portfolio-dual-grid > .card,
+#portfolio-page > .card {
+  padding: 18px !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#portfolio-page :is(#portfolio-monthly-summary, #portfolio-paper-meta),
+#portfolio-page #portfolio-paper-status,
+#portfolio-page #portfolio-paper-symbol {
+  border-radius: 10px;
+}
+#portfolio-page :is(#portfolio-monthly-trades, #portfolio-yearly-grid, #portfolio-paper-runs, div[style*="overflow-x: auto"] table) {
+  border-radius: 12px;
+}
+
+/* Scalp: compact command bar, balanced launchpad/log, machined trade ledgers. */
+#scalp-page .pf-page-command {
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#scalp-page > .card,
+#scalp-page > div > .card {
+  padding: 18px !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
+  gap: var(--pf-workspace-gap) !important;
+  margin-bottom: var(--pf-workspace-gap) !important;
+}
+#scalp-page > div[style*="grid-template-columns: 1fr 1fr"] > .card {
+  margin-bottom: 0 !important;
+}
+#scalp-page :is(#scalp-live-ltp, #scalp-margin),
+#scalp-page div[style*="background: rgba(0,0,0,0.15)"],
+#scalp-page div[style*="background: rgba(99,102,241,0.08)"] {
+  border-radius: 12px !important;
+  border-color: var(--pf-workspace-line) !important;
+  background: var(--pf-workspace-inset) !important;
+}
+#scalp-page .scalp-toggle {
+  border-radius: 10px;
+}
+#scalp-page .scalp-toggle-btn:first-child { border-radius: 8px 0 0 8px; }
+#scalp-page .scalp-toggle-btn:last-child { border-radius: 0 8px 8px 0; }
+#scalp-page > .card > div[style*="overflow-x: auto"] {
+  border: 1px solid var(--pf-workspace-line);
+  border-radius: 12px;
+  overflow: auto;
+  background: var(--pf-workspace-inset);
+}
+#scalp-page #scalp-event-log {
+  padding: 10px 12px;
+  border: 1px solid var(--pf-workspace-line);
+  border-radius: 12px;
+  background: var(--pf-workspace-inset);
+}
+
+[data-theme="light"] .pf-unified-page {
+  --pf-workspace-inset: rgba(248,250,252,.92);
+  --pf-workspace-line: rgba(15,23,42,.12);
+}
+[data-theme="light"] .pf-unified-page table thead th {
+  color: #475569;
+  background: linear-gradient(180deg, #f8fafc, #e9eff7);
+}
+[data-theme="light"] .pf-unified-page table tbody tr:nth-child(even) td {
+  background: rgba(15,23,42,.018);
+}
+[data-theme="light"] .pf-unified-page table tbody tr:hover td {
+  background: rgba(var(--pf-tint-primary-rgb, 0,191,165), .055);
+}
+[data-theme="light"] :is(.pf-page-command, .pf-results-command) {
+  background:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-primary-rgb, 0,191,165), .10), transparent 40%),
+    linear-gradient(135deg, rgba(255,255,255,.99), rgba(245,248,252,.97)) !important;
+}
+
+@media (max-width: 1350px) {
+  #builder-page .builder-grid {
+    grid-template-columns: minmax(240px, .62fr) minmax(0, 1.38fr);
+  }
+  #builder-page .builder-grid > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  #portfolio-page .pf-portfolio-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .pf-unified-page {
+    --pf-workspace-radius: 12px;
+    padding-bottom: 18px;
+  }
+  #builder-page .builder-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #builder-page .builder-grid > :nth-child(3) {
+    grid-column: auto;
+  }
+  #builder-page .builder-grid div[style*="grid-template-columns: repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  #builder-page .builder-grid div[style*="grid-template-columns: repeat(4, 1fr)"] > * {
+    min-width: 0;
+  }
+  #results-page .pf-results-command {
+    align-items: flex-start !important;
+  }
+  #results-page .pf-results-command > div[style*="margin-left: auto"] {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+  #portfolio-page #portfolio-dual-grid,
+  #scalp-page > div[style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .pf-unified-page {
+    --pf-workspace-gap: 10px;
+  }
+  #portfolio-page .pf-portfolio-summary,
+  #dashboard-page .pf-dashboard-highlights {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  #dashboard-page #dash-broker-summary-card {
+    grid-column: 1 / -1;
+  }
+  #builder-page .builder-grid .card,
+  #builder-page #builder-live-preview,
+  #portfolio-page .pf-summary-card,
+  #portfolio-page #portfolio-dual-grid > .card,
+  #portfolio-page > .card,
+  #scalp-page > .card,
+  #scalp-page > div > .card {
+    padding: 14px !important;
+  }
+}
