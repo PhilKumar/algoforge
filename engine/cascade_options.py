@@ -8,6 +8,7 @@ the strategy rules testable before Dhan historical-data access is available.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -1277,6 +1278,18 @@ class CascadeOptionsAdapter:
         # dropping strikes (negative), a PE goes ITM by raising them (positive).
         # The caller mirrors the sign per side; the maths here stays one line.
         strike = atm + int(ce_offset_steps) * strike_step
+        # A contract outside 15-45 DTE is outside the window the strategy was
+        # measured over, so say so once, loudly, rather than letting a result
+        # that is not comparable to the backtest look like one that is.
+        dte = (expiry - selected_at.date()).days
+        if not 15 <= dte <= 45:
+            logging.getLogger("philforge").warning(
+                "[CASCADE] %s %s selected at %d DTE — outside the tested 15-45 window; "
+                "nothing in the chain was inside it, and the closest was taken.",
+                underlying,
+                expiry.isoformat(),
+                dte,
+            )
         lot_size = int(self.scrip_master.get_lot_size(underlying, expiry.isoformat()))
         if lot_size <= 0:
             # 0 means Dhan does not carry it.  Refuse rather than build a
@@ -1303,13 +1316,43 @@ class CascadeOptionsAdapter:
 
         `monthly_only=False` keeps the original weekly rule, which is still the
         correct answer for anything replaying a weekly campaign.
+
+        THE WINDOW IS 15-45 DTE, AND ONLY THE FLOOR USED TO BE APPLIED. That
+        asymmetry picked an untradeable contract for a real campaign: on
+        2026-08-11 the August monthly had decayed to 14 DTE, so the `>= 15`
+        filter threw it out and took September at **49 DTE**. At ATM-2 that is
+        deep ITM and far-dated, and it barely trades -- 660 units across a whole
+        session, 13 distinct prices in 351 minute-bars. Both legs of a round
+        priced off the same stale print and the campaign reported a realised
+        P&L of exactly Rs 0.00.
+
+        When nothing sits inside the window, the expiry CLOSEST to it wins
+        (Phil chose this 2026-08-12 over refusing the round). On that date that
+        is the 14-DTE August contract, one day under the floor and liquid,
+        rather than the 49-DTE September one four days over the ceiling and
+        untradeable. Ties go to the LATER expiry, which leaves more road for a
+        position that has no stop loss.
+
+        A contract chosen outside 15-45 is outside the window the strategy was
+        measured over. It is a knowing trade-off, not an equivalent one.
         """
 
         if monthly_only:
-            eligible = [expiry for expiry in monthly_expiries(set(expiries)) if (expiry - trade_date).days >= 15]
-            if not eligible:
-                raise OptionsAdapterError(f"No monthly {symbol} expiry 15+ days out is available in ScripMaster")
-            return eligible[0]
+            monthlies = [expiry for expiry in monthly_expiries(set(expiries)) if expiry > trade_date]
+            if not monthlies:
+                raise OptionsAdapterError(f"No unexpired monthly {symbol} expiry is available in ScripMaster")
+            inside = [expiry for expiry in monthlies if 15 <= (expiry - trade_date).days <= 45]
+            if inside:
+                return inside[0]
+
+            def _distance(expiry: date) -> tuple[int, int]:
+                dte = (expiry - trade_date).days
+                gap = 15 - dte if dte < 15 else dte - 45
+                # Negative DTE sorts later on the tie-break, so a longer-dated
+                # contract wins a tie and the campaign keeps more road.
+                return (gap, -dte)
+
+            return min(monthlies, key=_distance)
 
         weekly: list[date] = []
         for expiry in sorted(set(expiries)):
