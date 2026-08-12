@@ -6923,10 +6923,19 @@ function _terminalCascadeChartStatusMap() {
   return map;
 }
 
+/** The newest structures the chart is allowed to draw. One cap, one source. */
+function _tcvLatest(list, isActive) {
+  if (typeof window.pfChartLatestStructures === 'function') return window.pfChartLatestStructures(list, isActive);
+  const all = Array.isArray(list) ? list : [];
+  return all.slice(-(Number(window.pfChartMaxStructures) || 3));
+}
+
 function _terminalCascadeChartDetails(payload) {
   const geometry = payload?.geometry || {};
-  const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
-  const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
+  // The table lists what the chart DRAWS. Listing seven fibs under a chart
+  // showing three is the same inconsistency wearing a different hat.
+  const trendlines = _tcvLatest(geometry.trendlines, tl => tl && tl.active);
+  const legs = _tcvLatest(geometry.legs);
   const rungMap = _terminalCascadeChartStatusMap();
   const rows = [];
   trendlines.forEach(line => {
@@ -7161,8 +7170,13 @@ function _terminalCascadeCanvasDraw() {
   const X = index => x0 + (index - _tcv.start + 0.5) * barW;
 
   const geometry = _tcv.payload.geometry || {};
-  const legs = Array.isArray(geometry.legs) ? geometry.legs : [];
-  const trendlines = Array.isArray(geometry.trendlines) ? geometry.trendlines : [];
+  // ONLY THE NEWEST THREE, the same as every other chart on the site. Drawn
+  // uncapped this was seven fibs and six trendlines across one pane, and the
+  // structure that matters -- the one nearest the price -- was lost in it.
+  // Capped BEFORE the price range is computed, so the axis fits what is drawn
+  // rather than being stretched by legs that are not.
+  const legs = _tcvLatest(geometry.legs);
+  const trendlines = _tcvLatest(geometry.trendlines, tl => tl && tl.active);
   const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
   const campaign = campaigns.find(row => row?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0] || {};
   const instrument = _tcv.payload.instrument || campaign.instrument || {};
@@ -7671,7 +7685,17 @@ async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timef
       const endedNote = state === 'MOTHER_BROKEN' ? ' · MOTHER BROKEN — campaign over, structure frozen at the break'
         : state === 'MOTHER_RETESTED' ? ' · MOTHER RETESTED — campaign over, structure frozen at the retest'
         : '';
-      meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${(data.geometry?.legs || []).length} fib(s), ${(data.geometry?.trendlines || []).length} trendline(s)${endedNote}`;
+      // Count what is DRAWN, and say so when the campaign has more behind it.
+      // "7 fib(s), 6 trendline(s)" over a chart showing three was the header
+      // reporting the payload instead of the picture.
+      const allLegs = (data.geometry?.legs || []).length;
+      const allTls = (data.geometry?.trendlines || []).length;
+      const shownLegs = _tcvLatest(data.geometry?.legs).length;
+      const shownTls = _tcvLatest(data.geometry?.trendlines, tl => tl && tl.active).length;
+      const hidden = (allLegs - shownLegs) + (allTls - shownTls);
+      const structures = `${shownLegs} fib(s), ${shownTls} trendline(s)`
+        + (hidden > 0 ? ` · newest ${Math.max(shownLegs, shownTls)} shown of ${allLegs}/${allTls}` : '');
+      meta.textContent = `${instrument.signal_symbol || symbol} -> ${instrument.symbol || symbol} · ${cands} ${data.timeframe || timeframe} candles · ${structures}${endedNote}`;
     }
     _terminalCascadeSetStatus(`${data.instrument?.signal_symbol || symbol} chart loaded.`, 'success');
     _terminalCascadeMountCanvas(data, keepViewSnapshot);
