@@ -533,3 +533,100 @@ test('with nothing picked it asks for a scrip, it does not chart a campaign', as
   await expect(page.locator('#terminal-cascade-form-status')).toContainText('Pick a scrip');
   expect(called).toBe(false);
 });
+
+/* ── The mother you LOOKED at is the mother you START ─────────────────
+   Phil, on a KALYANKJIL scanner chart showing an unbroken 1D high:
+   "But KALYANKJIL in this chart is high not broken correct? Then why I
+   cannot see that on the selected chart?"
+
+   Because a campaign's mother is the candle at that timestamp ON ITS OWN
+   TIMEFRAME. He read 648.95 off the 1D chart while the form sat on its 15m
+   default, so the campaign took the 15m bar at that stamp — a different,
+   much lower high, broken within the hour. The scanner hint was TEXT; it
+   carries the timeframe now. */
+
+function scanChart(timeframe: string) {
+  const day = timeframe === '1d';
+  const candles = [];
+  for (let i = 0; i < 40; i += 1) {
+    // IST-offset stamps, exactly as the endpoint sends them (bar.timestamp
+    // .isoformat() on IST-aware candles). A Z-suffixed UTC stamp here would
+    // make the fixture disagree with production by five and a half hours.
+    const stamp = day
+      ? `2026-07-${String(1 + i).padStart(2, '0')}T09:15:00+05:30`
+      : `2026-08-11T${String(9 + Math.floor(i / 4)).padStart(2, '0')}:${['15', '30', '45', '00'][i % 4]}:00+05:30`;
+    const high = i === 30 ? (day ? 648.95 : 570.7) : 560 + i;
+    candles.push({ t: stamp, o: high - 8, h: high, l: high - 12, c: high - 5 });
+  }
+  return {
+    status: 'ok', symbol: 'KALYANKJIL', name: 'Kalyan Jewellers', chart_mode: 'native_ohlc',
+    timeframe, candles, recent_high: 648.95, recent_high_lookback: 20,
+    recent_high_date: '2026-08-11', high_in_view: true, last_price: 602.2, pullback_pct: 7.8,
+  };
+}
+
+async function openScanChart(page: Page, timeframe: string) {
+  await page.route('**/api/terminal/cascade/scan/chart**', route => {
+    const tf = new URL(route.request().url()).searchParams.get('timeframe') || '1d';
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(scanChart(tf)) });
+  });
+  await page.route('**/api/terminal/cascade/scan**', route => {
+    if (route.request().url().includes('/scan/chart')) return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ok', capital_inr: 100000, generated_at: '2026-08-12T20:00:00+05:30',
+      candidates: [{ symbol: 'KALYANKJIL', name: 'Kalyan Jewellers', last_price: 602.2, strength_pct: 74,
+        pullback_pct: 7.8, recent_high: 648.95, affordable_shares: 166, rungs_fundable: 3, score: 13.5, etf: false }],
+      rejected: [],
+    }) });
+  });
+  await openEquityCascade(page, { status: 'ok', campaigns: [] });
+  await page.click('#cascade-scan-run');
+  // Scoped to the CASCADE scanner: the ladder screen renders its own table for
+  // the same scrip, and the chart row this opens is itself a tr[data-symbol].
+  const row = page.locator('#cascade-scan-body .cascade-scan-table tr[data-symbol="KALYANKJIL"]')
+    .filter({ hasNot: page.locator('.cascade-scan-chart') }).first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.locator('.cascade-scan-chart-btn').click();
+  if (timeframe !== '1d') await page.click(`#cascade-scan-body [data-scan-tf="${timeframe}"]`);
+  await expect(page.locator('#cascade-scan-body .cascade-scan-mother-hint')).toBeVisible({ timeout: 15_000 });
+}
+
+test('Use this mother carries the timeframe it was read on, not just the stamp', async ({ page }) => {
+  await openScanChart(page, '1d');
+  // The form starts on 15m — the default that caused this.
+  await expect(page.locator('#terminal-cascade-timeframe')).toHaveValue('15m');
+
+  await page.click('#cascade-scan-body .cascade-scan-use-mother');
+
+  // Both halves must land, and the timeframe is the half that was missing.
+  await expect(page.locator('#terminal-cascade-timeframe')).toHaveValue('1d');
+  await expect(page.locator('#terminal-cascade-mother-timestamp')).toHaveValue('2026-07-31T09:15');
+  // And it says which candle the campaign will actually read.
+  await expect(page.locator('#cascade-scan-status')).toContainText('1D');
+});
+
+test('a chart-only timeframe offers no button, and says why', async ({ page }) => {
+  // 4H and 1W draw fine but no campaign can start on them: the ladder skips 4H
+  // (a 375-minute session) and starts no higher than 1D. Filling the form with
+  // one would produce a start the server must reject.
+  await openScanChart(page, '1w');
+  await expect(page.locator('#cascade-scan-body .cascade-scan-use-mother')).toHaveCount(0);
+  await expect(page.locator('#cascade-scan-body .cascade-scan-mother-hint')).toContainText('cannot start on 1W');
+});
+
+test('a mother that is already spent is refused with the reason', async ({ page }) => {
+  await openEquityCascade(page, { status: 'ok', campaigns: [] });
+  await page.route('**/api/terminal/cascade/start', route => route.fulfill({
+    status: 400, contentType: 'application/json',
+    body: JSON.stringify({ success: false, error: { code: 'bad_request', title: 'Cannot start',
+      message: 'Cannot start',
+      detail: 'That 15m mother is spent — price has already traded above its high of 570.70, so no fib leg can form and the campaign would be over before it started.' } }),
+  }));
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-07-21T13:15';
+  });
+  await page.click('#terminal-cascade-start');
+  await page.click('#confirm-ok-btn');
+  // The server's reason, not "Could not start the campaign."
+  await expect(page.locator('#terminal-cascade-form-status')).toContainText('already traded above its high', { timeout: 10_000 });
+});

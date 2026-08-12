@@ -449,23 +449,80 @@ function createEquityScanner(cfg) {
   }
 
   /* The exact bar to name as the mother, in the form the campaign box wants.
-   * The chart marks it; this says what to type. */
+   * The chart marks it; this says what to type -- and now types it.
+   *
+   * Phil: "But KALYANKJIL in this chart is high not broken correct? Then why I
+   * cannot see that on the selected chart?" Because this hint was TEXT. He
+   * read a mother off the 1D chart, the campaign form was still on its 15m
+   * default, and the mother a campaign gets is the candle at that timestamp ON
+   * ITS OWN TIMEFRAME -- a 15m bar whose high is a hundred rupees lower and is
+   * broken within the hour. Two charts, two different candles, both honest.
+   *
+   * So the button carries BOTH halves: the timestamp and the timeframe it was
+   * read on. What you looked at is what you start.
+   */
   function motherHint(payload) {
     var rows = payload.candles || [];
     if (!rows.length) return '';
     var best = rows[0];
     rows.forEach(function (row) { if (Number(row.h) > Number(best.h)) best = row; });
     var stamp = String(best.t || '').slice(0, 16);
+    var tf = String(payload.timeframe || '');
     var warn = payload.high_in_view === false
       ? '<em class="cascade-scan-mother-warn">The ' + (payload.recent_high_lookback || 20) +
         'D high was set on ' + esc(String(payload.recent_high_date || '')) +
         ', before this window starts — switch to a higher timeframe to see it.</em>'
       : '';
+    // 4H and 1W are chart-only rungs: the campaign ladder skips 4H (an NSE
+    // session is 375 minutes) and starts no higher than 1D. Saying so beats
+    // filling the form with a timeframe it cannot run.
+    var startable = CAMPAIGN_TFS.indexOf(tf) !== -1;
+    var action = mode === 'ladder' ? ''
+      : startable
+        ? '<button type="button" class="btn btn-sm cascade-scan-use-mother"' +
+          ' data-scan-mother="' + esc(stamp) + '" data-scan-mother-tf="' + esc(tf) +
+          '" data-scan-mother-symbol="' + esc(payload.symbol || '') + '"' +
+          ' data-scan-mother-high="' + esc(String(best.h)) + '">Use this mother</button>'
+        : '<em class="cascade-scan-mother-warn">A campaign cannot start on ' + esc(tf.toUpperCase()) +
+          ' — pick the mother on 15M, 1H or 1D.</em>';
     return '<div class="cascade-scan-mother-hint">' +
-      '<span>Highest ' + esc(payload.timeframe || '') + ' candle in view</span>' +
+      '<span>Highest ' + esc(tf) + ' candle in view</span>' +
       '<strong>' + esc(stamp.replace('T', ' ')) + ' IST</strong>' +
       '<em>high ' + Number(best.h).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + '</em>' +
-      warn + '</div>';
+      warn + action + '</div>';
+  }
+
+  /* Which rungs the campaign form can actually start on -- the Start-on select
+   * in strategy.html, not the chart strip above it. */
+  var CAMPAIGN_TFS = ['5m', '15m', '1h', '1d'];
+
+  function useMother(button) {
+    var symbol = button.getAttribute('data-scan-mother-symbol') || '';
+    var stamp = button.getAttribute('data-scan-mother') || '';
+    var tf = button.getAttribute('data-scan-mother-tf') || '';
+    if (symbol) pick(symbol);
+    var tfField = $('terminal-cascade-timeframe');
+    if (tfField && CAMPAIGN_TFS.indexOf(tf) !== -1) tfField.value = tf;
+    var field = $('terminal-cascade-mother-timestamp');
+    if (field) {
+      field.value = stamp;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      field.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    // Snap LAST, through the page's own handler: it rounds the stamp onto the
+    // timeframe's grid (a daily mother is always 09:15 IST) and redraws the
+    // ladder strip. Setting the select alone would not snap the stamp, and an
+    // unaligned one is refused by the server with "not aligned".
+    if (typeof window.terminalCascadeTimeframeChanged === 'function') {
+      try { window.terminalCascadeTimeframeChanged(); } catch (err) { /* form is optional */ }
+    }
+    var high = Number(button.getAttribute('data-scan-mother-high'));
+    setStatus(
+      'Mother set: ' + stamp.replace('T', ' ') + ' IST on ' + tf.toUpperCase() +
+      (isFinite(high) ? ' · high ' + high.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '') +
+      '. The campaign reads this candle on ' + tf.toUpperCase() + ' — changing "Start on" changes which candle it is.',
+      'ok'
+    );
   }
 
   function pick(symbol) {
@@ -580,6 +637,8 @@ function createEquityScanner(cfg) {
     els.body.addEventListener('click', function (event) {
       var use = event.target.closest('.cascade-scan-pick');
       if (use) { pick(use.dataset.symbol); return; }
+      var useMotherBtn = event.target.closest('[data-scan-mother]');
+      if (useMotherBtn) { useMother(useMotherBtn); return; }
       var chart = event.target.closest('.cascade-scan-chart-btn');
       if (chart) { toggleChart(chart.dataset.symbol, chart.closest('tr')); return; }
       var retry = event.target.closest('[data-scan-chart-retry]');
