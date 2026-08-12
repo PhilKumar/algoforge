@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -308,6 +309,23 @@ class UpstoxPremiumSource:
         """Release one parsed contract after a strike-selection probe."""
         self._series.pop(instrument_key, None)
 
+    @staticmethod
+    def trim_memory() -> None:
+        """Return freed CPython arenas to Linux after a large cache parse.
+
+        The production service has a strict cgroup limit. Without this, Python
+        keeps released JSON/candle arenas in its RSS and Linux stalls every
+        request in ``mem_cgroup_handle_over_high`` even though those objects
+        are no longer live.
+        """
+        if sys.platform.startswith("linux"):
+            try:
+                import ctypes
+
+                ctypes.CDLL(None).malloc_trim(0)
+            except (AttributeError, OSError):
+                pass
+
     def release_memory(self) -> None:
         """Drop parsed candle objects while retaining the durable disk cache.
 
@@ -318,6 +336,7 @@ class UpstoxPremiumSource:
         without another Upstox request.
         """
         self._series.clear()
+        self.trim_memory()
 
     # ── the one method the engine calls ───────────────────────────
 

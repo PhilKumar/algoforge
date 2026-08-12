@@ -50,9 +50,9 @@ class UpstoxHistoricalPremiumSelector:
             backfill_missing=not cache_only,
         )
         self.expiries = sorted(self.source.available_expiries())
-        # The engine owns a selected frame only while its trade is open.  A
-        # weak cache lets concurrent legs reuse that frame without pinning
-        # every contract selected during the current expiry in web-worker RAM.
+        # The engine owns a selected frame only while its trade is open. A weak
+        # cache lets concurrent legs reuse that frame without pinning every
+        # contract selected during the current expiry in web-worker RAM.
         self._frames: weakref.WeakValueDictionary[tuple[str, date, int], pd.DataFrame] = weakref.WeakValueDictionary()
         self._selection_cache_path = self.source._cache_dir / "premium_target_selections_v1.json"
         self._selection_cache = self._load_selection_cache()
@@ -169,6 +169,10 @@ class UpstoxHistoricalPremiumSelector:
             .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
             .dropna(subset=["open"])
         )
+        del rows, series
+        trim = getattr(self.source, "trim_memory", None)
+        if callable(trim):
+            trim()
         self._frames[cache_key] = frame
         return frame
 

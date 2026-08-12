@@ -16,6 +16,7 @@ class _FakeUpstoxSource:
         self._cache_dir = Path(self.cache_dir)
         self.requests_made = 0
         self.release_calls = 0
+        self.trim_calls = 0
 
     def available_expiries(self):
         return {date(2026, 3, 19)}
@@ -32,6 +33,9 @@ class _FakeUpstoxSource:
 
     def release_memory(self):
         self.release_calls += 1
+
+    def trim_memory(self):
+        self.trim_calls += 1
 
 
 class PremiumTargetSelectionCacheTests(unittest.TestCase):
@@ -55,6 +59,7 @@ class PremiumTargetSelectionCacheTests(unittest.TestCase):
             frame = selector._frame("contract", expiry, 25000, 5)
 
             self.assertTrue(selector._frames)
+            self.assertEqual(selector.source.trim_calls, 1)
             del frame
             gc.collect()
 
