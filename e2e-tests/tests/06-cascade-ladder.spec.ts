@@ -133,7 +133,44 @@ test('a running campaign shows the rung it is on, not the one it started on', as
   await expect(strip.locator('[data-state="done"]')).toHaveCount(2);   // 15M and 1H
   await expect(strip.locator('[data-state="ahead"]')).toHaveText('1W');
 
-  await expect(card).toContainText('12 more 1d bars to 1W');
+  await expect(card).toContainText('12 bars to 1W');
+});
+
+test('the stat strip is one row, whatever the campaign has to say', async ({ page }) => {
+  // It was a `repeat(7, 1fr)` grid, so the eighth stat dropped onto a second
+  // row and left one card sitting alone under the others. A figure strip that
+  // grows must not be pinned to a column count.
+  await openEquityCascade(page, climbingCampaign());
+  const card = page.locator('[data-terminal-cascade-symbol="ADANIENT"]');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await card.locator('summary').click();
+
+  const cells = card.locator('.pf-campaign-stat');
+  await expect(cells).toHaveCount(8);
+
+  // Same top edge for every cell IS the definition of one row.
+  const tops = await cells.evaluateAll((nodes) =>
+    nodes.map((n) => Math.round(n.getBoundingClientRect().top)));
+  expect(new Set(tops).size, `stats wrapped onto ${new Set(tops).size} rows`).toBe(1);
+
+  // And every line inside a cell stays a single line.
+  const wrapped = await cells.evaluateAll((nodes) => {
+    const bad: string[] = [];
+    nodes.forEach((cell) => {
+      cell.querySelectorAll('.pf-campaign-stat-label, .pf-campaign-stat-value, .pf-campaign-stat-note')
+        .forEach((el) => {
+          const style = getComputedStyle(el);
+          const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+          if (el.getBoundingClientRect().height > lineHeight * 1.6) bad.push(el.textContent || '');
+        });
+    });
+    return bad;
+  });
+  expect(wrapped, `wrapped onto two lines: ${wrapped.join(' | ')}`).toEqual([]);
+
+  // The shortened note keeps its full explanation reachable.
+  const drawing = cells.filter({ hasText: 'Drawing on' });
+  await expect(drawing).toHaveAttribute('title', /climbs to 1W/);
 });
 
 test('a refusal shows the reason the server gave, not a generic failure', async ({ page }) => {

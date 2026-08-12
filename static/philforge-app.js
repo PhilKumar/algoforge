@@ -5989,28 +5989,35 @@ function _terminalCascadeWindow(campaign) {
   if (rounds.length) gist += ` · ${realised >= 0 ? '+' : ''}${_terminalCascadeMoney(realised)}`;
 
   const pill = (text, tone) => `<span class="pf-campaign-pill"${tone ? ` data-state="${escapeAttr(tone)}"` : ''}>${escapeHtml(text)}</span>`;
-  const stat = (label, value, note) =>
-    `<div class="pf-campaign-stat"><div class="pf-campaign-stat-label">${escapeHtml(label)}</div>` +
+  // Each cell is ONE line of label, value and note. The note carries its own
+  // title so shortening it for the strip does not lose the explanation.
+  const stat = (label, value, note, full) =>
+    `<div class="pf-campaign-stat"${full ? ` title="${escapeAttr(full)}"` : ''}>` +
+    `<div class="pf-campaign-stat-label">${escapeHtml(label)}</div>` +
     `<div class="pf-campaign-stat-value">${escapeHtml(value)}</div>` +
     (note ? `<div class="pf-campaign-stat-note">${escapeHtml(note)}</div>` : '') + '</div>';
 
+  const capital = _terminalCascadeMoney(config.capital_inr || 0);
+  const climbNote = structure.climbs === false
+    ? 'fixed'
+    : (structure.next_timeframe
+      ? `${structure.bars_to_next} bars to ${structure.next_timeframe.toUpperCase()}`
+      : 'top of the ladder');
+  const climbFull = structure.climbs === false
+    ? 'Fixed timeframe — this campaign does not climb the ladder.'
+    : (structure.next_timeframe
+      ? `${structure.bars_to_next} more ${rung} bars before the structure climbs to ${structure.next_timeframe.toUpperCase()}.`
+      : 'Top of the ladder — it stays here.');
+  // Short enough for one line each; the long form is the cell's tooltip.
   const stats = [
-    stat('Mother high', _cascadeNumber(campaign?.mother?.trade?.high)),
-    stat('Avg entry', _cascadeNumber(campaign.average_entry_price)),
-    stat('Take profit', _cascadeNumber(campaign.target_price), 'a quarter back to the mother high'),
-    stat('Quantity', String(campaign.open_quantity || 0), `${escapeHtml(symbol)} shares held`),
-    stat('In position', _terminalCascadeMoney(campaign.open_invested_inr || 0), `of ${_terminalCascadeMoney(config.capital_inr || 0)} capital`),
-    stat('Waiting to buy', _terminalCascadeMoney(campaign.pending_inr || 0), `${_terminalCascadeMoney(campaign.cash_carry_inr || 0)} carried`),
-    stat('Rounds closed', String(rounds.length), `realised ${_terminalCascadeMoney(realised)}`),
-    stat(
-      'Drawing on',
-      rung.toUpperCase(),
-      structure.climbs === false
-        ? 'fixed — this campaign does not climb'
-        : (structure.next_timeframe
-          ? `${structure.bars_to_next} more ${rung} bars to ${structure.next_timeframe.toUpperCase()}`
-          : 'top of the ladder — it stays here'),
-    ),
+    stat('Mother', _cascadeNumber(campaign?.mother?.trade?.high), 'high', 'The mother candle high every level is measured from.'),
+    stat('Avg entry', _cascadeNumber(campaign.average_entry_price), 'per share'),
+    stat('Take profit', _cascadeNumber(campaign.target_price), '25% back', 'A quarter of the way back to the mother high.'),
+    stat('Quantity', String(campaign.open_quantity || 0), 'shares held', `${symbol} shares currently held.`),
+    stat('In position', _terminalCascadeMoney(campaign.open_invested_inr || 0), `of ${capital}`, `Deployed out of ${capital} campaign capital.`),
+    stat('Waiting to buy', _terminalCascadeMoney(campaign.pending_inr || 0), `${_terminalCascadeMoney(campaign.cash_carry_inr || 0)} carried`, 'Committed to resting rungs, plus cash carried to the next level.'),
+    stat('Rounds', String(rounds.length), _terminalCascadeMoney(realised), `${rounds.length} closed, ${_terminalCascadeMoney(realised)} realised.`),
+    stat('Drawing on', rung.toUpperCase(), climbNote, climbFull),
   ].join('');
 
   // The ladder as a strip, so where a campaign is and where it can still go is
