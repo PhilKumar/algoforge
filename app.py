@@ -3771,6 +3771,7 @@ class StrategyPayload(BaseModel):
     combined_sqoff_time: str = "15:20"
     fee_pct: float = 0.0
     trailing_sl_pct: float = 0.0
+    execution_mode: str = Field(default="strategy_candle", pattern="^(strategy_candle|next_minute)$")
     execution_profile: str = "auto"
     spread_bps: float = Field(default=0.0, ge=0)
     entry_slippage_bps: float = Field(default=0.0, ge=0)
@@ -12435,6 +12436,13 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         strategy_config["indicators"] = normalized_indicators
         strategy_config["timeframe_minutes"] = tf_spec.requested
         strategy_config["fetch_timeframe_minutes"] = tf_spec.fetch
+        if payload.execution_mode == "next_minute":
+            # QuantMan's "Next Minute Start": evaluate entries only when the
+            # strategy candle closes, execute on the next 1-minute open, and
+            # execute signal exits on the following 1-minute open as well.
+            strategy_config["execution_timeframe_minutes"] = 1
+            strategy_config["entry_evaluation_timeframe_minutes"] = execution_timeframe
+            strategy_config["signal_exit_next_open"] = True
         requested_days = max(1, (_to_dt - _from_dt).days + 1)
         premium_target_legs = [
             leg
@@ -12566,6 +12574,10 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "combined_sqoff_time": getattr(payload, "combined_sqoff_time", "15:20") or "15:20",
                 "fee_pct": getattr(payload, "fee_pct", 0.0),
                 "trailing_sl_pct": getattr(payload, "trailing_sl_pct", 0.0),
+                "execution_mode": payload.execution_mode,
+                "execution_timeframe_minutes": strategy_config.get("execution_timeframe_minutes"),
+                "entry_evaluation_timeframe_minutes": strategy_config.get("entry_evaluation_timeframe_minutes"),
+                "signal_exit_next_open": strategy_config.get("signal_exit_next_open", False),
                 "execution_profile": getattr(payload, "execution_profile", "auto"),
                 "spread_bps": getattr(payload, "spread_bps", 0.0),
                 "entry_slippage_bps": getattr(payload, "entry_slippage_bps", 0.0),

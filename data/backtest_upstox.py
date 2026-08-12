@@ -127,7 +127,10 @@ class UpstoxHistoricalPremiumSelector:
                 return None
             wanted = months[offset]
             return max(value for value in future if (value.year, value.month) == wanted)
-        return future[0]
+        # A missing weekly expiry must be a gap. Without this guard, asking for
+        # a date before Upstox coverage silently selects the oldest available
+        # contract even when it expires many weeks later.
+        return future[0] if (future[0] - on).days <= 7 else None
 
     def _activate_expiry(self, expiry: date) -> None:
         if self._active_expiry == expiry:
@@ -197,7 +200,7 @@ class UpstoxHistoricalPremiumSelector:
             return None
         expiry = self._expiry_for(self.expiries, entry_time.date(), leg.get("expiry") or "current_week")
         if expiry is None:
-            self.last_gap = "no eligible Upstox expiry"
+            self.last_gap = "no eligible Upstox expiry within the requested weekly window"
             return None
         self._activate_expiry(expiry)
         contracts = self.source._contract_index(expiry)
@@ -272,10 +275,14 @@ class UpstoxHistoricalPremiumSelector:
             f"upstox|{instrument_key}|{expiry.isoformat()}|{strike}|{option_type}", frame, strike, expiry, price
         )
 
-    def cache_summary(self) -> dict[str, int]:
-        return {
+    def cache_summary(self) -> dict[str, int | str]:
+        summary: dict[str, int | str] = {
             "selection_hits": self.selection_cache_hits,
             "selection_misses": self.selection_cache_misses,
             "stored_selections": len(self._selection_cache),
             "candle_requests": self.source.requests_made,
         }
+        if self.expiries:
+            summary["first_expiry"] = self.expiries[0].isoformat()
+            summary["last_expiry"] = self.expiries[-1].isoformat()
+        return summary

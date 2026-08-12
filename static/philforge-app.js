@@ -3794,18 +3794,24 @@ function applyExecutionProfile(forceApply = false) {
 
 function restoreExecutionSettings(source) {
   const data = source || {};
-  const profile = data.execution_profile || 'auto';
+  // Runs saved before execution profiles existed had zero spread/slippage.
+  // Treat those as Custom rather than silently applying today's Auto values.
+  const profile = data.execution_profile || 'custom';
   document.getElementById('execution-profile').value = profile;
-  applyExecutionProfile(profile === 'auto');
-  if (data.spread_bps !== undefined) document.getElementById('spread-bps').value = data.spread_bps;
-  if (data.entry_slippage_bps !== undefined) document.getElementById('entry-slippage-bps').value = data.entry_slippage_bps;
-  if (data.exit_slippage_bps !== undefined) document.getElementById('exit-slippage-bps').value = data.exit_slippage_bps;
-  if (data.entry_delay_candles !== undefined) document.getElementById('entry-delay-candles').value = data.entry_delay_candles;
-  if (data.signal_exit_delay_candles !== undefined) document.getElementById('signal-exit-delay-candles').value = data.signal_exit_delay_candles;
-  if (data.capital_buffer_pct !== undefined) document.getElementById('capital-buffer-pct').value = data.capital_buffer_pct;
-  if (data.sell_option_margin_per_lot !== undefined) document.getElementById('sell-option-margin-per-lot').value = data.sell_option_margin_per_lot;
-  if (data.enforce_capital !== undefined) document.getElementById('enforce-capital').checked = !!data.enforce_capital;
   applyExecutionProfile(false);
+  document.getElementById('spread-bps').value = data.spread_bps ?? 0;
+  document.getElementById('entry-slippage-bps').value = data.entry_slippage_bps ?? 0;
+  document.getElementById('exit-slippage-bps').value = data.exit_slippage_bps ?? 0;
+  document.getElementById('entry-delay-candles').value = data.entry_delay_candles ?? 0;
+  document.getElementById('signal-exit-delay-candles').value = data.signal_exit_delay_candles ?? 0;
+  document.getElementById('capital-buffer-pct').value = data.capital_buffer_pct ?? 0;
+  document.getElementById('sell-option-margin-per-lot').value = data.sell_option_margin_per_lot ?? 0;
+  document.getElementById('enforce-capital').checked = !!data.enforce_capital;
+  const inferredNextMinute = Number(data.execution_timeframe_minutes) === 1
+    && Number(data.entry_evaluation_timeframe_minutes) > 1
+    && data.signal_exit_next_open === true;
+  document.getElementById('execution-mode').value = data.execution_mode
+    || (inferredNextMinute ? 'next_minute' : 'strategy_candle');
 }
 
 // ── Backfill status polling ───────────────────────────────────────
@@ -10994,8 +11000,10 @@ async function copyEditRun(runId) {
 async function copyEditStrategy(runId) {
   let p = lastBacktestPayload;
 
-  // If a specific runId was given, fetch that run
-  if (!p && runId) {
+  // A requested run always wins over a stale in-memory result. Copy & Edit
+  // must reproduce the row the user clicked, not whichever run was viewed
+  // immediately before it.
+  if (runId) {
     try {
       const res = await fetch('/api/runs/' + runId);
       p = await res.json();
@@ -11054,6 +11062,16 @@ async function copyEditStrategy(runId) {
       onSegmentChange();
     }
     if (p.instrument) document.getElementById('instrument-select').value = p.instrument;
+    if (p.folder) {
+      const folderSelect = document.getElementById('folder-select');
+      const matchingFolder = Array.from(folderSelect.options).some(option => option.value === p.folder);
+      if (matchingFolder) {
+        folderSelect.value = p.folder;
+      } else {
+        folderSelect.value = '__custom__';
+        document.getElementById('folder-custom').value = p.folder;
+      }
+    }
     // Restore SL/TP type and value
     const slT = p.sl_type || 'rupees';
     document.getElementById('sl-type').value = slT;
@@ -11170,6 +11188,7 @@ function buildPayload() {
     combined_sqoff_time: document.getElementById('combined-sqoff-time').value,
     fee_pct: parseFloat(document.getElementById('fee-pct').value) || 0,
     trailing_sl_pct: parseFloat(document.getElementById('trailing-sl-pct').value) || 0,
+    execution_mode: document.getElementById('execution-mode').value || 'strategy_candle',
     execution_profile: document.getElementById('execution-profile').value || 'auto',
     spread_bps: parseFloat(document.getElementById('spread-bps').value) || 0,
     entry_slippage_bps: parseFloat(document.getElementById('entry-slippage-bps').value) || 0,

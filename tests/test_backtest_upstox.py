@@ -35,6 +35,15 @@ class _FakeUpstoxSource:
 
 
 class PremiumTargetSelectionCacheTests(unittest.TestCase):
+    def test_current_week_does_not_jump_across_a_missing_expiry(self):
+        selected = UpstoxHistoricalPremiumSelector._expiry_for(
+            [date(2026, 3, 19)],
+            date(2026, 3, 1),
+            "current_week",
+        )
+
+        self.assertIsNone(selected)
+
     def test_selected_frame_cache_does_not_pin_closed_contract_history(self):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -107,6 +116,19 @@ class PremiumTargetSelectionCacheTests(unittest.TestCase):
             self.assertEqual(resolved.strike, 25000)
             self.assertEqual(repeat.cache_summary()["selection_hits"], 1)
             self.assertEqual(repeat.cache_summary()["selection_misses"], 0)
+
+    def test_cache_summary_reports_expiry_coverage(self):
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("data.backtest_upstox.UpstoxPremiumSource", _FakeUpstoxSource),
+        ):
+            _FakeUpstoxSource.cache_dir = tmpdir
+            selector = UpstoxHistoricalPremiumSelector("NIFTY")
+
+            summary = selector.cache_summary()
+
+            self.assertEqual(summary["first_expiry"], "2026-03-19")
+            self.assertEqual(summary["last_expiry"], "2026-03-19")
 
 
 if __name__ == "__main__":

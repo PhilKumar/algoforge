@@ -152,5 +152,29 @@ class PollResilienceSourceTests(unittest.TestCase):
         self.assertIn("Rejoining", self.body)
 
 
+class CopyEditParitySourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "philforge-app.js")
+        cls.source = open(path, encoding="utf-8").read()
+
+    def test_requested_result_is_fetched_instead_of_using_stale_view_state(self):
+        start = self.source.index("async function copyEditStrategy(runId)")
+        body = self.source[start : self.source.index("async function", start + 20)]
+        self.assertIn("if (runId)", body)
+        self.assertIn("fetch('/api/runs/' + runId)", body)
+
+    def test_legacy_runs_restore_zero_costs_as_custom(self):
+        start = self.source.index("function restoreExecutionSettings(source)")
+        body = self.source[start : self.source.index("\n}", start) + 2]
+        self.assertIn("data.execution_profile || 'custom'", body)
+        self.assertIn("data.spread_bps ?? 0", body)
+        self.assertIn("data.enforce_capital", body)
+
+    def test_next_minute_timing_is_saved_and_restored(self):
+        self.assertIn("execution_mode: document.getElementById('execution-mode').value", self.source)
+        self.assertIn("inferredNextMinute", self.source)
+
+
 if __name__ == "__main__":
     unittest.main()

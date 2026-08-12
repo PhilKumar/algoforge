@@ -9,6 +9,8 @@ the disk cache directly, so no token or network is required.
 """
 
 import json
+import os
+import time
 from datetime import date
 from pathlib import Path
 
@@ -97,6 +99,38 @@ def test_release_memory_drops_parsed_candles_but_keeps_contract_metadata(tmp_pat
 
     assert source._series == {}
     assert source._contracts[expiry] == {(25000, "CE"): "NSE_FO|contract"}
+
+
+def test_stale_expiry_cache_refreshes_without_discarding_cached_coverage(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path, NIFTY_INDEX_KEY)
+    cache = tmp_path / "expiries.json"
+    cache.write_text(json.dumps(["2026-07-28"]))
+    stale = time.time() - (7 * 60 * 60)
+    os.utime(cache, (stale, stale))
+
+    monkeypatch.setattr(
+        source,
+        "_get",
+        lambda path, params=None: {"status": "success", "data": ["2026-07-28", "2026-08-04"]},
+    )
+
+    assert source.available_expiries() == {date(2026, 7, 28), date(2026, 8, 4)}
+    assert json.loads(cache.read_text()) == ["2026-07-28", "2026-08-04"]
+
+
+def test_uncached_provider_failure_is_not_silenced_as_missing_history(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path, NIFTY_INDEX_KEY)
+    expiry = date(2026, 7, 30)
+
+    def fail(*_args, **_kwargs):
+        raise UpstoxAccessError("token expired")
+
+    monkeypatch.setattr(source, "_get", fail)
+
+    with pytest.raises(UpstoxAccessError, match="token expired"):
+        source._contract_index(expiry)
+    with pytest.raises(UpstoxAccessError, match="token expired"):
+        source._minute_series("NSE_FO|missing", expiry)
 
 
 if __name__ == "__main__":

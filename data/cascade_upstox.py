@@ -192,12 +192,24 @@ class UpstoxPremiumSource:
         set can never be priced -- the caller should know before a long run."""
         if self._expiries is None:
             cache = self._meta_dir / "expiries.json"
-            if cache.exists():
-                raw = json.loads(cache.read_text())
-            else:
-                body = self._get("/expired-instruments/expiries", {"instrument_key": self._underlying})
-                raw = [str(x) for x in (body.get("data") or [])]
-                cache.write_text(json.dumps(raw))
+            cached_raw = json.loads(cache.read_text()) if cache.exists() else None
+            raw = cached_raw
+            if self._cache_only and cached_raw is None:
+                raise UpstoxAccessError(
+                    f"Upstox cache has no expiry coverage for {self._underlying}; offline pricing cannot continue."
+                )
+            cache_is_fresh = cache.exists() and (time.time() - cache.stat().st_mtime) < (6 * 60 * 60)
+            if not self._cache_only and not cache_is_fresh:
+                try:
+                    body = self._get("/expired-instruments/expiries", {"instrument_key": self._underlying})
+                except UpstoxAccessError:
+                    if cached_raw is None:
+                        raise
+                else:
+                    raw = [str(x) for x in (body.get("data") or [])]
+                    cache.write_text(json.dumps(raw))
+            if raw is None:
+                raw = []
             self._expiries = {date.fromisoformat(x) for x in raw}
         return self._expiries
 
@@ -223,8 +235,11 @@ class UpstoxPremiumSource:
                 )
             except UpstoxAccessError:
                 # A failed refresh must never erase previously cached history.
-                # If this is a brand-new expiry, it resolves to an honest gap.
-                raw = cached_raw if cached_raw is not None else {}
+                # A brand-new expiry must fail loudly instead of turning an
+                # expired token into thousands of silent pricing gaps.
+                if cached_raw is None:
+                    raise
+                raw = cached_raw
             else:
                 raw = {}
                 for contract in body.get("data") or []:
@@ -266,7 +281,12 @@ class UpstoxPremiumSource:
                 rows = (body.get("data") or {}).get("candles") or []
             except UpstoxAccessError:
                 # Keep a good cached series when an attempted backfill fails.
-                rows = cached_rows if cached_rows is not None else []
+                # With no cached series, propagate the provider failure. The
+                # caller can report an invalid token immediately rather than
+                # spend hours producing an empty backtest.
+                if cached_rows is None:
+                    raise
+                rows = cached_rows
             else:
                 cache.write_text(json.dumps(rows))
 
