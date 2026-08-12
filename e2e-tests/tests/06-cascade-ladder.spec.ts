@@ -135,3 +135,49 @@ test('a running campaign shows the rung it is on, not the one it started on', as
 
   await expect(card).toContainText('12 more 1d bars to 1W');
 });
+
+test('a refusal shows the reason the server gave, not a generic failure', async ({ page }) => {
+  // error_handlers.py answers 4xx as { success:false, error:{ code,title,message,detail } }.
+  // The page read `data.detail`, found nothing, and printed its fallback — so
+  // every fixable refusal on this page looked like an unexplained failure.
+  await openEquityCascade(page, { status: 'ok', campaigns: [] });
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-08-03T09:15';
+    (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value = 'ADANIENT';
+  });
+  await page.route('**/api/terminal/cascade/start', route => route.fulfill({
+    status: 400, contentType: 'application/json',
+    body: JSON.stringify({
+      success: false,
+      error: { code: 400, title: 'Bad Request', message: 'The request could not be understood.',
+               detail: '15m mother timestamp is not aligned.' },
+    }),
+  }));
+
+  await page.click('#terminal-cascade-start');
+  await page.click('#confirm-ok-btn');
+  await expect(page.locator('#terminal-cascade-form-status')).toContainText('15m mother timestamp is not aligned');
+  await expect(page.locator('#terminal-cascade-form-status')).not.toContainText('did not start');
+});
+
+test('changing the start timeframe snaps the mother onto that grid', async ({ page }) => {
+  await openEquityCascade(page, { status: 'ok', campaigns: [] });
+  const stamp = page.locator('#terminal-cascade-mother-timestamp');
+
+  // 10:05 is a real 5m bar and NOT a real 15m one. It must move to 10:00, the
+  // open of the 15m bar that contains it — grids run from 09:15, so 10:00 is on
+  // the 15m grid (09:15, 09:30, 09:45, 10:00).
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-08-03T10:05';
+  });
+  await page.selectOption('#terminal-cascade-timeframe', '15m');
+  await expect(stamp).toHaveValue('2026-08-03T10:00');
+
+  // 1H is NSE aligned at :15, never :00.
+  await page.selectOption('#terminal-cascade-timeframe', '1h');
+  await expect(stamp).toHaveValue('2026-08-03T09:15');
+
+  // A daily mother is always the 09:15 session open.
+  await page.selectOption('#terminal-cascade-timeframe', '1d');
+  await expect(stamp).toHaveValue('2026-08-03T09:15');
+});

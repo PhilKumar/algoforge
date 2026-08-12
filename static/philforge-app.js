@@ -74,7 +74,7 @@ function _promptForActionAuthorization(challenge) {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.action_token) {
-          status.textContent = data.detail || 'Verification failed. Use a fresh authenticator code.';
+          status.textContent = pfErrorText(data, 'Verification failed. Use a fresh authenticator code.');
           totp.value = '';
           totp.focus();
           return;
@@ -100,7 +100,7 @@ window.fetch = async function philForgeProtectedFetch(input, init) {
   if (response.status !== 428 || request.method === 'GET') return response;
   const challenge = await response.clone().json().catch(() => ({}));
   if (challenge.code === 'mfa_enrollment_required') {
-    toast(challenge.detail || 'Set up an authenticator in Account Settings first.', 'warn');
+    toast(pfErrorText(challenge, 'Set up an authenticator in Account Settings first.'), 'warn');
     openAccountModal();
     return response;
   }
@@ -434,6 +434,21 @@ let _userProfile = null;
 let _adminUsers = [];
 let _adminEngineRows = [];
 
+// Every API refusal comes back in the standard envelope error_handlers.py
+// builds: { success:false, error:{ code, title, message, detail } }. The
+// SPECIFIC reason lives at error.detail and is only present for 4xx — exactly
+// the cases a user can fix. Reading `data.detail` finds nothing there, so every
+// refusal on this page was showing its generic fallback instead: "Terminal
+// Cascade did not start" where the server had said "15m mother timestamp is not
+// aligned". Falls back to the bare `detail` shape for endpoints that still use
+// FastAPI's default.
+function pfErrorText(body, fallback) {
+  const error = body && typeof body === 'object' ? body.error : null;
+  return (error && (error.detail || error.message))
+    || (body && body.detail)
+    || fallback;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -753,7 +768,7 @@ async function startMfaEnrollment() {
       body: JSON.stringify({ password, ...(code ? { totp: code } : {}) }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'pending') throw new Error(data.detail || 'Could not start authenticator setup');
+    if (!res.ok || data.status !== 'pending') throw new Error(pfErrorText(data, 'Could not start authenticator setup'));
     document.getElementById('account-mfa-secret').textContent = data.secret;
     const qr = document.getElementById('account-mfa-qr');
     if (data.qr_data_uri) {
@@ -789,7 +804,7 @@ async function verifyMfaEnrollment() {
       body: JSON.stringify({ password, totp: code }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || 'Authenticator verification failed');
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, 'Authenticator verification failed'));
     document.getElementById('account-mfa-enrollment').hidden = true;
     document.getElementById('account-mfa-verify-btn').hidden = true;
     document.getElementById('account-mfa-password').value = '';
@@ -820,7 +835,7 @@ async function disableMfa() {
       body: JSON.stringify({ password, totp: code }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || 'Could not disable authenticator');
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, 'Could not disable authenticator'));
     await purgeAuthenticatedShellCaches();
     location.reload();
   } catch (e) {
@@ -1847,7 +1862,7 @@ async function refreshCascadeOptionsStatus() {
   try {
     const response = await fetch('/api/cascade/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.detail || 'Unable to load Cascade campaign');
+    if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load Cascade campaign'));
     _lastCascadeOptionsStatus = data;
     _renderCascadeOptionsStatus(data);
   } catch (error) {
@@ -2009,7 +2024,7 @@ function _renderCandleEntryMonitor(campaign) {
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
     const text = _candleEntryEventDescription(event);
-    return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="candle-entry-muted">${escapeHtml(text.detail || 'Campaign status updated.')}</td></tr>`;
+    return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="candle-entry-muted">${escapeHtml(pfErrorText(text, 'Campaign status updated.'))}</td></tr>`;
   }).join('') : '<tr><td colspan="3" class="candle-entry-empty">Updates will appear here when a candle qualifies, the entry stop arms, a paper trade opens or closes, or an option quote is unavailable.</td></tr>';
 }
 
@@ -2017,7 +2032,7 @@ async function refreshCandleEntryStatus() {
   try {
     const response = await fetch('/api/candle-entry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.detail || 'Unable to load Candle Entry campaign');
+    if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load Candle Entry campaign'));
     _renderCandleEntryStatus(data);
   } catch (error) {
     const summary = _cascadeOptionsEl('candle-entry-summary');
@@ -2059,7 +2074,7 @@ async function startCandleEntryPaper() {
     return;
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !['started', 'replayed'].includes(data.status)) { _setCandleEntryFormStatus(data?.detail || 'Candle Entry campaign did not start.', 'error'); return; }
+  if (!response.ok || !['started', 'replayed'].includes(data.status)) { _setCandleEntryFormStatus(pfErrorText(data, 'Candle Entry campaign did not start.'), 'error'); return; }
   _setCandleEntryFormStatus(data.status === 'replayed' ? 'Historical replay completed. Fixed-strike P&L is withheld.' : 'Ladder paper campaign started. No live order will be sent.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
 }
@@ -2069,7 +2084,7 @@ async function killCandleEntryPaper() {
   if (!confirmed) return;
   const response = await fetch('/api/candle-entry/paper/kill', { method: 'POST', credentials: 'same-origin' });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.status !== 'killed') { _setCandleEntryFormStatus(data?.detail || 'Candle Entry kill could not be confirmed.', 'error'); return; }
+  if (!response.ok || data.status !== 'killed') { _setCandleEntryFormStatus(pfErrorText(data, 'Candle Entry kill could not be confirmed.'), 'error'); return; }
   _setCandleEntryFormStatus('Candle Entry campaign killed.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
 }
@@ -2223,7 +2238,7 @@ async function stopCascadeOptionsPaper() {
   try {
     const response = await fetch('/api/cascade/paper/stop', { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.detail || 'Unable to stop paper campaign');
+    if (!response.ok) throw new Error(pfErrorText(data, 'Unable to stop paper campaign'));
     _cascadeOptionsSetFormStatus('Paper monitoring stopped; its state remains saved.', 'success');
     await refreshCascadeOptionsStatus();
   } catch (error) {
@@ -2899,7 +2914,7 @@ function _apiErrorMessage(data, fallback) {
   const detail = data?.detail ?? data?.error?.detail ?? data?.error?.message ?? data?.message;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail)) {
-    const joined = detail.map(row => row?.msg || row?.detail || '').filter(Boolean).join('; ');
+    const joined = detail.map(row => row?.msg || pfErrorText(row, '')).filter(Boolean).join('; ');
     if (joined) return joined;
   }
   return fallback;
@@ -3279,7 +3294,7 @@ async function refreshFibBoundaryStatus() {
   try {
     const response = await fetch('/api/fib-boundary/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.detail || 'Unable to load fib-boundary campaigns');
+    if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load fib-boundary campaigns'));
     _renderFibBoundaryStatus(data);
   } catch (error) {
     const summary = document.querySelector('#fibx-monitors [data-fx="summary"]');
@@ -6155,7 +6170,7 @@ async function refreshTerminalCascadeStatus() {
   try {
     const res = await fetch('/api/terminal/cascade/status', { credentials: 'same-origin', cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.detail || 'Unable to load Terminal Cascade');
+    if (!res.ok) throw new Error(pfErrorText(data, 'Unable to load Terminal Cascade'));
     _renderTerminalCascadeStatus(data);
     _terminalCascadePollChartRefresh();
   } catch (error) {
@@ -6223,7 +6238,10 @@ async function startTerminalCascadePaper() {
   const timeframe = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
   const payload = {
     symbol,
-    mother_timestamp: timeframe === '1d' ? `${timestamp.slice(0, 10)}T09:15` : timestamp,
+    // Snap here too: the mother can be set by the chart or the scanner AFTER
+    // the timeframe was chosen, so the select's own handler is not the only way
+    // an unaligned value reaches this point.
+    mother_timestamp: _terminalCascadeSnapMother(timestamp, timeframe),
     capital_inr: capital,
     timeframe,
     target_fraction: targetPct / 100,
@@ -6242,7 +6260,7 @@ async function startTerminalCascadePaper() {
   try {
     const res = await fetch('/api/terminal/cascade/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.status !== 'started') throw new Error(data?.detail || 'Terminal Cascade did not start');
+    if (!res.ok || data.status !== 'started') throw new Error(pfErrorText(data, 'Terminal Cascade did not start'));
     _terminalCascadeSetStatus('Terminal Cascade paper campaign started.', 'success');
     await refreshTerminalCascadeStatus();
     loadTerminalCascadeChart(symbol, timestamp, payload.timeframe).catch(() => {});
@@ -6258,7 +6276,7 @@ async function stopTerminalCascadePaper(symbol) {
   if (!target) return;
   const res = await fetch(`/api/terminal/cascade/stop?symbol=${encodeURIComponent(target)}`, { method: 'POST', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { _terminalCascadeSetStatus(data?.detail || 'Stop failed.', 'error'); return; }
+  if (!res.ok) { _terminalCascadeSetStatus(pfErrorText(data, 'Stop failed.'), 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade monitoring stopped.', 'success');
   refreshTerminalCascadeStatus();
 }
@@ -6270,7 +6288,7 @@ async function deleteTerminalCascadePaper(symbol) {
   if (!ok) return;
   const res = await fetch(`/api/terminal/cascade?symbol=${encodeURIComponent(target)}`, { method: 'DELETE', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.status !== 'deleted') { _terminalCascadeSetStatus(data?.detail || 'Delete failed.', 'error'); return; }
+  if (!res.ok || data.status !== 'deleted') { _terminalCascadeSetStatus(pfErrorText(data, 'Delete failed.'), 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade paper campaign deleted — its record moved to Closed Campaigns.', 'success');
   refreshTerminalCascadeStatus();
   refreshTerminalClosedCampaigns();
@@ -6283,7 +6301,7 @@ async function killTerminalCascadePaper(symbol) {
   if (!ok) return;
   const res = await fetch(`/api/terminal/cascade/kill?symbol=${encodeURIComponent(target)}`, { method: 'POST', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.status !== 'killed') { _terminalCascadeSetStatus(data?.detail || 'Kill failed.', 'error'); return; }
+  if (!res.ok || data.status !== 'killed') { _terminalCascadeSetStatus(pfErrorText(data, 'Kill failed.'), 'error'); return; }
   _terminalCascadeSetStatus('Terminal Cascade campaign killed.', 'success');
   refreshTerminalCascadeStatus();
 }
@@ -6689,7 +6707,7 @@ async function refreshTerminalClosedCampaigns() {
   try {
     const res = await fetch('/api/terminal/cascade/closed', { credentials: 'same-origin', cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || 'Unable to load closed campaigns');
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, 'Unable to load closed campaigns'));
     _terminalClosedCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
   } catch (error) {
     _terminalClosedCampaigns = _terminalClosedCampaigns || [];
@@ -6703,7 +6721,7 @@ async function purgeTerminalClosedCampaign(archiveId) {
   if (!ok) return;
   const res = await fetch(`/api/terminal/cascade/closed/${encodeURIComponent(archiveId)}`, { method: 'DELETE', credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.status !== 'purged') { _terminalCascadeSetStatus(data?.detail || 'Purge failed.', 'error'); return; }
+  if (!res.ok || data.status !== 'purged') { _terminalCascadeSetStatus(pfErrorText(data, 'Purge failed.'), 'error'); return; }
   refreshTerminalClosedCampaigns();
 }
 
@@ -6762,15 +6780,45 @@ function _terminalCascadeMarkChartTimeframe(resolved) {
   });
 }
 
+// Minutes per bar for the timeframes the mother picker offers.
+const TERMINAL_CASCADE_TF_MINUTES = { '5m': 5, '15m': 15, '1h': 60, '1d': 375 };
+
+/** Snap a mother timestamp onto its timeframe's grid, measured from 09:15.
+ *
+ * The server rejects an unaligned mother — a 15m campaign cannot be anchored to
+ * 10:05 because no 15m bar opens there. Rejecting is right; making the user
+ * discover it by pressing Start is not, so the picker moves the time to the
+ * open of the bar that CONTAINS it. Grids run from the 09:15 session open, not
+ * from the hour, which is why 1H means :15 and not :00.
+ */
+function _terminalCascadeSnapMother(value, timeframe) {
+  const minutes = TERMINAL_CASCADE_TF_MINUTES[timeframe] || 5;
+  if (!value || value.length < 16) return value;
+  const date = value.slice(0, 10);
+  if (minutes >= TERMINAL_CASCADE_TF_MINUTES['1d']) return `${date}T09:15`;
+  const sinceOpen = (Number(value.slice(11, 13)) * 60 + Number(value.slice(14, 16))) - 555;
+  if (!Number.isFinite(sinceOpen)) return value;
+  const open = 555 + Math.max(0, Math.floor(sinceOpen / minutes)) * minutes;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date}T${pad(Math.floor(open / 60))}:${pad(open % 60)}`;
+}
+
 function terminalCascadeTimeframeChanged() {
   // A daily mother is its date: the engine identifies it by the 09:15 session
   // open, so snap whatever time is in the picker rather than rejecting it.
-  const tf = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
+  const tf = _terminalCascadeEl('terminal-cascade-timeframe')?.value || '15m';
   const input = _terminalCascadeEl('terminal-cascade-mother-timestamp');
   if (!input) return;
-  if (tf === '1d' && input.value) input.value = `${input.value.slice(0, 10)}T09:15`;
+  // Every timeframe snaps now, not only 1D. The start default moved from 5m to
+  // 15m, which silently invalidated any 5m-aligned time already in the box: the
+  // server answered "15m mother timestamp is not aligned" and the page showed
+  // its generic "did not start".
+  if (input.value) input.value = _terminalCascadeSnapMother(input.value, tf);
   if (tf === '1d') { input.step = 86400; input.title = 'Daily mother: pick the date — the time is always 09:15 IST.'; }
-  else { input.step = 300; input.title = ''; }
+  else {
+    input.step = TERMINAL_CASCADE_TF_MINUTES[tf] * 60;
+    input.title = `${tf} mothers open on the ${tf} grid from 09:15 IST.`;
+  }
   terminalCascadeLadderChanged();
 }
 
@@ -7528,7 +7576,7 @@ async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timef
     const url = `/api/terminal/cascade/chart?symbol=${encodeURIComponent(symbol)}&mother_timestamp=${encodeURIComponent(timestamp)}&timeframe=${encodeURIComponent(timeframe)}`;
     const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${res.status})`);
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${res.status})`));
     _terminalCascadeChartPayload = data;
     _terminalCascadeChartContext = { symbol, timestamp, timeframe: data.timeframe || timeframe };
     if (body) body.innerHTML = _terminalCascadeChartHtml(data);
@@ -8519,7 +8567,7 @@ async function submitScalpEntry(direction) {
       // Also trigger a full refresh to get authoritative server state
       refreshScalpStatus();
     } else {
-      statusEl.textContent = '❌ ' + (data.error?.detail || data.error?.message || data.message || data.detail || 'Entry failed');
+      statusEl.textContent = '❌ ' + (data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Entry failed'));
       statusEl.style.color = 'var(--danger)';
     }
   } catch(e) {
@@ -8966,7 +9014,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (requestId !== _scalpOptionChartRequest || _scalpOptionChartTradeId !== id) return;
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.detail || `Chart failed (${response.status})`);
+    if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
     const title = document.getElementById('scalp-option-chart-title');
@@ -12403,7 +12451,7 @@ async function deployStrategy() {
         _activeRunMode = 'paper';
       } else {
         console.error('[Deploy] Paper start error:', data);
-        toast(data.error?.detail || data.error?.message || data.message || data.detail || 'Paper deploy failed', 'danger');
+        toast(data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Paper deploy failed'), 'danger');
         closeDeployModal();
         return;
       }
@@ -12439,7 +12487,7 @@ async function deployStrategy() {
         _activeRunMode = 'auto';
       } else {
         console.error('[Deploy] Auto start error:', data);
-        toast(data.error?.detail || data.error?.message || data.message || data.detail || 'Auto deploy failed', 'danger');
+        toast(data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Auto deploy failed'), 'danger');
         closeDeployModal();
         return;
       }
@@ -15345,7 +15393,7 @@ fetchRuns = async function() {
         const d = await r.json();
         _chCloseInputModal();
         if (d.status === 'ok') { showToast('Folder renamed', 'success'); _chLoadTree(); }
-        else { showToast(d.detail || 'Rename failed', 'error'); }
+        else { showToast(pfErrorText(d, 'Rename failed'), 'error'); }
       } catch (e) { _chCloseInputModal(); showToast('Rename failed: ' + e.message, 'error'); }
     });
   };
@@ -15364,7 +15412,7 @@ fetchRuns = async function() {
         const d = await r.json();
         _chCloseInputModal();
         if (d.status === 'ok') { showToast('Folder created', 'success'); _chLoadTree(); }
-        else { showToast(d.detail || 'Create failed', 'error'); }
+        else { showToast(pfErrorText(d, 'Create failed'), 'error'); }
       } catch (e) { _chCloseInputModal(); showToast('Create failed: ' + e.message, 'error'); }
     });
   };
@@ -15384,7 +15432,7 @@ fetchRuns = async function() {
         const d = await r.json();
         _chCloseInputModal();
         if (d.status === 'ok') { showToast('Month folder created', 'success'); _chLoadTree(); }
-        else { showToast(d.detail || 'Create failed', 'error'); }
+        else { showToast(pfErrorText(d, 'Create failed'), 'error'); }
       } catch (e) { _chCloseInputModal(); showToast('Create failed: ' + e.message, 'error'); }
     });
   };
@@ -16249,7 +16297,7 @@ fetchRuns = async function() {
           const ct = r.headers.get('content-type') || '';
           if (ct.includes('application/json')) {
             const err = await r.json();
-            throw new Error(err.detail || 'Upload failed (' + r.status + ')');
+            throw new Error(pfErrorText(err, 'Upload failed (') + r.status + ')');
           }
           throw new Error('Server error ' + r.status + (r.status === 413 ? ' — file too large' : ''));
         }
@@ -16728,7 +16776,7 @@ async function openSavedTestBenchRun(event, el) {
   try {
     const response = await fetch(`/api/test-bench/results/${id}`, { credentials: 'same-origin' });
     const data = await response.json();
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.error?.detail || 'Could not open that run.');
+    if (!response.ok || data.status !== 'ok') throw new Error(data?.pfErrorText(error, 'Could not open that run.'));
     _tbRender(data);
     _tbStatus(`Saved run from ${_tbTime(data.stored_at)}.`, '');
     _tbForceNextRun = true;
@@ -16826,7 +16874,7 @@ async function recoveryStart() {
   try {
     const res = await apiFetch('/api/recovery/paper/start', { method: 'POST', body: JSON.stringify(body) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Could not start the run.');
+    if (!res.ok) throw new Error(pfErrorText(data, 'Could not start the run.'));
     if (data.readopted_mothers) showToast(`Re-adopted ${data.readopted_mothers} named mother(s)`, 'info');
     refreshRecoveryStatus();
   } catch (err) {
