@@ -457,9 +457,13 @@ test('Preview Chart draws the scrip you picked, not the first running campaign',
   await openEquityCascade(page, twoRunningCampaigns());
   const picked = await pickScrip(page);
   expect(['ADANIENT', 'TATAPOWER']).not.toContain(picked);
-  await page.evaluate(() => {
+  // Both fields in ONE evaluate immediately before the click: the scrip list
+  // loads asynchronously and re-renders this input, so setting it earlier can
+  // be undone under CI timing.
+  await page.evaluate((symbol) => {
+    (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value = symbol;
     (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-08-03T09:15';
-  });
+  }, picked);
 
   const asked = await chartRequestFor(page, () => page.click('#terminal-cascade-chart-btn'));
   expect(asked.get('symbol')).toBe(picked);
@@ -471,9 +475,10 @@ test('Preview Chart draws the scrip you picked, not the first running campaign',
 test('a picked scrip with no mother is refused, never quietly swapped', async ({ page }) => {
   await openEquityCascade(page, twoRunningCampaigns());
   const picked = await pickScrip(page);
-  await page.evaluate(() => {
+  await page.evaluate((symbol) => {
+    (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value = symbol;
     (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '';
-  });
+  }, picked);
 
   let called = false;
   await page.route('**/api/terminal/cascade/chart**', route => { called = true; return route.abort(); });
@@ -495,4 +500,27 @@ test('a campaign card still charts its own campaign', async ({ page }) => {
   const asked = await chartRequestFor(page, () => card.getByRole('button', { name: 'Chart', exact: true }).first().click());
   expect(asked.get('symbol')).toBe('TATAPOWER');
   expect(asked.get('mother_timestamp')).toBe('2026-03-09T09:15:00+05:30');
+});
+
+test('with nothing picked it asks for a scrip, it does not chart a campaign', async ({ page }) => {
+  // The same substitution in miniature: an empty form used to fall through to
+  // campaigns[0]. Preview names the gap instead.
+  //
+  // The list is emptied BEFORE login, because the page auto-selects the first
+  // name when it has one — and clearing the input afterwards would not undo
+  // that: `_stockTerminalSelected` is a module-scope binding that survives it,
+  // and it is what the resolver reads first.
+  await page.route('**/api/terminal/nifty200**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', data: [] }),
+  }));
+  await openEquityCascade(page, twoRunningCampaigns());
+  let called = false;
+  await page.route('**/api/terminal/cascade/chart**', route => { called = true; return route.abort(); });
+  // A mother IS given, so a refusal can only be about the missing scrip.
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-08-03T09:15';
+  });
+  await page.click('#terminal-cascade-chart-btn');
+  await expect(page.locator('#terminal-cascade-form-status')).toContainText('Pick a scrip');
+  expect(called).toBe(false);
 });
