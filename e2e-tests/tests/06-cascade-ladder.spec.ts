@@ -287,6 +287,13 @@ test('a ladder that can never reach one share says THAT, and names the capital',
    tests hold it to two things a stale doc always fails: it must state the
    numbers the ENGINE uses, and it must not sell the ladder as free money. */
 
+/** How many columns the doc is actually rendered in, measured, not declared. */
+async function renderedColumns(doc: any) {
+  const xs = await doc.locator('section').evaluateAll(nodes =>
+    nodes.map(n => Math.round(n.getBoundingClientRect().x)));
+  return new Set(xs).size;
+}
+
 async function openStrategyDoc(page: Page) {
   await openEquityCascade(page, { status: 'ok', campaigns: [] });
   const doc = page.locator('#cash-cascade-rules');
@@ -352,24 +359,135 @@ test('on a wide screen the doc fills the card instead of hugging the left', asyn
   await page.setViewportSize({ width: 1800, height: 1100 });
   const doc = await openStrategyDoc(page);
 
-  const columns = await doc.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  expect(columns).toBeGreaterThan(1);
+  expect(await renderedColumns(doc)).toBeGreaterThan(1);
 
   const block = (await doc.boundingBox())!;
   const card = (await page.locator('#terminal-cascade-panel').boundingBox())!;
   expect(block.width).toBeGreaterThan(card.width * 0.9);
 
   // Filling the width must not have made the prose unreadable: a column has to
-  // stay near a normal measure, which is what the min track size is for.
+  // stay near a normal measure, which is what the column width is for.
   const column = (await doc.locator('section').first().boundingBox())!;
   expect(column.width).toBeLessThan(620);
+});
+
+test('the steps pack down each column with no holes left under the short ones', async ({ page }) => {
+  // Phil: "Move the 10 above correctly". The first fix used a GRID, which lays
+  // out in rows, so every row was as tall as its tallest step and step 10 sat
+  // alone under a third of a screen of white. Columns flow instead: within a
+  // column, each step starts where the one above it ended.
+  await page.setViewportSize({ width: 1800, height: 1100 });
+  const doc = await openStrategyDoc(page);
+
+  const boxes = await doc.locator('section').evaluateAll(nodes => nodes.map((n) => {
+    const r = n.getBoundingClientRect();
+    return { x: Math.round(r.x), top: r.top, bottom: r.bottom };
+  }));
+  const byColumn = new Map<number, { top: number; bottom: number }[]>();
+  for (const box of boxes) {
+    if (!byColumn.has(box.x)) byColumn.set(box.x, []);
+    byColumn.get(box.x)!.push(box);
+  }
+  expect(byColumn.size).toBeGreaterThan(1);
+  for (const column of byColumn.values()) {
+    column.sort((a, b) => a.top - b.top);
+    for (let i = 1; i < column.length; i += 1) {
+      // The 15px section margin, and nothing like a row's worth of dead space.
+      expect(column[i].top - column[i - 1].bottom).toBeLessThan(40);
+    }
+  }
 });
 
 test('on a phone it is one column and the page never scrolls sideways', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 850 });
   const doc = await openStrategyDoc(page);
-  const columns = await doc.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  expect(columns).toBe(1);
+  expect(await renderedColumns(doc)).toBe(1);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+/* ── Preview Chart draws what the FORM says ───────────────────────────
+   Phil: "why chart button is here... After loading the stock also it is not
+   showing the correct chart." One fault behind both. The button passed no
+   arguments and the resolver preferred a running campaign, then fell back to
+   campaigns[0] — so with campaigns live it drew whichever stock was first in
+   the list, at ITS mother, whatever you had picked. */
+
+/** Pick a scrip the way the scanner does — `_stockTerminalSelected` is
+ *  module-scope, so the only honest way in is the page's own selector. The
+ *  page auto-selects the first name in the list, which is exactly the state
+ *  the bug hid in: a scrip IS selected and the chart drew a campaign instead. */
+async function pickScrip(page: Page) {
+  return page.evaluate(() => {
+    for (const want of ['INFY', 'TCS', 'RELIANCE', 'SBIN']) {
+      // @ts-ignore — page global
+      selectStockTerminal(want, { skipQuote: true });
+      if ((document.getElementById('stock-terminal-symbol') as HTMLInputElement).value === want) return want;
+    }
+    return (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value;
+  });
+}
+
+function twoRunningCampaigns() {
+  const one = climbingCampaign().campaigns[0];
+  const two = JSON.parse(JSON.stringify(one));
+  two.instrument = { symbol: 'TATAPOWER', name: 'Tata Power', signal_symbol: 'TATAPOWER', reference_mode: 'own_scrip' };
+  two.mother.signal.timestamp = '2026-03-09T09:15:00+05:30';
+  return { status: 'ok', campaigns: [one, two] };
+}
+
+/** The symbol+mother the chart endpoint was actually asked for. */
+async function chartRequestFor(page: Page, act: () => Promise<void>) {
+  let asked: URLSearchParams | null = null;
+  await page.route('**/api/terminal/cascade/chart**', route => {
+    asked = new URL(route.request().url()).searchParams;
+    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ status: 'error' }) });
+  });
+  await act();
+  await expect.poll(() => asked).not.toBeNull();
+  return asked!;
+}
+
+test('Preview Chart draws the scrip you picked, not the first running campaign', async ({ page }) => {
+  await openEquityCascade(page, twoRunningCampaigns());
+  const picked = await pickScrip(page);
+  expect(['ADANIENT', 'TATAPOWER']).not.toContain(picked);
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-08-03T09:15';
+  });
+
+  const asked = await chartRequestFor(page, () => page.click('#terminal-cascade-chart-btn'));
+  expect(asked.get('symbol')).toBe(picked);
+  // ADANIENT's mother is 2026-02-02 — charting the typed one is the whole point.
+  expect(asked.get('mother_timestamp')).toBe('2026-08-03T09:15');
+  expect(asked.get('timeframe')).toBe('15m');
+});
+
+test('a picked scrip with no mother is refused, never quietly swapped', async ({ page }) => {
+  await openEquityCascade(page, twoRunningCampaigns());
+  const picked = await pickScrip(page);
+  await page.evaluate(() => {
+    (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '';
+  });
+
+  let called = false;
+  await page.route('**/api/terminal/cascade/chart**', route => { called = true; return route.abort(); });
+  await page.click('#terminal-cascade-chart-btn');
+
+  const status = page.locator('#terminal-cascade-form-status');
+  await expect(status).toContainText('mother candle');
+  await expect(status).toContainText(picked);
+  expect(called).toBe(false);
+});
+
+test('a campaign card still charts its own campaign', async ({ page }) => {
+  // The cards pass symbol and mother explicitly; that path must be untouched.
+  await openEquityCascade(page, twoRunningCampaigns());
+  const card = page.locator('[data-terminal-cascade-symbol="TATAPOWER"]');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await card.locator('summary').click();
+
+  const asked = await chartRequestFor(page, () => card.getByRole('button', { name: 'Chart', exact: true }).first().click());
+  expect(asked.get('symbol')).toBe('TATAPOWER');
+  expect(asked.get('mother_timestamp')).toBe('2026-03-09T09:15:00+05:30');
 });
