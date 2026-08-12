@@ -126,7 +126,12 @@
   function campaignRow(campaign) {
     var mother = campaign.mother || {};
     var when = mother.timestamp ? String(mother.timestamp).slice(0, 16).replace('T', ' ') : '—';
-    var actions = '';
+    // Every campaign can show its own picture — symbol AND mother travel on
+    // the button, so this draws the campaign's chart, not whatever the setup
+    // form happens to hold.
+    var actions = '<button type="button" class="btn btn-sm btn-outline" data-two-red-chart="' +
+      esc(campaign.symbol) + '" data-two-red-chart-mother="' + esc(mother.timestamp || '') +
+      '" data-two-red-chart-tf="' + esc(mother.timeframe || '1d') + '">Chart</button>';
     if (campaign.running) {
       actions += '<button type="button" class="btn btn-sm btn-outline" data-two-red-stop="' +
         esc(campaign.symbol) + '">Stop</button>';
@@ -160,31 +165,51 @@
       '</tr>';
   }
 
+  /* Phil: "the chart is flickering". The poll rewrote both tables with
+   * innerHTML every 15 seconds whether anything changed or not, and behind the
+   * chart overlay's translucent, blurred backdrop each wipe-and-rebuild reads
+   * as a flicker of the whole picture. Two rules kill it: a panel is only
+   * touched when its rendered markup actually CHANGED, and nothing repaints at
+   * all while the chart overlay is open (same freeze the Cascade journal uses
+   * — the table under a dialog has no viewer). */
+  var lastHtml = { campaigns: null, closed: null };
+
+  function setHtml(which, body, html) {
+    if (lastHtml[which] === html) return;
+    lastHtml[which] = html;
+    body.innerHTML = html;
+  }
+
+  function chartOverlayOpen() {
+    var overlay = $('tworeds-chart-overlay');
+    return !!overlay && overlay.classList.contains('is-open');
+  }
+
   function renderCampaigns(campaigns) {
     var body = $('tworeds-campaigns-body');
     if (!body) return;
     if (!campaigns.length) {
-      body.innerHTML = '<div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>';
+      setHtml('campaigns', body, '<div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>');
       return;
     }
-    body.innerHTML =
+    setHtml('campaigns', body,
       '<div class="cascade-scan-table-wrap"><table class="cascade-scan-table">' +
       '<thead><tr>' +
       '<th>Scrip</th><th>State</th><th class="num">Mother high</th>' +
       '<th class="num" title="How many rungs of the ladder have filled">Rungs</th>' +
       '<th class="num">Shares</th><th class="num">Avg entry</th>' +
       '<th class="num">Target</th><th class="num">P&amp;L</th><th></th>' +
-      '</tr></thead><tbody>' + campaigns.map(campaignRow).join('') + '</tbody></table></div>';
+      '</tr></thead><tbody>' + campaigns.map(campaignRow).join('') + '</tbody></table></div>');
   }
 
   function renderClosed(rows) {
     var body = $('tworeds-closed-body');
     if (!body) return;
     if (!rows.length) {
-      body.innerHTML = '<div class="terminal-cascade-empty">No closed campaigns yet.</div>';
+      setHtml('closed', body, '<div class="terminal-cascade-empty">No closed campaigns yet.</div>');
       return;
     }
-    body.innerHTML =
+    setHtml('closed', body,
       '<div class="cascade-scan-table-wrap"><table class="cascade-scan-table">' +
       '<thead><tr><th>Scrip</th><th>Ended</th><th class="num">Shares</th>' +
       '<th class="num">Invested</th><th class="num">Net</th></tr></thead><tbody>' +
@@ -198,10 +223,14 @@
           '<td class="num">' + (net === null ? '—' :
             '<strong style="color:' + (net >= 0 ? '#6ee7b7' : 'var(--danger)') + ';">' + rupees(net, 2) + '</strong>') +
           '</td></tr>';
-      }).join('') + '</tbody></table></div>';
+      }).join('') + '</tbody></table></div>');
   }
 
   async function refresh() {
+    // Frozen under the chart: repainting a table nobody can see, through a
+    // blurred backdrop, is exactly the flicker being fixed. The overlay's
+    // close handler refreshes once, so nothing is stale after it.
+    if (chartOverlayOpen()) return;
     try {
       var res = await fetch('/api/two-red/status', { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok) return;
@@ -370,8 +399,15 @@
 
   var chartTf = '1d';
 
-  window.loadTwoRedChart = async function loadTwoRedChart() {
-    var symbol = (($('tworeds-symbol') || {}).value || '').trim().toUpperCase();
+  // Which symbol+mother the OPEN overlay is showing. The TF toggle redraws
+  // through this, so switching timeframes on a campaign's chart keeps showing
+  // that campaign instead of snapping back to the setup form's scrip — the
+  // exact drift the Cascade's Preview button had.
+  var chartContext = null;
+
+  window.loadTwoRedChart = async function loadTwoRedChart(symbolArg, motherArg) {
+    var fromRow = typeof symbolArg === 'string' && symbolArg;
+    var symbol = (fromRow ? symbolArg : (($('tworeds-symbol') || {}).value || '')).trim().toUpperCase();
     if (!symbol) { setStatus('Pick a scrip first.', 'error'); return; }
     var overlay = $('tworeds-chart-overlay');
     var box = $('tworeds-chart');
@@ -381,8 +417,9 @@
     if (box) box.innerHTML = '<div class="pf-cascade-chart-empty">Loading ' + esc(symbol) + ' candles…</div>';
     try {
       var query = 'symbol=' + encodeURIComponent(symbol) + '&timeframe=' + encodeURIComponent(chartTf);
-      var mother = ($('tworeds-mother-timestamp') || {}).value;
-      if (mother) query += '&mother_timestamp=' + encodeURIComponent(mother);
+      var mother = fromRow ? (motherArg || '') : (($('tworeds-mother-timestamp') || {}).value || '');
+      chartContext = { symbol: symbol, mother: mother };
+      if (mother) query += '&mother_timestamp=' + encodeURIComponent(String(mother).slice(0, 16));
       var res = await fetch('/api/two-red/chart?' + query, { credentials: 'same-origin', cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.detail || 'Chart failed.');
@@ -410,6 +447,9 @@
     if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
     var box = $('tworeds-chart');
     if (box) box.innerHTML = '';
+    chartContext = null;
+    // The poll was held while the overlay was up; catch the tables up now.
+    refresh();
   };
 
   async function post(url, symbol) {
@@ -484,6 +524,24 @@
     var campaigns = $('tworeds-campaigns-body');
     if (campaigns) {
       campaigns.addEventListener('click', function (event) {
+        var chart = event.target.closest('[data-two-red-chart]');
+        if (chart) {
+          // The mother's own chart first: a 1H mother opens on 1H, a daily on 1D.
+          var tf = chart.getAttribute('data-two-red-chart-tf') || '1d';
+          chartTf = tf === '1h' ? '1h' : '1d';
+          var toggle = $('tworeds-chart-tf');
+          if (toggle) {
+            toggle.querySelectorAll('[data-tworeds-tf]').forEach(function (node) {
+              var active = node.getAttribute('data-tworeds-tf') === chartTf;
+              node.classList.toggle('is-active', active);
+              node.setAttribute('aria-checked', active ? 'true' : 'false');
+            });
+          }
+          return void window.loadTwoRedChart(
+            chart.getAttribute('data-two-red-chart'),
+            chart.getAttribute('data-two-red-chart-mother') || ''
+          );
+        }
         var stop = event.target.closest('[data-two-red-stop]');
         if (stop) return void handle(stop.getAttribute('data-two-red-stop'), 'stop');
         var kill = event.target.closest('[data-two-red-kill]');
@@ -549,7 +607,9 @@
           node.classList.toggle('is-active', active);
           node.setAttribute('aria-checked', active ? 'true' : 'false');
         });
-        window.loadTwoRedChart();
+        // Redraw what is on screen, not what the form holds.
+        if (chartContext) window.loadTwoRedChart(chartContext.symbol, chartContext.mother);
+        else window.loadTwoRedChart();
       });
     }
 

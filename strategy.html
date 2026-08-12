@@ -1817,7 +1817,10 @@
           <div id="tworeds-form-status" class="terminal-cascade-form-status"></div>
         </section>
 
-        <section class="terminal-cascade-instrument-panel">
+        <!-- Campaigns live directly under THE RULE, in the same column — the
+             rule strip is short and this half of the card was otherwise a
+             screenful of empty. Phil: "Move the Campaigns under THE RULE". -->
+        <section class="terminal-cascade-instrument-panel" id="tworeds-campaigns-panel">
           <div class="terminal-cascade-section-head">
             <div>
               <span>The rule</span>
@@ -1834,23 +1837,17 @@
               <div class="cascade-scan-rung-note">A close back above the mother high ends a campaign that has not bought anything — the fall it was waiting for is over.</div>
             </div>
           </div>
+          <div class="terminal-cascade-section-head" style="margin-top:16px;">
+            <div>
+              <span>Campaigns</span>
+              <strong id="tworeds-campaigns-meta">Every ladder running or finished, what it holds and what it is worth.</strong>
+            </div>
+            <button class="btn btn-sm btn-outline" data-pf-action="refreshTwoRedCampaigns">Refresh</button>
+          </div>
+          <div id="tworeds-campaigns-body">
+            <div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>
+          </div>
         </section>
-      </div>
-    </div>
-
-    <div class="card terminal-cascade-shell" id="tworeds-campaigns-panel">
-      <div class="terminal-cascade-head">
-        <div class="terminal-cascade-title-block">
-          <div class="terminal-cascade-eyebrow">Two-red ladder</div>
-          <h3>Campaigns</h3>
-          <div id="tworeds-campaigns-meta" class="terminal-cascade-reference">Every ladder running or finished, what it holds and what it is worth.</div>
-        </div>
-        <div class="terminal-cascade-actions">
-          <button class="btn btn-sm btn-outline" data-pf-action="refreshTwoRedCampaigns">Refresh</button>
-        </div>
-      </div>
-      <div id="tworeds-campaigns-body">
-        <div class="terminal-cascade-empty">Nothing running. Name a mother candle above to start one.</div>
       </div>
     </div>
 
