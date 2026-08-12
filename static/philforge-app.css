@@ -6139,7 +6139,23 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      rhythm and one warning tone that a document of that length needs.
      Every rule below is scoped to .pf-info-doc so the short pops on the
      options page keep the shape they already have. */
-  .pf-info-doc { padding: 14px 16px 15px; max-width: 78ch; }
+  /* The doc FILLS the card. Capping it at 78ch kept every line readable and
+     left half a widescreen empty beside it, which reads as a broken layout
+     rather than as restraint. So the width limit moves from the block to the
+     COLUMN: sections flow into as many ~34em columns as fit, the page is used
+     edge to edge, and no line of prose ever gets longer than it was.
+     Below ~700px this collapses to the single column it always was.
+     `display` is deliberately NOT set on the bare class -- .pf-info-pop's
+     `display:none` and this rule have equal specificity and this file's block
+     comes later, so setting it here would leave the doc permanently open. */
+  .pf-info-doc {
+    padding: 14px 18px 16px;
+    grid-template-columns: repeat(auto-fit, minmax(min(34em, 100%), 1fr));
+    gap: 2px 30px;
+    align-items: start;
+  }
+  .pf-info-doc.is-open { display: grid; }
+  .pf-info-doc > section { break-inside: avoid; margin-bottom: 13px; }
   .pf-info-doc p { margin: 0 0 9px; }
   .pf-info-doc p:last-child { margin-bottom: 0; }
   .pf-info-doc em { font-style: normal; color: var(--text); opacity: .85; }
@@ -6148,19 +6164,21 @@ body.terminal-cascade-chart-open { overflow: hidden; }
     padding: 1px 5px; border-radius: 5px;
     background: rgba(255,255,255,0.06); color: var(--text);
   }
-  /* The lede is the answer for anyone who reads one sentence and stops. */
+  /* The lede is the answer for anyone who reads one sentence and stops, so it
+     spans every column and keeps its own reading measure. */
   .pf-info-doc .pf-info-lede {
+    grid-column: 1 / -1;
+    max-width: 74ch;
     font-size: 12.5px; line-height: 1.55; color: var(--text);
     margin-bottom: 13px; padding-bottom: 11px;
     border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
   }
   .pf-info-doc h5 {
-    margin: 15px 0 5px;
+    margin: 0 0 5px;
     font: 800 10px 'JetBrains Mono', monospace;
     letter-spacing: .7px; text-transform: uppercase;
     color: var(--accent, #38bdf8);
   }
-  .pf-info-doc h5:first-of-type { margin-top: 4px; }
   /* The measurement that says the feature loses money has to be as hard to
      skim past as the feature itself. */
   .pf-info-doc .pf-info-warn {

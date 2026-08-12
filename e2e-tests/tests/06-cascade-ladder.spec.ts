@@ -343,3 +343,33 @@ test('the doc admits the climbing ladder measured worse than fixed 1H', async ({
   await expect(warn).toContainText('32,764');
   await expect(warn).toContainText('fixed 1H');
 });
+
+test('on a wide screen the doc fills the card instead of hugging the left', async ({ page }) => {
+  // Phil, on the first version: "Why one side.. Make it spread evenly on the
+  // page.. Not only on the left". It was capped at 78ch, which kept the lines
+  // readable and left half a widescreen empty. The measure moved to the
+  // COLUMN, so the block fills the card and no line got longer.
+  await page.setViewportSize({ width: 1800, height: 1100 });
+  const doc = await openStrategyDoc(page);
+
+  const columns = await doc.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(columns).toBeGreaterThan(1);
+
+  const block = (await doc.boundingBox())!;
+  const card = (await page.locator('#terminal-cascade-panel').boundingBox())!;
+  expect(block.width).toBeGreaterThan(card.width * 0.9);
+
+  // Filling the width must not have made the prose unreadable: a column has to
+  // stay near a normal measure, which is what the min track size is for.
+  const column = (await doc.locator('section').first().boundingBox())!;
+  expect(column.width).toBeLessThan(620);
+});
+
+test('on a phone it is one column and the page never scrolls sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 850 });
+  const doc = await openStrategyDoc(page);
+  const columns = await doc.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(columns).toBe(1);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
