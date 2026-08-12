@@ -88,6 +88,30 @@ function _pfChartPalette() {
 // trendline after the first and every fill drew in leg 1's blue.
 window.pfChartPalette = _pfChartPalette;
 
+// THE SAME CAP, EXPORTED FOR THE SAME REASON. Only the newest three legs and
+// three trendlines are drawn; past that the chart is a cat's cradle and the
+// structure that matters is the one nearest the price. The Terminal campaign
+// chart had its own drawing loop and no cap at all, so it drew seven fibs and
+// six trendlines while every other chart on the site drew three.
+window.pfChartMaxStructures = _PF_CHART_MAX_STRUCTURES;
+
+/* The newest `pfChartMaxStructures` of a structure list, never dropping the
+ * ACTIVE one — Classic's exception, kept: the live trendline stays on the chart
+ * even when three retired ones came after it. `isActive` is a predicate because
+ * the two payload shapes spell it differently. */
+window.pfChartLatestStructures = function (list, isActive) {
+  var all = Array.isArray(list) ? list : [];
+  var kept = all.slice(-_PF_CHART_MAX_STRUCTURES);
+  if (typeof isActive !== 'function') return kept;
+  var active = all.filter(isActive)[0];
+  if (!active || kept.indexOf(active) !== -1) return kept;
+  // THE EXCEPTION NEVER WORKED. It used to prepend the active line and then
+  // slice(-MAX) again, which drops exactly what was just prepended -- so the
+  // live trendline vanished the moment three retired ones came after it. Make
+  // room instead: the active line plus the newest MAX-1 others.
+  return [active].concat(kept.slice(-(_PF_CHART_MAX_STRUCTURES - 1)));
+};
+
 
 // Live canvas state, or null when no canvas chart is mounted. Holding the
 // ResizeObserver here is what makes teardown possible — without it, every
@@ -227,15 +251,12 @@ function _pfChartCanvasResize() {
 }
 
 function _pfChartCanvasStructures(d) {
-  var allLegs = Array.isArray(d.legs) ? d.legs : [];
-  var legs = allLegs.slice(-_PF_CHART_MAX_STRUCTURES);
-  var allTls = Array.isArray(d.trendlines) ? d.trendlines : [];
-  var tls = allTls.slice(-_PF_CHART_MAX_STRUCTURES);
-  // Preserve Classic's one important exception: the active line is never
-  // hidden just because later, retired structures filled the three-line cap.
-  var active = allTls.filter(function (tl) { return tl && tl.active; })[0];
-  if (active && tls.indexOf(active) === -1) tls = [active].concat(tls).slice(-_PF_CHART_MAX_STRUCTURES);
-  return { legs: legs, trendlines: tls };
+  // Same helper the Terminal campaign chart uses, so the cap cannot be three
+  // in one chart and seven in another.
+  return {
+    legs: window.pfChartLatestStructures(d.legs),
+    trendlines: window.pfChartLatestStructures(d.trendlines, function (tl) { return tl && tl.active; }),
+  };
 }
 
 function _pfChartCanvasTimeframeSeconds(d) {

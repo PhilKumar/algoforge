@@ -113,3 +113,30 @@ test('the legend names the colours the chart actually paints', async ({ page }) 
   });
   expect(drift).toBe('');
 });
+
+test('every chart caps structures at the newest three, and the cap has one home', async ({ page }) => {
+  // Phil: "I already told to show only the latest 3 fibs and TLs.. but again and
+  // again you are making me repeat the entire thing." He was right: the shared
+  // renderer capped at three and the Terminal campaign chart, which has its own
+  // drawing loop, capped at nothing — so it drew 7 fibs and 6 trendlines.
+  await login(page);
+  const result = await page.evaluate(() => {
+    const legs = Array.from({ length: 7 }, (_, i) => ({ leg_id: i + 1 }));
+    const tls = Array.from({ length: 6 }, (_, i) => ({ id: i + 1, active: i === 0 }));
+    // @ts-ignore — page globals
+    const cap = window.pfChartMaxStructures;
+    // @ts-ignore
+    const keptLegs = window._tcvLatest(legs).map((l: any) => l.leg_id);
+    // @ts-ignore
+    const keptTls = window._tcvLatest(tls, (t: any) => t && t.active).map((t: any) => t.id);
+    return { cap, keptLegs, keptTls };
+  });
+
+  expect(result.cap).toBe(3);
+  // The NEWEST three, not the first three.
+  expect(result.keptLegs).toEqual([5, 6, 7]);
+  // The active trendline survives even when three newer retired ones exist —
+  // Classic's exception, and it has to hold in both renderers.
+  expect(result.keptTls).toContain(1);
+  expect(result.keptTls).toHaveLength(3);
+});
