@@ -419,12 +419,17 @@ test('on a phone it is one column and the page never scrolls sideways', async ({
  *  the bug hid in: a scrip IS selected and the chart drew a campaign instead. */
 async function pickScrip(page: Page) {
   return page.evaluate(() => {
-    for (const want of ['INFY', 'TCS', 'RELIANCE', 'SBIN']) {
-      // @ts-ignore — page global
-      selectStockTerminal(want, { skipQuote: true });
-      if ((document.getElementById('stock-terminal-symbol') as HTMLInputElement).value === want) return want;
-    }
-    return (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value;
+    const input = document.getElementById('stock-terminal-symbol') as HTMLInputElement;
+    // The page auto-selects the first name in the scrip list, and that is
+    // exactly the state the bug hid in: a scrip IS picked and the chart drew a
+    // campaign anyway. `selectStockTerminal` keeps this input in step with
+    // `_stockTerminalSelected`, so reading it is faithful either way.
+    if (input.value) return input.value;
+    // CI has no ScripMaster data, so the list is empty and nothing is
+    // auto-selected. The hidden input is the same fallback Start Paper reads,
+    // which keeps the test about the RESOLVER rather than about the fixtures.
+    input.value = 'INFY';
+    return 'INFY';
   });
 }
 
