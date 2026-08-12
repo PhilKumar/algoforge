@@ -5929,6 +5929,7 @@ function _terminalCampaignWaitingFor(campaign) {
   const price = _cascadeNumber;
   const pot = (Number(campaign.pending_inr) || 0) + (Number(campaign.cash_carry_inr) || 0);
   const last = Number(campaign.last_trade_close) || 0;
+  const capitalInr = Number((campaign.config || {}).capital_inr) || 0;
 
   if (status === 'MOTHER_BROKEN') return 'Mother broken — no new legs can form. Start a new mother to continue.';
   if (status === 'MOTHER_RETESTED') return 'Mother retested — the geometry is finished. Start a new mother to continue.';
@@ -5947,6 +5948,30 @@ function _terminalCampaignWaitingFor(campaign) {
   const stop = Number(campaign.pending_stop) || 0;
   if (stop > 0) return `${money(pot)} pooled — buys when price trades back above ${price(stop)}.`;
 
+  // A POOL SHORT OF ONE SHARE IS NOT WAITING FOR RED CANDLES.
+  //
+  // The engine will not arm a buy-stop until the pool can afford at least one
+  // share (`minimum = max(min_order_inr, last close)` in _collect_crossed_rungs)
+  // — which is exactly right. But the card said "waiting for two red closes",
+  // naming a condition that was already irrelevant, so a campaign with Rs 379
+  // pooled against a Rs 1,789 share read as though it were one red candle away
+  // from buying. It is short of the price of a single share, and it should say
+  // so, with the number.
+  const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
+  const stillToCome = rungs
+    .filter(row => String(row.status || '').toUpperCase() === 'PENDING')
+    .reduce((sum, row) => sum + (Number(row.budget_inr) || 0), 0);
+  if (pot > 0 && last > 0 && pot < last) {
+    const short = last - pot;
+    // If every rung left on the ladder still would not reach one share, no
+    // amount of waiting fixes it — that is a capital problem, not a market one.
+    if (pot + stillToCome < last) {
+      return `${money(pot)} pooled and ${money(stillToCome)} still to come — even every remaining rung together `
+        + `is short of one ${price(last)} share. This campaign cannot buy at ${money(capitalInr)} capital.`;
+    }
+    return `${money(pot)} pooled — ${money(short)} short of one share at ${price(last)}. `
+      + `It buys nothing until deeper rungs are crossed and the pool clears one share.`;
+  }
   if (status === 'AWAITING_CASH') {
     return `${money(pot)} pooled, still short of one share near ${price(last)} — it carries forward until a deeper rung adds to it.`;
   }
@@ -6262,8 +6287,33 @@ async function startTerminalCascadePaper() {
     escalates: _terminalCascadeEl('terminal-cascade-escalates')?.value !== '0',
   };
   const ref = _stockTerminalSelected?.cascade_reference || {};
+  // WHAT THIS CAPITAL ACTUALLY BUYS, BEFORE IT IS COMMITTED.
+  //
+  // A rung's budget is a fraction of a fraction: the leg pools (fall % x
+  // capital) and the first rung takes 20% of that. On a Rs 1,789 share with
+  // Rs 10,000 capital a 19% fall pools Rs 1,899 for the whole leg, so the first
+  // rung holds Rs 380 — a fifth of one share — and the campaign sits pooling
+  // money it can never spend. The scanner's "3 of 3 rungs" is computed from the
+  // SCANNER's capital box, not from this one, which is how the two disagree.
+  const price = Number(_stockTerminalSelected?.last_price) || 0;
+  let sizing = '';
+  if (price > 0) {
+    // A 20% fall is the shape these campaigns are started on; enough to show
+    // whether the arithmetic works at all at this capital.
+    const legPool = capital * 0.20;
+    const firstRung = legPool * 0.20;
+    if (legPool < price) {
+      sizing = `<br><span style="font-size:12px;color:#fca5a5;">On a ${escapeHtml(_cascadeNumber(price))} share, a 20% fall pools `
+        + `${escapeHtml(_terminalCascadeMoney(legPool))} for the whole leg — less than one share, so this campaign would `
+        + `pool money it can never spend. It needs roughly ${escapeHtml(_terminalCascadeMoney(price * 5))} capital.</span>`;
+    } else if (firstRung < price) {
+      sizing = `<br><span style="font-size:12px;color:#fde68a;">First rung holds about `
+        + `${escapeHtml(_terminalCascadeMoney(firstRung))} on a ${escapeHtml(_cascadeNumber(price))} share, so nothing is bought `
+        + `until deeper rungs are crossed and the pool clears one share.</span>`;
+    }
+  }
   const ok = await customConfirm(
-    `Start Terminal Cascade paper for <strong>${escapeHtml(symbol)}</strong>?<br><span style="font-size:12px;color:var(--muted);">Signal: ${escapeHtml(ref.symbol || symbol)} · Capital: ${escapeHtml(_terminalCascadeMoney(capital))} · No Dhan order is sent.</span>`,
+    `Start Terminal Cascade paper for <strong>${escapeHtml(symbol)}</strong>?<br><span style="font-size:12px;color:var(--muted);">Signal: ${escapeHtml(ref.symbol || symbol)} · Capital: ${escapeHtml(_terminalCascadeMoney(capital))} · No Dhan order is sent.</span>${sizing}`,
     { title: 'Start Cash Cascade', icon: ICO.chart(28), okText: 'Start Paper' }
   );
   if (!ok) return;
