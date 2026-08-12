@@ -7681,14 +7681,17 @@ function _terminalCascadeFormChartTarget() {
 function previewTerminalCascadeChart() {
   const form = _terminalCascadeFormChartTarget();
   const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
-  // A campaign for the picked scrip can supply a mother the form has not been
-  // given. A campaign for a DIFFERENT scrip can supply nothing at all.
-  const owner = form.symbol ? campaigns.find(row => row?.instrument?.symbol === form.symbol) : campaigns[0];
-  const symbol = form.symbol || owner?.instrument?.symbol || '';
+  const symbol = form.symbol;
   if (!symbol) {
+    // No scrip picked is a reason to say so, NOT to chart whatever campaign
+    // happens to be first. That substitution is the whole bug, and it was
+    // still sitting here in miniature.
     _terminalCascadeSetStatus('Pick a scrip from the scanner first — the chart draws that scrip.', 'error');
     return Promise.resolve();
   }
+  // A campaign for the picked scrip can supply a mother the form has not been
+  // given. A campaign for a DIFFERENT scrip can supply nothing at all.
+  const owner = campaigns.find(row => row?.instrument?.symbol === symbol);
   const timestamp = form.timestamp || owner?.mother?.signal?.timestamp || '';
   if (!timestamp) {
     // Never silently chart something else to fill the gap.
