@@ -656,6 +656,21 @@
           <label for="max-daily-loss">Max Daily Loss (₹)</label>
           <input type="number" id="max-daily-loss" value="0" min="0" step="500" placeholder="0 = unlimited" title="Stop trading if daily realized loss exceeds this amount (0 = no limit)">
         </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
+          <div>
+            <label for="skip-days-after-profit">Big-Win Cooldown</label>
+            <select id="skip-days-after-profit" title="After a day whose net profit exceeds the threshold, skip the next N trading sessions">
+              <option value="0">Off</option>
+              <option value="1">Skip 1 day</option>
+              <option value="2" selected>Skip 2 days</option>
+              <option value="3">Skip 3 days</option>
+            </select>
+          </div>
+          <div>
+            <label for="skip-profit-threshold">Big Win Is Over (₹)</label>
+            <input type="number" id="skip-profit-threshold" value="20000" min="0" step="1000" title="A day counts as a big win when its net profit exceeds this amount">
+          </div>
+        </div>
       </div>
 
       <!-- Loaded Strategy -->

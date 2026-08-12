@@ -10173,6 +10173,7 @@ function showDetailsModal(data, title) {
       <div><span style="color: var(--muted); font-size: 11px;">Target Profit</span><div style="font-weight: 600;">${data.tp_type === 'rupees' ? '₹' + (data.target_profit_rupees || 0) : (data.target_profit_pct || 0) + '%'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Market Hours</span><div style="font-weight: 600;">${escapeHtml(data.market_open || '09:15')} — ${escapeHtml(data.market_close || '15:25')}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Max Trades/Day</span><div style="font-weight: 600;">${data.max_trades_per_day || '—'}</div></div>
+      <div><span style="color: var(--muted); font-size: 11px;">Big-Win Cooldown</span><div style="font-weight: 600;">${(data.skip_days_after_profit || 0) > 0 ? `Skip ${data.skip_days_after_profit}d after +₹${(data.skip_profit_threshold_rupees || 20000).toLocaleString('en-IN')}` : 'Off'}</div></div>
       <div><span style="color: var(--muted); font-size: 11px;">Order Type</span><div style="font-weight: 600;">${safeOrderType}</div></div>
     </div>`;
 
@@ -10266,6 +10267,9 @@ function loadStrategy(id) {
   document.getElementById('sq-time').value = s.market_close || '15:25';
   document.getElementById('max-trades-per-day').value = s.max_trades_per_day || 1;
   document.getElementById('max-daily-loss').value = s.max_daily_loss || 0;
+  // ?? not ||: a saved 0 means the cooldown was deliberately turned Off
+  document.getElementById('skip-days-after-profit').value = String(s.skip_days_after_profit ?? 2);
+  document.getElementById('skip-profit-threshold').value = s.skip_profit_threshold_rupees ?? 20000;
   if (s.from_date) document.getElementById('bt-from-date').value = s.from_date;
   if (s.to_date) document.getElementById('bt-to-date').value = s.to_date;
 
@@ -11221,6 +11225,8 @@ async function copyEditStrategy(runId) {
     document.getElementById('sq-time').value = p.market_close || '15:25';
     document.getElementById('max-trades-per-day').value = p.max_trades_per_day || 1;
     document.getElementById('max-daily-loss').value = p.max_daily_loss || 0;
+    document.getElementById('skip-days-after-profit').value = String(p.skip_days_after_profit ?? 2);
+    document.getElementById('skip-profit-threshold').value = p.skip_profit_threshold_rupees ?? 20000;
     if (p.from_date) document.getElementById('bt-from-date').value = p.from_date;
     if (p.to_date) document.getElementById('bt-to-date').value = p.to_date;
 
@@ -11317,6 +11323,8 @@ function buildPayload() {
     market_close: document.getElementById('sq-time').value,
     max_trades_per_day: parseInt(document.getElementById('max-trades-per-day').value || 1),
     max_daily_loss: parseFloat(document.getElementById('max-daily-loss').value || 0),
+    skip_days_after_profit: parseInt(document.getElementById('skip-days-after-profit').value, 10) || 0,
+    skip_profit_threshold_rupees: parseFloat(document.getElementById('skip-profit-threshold').value) || 20000,
     indicators: mergedIndicators,
     entry_conditions: entryConditions,
     exit_conditions: exitConditions,
@@ -12612,6 +12620,8 @@ async function deployStrategy() {
       market_close: lastBacktestPayload.market_close || '15:25',
       max_trades_per_day: lastBacktestPayload.max_trades_per_day || 1,
       max_daily_loss: lastBacktestPayload.max_daily_loss || 0,
+      skip_days_after_profit: lastBacktestPayload.skip_days_after_profit ?? 0,
+      skip_profit_threshold_rupees: lastBacktestPayload.skip_profit_threshold_rupees ?? 20000,
     });
   }
 

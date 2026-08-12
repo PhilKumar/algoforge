@@ -733,6 +733,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     trailing_sl_pct = float(sc.get("trailing_sl_pct", 0) or 0)
     max_tpd = int(sc.get("max_trades_per_day", config.MAX_TRADES_PER_DAY))
     max_daily_loss = float(sc.get("max_daily_loss", 0) or 0)
+    skip_days_after_profit = max(0, int(sc.get("skip_days_after_profit", 0) or 0))
+    skip_profit_threshold = float(sc.get("skip_profit_threshold_rupees", 20000) or 20000)
     indicators = normalize_strategy_indicators(
         sc.get("indicators", []) or [],
         entry_conditions=entry_conditions,
@@ -791,6 +793,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     trade_peak_pnl = 0.0
     trades_today = 0
     max_daily_loss_hit = False
+    skip_sessions_left = 0
+    cooldown_sessions_skipped = 0
     ld = None
     lot_size = user_lot_size if user_lot_size > 0 else 1
     capital_rejections = 0
@@ -801,7 +805,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     print(
         f"[BT] open={mkt_open} close={mkt_close} lots={base_lots} user_lot_size={user_lot_size} "
         f"sl={sl_pct}%/₹{sl_rupees} tp={tp_pct}%/₹{tp_rupees} combined_sl=₹{combined_sl_rupees} "
-        f"combined_tp=₹{combined_target_rupees} max_daily_loss=₹{max_daily_loss}"
+        f"combined_tp=₹{combined_target_rupees} max_daily_loss=₹{max_daily_loss} "
+        f"profit_cooldown={skip_days_after_profit}d>₹{skip_profit_threshold:.0f}"
     )
     print(f"[BT] option_legs={len(option_legs)} instrument={instrument} sqoff={combined_sqoff}")
     print(
@@ -1207,6 +1212,14 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     "EOD",
                 )
                 exited_this_candle = True
+            if skip_days_after_profit > 0 and ld is not None:
+                # daily_pnl still holds the finished session's realized P&L here
+                if daily_pnl > skip_profit_threshold:
+                    skip_sessions_left = skip_days_after_profit
+                elif skip_sessions_left > 0:
+                    skip_sessions_left -= 1
+                if skip_sessions_left > 0:
+                    cooldown_sessions_skipped += 1
             trades_today = 0
             daily_pnl = 0.0
             ld = cd
@@ -1423,7 +1436,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             daily_loss_hit = max_daily_loss > 0 and daily_pnl <= -max_daily_loss
             if daily_loss_hit:
                 max_daily_loss_hit = True
-            if trades_today >= max_tpd or daily_loss_hit:
+            if trades_today >= max_tpd or daily_loss_hit or skip_sessions_left > 0:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
                 prev_prev_row = prev_row
                 prev_row = row
@@ -1645,6 +1658,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         "net_pnl_after_fees": round(sum(pnls), 2),
         "max_daily_loss_hit": max_daily_loss_hit,
         "capital_rejections": capital_rejections,
+        "cooldown_sessions_skipped": cooldown_sessions_skipped,
     }
 
     monthly = {}

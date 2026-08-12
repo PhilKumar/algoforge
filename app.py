@@ -3637,6 +3637,8 @@ class LiveStartRequest(BaseModel):
     market_open: str = "09:15"
     market_close: str = "15:25"
     max_daily_loss: float = Field(default=0, ge=0)
+    skip_days_after_profit: int = Field(default=0, ge=0, le=10)
+    skip_profit_threshold_rupees: float = Field(default=20000.0, ge=0)
     lots: int = Field(default=1, ge=1, le=500)
     stoploss_pct: float = Field(default=0.0, ge=0)
     stoploss_rupees: float = Field(default=0.0, ge=0)
@@ -3761,6 +3763,8 @@ class StrategyPayload(BaseModel):
     market_close: str = "15:25"
     max_trades_per_day: int = Field(default=1, ge=1, le=100)
     max_daily_loss: float = Field(default=0.0, ge=0)
+    skip_days_after_profit: int = Field(default=0, ge=0, le=10)
+    skip_profit_threshold_rupees: float = Field(default=20000.0, ge=0)
     indicators: List[str] = []
     entry_conditions: Optional[List[dict]] = None
     exit_conditions: Optional[List[dict]] = None
@@ -7098,6 +7102,8 @@ _RUNTIME_STRATEGY_SYNC_FIELDS = {
     "market_close",
     "max_trades_per_day",
     "max_daily_loss",
+    "skip_days_after_profit",
+    "skip_profit_threshold_rupees",
     "legs",
     "deploy_config",
     "combined_sl_rupees",
@@ -12691,6 +12697,8 @@ async def live_start(req: LiveStartRequest, request: Request):
             "legs": req.legs or [],
             "deploy_config": req.deploy_config or {},
             "max_daily_loss": float(req.max_daily_loss or 0),
+            "skip_days_after_profit": int(req.skip_days_after_profit or 0),
+            "skip_profit_threshold_rupees": float(req.skip_profit_threshold_rupees or 20000),
             "lots": req.lots,
             "stoploss_pct": req.stoploss_pct,
             "stoploss_rupees": req.stoploss_rupees,
@@ -13054,6 +13062,8 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "capital_buffer_pct": payload.capital_buffer_pct,
         "sell_option_margin_per_lot": payload.sell_option_margin_per_lot,
         "max_daily_loss": payload.max_daily_loss,
+        "skip_days_after_profit": int(payload.skip_days_after_profit or 0),
+        "skip_profit_threshold_rupees": float(payload.skip_profit_threshold_rupees or 20000),
         "combined_sqoff_time": payload.combined_sqoff_time,
         "timeframe_minutes": tf_spec.requested,
         "fetch_timeframe_minutes": tf_spec.fetch,
@@ -13450,6 +13460,8 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
                     "market_close",
                     "folder",
                     "max_trades_per_day",
+                    "skip_days_after_profit",
+                    "skip_profit_threshold_rupees",
                 )
             },
         }
@@ -13579,6 +13591,8 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
                     "market_close",
                     "folder",
                     "max_trades_per_day",
+                    "skip_days_after_profit",
+                    "skip_profit_threshold_rupees",
                 )
             },
         }

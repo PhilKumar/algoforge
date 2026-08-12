@@ -158,6 +158,8 @@ class PaperTradingEngine:
         self.trades_today = 0
         self.daily_pnl = 0.0  # Realized P&L for today
         self.max_daily_loss = 0.0  # Will be set from strategy config
+        # Date of the last session whose profit armed the skip-N-days cooldown
+        self.profit_cooldown_trigger_date = None
 
         # Strategy-level SL/TP (₹ amounts)
         self.strat_sl_val = 0.0  # e.g. 13000 (20% of 250*260)
@@ -219,6 +221,9 @@ class PaperTradingEngine:
                 "closed_trades": self.closed_trades,
                 "trades_today": self.trades_today,
                 "daily_pnl": self.daily_pnl,
+                "profit_cooldown_trigger_date": str(self.profit_cooldown_trigger_date)
+                if self.profit_cooldown_trigger_date
+                else None,
                 "strat_sl_val": self.strat_sl_val,
                 "strat_tp_val": self.strat_tp_val,
                 "trade_entry_prem": self.trade_entry_prem,
@@ -305,6 +310,31 @@ class PaperTradingEngine:
                 position for position in (state.get("positions") or []) if (position or {}).get("status") != "closed"
             ]
             restoring_stale_positions = saved_date != today and bool(saved_positions)
+
+            # The profit cooldown spans sessions by design — restore it even when the
+            # rest of the state is stale, or a weekend restart would forget it.
+            saved_strategy = state.get("strategy") or {}
+            saved_skip_n = int(saved_strategy.get("skip_days_after_profit", 0) or 0)
+            if saved_skip_n > 0:
+                trigger_raw = state.get("profit_cooldown_trigger_date")
+                if trigger_raw:
+                    try:
+                        self.profit_cooldown_trigger_date = date_type.fromisoformat(str(trigger_raw))
+                    except ValueError:
+                        pass
+                if saved_date and saved_date != today:
+                    saved_threshold = float(saved_strategy.get("skip_profit_threshold_rupees", 20000) or 20000)
+                    if float(state.get("daily_pnl", 0) or 0) > saved_threshold:
+                        try:
+                            stale_session = date_type.fromisoformat(str(saved_date))
+                            if (
+                                self.profit_cooldown_trigger_date is None
+                                or stale_session > self.profit_cooldown_trigger_date
+                            ):
+                                self.profit_cooldown_trigger_date = stale_session
+                        except ValueError:
+                            pass
+
             if saved_date != today and not restoring_stale_positions:
                 # Stale session — save any closed trades to history before discarding
                 stale_trades = state.get("closed_trades", [])
@@ -617,6 +647,42 @@ class PaperTradingEngine:
         if target_date is None:
             return False
         return target_date.weekday() >= 5 or target_date.isoformat() in _NSE_CAPITAL_MARKET_HOLIDAYS
+
+    def _profit_cooldown_config(self) -> tuple[int, float]:
+        strategy = self.strategy or {}
+        n = max(0, int(strategy.get("skip_days_after_profit", 0) or 0))
+        threshold = float(strategy.get("skip_profit_threshold_rupees", 20000) or 20000)
+        return n, threshold
+
+    def _arm_profit_cooldown(self):
+        n, threshold = self._profit_cooldown_config()
+        if n <= 0 or self.daily_pnl <= threshold:
+            return
+        session = self.session_date or date_type.today()
+        if self.profit_cooldown_trigger_date != session:
+            self.profit_cooldown_trigger_date = session
+            self.log_event(
+                "info",
+                f"🧊 Profit cooldown armed: ₹{self.daily_pnl:,.0f} today > ₹{threshold:,.0f} — "
+                f"skipping the next {n} trading session(s)",
+            )
+
+    def _profit_cooldown_active(self, target_date: date_type | None = None) -> bool:
+        n, _ = self._profit_cooldown_config()
+        trigger = self.profit_cooldown_trigger_date
+        if n <= 0 or trigger is None:
+            return False
+        day = target_date or self.session_date or date_type.today()
+        if day <= trigger:
+            return False
+        # Count trading sessions strictly after the trigger day, up to `day`
+        sessions = 0
+        cursor = trigger
+        while cursor < day and sessions <= n and (cursor - trigger).days <= 30:
+            cursor += timedelta(days=1)
+            if not self._is_closed_market_day(cursor):
+                sessions += 1
+        return 0 < sessions <= n
 
     async def _resolve_stale_positions(
         self,
@@ -1175,7 +1241,7 @@ class PaperTradingEngine:
                             continue
                         max_trades = self.strategy.get("max_trades_per_day", 1)
                         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
-                        if self.trades_today < max_trades and not daily_loss_hit:
+                        if self.trades_today < max_trades and not daily_loss_hit and not self._profit_cooldown_active():
                             self._clear_pending_entry()
                             latest_row = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
                             if latest_row is not None:
@@ -1272,8 +1338,15 @@ class PaperTradingEngine:
                 # Check entry conditions
                 max_trades = self.strategy.get("max_trades_per_day", 1)
                 daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
+                cooldown_hit = self._profit_cooldown_active()
 
-                if not self.in_trade and self.trades_today < max_trades and not daily_loss_hit and candle_in_session:
+                if (
+                    not self.in_trade
+                    and self.trades_today < max_trades
+                    and not daily_loss_hit
+                    and not cooldown_hit
+                    and candle_in_session
+                ):
                     # Execute pending signal from previous candle (enter on THIS candle's open)
                     if self._entry_signal_pending:
                         if not self._pending_entry_is_current_session(now):
@@ -1313,6 +1386,11 @@ class PaperTradingEngine:
                     }
                 elif daily_loss_hit:
                     self._condition_debug = {"gate": f"daily_loss_limit (₹{self.daily_pnl:,.2f})", "conditions": []}
+                elif cooldown_hit:
+                    self._condition_debug = {
+                        "gate": f"profit_cooldown (big-profit day {self.profit_cooldown_trigger_date})",
+                        "conditions": [],
+                    }
 
                 # Store previous row for crossover detection
                 self._prev_row = latest_row
@@ -1589,6 +1667,11 @@ class PaperTradingEngine:
         daily_loss_hit = self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss
         if daily_loss_hit and not self.in_trade:
             self._condition_debug = {"gate": f"daily_loss_limit (₹{self.daily_pnl:,.2f})", "conditions": []}
+        elif self._profit_cooldown_active() and not self.in_trade:
+            self._condition_debug = {
+                "gate": f"profit_cooldown (big-profit day {self.profit_cooldown_trigger_date})",
+                "conditions": [],
+            }
         elif self.trades_today < max_trades and not self.in_trade and candle_in_session:
             # Execute pending signal from previous tick (enter on THIS candle)
             if self._entry_signal_pending:
@@ -2166,6 +2249,7 @@ class PaperTradingEngine:
         position["exit_premium"] = adjusted_exit_premium
         position["pnl"] = pnl
         self.daily_pnl += pnl
+        self._arm_profit_cooldown()
 
         closed_pos = position.copy()
         self.closed_trades.append(closed_pos)
@@ -2283,6 +2367,10 @@ class PaperTradingEngine:
             "current_time": str(self.current_time) if self.current_time else None,
             "trades_today": self.trades_today,
             "daily_pnl": round(self.daily_pnl, 2),
+            "profit_cooldown_active": self._profit_cooldown_active(),
+            "profit_cooldown_trigger_date": str(self.profit_cooldown_trigger_date)
+            if self.profit_cooldown_trigger_date
+            else None,
             "capital_rejections": self.capital_rejections,
             "last_capital_check": self.last_capital_check,
             "execution_realism": {
