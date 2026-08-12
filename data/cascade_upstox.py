@@ -284,6 +284,21 @@ class UpstoxPremiumSource:
         self._series[instrument_key] = series
         return series
 
+    def release_series(self, instrument_key: str) -> None:
+        """Release one parsed contract after a strike-selection probe."""
+        self._series.pop(instrument_key, None)
+
+    def release_memory(self) -> None:
+        """Drop parsed candle objects while retaining the durable disk cache.
+
+        A long premium-target replay visits many weekly expiries. Keeping each
+        contract's one-minute candles as Python objects grows until the web
+        worker reaches its memory-reclaim ceiling. The selector releases the
+        previous expiry here; a later lookup can reopen the same cached JSON
+        without another Upstox request.
+        """
+        self._series.clear()
+
     # ── the one method the engine calls ───────────────────────────
 
     def lookup(self, timestamp: datetime, contract: Contract) -> Optional[OptionCandle]:

@@ -76,6 +76,23 @@ def _instrument_label(instrument):
     return labels.get(family, str(instrument))
 
 
+def _release_closed_dynamic_histories(option_history_map, closed_positions, remaining_positions):
+    """Keep only Upstox contract frames that an open position can still use.
+
+    Fixed/rolling option histories are shared inputs and must remain available
+    for later entries. Premium-target selections use ``upstox|`` keys and are
+    re-resolvable from the durable candle cache, so retaining every completed
+    trade's DataFrame only turns a two-year replay into a web-worker leak.
+    """
+    active_keys = {
+        position.get("option_history_key") for position in remaining_positions if position.get("option_history_key")
+    }
+    for position in closed_positions:
+        history_key = position.get("option_history_key")
+        if history_key and history_key.startswith("upstox|") and history_key not in active_keys:
+            option_history_map.pop(history_key, None)
+
+
 def get_lot_size(instrument, trade_date):
     """Get correct lot size for instrument on a given date"""
     name = _instrument_family(instrument)
@@ -934,6 +951,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             )
 
         open_positions = remaining
+        _release_closed_dynamic_histories(option_history_map, selected_positions, remaining)
         if not open_positions:
             signal_candle = None
             trade_entry_time = None

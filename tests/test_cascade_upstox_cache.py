@@ -87,5 +87,17 @@ def test_cache_only_mode_never_fetches_or_writes_a_cache_miss(tmp_path: Path) ->
     assert source.requests_made == 0
 
 
+def test_release_memory_drops_parsed_candles_but_keeps_contract_metadata(tmp_path: Path) -> None:
+    source = _source(tmp_path, NIFTY_INDEX_KEY)
+    expiry = date(2026, 7, 30)
+    source._series["NSE_FO|contract"] = {object(): object()}
+    source._contracts[expiry] = {(25000, "CE"): "NSE_FO|contract"}
+
+    source.release_memory()
+
+    assert source._series == {}
+    assert source._contracts[expiry] == {(25000, "CE"): "NSE_FO|contract"}
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -10,6 +10,7 @@ fixed contract's OHLC data to the existing backtest engine.
 from __future__ import annotations
 
 import json
+import weakref
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Callable, Optional
@@ -49,13 +50,17 @@ class UpstoxHistoricalPremiumSelector:
             backfill_missing=not cache_only,
         )
         self.expiries = sorted(self.source.available_expiries())
-        self._frames: dict[tuple[str, date, int], pd.DataFrame] = {}
+        # The engine owns a selected frame only while its trade is open.  A
+        # weak cache lets concurrent legs reuse that frame without pinning
+        # every contract selected during the current expiry in web-worker RAM.
+        self._frames: weakref.WeakValueDictionary[tuple[str, date, int], pd.DataFrame] = weakref.WeakValueDictionary()
         self._selection_cache_path = self.source._cache_dir / "premium_target_selections_v1.json"
         self._selection_cache = self._load_selection_cache()
         self.selection_cache_hits = 0
         self.selection_cache_misses = 0
         self.last_gap = ""
         self._progress = progress
+        self._active_expiry: date | None = None
 
     def _load_selection_cache(self) -> dict[str, dict]:
         """Load resolved strikes from earlier identical historical replays.
@@ -124,6 +129,15 @@ class UpstoxHistoricalPremiumSelector:
             return max(value for value in future if (value.year, value.month) == wanted)
         return future[0]
 
+    def _activate_expiry(self, expiry: date) -> None:
+        if self._active_expiry == expiry:
+            return
+        self._frames.clear()
+        release = getattr(self.source, "release_memory", None)
+        if callable(release):
+            release()
+        self._active_expiry = expiry
+
     def _frame(self, instrument_key: str, expiry: date, strike: int, timeframe: int) -> pd.DataFrame:
         cache_key = (instrument_key, expiry, int(timeframe))
         cached = self._frames.get(cache_key)
@@ -135,12 +149,17 @@ class UpstoxHistoricalPremiumSelector:
                 f"strike {strike:,} · {self.source.requests_made} request(s)"
             )
         series = self.source._minute_series(instrument_key, expiry)
-        if not series:
-            return pd.DataFrame()
-        rows = [
-            {"timestamp": stamp, "open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
-            for stamp, bar in series.items()
-        ]
+        try:
+            if not series:
+                return pd.DataFrame()
+            rows = [
+                {"timestamp": stamp, "open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
+                for stamp, bar in series.items()
+            ]
+        finally:
+            release = getattr(self.source, "release_series", None)
+            if callable(release):
+                release(instrument_key)
         frame = pd.DataFrame(rows).set_index("timestamp").sort_index()
         frame = (
             frame.resample(f"{timeframe}min", label="left", closed="left", origin="start_day", offset="15min")
@@ -149,6 +168,23 @@ class UpstoxHistoricalPremiumSelector:
         )
         self._frames[cache_key] = frame
         return frame
+
+    def _entry_price(self, instrument_key: str, expiry: date, entry_time: datetime) -> float | None:
+        """Read one candidate's entry minute without retaining its full life.
+
+        Premium-near can inspect 31 strikes. Building and retaining a full
+        DataFrame for every candidate is unnecessary: selection needs only the
+        entry-minute open. The chosen contract is loaded once afterwards for
+        exit simulation.
+        """
+        series = self.source._minute_series(instrument_key, expiry)
+        try:
+            bar = series.get(entry_time)
+            return float(bar.open) if bar is not None else None
+        finally:
+            release = getattr(self.source, "release_series", None)
+            if callable(release):
+                release(instrument_key)
 
     def select(self, entry_time: datetime, entry_spot: float, leg: dict, timeframe_minutes: int):
         """Return the exact selected fixed contract, or None with ``last_gap``."""
@@ -163,6 +199,7 @@ class UpstoxHistoricalPremiumSelector:
         if expiry is None:
             self.last_gap = "no eligible Upstox expiry"
             return None
+        self._activate_expiry(expiry)
         contracts = self.source._contract_index(expiry)
         atm = round_to_nearest_step(entry_spot, 50)
         cache_key = self._selection_cache_key(
@@ -201,15 +238,17 @@ class UpstoxHistoricalPremiumSelector:
             instrument_key = contracts.get((strike, option_type))
             if not instrument_key:
                 continue
-            frame = self._frame(instrument_key, expiry, strike, int(timeframe_minutes))
-            if frame.empty or entry_time not in frame.index:
+            price = self._entry_price(instrument_key, expiry, entry_time)
+            if price is None:
                 continue
-            price = float(frame.loc[entry_time, "open"])
-            candidate = (price, strike, instrument_key, frame)
+            candidate = (price, strike, instrument_key)
             candidates.append(candidate)
             if (strike_type == "premium_above" and price >= target) or (
                 strike_type == "premium_below" and price <= target
             ):
+                frame = self._frame(instrument_key, expiry, strike, int(timeframe_minutes))
+                if frame.empty or entry_time not in frame.index:
+                    continue
                 self._selection_cache[cache_key] = {"instrument_key": instrument_key, "strike": strike}
                 self._write_selection_cache()
                 return HistoricalOptionSelection(
@@ -222,7 +261,11 @@ class UpstoxHistoricalPremiumSelector:
         if not candidates:
             self.last_gap = f"no complete Upstox {option_type} candle series at {entry_time:%Y-%m-%d %H:%M}"
             return None
-        price, strike, instrument_key, frame = min(candidates, key=lambda item: abs(item[0] - target))
+        price, strike, instrument_key = min(candidates, key=lambda item: abs(item[0] - target))
+        frame = self._frame(instrument_key, expiry, strike, int(timeframe_minutes))
+        if frame.empty or entry_time not in frame.index:
+            self.last_gap = f"selected Upstox {option_type} candle series unavailable at {entry_time:%Y-%m-%d %H:%M}"
+            return None
         self._selection_cache[cache_key] = {"instrument_key": instrument_key, "strike": strike}
         self._write_selection_cache()
         return HistoricalOptionSelection(

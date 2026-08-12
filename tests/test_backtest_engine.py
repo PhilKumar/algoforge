@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from engine.backtest import eval_condition, run_backtest
+from engine.backtest import _release_closed_dynamic_histories, eval_condition, run_backtest
 
 
 def _make_ohlcv(
@@ -34,6 +34,32 @@ def _run_backtest(*args, **kwargs):
 
 
 class BacktestRegressionTests(unittest.TestCase):
+    def test_closed_upstox_history_is_released_but_shared_history_is_preserved(self):
+        dynamic_key = "upstox|contract|2026-03-19|25000|CE"
+        shared_key = "rolling|NIFTY|CE"
+        histories = {dynamic_key: object(), shared_key: object()}
+        closed = [
+            {"option_history_key": dynamic_key},
+            {"option_history_key": shared_key},
+        ]
+
+        _release_closed_dynamic_histories(histories, closed, [])
+
+        self.assertNotIn(dynamic_key, histories)
+        self.assertIn(shared_key, histories)
+
+    def test_history_stays_alive_until_the_last_open_leg_closes(self):
+        dynamic_key = "upstox|contract|2026-03-19|25000|CE"
+        histories = {dynamic_key: object()}
+
+        _release_closed_dynamic_histories(
+            histories,
+            [{"option_history_key": dynamic_key}],
+            [{"option_history_key": dynamic_key}],
+        )
+
+        self.assertIn(dynamic_key, histories)
+
     def test_touches_distinguishes_candle_range_from_close_value(self):
         row = pd.Series(
             {"open": 101.0, "high": 105.0, "low": 100.0, "close": 102.0},

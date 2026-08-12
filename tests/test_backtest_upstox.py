@@ -1,3 +1,4 @@
+import gc
 import tempfile
 import unittest
 from datetime import date, datetime
@@ -14,6 +15,7 @@ class _FakeUpstoxSource:
     def __init__(self, **_kwargs):
         self._cache_dir = Path(self.cache_dir)
         self.requests_made = 0
+        self.release_calls = 0
 
     def available_expiries(self):
         return {date(2026, 3, 19)}
@@ -28,8 +30,43 @@ class _FakeUpstoxSource:
             datetime(2026, 3, 18, 9, 16): OptionCandle(datetime(2026, 3, 18, 9, 16), 252.0, 254.0, 251.0, 253.0),
         }
 
+    def release_memory(self):
+        self.release_calls += 1
+
 
 class PremiumTargetSelectionCacheTests(unittest.TestCase):
+    def test_selected_frame_cache_does_not_pin_closed_contract_history(self):
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("data.backtest_upstox.UpstoxPremiumSource", _FakeUpstoxSource),
+        ):
+            _FakeUpstoxSource.cache_dir = tmpdir
+            selector = UpstoxHistoricalPremiumSelector("NIFTY")
+            expiry = date(2026, 3, 19)
+            frame = selector._frame("contract", expiry, 25000, 5)
+
+            self.assertTrue(selector._frames)
+            del frame
+            gc.collect()
+
+            self.assertFalse(selector._frames)
+
+    def test_expiry_transition_releases_parsed_contract_frames(self):
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("data.backtest_upstox.UpstoxPremiumSource", _FakeUpstoxSource),
+        ):
+            _FakeUpstoxSource.cache_dir = tmpdir
+            selector = UpstoxHistoricalPremiumSelector("NIFTY")
+            selector._activate_expiry(date(2026, 3, 19))
+            frame = selector._frame("contract", date(2026, 3, 19), 25000, 5)
+            self.assertTrue(selector._frames)
+
+            selector._activate_expiry(date(2026, 3, 26))
+
+            self.assertFalse(selector._frames)
+            self.assertEqual(selector.source.release_calls, 2)
+
     def test_progress_callback_is_accepted_and_reports_resolution(self):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
