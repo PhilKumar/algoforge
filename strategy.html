@@ -1584,7 +1584,12 @@
         </div>
         <div class="terminal-cascade-start-panel-actions">
           <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
-          <button id="terminal-cascade-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" onclick="loadTerminalCascadeChart()">Chart</button>
+          <!-- It PREVIEWS the mother you are about to start on: same geometry
+               the engine will draw, before any money is committed. The label
+               says so now, because "Chart" beside "Start Paper" reads as a
+               second way to open the campaign chart, which is what the running
+               campaign's own card is for. -->
+          <button id="terminal-cascade-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" onclick="previewTerminalCascadeChart()" title="Draw this mother's trendline, fibs and rungs before starting">Preview Chart</button>
           <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
           <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
         </div>
@@ -1597,7 +1602,7 @@
             <span>Instrument</span>
             <strong id="terminal-cascade-scrip-subtitle">Select a symbol</strong>
           </div>
-          <button class="btn btn-sm terminal-cascade-chart-launch" onclick="loadTerminalCascadeChart()">Open Chart</button>
+          <button class="btn btn-sm terminal-cascade-chart-launch" onclick="previewTerminalCascadeChart()">Open Chart</button>
         </div>
         <div id="terminal-cascade-scrip-flow" class="terminal-cascade-scrip-flow"></div>
       </section>

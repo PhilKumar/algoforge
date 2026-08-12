@@ -6145,17 +6145,20 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      COLUMN: sections flow into as many ~34em columns as fit, the page is used
      edge to edge, and no line of prose ever gets longer than it was.
      Below ~700px this collapses to the single column it always was.
-     `display` is deliberately NOT set on the bare class -- .pf-info-pop's
-     `display:none` and this rule have equal specificity and this file's block
-     comes later, so setting it here would leave the doc permanently open. */
+
+     COLUMNS, not a grid. A grid lays out in ROWS, so every row was as tall as
+     its tallest section and the short ones left holes under them -- step 10 sat
+     alone at the bottom with a third of a screen of empty above it. Columns
+     flow: a section starts where the one before it ended, and the browser
+     balances the column heights itself. */
   .pf-info-doc {
     padding: 14px 18px 16px;
-    grid-template-columns: repeat(auto-fit, minmax(min(34em, 100%), 1fr));
-    gap: 2px 30px;
-    align-items: start;
+    columns: 34em auto;
+    column-gap: 34px;
   }
-  .pf-info-doc.is-open { display: grid; }
-  .pf-info-doc > section { break-inside: avoid; margin-bottom: 13px; }
+  /* Never split a step across a column break: half a rule at the foot of one
+     column and the rest at the head of the next is worse than a short column. */
+  .pf-info-doc > section { break-inside: avoid; margin: 0 0 15px; display: block; }
   .pf-info-doc p { margin: 0 0 9px; }
   .pf-info-doc p:last-child { margin-bottom: 0; }
   .pf-info-doc em { font-style: normal; color: var(--text); opacity: .85; }
@@ -6167,7 +6170,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* The lede is the answer for anyone who reads one sentence and stops, so it
      spans every column and keeps its own reading measure. */
   .pf-info-doc .pf-info-lede {
-    grid-column: 1 / -1;
+    column-span: all;
     max-width: 74ch;
     font-size: 12.5px; line-height: 1.55; color: var(--text);
     margin-bottom: 13px; padding-bottom: 11px;

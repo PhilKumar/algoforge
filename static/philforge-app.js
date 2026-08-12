@@ -6823,7 +6823,9 @@ function _renderTerminalClosedCampaigns() {
 function _terminalCascadeCurrentChartTimeframe() {
   if (_terminalCascadeChartTimeframe !== 'auto') return _terminalCascadeChartTimeframe;
   const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
-  const current = campaigns.find(campaign => campaign?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || campaigns[0];
+  // The campaign for the chart on screen, or none. Falling back to campaigns[0]
+  // meant an unrelated campaign's timeframe could be applied to a preview.
+  const current = campaigns.find(campaign => campaign?.instrument?.symbol === _terminalCascadeChartContext?.symbol) || null;
   return _terminalCascadeChartContext?.timeframe || current?.config?.timeframe || _terminalCascadeEl('terminal-cascade-timeframe')?.value || '5m';
 }
 
@@ -7647,16 +7649,75 @@ function toggleTerminalCascadeFullscreen(force) {
   }
 }
 
+/* The chart the SETUP form is describing: the scrip you picked, the mother you
+   typed, the timeframe you chose. Its own function because that is a different
+   question from "chart this running campaign", and conflating the two is what
+   broke it. */
+function _terminalCascadeFormChartTarget() {
+  return {
+    // Resolved exactly as Start Paper resolves it, so Preview cannot draw one
+    // scrip while the button under it would start another.
+    symbol: _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '',
+    timestamp: _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || '',
+    timeframe: _terminalCascadeEl('terminal-cascade-timeframe')?.value || '',
+  };
+}
+
+/* The Chart button beside Start Paper. Phil: "why chart button is here...
+   After loading the stock also it is not showing the correct chart."
+
+   Both were the same fault. The button previews the mother you are about to
+   start on — but it passed NO arguments, and the resolver below preferred a
+   running campaign and then fell back to campaigns[0]. With two campaigns live,
+   picking a scrip and pressing Chart drew whichever stock happened to be first
+   in the list, at ITS mother. The button looked pointless because it was
+   answering a question nobody asked. */
+function previewTerminalCascadeChart() {
+  const form = _terminalCascadeFormChartTarget();
+  const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
+  // A campaign for the picked scrip can supply a mother the form has not been
+  // given. A campaign for a DIFFERENT scrip can supply nothing at all.
+  const owner = form.symbol ? campaigns.find(row => row?.instrument?.symbol === form.symbol) : campaigns[0];
+  const symbol = form.symbol || owner?.instrument?.symbol || '';
+  if (!symbol) {
+    _terminalCascadeSetStatus('Pick a scrip from the scanner first — the chart draws that scrip.', 'error');
+    return Promise.resolve();
+  }
+  const timestamp = form.timestamp || owner?.mother?.signal?.timestamp || '';
+  if (!timestamp) {
+    // Never silently chart something else to fill the gap.
+    _terminalCascadeSetStatus(`Name a mother candle for ${symbol} — the chart is drawn from that candle.`, 'error');
+    return Promise.resolve();
+  }
+  return loadTerminalCascadeChart(symbol, timestamp, form.timeframe || owner?.config?.timeframe || '');
+}
+
 async function loadTerminalCascadeChart(symbolArg = '', timestampArg = '', timeframeArg = '') {
   const campaigns = _lastTerminalCascadeStatus?.campaigns || [];
-  const requestedSymbol = typeof symbolArg === 'string' ? symbolArg : '';
-  const active = campaigns.find(campaign => campaign?.instrument?.symbol === requestedSymbol)
-    || campaigns.find(campaign => campaign?.instrument?.symbol === _terminalCascadeChartContext?.symbol)
-    || campaigns.find(campaign => campaign?.instrument?.symbol === _stockTerminalSelected?.symbol)
-    || campaigns[0];
-  const symbol = requestedSymbol || active?.instrument?.symbol || _stockTerminalSelected?.symbol || document.getElementById('stock-terminal-symbol')?.value || '';
-  const timestamp = (typeof timestampArg === 'string' && timestampArg) || active?.mother?.signal?.timestamp || _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value || '';
-  const timeframe = (typeof timeframeArg === 'string' && timeframeArg) || _terminalCascadeCurrentChartTimeframe();
+  // A refresh passes an options object rather than a symbol; that means "draw
+  // again what is already on screen", so the target is the open chart's own
+  // context. Re-resolving it from scratch is what let a timeframe click swap a
+  // preview to an unrelated stock mid-look.
+  const requestedSymbol = typeof symbolArg === 'string' ? symbolArg.trim() : '';
+  const context = _terminalCascadeChartContext || null;
+  const symbol = requestedSymbol || context?.symbol || _stockTerminalSelected?.symbol || '';
+  // Only the campaign for THIS symbol may fill in blanks. No campaigns[0].
+  const owner = symbol ? campaigns.find(campaign => campaign?.instrument?.symbol === symbol) : null;
+  const onScreen = !requestedSymbol || requestedSymbol === context?.symbol;
+  const timestamp = (typeof timestampArg === 'string' && timestampArg.trim())
+    || (onScreen ? context?.timestamp : '')
+    || owner?.mother?.signal?.timestamp
+    || (symbol === _stockTerminalSelected?.symbol ? _terminalCascadeEl('terminal-cascade-mother-timestamp')?.value : '')
+    || '';
+  // An explicit timeframe click always wins; otherwise take the one that
+  // belongs to the thing being charted.
+  const timeframe = _terminalCascadeChartTimeframe !== 'auto'
+    ? _terminalCascadeChartTimeframe
+    : ((typeof timeframeArg === 'string' && timeframeArg)
+      || owner?.config?.timeframe
+      || (onScreen ? context?.timeframe : '')
+      || _terminalCascadeEl('terminal-cascade-timeframe')?.value
+      || '5m');
   const overlay = _terminalCascadeEl('terminal-cascade-chart-overlay');
   const body = _terminalCascadeEl('terminal-cascade-chart-body');
   if (!symbol || !timestamp) { _terminalCascadeSetStatus('Select a symbol and mother timestamp first.', 'error'); return; }
