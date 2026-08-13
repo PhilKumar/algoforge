@@ -56,7 +56,7 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = '<table data-table-probe="overlay"><thead><tr><th>Price</th></tr></thead><tbody><tr><td>1,234.50</td></tr></tbody></table>';
+    overlay.innerHTML = '<table data-table-probe="overlay"><thead><tr><th>Price</th></tr></thead><tbody><tr><td>1,234.50</td></tr><tr><td>1,235.50</td></tr></tbody></table>';
     document.body.appendChild(overlay);
 
     const classHost = document.getElementById('dashboard-page')!;
