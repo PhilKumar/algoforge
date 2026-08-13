@@ -1,7 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+const USERNAME = process.env.E2E_USERNAME || 'admin';
+const PIN = process.env.E2E_PIN || '123456';
+
+async function login(page: Page) {
+  await page.goto('/app');
+  await page.fill('#username-input', USERNAME);
+  const pw = page.locator('#password-input');
+  if (await pw.isVisible()) { await pw.fill(PIN); await page.click('#unlock-btn'); }
+  else { for (const d of PIN.split('')) await page.click(`[data-val="${d}"]`); }
+  await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+}
 
 test('Scalp uses the Cascade hierarchy and reserves green for trading meaning', async ({ page }) => {
-  await page.goto('/strategy.html');
+  await login(page);
   await page.waitForFunction(() => typeof (window as any)._renderScalpStatus === 'function');
   await page.evaluate(() => {
     // Forest is the strongest regression case: the user's global tint is green,

@@ -546,9 +546,7 @@ test('with nothing picked it asks for a scrip, it does not chart a campaign', as
    carries the timeframe now. */
 
 test('Cash Cascade chart pans at 100% and follows a vertical plot drag', async ({ page }) => {
-  // This interaction is renderer-only, so it also runs against the static page
-  // without broker credentials or a live application process.
-  await page.goto('/strategy.html');
+  await login(page);
   await page.waitForFunction(() => typeof (window as any)._terminalCascadeMountCanvas === 'function');
   const candles = Array.from({ length: 106 }, (_, i) => ({
     t: new Date(Date.UTC(2026, 7, 1, 3, 45 + i * 15)).toISOString(),
@@ -667,6 +665,8 @@ test('a mother that is already spent is refused with the reason', async ({ page 
       detail: 'That 15m mother is spent — price has already traded above its high of 570.70, so no fib leg can form and the campaign would be over before it started.' } }),
   }));
   await page.evaluate(() => {
+    (document.getElementById('stock-terminal-symbol') as HTMLInputElement).value = 'NIFTYBEES';
+    (window as any)._stockTerminalSelected = { symbol: 'NIFTYBEES', last_price: 570 };
     (document.getElementById('terminal-cascade-mother-timestamp') as HTMLInputElement).value = '2026-07-21T13:15';
   });
   await page.click('#terminal-cascade-start');
