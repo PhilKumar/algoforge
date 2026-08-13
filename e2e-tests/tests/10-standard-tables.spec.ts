@@ -147,7 +147,15 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
         && head.fontWeight === '800'
         && head.textTransform === 'uppercase'
         && cell.fontSize === '13px';
-      return matches ? null : `${index}:${table.id || table.className || 'plain'}`;
+      return matches ? null : {
+        table: `${index}:${table.id || table.className || 'plain'}`,
+        tableFont: getComputedStyle(table).fontSize,
+        headerPadding: `${head.paddingTop} ${head.paddingRight} ${head.paddingBottom} ${head.paddingLeft}`,
+        cellPadding: `${cell.paddingTop} ${cell.paddingRight} ${cell.paddingBottom} ${cell.paddingLeft}`,
+        headerPosition: head.position,
+        headerFont: `${head.fontSize}/${head.fontWeight}/${head.textTransform}`,
+        cellFont: cell.fontSize,
+      };
     })
     .filter(Boolean));
 

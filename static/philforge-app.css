@@ -7391,6 +7391,14 @@ body table :is(th, td) {
   vertical-align: top;
 }
 
+/* Named empty, muted, total and action cells historically carried their own
+   !important padding. Keep their semantics, but never let a class opt a cell
+   out of the Campaigns row geometry. */
+body table :is(th, td)[class] {
+  padding: 10px 13px !important;
+  border-bottom: 1px solid rgba(148, 163, 184, .10) !important;
+}
+
 body table thead th {
   position: sticky !important;
   z-index: 1 !important;
