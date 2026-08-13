@@ -13546,10 +13546,10 @@ function renderLiveTabs() {
   const totalRunning = _liveEngines.filter(e => e.running).length;
   const pnlColor = totalPnl >= 0 ? 'var(--success)' : 'var(--danger)';
 
-  let html = `<div class="live-tabs-summary" style="padding:10px 16px 10px 0;border-right:1px solid var(--border);margin-right:4px;display:flex;flex-direction:column;gap:2px;min-width:120px;">
-    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Combined P&L</div>
-    <div style="font-size:16px;font-weight:700;font-family:'JetBrains Mono';color:${pnlColor};">₹${totalPnl.toFixed(2)}</div>
-    <div style="font-size:10px;color:var(--muted);">${totalRunning} running</div>
+  let html = `<div class="live-tabs-summary">
+    <div class="live-tabs-label">Combined P&amp;L</div>
+    <div class="live-tabs-figure" style="color:${pnlColor};">₹${totalPnl.toFixed(2)}</div>
+    <div class="live-tabs-sub">${totalRunning} running</div>
   </div>`;
 
   // Individual strategy tabs
@@ -13562,26 +13562,18 @@ function renderLiveTabs() {
     const running = eng.running;
     const inTrade = eng.in_trade;
 
-    let statusDot = '';
-    if (running && inTrade) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ade80;margin-right:4px;animation:pulse 2s infinite;"></span>';
-    else if (running) statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:4px;animation:pulse 2s infinite;"></span>';
-    else statusDot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:4px;"></span>';
+    // One dot vocabulary, the site's: green = in a trade, amber = armed and
+    // waiting, red = stopped. Colour carries the state; nothing else does.
+    const dotState = running && inTrade ? 'is-trading' : running ? 'is-waiting' : 'is-stopped';
 
-    const borderStyle = active ? 'border-bottom:2px solid var(--accent);' : 'border-bottom:2px solid transparent;';
-    const bgStyle = active ? 'background:rgba(99,102,241,0.08);' : '';
-
-    html += `<div class="live-tab-item" onclick="selectLiveTab(${idx})" style="cursor:pointer;padding:8px 14px;${borderStyle}${bgStyle}transition:all 0.15s;display:flex;flex-direction:column;gap:2px;min-width:130px;" onmouseenter="this.style.background='rgba(99,102,241,0.05)'" onmouseleave="this.style.background='${active ? 'rgba(99,102,241,0.08)' : ''}'">
-      <div style="display:flex;align-items:center;gap:4px;">
-        ${statusDot}<span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${safeName}</span>
-        <span style="font-size:10px;">${mode}</span>
-      </div>
-      <div style="font-size:13px;font-weight:700;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'};">₹${pnl.toFixed(2)}</div>
-    </div>`;
+    html += `<button type="button" class="live-tab-item${active ? ' is-active' : ''}" onclick="selectLiveTab(${idx})" aria-pressed="${active ? 'true' : 'false'}">
+      <span class="live-tab-name"><span class="live-tab-dot ${dotState}"></span><span class="live-tab-text">${safeName}</span><span class="live-tab-mode">${mode}</span></span>
+      <span class="live-tab-pnl" style="color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'};">₹${pnl.toFixed(2)}</span>
+    </button>`;
   });
 
-  // Refresh button
-  html += `<div class="live-tabs-refresh" style="margin-left:auto;padding:8px 12px;display:flex;align-items:center;">
-    <button class="btn" onclick="loadLiveMonitor()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:4px 12px;">${ICO.refresh(14)}</button>
+  html += `<div class="live-tabs-refresh">
+    <button type="button" class="cascade-options-control" onclick="loadLiveMonitor()" title="Refresh the monitor">${ICO.refresh(13)} Refresh</button>
   </div>`;
 
   bar.innerHTML = html;
@@ -13602,13 +13594,13 @@ function renderLivePanel(d, idx) {
   // Status badge
   let badgeHtml, statusText, statusColor;
   if (running && inTrade) {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(34,197,94,0.15);color:#4ade80;">IN TRADE</span>';
+    badgeHtml = '<span class="live-state-chip is-trading">In trade</span>';
     statusText = 'In Trade'; statusColor = '#4ade80';
   } else if (running) {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:#f59e0b;">WAITING</span>';
+    badgeHtml = '<span class="live-state-chip is-waiting">Waiting</span>';
     statusText = 'Waiting'; statusColor = '#f59e0b';
   } else {
-    badgeHtml = '<span style="padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:var(--red);">STOPPED</span>';
+    badgeHtml = '<span class="live-state-chip is-stopped">Stopped</span>';
     statusText = 'Idle'; statusColor = 'var(--muted)';
   }
 
@@ -13629,14 +13621,14 @@ function renderLivePanel(d, idx) {
   // Signal / indicator rows
   let signalHtml;
   if (!running || !candle.close) {
-    signalHtml = '<tr><td colspan="2" style="text-align:center;padding:30px;color:var(--muted);">Deploy a strategy to see live signals</td></tr>';
+    signalHtml = '<tr><td colspan="2" class="live-table-empty">Deploy a strategy to see live signals</td></tr>';
   } else {
     const ohlcvRows = [['current', d.current_spot || candle.close],['open', candle.open],['high', candle.high],['low', candle.low],['close', candle.close],['volume', candle.volume],['openInterest', candle.openInterest]];
     const indRows = Object.entries(d.current_indicators || {});
     signalHtml = [...ohlcvRows, ...indRows].map(([k, v]) => {
       const isInd = !['current','open','high','low','close','volume','openInterest'].includes(k);
       const displayValue = typeof v === 'number' ? v.toLocaleString('en-IN') : String(v ?? '—');
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 16px;color:${isInd?'var(--text)':'var(--muted)'};${isInd?'':'padding-left:28px;'}">${escapeHtml(k)}</td><td style="padding:7px 16px;text-align:right;font-family:'JetBrains Mono';font-size:12px;color:${isInd?'var(--accent2)':'var(--text)'};">${escapeHtml(displayValue)}</td></tr>`;
+      return `<tr><td class="${isInd ? 'live-field-ind' : 'live-field-ohlc'}">${escapeHtml(k)}</td><td>${escapeHtml(displayValue)}</td></tr>`;
     }).join('');
   }
   const signalFieldCount = (!running || !candle.close) ? 0 : (7 + Object.keys(d.current_indicators || {}).length);
@@ -13645,12 +13637,12 @@ function renderLivePanel(d, idx) {
   const positions = d.positions || [];
   let posHtml;
   if (!positions.length) {
-    posHtml = '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);font-size:12px;">No open positions</td></tr>';
+    posHtml = '<tr><td colspan="6" class="live-table-empty">No open positions</td></tr>';
   } else {
     posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
       const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
-      return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px 12px;">${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="padding:7px 12px;text-align:right;color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.entry_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(p.current_premium||0).toFixed(2)}</td><td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td style="padding:7px 8px;text-align:center;"><button onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})" style="background:linear-gradient(180deg,rgba(239,68,68,0.2),rgba(180,40,40,0.4));color:var(--red);border:1px solid rgba(239,68,68,0.5);padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">Exit</button></td></tr>`;
+      return `<tr><td>${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td>₹${round2(p.entry_premium||0).toFixed(2)}</td><td>₹${round2(p.current_premium||0).toFixed(2)}</td><td style="color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td><button type="button" class="cascade-options-control is-danger" onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})">Exit</button></td></tr>`;
     }).join('');
   }
 
@@ -13719,127 +13711,124 @@ function renderLivePanel(d, idx) {
   const entryConds = strat.entry_conditions || [];
   const exitConds = strat.exit_conditions || [];
   const legs = strat.legs || [];
-  const chipS = "display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-family:'JetBrains Mono',monospace;margin:0 4px 4px 0;white-space:nowrap;";
+  // One chip shape for every rule (.live-chip); the tone says entry, exit or leg.
   const condVal = (c) => c.right === 'number' ? c.right_number_value : c.right === 'days' ? (c.right_days || []).join(',') : c.right === 'time' ? (c.right_time || '') : c.right;
 
   let conditionsHtml = '';
   if (entryConds.length || exitConds.length || legs.length) {
     let entryChips = entryConds.map((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      return `<span style="${chipS}background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.24);"><span style="color:var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--accent);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
+      return `<span class="live-chip is-entry"><span class="live-chip-logic">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--accent);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
     }).join('');
     let exitChips = exitConds.map((c, i) => {
       const logic = i === 0 ? 'IF' : (c.logic || 'AND');
-      return `<span style="${chipS}background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);"><span style="color:var(--muted);">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--warn);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
+      return `<span class="live-chip is-exit"><span class="live-chip-logic">${escapeHtml(logic)}</span> ${escapeHtml(c.left || '')} <span style="color:var(--warn);">${escapeHtml(c.operator || '')}</span> ${escapeHtml(condVal(c))}</span>`;
     }).join('');
     let legsChips = legs.map(l => {
       const lc = l.transaction_type === 'BUY' ? (l.option_type === 'CE' ? 'var(--success)' : 'var(--danger)') : (l.option_type === 'CE' ? 'var(--warn)' : 'var(--accent2)');
       const _sv = l.strike_value || ''; const _st = l.strike_type || 'atm';
       const _stLabel = _st==='atm'?'ATM':_st==='premium_above'?`Prem≥${_sv}`:_st==='premium_below'?`Prem≤${_sv}`:_st==='premium_near'?`Prem~${_sv}`:_st==='otm'?`OTM+${_sv}`:_st==='itm'?`ITM-${_sv}`:_st==='strike_price'?`@${_sv}`:_st==='spot_price'?`Spot±${_sv}`:_st.toUpperCase();
-      return `<span style="${chipS}background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);"><span style="color:${lc};font-weight:700;">${escapeHtml(l.transaction_type || '')} ${escapeHtml(l.option_type || '')}</span> ${escapeHtml(_stLabel)}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
+      return `<span class="live-chip is-leg"><span style="color:${lc};font-weight:700;">${escapeHtml(l.transaction_type || '')} ${escapeHtml(l.option_type || '')}</span> ${escapeHtml(_stLabel)}${l.sl_pct?' SL:'+l.sl_pct+'%':''}${l.target_pct?' TP:'+l.target_pct+'%':''}</span>`;
     }).join('');
 
     conditionsHtml = `
-    <div style="padding:10px 28px;background:rgba(0,0,0,0.15);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
-      ${entryChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">ENTRY</span>${entryChips}</div>` : ''}
-      ${exitChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">EXIT</span>${exitChips}</div>` : ''}
-      ${legsChips ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;"><span style="font-size:10px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">LEGS</span>${legsChips}</div>` : ''}
+    <div class="live-conditions">
+      ${entryChips ? `<div class="live-cond-group"><span class="live-cond-label is-entry">Entry</span>${entryChips}</div>` : ''}
+      ${exitChips ? `<div class="live-cond-group"><span class="live-cond-label is-exit">Exit</span>${exitChips}</div>` : ''}
+      ${legsChips ? `<div class="live-cond-group"><span class="live-cond-label is-leg">Legs</span>${legsChips}</div>` : ''}
     </div>`;
   }
 
   container.innerHTML = `
   <!-- Header bar -->
-  <div class="live-panel-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:${conditionsHtml ? 'none' : '1px solid var(--border)'};">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <div style="font-size:18px;font-weight:700;color:var(--text);">${safeName}</div>
-        ${folderBadgeHtml}
-      </div>
-      ${badgeHtml}
+  <div class="live-panel-header${conditionsHtml ? ' has-conditions' : ''}">
+    <div class="live-panel-title">
+      <div class="live-panel-eyebrow">${mode === 'auto' ? 'Auto &middot; live orders' : 'Paper'}</div>
+      <div class="live-panel-name">${safeName} ${badgeHtml}</div>
+      <div class="live-panel-folder">${folderBadgeHtml}</div>
     </div>
-    <div class="live-panel-actions" style="display:flex;gap:8px;">
-      ${(d.positions || []).length || (d.closed_trades || []).length ? `<button class="btn" onclick="openLiveEntryChart('${safeRunIdJs}')" style="--btn-bg: rgba(56,189,248,0.15);--btn-color: #7dd3fc;--btn-border: rgba(56,189,248,0.3);font-size:12px;padding:6px 16px;">${ICO.chart ? ICO.chart(14) : ''} Entry Chart</button>` : ''}
-      <button class="btn" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
-      ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: var(--red);--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
-      ${!running && runId ? `<button class="btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
-      ${!running && runId ? `<button class="btn" onclick="dismissEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(107,114,128,0.15);--btn-color: #9ca3af;--btn-border: rgba(107,114,128,0.3);font-size:12px;padding:6px 16px;">${ICO.trash(14)} Dismiss</button>` : ''}
-      <button class="btn" onclick="downloadPaperCSV()" style="--btn-bg: rgba(59,130,246,0.15);--btn-color: #93c5fd;--btn-border: rgba(59,130,246,0.3);font-size:11px;padding:6px 12px;">${ICO.download(14)} CSV</button>
+    <div class="live-panel-actions">
+      ${(d.positions || []).length || (d.closed_trades || []).length ? `<button type="button" class="cascade-options-control" onclick="openLiveEntryChart('${safeRunIdJs}')">${ICO.chart ? ICO.chart(13) : ''} Entry Chart</button>` : ''}
+      <button type="button" class="cascade-options-control" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')">${ICO.eye(13)} Strategy</button>
+      ${running ? `<button type="button" class="cascade-options-control is-danger" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')">${ICO.sqstop(13)} Stop</button>` : ''}
+      ${!running && runId ? `<button type="button" class="cascade-options-primary-btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')">${ICO.play(13)} Start</button>` : ''}
+      ${!running && runId ? `<button type="button" class="cascade-options-control is-danger" onclick="dismissEngine('${safeRunIdJs}','${safeModeJs}')">${ICO.trash(13)} Dismiss</button>` : ''}
+      <button type="button" class="cascade-options-control" onclick="downloadPaperCSV()">${ICO.download(13)} CSV</button>
     </div>
   </div>
 
   ${conditionsHtml}
 
-  <!-- 7 stat cards -->
-  <div class="live-panel-stats" style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px;padding:20px 28px 8px;">
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Completed P&L</div>
-      <div style="font-size:20px;font-weight:700;color:${pnlColor};font-family:'JetBrains Mono';">₹${closedPnl.toFixed(2)}</div>
+  <!-- The run at a glance. One tile vocabulary: an uppercase mono label over a
+       tabular figure. Colour is reserved for meaning -- P&L and state -- so a
+       glance finds the number that matters instead of a rainbow. -->
+  <div class="live-panel-stats">
+    <div class="live-stat">
+      <div class="live-stat-label">Completed P&amp;L</div>
+      <div class="live-stat-value" style="color:${pnlColor};">₹${closedPnl.toFixed(2)}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Run Type</div>
-      <div style="font-size:16px;font-weight:700;color:${modeColor};">${modeLabel}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Run type</div>
+      <div class="live-stat-value is-text">${modeLabel}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Lots</div>
-      <div style="font-size:20px;font-weight:700;color:var(--purple);font-family:'JetBrains Mono';">${legs.length ? legs.map(l => l.lots || 1).join(' + ') : '—'}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Lots</div>
+      <div class="live-stat-value">${legs.length ? legs.map(l => l.lots || 1).join(' + ') : '—'}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Trades Today</div>
-      <div style="font-size:20px;font-weight:700;color:var(--accent2);font-family:'JetBrains Mono';">${d.trades_today || 0} / ${strat.max_trades_per_day || '—'}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Trades today</div>
+      <div class="live-stat-value">${d.trades_today || 0} / ${strat.max_trades_per_day || '—'}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Max Trades/Day</div>
-      <div style="font-size:20px;font-weight:700;color:var(--warn);font-family:'JetBrains Mono';">${strat.max_trades_per_day || '—'}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Max trades/day</div>
+      <div class="live-stat-value">${strat.max_trades_per_day || '—'}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Order Type</div>
-      <div style="font-size:16px;font-weight:700;color:${(strat.deploy_config || {}).product_type === 'NORMAL' ? 'var(--accent2)' : 'var(--purple)'};">${escapeHtml((strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS')}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Order type</div>
+      <div class="live-stat-value is-text">${escapeHtml((strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS')}</div>
     </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Status</div>
-      <div style="font-size:16px;font-weight:700;color:${statusColor};">${statusText}</div>
+    <div class="live-stat">
+      <div class="live-stat-label">Status</div>
+      <div class="live-stat-value is-text" style="color:${statusColor};">${statusText}</div>
     </div>
   </div>
 
-  <div class="live-panel-main" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:8px 28px 20px;">
+  <div class="live-panel-main">
     <!-- Left: Signal / Indicator table -->
-    <div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-          <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-            <span style="font-weight:700;font-size:14px;">${escapeHtml(instLabel)}</span>
-            ${signalFieldCount ? `<span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.05);border:1px solid var(--border);">${signalFieldCount} fields</span>` : ''}
-          </div>
-          <span style="font-size:11px;color:var(--muted);">${escapeHtml(candleTime)}</span>
+    <div class="live-panel-card">
+        <div class="live-card-head">
+          <div class="live-card-title">${escapeHtml(instLabel)}${signalFieldCount ? `<span class="live-card-count">${signalFieldCount} fields</span>` : ''}</div>
+          <span class="live-card-meta">${escapeHtml(candleTime)}</span>
         </div>
       <div class="live-data-window">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:var(--card2);"><th style="padding:8px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:11px;">Field</th><th style="padding:8px 16px;text-align:right;color:var(--muted);font-weight:600;font-size:11px;">Value</th></tr></thead>
+      <table class="trade-table live-field-table">
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
         <tbody>${signalHtml}</tbody>
       </table>
       </div>
     </div>
     <!-- Right: Open Positions + Event Log -->
-    <div class="live-panel-side" style="display:flex;flex-direction:column;gap:12px;">
-      <div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Open Positions</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead><tr style="background:var(--card2);"><th style="padding:7px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Current</th><th style="padding:7px 12px;text-align:right;color:var(--muted);font-size:11px;">Unr. P&L</th><th style="padding:7px 8px;text-align:center;color:var(--muted);font-size:11px;">Action</th></tr></thead>
+    <div class="live-panel-side">
+      <div class="live-panel-card">
+        <div class="live-card-head"><div class="live-card-title">Open Positions</div></div>
+        <table class="trade-table live-positions-table">
+          <thead><tr><th>Symbol</th><th>Type</th><th>Entry</th><th>Current</th><th>Unr. P&L</th><th>Action</th></tr></thead>
           <tbody>${posHtml}</tbody>
         </table>
       </div>
-      <div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;flex:1;">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Event Log</div>
+      <div class="live-panel-card is-grow">
+        <div class="live-card-head"><div class="live-card-title">Event Log</div></div>
         <div class="live-event-log">${evtHtml}</div>
       </div>
-      ${condDebugHtml ? `<div class="live-panel-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;">Entry Condition Debug</div>
+      ${condDebugHtml ? `<div class="live-panel-card">
+        <div class="live-card-head"><div class="live-card-title">Entry Condition Debug</div></div>
         ${condDebugHtml}
       </div>` : ''}
     </div>
   </div>
 
   <!-- Closed Trades -->
-  <div style="margin:0 28px 28px;">
+  <div class="live-closed-block">
     ${closedTradesBlockHtml}
   </div>`;
 }

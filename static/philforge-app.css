@@ -7916,3 +7916,197 @@ body :is(
     padding: 14px !important;
   }
 }
+
+/* ── The Live desk, on the site's own vocabulary ────────────────────────
+   Phil, 2026-08-14: "THe alignment and the style and esign go mismatched".
+   The panel was built from inline styles -- a fixed 7-column tile grid that
+   crushed its own figures, a different accent colour on every tile and every
+   button, and two hand-rolled tables. Nothing here invents a new look: the
+   tiles borrow the stat-box proportions, the buttons are the page's own
+   controls, and the tables inherit the Campaigns ledger contract. Colour is
+   spent only where it means something -- P&L and state. */
+#live-tabs-bar {
+  display: flex; align-items: stretch; flex-wrap: wrap; gap: 4px;
+  padding: 0 24px; background: var(--card);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+#live-tabs-bar .live-tabs-summary {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  min-width: 132px; padding: 12px 18px 12px 0; margin-right: 6px;
+  border-right: 1px solid var(--border);
+}
+#live-tabs-bar .live-tabs-label,
+#live-tabs-bar .live-tabs-sub {
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .7px; text-transform: uppercase; color: var(--muted);
+}
+#live-tabs-bar .live-tabs-sub { font-weight: 600; letter-spacing: .4px; }
+#live-tabs-bar .live-tabs-figure {
+  font: 700 16px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums;
+}
+#live-tabs-bar .live-tab-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  min-width: 148px; padding: 11px 14px 9px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  font-family: inherit; text-align: left; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+#live-tabs-bar .live-tab-item:hover { background: rgba(148,163,184,.07); }
+#live-tabs-bar .live-tab-item.is-active {
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#live-tabs-bar .live-tab-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+#live-tabs-bar .live-tab-text {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+}
+#live-tabs-bar .live-tab-mode { display: inline-flex; opacity: .75; }
+#live-tabs-bar .live-tab-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--muted);
+}
+#live-tabs-bar .live-tab-dot.is-trading { background: #4ade80; animation: pulse 2s infinite; }
+#live-tabs-bar .live-tab-dot.is-waiting { background: #f59e0b; animation: pulse 2s infinite; }
+#live-tabs-bar .live-tab-dot.is-stopped { background: var(--red); }
+#live-tabs-bar .live-tab-pnl {
+  font: 700 13px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums;
+}
+#live-tabs-bar .live-tabs-refresh { margin-left: auto; display: flex; align-items: center; padding: 8px 0 8px 12px; }
+#live-tabs-bar .live-tabs-refresh .cascade-options-control { gap: 7px; min-height: 30px; padding: 5px 13px; font-size: 11.5px; }
+
+/* The run header: eyebrow, name, state -- the same three-part title block the
+   Cascade shells use, so the two desks read as one hand. */
+#live-page .live-panel-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 16px 24px 14px; background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+#live-page .live-panel-header.has-conditions { border-bottom: 0; }
+#live-page .live-panel-title { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+#live-page .live-panel-eyebrow {
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .8px; text-transform: uppercase; color: var(--muted);
+}
+#live-page .live-panel-name {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 18px; font-weight: 700; color: var(--text);
+}
+#live-page .live-panel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#live-page .live-panel-actions .cascade-options-control,
+#live-page .live-panel-actions .cascade-options-primary-btn { min-height: 32px; padding: 6px 13px; font-size: 11.5px; gap: 6px; }
+
+#live-page .live-state-chip {
+  padding: 3px 10px; border-radius: 999px;
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .7px; text-transform: uppercase;
+  border: 1px solid transparent;
+}
+#live-page .live-state-chip.is-trading { background: rgba(34,197,94,.14); color: #4ade80; border-color: rgba(34,197,94,.3); }
+#live-page .live-state-chip.is-waiting { background: rgba(245,158,11,.14); color: #f59e0b; border-color: rgba(245,158,11,.3); }
+#live-page .live-state-chip.is-stopped { background: rgba(239,68,68,.14); color: var(--red); border-color: rgba(239,68,68,.3); }
+
+/* The rule strip. */
+#live-page .live-conditions {
+  display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-start;
+  padding: 12px 24px; background: rgba(0,0,0,.15);
+  border-bottom: 1px solid var(--border);
+}
+#live-page .live-cond-group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+#live-page .live-cond-label {
+  margin-right: 3px;
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .7px; text-transform: uppercase;
+}
+#live-page .live-cond-label.is-entry { color: var(--success); }
+#live-page .live-cond-label.is-exit { color: var(--warn); }
+#live-page .live-cond-label.is-leg { color: var(--accent2); }
+#live-page .live-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  font: 10px 'JetBrains Mono', monospace;
+  /* Explicit, never inherited: the surrounding shell paints near-white text,
+     which left the operands invisible on a light chip. */
+  color: var(--text);
+  border: 1px solid var(--border); background: rgba(148,163,184,.06);
+}
+#live-page .live-chip-logic { color: var(--muted); }
+#live-page .live-chip.is-entry { background: rgba(34,197,94,.10); border-color: rgba(34,197,94,.22); }
+#live-page .live-chip.is-exit { background: rgba(245,158,11,.10); border-color: rgba(245,158,11,.22); }
+#live-page .live-chip.is-leg { background: rgba(139,92,246,.10); border-color: rgba(139,92,246,.24); }
+
+/* Tiles: they wrap instead of crushing, and every figure is tabular. */
+#live-page .live-panel-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 12px; padding: 18px 24px 10px;
+}
+#live-page .live-stat {
+  padding: 13px 14px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card);
+}
+#live-page .live-stat-label {
+  margin-bottom: 7px;
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .7px; text-transform: uppercase; color: var(--muted);
+}
+#live-page .live-stat-value {
+  font: 700 19px 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+#live-page .live-stat-value.is-text {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Outfit', sans-serif; font-size: 15px;
+}
+
+#live-page .live-panel-main {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px; padding: 8px 24px 20px; align-items: start;
+}
+#live-page .live-panel-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+#live-page .live-panel-card.is-grow { flex: 1; }
+#live-page .live-card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+#live-page .live-card-title {
+  display: flex; align-items: center; gap: 9px; min-width: 0;
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+#live-page .live-card-count {
+  padding: 2px 8px; border-radius: 999px;
+  font: 9.5px 'JetBrains Mono', monospace; color: var(--muted);
+  border: 1px solid var(--border); background: rgba(255,255,255,.04);
+}
+#live-page .live-card-meta { font: 10.5px 'JetBrains Mono', monospace; color: var(--muted); white-space: nowrap; }
+/* A value column reads right, like every other ledger on the site. */
+#live-page .live-field-table th:last-child,
+#live-page .live-field-table td:last-child { text-align: right; }
+#live-page .live-field-table td.live-field-ohlc { padding-left: 26px; color: var(--muted); }
+#live-page .live-field-table td.live-field-ind { color: var(--text); font-weight: 600; }
+#live-page .live-field-table td:last-child { color: var(--accent2); }
+#live-page .live-positions-table td:last-child,
+#live-page .live-positions-table th:last-child { text-align: center; }
+#live-page .live-positions-table .cascade-options-control { min-height: 26px; padding: 3px 12px; font-size: 10.5px; }
+#live-page .live-table-empty {
+  padding: 22px 13px !important; color: var(--muted) !important;
+  text-align: center !important; white-space: normal !important;
+}
+#live-page .live-closed-block { margin: 0 24px 24px; }
+
+@media (max-width: 1100px) {
+  #live-page .live-panel-main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  #live-page .live-panel-header,
+  #live-page .live-conditions { padding-left: 16px; padding-right: 16px; }
+  #live-page .live-panel-stats { padding: 14px 16px 8px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  #live-page .live-panel-main { padding: 8px 16px 16px; }
+  #live-page .live-closed-block { margin: 0 16px 20px; }
+  #live-page .live-panel-actions { width: 100%; }
+  #live-tabs-bar { padding: 0 12px; }
+}
+[data-theme="light"] #live-page .live-chip { background: rgba(15,23,42,.04); }
+[data-theme="light"] #live-page .live-conditions { background: rgba(15,23,42,.03); }
+[data-theme="light"] #live-page .live-card-count { background: rgba(15,23,42,.04); }
