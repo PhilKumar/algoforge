@@ -1347,80 +1347,96 @@
       <div><span>History</span><strong>Sessions</strong></div>
     </div>
   </section>
-  <!-- Account Summary Cards -->
-  <div class="pf-portfolio-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px;">
-    <div class="card pf-summary-card" style="padding: 20px;">
-      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Available Balance</div>
-      <div style="font-size: 28px; font-weight: 700; color: var(--accent);" id="portfolio-balance">₹0.00</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Total Funds Available</div>
+  <!-- Compact capital ledger — the same information density as Cascade. -->
+  <section class="portfolio-capital-ledger" aria-labelledby="portfolio-capital-ledger-title">
+    <header class="portfolio-capital-ledger-head">
+      <div>
+        <span id="portfolio-capital-ledger-title">Capital &amp; session pulse</span>
+        <strong>Available funds and today's execution health</strong>
+      </div>
+      <em>4 live metrics</em>
+    </header>
+    <div class="portfolio-capital-grid">
+      <article class="portfolio-capital-metric">
+        <div class="portfolio-metric-label">Available Balance</div>
+        <div class="portfolio-metric-value accent" id="portfolio-balance">₹0.00</div>
+        <div class="portfolio-metric-note">Total funds available</div>
+      </article>
+      <article class="portfolio-capital-metric">
+        <div class="portfolio-metric-label">Today's P&amp;L</div>
+        <div class="portfolio-metric-value positive" id="portfolio-today-pnl">₹0.00</div>
+        <div class="portfolio-metric-note">Daily profit or loss</div>
+      </article>
+      <article class="portfolio-capital-metric">
+        <div class="portfolio-metric-label">Trades Today</div>
+        <div class="portfolio-metric-value secondary" id="portfolio-total-trades">0</div>
+        <div class="portfolio-metric-note">Orders executed today</div>
+      </article>
+      <article class="portfolio-capital-metric">
+        <div class="portfolio-metric-label">Win Rate</div>
+        <div class="portfolio-metric-value positive" id="portfolio-win-rate">0%</div>
+        <div class="portfolio-metric-note">Profitable closed trades</div>
+      </article>
     </div>
-    <div class="card pf-summary-card" style="padding: 20px;">
-      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Today's P&L</div>
-      <div style="font-size: 28px; font-weight: 700; color: var(--success);" id="portfolio-today-pnl">₹0.00</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Daily Profit/Loss</div>
-    </div>
-    <div class="card pf-summary-card" style="padding: 20px;">
-      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Trades Today</div>
-      <div style="font-size: 28px; font-weight: 700; color: var(--accent2);" id="portfolio-total-trades">0</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Executed Today</div>
-    </div>
-    <div class="card pf-summary-card" style="padding: 20px;">
-      <div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Win Rate</div>
-      <div style="font-size: 28px; font-weight: 700; color: var(--success);" id="portfolio-win-rate">0%</div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Success Percentage</div>
-    </div>
-  </div>
+  </section>
 
   <!-- Paper Trade P&L + Monthly P&L side-by-side -->
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; align-items: start;" id="portfolio-dual-grid">
+  <div class="portfolio-book-grid" id="portfolio-dual-grid">
 
   <!-- Paper Trade P&L Summary -->
-  <div class="card" style="padding: 20px;">
-    <h3 style="font-size: 16px; font-weight: 700; margin: 0 0 16px 0;">Paper Trade P&L</h3>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
-        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Status</div>
-        <div style="font-size: 14px; font-weight: 600;" id="portfolio-paper-status">Idle</div>
+  <section class="card portfolio-book-card portfolio-paper-book">
+    <header class="portfolio-book-head">
+      <div>
+        <h3>Paper Trade P&amp;L</h3>
+        <p>Active simulation and realised paper performance</p>
       </div>
-      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
-        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Symbol</div>
-        <div style="font-size: 14px; font-weight: 600;" id="portfolio-paper-symbol">—</div>
-      </div>
+      <span>Paper</span>
+    </header>
+    <div class="portfolio-paper-metrics">
+      <article class="portfolio-paper-metric">
+        <div class="portfolio-metric-label">Status</div>
+        <div class="portfolio-paper-value" id="portfolio-paper-status">Idle</div>
+      </article>
+      <article class="portfolio-paper-metric portfolio-paper-symbol">
+        <div class="portfolio-metric-label">Strategy</div>
+        <div class="portfolio-paper-value" id="portfolio-paper-symbol">—</div>
+      </article>
+      <article class="portfolio-paper-metric">
+        <div class="portfolio-metric-label">Total P&amp;L</div>
+        <div class="portfolio-paper-value mono" id="portfolio-paper-total-pnl">₹0.00</div>
+      </article>
+      <article class="portfolio-paper-metric">
+        <div class="portfolio-metric-label">Trades</div>
+        <div class="portfolio-paper-value mono" id="portfolio-paper-trades-count">0</div>
+      </article>
     </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
-        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Total P&L</div>
-        <div style="font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;" id="portfolio-paper-total-pnl">₹0.00</div>
-      </div>
-      <div style="background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;">
-        <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Trades</div>
-        <div style="font-size: 20px; font-weight: 700;" id="portfolio-paper-trades-count">0</div>
-      </div>
-    </div>
-    <div style="margin-top: 14px; padding: 10px 14px; background: rgba(0,0,0,0.1); border-radius: 6px; font-size: 11px; color: var(--muted);" id="portfolio-paper-meta">No paper run active</div>
-    <div id="portfolio-paper-monthly" style="margin-top: 16px;"></div>
-  </div>
+    <div id="portfolio-paper-meta">No paper run active</div>
+    <div id="portfolio-paper-monthly"></div>
+  </section>
 
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
-  <div class="card" style="padding: 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-      <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Monthly Profit & Loss</h3>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <button onclick="changeMonthlyMonth(-1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">◀</button>
-        <span id="portfolio-monthly-label" style="font-size: 13px; font-weight: 600; min-width: 100px; text-align: center;"></span>
-        <button onclick="changeMonthlyMonth(1)" class="btn btn-sm" style="padding: 4px 10px; font-size: 12px;">▶</button>
+  <section class="card portfolio-book-card portfolio-monthly-book">
+    <header class="portfolio-book-head">
+      <div>
+        <h3>Monthly Profit &amp; Loss</h3>
+        <p>Realised execution by trading day</p>
       </div>
-    </div>
-    <div id="portfolio-monthly-summary" style="margin-bottom: 14px; padding: 14px; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 12px;"></div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px;" id="portfolio-monthly-grid"></div>
+      <div class="portfolio-month-controls" aria-label="Choose portfolio month">
+        <button onclick="changeMonthlyMonth(-1)" class="btn btn-sm" aria-label="Previous month">◀</button>
+        <span id="portfolio-monthly-label"></span>
+        <button onclick="changeMonthlyMonth(1)" class="btn btn-sm" aria-label="Next month">▶</button>
+      </div>
+    </header>
+    <div id="portfolio-monthly-summary"></div>
+    <div id="portfolio-monthly-grid"></div>
     <!-- Trades for month: day-by-day table -->
     <div id="portfolio-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-  </div>
+  </section>
 
   </div><!-- end dual-column grid -->
 
   <!-- Today's Trades -->
-  <div class="card" style="padding: 20px; margin-bottom: 24px;">
+  <div class="card portfolio-ledger-panel">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Today's Trades</h3>
     <div style="overflow-x: auto;">
       <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
@@ -1444,13 +1460,13 @@
     </div>
 
   <!-- Year-to-Date Performance (Monthly grid per year) -->
-  <div class="card" style="padding: 20px; margin-bottom: 24px;">
+  <div class="card portfolio-ledger-panel">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Year-to-Date Performance</h3>
     <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
   </div>
 
   <!-- Strategy Run Sessions -->
-  <div class="card" style="padding: 20px;">
+  <div class="card portfolio-ledger-panel">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Strategy Run Sessions</h3>
     <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="portfolio-paper-pagination" class="pagination-bar" style="display:none;"></div>
