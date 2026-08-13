@@ -1645,6 +1645,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryDrop',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
+  'deleteFibBoundaryPaper',
   // Two-red ladder console (static/philforge-two-red.js). An action missing
   // from this allowlist dies SILENTLY — the click is simply ignored.
   'startTwoRedCampaign',
@@ -3365,6 +3366,12 @@ function _renderFibBoundaryCampaign(root, campaign) {
     killBtn.style.display = isRunning ? '' : 'none';
     killBtn.textContent = isLiveCampaign && !_fibBoundaryLiveAvailable ? '⚠ Manage in Dhan' : '■ Kill';
   }
+  // Delete is the ENDED campaign's counterpart to Kill: bookkeeping only.
+  const deleteBtn = fx('delete');
+  if (deleteBtn) {
+    const endedStates = ['KILLED', 'CLOSED', 'EXPIRED', 'MOTHER_BROKEN', 'MOTHER_RETESTED', 'STOPPED'];
+    deleteBtn.style.display = !isRunning && endedStates.includes(String(campaign.status || '').toUpperCase()) ? '' : 'none';
+  }
   // Arming is per instrument: this button opens THIS ladder and no other.
   if (armBtn) armBtn.style.display = (isRunning && isLiveCampaign && !campaign.armed && _fibBoundaryLiveAvailable) ? '' : 'none';
 
@@ -3518,6 +3525,28 @@ async function startFibBoundaryPaper() {
 function _fibxSymbolFor(el) {
   return String(el?.closest('[data-fx-symbol]')?.dataset.fxSymbol || '');
 }
+
+async function deleteFibBoundaryPaper(_event, button) {
+  const symbol = _fibxSymbolFor(button);
+  if (!symbol) return;
+  const confirmed = await customConfirm(
+    `Remove the ended <strong>${escapeHtml(symbol)}</strong> campaign from the monitors? Its record stays in Closed rounds; nothing is bought or sold by this.`,
+    { title: `Delete ${symbol} monitor`, icon: ICO.trash ? ICO.trash(28) : undefined, okText: 'Delete', danger: true },
+  );
+  if (!confirmed) return;
+  if (button) { button.disabled = true; button.textContent = 'Deleting…'; }
+  try {
+    const response = await fetch(`/api/fib-boundary/paper/delete?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(pfErrorText(data, `Delete failed (${response.status})`));
+    _fibSetFormStatus(`${symbol} monitor deleted.`, 'success');
+    refreshFibBoundaryStatus();
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Delete failed.', 'error');
+    if (button) { button.disabled = false; button.textContent = '🗑 Delete'; }
+  }
+}
+window.deleteFibBoundaryPaper = deleteFibBoundaryPaper;
 
 async function killFibBoundaryPaper(_event, button) {
   const symbol = _fibxSymbolFor(button);
@@ -3698,23 +3727,44 @@ async function armFibBoundaryLive(_event, button) {
   await refreshFibBoundaryStatus();
 }
 
+let _fibxChartCtx = null;
+let _fibxChartTf = '';
+
 async function loadFibBoundaryChart(_event, button) {
   const el = id => document.getElementById(id);
   // The clicked panel's own campaign owns the question; the idle panel has no
   // symbol, so the form answers instead and the chart can be read before Start.
-  const campaign = _lastFibBoundaryStatus?.[_fibxSymbolFor(button)];
-  const timestamp = campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
-  const symbol = campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
-  const side = campaign?.side || el('fibx-side')?.value || 'CE';
-  const timeframe = campaign?.timeframe || _fibTimeframe();
+  const ctx = (!_event && !button && _fibxChartCtx) ? _fibxChartCtx : null;
+  const campaign = ctx ? null : _lastFibBoundaryStatus?.[_fibxSymbolFor(button)];
+  const timestamp = ctx?.timestamp || campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
+  const symbol = ctx?.symbol || campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
+  const side = ctx?.side || campaign?.side || el('fibx-side')?.value || 'CE';
+  const baseTf = ctx?.baseTf || campaign?.timeframe || _fibTimeframe();
+  const timeframe = _fibxChartTf || baseTf;
+  _fibxChartCtx = { symbol, side, timestamp, baseTf, isCampaign: ctx ? ctx.isCampaign : !!campaign };
   const chart = el('fibx-chart');
   const meta = el('fibx-chart-meta');
   const overlay = el('fibx-chart-overlay');
   const title = el('fibx-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
-  if (title) title.textContent = `${symbol} ${side} swing ladder · ${String(timeframe).toUpperCase()} mother`;
-  if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} ${escapeHtml(timeframe)} candles…</div>`;
+  if (title) title.textContent = `${symbol} ${side} swing ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
+  // The site strip: timeframes + refresh, once. Zoom lives on the canvas host.
+  const stripHost = el('fibx-chart-strip');
+  if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
+    pfChartStrip(stripHost, {
+      timeframes: ['1m', '5m', '15m', '1h'],
+      active: timeframe,
+      onTimeframe: (tf) => { _fibxChartTf = tf; loadFibBoundaryChart(); },
+      onRefresh: () => loadFibBoundaryChart(),
+    });
+  }
+  // No "Loading…" flash over a chart that is already showing — the old frame
+  // holds until the new data arrives, then one clean repaint (the flicker
+  // Phil reported, 2026-08-13).
+  if (chart && !chart.querySelector('#pf-bench-canvas-host')) {
+    chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} ${escapeHtml(timeframe)} candles…</div>`;
+  }
   try {
     const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe });
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -3724,7 +3774,7 @@ async function loadFibBoundaryChart(_event, button) {
     // surfaces by a fixed id. Fold the backtest journal chart away first so the
     // overlay does not mount behind a duplicate host.
     _fibBoundaryCollapseBacktestChart();
-    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data, campaign ? symbol : ''));
+    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data, _fibxChartCtx?.isCampaign ? symbol : ''));
     if (meta) {
       meta.textContent = data.anchor
         ? `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
@@ -3749,6 +3799,11 @@ function _fibBoundaryCollapseBacktestChart() {
 function hideFibBoundaryChart() {
   const overlay = document.getElementById('fibx-chart-overlay');
   if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  // The next campaign opens on its own mother chart, not this one's override.
+  _fibxChartTf = '';
+  _fibxChartCtx = null;
+  const strip = document.getElementById('fibx-chart-strip');
+  if (strip) strip.innerHTML = '';
   // A hidden host still holds pointer bindings, a ResizeObserver and a theme
   // MutationObserver. Closing the dialog has to release them.
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();

@@ -1502,17 +1502,14 @@
       <div><span>Orders</span><strong>Manual desk</strong></div>
     </div>
   </section>
-  <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
-      <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.28);color:var(--accent);" id="stock-terminal-head-ico"></span>
-      <span style="font-size: 13px; font-weight: 700; color: var(--text);">Equity &middot; Nifty 200 + BEES</span>
-      <span id="stock-terminal-status" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Loading</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <span id="stock-terminal-selected-chip" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);padding:5px 9px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);">—</span>
-      <span id="stock-terminal-ltp" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:var(--accent);">—</span>
-      <button class="btn btn-sm" onclick="initStockTerminalPage(true)" style="padding:5px 12px;font-size:11px;">Refresh</button>
-    </div>
+  <!-- The old status strip is gone (Phil: "Remove this... No use of this
+       strip") — the hero above says what the page is, and the ids the page's
+       JS writes into live on invisibly so nothing null-crashes. -->
+  <div hidden aria-hidden="true">
+    <span id="stock-terminal-head-ico"></span>
+    <span id="stock-terminal-status"></span>
+    <span id="stock-terminal-selected-chip"></span>
+    <span id="stock-terminal-ltp"></span>
   </div>
 
   <!-- Two strategies share this page and this universe. They are not variants
@@ -2480,12 +2477,14 @@
     <div id="fibx-lower"></div>
 
     <template id="fibx-monitor-tpl">
-      <details class="cascade-options-window fibx-monitor-window" open>
+      <!-- Collapsed by default (Phil, 2026-08-13): the summary row already says
+           instrument, state and contract; the body is on demand. -->
+      <details class="cascade-options-window fibx-monitor-window">
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
         </summary>
-        <div class="cascade-options-strip-actions fibx-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
+        <div class="cascade-options-strip-actions fibx-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
         <div class="cascade-options-window-body">
           <div class="fibx-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>
@@ -2516,7 +2515,7 @@
 
     <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
       <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 id="fibx-chart-title" style="margin:0;font-size:15px;">Swing ladder chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 id="fibx-chart-title" style="margin:0;font-size:15px;">Swing ladder chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><div id="fibx-chart-strip"></div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
         <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div>
       </div>
     </div>
@@ -3688,6 +3687,17 @@
           </select>
         </div>
         <button class="btn" onclick="createAdminUser()">Create User</button>
+      </div>
+    </div>
+
+    <!-- Face ID on the admin's own phone, without leaving this console
+         (Phil, 2026-08-13). Registration is always for the SIGNED-IN account
+         on THIS device — a family member registers from their own login. -->
+    <div class="settings-section" style="margin-bottom:16px;">
+      <h4><span id="admin-passkey-ico"></span> Face ID &amp; Fingerprint</h4>
+      <div class="settings-hint">Registers this phone or laptop for <strong>your own</strong> sign-in. Each family member registers from their own login on their own device — Account Settings has the full manager.</div>
+      <div class="settings-actions-row">
+        <button class="btn" id="admin-passkey-add-btn" onclick="registerPasskey()">Register This Device</button>
       </div>
       <div class="settings-hint">Accounts are isolated by user id on this branch. Broker credentials are managed by the user from Account Settings. Use "Copy Examples" on a user row to seed admin items from the <strong>Default</strong> folder only: strategies, the latest chart date, and the latest 2 admin backtests.</div>
     </div>

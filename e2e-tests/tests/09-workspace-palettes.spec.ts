@@ -33,7 +33,7 @@ test('remaining workspaces follow the Cascade hierarchy under a green appearance
       equityOrder: color('#stock-unit-price'),
       insightsAccent: custom('#insights-page', '--accent'),
       charts: color('#charts-page #ch-content p[style*="color:var(--accent)"]'),
-      refreshButton: color('#stock-terminal-page button[onclick="initStockTerminalPage(true)"]'),
+      refreshButton: color('#cascade-scan-run'),
       semanticWin: color('#dash-best-pnl'),
       semanticBuy: color('#stock-terminal-page button[onclick="submitStockTerminalOrder(\'BUY\')"]'),
     };
@@ -70,7 +70,7 @@ test('remaining workspaces follow the Cascade hierarchy under a green appearance
       equityQuote: color('#stock-terminal-ltp'),
       insightsAccent: custom('#insights-page', '--accent'),
       charts: color('#charts-page #ch-content p[style*="color:var(--accent)"]'),
-      refreshButton: color('#stock-terminal-page button[onclick="initStockTerminalPage(true)"]'),
+      refreshButton: color('#cascade-scan-run'),
       semanticWin: color('#dash-best-pnl'),
       semanticBuy: color('#stock-terminal-page button[onclick="submitStockTerminalOrder(\'BUY\')"]'),
     };

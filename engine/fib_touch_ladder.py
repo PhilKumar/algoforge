@@ -826,6 +826,18 @@ class FibTouchLadder:
         self.data_gaps.append(line)
 
     def _log(self, when: datetime, event: str, **payload: Any) -> None:
+        # A recurring condition is one fact, not a feed. "premium missing L2"
+        # was logged on EVERY touch while the quote stayed missing — dozens of
+        # identical rows a day (Phil, 2026-08-13). A repeat of the same event
+        # for the same level updates the existing row's timestamp instead.
+        if event in {"premium_missing", "contract_unavailable"}:
+            for row in reversed(self.events):
+                if row.get("event") == event and row.get("level") == payload.get("level"):
+                    row["timestamp"] = when.isoformat()
+                    row["repeats"] = int(row.get("repeats") or 1) + 1
+                    return
+                if row.get("event") == "fill" and row.get("level") == payload.get("level"):
+                    break  # the condition resolved once; a new gap is new news
         self.events.append({"timestamp": when.isoformat(), "event": event, **payload})
 
     # ── the ladder ────────────────────────────────────────────────

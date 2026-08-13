@@ -414,7 +414,12 @@
     var title = $('tworeds-chart-title');
     if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
     if (title) title.textContent = symbol + ' · ' + chartTf.toUpperCase();
-    if (box) box.innerHTML = '<div class="pf-cascade-chart-empty">Loading ' + esc(symbol) + ' candles…</div>';
+    // No "Loading…" flash over a chart already showing: hold the old frame
+    // until the new candles arrive, then repaint once (Phil's flicker report,
+    // 2026-08-13). The empty box still announces itself on first open.
+    if (box && !box.querySelector('#pf-bench-canvas-host')) {
+      box.innerHTML = '<div class="pf-cascade-chart-empty">Loading ' + esc(symbol) + ' candles…</div>';
+    }
     try {
       var query = 'symbol=' + encodeURIComponent(symbol) + '&timeframe=' + encodeURIComponent(chartTf);
       var mother = fromRow ? (motherArg || '') : (($('tworeds-mother-timestamp') || {}).value || '');
@@ -424,10 +429,8 @@
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.detail || 'Chart failed.');
       if (typeof window.pfBenchDrawChart !== 'function') throw new Error('Chart renderer not loaded.');
-      // Only ONE canvas may be mounted at a time — the renderer finds its
-      // surfaces by fixed ids, so anything already open has to go first.
-      if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
-      if (box) box.innerHTML = '';
+      // pfBenchDrawChart tears down and remounts in ONE pass — clearing the
+      // box first just adds a blank frame between the old chart and the new.
       window.pfBenchDrawChart(box, chartPayload(data));
       var meta = $('tworeds-chart-meta');
       if (meta) {

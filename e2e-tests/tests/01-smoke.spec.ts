@@ -683,6 +683,11 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await login(page);
   await page.click('#nav-cascade');
   await page.click('#oc-tabbtn-fib');
+  // Monitors are collapsed by default (Phil, 2026-08-13); unfold to inspect.
+  await page.waitForSelector('#fibx-monitors details');
+  await page.evaluate(() => {
+    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+  });
 
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
 
@@ -802,6 +807,11 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
 
   await page.click('#nav-cascade');
   await page.click('#oc-tabbtn-fib');
+  // Monitors are collapsed by default (Phil, 2026-08-13); unfold to inspect.
+  await page.waitForSelector('#fibx-monitors details');
+  await page.evaluate(() => {
+    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+  });
 
   // The monitor renders the running ladder before the chart is even opened.
   await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('OPEN');

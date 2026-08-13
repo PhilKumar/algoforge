@@ -3799,9 +3799,13 @@
     .expiry-bar { flex-wrap: wrap; gap: 8px; padding: 8px 14px; }
     .expiry-chip { font-size: 12px; padding: 5px 12px; }
     .settings-shell,
-    .admin-create-grid,
-    .admin-summary-grid { grid-template-columns: 1fr; }
-    .admin-toolbar { flex-direction: column; }
+    .admin-create-grid { grid-template-columns: 1fr; }
+    /* 2x2, full width — one card per row left half the screen empty and the
+       tiles hugging the left edge (Phil's phone, 2026-08-13). */
+    .admin-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .admin-summary-card { width: 100%; }
+    .admin-toolbar { flex-direction: column; align-items: stretch; }
+    .admin-toolbar > div { width: 100%; }
   }
   @media (max-width: 480px) {
     .topbar-brand-text { font-size: 15px; letter-spacing: 0.2px; }

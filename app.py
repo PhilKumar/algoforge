@@ -10492,6 +10492,26 @@ async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
     return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
 
 
+@app.post("/api/fib-boundary/paper/delete")
+async def fib_boundary_paper_delete(request: Request, symbol: str = "NIFTY"):
+    """Remove an already-ENDED ladder from the monitors (Phil, 2026-08-13).
+
+    Delete is bookkeeping, never an exit: a ladder that is still running or
+    still holding is refused — Kill is the only way to close a position, so
+    nothing can be made unmanaged by tidying the screen.
+    """
+    user_id = _request_user_id(request)
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
+    status = str(getattr(runtime.engine, "status", "") or "").upper()
+    if runtime.running or status not in {"KILLED", "CLOSED", "EXPIRED", "MOTHER_BROKEN", "MOTHER_RETESTED", "STOPPED"}:
+        raise HTTPException(status_code=409, detail="Only an ended campaign can be deleted — Kill it first.")
+    if int(getattr(runtime.engine, "open_lots", 0) or 0) > 0:
+        raise HTTPException(status_code=409, detail="This ladder still reports holdings; it cannot be deleted.")
+    _fib_boundary_engines.get(user_id, {}).pop(symbol, None)
+    await _save_fib_boundary_open_state(user_id, force=True)
+    return {"status": "ok", "deleted": symbol}
+
+
 @app.post("/api/fib-boundary/live/{symbol}/kill")
 async def fib_boundary_live_kill(symbol: str, request: Request):
     """Exit one live ladder through its broker executor, then stop it."""

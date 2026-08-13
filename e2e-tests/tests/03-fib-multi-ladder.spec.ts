@@ -104,6 +104,11 @@ async function openFibTab(page: Page) {
   await page.click('#nav-cascade');
   await page.click('#oc-tabbtn-fib');
   await page.waitForFunction(() => document.querySelectorAll('#fibx-monitors > *').length > 0, null, { timeout: 10_000 });
+  // Monitors are COLLAPSED by default now (Phil, 2026-08-13); these tests
+  // exercise the body, so unfold them the way a reader would.
+  await page.evaluate(() => {
+    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+  });
 }
 
 test.describe('Fib Boundary · one ladder per instrument', () => {
@@ -140,6 +145,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     const summary = monitor.locator('summary');
     const body = monitor.locator('.cascade-options-window-body');
     await expect(summary.locator('button')).toHaveCount(0);
+    // openFibTab unfolded it for the tests; verify the fold both ways.
     await expect(monitor).toHaveAttribute('open', '');
     await expect(body).toContainText('Fib levels are measured from');
     await expect(body).not.toHaveCSS('grid-template-rows', '0px');
