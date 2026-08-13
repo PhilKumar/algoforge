@@ -542,6 +542,27 @@ async function handleUnauthorizedResponse(res) {
   return true;
 }
 
+// Anything whose behaviour depends on WHO is signed in has to wait for this,
+// or it races the answer and acts on a role it does not know yet.
+let _authContextReady = null;
+
+/** Settles once the signed-in role is known, or immediately if it never will be. */
+async function whenAuthContextKnown() {
+  // Deliberately does NOT start the fetch: loadAuthContext reloads the page for
+  // a signed-out visitor, and starting it from a boot-time caller would put the
+  // login screen in a reload loop.
+  if (!_authContextReady) return;
+  try {
+    await _authContextReady;
+  } catch (e) {
+    /* the caller's own fallback decides what to do */
+  }
+}
+
+function isReadOnlyAccount() {
+  return document.documentElement.classList.contains('read-only-account');
+}
+
 async function loadAuthContext() {
   try {
     const res = await fetch('/api/auth/status');
@@ -4012,7 +4033,11 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   } catch(e) { console.warn('scroll restoration setup failed:', e); }
-  try { loadAuthContext(); } catch(e) { console.warn('loadAuthContext failed:', e); }
+  try { _authContextReady = loadAuthContext(); } catch(e) { console.warn('loadAuthContext failed:', e); }
+  // Only now is the role knowable, and the broker probe depends on it: a
+  // read-only account is refused it, and a refusal answered too early would
+  // paint the owner's healthy broker red.
+  whenAuthContextKnown().then(() => checkBrokerStatus(true));
   loadTickerFromCache();
   try { updateTicker(); } catch(e) { console.warn('updateTicker failed:', e); }
   setInterval(() => {
@@ -9899,8 +9924,20 @@ function updateBrokerUI(status, text, dotColor, btnLabel) {
 }
 
 async function checkBrokerStatus(silent) {
+  // The broker probe is refused for a read-only account, and treating that
+  // refusal as an answer would paint the owner's healthy broker red and raise
+  // an alarm nobody watching can act on.
+  const showReadOnlyBroker = () => {
+    stopBrokerHealthCheck();
+    updateBrokerUI(false, 'Read-only access', 'var(--muted)', '');
+    return false;
+  };
+  if (isReadOnlyAccount()) return showReadOnlyBroker();
   try {
     const res = await fetch('/api/broker/check', { method: 'POST' });
+    // Belt and braces: if the role arrived late and we asked anyway, the
+    // refusal is still never reported as a broker fault.
+    if (res.status === 403) return showReadOnlyBroker();
     const data = await res.json();
     if (data.status === 'connected') {
       updateBrokerUI(true, 'Dhan Connected', 'var(--green)', 'Recheck');
@@ -9965,6 +10002,7 @@ async function refreshToken() {
 
 function startBrokerHealthCheck() {
   if (brokerCheckInterval) return;
+  if (isReadOnlyAccount()) return;
   brokerCheckInterval = setInterval(async () => {
     if (!_isPageVisible()) return;
     try {
@@ -9989,8 +10027,8 @@ function stopBrokerHealthCheck() {
   }
 }
 
-// Auto-detect broker status on page load
-checkBrokerStatus(true);
+// The boot-time broker probe lives with the rest of the startup sequence now,
+// so it can wait for the signed-in role. See loadAuthContext's caller.
 // (Copy & Edit removed — use Load from Dashboard instead)
 
 // ══════════════════════════════════════════════════════════════
@@ -13498,8 +13536,14 @@ async function loadPortfolioData() {
     let positionsData = { status: 'error', data: [] };
     let enginesData = { engines: [] };
 
+    // A read-only account is refused the balance at the server and its card is
+    // hidden, so asking for it only earns a 403 in the console.
+    await whenAuthContextKnown();
+    const isReadOnly = isReadOnlyAccount();
     const results = await Promise.allSettled([
-      fetch('/api/broker/check', { method: 'POST' }).then(r => r.json()),
+      isReadOnly
+        ? Promise.resolve({ status: 'read_only', available_balance: 0, funds: {} })
+        : fetch('/api/broker/check', { method: 'POST' }).then(r => r.json()),
       fetch('/api/broker/trades').then(r => r.json()),
       fetch('/api/paper/status').then(r => r.json()),
       fetch('/api/orders').then(r => r.json()),
