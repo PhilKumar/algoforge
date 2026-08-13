@@ -6772,6 +6772,103 @@ input:focus, select:focus {
   }
 }
 
+/* =====================================================================
+   STANDARD LEDGER TABLES
+   One table contract for every workspace and overlay.  This deliberately
+   mirrors the Cash / Equity Cascade ladder: compact mono rows, a machined
+   sticky header, quiet separators, zebra depth and a restrained blue hover.
+   Column-specific alignment, semantic P&L colours and control sizing remain
+   owned by each feature.
+   ===================================================================== */
+:where(.page-section, .modal-overlay, dialog) table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.page-section, .modal-overlay, dialog) table :is(th, td) {
+  padding: 10px 13px !important;
+  border-bottom: 1px solid rgba(148, 163, 184, .10) !important;
+  text-align: left;
+  vertical-align: top;
+}
+
+:where(.page-section, .modal-overlay, dialog) table thead th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  height: auto;
+  color: var(--muted);
+  background: linear-gradient(180deg, rgba(79, 142, 247, .16), rgba(148, 163, 184, .06)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), inset 0 -1px 0 rgba(0, 0, 0, .24);
+  font: 800 10px var(--font-mono) !important;
+  letter-spacing: .08em !important;
+  line-height: 1.35;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+:where(.page-section, .modal-overlay, dialog) table tbody td {
+  color: var(--text);
+  font-family: var(--font-mono);
+  line-height: 1.45;
+}
+
+:where(.page-section, .modal-overlay, dialog) table tbody tr {
+  transition: background-color .12s ease;
+}
+
+:where(.page-section, .modal-overlay, dialog) table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, .018);
+}
+
+:where(.page-section, .modal-overlay, dialog) table tbody tr:hover td {
+  background: rgba(96, 165, 250, .065);
+}
+
+:where(.page-section, .modal-overlay, dialog) table :is(.num, [data-align="number"]) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.page-section, .modal-overlay, dialog) :is(
+  .dash-table-wrap,
+  .trade-log-wrap,
+  .trade-table-scroll,
+  .live-data-window,
+  .admin-table-wrap,
+  .candle-entry-table-wrap,
+  .candle-entry-events,
+  .tb-table-scroll,
+  .terminal-cascade-table-scroll,
+  [style*="overflow-x: auto"],
+  [style*="overflow-x:auto"]
+) {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table thead th {
+  color: #475569;
+  background: linear-gradient(180deg, #f8fafc, #e9eff7) !important;
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, .08);
+}
+
+[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table :is(th, td) {
+  border-bottom-color: rgba(15, 23, 42, .08) !important;
+}
+
+[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table tbody tr:nth-child(even) td {
+  background: rgba(15, 23, 42, .018);
+}
+
+[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table tbody tr:hover td {
+  background: rgba(59, 130, 246, .055);
+}
+
 /* ═════════════════════════════════════════════════════════════════════
    WORKSPACE HIERARCHY V2
    A visible command/header layer for the five non-Cascade desks. This is
