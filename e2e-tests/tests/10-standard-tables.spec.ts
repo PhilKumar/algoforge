@@ -12,7 +12,7 @@ async function login(page: Page) {
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
 
-test('every workspace and overlay uses the Cascade ledger table contract', async ({ page }) => {
+test('every site table uses the Campaigns ledger contract', async ({ page }) => {
   await login(page);
 
   const pageIds = [
@@ -28,7 +28,25 @@ test('every workspace and overlay uses the Cascade ledger table contract', async
     'charts-page',
   ];
 
-  await page.evaluate((ids) => {
+  const tableClasses = [
+    'admin-table',
+    'candle-entry-table',
+    'cascade-scan-table',
+    'cj-plan-table',
+    'dash-table',
+    'fibx-anchor-table',
+    'fibx-blocked',
+    'fibx-rounds-table',
+    'fsx-rounds-table',
+    'portfolio-monthly-trades-table',
+    'portfolio-ytd-table',
+    'scalp-active-table',
+    'tb-table',
+    'terminal-cascade-ladder-table',
+    'trade-table',
+  ];
+
+  await page.evaluate(({ ids, classes }) => {
     for (const id of ids) {
       const host = document.getElementById(id)!;
       const probe = document.createElement('div');
@@ -40,15 +58,25 @@ test('every workspace and overlay uses the Cascade ledger table contract', async
     overlay.className = 'modal-overlay';
     overlay.innerHTML = '<table data-table-probe="overlay"><thead><tr><th>Price</th></tr></thead><tbody><tr><td>1,234.50</td></tr></tbody></table>';
     document.body.appendChild(overlay);
-  }, pageIds);
 
-  const styles = await page.evaluate((ids) => {
+    const classHost = document.getElementById('dashboard-page')!;
+    for (const tableClass of classes) {
+      const probe = document.createElement('div');
+      probe.innerHTML = `<table class="${tableClass}" data-table-probe="class-${tableClass}"><thead><tr><th>Price</th></tr></thead><tbody><tr><td>1,234.50</td></tr><tr><td>1,235.50</td></tr></tbody></table>`;
+      classHost.appendChild(probe);
+    }
+  }, { ids: pageIds, classes: tableClasses });
+
+  const styles = await page.evaluate(({ ids, classes }) => {
     const read = (name: string) => {
       const table = document.querySelector(`[data-table-probe="${name}"]`)!;
       const th = getComputedStyle(table.querySelector('th')!);
       const td = getComputedStyle(table.querySelector('td')!);
+      const evenTd = getComputedStyle(table.querySelector('tbody tr:nth-child(2) td') || table.querySelector('td')!);
       return {
         tableWidth: getComputedStyle(table).width,
+        tableFontSize: getComputedStyle(table).fontSize,
+        tableFontFamily: getComputedStyle(table).fontFamily,
         headerPadding: `${th.paddingTop} ${th.paddingRight} ${th.paddingBottom} ${th.paddingLeft}`,
         cellPadding: `${td.paddingTop} ${td.paddingRight} ${td.paddingBottom} ${td.paddingLeft}`,
         headerPosition: th.position,
@@ -57,16 +85,27 @@ test('every workspace and overlay uses the Cascade ledger table contract', async
         headerFontWeight: th.fontWeight,
         headerTransform: th.textTransform,
         headerLetterSpacing: th.letterSpacing,
+        headerOpacity: th.opacity,
+        headerBackground: th.backgroundImage,
+        cellFontSize: td.fontSize,
+        cellFontFamily: td.fontFamily,
+        cellLineHeight: td.lineHeight,
         cellBorder: td.borderBottomWidth,
+        evenBackground: evenTd.backgroundColor,
         numericVariant: td.fontVariantNumeric,
       };
     };
-    return Object.fromEntries([...ids, 'overlay'].map(id => [id, read(id)]));
-  }, pageIds);
+    return Object.fromEntries([
+      ...ids,
+      'overlay',
+      ...classes.map(tableClass => `class-${tableClass}`),
+    ].map(id => [id, read(id)]));
+  }, { ids: pageIds, classes: tableClasses });
 
   for (const name of [...pageIds, 'overlay']) {
     expect(styles[name].tableWidth).not.toBe('0px');
     expect(styles[name]).toMatchObject({
+      tableFontSize: '13px',
       headerPadding: '10px 13px 10px 13px',
       cellPadding: '10px 13px 10px 13px',
       headerPosition: 'sticky',
@@ -75,10 +114,44 @@ test('every workspace and overlay uses the Cascade ledger table contract', async
       headerFontWeight: '800',
       headerTransform: 'uppercase',
       headerLetterSpacing: '0.8px',
+      headerOpacity: '1',
+      cellFontSize: '13px',
+      cellLineHeight: '18.85px',
       cellBorder: '1px',
+      evenBackground: 'rgba(255, 255, 255, 0.02)',
       numericVariant: 'tabular-nums',
     });
+    expect(styles[name].tableFontFamily).toContain('JetBrains Mono');
+    expect(styles[name].cellFontFamily).toContain('JetBrains Mono');
+    expect(styles[name].headerBackground).toContain('rgba(79, 142, 247, 0.16)');
   }
+
+  const baseline = { ...styles['dashboard-page'], tableWidth: undefined };
+  for (const tableClass of tableClasses) {
+    const actual = { ...styles[`class-${tableClass}`], tableWidth: undefined };
+    expect(actual, `${tableClass} drifted from the Campaigns table contract`).toEqual(baseline);
+  }
+
+  const drift = await page.evaluate(() => [...document.querySelectorAll('table:not([data-table-probe])')]
+    .map((table, index) => {
+      const th = table.querySelector('th');
+      const td = table.querySelector('td');
+      if (!th || !td) return null;
+      const head = getComputedStyle(th);
+      const cell = getComputedStyle(td);
+      const matches = getComputedStyle(table).fontSize === '13px'
+        && `${head.paddingTop} ${head.paddingRight} ${head.paddingBottom} ${head.paddingLeft}` === '10px 13px 10px 13px'
+        && `${cell.paddingTop} ${cell.paddingRight} ${cell.paddingBottom} ${cell.paddingLeft}` === '10px 13px 10px 13px'
+        && head.position === 'sticky'
+        && head.fontSize === '10px'
+        && head.fontWeight === '800'
+        && head.textTransform === 'uppercase'
+        && cell.fontSize === '13px';
+      return matches ? null : `${index}:${table.id || table.className || 'plain'}`;
+    })
+    .filter(Boolean));
+
+  expect(drift).toEqual([]);
 
   const light = await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');

@@ -7344,100 +7344,144 @@ input:focus, select:focus {
 }
 
 /* =====================================================================
-   STANDARD LEDGER TABLES
-   One table contract for every workspace and overlay.  This deliberately
-   mirrors the Cash / Equity Cascade ladder: compact mono rows, a machined
-   sticky header, quiet separators, zebra depth and a restrained blue hover.
-   Column-specific alignment, semantic P&L colours and control sizing remain
-   owned by each feature.
+   SITE-WIDE CAMPAIGNS TABLE CONTRACT
+   Every semantic table uses the Equity Campaigns treatment: 13px mono body,
+   compact navy header, quiet separators, zebra depth and a blue hover.  The
+   declarations that define visual density are authoritative so historical
+   inline templates and named table classes cannot drift from one another.
+   Column alignment, semantic P&L colours and controls stay feature-owned.
    ===================================================================== */
-:where(.page-section, .modal-overlay, dialog) table {
+body table {
   width: 100%;
-  border-collapse: collapse;
-  border-spacing: 0;
-  font-size: 12px;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
   font-variant-numeric: tabular-nums;
 }
 
-:where(.page-section, .modal-overlay, dialog) table :is(th, td) {
+body table :is(th, td) {
   padding: 10px 13px !important;
   border-bottom: 1px solid rgba(148, 163, 184, .10) !important;
   text-align: left;
   vertical-align: top;
 }
 
-:where(.page-section, .modal-overlay, dialog) table thead th {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  height: auto;
-  color: var(--muted);
+body table thead th {
+  position: sticky !important;
+  z-index: 1 !important;
+  top: 0 !important;
+  height: auto !important;
+  color: var(--muted) !important;
   background: linear-gradient(180deg, rgba(79, 142, 247, .16), rgba(148, 163, 184, .06)) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), inset 0 -1px 0 rgba(0, 0, 0, .24);
   font: 800 10px var(--font-mono) !important;
   letter-spacing: .08em !important;
-  line-height: 1.35;
-  text-transform: uppercase;
-  white-space: nowrap;
+  line-height: 1.35 !important;
+  opacity: 1 !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
 }
 
-:where(.page-section, .modal-overlay, dialog) table tbody td {
+body table tbody td {
   color: var(--text);
-  font-family: var(--font-mono);
-  line-height: 1.45;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
 }
 
-:where(.page-section, .modal-overlay, dialog) table tbody tr {
+body table tbody tr {
   transition: background-color .12s ease;
 }
 
-:where(.page-section, .modal-overlay, dialog) table tbody tr:nth-child(even) td {
-  background: rgba(255, 255, 255, .018);
+body table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, .018) !important;
 }
 
-:where(.page-section, .modal-overlay, dialog) table tbody tr:hover td {
-  background: rgba(96, 165, 250, .065);
+body table tbody tr:hover td {
+  background: rgba(96, 165, 250, .065) !important;
 }
 
-:where(.page-section, .modal-overlay, dialog) table :is(.num, [data-align="number"]) {
+body table :is(.num, [data-align="number"]) {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-:where(.page-section, .modal-overlay, dialog) :is(
+body :is(
   .dash-table-wrap,
   .trade-log-wrap,
   .trade-table-scroll,
   .live-data-window,
   .admin-table-wrap,
+  .cascade-scan-table-wrap,
   .candle-entry-table-wrap,
   .candle-entry-events,
+  .cj-plan-table-wrap,
   .tb-table-scroll,
   .terminal-cascade-table-scroll,
   [style*="overflow-x: auto"],
-  [style*="overflow-x:auto"]
+  [style*="overflow-x:auto"],
+  [style*="overflow: auto"],
+  [style*="overflow:auto"]
 ) {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
 }
 
-[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table thead th {
+body :is(
+  .dash-table-wrap,
+  .trade-log-wrap,
+  .trade-table-scroll,
+  .live-data-window,
+  .admin-table-wrap,
+  .cascade-scan-table-wrap,
+  .candle-entry-table-wrap,
+  .candle-entry-events,
+  .cj-plan-table-wrap,
+  .tb-table-scroll,
+  .terminal-cascade-table-scroll,
+  [style*="overflow-x: auto"],
+  [style*="overflow-x:auto"]
+)::-webkit-scrollbar {
+  height: 8px;
+}
+
+body :is(
+  .dash-table-wrap,
+  .trade-log-wrap,
+  .trade-table-scroll,
+  .live-data-window,
+  .admin-table-wrap,
+  .cascade-scan-table-wrap,
+  .candle-entry-table-wrap,
+  .candle-entry-events,
+  .cj-plan-table-wrap,
+  .tb-table-scroll,
+  .terminal-cascade-table-scroll,
+  [style*="overflow-x: auto"],
+  [style*="overflow-x:auto"]
+)::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(79, 142, 247, .34);
+}
+
+[data-theme="light"] body table thead th {
   color: #475569;
   background: linear-gradient(180deg, #f8fafc, #e9eff7) !important;
   box-shadow: inset 0 -1px 0 rgba(15, 23, 42, .08);
 }
 
-[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table :is(th, td) {
+[data-theme="light"] body table :is(th, td) {
   border-bottom-color: rgba(15, 23, 42, .08) !important;
 }
 
-[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table tbody tr:nth-child(even) td {
-  background: rgba(15, 23, 42, .018);
+[data-theme="light"] body table tbody tr:nth-child(even) td {
+  background: rgba(15, 23, 42, .018) !important;
 }
 
-[data-theme="light"] :where(.page-section, .modal-overlay, dialog) table tbody tr:hover td {
-  background: rgba(59, 130, 246, .055);
+[data-theme="light"] body table tbody tr:hover td {
+  background: rgba(59, 130, 246, .055) !important;
 }
 
 /* ═════════════════════════════════════════════════════════════════════
