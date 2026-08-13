@@ -2396,7 +2396,80 @@
           <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Start fib-boundary campaign <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
           <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
         </div>
-        <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">The mother candle names <strong>where to look</strong> — it is no longer the fib anchor itself. The ladder is measured off the <strong>swing</strong> around it: the leg extreme behind the mother, and the extreme in front frozen by the <strong>first involvement</strong> (2 consecutive candles the other way). The <strong>mother chart</strong> sets how wide the swing is. Entries are always <strong>1-minute touches</strong> on L2·L3·L4·L6·L8·L12·L16, <strong>one lot each</strong>, until the ladder cap is spent. The whole basket sells at one target, <strong>0.25 of the way back</strong> toward the anchor, and the campaign then ends. No stop loss — only the target or expiry closes it.</div>
+        <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
+             the same doc standard as the Cash Cascade: numbered sections,
+             the code's own numbers, and the losing measurement stated as
+             plainly as the design. One doc, two languages. -->
+        <div id="fibx-info" class="pf-info-pop pf-info-doc" style="margin-bottom:14px;">
+          <div class="pf-doc-langs" role="tablist" aria-label="Language">
+            <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+            <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+          </div>
+          <div class="pf-doc-lang is-active" data-pf-lang="en">
+          <p class="pf-info-lede">You name one candle on the chart you read it on; everything after that is derived, touched and sold by the engine. <strong>Paper by default</strong> — a LIVE monitor starts unarmed and sends nothing until it is armed with a password and an authenticator code.</p>
+          <section>
+            <h5>1 &middot; The mother names WHERE, not what</h5>
+            <p>The ladder is measured off the <strong>swing around the mother</strong>, never the mother's own range: the far anchor is the leg extreme behind it, and the near anchor freezes at the <strong>first involvement</strong> &mdash; 2 consecutive candles the other way. The mother chart (1m&ndash;1H) sets how wide that swing is; entries are always watched on <strong>1m</strong>.</p>
+          </section>
+          <section>
+            <h5>2 &middot; The halving ladder</h5>
+            <p><strong>L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16</strong> &mdash; the doubling ladder with one half-step folded into each gap. Each level sits that many <em>swing-spans</em> beyond the anchor: a CE ladder steps DOWN below the swing, a PE ladder mirrors UP above it.</p>
+          </section>
+          <section>
+            <h5>3 &middot; A touch buys</h5>
+            <p>The moment a 1-minute wick <strong>touches</strong> a level it is bought &mdash; no waiting for a recovery close. <strong>One lot per rung</strong>, so the position grows 1, 2, 3&hellip; as the fall deepens.</p>
+          </section>
+          <section>
+            <h5>4 &middot; Money</h5>
+            <p>One rupee cap funds the <strong>whole ladder</strong>, not each rung: at roughly &#8377;13,000 a NIFTY lot, the default &#8377;75,000 funds about five rungs. Deeper rungs stay priced and drawn but marked <strong>UNFUNDED</strong> &mdash; never silently skipped.</p>
+          </section>
+          <section>
+            <h5>5 &middot; The contract</h5>
+            <p><strong>ATM&minus;2</strong> (in the money) by default; the nearest expiry at least <strong>4 days</strong> out &mdash; the current week where weeklies exist (NIFTY, SENSEX), the near monthly on the rest. Lot size is read from the live chain, never assumed.</p>
+          </section>
+          <section>
+            <h5>6 &middot; One exit, no stop loss</h5>
+            <p>The whole basket sells at one target: <strong>0.25</strong> of the way back from the average entry toward the anchor &mdash; and once the ladder has bought at <strong>L4 or deeper</strong> it has paid for a bigger move, so the ask widens to <strong>0.5</strong>. The target recomputes on every fill. Only the target, expiry or a mother break ends the campaign.</p>
+          </section>
+          <section>
+            <h5>7 &middot; A broken mother has MOVED</h5>
+            <p>If the setup breaks before anything was bought, the engine watches the next <strong>5 one-minute bars</strong> past the break and takes the best of them as the new mother, rather than declaring the idea dead on the first poke through.</p>
+          </section>
+          <p class="pf-info-warn">What the measurement says: on the 22-month replay, <strong>every exit variant of the touch ladder lost money</strong>. This tab exists to paper-prove the 1m-mother &middot; 0.25-target variant forward &mdash; history has not endorsed it yet.</p>
+          </div><!-- /en -->
+          <div class="pf-doc-lang" data-pf-lang="ta">
+          <p class="pf-info-lede">நீங்கள் ஒரே ஒரு candle-ஐ சொல்கிறீர்கள்; மீதி எல்லாம் engine-ஆல் அளக்கப்பட்டு, வாங்கப்பட்டு, விற்கப்படும். <strong>இயல்பில் Paper</strong> &mdash; LIVE monitor ஆயுதம் இல்லாமல் தொடங்கும்; password + authenticator கொடுத்து Arm செய்யும் வரை எந்த ஆர்டரும் போகாது.</p>
+          <section>
+            <h5>1 &middot; Mother சொல்வது எங்கே என்று, என்ன என்று அல்ல</h5>
+            <p>Ladder அளக்கப்படுவது mother-ஐச் சுற்றியுள்ள <strong>swing</strong>-இல் இருந்து, mother-இன் சொந்த உயர்வு-தாழ்விலிருந்து அல்ல: தொலை anchor என்பது அதன் பின்னுள்ள leg-இன் உச்சம்; அருகிலுள்ள anchor <strong>முதல் involvement</strong>-இல் உறைகிறது &mdash; எதிர்த்திசையில் 2 தொடர் candles. Mother chart (1m&ndash;1H) அந்த swing-இன் அகலத்தை தீர்மானிக்கிறது; நுழைவுகள் எப்போதும் <strong>1m</strong>-இல் கவனிக்கப்படும்.</p>
+          </section>
+          <section>
+            <h5>2 &middot; பாதி-படி ladder</h5>
+            <p><strong>L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16</strong> &mdash; இரட்டிப்பு ladder-இல் ஒவ்வொரு இடைவெளியிலும் ஒரு பாதி-படி. ஒவ்வொரு level-உம் anchor-க்கு அப்பால் அத்தனை <em>swing அளவுகள்</em>: CE ladder swing-க்குக் கீழே இறங்கும், PE ladder மேலே ஏறும்.</p>
+          </section>
+          <section>
+            <h5>3 &middot; Touch வந்தால் வாங்கல்</h5>
+            <p>ஒரு 1-நிமிட wick ஒரு level-ஐ <strong>தொட்ட</strong> கணமே வாங்கல் &mdash; recovery close-க்கு காத்திருப்பு இல்லை. <strong>ஒரு rung-க்கு ஒரு lot</strong>; வீழ்ச்சி ஆழமாக 1, 2, 3&hellip; என நிலை வளரும்.</p>
+          </section>
+          <section>
+            <h5>4 &middot; பணம்</h5>
+            <p>ஒரே ரூபாய் வரம்பு <strong>முழு ladder</strong>-க்கும், ஒவ்வொரு rung-க்கும் அல்ல: NIFTY lot ஒன்று சுமார் &#8377;13,000; இயல்பு &#8377;75,000 சுமார் ஐந்து rungs-க்கு போதும். ஆழமான rungs வரையப்பட்டு <strong>UNFUNDED</strong> என்று காட்டப்படும் &mdash; அமைதியாக தவிர்க்கப்படாது.</p>
+          </section>
+          <section>
+            <h5>5 &middot; ஒப்பந்தம்</h5>
+            <p>இயல்பாக <strong>ATM&minus;2</strong> (ITM); குறைந்தது <strong>4 நாட்கள்</strong> உள்ள அருகிய expiry &mdash; weekly உள்ள இடத்தில் (NIFTY, SENSEX) அந்த வாரம், மற்றவற்றில் அருகிய monthly. Lot அளவு live chain-இலிருந்து, ஊகம் இல்லை.</p>
+          </section>
+          <section>
+            <h5>6 &middot; ஒரே வெளியேற்றம், stop loss இல்லை</h5>
+            <p>முழு கூடையும் ஒரே இலக்கில் விற்கப்படும்: சராசரி நுழைவிலிருந்து anchor நோக்கி <strong>0.25</strong> &mdash; <strong>L4 அல்லது ஆழத்தில்</strong> வாங்கியிருந்தால் கேள்வி <strong>0.5</strong>-ஆக விரிவடையும். ஒவ்வொரு fill-இலும் இலக்கு மறுகணக்கு. இலக்கு, expiry அல்லது mother break மட்டுமே campaign-ஐ முடிக்கும்.</p>
+          </section>
+          <section>
+            <h5>7 &middot; உடைந்த mother நகர்ந்திருக்கிறது</h5>
+            <p>எதுவும் வாங்கும் முன் அமைப்பு உடைந்தால், break-க்குப் பிறகு <strong>5 ஒரு-நிமிட bars</strong> கவனித்து அவற்றில் சிறந்ததை புதிய mother-ஆக எடுக்கும் &mdash; முதல் குத்திலேயே யோசனை இறந்ததாக அறிவிக்காது.</p>
+          </section>
+          <p class="pf-info-warn">அளவீடு சொல்வது: 22-மாத replay-இல் <strong>touch ladder-இன் எல்லா exit வகைகளும் நஷ்டம்</strong>. இந்த tab இருப்பது 1m-mother &middot; 0.25-target வகையை முன்னோக்கி paper-நிரூபிக்க &mdash; வரலாறு இதை இன்னும் அங்கீகரிக்கவில்லை.</p>
+          </div><!-- /ta -->
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
             <label for="fibx-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
@@ -2515,7 +2588,18 @@
 
     <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
       <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;"><div><h3 id="fibx-chart-title" style="margin:0;font-size:15px;">Swing ladder chart</h3><div id="fibx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div><div id="fibx-chart-strip"></div><button class="btn btn-sm" type="button" data-pf-action="hideFibBoundaryChart">Close</button></div></div>
+        <!-- The one site toolbar: title block left, timeframes + refresh +
+             close at the top right, exactly like every other chart dialog. -->
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title">
+            <h3 id="fibx-chart-title">Swing ladder chart</h3>
+            <div id="fibx-chart-meta">Loading chart…</div>
+          </div>
+          <div class="terminal-cascade-chart-actions">
+            <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);white-space:nowrap;"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
+            <div id="fibx-chart-strip"></div>
+          </div>
+        </div>
         <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div>
       </div>
     </div>
@@ -2524,7 +2608,66 @@
   <!-- ── TAB · Candle-entry ── -->
   <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop" style="max-width:720px;">Pick a starting chart and a completed mother candle from the last 15 calendar days. Two red closes arm a buy-stop on the FIRST red's close; each fill marks the low and climbs to the next chart — 1, 2, 3 then 4 lots, the whole basket leaving together on the first target. Today's mother runs a quote-backed paper campaign; an earlier date replays the index geometry only, without inventing fixed-strike premium or P&amp;L.</div></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc" style="max-width:960px;">
+            <div class="pf-doc-langs" role="tablist" aria-label="Language">
+              <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+              <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+            </div>
+            <div class="pf-doc-lang is-active" data-pf-lang="en">
+            <p class="pf-info-lede">One mother candle is one trade: a ladder of up to four buys, each read on a slower chart than the last. <strong>Paper only</strong> &mdash; no order reaches a broker from this tab.</p>
+            <section>
+              <h5>1 &middot; Arming a rung</h5>
+              <p>After the mother, <strong>two red closes</strong> on the current chart arm a buy-stop at the <strong>FIRST red's close</strong> &mdash; the higher of the two, so a recovery is bought, never the fall itself. A third qualifying red trails the stop down to the second red's close: the rule stays one red back from the newest.</p>
+            </section>
+            <section>
+              <h5>2 &middot; The climb</h5>
+              <p>Each fill marks the low so far and moves the watch to the next slower chart: <strong>1m &rarr; 5m &rarr; 15m &rarr; 1H</strong>, with <strong>1, 2, 3 then 4 lots</strong>. Starting on a later chart keeps the deeper rungs' sizes &mdash; a 15m start ladders 3 then 4 lots.</p>
+            </section>
+            <section>
+              <h5>3 &middot; The new-low gate</h5>
+              <p>The next rung may only arm after the market makes a genuinely <strong>new low</strong> below the last fill's marked low. Without it, one downswing could fill two rungs &mdash; the same trade bought twice, not a ladder.</p>
+            </section>
+            <section>
+              <h5>4 &middot; The contract</h5>
+              <p>NIFTY CE at <strong>ATM&minus;2</strong> (adjustable to ATM&minus;10), the next weekly expiry 6&ndash;13 days out, 65 a lot. A historical mother resolves the expiry that was true THEN from the session calendar, not today's chain.</p>
+            </section>
+            <section>
+              <h5>5 &middot; One exit</h5>
+              <p>The whole basket leaves together at <strong>0.25</strong> of the way from the average entry back toward the mother's high, recomputed at every fill. <strong>No stop loss</strong> &mdash; expiry closes whatever the target did not.</p>
+            </section>
+            <section>
+              <h5>6 &middot; Today vs history</h5>
+              <p>Today's mother runs a quote-backed paper campaign. An earlier date (up to 15 days back) replays <strong>index geometry only</strong> &mdash; it will not invent fixed-strike premiums or P&amp;L for fills nobody could have got.</p>
+            </section>
+            </div><!-- /en -->
+            <div class="pf-doc-lang" data-pf-lang="ta">
+            <p class="pf-info-lede">ஒரு mother candle என்பது ஒரே trade: அதிகபட்சம் நான்கு வாங்கல்களின் ladder, ஒவ்வொன்றும் முந்தையதை விட மெதுவான chart-இல். <strong>Paper மட்டும்</strong> &mdash; இந்த tab-இலிருந்து எந்த ஆர்டரும் broker-ஐ அடையாது.</p>
+            <section>
+              <h5>1 &middot; ஒரு rung ஆயுதமாதல்</h5>
+              <p>Mother-க்குப் பிறகு, நடப்பு chart-இல் <strong>இரண்டு சிவப்பு close</strong> வந்தால் <strong>முதல் சிவப்பின் close</strong>-இல் ஒரு buy-stop &mdash; இரண்டில் உயர்ந்தது; அதனால் வாங்கப்படுவது மீட்சி, வீழ்ச்சி அல்ல. மூன்றாவது தகுதியான சிவப்பு stop-ஐ இரண்டாவதின் close-க்கு இறக்கும்: விதி எப்போதும் புதியதிலிருந்து ஒரு சிவப்பு பின்னால்.</p>
+            </section>
+            <section>
+              <h5>2 &middot; ஏற்றம்</h5>
+              <p>ஒவ்வொரு fill-உம் அதுவரையிலான low-ஐ குறித்து அடுத்த மெதுவான chart-க்கு நகரும்: <strong>1m &rarr; 5m &rarr; 15m &rarr; 1H</strong>, lots <strong>1, 2, 3 பின் 4</strong>. பிந்தைய chart-இல் தொடங்கினால் ஆழமான rungs-இன் அளவுகள் &mdash; 15m தொடக்கம் 3 பின் 4 lots.</p>
+            </section>
+            <section>
+              <h5>3 &middot; புதிய-low வாயில்</h5>
+              <p>கடைசி fill-இன் குறித்த low-க்குக் கீழே சந்தை உண்மையாக <strong>புதிய low</strong> செய்த பிறகுதான் அடுத்த rung ஆயுதமாகும். இல்லாவிட்டால் ஒரே இறக்கத்தில் இரண்டு rungs நிரம்பும் &mdash; அது ladder அல்ல, ஒரே trade இருமுறை.</p>
+            </section>
+            <section>
+              <h5>4 &middot; ஒப்பந்தம்</h5>
+              <p>NIFTY CE, <strong>ATM&minus;2</strong> (ATM&minus;10 வரை மாற்றலாம்), 6&ndash;13 நாட்களில் உள்ள அடுத்த weekly expiry, lot 65. பழைய mother-க்கு அன்றைய expiry அமர்வு-நாட்காட்டியிலிருந்து கணக்கிடப்படும், இன்றைய chain-இலிருந்து அல்ல.</p>
+            </section>
+            <section>
+              <h5>5 &middot; ஒரே வெளியேற்றம்</h5>
+              <p>முழு கூடையும் சேர்ந்து வெளியேறும்: சராசரி நுழைவிலிருந்து mother-இன் உயர்வு நோக்கி <strong>0.25</strong>, ஒவ்வொரு fill-இலும் மறுகணக்கு. <strong>Stop loss இல்லை</strong> &mdash; இலக்கு முடிக்காததை expiry முடிக்கும்.</p>
+            </section>
+            <section>
+              <h5>6 &middot; இன்று vs வரலாறு</h5>
+              <p>இன்றைய mother quote-ஆதாரமான paper campaign ஓட்டும். முந்தைய தேதி (15 நாட்கள் வரை) <strong>index geometry மட்டும்</strong> replay &mdash; யாருக்கும் கிடைத்திருக்காத fill-களுக்கு premium-ஓ P&amp;L-ஓ கற்பனை செய்யாது.</p>
+            </section>
+            </div><!-- /ta -->
+          </div></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:190px;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active 1H Candle Entry campaign.</div>
@@ -2551,7 +2694,68 @@
           <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Fib-space paper run <button type="button" class="pf-info-btn" data-pf-info="fsx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
           <span id="fsx-terms-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">15m geometry · 5m entries</span>
         </div>
-        <div id="fsx-info" class="pf-info-pop" style="margin-bottom:14px;"><strong>You give the mother, it runs the trade.</strong> It draws the trendlines and fibs from your mother on 15m, buys where two fibs' levels converge, ladders 1/2/3 lots on the two-red recovery and banks each round at the 0.25 retrace — entries timed on 5m. <strong>Paper only</strong>: no real order is ever sent.</div>
+        <div id="fsx-info" class="pf-info-pop pf-info-doc" style="margin-bottom:14px;">
+          <div class="pf-doc-langs" role="tablist" aria-label="Language">
+            <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+            <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+          </div>
+          <div class="pf-doc-lang is-active" data-pf-lang="en">
+          <p class="pf-info-lede">You give the mother; the geometry draws itself, and money may only ever sit where two fibs agree. <strong>Paper only</strong> &mdash; no real order is ever sent.</p>
+          <section>
+            <h5>1 &middot; Auto geometry</h5>
+            <p>From your completed 15m mother the engine draws the trendline and the fibs itself, redrawing as the fall develops &mdash; <strong>no typed levels</strong>. Geometry lives on <strong>15m</strong>; entries are timed on <strong>5m</strong>.</p>
+          </section>
+          <section>
+            <h5>2 &middot; Spaces, and only the deepest two</h5>
+            <p>Where two different fibs' levels converge, a <strong>space</strong> forms. Money may only sit in the <strong>deepest two</strong> spaces. A wide space is bought from its top down to about its middle; one too small to have a middle is bought on touch.</p>
+          </section>
+          <section>
+            <h5>3 &middot; The fill</h5>
+            <p>Inside a space, <strong>two red 5m closes</strong> arm a buy-stop at the second close; it fills when price trades back <strong>up</strong> through it &mdash; the same recovery mechanic the whole cascade family uses.</p>
+          </section>
+          <section>
+            <h5>4 &middot; Size</h5>
+            <p>A lot ladder, not a rupee budget: <strong>1, 2, then 3 lots</strong> per round, restarting when a round banks.</p>
+          </section>
+          <section>
+            <h5>5 &middot; Rounds, like the crypto cascade</h5>
+            <p>The <strong>0.25 retrace</strong> &mdash; drawn from the lowest point of the fall back up toward the mother high, Phil's own chart rule, adjudicated against his 26-Feb fixture &mdash; banks the basket and ends the <strong>round</strong>, not the campaign. The next round may only arm on a close <strong>below the previous round's low</strong>: a re-entry is always deeper, never a re-buy of banked ground.</p>
+          </section>
+          <section>
+            <h5>6 &middot; The contract</h5>
+            <p><strong>Monthly</strong> contracts, <strong>ATM&minus;2 CE</strong>, 15&ndash;45 days to expiry. Lot size comes from the live chain, not the backtest's assumption.</p>
+          </section>
+          <p class="pf-info-warn">Measured over 22 months: BankNifty's locked config made <strong>+&#8377;6.72L at a 73% win rate</strong>; NIFTY only survives with a <strong>3-day cooldown</strong> (+&#8377;1.95L, 70%) &mdash; and BankNifty must NOT be given that cooldown, it costs money there. Rounds on NIFTY resolve about 1.8&times; slower.</p>
+          </div><!-- /en -->
+          <div class="pf-doc-lang" data-pf-lang="ta">
+          <p class="pf-info-lede">Mother-ஐ நீங்கள் கொடுக்கிறீர்கள்; geometry தானே வரையும், பணம் இரண்டு fib-கள் ஒத்துப்போகும் இடத்தில் மட்டுமே அமரும். <strong>Paper மட்டும்</strong> &mdash; உண்மை ஆர்டர் ஒருபோதும் போகாது.</p>
+          <section>
+            <h5>1 &middot; தானியங்கி geometry</h5>
+            <p>உங்கள் முடிந்த 15m mother-இலிருந்து engine trendline-ஐயும் fib-களையும் தானே வரையும், வீழ்ச்சி வளர வளர மறுவரைவு &mdash; <strong>type செய்யும் levels இல்லை</strong>. Geometry <strong>15m</strong>-இல்; நுழைவுகள் <strong>5m</strong>-இல்.</p>
+          </section>
+          <section>
+            <h5>2 &middot; Spaces &mdash; ஆழமான இரண்டு மட்டும்</h5>
+            <p>இரண்டு வெவ்வேறு fib-களின் levels ஒன்றுசேரும் இடத்தில் ஒரு <strong>space</strong> உருவாகும். பணம் <strong>ஆழமான இரண்டு</strong> spaces-இல் மட்டுமே. அகலமான space அதன் மேலிருந்து நடு வரை வாங்கப்படும்; நடு இல்லாத சிறியது touch-இல்.</p>
+          </section>
+          <section>
+            <h5>3 &middot; Fill</h5>
+            <p>Space-க்குள் <strong>இரண்டு சிவப்பு 5m close</strong> இரண்டாவது close-இல் buy-stop-ஐ ஆயுதமாக்கும்; விலை அதன் வழியே <strong>மேலே</strong> திரும்பும்போது நிரம்பும் &mdash; cascade குடும்பம் முழுவதும் பயன்படுத்தும் அதே மீட்சி முறை.</p>
+          </section>
+          <section>
+            <h5>4 &middot; அளவு</h5>
+            <p>ரூபாய் வரவு-செலவு அல்ல, lot ladder: ஒரு சுற்றுக்கு <strong>1, 2, பின் 3 lots</strong>; சுற்று வங்கியானதும் மறுதொடக்கம்.</p>
+          </section>
+          <section>
+            <h5>5 &middot; சுற்றுகள் &mdash; crypto cascade போல</h5>
+            <p><strong>0.25 retrace</strong> &mdash; வீழ்ச்சியின் தாழ்ந்த புள்ளியிலிருந்து mother உயர்வு நோக்கி வரையப்படுவது, Phil-இன் சொந்த chart விதி &mdash; கூடையை வங்கி செய்து <strong>சுற்றை</strong> முடிக்கும், campaign-ஐ அல்ல. அடுத்த சுற்று <strong>முந்தைய சுற்றின் low-க்குக் கீழே close</strong> வந்தால்தான் ஆயுதமாகும்: மறு-நுழைவு எப்போதும் ஆழமானது.</p>
+          </section>
+          <section>
+            <h5>6 &middot; ஒப்பந்தம்</h5>
+            <p><strong>Monthly</strong> ஒப்பந்தங்கள், <strong>ATM&minus;2 CE</strong>, expiry-க்கு 15&ndash;45 நாட்கள். Lot அளவு live chain-இலிருந்து.</p>
+          </section>
+          <p class="pf-info-warn">22 மாத அளவீடு: BankNifty-இன் பூட்டிய config <strong>+&#8377;6.72L, 73% வெற்றி</strong>; NIFTY <strong>3-நாள் cooldown</strong>-உடன் மட்டுமே பிழைக்கிறது (+&#8377;1.95L, 70%) &mdash; BankNifty-க்கு அந்த cooldown கொடுக்கக் கூடாது, அங்கு அது நஷ்டம். NIFTY சுற்றுகள் சுமார் 1.8&times; மெதுவாக முடிகின்றன.</p>
+          </div><!-- /ta -->
+        </div>
         <label for="fsx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:6px;margin-bottom:4px;">Underlying <button type="button" class="pf-info-btn" data-pf-info="fsx-underlying-info" aria-expanded="false" aria-label="Which contract this buys" title="Which contract this buys">i</button></label>
         <div id="fsx-underlying-info" class="pf-info-pop" style="margin-bottom:8px;">Monthly contracts, <strong>ATM−2 CE</strong>, 15–45 DTE. Lot size comes from the live chain, not the backtest's assumption.</div>
         <select id="fsx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
@@ -2624,7 +2828,76 @@
         <div>
           <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">PAPER CAMPAIGNS ON LIVE PRICES · NO REAL ORDER IS EVER SENT</div>
           <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Recovery <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <div id="recovery-info" class="pf-info-pop" style="max-width:760px;">Two red candles where the SECOND closes below the FIRST's low arm a buy at the second red's high — price must rise back through it, so a recovery is bought and never a falling knife. The stop is the entry candle's own low; a wick through it survives, a close below it does not. After any trade closes the next may only arm by breaking lower, never off a bounce. The target is not a price: the open trade must net back every rupee already lost, costs included, plus a margin. Positions square off at the day's last bar — only the ledger carries overnight.</div>
+          <div id="recovery-info" class="pf-info-pop pf-info-doc" style="max-width:960px;">
+            <div class="pf-doc-langs" role="tablist" aria-label="Language">
+              <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+              <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+            </div>
+            <div class="pf-doc-lang is-active" data-pf-lang="en">
+            <p class="pf-info-lede">The same fall, the opposite discipline: every trade carries a stop loss, and the target is not a price &mdash; it is whatever repairs the ledger.</p>
+            <section>
+              <h5>1 &middot; The pattern</h5>
+              <p>Two red candles where the <strong>second closes below the FIRST's low</strong> &mdash; a lower close is not enough, the fall has to have eaten the whole prior candle.</p>
+            </section>
+            <section>
+              <h5>2 &middot; The entry</h5>
+              <p>A buy-stop at the <strong>second red's high</strong>. Price must rise back through it: a recovery is bought, never a falling knife.</p>
+            </section>
+            <section>
+              <h5>3 &middot; The stop</h5>
+              <p>The <strong>entry candle's own low</strong>, marked at the fill. A candle <strong>closing</strong> below it ends the trade; a wick through it survives.</p>
+            </section>
+            <section>
+              <h5>4 &middot; Repeat, deeper, bigger</h5>
+              <p>After a stop the same pattern re-arms &mdash; the low is already broken, so the next two-red pair is bought again. <strong>1 lot on the first trade, 2 from the second</strong>: by then the fall has proven itself and the ledger needs the bigger recovery.</p>
+            </section>
+            <section>
+              <h5>5 &middot; The recovery target</h5>
+              <p>Not a price. The open trade exits at the premium where its own net P&amp;L pays back <strong>every booked loss, costs included, plus the margin</strong> (&#8377;500 default): "if I have lost &#8377;3,000 already, this trade has to go above &#8377;3,500".</p>
+            </section>
+            <section>
+              <h5>6 &middot; Intraday only</h5>
+              <p>The day's last bar squares off any open trade (no fill opens at 15:29 on 1m, 15:25 on 5m, 15:15 on 15m/1H). The <strong>ledger carries overnight; positions never do</strong>, and a red pair never spans the gap.</p>
+            </section>
+            <section>
+              <h5>7 &middot; The contract</h5>
+              <p><strong>ATM&minus;2 CE</strong>, at least <strong>4 days</strong> to expiry, re-picked at every fill. A missing premium defers the check to the next bar &mdash; a number is never invented.</p>
+            </section>
+            <p class="pf-info-warn">Measured Jan&ndash;Jul 2026: the <strong>15m ladder made +&#8377;82,896</strong> on mechanical mothers and the 5m fib-zone +&#8377;6,732 intraday. One configuration survives &mdash; and an early version's lookahead bug had doubled the result; these are the corrected numbers.</p>
+            </div><!-- /en -->
+            <div class="pf-doc-lang" data-pf-lang="ta">
+            <p class="pf-info-lede">அதே வீழ்ச்சி, எதிர் ஒழுக்கம்: ஒவ்வொரு trade-க்கும் stop loss உண்டு; இலக்கு ஒரு விலை அல்ல &mdash; கணக்கேட்டை சரிசெய்வதே இலக்கு.</p>
+            <section>
+              <h5>1 &middot; வடிவம்</h5>
+              <p>இரண்டு சிவப்பு candles &mdash; <strong>இரண்டாவது, முதலாவதின் low-க்குக் கீழே close</strong> ஆக வேண்டும். தாழ்ந்த close மட்டும் போதாது; வீழ்ச்சி முந்தைய candle-ஐ முழுவதும் விழுங்கியிருக்க வேண்டும்.</p>
+            </section>
+            <section>
+              <h5>2 &middot; நுழைவு</h5>
+              <p><strong>இரண்டாவது சிவப்பின் high</strong>-இல் buy-stop. விலை அதன் வழியே மேலே திரும்ப வேண்டும்: வாங்கப்படுவது மீட்சி, விழும் கத்தி அல்ல.</p>
+            </section>
+            <section>
+              <h5>3 &middot; Stop</h5>
+              <p>Fill-இல் குறிக்கப்படும் <strong>நுழைவு candle-இன் சொந்த low</strong>. அதன் கீழே ஒரு candle <strong>close</strong> ஆனால் trade முடிவு; wick மட்டும் தாண்டினால் பிழைக்கும்.</p>
+            </section>
+            <section>
+              <h5>4 &middot; மீண்டும், ஆழமாக, பெரிதாக</h5>
+              <p>Stop-க்குப் பிறகு அதே வடிவம் மறு-ஆயுதம் &mdash; low ஏற்கனவே உடைந்துவிட்டது; அடுத்த இரு-சிவப்பு ஜோடியின் மீட்சி மீண்டும் வாங்கப்படும். <strong>முதல் trade 1 lot, இரண்டாவதிலிருந்து 2</strong>: அப்போது வீழ்ச்சி தன்னை நிரூபித்துவிட்டது, கணக்கேட்டுக்கு பெரிய மீட்பு தேவை.</p>
+            </section>
+            <section>
+              <h5>5 &middot; மீட்பு இலக்கு</h5>
+              <p>விலை அல்ல. திறந்த trade வெளியேறுவது: அதன் நிகர P&amp;L <strong>பதிவான எல்லா நஷ்டங்களையும், செலவுகள் சேர்த்து, margin</strong> (&#8377;500 இயல்பு) சேர்த்து மீட்கும் premium-இல் &mdash; "ஏற்கனவே &#8377;3,000 இழந்திருந்தால், இந்த trade &#8377;3,500-க்கு மேல் போக வேண்டும்".</p>
+            </section>
+            <section>
+              <h5>6 &middot; Intraday மட்டும்</h5>
+              <p>நாளின் கடைசி bar திறந்த trade-ஐ square off செய்யும் (1m-இல் 15:29, 5m-இல் 15:25, 15m/1H-இல் 15:15-க்குப் பின் fill இல்லை). <strong>கணக்கேடு இரவு தாண்டும்; positions ஒருபோதும் இல்லை</strong>; சிவப்பு ஜோடி gap-ஐ தாண்டாது.</p>
+            </section>
+            <section>
+              <h5>7 &middot; ஒப்பந்தம்</h5>
+              <p><strong>ATM&minus;2 CE</strong>, expiry-க்கு குறைந்தது <strong>4 நாட்கள்</strong>, ஒவ்வொரு fill-இலும் மறுதேர்வு. Premium கிடைக்காவிட்டால் அடுத்த bar-க்கு ஒத்திவைப்பு &mdash; எண் கற்பனை இல்லை.</p>
+            </section>
+            <p class="pf-info-warn">ஜன&ndash;ஜூலை 2026 அளவீடு: <strong>15m ladder +&#8377;82,896</strong> (இயந்திர mothers), 5m fib-zone +&#8377;6,732 intraday. ஒரே ஒரு configuration பிழைக்கிறது &mdash; முந்தைய பதிப்பின் lookahead பிழை முடிவை இரட்டிப்பாக்கியிருந்தது; இவை திருத்திய எண்கள்.</p>
+            </div><!-- /ta -->
+          </div>
         </div>
         <span id="recovery-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
       </div>
@@ -2671,6 +2944,53 @@
     </div>
   </div>
   <div id="oc-tab-bench" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-bench" aria-hidden="true" style="display:none;">
+  <div class="card" style="padding:14px 18px;margin-bottom:12px;">
+    <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Test Bench <button type="button" class="pf-info-btn" data-pf-info="bench-info" aria-expanded="false" aria-label="How the replay works" title="How the replay works">i</button></h3>
+    <div id="bench-info" class="pf-info-pop pf-info-doc" style="margin-top:10px;">
+      <div class="pf-doc-langs" role="tablist" aria-label="Language">
+        <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+        <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+      </div>
+      <div class="pf-doc-lang is-active" data-pf-lang="en">
+      <p class="pf-info-lede">Nothing here trades. One past mother candle is replayed against recorded candles &mdash; history only, no orders, no paper ledger.</p>
+      <section>
+        <h5>1 &middot; What it does</h5>
+        <p>Pick the instrument (NIFTY or BankNifty), the strategy (<strong>Fib levels</strong> or <strong>Two red candles</strong>), a timeframe, a past mother and the &#8377; per level &mdash; Run replays how that rule would have read that history, bar by bar.</p>
+      </section>
+      <section>
+        <h5>2 &middot; The data is recorded, never invented</h5>
+        <p>Index candles are the exchange's own; option legs price from recorded contract candles. A leg that cannot be priced from the record is <strong>refused, not estimated</strong> &mdash; a bench that invents premiums proves nothing.</p>
+      </section>
+      <section>
+        <h5>3 &middot; Reading a result</h5>
+        <p>The fills, exits and P&amp;L are reconstruction: what the rule would have done, at recorded prices, with no slippage added. Treat it as evidence about the RULE, not a promise about the next trade.</p>
+      </section>
+      <section>
+        <h5>4 &middot; What it is for</h5>
+        <p>Proving a mother here first, before the same rule risks a paper campaign on the other tabs &mdash; the cheap place to be wrong.</p>
+      </section>
+      </div><!-- /en -->
+      <div class="pf-doc-lang" data-pf-lang="ta">
+      <p class="pf-info-lede">இங்கு எதுவும் trade ஆகாது. ஒரு பழைய mother candle பதிவான candles-க்கு எதிராக replay &mdash; வரலாறு மட்டும்; ஆர்டர்களும் paper கணக்கும் இல்லை.</p>
+      <section>
+        <h5>1 &middot; என்ன செய்கிறது</h5>
+        <p>Instrument (NIFTY / BankNifty), strategy (<strong>Fib levels</strong> / <strong>Two red candles</strong>), timeframe, ஒரு பழைய mother, level-க்கு &#8377; &mdash; தேர்ந்தெடுத்து Run: அந்த விதி அந்த வரலாற்றை எப்படி படித்திருக்கும் என்று bar-by-bar replay.</p>
+      </section>
+      <section>
+        <h5>2 &middot; தரவு பதிவானது, கற்பனை இல்லை</h5>
+        <p>Index candles பரிவர்த்தனையின் சொந்தவை; option legs பதிவான ஒப்பந்த candles-இலிருந்து விலை. பதிவிலிருந்து விலை கிடைக்காத leg <strong>மறுக்கப்படும், மதிப்பிடப்படாது</strong> &mdash; premium கற்பனை செய்யும் bench எதையும் நிரூபிக்காது.</p>
+      </section>
+      <section>
+        <h5>3 &middot; முடிவை படிப்பது</h5>
+        <p>Fills, வெளியேற்றங்கள், P&amp;L எல்லாம் மறுகட்டமைப்பு: பதிவான விலைகளில், slippage சேர்க்காமல், விதி என்ன செய்திருக்கும் என்பது. இது <strong>விதி பற்றிய சான்று</strong>; அடுத்த trade பற்றிய வாக்குறுதி அல்ல.</p>
+      </section>
+      <section>
+        <h5>4 &middot; எதற்காக</h5>
+        <p>மற்ற tabs-இல் அதே விதி paper campaign-ஆக பணத்தை (paper-ஆகவே) பணயம் வைக்கும் முன், mother-ஐ இங்கு முதலில் நிரூபிக்க &mdash; தவறாக இருக்க மலிவான இடம்.</p>
+      </section>
+      </div><!-- /ta -->
+    </div>
+  </div>
   <div class="tb-controls card">
     <div class="tb-field">
       <label for="tb-instrument">Instrument</label>

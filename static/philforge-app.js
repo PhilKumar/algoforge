@@ -3729,6 +3729,7 @@ async function armFibBoundaryLive(_event, button) {
 
 let _fibxChartCtx = null;
 let _fibxChartTf = '';
+let _fibxChartDrawnKey = '';
 
 async function loadFibBoundaryChart(_event, button) {
   const el = id => document.getElementById(id);
@@ -3757,6 +3758,7 @@ async function loadFibBoundaryChart(_event, button) {
       active: timeframe,
       onTimeframe: (tf) => { _fibxChartTf = tf; loadFibBoundaryChart(); },
       onRefresh: () => loadFibBoundaryChart(),
+      onClose: () => hideFibBoundaryChart(),
     });
   }
   // No "Loading…" flash over a chart that is already showing — the old frame
@@ -3774,7 +3776,19 @@ async function loadFibBoundaryChart(_event, button) {
     // surfaces by a fixed id. Fold the backtest journal chart away first so the
     // overlay does not mount behind a duplicate host.
     _fibBoundaryCollapseBacktestChart();
-    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, _fibBoundaryCanvasPayload(data, _fibxChartCtx?.isCampaign ? symbol : ''));
+    const benchPayload = _fibBoundaryCanvasPayload(data, _fibxChartCtx?.isCampaign ? symbol : '');
+    // An already-mounted canvas is UPDATED in place, never torn down and
+    // rebuilt: replacing the canvas element is the flicker (the compositor
+    // shows the fresh blank element before its first paint commits, which is
+    // exactly what Phil kept seeing on timeframe clicks). The viewport
+    // survives a same-timeframe refresh; a new timeframe refits.
+    const mountedHost = chart ? chart.querySelector('#pf-bench-canvas-host') : null;
+    const canvasIsThisChart = mountedHost && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host === mountedHost;
+    const drawnKey = `${symbol}|${side}|${timestamp}|${data.timeframe || timeframe}`;
+    const view = canvasIsThisChart && drawnKey === _fibxChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+    const refreshed = canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(benchPayload, view);
+    if (!refreshed && chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, benchPayload);
+    _fibxChartDrawnKey = drawnKey;
     if (meta) {
       meta.textContent = data.anchor
         ? `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
@@ -3801,6 +3815,7 @@ function hideFibBoundaryChart() {
   if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
   // The next campaign opens on its own mother chart, not this one's override.
   _fibxChartTf = '';
+  _fibxChartDrawnKey = '';
   _fibxChartCtx = null;
   const strip = document.getElementById('fibx-chart-strip');
   if (strip) strip.innerHTML = '';
@@ -5970,6 +5985,7 @@ function selectStockTerminal(symbol, options = {}) {
 // ── The Velocity Entry chart — the picked stock, site-standard canvas ──
 let _stockTerminalChartTf = '5m';
 let _stockTerminalChartRequest = 0;
+let _stockTerminalChartDrawnKey = '';
 
 async function drawStockTerminalChart() {
   const card = document.getElementById('stock-terminal-chart-card');
@@ -5990,7 +6006,9 @@ async function drawStockTerminalChart() {
   const symbol = _stockTerminalSelected.symbol;
   const requestId = ++_stockTerminalChartRequest;
   if (title) title.textContent = symbol;
-  if (meta) meta.textContent = 'Loading candles…';
+  // The meta line holds its reading while a refetch is in flight; only a
+  // first load announces itself.
+  if (meta && !body.querySelector('#pf-bench-canvas-host')) meta.textContent = 'Loading candles…';
   try {
     const qs = `symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(_stockTerminalChartTf)}`;
     const response = await fetch(`/api/terminal/stock-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -6001,9 +6019,17 @@ async function drawStockTerminalChart() {
       const live = Number(data.live_price || 0);
       meta.textContent = `${data.candles.length} ${String(data.timeframe).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'No live quote'}${String(data.timeframe) === '1d' ? ' · 20-EMA' : ' · CPR, R1-R4, S1-S4, 20-EMA'} · drag to pan, wheel to zoom, double-click to reset`;
     }
-    if (typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(body, data)) {
+    // An already-mounted canvas is UPDATED in place — element churn is the
+    // flicker. The viewport survives only a same symbol + timeframe redraw.
+    const mountedHost = body.querySelector('#pf-bench-canvas-host');
+    const canvasIsThisChart = mountedHost && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host === mountedHost;
+    const drawnKey = `${symbol}|${data.timeframe || _stockTerminalChartTf}`;
+    const view = canvasIsThisChart && drawnKey === _stockTerminalChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+    const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+    if (!refreshed && (typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(body, data))) {
       throw new Error('Stock chart could not be drawn.');
     }
+    _stockTerminalChartDrawnKey = drawnKey;
   } catch (error) {
     if (requestId !== _stockTerminalChartRequest) return;
     if (meta) meta.textContent = '';
@@ -7829,10 +7855,70 @@ function _terminalCascadeCanvasDrawOverlay() {
 function _terminalCascadeCanvasBindEvents() {
   const ov = _tcv.overlay;
   ov.style.touchAction = 'none';
+  // Two-finger pinch. Each finger arrives as its own pointer event, so
+  // without this map a second touch just restarted the drag and the phone
+  // could never zoom this chart.
+  _tcv.touches = new Map();
+  _tcv.pinch = null;
+  const pinchGeom = () => {
+    const pts = Array.from(_tcv.touches.values());
+    return {
+      mx: (pts[0].x + pts[1].x) / 2, my: (pts[0].y + pts[1].y) / 2,
+      dx: Math.abs(pts[0].x - pts[1].x), dy: Math.abs(pts[0].y - pts[1].y),
+      d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+    };
+  };
+  const beginPinch = () => {
+    const F = _tcv.frame;
+    if (!F || _tcv.touches.size < 2) return;
+    const g = pinchGeom();
+    _tcv.drag = null;
+    _tcv.cross = null;
+    _tcv.pinch = {
+      start: g,
+      count: _tcv.count,
+      yMin: _tcv.yMin, yMax: _tcv.yMax, yAuto: _tcv.yAuto,
+      anchorBar: _tcv.start + (g.mx - F.x0) / F.barW,
+      anchorPrice: _tcv.yMax - ((g.my - F.y0) / F.plotH) * (_tcv.yMax - _tcv.yMin),
+      // A clearly vertical pinch stretches price; anything else zooms time.
+      vertical: g.dy >= 40 && g.dy > 1.5 * g.dx,
+    };
+    _terminalCascadeCanvasDrawOverlay();
+  };
+  const movePinch = () => {
+    const pin = _tcv.pinch, F = _tcv.frame;
+    if (!pin || !F || _tcv.touches.size < 2) return;
+    const g = pinchGeom(), s = pin.start, n = _tcv.candles.length;
+    if (pin.vertical) {
+      if (g.dy >= 12) {
+        const span = (pin.yMax - pin.yMin) * (s.dy / g.dy);
+        _tcv.yMax = pin.anchorPrice + ((g.my - F.y0) / F.plotH) * span;
+        _tcv.yMin = _tcv.yMax - span;
+        _tcv.yAuto = false;
+      }
+    } else if (g.d >= 12) {
+      // The bar under the fingers' first midpoint follows the moving
+      // midpoint, so one gesture both zooms and pans.
+      _tcv.count = Math.max(_tcvMinCount(n), Math.min(pin.count * (s.d / g.d), n));
+      _tcv.start = pin.anchorBar - (g.mx - F.x0) / (F.plotW / _tcv.count);
+      if (!pin.yAuto) {
+        const span = pin.yMax - pin.yMin;
+        _tcv.yMax = pin.anchorPrice + ((g.my - F.y0) / F.plotH) * span;
+        _tcv.yMin = _tcv.yMax - span;
+      }
+    }
+    _terminalCascadeCanvasDraw();
+  };
   ov.addEventListener('pointerdown', event => {
     if (!_tcv || !_tcv.frame) return;
     const rect = ov.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    if (event.pointerType === 'touch') {
+      _tcv.touches.set(event.pointerId, { x, y });
+      try { ov.setPointerCapture(event.pointerId); } catch (err) { /* fine */ }
+      if (_tcv.touches.size === 2) { beginPinch(); event.preventDefault(); return; }
+      if (_tcv.touches.size > 2) { event.preventDefault(); return; }
+    }
     _tcv.drag = {
       x, y,
       start: _tcv.start,
@@ -7850,6 +7936,10 @@ function _terminalCascadeCanvasBindEvents() {
     if (!_tcv || !_tcv.frame) return;
     const rect = ov.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    if (event.pointerType === 'touch' && _tcv.touches.has(event.pointerId)) {
+      _tcv.touches.set(event.pointerId, { x, y });
+      if (_tcv.pinch) { movePinch(); return; }
+    }
     const drag = _tcv.drag;
     if (drag) {
       if (drag.axis) {
@@ -7881,11 +7971,27 @@ function _terminalCascadeCanvasBindEvents() {
   const release = event => {
     if (!_tcv) return;
     const pointerId = event?.pointerId ?? _tcv.drag?.pointerId;
-    _tcv.drag = null;
-    ov.style.cursor = 'crosshair';
     if (pointerId !== undefined) {
       try { ov.releasePointerCapture(pointerId); } catch (err) { /* already released */ }
     }
+    if (event?.pointerType === 'touch') {
+      _tcv.touches.delete(event.pointerId);
+      if (_tcv.pinch) {
+        if (_tcv.touches.size >= 2) { beginPinch(); return; }
+        _tcv.pinch = null;
+        if (_tcv.touches.size === 1) {
+          // The finger that stayed down keeps panning without a re-touch.
+          const rest = _tcv.touches.values().next().value;
+          _tcv.drag = { x: rest.x, y: rest.y, start: _tcv.start, yMin: _tcv.yMin, yMax: _tcv.yMax, axis: false };
+          return;
+        }
+      }
+      // A finger is still down (its pan is live); only a fully lifted
+      // gesture may fall through and clear the drag.
+      if (_tcv.touches.size) return;
+    }
+    _tcv.drag = null;
+    ov.style.cursor = 'crosshair';
   };
   ov.addEventListener('pointerup', release);
   ov.addEventListener('pointercancel', release);
@@ -9424,6 +9530,7 @@ function _buildScalpActiveRow(t) {
 let _scalpOptionChartRequest = 0;
 let _scalpOptionChartTradeId = null;
 let _scalpOptionChartTf = '5m';
+let _scalpOptionChartDrawnKey = '';
 let _scalpOptionChartPollTimer = null;
 let _scalpOptionChartPollInFlight = false;
 
@@ -9493,7 +9600,8 @@ async function openScalpOptionChart(tradeId, options = {}) {
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.classList.add('terminal-cascade-chart-open');
-  if (!liveRefresh && body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
+  // Hold the old frame while fetching; only a first open announces itself.
+  if (!liveRefresh && body && !body.querySelector('#pf-bench-canvas-host')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
   try {
     const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart?timeframe=${encodeURIComponent(_scalpOptionChartTf)}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
@@ -9509,11 +9617,19 @@ async function openScalpOptionChart(tradeId, options = {}) {
       meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S4, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
     }
     if (body) {
-      if (!liveRefresh) body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
-      const host = document.getElementById('scalp-option-chart-canvas');
-      const view = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      // An already-mounted canvas is UPDATED in place, never torn down and
+      // remounted — element churn is the flicker. The viewport survives only
+      // a same trade + same timeframe redraw; anything else refits.
+      let host = document.getElementById('scalp-option-chart-canvas');
+      if (!host) {
+        body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
+        host = document.getElementById('scalp-option-chart-canvas');
+      }
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#scalp-option-chart-canvas') === host;
-      const refreshed = liveRefresh && canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+      const drawnKey = `${id}|${data.timeframe || _scalpOptionChartTf}`;
+      const view = canvasIsThisChart && drawnKey === _scalpOptionChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+      _scalpOptionChartDrawnKey = drawnKey;
       if (!refreshed) {
         // These are three different faults and they used to share one message.
         // "Renderer is unavailable" for a contract Dhan simply has no candles
@@ -9541,6 +9657,7 @@ function refreshScalpOptionChart() {
 function hideScalpOptionChart() {
   _scalpOptionChartRequest++;
   _scalpOptionChartTradeId = null;
+  _scalpOptionChartDrawnKey = '';
   _stopScalpOptionChartPolling();
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
   const overlay = document.getElementById('scalp-option-chart-overlay');
@@ -9565,6 +9682,7 @@ document.addEventListener('keydown', (event) => {
 // overlay, exactly like the scalp option chart it copies.
 let _liveEntryChartRunId = '';
 let _liveEntryChartTf = '5m';
+let _liveEntryChartDrawnKey = '';
 let _liveEntryChartRequest = 0;
 let _liveEntryChartPollTimer = null;
 
@@ -9613,7 +9731,8 @@ async function openLiveEntryChart(runId, options = {}) {
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.classList.add('terminal-cascade-chart-open');
-  if (!liveRefresh && body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading the entered contract’s candles...</div>';
+  // Hold the old frame while fetching; only a first open announces itself.
+  if (!liveRefresh && body && !body.querySelector('#pf-bench-canvas-host')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading the entered contract’s candles...</div>';
   try {
     const qs = `run_id=${encodeURIComponent(_liveEntryChartRunId)}&timeframe=${encodeURIComponent(_liveEntryChartTf)}`;
     const response = await fetch(`/api/live/entry-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -9630,16 +9749,24 @@ async function openLiveEntryChart(runId, options = {}) {
       meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · ${data.is_open ? (live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Position open') : 'Position closed — entry and exit marked'} · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom`;
     }
     if (body) {
-      if (!liveRefresh) body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>';
-      const host = document.getElementById('live-entry-chart-canvas');
-      const view = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      // An already-mounted canvas is UPDATED in place, never torn down and
+      // remounted — element churn is the flicker. The viewport survives only
+      // a same run + same timeframe redraw; anything else refits.
+      let host = document.getElementById('live-entry-chart-canvas');
+      if (!host) {
+        body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>';
+        host = document.getElementById('live-entry-chart-canvas');
+      }
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#live-entry-chart-canvas') === host;
-      const refreshed = liveRefresh && canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+      const drawnKey = `${_liveEntryChartRunId}|${data.timeframe || _liveEntryChartTf}`;
+      const view = canvasIsThisChart && drawnKey === _liveEntryChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
       if (!refreshed) {
         if (!host || typeof pfBenchDrawChart !== 'function') throw new Error('Entry chart renderer is unavailable');
         if (!(data.candles || []).length) throw new Error('No candles for the entered contract yet.');
         if (!pfBenchDrawChart(host, data)) throw new Error('Entry chart could not be drawn.');
       }
+      _liveEntryChartDrawnKey = drawnKey;
     }
     if (!liveRefresh && data.is_open) _startLiveEntryChartPolling();
   } catch (error) {
@@ -9663,6 +9790,7 @@ function _startLiveEntryChartPolling() {
 
 function hideLiveEntryChart() {
   _liveEntryChartRequest++;
+  _liveEntryChartDrawnKey = '';
   if (_liveEntryChartPollTimer) { clearInterval(_liveEntryChartPollTimer); _liveEntryChartPollTimer = null; }
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
   const overlay = document.getElementById('live-entry-chart-overlay');

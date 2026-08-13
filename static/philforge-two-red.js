@@ -398,6 +398,7 @@
   }
 
   var chartTf = '1d';
+  var drawnTf = '';
 
   // Which symbol+mother the OPEN overlay is showing. The TF toggle redraws
   // through this, so switching timeframes on a campaign's chart keeps showing
@@ -429,9 +430,21 @@
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.detail || 'Chart failed.');
       if (typeof window.pfBenchDrawChart !== 'function') throw new Error('Chart renderer not loaded.');
-      // pfBenchDrawChart tears down and remounts in ONE pass — clearing the
-      // box first just adds a blank frame between the old chart and the new.
-      window.pfBenchDrawChart(box, chartPayload(data));
+      // An already-mounted canvas is UPDATED in place, never torn down and
+      // remounted: replacing the canvas element is the flicker (the compositor
+      // can show the fresh blank element before its first paint commits).
+      // A new timeframe refits the viewport; same-timeframe keeps it.
+      var payload = chartPayload(data);
+      var mountedHost = box ? box.querySelector('#pf-bench-canvas-host') : null;
+      var canvasIsThisChart = mountedHost && typeof window._pfChartCanvas !== 'undefined'
+        && window._pfChartCanvas && window._pfChartCanvas.host === mountedHost;
+      var drawnKey = symbol + '|' + mother + '|' + String(data.timeframe || chartTf);
+      var view = canvasIsThisChart && drawnKey === drawnTf && typeof window._pfChartCanvasRefreshState === 'function'
+        ? window._pfChartCanvasRefreshState() : null;
+      var refreshed = canvasIsThisChart && typeof window._pfChartCanvasRefresh === 'function'
+        && window._pfChartCanvasRefresh(payload, view);
+      if (!refreshed) window.pfBenchDrawChart(box, payload);
+      drawnTf = drawnKey;
       var meta = $('tworeds-chart-meta');
       if (meta) {
         meta.textContent = (data.candles || []).length + ' closed ' + String(data.timeframe).toUpperCase() +
@@ -451,6 +464,7 @@
     var box = $('tworeds-chart');
     if (box) box.innerHTML = '';
     chartContext = null;
+    drawnTf = '';
     // The poll was held while the overlay was up; catch the tables up now.
     refresh();
   };

@@ -866,7 +866,8 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // A ladder still holding must not claim it sold at the target.
   expect(labels.some((t) => t.includes('TARGET (open'))).toBe(true);
 
-  await page.click('[data-pf-action="hideFibBoundaryChart"]');
+  // Close moved into the site strip (top-right ✕), like every other chart.
+  await page.click('#fibx-chart-strip [data-strip-close]');
   await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);

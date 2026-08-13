@@ -967,14 +967,78 @@ function _pfChartCanvasBindInteraction(c) {
     c.host.addEventListener(name, fn, opts);
     c.handlers.push([name, fn, opts]);
   }
+  // Two-finger pinch. Pointer events deliver each finger separately, so
+  // without this map a second touch simply restarted the one-pointer drag and
+  // the chart jittered instead of zooming — Phil's phones could never zoom.
+  c.touches = new Map();
+  c.pinch = null;
+  function pinchGeom() {
+    var pts = Array.from(c.touches.values());
+    return {
+      mx: (pts[0].x + pts[1].x) / 2, my: (pts[0].y + pts[1].y) / 2,
+      dx: Math.abs(pts[0].x - pts[1].x), dy: Math.abs(pts[0].y - pts[1].y),
+      d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+    };
+  }
+  function beginPinch() {
+    var v = c.viewport, p = c.projection;
+    if (!v || !p || c.touches.size < 2) return;
+    var g = pinchGeom();
+    c.drag = null;
+    c.host.style.cursor = '';
+    c.pinch = {
+      start: g,
+      viewport: { tMin: v.tMin, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax },
+      // A clearly vertical pinch stretches price; anything else zooms time.
+      vertical: g.dy >= 40 && g.dy > 1.5 * g.dx,
+      anchorTime: p.tAt(g.mx), anchorPrice: p.pAt(g.my)
+    };
+    _pfChartCanvasClearCrosshair(c);
+  }
+  function movePinch() {
+    var pin = c.pinch, p = c.projection;
+    if (!pin || !p || c.touches.size < 2) return;
+    var g = pinchGeom(), s = pin.start, v0 = pin.viewport;
+    var tSpan = v0.tMax - v0.tMin, pSpan = v0.pMax - v0.pMin;
+    if (pin.vertical) { if (g.dy >= 12) pSpan = pSpan * s.dy / g.dy; }
+    else if (g.d >= 12) tSpan = Math.max(0.5, tSpan * s.d / g.d);
+    // The data point under the fingers' first midpoint stays under the moving
+    // midpoint, so one gesture both zooms and pans.
+    var tMin = pin.anchorTime - ((g.mx - p.padL) / p.plotW) * tSpan;
+    var pMax = pin.anchorPrice + ((g.my - p.padT) / p.plotH) * pSpan;
+    _pfChartCanvasSetViewport(c, { tMin: tMin, tMax: tMin + tSpan, pMin: pMax - pSpan, pMax: pMax });
+  }
   function endDrag(event) {
+    if (event) { try { c.host.releasePointerCapture(event.pointerId); } catch (err) {} }
+    if (event && event.pointerType === 'touch') {
+      c.touches.delete(event.pointerId);
+      _pfChartCanvasClearCrosshair(c);
+      if (c.pinch) {
+        if (c.touches.size >= 2) { beginPinch(); return; }
+        c.pinch = null;
+        if (c.touches.size === 1 && c.viewport) {
+          // The finger that stayed down keeps panning without a re-touch.
+          var rest = c.touches.values().next().value, v = c.viewport;
+          c.drag = { kind: 'pan', x: rest.x, y: rest.y, viewport: { tMin: v.tMin, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax } };
+          return;
+        }
+      }
+      // A finger is still down (its pan is live); only a fully lifted
+      // gesture may fall through and clear the drag.
+      if (c.touches.size) return;
+    }
     if (!c.drag) return;
     c.drag = null;
     c.host.style.cursor = '';
-    try { c.host.releasePointerCapture(event.pointerId); } catch (err) {}
   }
   bind('pointerdown', function (event) {
     var point = _pfChartCanvasPoint(c, event), v = c.viewport;
+    if (event.pointerType === 'touch' && point) {
+      c.touches.set(event.pointerId, { x: point.x, y: point.y });
+      try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
+      if (c.touches.size === 2) { beginPinch(); return; }
+      if (c.touches.size > 2) return;
+    }
     if (!point || !v || (!point.plot && !point.priceAxis && !point.timeAxis)) return;
     c.drag = {
       kind: point.plot ? 'pan' : (point.priceAxis ? 'price' : 'time'),
@@ -990,6 +1054,10 @@ function _pfChartCanvasBindInteraction(c) {
   bind('pointermove', function (event) {
     var point = _pfChartCanvasPoint(c, event);
     if (!point) return;
+    if (event.pointerType === 'touch' && c.touches.has(event.pointerId)) {
+      c.touches.set(event.pointerId, { x: point.x, y: point.y });
+      if (c.pinch) { movePinch(); return; }
+    }
     if (!c.drag) {
       c.host.style.cursor = point.plot ? 'crosshair' : (point.priceAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : ''));
       _pfChartCanvasDrawCrosshair(c, point);

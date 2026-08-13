@@ -449,6 +449,13 @@
   min-height: 0;
   align-items: start;
 }
+/* On a phone the 340px setup column would eat the whole viewport and the
+   Instrument column would render 0px wide — invisible, not "below the fold".
+   The !important above beats philforge-app.css's stacking media query, so the
+   stack must be restated here at the same breakpoint. */
+@media (max-width: 1180px) {
+  .terminal-cascade-workspace { grid-template-columns: minmax(0, 1fr) !important; }
+}
 
 .terminal-cascade-form-grid,
 .terminal-cascade-start-panel .terminal-cascade-form-grid {
