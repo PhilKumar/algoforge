@@ -61,6 +61,31 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_action_tokens_user_expiry ON action_tokens(user_id, expires_at)",
+    # Passkeys — Face ID / fingerprint sign-in. Only PUBLIC keys live here; the
+    # private key never leaves the phone's secure hardware and no biometric is
+    # ever transmitted, so this table holds nothing that can impersonate anyone.
+    """CREATE TABLE IF NOT EXISTS passkeys (
+        credential_id TEXT    PRIMARY KEY,
+        user_id       INTEGER NOT NULL,
+        public_key    TEXT    NOT NULL,
+        sign_count    INTEGER NOT NULL DEFAULT 0,
+        label         TEXT    NOT NULL DEFAULT '',
+        created_at    TEXT    NOT NULL,
+        last_used_at  TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id)",
+    # A challenge is single-use and short-lived. Kept in the DB rather than in
+    # process memory so a restart mid-ceremony fails closed instead of
+    # accepting a stale one.
+    """CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        challenge_id TEXT    PRIMARY KEY,
+        user_id      INTEGER,
+        purpose      TEXT    NOT NULL,
+        challenge    TEXT    NOT NULL,
+        expires_at   TEXT    NOT NULL,
+        created_at   TEXT    NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS strategies (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id     INTEGER NOT NULL,
@@ -1458,3 +1483,80 @@ async def get_fib_backtest_run(user_id: int, run_id: int) -> dict | None:
         return result
     finally:
         await db.close()
+
+
+# ── Passkeys (Face ID / fingerprint) ─────────────────────────────
+async def add_passkey(credential_id: str, user_id: int, public_key: str, sign_count: int, label: str) -> None:
+    """Store one registered passkey. Public key only — never a biometric."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO passkeys (credential_id, user_id, public_key, sign_count, label, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (credential_id, int(user_id), public_key, int(sign_count), label, _now_iso()),
+        )
+        await db.commit()
+
+
+async def get_passkey(credential_id: str) -> dict | None:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM passkeys WHERE credential_id = ?", (credential_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def list_passkeys(user_id: int) -> list[dict]:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT credential_id, label, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def touch_passkey(credential_id: str, sign_count: int) -> None:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE credential_id = ?",
+            (int(sign_count), _now_iso(), credential_id),
+        )
+        await db.commit()
+
+
+async def delete_passkey(credential_id: str, user_id: int) -> bool:
+    """Remove one passkey. Scoped to the owner so an id alone is not enough."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM passkeys WHERE credential_id = ? AND user_id = ?", (credential_id, int(user_id))
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def store_webauthn_challenge(
+    challenge_id: str, user_id: int | None, purpose: str, challenge: str, expires_at: str
+) -> None:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        # Sweep expired rows on the way in; this table has no other reader.
+        await db.execute("DELETE FROM webauthn_challenges WHERE expires_at < ?", (_now_iso(),))
+        await db.execute(
+            "INSERT OR REPLACE INTO webauthn_challenges"
+            " (challenge_id, user_id, purpose, challenge, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (challenge_id, user_id, purpose, challenge, expires_at, _now_iso()),
+        )
+        await db.commit()
+
+
+async def consume_webauthn_challenge(challenge_id: str, purpose: str) -> dict | None:
+    """Take a challenge and delete it in one step, so it can never be replayed."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM webauthn_challenges WHERE challenge_id = ? AND purpose = ? AND expires_at >= ?",
+            (challenge_id, purpose, _now_iso()),
+        )
+        row = await cursor.fetchone()
+        await db.execute("DELETE FROM webauthn_challenges WHERE challenge_id = ?", (challenge_id,))
+        await db.commit()
+        return dict(row) if row else None

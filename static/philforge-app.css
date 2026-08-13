@@ -3146,6 +3146,24 @@
   .status-chip.success { background: rgba(34,197,94,0.12); color: #86efac; border-color: rgba(34,197,94,0.22); }
   .status-chip.warn { background: rgba(245,158,11,0.14); color: #fcd34d; border-color: rgba(245,158,11,0.24); }
   .status-chip.danger { background: rgba(239,68,68,0.14); color: #fca5a5; border-color: rgba(239,68,68,0.22); }
+  .status-chip.info { background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.24); }
+
+  /* Read-only accounts. The server refuses every write regardless; this only
+     stops the page offering controls that cannot work. Anything that reads —
+     charts, tables, tabs, filters, the account and logout menu — is untouched. */
+  html.read-only-account .read-only-hide { display: none !important; }
+  html.read-only-account .read-only-lock {
+    opacity: 0.45;
+    pointer-events: none;
+    cursor: not-allowed;
+  }
+
+  /* Portfolio's two-column row loses its right-hand card for a viewer, so the
+     survivor takes the whole width instead of sitting beside a hole. The
+     column count is an inline style on the element, hence !important. */
+  html.read-only-account #portfolio-dual-grid {
+    grid-template-columns: 1fr !important;
+  }
   .admin-toolbar {
     display: flex;
     justify-content: space-between;
@@ -3647,6 +3665,12 @@
     background: rgba(220,38,38,0.1);
     color: #b91c1c;
     border-color: rgba(220,38,38,0.2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+  }
+  [data-theme="light"] .status-chip.info {
+    background: rgba(2,132,199,0.1);
+    color: #0369a1;
+    border-color: rgba(2,132,199,0.22);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
   }
   [data-theme="light"] .text-muted,

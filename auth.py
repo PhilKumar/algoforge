@@ -312,3 +312,40 @@ async def require_admin(request: Request) -> dict:
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+# ── Read-only ("viewer") accounts ─────────────────────────────────
+# A viewer sees every page and every number and can change NOTHING. The gate is
+# the request METHOD, applied centrally in the auth middleware, because that
+# fails closed: a route added tomorrow is denied to viewers by default rather
+# than being quietly writable because nobody remembered to annotate it.
+VIEWER_ROLE = "viewer"
+USER_ROLES = ("admin", "user", VIEWER_ROLE)
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# The only mutating calls a viewer may make. Each is about the viewer's own
+# session or their own credentials — never about trading, money, or data.
+VIEWER_WRITE_ALLOWLIST = frozenset(
+    {
+        "/api/auth/logout",
+        "/api/auth/change-password",
+        "/api/auth/mfa/enroll/start",
+        "/api/auth/mfa/enroll/verify",
+        "/api/auth/mfa/disable",
+        "/api/auth/passkeys/register/options",
+        "/api/auth/passkeys/register/verify",
+        "/api/save-state",
+    }
+)
+
+
+def is_viewer(user: dict | None) -> bool:
+    return bool(user) and str(user.get("role") or "").lower() == VIEWER_ROLE
+
+
+def viewer_may_call(method: str, path: str) -> bool:
+    """True when a read-only account is allowed to make this request."""
+    if method.upper() in SAFE_METHODS:
+        return True
+    return path in VIEWER_WRITE_ALLOWLIST

@@ -1354,10 +1354,10 @@
         <span id="portfolio-capital-ledger-title">Capital &amp; session pulse</span>
         <strong>Available funds and today's execution health</strong>
       </div>
-      <em>4 live metrics</em>
+      <em class="read-only-hide">4 live metrics</em>
     </header>
     <div class="portfolio-capital-grid">
-      <article class="portfolio-capital-metric">
+      <article class="portfolio-capital-metric read-only-hide">
         <div class="portfolio-metric-label">Available Balance</div>
         <div class="portfolio-metric-value accent" id="portfolio-balance">₹0.00</div>
         <div class="portfolio-metric-note">Total funds available</div>
@@ -1415,7 +1415,7 @@
   </section>
 
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
-  <section class="card portfolio-book-card portfolio-monthly-book">
+  <section class="card portfolio-book-card portfolio-monthly-book read-only-hide">
     <header class="portfolio-book-head">
       <div>
         <h3>Monthly Profit &amp; Loss</h3>
@@ -3375,6 +3375,23 @@
       </div>
 
       <div class="settings-section">
+        <h4><span id="account-passkey-ico"></span> Face ID &amp; Fingerprint</h4>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="status-chip warn" id="account-passkey-status-chip">Checking</span>
+          <span class="settings-status-line" id="account-passkey-status-line" style="margin-top:0;">Looking for registered devices...</span>
+        </div>
+        <div class="settings-hint">
+          Register this phone or laptop once and sign in afterwards with your fingerprint, face or device PIN — no password to type on a small screen.
+          Your fingerprint never leaves the device: it unlocks a key held in the device's own secure hardware, and PhilForge only ever stores the matching public key.
+          Register each device separately, and add the site to your home screen first if you want it inside the installed app.
+        </div>
+        <div id="account-passkey-list" class="settings-hint" style="margin-top:8px;"></div>
+        <div class="settings-actions-row">
+          <button class="btn" id="account-passkey-add-btn" onclick="registerPasskey()">Register This Device</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h4><span id="account-password-ico"></span> Change Password</h4>
         <div class="settings-form-grid">
           <div>
@@ -3465,7 +3482,8 @@
         <div>
           <label for="admin-create-role">Role</label>
           <select id="admin-create-role">
-            <option value="user" selected>User</option>
+            <option value="viewer" selected>Viewer — sees everything, changes nothing</option>
+            <option value="user">User — can trade</option>
             <option value="admin">Admin</option>
           </select>
         </div>

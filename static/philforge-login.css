@@ -372,6 +372,18 @@
     box-shadow: 0 14px 28px rgba(0,200,150,0.18);
   }
   .unlock-btn:active { transform: translateY(0); }
+  /* The passkey button is deliberately quieter than Unlock: it is the faster
+     path, not the primary instruction, and it only ever appears when the
+     device actually has a fingerprint or face reader. */
+  .unlock-btn--passkey {
+    margin-top: 10px;
+    border-color: rgba(148,163,184,0.32);
+    background: linear-gradient(180deg, rgba(148,163,184,0.16), rgba(148,163,184,0.08));
+    color: #dbe4f0;
+    box-shadow: none;
+    font-size: 14px;
+  }
+  .unlock-btn--passkey:hover { border-color: rgba(148,163,184,0.5); }
   .unlock-btn:disabled {
     cursor: wait;
     opacity: 0.7;
@@ -458,6 +470,11 @@
     border-color: rgba(5,150,105,0.25);
     color: #065f46;
     box-shadow: 0 12px 24px rgba(5,150,105,0.08);
+  }
+  [data-theme="light"] .unlock-btn--passkey {
+    border-color: rgba(71,85,105,0.28);
+    background: linear-gradient(180deg, rgba(71,85,105,0.10), rgba(71,85,105,0.04));
+    color: #334155;
   }
   [data-theme="light"] .unlock-referral-link {
     background: linear-gradient(180deg, rgba(37,99,235,0.09), rgba(37,99,235,0.05));

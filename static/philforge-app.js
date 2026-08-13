@@ -355,6 +355,7 @@ const ICO = {
     'account-summary-ico': ICO.clip(16),
     'account-broker-ico': ICO.money(16),
     'account-mfa-ico': ICO.shield(16),
+    'account-passkey-ico': ICO.shield(16),
     'account-password-ico': ICO.shield(16),
     'admin-modal-ico': ICO.shield(18),
     'admin-create-ico': ICO.brain(16),
@@ -554,6 +555,10 @@ async function loadAuthContext() {
     document.getElementById('topbar-user-role').textContent = String(data.role || 'user').toUpperCase();
     const adminBtn = document.getElementById('admin-btn');
     if (adminBtn) adminBtn.style.display = data.role === 'admin' ? '' : 'none';
+    // A viewer keeps every page and every number; only the controls that would
+    // change something are taken away. The server refuses them regardless —
+    // this is so nothing on screen looks clickable when it is not.
+    document.documentElement.classList.toggle('read-only-account', data.role === 'viewer');
   } catch (e) {
     console.warn('Auth context failed:', e);
   }
@@ -685,6 +690,9 @@ async function loadUserProfile(silent = true) {
       : 'Set up an authenticator before broker credentials or real-money actions can be changed.';
     const mfaStartBtn = document.getElementById('account-mfa-start-btn');
     mfaStartBtn.textContent = mfaEnabled ? 'Replace Authenticator' : 'Set Up Authenticator';
+    // Registered devices live in their own table, so they load alongside the
+    // profile rather than being folded into it.
+    refreshPasskeyStatus();
     document.getElementById('account-mfa-disable-btn').hidden = !mfaEnabled;
     document.getElementById('account-broker-client-id').value = broker.client_id || '';
     document.getElementById('account-broker-token').value = '';
@@ -840,6 +848,141 @@ async function disableMfa() {
     location.reload();
   } catch (e) {
     toast(e.message || 'Could not disable authenticator', 'danger');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PASSKEYS — Face ID / fingerprint for this device
+//
+//  The biometric stays on the device. What is registered here is a public key;
+//  the private half never leaves the phone's secure hardware, so there is
+//  nothing stored on the server that could impersonate anyone.
+// ══════════════════════════════════════════════════════════════
+function _b64urlToBytes(value) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4);
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+function _bytesToB64url(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function refreshPasskeyStatus() {
+  const chip = document.getElementById('account-passkey-status-chip');
+  const line = document.getElementById('account-passkey-status-line');
+  const list = document.getElementById('account-passkey-list');
+  const addBtn = document.getElementById('account-passkey-add-btn');
+  if (!chip || !line || !list) return;
+
+  const supported = window.PublicKeyCredential && window.isSecureContext;
+  if (!supported) {
+    chip.className = 'status-chip warn';
+    chip.textContent = 'Unavailable';
+    line.textContent = 'This browser cannot use passkeys. Open the site over HTTPS on a phone or laptop with a fingerprint or face reader.';
+    if (addBtn) addBtn.disabled = true;
+    list.textContent = '';
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/passkeys', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(pfErrorText(data, 'Could not read registered devices'));
+    const keys = data.passkeys || [];
+    chip.className = keys.length ? 'status-chip success' : 'status-chip warn';
+    chip.textContent = keys.length ? `${keys.length} device${keys.length === 1 ? '' : 's'}` : 'Not set up';
+    line.textContent = keys.length
+      ? 'Sign in with your fingerprint or face on the devices below.'
+      : 'No device registered yet. Password sign-in still works everywhere.';
+    list.textContent = '';
+    keys.forEach((key) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-top:6px;';
+      const name = document.createElement('span');
+      const used = key.last_used_at ? `last used ${String(key.last_used_at).slice(0, 10)}` : 'never used';
+      name.textContent = `${key.label} — added ${String(key.created_at).slice(0, 10)}, ${used}`;
+      const remove = document.createElement('button');
+      remove.className = 'btn';
+      remove.textContent = 'Remove';
+      remove.style.cssText = 'padding:2px 10px;font-size:11px;';
+      remove.onclick = () => removePasskey(key.credential_id, key.label);
+      row.appendChild(name);
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+  } catch (e) {
+    chip.className = 'status-chip danger';
+    chip.textContent = 'Error';
+    line.textContent = e.message || 'Could not read registered devices';
+  }
+}
+
+async function registerPasskey() {
+  const btn = document.getElementById('account-passkey-add-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const optionsRes = await fetch('/api/auth/passkeys/register/options', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const optionsData = await optionsRes.json();
+    if (!optionsRes.ok) throw new Error(pfErrorText(optionsData, 'Could not start registration'));
+
+    const options = optionsData.options;
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        challenge: _b64urlToBytes(options.challenge),
+        user: { ...options.user, id: _b64urlToBytes(options.user.id) },
+        excludeCredentials: (options.excludeCredentials || []).map((c) => ({ ...c, id: _b64urlToBytes(c.id) })),
+      },
+    });
+    if (!credential) throw new Error('No passkey was created');
+
+    const verifyRes = await fetch('/api/auth/passkeys/register/verify', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        challenge_id: optionsData.challenge_id,
+        // A name the owner will recognise on the list, not a device fingerprint.
+        label: /iPhone|iPad|Android/i.test(navigator.userAgent) ? 'Phone' : 'Computer',
+        credential: {
+          id: credential.id,
+          type: credential.type,
+          response: {
+            clientDataJSON: _bytesToB64url(credential.response.clientDataJSON),
+            attestationObject: _bytesToB64url(credential.response.attestationObject),
+          },
+        },
+      }),
+    });
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok) throw new Error(pfErrorText(verifyData, 'That device was not accepted'));
+    toast('This device can now sign you in with Face ID or your fingerprint', 'success');
+    refreshPasskeyStatus();
+  } catch (e) {
+    const cancelled = e && (e.name === 'NotAllowedError' || e.name === 'AbortError');
+    if (!cancelled) toast(e.message || 'Could not register this device', 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function removePasskey(credentialId, label) {
+  const ok = await customConfirm(
+    `Remove <strong>${escapeHtml(label || 'this device')}</strong>?<br><span style="font-size:11px;">It will no longer sign in with a fingerprint. Password sign-in is unaffected.</span>`,
+    { title: 'Remove Passkey', icon: ICO.shield(28), okText: 'Remove', danger: true }
+  );
+  if (!ok) return;
+  try {
+    const res = await fetch(`/api/auth/passkeys/${encodeURIComponent(credentialId)}`, {
+      method: 'DELETE', credentials: 'same-origin',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(pfErrorText(data, 'Could not remove that device'));
+    refreshPasskeyStatus();
+  } catch (e) {
+    toast(e.message || 'Could not remove that device', 'danger');
   }
 }
 
@@ -1034,7 +1177,9 @@ function renderAdminUsers(users, engineRows) {
     const nameStrong = document.createElement('strong');
     nameStrong.textContent = user.username;
     nameLine.appendChild(nameStrong);
-    nameLine.appendChild(createStatusChip(user.role === 'admin' ? 'Admin' : 'User', user.role === 'admin' ? 'success' : 'warn'));
+    const roleLabel = user.role === 'admin' ? 'Admin' : user.role === 'viewer' ? 'Viewer' : 'User';
+    const roleTone = user.role === 'admin' ? 'success' : user.role === 'viewer' ? 'info' : 'warn';
+    nameLine.appendChild(createStatusChip(roleLabel, roleTone));
     nameLine.appendChild(createStatusChip(user.is_active ? 'Active' : 'Disabled', user.is_active ? 'success' : 'danger'));
     userCell.appendChild(nameLine);
 

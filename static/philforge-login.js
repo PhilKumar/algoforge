@@ -329,3 +329,82 @@ setMode(PASSWORD_MODE, false);
   });
   sync();
 })();
+
+// ══════════════════════════════════════════════════════════════
+//  PASSKEY SIGN-IN (Face ID / fingerprint)
+//
+//  The biometric never reaches this code or the server. The phone unlocks a
+//  private key held in its own secure hardware and hands back a signature;
+//  PhilForge only ever stores and checks a public key.
+// ══════════════════════════════════════════════════════════════
+(() => {
+  const btn = document.getElementById('passkey-btn');
+  if (!btn) return;
+  const status = document.getElementById('unlock-status');
+  const setStatus = (text) => { if (status) status.textContent = text; };
+
+  const b64urlToBytes = (value) => {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4);
+    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+  };
+  const bytesToB64url = (buffer) =>
+    btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  // Only offer this where it can actually work: a secure context with a
+  // built-in authenticator. Otherwise the button stays hidden.
+  const supported = window.PublicKeyCredential
+    && window.isSecureContext
+    && typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function';
+  if (!supported) return;
+  PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+    .then((available) => { if (available) btn.hidden = false; })
+    .catch(() => {});
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    setStatus('Waiting for your fingerprint or face...');
+    try {
+      const optionsRes = await fetch('/api/auth/passkeys/login/options', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const optionsData = await optionsRes.json();
+      if (!optionsRes.ok) throw new Error(optionsData.detail || 'Could not start passkey sign-in');
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          ...optionsData.options,
+          challenge: b64urlToBytes(optionsData.options.challenge),
+          allowCredentials: [],
+        },
+      });
+      if (!assertion) throw new Error('No passkey was chosen');
+
+      const verifyRes = await fetch('/api/auth/passkeys/login/verify', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challenge_id: optionsData.challenge_id,
+          credential: {
+            id: assertion.id,
+            type: assertion.type,
+            response: {
+              clientDataJSON: bytesToB64url(assertion.response.clientDataJSON),
+              authenticatorData: bytesToB64url(assertion.response.authenticatorData),
+              signature: bytesToB64url(assertion.response.signature),
+            },
+          },
+        }),
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) throw new Error(verifyData.detail || 'That passkey was not accepted');
+      setStatus('Welcome back.');
+      window.location.href = '/app';
+    } catch (error) {
+      // A user who changes their mind is not an error worth shouting about.
+      const cancelled = error && (error.name === 'NotAllowedError' || error.name === 'AbortError');
+      setStatus(cancelled ? 'Enter username & password' : (error.message || 'Passkey sign-in failed'));
+      btn.disabled = false;
+    }
+  });
+})();

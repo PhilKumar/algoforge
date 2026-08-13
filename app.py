@@ -30,7 +30,7 @@ import sys
 import time
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
@@ -81,6 +81,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import auth as _auth_mod
 import config
 import db as _db_mod
+import webauthn_auth as _webauthn_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES, LadderCandle, order_events
@@ -3450,6 +3451,9 @@ async def auth_middleware(request: Request, call_next):
     if not protected_public_paths and path in (
         "/api/auth/login",
         "/api/auth/status",
+        # Signing in with a fingerprint cannot require being signed in.
+        "/api/auth/passkeys/login/options",
+        "/api/auth/passkeys/login/verify",
         "/api/health",
         "/api/save-state",
         "/api/restore-engines",
@@ -3498,6 +3502,23 @@ async def auth_middleware(request: Request, call_next):
     # Stash current user on request state to avoid repeated lookups downstream
     request.state.user_id = user["id"]
     request.state.current_user = user
+    # Read-only accounts, gated by METHOD so the rule fails closed: any route
+    # added later is denied to viewers until someone deliberately allows it.
+    if _auth_mod.is_viewer(user) and not _auth_mod.viewer_may_call(request.method, path):
+        _logger.info(
+            "[Auth] Viewer '%s' blocked from %s %s request_id=%s",
+            user["username"],
+            request.method.upper(),
+            path,
+            getattr(request.state, "request_id", ""),
+        )
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "This is a read-only account. You can see everything and change nothing.",
+                "code": "read_only_account",
+            },
+        )
     action_class = _auth_mod.classify_sensitive_action(request.method, path)
     if action_class:
         if not bool(user.get("mfa_enabled")):
@@ -5111,6 +5132,162 @@ async def auth_status(request: Request):
     }
 
 
+# ── Passkeys: Face ID / fingerprint sign-in ──────────────────────
+# The RP ID and origin are derived from the request host, so the same code
+# serves localhost during tests and philforge.in in production without a
+# second setting that could drift out of step with the deployment.
+def _passkey_rp_id(request: Request) -> str:
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or "").strip().lower()
+    return host.split(":")[0] or "localhost"
+
+
+def _passkey_origin(request: Request) -> str:
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or "").strip().lower()
+    return f"{'https' if _request_is_https(request) else 'http'}://{host}"
+
+
+async def _issue_passkey_challenge(user_id: int | None, purpose: str) -> tuple[str, str]:
+    challenge = _webauthn_mod.new_challenge()
+    challenge_id = secrets.token_hex(16)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    encoded = _webauthn_mod.b64url_encode(challenge)
+    await _db_mod.store_webauthn_challenge(challenge_id, user_id, purpose, encoded, expires_at)
+    return challenge_id, encoded
+
+
+@app.post("/api/auth/passkeys/register/options")
+async def passkey_register_options(request: Request):
+    """Step 1 of adding a fingerprint/Face ID unlock to THIS device."""
+    user = await _auth_mod.get_current_user(request)
+    existing = await _db_mod.list_passkeys(int(user["id"]))
+    challenge_id, challenge = await _issue_passkey_challenge(int(user["id"]), "register")
+    options = _webauthn_mod.registration_options(
+        rp_id=_passkey_rp_id(request),
+        rp_name="PhilForge",
+        user_id=int(user["id"]),
+        username=str(user["username"]),
+        existing_ids=[row["credential_id"] for row in existing],
+    )
+    options["challenge"] = challenge
+    return {"status": "ok", "challenge_id": challenge_id, "options": options}
+
+
+@app.post("/api/auth/passkeys/register/verify")
+async def passkey_register_verify(request: Request):
+    """Step 2 — store the public key the device just generated."""
+    user = await _auth_mod.get_current_user(request)
+    body = await request.json()
+    stored = await _db_mod.consume_webauthn_challenge(str(body.get("challenge_id") or ""), "register")
+    if not stored or int(stored["user_id"] or 0) != int(user["id"]):
+        raise HTTPException(status_code=400, detail="That registration expired. Please try again.")
+    try:
+        result = _webauthn_mod.verify_registration(
+            credential=body.get("credential") or {},
+            expected_challenge=_webauthn_mod.b64url_decode(stored["challenge"]),
+            rp_id=_passkey_rp_id(request),
+            origin=_passkey_origin(request),
+        )
+    except _webauthn_mod.WebAuthnError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    label = str(body.get("label") or "").strip()[:60] or "This device"
+    await _db_mod.add_passkey(
+        result["credential_id"], int(user["id"]), result["public_key"], result["sign_count"], label
+    )
+    _logger.info("[Auth] Passkey registered for '%s' (%s)", user["username"], label)
+    return {"status": "ok", "label": label}
+
+
+@app.get("/api/auth/passkeys")
+async def passkey_list(request: Request):
+    user = await _auth_mod.get_current_user(request)
+    return {"status": "ok", "passkeys": await _db_mod.list_passkeys(int(user["id"]))}
+
+
+@app.delete("/api/auth/passkeys/{credential_id}")
+async def passkey_delete(credential_id: str, request: Request):
+    user = await _auth_mod.get_current_user(request)
+    if not await _db_mod.delete_passkey(credential_id, int(user["id"])):
+        raise HTTPException(status_code=404, detail="No such passkey on this account")
+    return {"status": "ok"}
+
+
+@app.post("/api/auth/passkeys/login/options")
+async def passkey_login_options(request: Request):
+    """Step 1 of signing in with a fingerprint. Deliberately unauthenticated.
+
+    No username is required and none is revealed: the device already knows
+    which passkeys it holds for this site, so an empty allowCredentials list
+    tells an attacker nothing about who has an account here.
+    """
+    challenge_id, challenge = await _issue_passkey_challenge(None, "login")
+    return {
+        "status": "ok",
+        "challenge_id": challenge_id,
+        "options": {
+            "challenge": challenge,
+            "rpId": _passkey_rp_id(request),
+            "timeout": 120000,
+            "userVerification": "required",
+            "allowCredentials": [],
+        },
+    }
+
+
+@app.post("/api/auth/passkeys/login/verify")
+async def passkey_login_verify(request: Request):
+    """Step 2 — check the signature and, if it holds, start a session."""
+    ip = _request_client_ip(request)
+    _check_login_rate(f"passkey:{ip}", 10)
+    body = await request.json()
+    credential = body.get("credential") or {}
+    stored = await _db_mod.consume_webauthn_challenge(str(body.get("challenge_id") or ""), "login")
+    if not stored:
+        raise HTTPException(status_code=401, detail="That sign-in expired. Please try again.")
+
+    passkey = await _db_mod.get_passkey(str(credential.get("id") or ""))
+    if not passkey:
+        _record_failed_login(f"passkey:{ip}")
+        raise HTTPException(status_code=401, detail="This device is not registered on any account")
+    user = await _db_mod.get_user_by_id(int(passkey["user_id"]))
+    if not user or not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    try:
+        sign_count = _webauthn_mod.verify_authentication(
+            credential=credential,
+            expected_challenge=_webauthn_mod.b64url_decode(stored["challenge"]),
+            rp_id=_passkey_rp_id(request),
+            origin=_passkey_origin(request),
+            public_key_b64=str(passkey["public_key"]),
+            stored_sign_count=int(passkey["sign_count"] or 0),
+        )
+    except _webauthn_mod.WebAuthnError as exc:
+        _record_failed_login(f"passkey:{ip}")
+        _logger.warning("[Auth] Passkey sign-in refused for '%s': %s", user["username"], exc)
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    # A passkey already proves possession of the device AND a biometric, so it
+    # stands on its own — the same reasoning that lets a phone unlock a banking
+    # app without a second code.
+    await _db_mod.touch_passkey(str(passkey["credential_id"]), sign_count)
+    await _db_mod.cleanup_expired_sessions()
+    token = await _auth_mod.create_session(user["id"])
+    await _db_mod.update_last_login(user["id"])
+    _clear_login_attempts(f"passkey:{ip}")
+    resp = JSONResponse(
+        {"status": "ok", "message": "Login successful", "username": user["username"], "role": user["role"]}
+    )
+    resp.set_cookie(
+        _SESSION_COOKIE_NAME,
+        token,
+        max_age=config.SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=_request_is_https(request),
+    )
+    return resp
+
+
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
     token = _get_session_token(request)
@@ -5747,8 +5924,8 @@ async def admin_create_user(request: Request):
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password are required")
-    if role not in ("admin", "user"):
-        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
+    if role not in _auth_mod.USER_ROLES:
+        raise HTTPException(status_code=400, detail="Role must be 'admin', 'user' or 'viewer'")
     _require_valid_account_password(password)
 
     # Check if username already exists

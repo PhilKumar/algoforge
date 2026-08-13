@@ -102,6 +102,9 @@
 
   <div class="unlock-actions">
     <button type="button" class="unlock-btn" id="unlock-btn">Unlock</button>
+    <!-- Hidden until the browser confirms it has a platform authenticator, so
+         nobody is offered a fingerprint button on a machine that has none. -->
+    <button type="button" class="unlock-btn unlock-btn--passkey" id="passkey-btn" hidden>Unlock with Face ID or fingerprint</button>
   </div>
 
   <div class="unlock-referral__DHAN_REFERRAL_HIDDEN_CLASS__" id="unlock-referral">
