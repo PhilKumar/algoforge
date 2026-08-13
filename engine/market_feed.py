@@ -600,13 +600,33 @@ class LiveMarketFeed:
         anchor = self._connected_at if self._connected_at > session_open else session_open
         return max(0.0, (now - anchor).total_seconds())
 
+    @staticmethod
+    def _market_watch_open(now: datetime | None = None) -> bool:
+        """09:00-15:45 IST on weekdays — when tick silence actually means stale.
+
+        Outside this window a silent feed is what a CLOSED market sounds like.
+        Before this gate, every health check after 15:45 read "no ticks for
+        60s", declared the feed stale and reconnected — forever, every 30
+        seconds, all night (Phil's 22:00 event log, 2026-08-13). 09:00 gives
+        the feed its sanity check before the 09:15 open; 15:45 covers the
+        close and the closing-auction tail.
+        """
+        moment = now or datetime.now(IST)
+        if moment.weekday() >= 5:  # Saturday/Sunday
+            return False
+        minutes = moment.hour * 60 + moment.minute
+        return 9 * 60 <= minutes <= 15 * 60 + 45
+
     def check_health(self) -> bool:
         """
         Returns True if the feed is healthy (received a tick within last 60s).
-        If stale and running, triggers a reconnect.
+        If stale and running DURING market hours, triggers a reconnect.
         """
         if not self._running:
             return False
+        if not self._market_watch_open():
+            # No ticks because there is no market. Healthy, and no reconnect.
+            return True
         age = self.last_tick_age_seconds
         if age < 0:
             # Never received a tick — give it time after start

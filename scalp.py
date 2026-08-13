@@ -21,6 +21,25 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 SCALP_EXIT_GRACE_SEC = 1.0
 SCALP_MONITOR_INTERVAL_SEC = 0.25
+# The monitor works only while the market can move a premium. Outside this
+# window the loop idles: no WS health checks (a closed market has no ticks, so
+# every check reads "stale" and reconnects, forever — Phil's 22:00 event log),
+# no broker syncs, no LTP calls against the account-wide Dhan budget.
+# 09:00 gives the feed its sanity check before the 09:15 open; 15:45 covers
+# the close and the closing-auction tail.
+SCALP_WATCH_START = (9, 0)
+SCALP_WATCH_END = (15, 45)
+
+
+def _scalp_market_watch_open(now: datetime | None = None) -> bool:
+    """True when the scalp monitor should be doing any work at all."""
+    moment = now or datetime.now(IST)
+    if moment.weekday() >= 5:  # Saturday/Sunday
+        return False
+    minutes = moment.hour * 60 + moment.minute
+    return SCALP_WATCH_START[0] * 60 + SCALP_WATCH_START[1] <= minutes <= SCALP_WATCH_END[0] * 60 + SCALP_WATCH_END[1]
+
+
 SCALP_IDLE_SLEEP_SEC = 0.5
 SCALP_SUPER_SYNC_INTERVAL_SEC = 0.75
 SCALP_POSITION_SYNC_INTERVAL_SEC = 1.5
@@ -607,7 +626,20 @@ class ScalpEngine:
         _last_ws_health_check = 0.0
         _last_super_sync = 0.0
         _last_position_sync = 0.0
+        _announced_off_hours = False
         while self._running:
+            # Outside market watch (09:00-15:45 IST, weekdays) the loop only
+            # breathes. Say so ONCE — a silent engine is indistinguishable
+            # from a dead one — then check the clock every minute.
+            if not _scalp_market_watch_open():
+                if not _announced_off_hours:
+                    _announced_off_hours = True
+                    self._log("info", "🌙 Market closed — monitoring pauses until 09:00 IST")
+                await asyncio.sleep(60)
+                continue
+            if _announced_off_hours:
+                _announced_off_hours = False
+                self._log("info", "🌞 Market watch open — monitoring resumed")
             # Periodic WS health check — every 30s, verify feed is alive
             now_mono = asyncio.get_event_loop().time()
             if self.feed and (now_mono - _last_ws_health_check) > 30:

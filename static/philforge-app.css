@@ -7819,6 +7819,28 @@ body :is(
 [data-theme="light"] .pf-workspace-hero-meta > div { background: rgba(255,255,255,.72); border-color: rgba(15,23,42,.10); }
 [data-theme="light"] .pf-unified-page .card { background: linear-gradient(155deg, #ffffff, #f7f9fc); }
 [data-theme="light"] .pf-unified-page .card-glass { background: linear-gradient(155deg, #ffffff, #f2f7fa); }
+/* The rest of the light counterpart this pass was missing (Phil's screenshot,
+   2026-08-13: dashboard stat tiles still navy on a white page). The panel
+   TOKENS flip too, so every rule that paints with var(--pf-workspace-panel*)
+   — Results' empty state among them — flips with one definition. */
+[data-theme="light"] .pf-unified-page {
+  --pf-workspace-panel: linear-gradient(145deg, #ffffff, #f4f8fc);
+  --pf-workspace-panel-muted: linear-gradient(155deg, #ffffff, #f2f6fa);
+}
+[data-theme="light"] .pf-unified-page :is(.card, .card-glass, .stat-box) {
+  box-shadow:
+    0 14px 30px rgba(15,23,42,.08),
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -1px 0 rgba(15,23,42,.05);
+}
+[data-theme="light"] .pf-unified-page .stat-box {
+  background: linear-gradient(155deg, #ffffff, #f5f8fb);
+}
+[data-theme="light"] #builder-page .combined-pnl-bar,
+[data-theme="light"] #builder-page .builder-grid div[style*="background: rgba(0,200,150,0.03)"],
+[data-theme="light"] #builder-page .builder-grid div[style*="background: rgba(245,158,11,0.05)"] {
+  background: linear-gradient(155deg, #ffffff, #f2f6fa) !important;
+}
 
 @media (max-width: 1350px) {
   #builder-page .builder-grid { grid-template-columns: minmax(250px, .66fr) minmax(0, 1.34fr); }
