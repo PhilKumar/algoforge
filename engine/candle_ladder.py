@@ -104,10 +104,14 @@ def order_events(candles: list[LadderCandle]) -> list[LadderCandle]:
     """
 
     def key(row: LadderCandle) -> tuple[datetime, int]:
-        minutes = TIMEFRAME_MINUTES.get(row.timeframe, 1)
-        return (row.timestamp + timedelta(minutes=minutes), minutes)
+        return (closed_at(row), TIMEFRAME_MINUTES.get(row.timeframe, 1))
 
     return sorted(candles, key=key)
+
+
+def closed_at(candle: LadderCandle) -> datetime:
+    """The moment this bar CLOSED, which is when it could first be acted on."""
+    return candle.timestamp + timedelta(minutes=TIMEFRAME_MINUTES.get(candle.timeframe, 1))
 
 
 @dataclass(frozen=True)
@@ -385,11 +389,16 @@ class TwoRedLadder:
         self.status = "KILLED"
 
     def _close(self, candle: LadderCandle, index_price: float, reason: str) -> None:
-        self.exit_timestamp = candle.timestamp
-        # WHICH CHART CLOSED IT. `timestamp` is a bar's OPEN, so an exit taken
-        # on a daily or weekly bar is stamped days before the buy that a
-        # 1-hour bar recorded -- hold times then read negative. The exit's own
-        # timeframe is the missing fact, so record it.
+        # STAMPED AT THE BAR'S CLOSE, which is the moment the exit could first
+        # be acted on -- the same instant `order_events` sequences by. A bar's
+        # `timestamp` is its OPEN, so stamping that put an exit taken on a slow
+        # bar BEFORE the buy a faster bar recorded: a 12:15 hourly bar closing
+        # at 13:15 read as "bought 12:45, closed 12:15" (Phil, 2026-08-14).
+        # Fills keep the open, as every table on the site reads them, and the
+        # ordering guarantees a close is never earlier than the fill's own bar.
+        self.exit_timestamp = closed_at(candle)
+        # WHICH CHART CLOSED IT: still worth recording, since a hold time only
+        # makes sense against the chart the exit was read on.
         self.exit_timeframe = candle.timeframe
         self.exit_index_price = float(index_price)
         self.exit_reason = reason

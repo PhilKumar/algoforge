@@ -207,6 +207,37 @@ class ExitTests(unittest.TestCase):
         self.assertIsNone(ladder.net_pnl)
         self.assertEqual(ladder.exit_reason, "target")
 
+    def test_the_exit_is_stamped_when_its_bar_closed(self):
+        ladder = self._one_fill()
+        ladder.on_candle(bar("1m", 5, 102.5, 105, 102, 104.5))
+        # The bar opens at 09:20 and closes at 09:21; the exit is the close.
+        self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=6))
+
+    def test_an_exit_on_a_slower_bar_never_predates_the_buy(self):
+        """Phil, 2026-08-14: a saved run read "bought 12:45, closed 12:15".
+
+        The hourly bar that closed the trade OPENS before the 15m bar that
+        filled it, so stamping a bar's open put the exit an hour in the past.
+        Stamping the close -- the moment the exit could first be acted on --
+        is the rule, and this is the shape that used to break it.
+        """
+        mother = bar("15m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("15m", "1h"))
+        ladder.on_candle(bar("15m", 4, 105, 106, 104, 105))  # 10:15
+        ladder.on_candle(bar("15m", 5, 105, 105.5, 101, 102))  # 10:30, red 1
+        ladder.on_candle(bar("15m", 6, 102, 102.5, 98, 99))  # 10:45, red 2 -> arm
+        ladder.on_candle(bar("15m", 7, 99, 103, 98.5, 102.5))  # 11:00, fills
+        self.assertTrue(ladder.fills, "the 15m rung should have filled")
+        fill = ladder.fills[0]
+        # The hourly bar OPENS 10:15 -- before that 11:00 fill -- and closes 11:15.
+        hour = LadderCandle("1h", START + timedelta(minutes=60), 100, 105, 98, 104.5)
+        self.assertLess(hour.timestamp, fill.timestamp)
+        ladder.on_candle(hour)
+        self.assertEqual(ladder.exit_reason, "target")
+        self.assertEqual(ladder.exit_timeframe, "1h")
+        self.assertGreater(ladder.exit_timestamp, fill.timestamp)
+        self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=120))
+
 
 if __name__ == "__main__":
     unittest.main()
