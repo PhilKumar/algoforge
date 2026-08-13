@@ -11662,6 +11662,9 @@ function renderResults(data, payload) {
   // Strategy details now shown via modal popup (View Strategy button)
   document.getElementById('strategy-display-section').innerHTML = '';
 
+  const runTitle = (payload && (payload.run_name || payload.strategy_name)) || data.run_name || data.strategy_name || '';
+  document.getElementById('results-run-title').textContent = runTitle || 'Backtest Results';
+
   document.getElementById('res-header-pnl').textContent = fmt(s.total_pnl);
   document.getElementById('res-header-pnl').style.color = s.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
   document.getElementById('res-from').textContent = payload ? (payload.from_date||'') : '-';
@@ -12508,7 +12511,47 @@ function logPaper(msg, color) {
 // ══════════════════════════════════════════════════════════════
 //  DEPLOY STRATEGY IN LIVE
 // ══════════════════════════════════════════════════════════════
-function openDeployModal() {
+// Deploying from the Results page: the builder form is empty, so the payload
+// must come from the run being viewed. One merge, used by BOTH the modal's
+// validation preview and the actual deploy — they must judge the same payload.
+function applyRunFallback(payload) {
+  if (!payload.instrument && lastBacktestPayload) {
+    payload = Object.assign(payload, {
+      instrument: lastBacktestPayload.instrument,
+      segment: lastBacktestPayload.segment,
+      indicators: lastBacktestPayload.indicators || [],
+      entry_conditions: lastBacktestPayload.entry_conditions || [],
+      exit_conditions: lastBacktestPayload.exit_conditions || [],
+      legs: lastBacktestPayload.legs || [],
+      lots: lastBacktestPayload.lots || 1,
+      stoploss_pct: lastBacktestPayload.stoploss_pct || 0,
+      stoploss_rupees: lastBacktestPayload.stoploss_rupees || 0,
+      sl_type: lastBacktestPayload.sl_type || 'rupees',
+      target_profit_pct: lastBacktestPayload.target_profit_pct || 0,
+      target_profit_rupees: lastBacktestPayload.target_profit_rupees || 0,
+      tp_type: lastBacktestPayload.tp_type || 'rupees',
+      market_open: lastBacktestPayload.market_open || '09:15',
+      market_close: lastBacktestPayload.market_close || '15:25',
+      max_trades_per_day: lastBacktestPayload.max_trades_per_day || 1,
+      max_daily_loss: lastBacktestPayload.max_daily_loss || 0,
+      skip_days_after_profit: lastBacktestPayload.skip_days_after_profit ?? 0,
+      skip_profit_threshold_rupees: lastBacktestPayload.skip_profit_threshold_rupees ?? 20000,
+    });
+  }
+  return payload;
+}
+
+async function ensureRunPayloadLoaded() {
+  if (!lastBacktestPayload && currentViewingRunId) {
+    try {
+      const res = await fetch('/api/runs/' + currentViewingRunId);
+      if (res.ok) lastBacktestPayload = await res.json();
+    } catch (e) { /* validation below will surface what is missing */ }
+  }
+}
+
+async function openDeployModal() {
+  await ensureRunPayloadLoaded();
   let runName = document.getElementById('run-name-input').value;
   if (!runName && lastBacktestPayload) runName = lastBacktestPayload.run_name;
   if (!runName && lastBacktestData) runName = lastBacktestData.run_name;
@@ -12523,7 +12566,7 @@ function openDeployModal() {
   valBox.style.border = '1px solid rgba(59,130,246,0.2)';
   valBox.innerHTML = '<span style="color:var(--accent2);">Validating strategy...</span>';
 
-  const payload = buildPayload();
+  const payload = applyRunFallback(buildPayload());
   fetch('/api/validate-strategy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -12596,34 +12639,10 @@ async function deployStrategy() {
     sqoff_on_fail: document.querySelector('input[name="deploy-sqoff-fail"]:checked').value,
   };
 
-  let payload = buildPayload();
+  await ensureRunPayloadLoaded();
+  let payload = applyRunFallback(buildPayload());
   payload.run_name = deployRunName;
   payload.deploy_config = deployConfig;
-
-  // If deployed from Results page and builder form is empty, use last backtest data
-  if (!payload.instrument && lastBacktestPayload) {
-    payload = Object.assign(payload, {
-      instrument: lastBacktestPayload.instrument,
-      segment: lastBacktestPayload.segment,
-      indicators: lastBacktestPayload.indicators || [],
-      entry_conditions: lastBacktestPayload.entry_conditions || [],
-      exit_conditions: lastBacktestPayload.exit_conditions || [],
-      legs: lastBacktestPayload.legs || [],
-      lots: lastBacktestPayload.lots || 1,
-      stoploss_pct: lastBacktestPayload.stoploss_pct || 0,
-      stoploss_rupees: lastBacktestPayload.stoploss_rupees || 0,
-      sl_type: lastBacktestPayload.sl_type || 'rupees',
-      target_profit_pct: lastBacktestPayload.target_profit_pct || 0,
-      target_profit_rupees: lastBacktestPayload.target_profit_rupees || 0,
-      tp_type: lastBacktestPayload.tp_type || 'rupees',
-      market_open: lastBacktestPayload.market_open || '09:15',
-      market_close: lastBacktestPayload.market_close || '15:25',
-      max_trades_per_day: lastBacktestPayload.max_trades_per_day || 1,
-      max_daily_loss: lastBacktestPayload.max_daily_loss || 0,
-      skip_days_after_profit: lastBacktestPayload.skip_days_after_profit ?? 0,
-      skip_profit_threshold_rupees: lastBacktestPayload.skip_profit_threshold_rupees ?? 20000,
-    });
-  }
 
   console.log("Deploy config:", deployConfig);
   console.log("Full deploy payload:", payload);

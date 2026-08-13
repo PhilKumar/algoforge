@@ -863,25 +863,24 @@
 
 <!-- ═══ RESULTS ═══ -->
 <div id="results-page" class="page-section pf-unified-page">
-  <section class="pf-workspace-hero" aria-label="Backtest results overview">
-    <div class="pf-workspace-hero-copy">
-      <div class="pf-workspace-eyebrow">Research ledger</div>
-      <h1>Backtest Results</h1>
-      <p>Review the run, inspect the equity curve, and carry the same configuration back into the builder.</p>
+  <div class="card-glass oc-hero">
+    <div class="oc-hero-content">
+      <div class="oc-hero-copy">
+        <div class="oc-kicker">Research ledger · real fills, fees modelled</div>
+        <div class="oc-hero-title-row">
+          <h2 id="results-run-title">Backtest Results</h2>
+        </div>
+        <p><strong>1</strong>&nbsp;Review the run &nbsp;·&nbsp; <strong>2</strong>&nbsp;Inspect the equity curve &nbsp;·&nbsp; <strong>3</strong>&nbsp;<strong>Deploy</strong> it, or carry it back into the builder</p>
+      </div>
     </div>
-    <div class="pf-workspace-hero-meta" aria-hidden="true">
-      <div><span>Evidence</span><strong>Runs</strong></div>
-      <div><span>View</span><strong>Analytics</strong></div>
-      <div><span>Next</span><strong>Refine</strong></div>
-    </div>
-  </section>
+  </div>
 
   <div id="results-empty" class="card pf-page-empty" style="margin: 0 0 20px; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
   </div>
   <div id="results-content" style="display: none;">
     <!-- Run Summary Header — Glossy -->
-    <div class="card-glass pf-results-command" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
+    <div class="card pf-results-command" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
       <div style="background: linear-gradient(135deg, rgba(0,200,150,0.1), rgba(0,200,150,0.03)); border: 1px solid rgba(0,200,150,0.2); border-radius: 10px; padding: 14px 22px; box-shadow: 0 4px 20px rgba(0,200,150,0.08);">
         <div style="font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px;">Total Profit</div>
         <div id="res-header-pnl" style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -1px;">₹0</div>
@@ -902,8 +901,8 @@
     <div id="strategy-display-section" style="display:none;"></div>
 
     <!-- Equity Curve -->
-    <div class="card-glass" style="padding: 20px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Equity Curve</h3>
+    <div class="card" style="padding: 20px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 12px; font-size: 15px;">Equity Curve</h3>
       <canvas id="equity-chart" style="width: 100%; height: 300px;"></canvas>
     </div>
 
@@ -950,8 +949,8 @@
     </div>
 
     <!-- Transactions Analytics — Glossy -->
-    <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transactions Analytics</h3>
+    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 16px; font-size: 15px;">Transactions Analytics</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
         <div class="analytics-inner">
           <h4 style="font-size: 13px; color: var(--accent); margin-bottom: 10px; font-weight: 600;">Day Of Week</h4>
@@ -965,20 +964,20 @@
     </div>
 
     <!-- Monthly P&L — Full width table -->
-    <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Monthly P&L</h3>
+    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 12px; font-size: 15px;">Monthly P&L</h3>
       <div id="monthly-pnl-grid" style="overflow-x:auto;"></div>
     </div>
     <!-- Profit / Loss Heatmap — Full width -->
-    <div class="card-glass" style="padding: 22px; margin-bottom: 16px;">
-      <h3 style="margin-bottom: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Profit / Loss Heatmap</h3>
+    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+      <h3 style="margin-bottom: 12px; font-size: 15px;">Profit / Loss Heatmap</h3>
       <div id="pnl-heatmap" style="font-size: 11px;"></div>
     </div>
 
     <!-- Trade Log — Matching Scalp Trade History style -->
-  <div class="card-glass" style="padding: 22px;">
+  <div class="card" style="padding: 22px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
-      <h3 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.3px;">Transaction Order Details</h3>
+      <h3 style="margin: 0; font-size: 15px;">Transaction Order Details</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" id="trade-search-input" placeholder="Search trades..." oninput="_filterTradesBySearch()" style="width: 160px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card2); color: var(--text);">
           <span id="trade-count-display" style="background: rgba(0,200,150,0.1); border: 1px solid rgba(0,200,150,0.2); padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent);"></span>

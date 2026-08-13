@@ -5634,35 +5634,42 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-toolbar { background: #ffffff; }
 
 /* Options Cascade: Fib-boundary workspace ---------------------------------- */
-#options-cascade-page .oc-hero {
+#options-cascade-page .oc-hero,
+#results-page .oc-hero {
   padding: 22px;
   margin-bottom: 14px;
   border-color: rgba(56,189,248,.30);
   background: linear-gradient(112deg, rgba(8,47,73,.44), rgba(15,23,42,.42) 58%, rgba(6,78,59,.26));
 }
-#options-cascade-page .oc-hero-content {
+#options-cascade-page .oc-hero-content,
+#results-page .oc-hero-content {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
 }
-#options-cascade-page .oc-hero-copy { min-width: 0; }
-#options-cascade-page .oc-kicker {
+#options-cascade-page .oc-hero-copy,
+#results-page .oc-hero-copy { min-width: 0; }
+#options-cascade-page .oc-kicker,
+#results-page .oc-kicker {
   margin-bottom: 7px;
   color: #38bdf8;
   font: 800 11px var(--font-mono);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-#options-cascade-page .oc-hero h2 { margin: 0; font-size: 23px; }
-#options-cascade-page .oc-hero p {
+#options-cascade-page .oc-hero h2,
+#results-page .oc-hero h2 { margin: 0; font-size: 23px; }
+#options-cascade-page .oc-hero p,
+#results-page .oc-hero p {
   max-width: 850px;
   margin: 7px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.65;
 }
-#options-cascade-page .oc-hero p strong { color: var(--text); }
+#options-cascade-page .oc-hero p strong,
+#results-page .oc-hero p strong { color: var(--text); }
 #options-cascade-page .oc-live-gate {
   display: grid;
   flex: 0 0 auto;
@@ -5865,11 +5872,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .oc-fib-events-card { border-top-color: rgba(56,189,248,.34); }
 #options-cascade-page #fibx-events { scrollbar-gutter: stable; }
 
-[data-theme="light"] #options-cascade-page .oc-hero {
+[data-theme="light"] #options-cascade-page .oc-hero,
+[data-theme="light"] #results-page .oc-hero {
   border-color: rgba(2,132,199,.24) !important;
   background: linear-gradient(112deg, #effbff, #f8fafc 58%, #ecfdf5) !important;
 }
-[data-theme="light"] #options-cascade-page .oc-kicker { color: #0369a1; }
+[data-theme="light"] #options-cascade-page .oc-kicker,
+[data-theme="light"] #results-page .oc-kicker { color: #0369a1; }
 [data-theme="light"] #options-cascade-page .oc-live-gate {
   border-color: #f59e0b;
   background: linear-gradient(180deg, #fffbeb, #fef3c7);
@@ -5942,8 +5951,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .fibx-backtest-window { grid-column: auto; grid-row: auto; }
 }
 @media (max-width: 760px) {
-  #options-cascade-page .oc-hero { padding: 17px; }
-  #options-cascade-page .oc-hero-content { flex-direction: column; gap: 14px; }
+  #options-cascade-page .oc-hero,
+  #results-page .oc-hero { padding: 17px; }
+  #options-cascade-page .oc-hero-content,
+  #results-page .oc-hero-content { flex-direction: column; gap: 14px; }
   #options-cascade-page .fibx-monitor-window > .cascade-options-window-head { padding-right: 13px; }
   #options-cascade-page .fibx-monitor-strip-actions {
     position: static;
@@ -5971,8 +5982,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .oc-fib-events-card { border-radius: 12px; }
 }
 @media (max-width: 460px) {
-  #options-cascade-page .oc-kicker { font-size: 10px; line-height: 1.45; }
-  #options-cascade-page .oc-hero h2 { font-size: 20px; }
+  #options-cascade-page .oc-kicker,
+  #results-page .oc-kicker { font-size: 10px; line-height: 1.45; }
+  #options-cascade-page .oc-hero h2,
+  #results-page .oc-hero h2 { font-size: 20px; }
   #options-cascade-page .oc-tab { font-size: 11px; }
   #options-cascade-page .cascade-options-strip-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
