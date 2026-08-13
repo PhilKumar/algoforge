@@ -1663,9 +1663,13 @@ function showPage(id, btn, options = {}) {
       history.pushState(navState, '', nextHash);
     }
   }
-  if (previousPageId && previousPageId !== id) {
-    if (options.scrollToTop === true) _scrollViewportToTop();
-    else _restorePageScroll(id);
+  if (options.scrollToTop === true) {
+    // Also when the page does not change: opening a run from the list at the
+    // bottom of Results must bring the run into view, or the click reads as
+    // having done nothing.
+    _scrollViewportToTop();
+  } else if (previousPageId && previousPageId !== id) {
+    _restorePageScroll(id);
   }
 }
 
@@ -15222,9 +15226,12 @@ deployStrategy = async function() {
   const deployRunName = document.getElementById('deploy-run-name').value.trim();
   if (!deployRunName) { toast('Enter a run name', 'warn'); return; }
 
-  // Validate strategy first
+  // Validate strategy first. This wrapper runs BEFORE the deploy itself, so it
+  // must judge the payload that will actually be deployed — the run's config
+  // when the builder form is empty, not the empty form.
   try {
-    const payload = buildPayload();
+    await ensureRunPayloadLoaded();
+    const payload = applyRunFallback(buildPayload());
     payload.run_name = deployRunName;
     const valRes = await fetch('/api/validate-strategy', {
       method: 'POST',
