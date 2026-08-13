@@ -496,6 +496,15 @@ class PaperTradingEngine:
         return f"missing_condition_data ({preview})"
 
     def _evaluate_entry_conditions_with_debug(self, latest_row, prev_row, now: datetime):
+        if not self._signals_live(now):
+            cutoff = self._signal_cutoff_time()
+            return False, {
+                "time": now.strftime("%H:%M:%S"),
+                "overall": False,
+                "raw_overall": False,
+                "gate": f"signal_cutoff ({cutoff.strftime('%H:%M')})",
+                "conditions": [],
+            }
         raw_overall, cond_details, missing_fields = inspect_condition_group(latest_row, self.entry_conditions, prev_row)
         entry_triggered = raw_overall and not missing_fields
         debug_payload = {
@@ -598,6 +607,32 @@ class PaperTradingEngine:
 
     def _is_intraday_product(self, strategy: dict | None = None) -> bool:
         return self._product_type(strategy) == "MIS"
+
+    def _signal_cutoff_time(self):
+        """Clock after which SPOT is no longer real traded price.
+
+        NSE's closing auction halts continuous trading in every F&O-eligible
+        stock at 15:15, and every index constituent is one — so the index itself
+        stops being priced by trades. Past this time no entry and no spot-driven
+        exit may be decided. Stop-loss, target and the timed square-off are
+        untouched: they read the option's own premium, and options run to 15:40.
+        """
+        from datetime import time as time_class
+
+        raw = self.strategy.get("signal_cutoff_time") or ""
+        if isinstance(raw, time_class):
+            return raw
+        if isinstance(raw, str) and raw.strip():
+            h, m = map(int, raw.strip().split(":"))
+            return time_class(h, m)
+        return None
+
+    def _signals_live(self, at: datetime | None = None) -> bool:
+        cutoff = self._signal_cutoff_time()
+        if cutoff is None:
+            return True
+        moment = at or self.current_time or _now_ist()
+        return moment.time() < cutoff
 
     def _market_close_time(self):
         market_close = self.strategy.get("market_close", "15:25")
@@ -1935,8 +1970,13 @@ class PaperTradingEngine:
             if cur_pnl >= target_rupees:
                 return "TARGET_RUPEES"
 
+        # Both exits below read SPOT, so both stop at the signal cutoff. The
+        # square-off further down still fires — it is a clock rule filled at the
+        # option's own premium.
+        spot_signals_live = self._signals_live()
+
         # Touch-based exit — evaluated on CURRENT row (no 1-candle delay)
-        if any(c.get("operator") == "touches" for c in self.exit_conditions):
+        if spot_signals_live and any(c.get("operator") == "touches" for c in self.exit_conditions):
             _touch_row = self._build_live_touch_row(row)
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():
@@ -1945,7 +1985,7 @@ class PaperTradingEngine:
                 return "TOUCH_EXIT"
 
         # Signal exit — inject Signal Candle values into evaluation row
-        if allow_signal_exit:
+        if allow_signal_exit and spot_signals_live:
             _exit_row = row.copy() if self._signal_candle else row
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():

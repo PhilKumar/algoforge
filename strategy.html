@@ -649,6 +649,15 @@
           <div><label for="sq-time">Close</label><input type="time" id="sq-time" value="15:25"></div>
         </div>
         <div style="margin-bottom: 8px;">
+          <label for="signal-cutoff-time">Last Signal</label>
+          <select id="signal-cutoff-time" title="Stop taking entries and spot-based exits at this time. Stop-loss, target and the square-off above are unaffected — they read the option's own price, and options trade until 15:40.">
+            <option value="15:15" selected>15:15 — before the closing auction</option>
+            <option value="15:00">15:00</option>
+            <option value="14:30">14:30</option>
+            <option value="">Off — signal until Close</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 8px;">
           <label for="max-trades-per-day">Max Trades Per Day</label>
           <input type="number" id="max-trades-per-day" value="1" min="1" max="20" step="1" title="Maximum number of trades allowed per day">
         </div>

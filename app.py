@@ -3639,6 +3639,7 @@ class LiveStartRequest(BaseModel):
     max_daily_loss: float = Field(default=0, ge=0)
     skip_days_after_profit: int = Field(default=0, ge=0, le=10)
     skip_profit_threshold_rupees: float = Field(default=20000.0, ge=0)
+    signal_cutoff_time: str = ""
     lots: int = Field(default=1, ge=1, le=500)
     stoploss_pct: float = Field(default=0.0, ge=0)
     stoploss_rupees: float = Field(default=0.0, ge=0)
@@ -3765,6 +3766,7 @@ class StrategyPayload(BaseModel):
     max_daily_loss: float = Field(default=0.0, ge=0)
     skip_days_after_profit: int = Field(default=0, ge=0, le=10)
     skip_profit_threshold_rupees: float = Field(default=20000.0, ge=0)
+    signal_cutoff_time: str = ""
     indicators: List[str] = []
     entry_conditions: Optional[List[dict]] = None
     exit_conditions: Optional[List[dict]] = None
@@ -7104,6 +7106,7 @@ _RUNTIME_STRATEGY_SYNC_FIELDS = {
     "max_daily_loss",
     "skip_days_after_profit",
     "skip_profit_threshold_rupees",
+    "signal_cutoff_time",
     "legs",
     "deploy_config",
     "combined_sl_rupees",
@@ -12596,6 +12599,7 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
                 "legs": payload.legs,
                 "market_open": getattr(payload, "market_open", "09:15") or "09:15",
                 "market_close": getattr(payload, "market_close", "15:25") or "15:25",
+                "signal_cutoff_time": str(getattr(payload, "signal_cutoff_time", "") or "").strip(),
                 "max_trades_per_day": getattr(payload, "max_trades_per_day", 1),
                 "max_daily_loss": getattr(payload, "max_daily_loss", 0),
                 "initial_capital": getattr(payload, "initial_capital", config.DEFAULT_CAPITAL),
@@ -12699,6 +12703,7 @@ async def live_start(req: LiveStartRequest, request: Request):
             "max_daily_loss": float(req.max_daily_loss or 0),
             "skip_days_after_profit": int(req.skip_days_after_profit or 0),
             "skip_profit_threshold_rupees": float(req.skip_profit_threshold_rupees or 20000),
+            "signal_cutoff_time": str(req.signal_cutoff_time or "").strip(),
             "lots": req.lots,
             "stoploss_pct": req.stoploss_pct,
             "stoploss_rupees": req.stoploss_rupees,
@@ -13064,6 +13069,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
         "max_daily_loss": payload.max_daily_loss,
         "skip_days_after_profit": int(payload.skip_days_after_profit or 0),
         "skip_profit_threshold_rupees": float(payload.skip_profit_threshold_rupees or 20000),
+        "signal_cutoff_time": str(payload.signal_cutoff_time or "").strip(),
         "combined_sqoff_time": payload.combined_sqoff_time,
         "timeframe_minutes": tf_spec.requested,
         "fetch_timeframe_minutes": tf_spec.fetch,
@@ -13462,6 +13468,7 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
                     "max_trades_per_day",
                     "skip_days_after_profit",
                     "skip_profit_threshold_rupees",
+                    "signal_cutoff_time",
                 )
             },
         }
@@ -13593,6 +13600,7 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
                     "max_trades_per_day",
                     "skip_days_after_profit",
                     "skip_profit_threshold_rupees",
+                    "signal_cutoff_time",
                 )
             },
         }

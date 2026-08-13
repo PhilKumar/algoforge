@@ -183,6 +183,7 @@ class LiveEngine:
         self._exit_fill_timeout_sec = 15
         self._market_open = time(9, 15)
         self._market_close = time(15, 25)
+        self._signal_cutoff: Optional[time] = None
 
         # Market data
         self.current_spot = 0.0
@@ -252,10 +253,7 @@ class LiveEngine:
         )
 
         # Pre-parse market hours once (avoid per-tick string parsing)
-        mo = strategy.get("market_open", "09:15")
-        mc = strategy.get("market_close", "15:25")
-        self._market_open = time(*map(int, mo.split(":"))) if isinstance(mo, str) else mo
-        self._market_close = time(*map(int, mc.split(":"))) if isinstance(mc, str) else mc
+        self._apply_session_times(strategy)
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         self.log_event(
@@ -283,7 +281,46 @@ class LiveEngine:
             preview = f"{preview} +{extra} more"
         return f"missing_condition_data ({preview})"
 
+    def _apply_session_times(self, strategy: dict):
+        """Pre-parse the session clock once (avoids per-tick string parsing).
+
+        Called from configure() AND from _load_state(), because a restart
+        restores the strategy dict without reconfiguring. Miss the second call
+        and the signal cutoff silently reverts to None — the guard would be off
+        for the rest of the day with nothing in the log to say so.
+        """
+        mo = strategy.get("market_open", "09:15")
+        mc = strategy.get("market_close", "15:25")
+        self._market_open = time(*map(int, mo.split(":"))) if isinstance(mo, str) else mo
+        self._market_close = time(*map(int, mc.split(":"))) if isinstance(mc, str) else mc
+        # After this time no entry and no spot-driven exit may be decided: NSE's
+        # closing auction means the index is no longer priced by real trades.
+        # Stop-loss, target and the timed square-off are unaffected — they read
+        # the option's own premium, and options trade until 15:40.
+        sco = strategy.get("signal_cutoff_time") or ""
+        if isinstance(sco, time):
+            self._signal_cutoff = sco
+        elif isinstance(sco, str) and sco.strip():
+            self._signal_cutoff = time(*map(int, sco.strip().split(":")))
+        else:
+            self._signal_cutoff = None
+
+    def _signals_live(self, at: datetime | None = None) -> bool:
+        """False once the spot feed stops being real traded prices."""
+        if self._signal_cutoff is None:
+            return True
+        moment = at or self.current_time or _now_ist()
+        return moment.time() < self._signal_cutoff
+
     def _evaluate_entry_conditions_with_debug(self, latest_row, prev_row, now: datetime):
+        if not self._signals_live(now):
+            return False, {
+                "time": now.strftime("%H:%M:%S"),
+                "overall": False,
+                "raw_overall": False,
+                "gate": f"signal_cutoff ({self._signal_cutoff.strftime('%H:%M')})",
+                "conditions": [],
+            }
         raw_overall, cond_details, missing_fields = inspect_condition_group(latest_row, self.entry_conditions, prev_row)
         entry_sig = raw_overall and not missing_fields
         debug_payload = {
@@ -979,6 +1016,7 @@ class LiveEngine:
                 entry_conditions=self.entry_conditions,
                 exit_conditions=self.exit_conditions,
             )
+            self._apply_session_times(self.strategy)
 
             # Restore trading state
             self.positions = state.get("positions", [])
@@ -3002,8 +3040,13 @@ class LiveEngine:
             if cur_pnl >= target_rupees:
                 return "TARGET_RUPEES"
 
+        # Both exits below read SPOT, so both stop at the signal cutoff. The
+        # square-off further down still fires — it is a clock rule filled at the
+        # option's own premium.
+        spot_signals_live = self._signals_live()
+
         # Touch-based exit — evaluated on CURRENT row (no 1-candle delay)
-        if any(c.get("operator") == "touches" for c in self.exit_conditions):
+        if spot_signals_live and any(c.get("operator") == "touches" for c in self.exit_conditions):
             _touch_row = self._build_live_touch_row(row)
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():
@@ -3012,7 +3055,7 @@ class LiveEngine:
                 return "TOUCH_EXIT"
 
         # Signal exit — inject Signal Candle values into evaluation row
-        if allow_signal_exit:
+        if allow_signal_exit and spot_signals_live:
             _exit_row = row.copy() if self._signal_candle else row
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():

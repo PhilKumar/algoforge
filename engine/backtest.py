@@ -719,6 +719,16 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     mkt_open = _parse_time(sc.get("market_open", "09:15"))
     mkt_close = _parse_time(sc.get("market_close", "15:25"))
+    # Spot-signal cutoff. NSE's closing auction (3 Aug 2026 onward) halts
+    # continuous trading in every F&O-eligible stock at 15:15, and since all
+    # index constituents are F&O stocks, NIFTY and BANKNIFTY spot stop being
+    # priced by real trades then too — until roughly 15:35 the index is computed
+    # from the auction's indicative equilibrium prices, levels nobody traded.
+    # Past this time no entry and no spot-driven exit may be decided. Exits
+    # priced off the OPTION — stop-loss, target, trailing, the timed square-off —
+    # are untouched, because options trade continuously until 15:40.
+    signal_cutoff_raw = str(sc.get("signal_cutoff_time") or "").strip()
+    signal_cutoff = _parse_time(signal_cutoff_raw) if signal_cutoff_raw else None
     combined_sqoff = _parse_time(sc.get("combined_sqoff_time") or sc.get("market_close", "15:20"))
     base_lots = int(sc.get("lots", 1) or 1)
     user_lot_size = int(sc.get("lot_size", 0) or 0)
@@ -1201,6 +1211,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         ct = ts.time()
         cd = ts.date()
         exited_this_candle = False
+        # Every decision that reads SPOT is gated on this. A daily bar has no
+        # intraday clock to cut off.
+        signals_live = is_daily or signal_cutoff is None or ct < signal_cutoff
 
         if cd != ld:
             if open_positions and ld is not None and not is_daily:
@@ -1271,7 +1284,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "StratTrailSL",
                     )
                     exited_this_candle = True
-            if not exited_this_candle and any(condition.get("operator") == "touches" for condition in exit_conditions):
+            if (
+                not exited_this_candle
+                and signals_live
+                and any(condition.get("operator") == "touches" for condition in exit_conditions)
+            ):
                 touch_row = row.copy() if signal_candle else row
                 if signal_candle:
                     for key, value in signal_candle.items():
@@ -1307,7 +1324,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "Signal",
                     )
                     exited_this_candle = True
-            if not exited_this_candle and not pending_signal_exit:
+            # A pending signal exit already decided before the cutoff still
+            # executes: the decision was made on real prices, and it is filled
+            # at the option's own premium.
+            if not exited_this_candle and not pending_signal_exit and signals_live:
                 exit_row = row.copy() if signal_candle else row
                 if signal_candle:
                     for key, value in signal_candle.items():
@@ -1469,6 +1489,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             )
             if (
                 entry_boundary
+                and signals_live
                 and prev_row is not None
                 and eval_condition_group(prev_row, entry_conditions, prev_prev_row)
             ):
