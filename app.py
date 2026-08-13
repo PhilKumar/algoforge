@@ -342,6 +342,20 @@ def _read_frontend_template(path: str) -> str:
 dhan = DhanClient()
 IST = ZoneInfo("Asia/Kolkata")
 
+
+def _ist_today() -> date:
+    """The trading day as the market keeps it, never the server's UTC day.
+
+    The engines stamp `session_date` in IST. The box runs on UTC, so between
+    00:00 and 05:30 IST its `date.today()` is still YESTERDAY -- and a restore
+    that compared the two called every one of that day's runs stale and
+    dropped them. Phil lost his CE and PE runs to a 00:36 IST deploy on
+    2026-08-14 ("the backtested CE and PE trades were deployed on the Live..
+    But now it is vanished"). Every session-day comparison goes through here.
+    """
+    return datetime.now(IST).date()
+
+
 # ── Multi-Engine Registries (scoped by user_id, then run_id) ────
 live_engines: Dict[int, Dict[str, LiveEngine]] = defaultdict(dict)
 paper_engines: Dict[int, Dict[str, PaperTradingEngine]] = defaultdict(dict)
@@ -1390,7 +1404,7 @@ def _state_file_snapshots(user_id: int) -> list[dict]:
     if not os.path.isdir(state_dir):
         return []
 
-    today = str(date.today())
+    today = str(_ist_today())
     snapshots: list[dict] = []
 
     def _snapshot_from_state(fname: str, state: dict, mode: str) -> dict | None:
@@ -6785,9 +6799,8 @@ async def dashboard_summary(request: Request):
         paper_strategy_trades_val = sum(int(s.get("trades_today", 0) or 0) for s in paper_statuses)
     else:
         # Show last paper run P&L from today (from runs.json)
-        from datetime import date as _date
 
-        paper_today_str = str(_date.today())
+        paper_today_str = str(_ist_today())
         for r in reversed(runs):
             if r.get("mode") == "paper":
                 created = r.get("created_at", "")
@@ -13069,7 +13082,7 @@ async def live_start(req: LiveStartRequest, request: Request):
     live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
     # Persist config + state immediately so it survives server restarts
-    engine.session_date = date.today()
+    engine.session_date = _ist_today()
     engine._save_state()
 
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Auto (LIVE)", level="info")
@@ -17466,9 +17479,8 @@ async def _start_token_renewal():
 async def _restore_live_engines():
     """Scan for live_state_*.json files and re-start engines that were running."""
     import json as _json
-    from datetime import date as date_type
 
-    today = str(date_type.today())
+    today = str(_ist_today())
     restored = 0
 
     for user_id, state_dir, fname, fpath in _iter_user_state_files("live_state_"):
@@ -17553,9 +17565,8 @@ async def _restore_live_engines():
 async def _restore_paper_engines():
     """Scan for paper_state_*.json files and re-start engines that were running."""
     import json as _json
-    from datetime import date as date_type
 
-    today = str(date_type.today())
+    today = str(_ist_today())
     restored = 0
 
     for user_id, state_dir, fname, fpath in _iter_user_state_files("paper_state_"):

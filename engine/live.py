@@ -457,7 +457,7 @@ class LiveEngine:
         n, threshold = self._profit_cooldown_config()
         if n <= 0 or self.daily_pnl <= threshold:
             return
-        session = self.session_date or date_type.today()
+        session = self.session_date or _now_ist().date()
         if self.profit_cooldown_trigger_date != session:
             self.profit_cooldown_trigger_date = session
             self.log_event(
@@ -471,7 +471,7 @@ class LiveEngine:
         trigger = self.profit_cooldown_trigger_date
         if n <= 0 or trigger is None:
             return False
-        day = target_date or self.session_date or date_type.today()
+        day = target_date or self.session_date or _now_ist().date()
         if day <= trigger:
             return False
         # Count trading sessions strictly after the trigger day, up to `day`
@@ -685,7 +685,7 @@ class LiveEngine:
         session_dt = current_dt or self.current_time or _now_ist()
         session_date = session_dt.date() if isinstance(session_dt, datetime) else self.session_date
         if not isinstance(session_date, date_type):
-            session_date = date_type.today()
+            session_date = _now_ist().date()
         return strategy_candle_time.date() == session_date
 
     def _strategy_candle_closes_in_session(self, strategy_candle_time) -> bool:
@@ -966,7 +966,7 @@ class LiveEngine:
                 state = _json.load(f)
 
             saved_date = state.get("session_date")
-            today = str(date_type.today())
+            today = str(_now_ist().date())
             saved_positions = [
                 position for position in (state.get("positions") or []) if (position or {}).get("status") != "closed"
             ]
@@ -1001,7 +1001,7 @@ class LiveEngine:
                 return
 
             # Restore full configuration
-            self.session_date = date_type.today()
+            self.session_date = _now_ist().date()
             if state.get("strategy"):
                 self.strategy = state["strategy"]
             if state.get("entry_conditions"):
@@ -1265,7 +1265,7 @@ class LiveEngine:
     async def start(self, callback=None):
         """Start the live trading engine."""
         self.running = True
-        self.session_date = date_type.today()
+        self.session_date = _now_ist().date()
         self.daily_pnl = 0.0
         self._reset_intraday_status()
 
