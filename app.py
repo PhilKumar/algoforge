@@ -13159,6 +13159,140 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+@app.get("/api/live/entry-chart")
+async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = "5m"):
+    """The chart of the contract this run actually entered — scalp's standard.
+
+    Phil (2026-08-13): the run page should show the entered option the way the
+    scalp desk does — CPR, R1-R4/S1-S4, 20-EMA, entry mark, stop and target
+    levels and the live premium as a dotted line. Works for the OPEN position
+    first, and falls back to the most recent closed trade so the chart is
+    still there to study after the exit. Paper and live runs alike.
+    """
+    user_id = _request_user_id(request)
+
+    def _pick(engine):
+        for pos in getattr(engine, "positions", []) or []:
+            if pos.get("status") != "closed" and int(pos.get("strike") or 0) > 0:
+                return pos, True
+        for trade in reversed(getattr(engine, "closed_trades", []) or []):
+            if int(trade.get("strike") or 0) > 0:
+                return trade, False
+        return None, False
+
+    engine = None
+    for bucket in (_registry_bucket(live_engines, user_id), _registry_bucket(paper_engines, user_id)):
+        if run_id and run_id in bucket:
+            engine = bucket[run_id]
+            break
+        if engine is None:
+            for eng in bucket.values():
+                if getattr(eng, "running", False):
+                    engine = eng
+                    break
+    if engine is None:
+        raise HTTPException(status_code=404, detail="No running engine found for this run")
+
+    position, is_open = _pick(engine)
+    if not position:
+        raise HTTPException(status_code=404, detail="This run has not entered a trade yet")
+
+    underlying = str(position.get("underlying") or getattr(engine, "instrument", "") or "NIFTY").strip().upper()
+    strike = int(position.get("strike") or 0)
+    expiry = str(position.get("expiry") or "").strip()
+    option_type = str(position.get("option_type") or "").strip().upper()
+    if strike <= 0 or option_type not in {"CE", "PE"}:
+        raise HTTPException(status_code=422, detail="The entered contract is incomplete on this engine")
+
+    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
+    if not security_id:
+        raise HTTPException(status_code=404, detail="Entered contract is unavailable in the current Scrip Master")
+
+    broker_client = getattr(engine, "dhan", None)
+    if broker_client is None:
+        _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Broker connection is required to load the entry chart")
+
+    tf = str(timeframe or "5m").lower()
+    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
+    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    today = datetime.now(IST).date()
+    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(security_id),
+            exchange_segment=exchange_segment,
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=today.isoformat(),
+            candle_type=candle_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Entry-chart candle request failed: {exc}") from exc
+    if frame is None or frame.empty:
+        raise HTTPException(status_code=404, detail="No intraday candles returned for the entered contract")
+
+    candles = []
+    for timestamp, row in frame.iterrows():
+        stamp = _scalp_option_chart_timestamp(timestamp)
+        if stamp is None:
+            continue
+        candles.append(
+            {
+                "t": stamp,
+                "o": round(float(row["open"]), 4),
+                "h": round(float(row["high"]), 4),
+                "l": round(float(row["low"]), 4),
+                "c": round(float(row["close"]), 4),
+            }
+        )
+    if not candles:
+        raise HTTPException(status_code=404, detail="Entry-chart candles contained no usable timestamps")
+
+    analytics = _chart_session_analytics(candles)
+    entry_time = _scalp_option_chart_timestamp(position.get("entry_time"))
+    entry_price = float(position.get("entry_premium") or 0)
+    exit_time = _scalp_option_chart_timestamp(position.get("exit_time"))
+    exit_price = float(position.get("exit_premium") or 0)
+    lines = list(analytics["lines"])
+    for label, key, color in (("STOP", "sl_premium", "#ef4444"), ("TARGET", "target_premium", "#10b981")):
+        level = float(position.get(key) or 0)
+        if level > 0:
+            lines.insert(
+                0, {"label": label, "price": level, "color": color, "dash": [6, 3], "width": 1.2, "opacity": 0.95}
+            )
+    live_premium = float(position.get("current_premium") or 0) if is_open else 0.0
+    if live_premium > 0:
+        lines.append(
+            {"label": "LIVE", "price": live_premium, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}
+        )
+    return {
+        "status": "ok",
+        "timeframe": tf,
+        "is_open": is_open,
+        "instrument": {
+            "underlying": underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": str(security_id),
+        },
+        "candles": candles,
+        "entries": ([{"t": entry_time, "price": entry_price}] if entry_time and entry_price > 0 else []),
+        "exits": (
+            [{"t": exit_time, "price": exit_price, "pnl": float(position.get("pnl") or 0)}]
+            if not is_open and exit_time and exit_price > 0
+            else []
+        ),
+        "lines": lines,
+        "overlays": analytics["overlays"],
+        "live_price": live_premium,
+    }
+
+
 @app.get("/api/live/debug")
 async def live_debug(request: Request, run_id: str = ""):
     """Deep diagnostic of live engine state — call when trades aren't triggering."""
@@ -14800,6 +14934,81 @@ async def terminal_quote(symbol: str, request: Request):
         return {"status": "error", "message": str(e), "stock": stock}
 
 
+_STOCK_CHART_SPAN_DAYS: dict[str, int] = {"5m": 6, "15m": 12, "1h": 45, "1d": 210}
+
+
+@app.get("/api/terminal/stock-chart")
+async def terminal_stock_chart(request: Request, symbol: str, timeframe: str = "5m"):
+    """The Velocity Entry chart — the picked stock, in the site's one renderer.
+
+    Phil (2026-08-13): the manual desk should see the stock it is about to
+    order the way the scalp desk sees its option — CPR, R1-R4/S1-S4, 20-EMA
+    and the live price as a dotted line, on a pannable canvas with 5m-1D
+    timeframes. Native exchange OHLC only; the LTP line is the quote the
+    order ticket itself shows.
+    """
+    stock = _resolve_terminal_stock(symbol)
+    if not stock.get("security_id"):
+        raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the stock chart.")
+    tf = str(timeframe or "5m").lower()
+    if tf not in _STOCK_CHART_SPAN_DAYS:
+        raise HTTPException(status_code=400, detail="Stock chart timeframe must be 5m, 15m, 1h, or 1d.")
+    today = datetime.now(IST).date()
+    try:
+        bars = await _terminal_cascade_load_candles(
+            broker_client, stock, tf, from_date=today - timedelta(days=_STOCK_CHART_SPAN_DAYS[tf]), to_date=today
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Dhan did not return candles for {stock['symbol']}: {exc}"
+        ) from exc
+    if not bars:
+        raise HTTPException(status_code=404, detail=f"No {tf} candles returned for {stock['symbol']}.")
+
+    candles = [
+        {
+            "t": int(bar.timestamp.timestamp()),
+            "o": round(float(bar.open), 4),
+            "h": round(float(bar.high), 4),
+            "l": round(float(bar.low), 4),
+            "c": round(float(bar.close), 4),
+        }
+        for bar in bars
+    ]
+    # Intraday charts carry the session frame; a daily chart carrying "the
+    # previous day's pivots" would be drawing intraday furniture on the wrong
+    # canvas, so 1d keeps only the EMA.
+    analytics = _chart_session_analytics(candles)
+    if tf == "1d":
+        analytics["lines"] = []
+    lines = list(analytics["lines"])
+    live_price = 0.0
+    try:
+        data = broker_client.get_ltp([stock["security_id"]], exchange_segment=stock["exchange_segment"])
+        live_price = float(_extract_marketfeed_ltp(data, stock["exchange_segment"], stock["security_id"]) or 0)
+    except Exception:
+        live_price = 0.0
+    if live_price > 0:
+        lines.append(
+            {"label": "LIVE", "price": live_price, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}
+        )
+    return {
+        "status": "ok",
+        "symbol": stock["symbol"],
+        "name": stock.get("name") or stock["symbol"],
+        "timeframe": tf,
+        "candles": candles,
+        "lines": lines,
+        "overlays": analytics["overlays"],
+        "live_price": live_price,
+    }
+
+
 # ══ Two-red ladder on cash equity (paper) ═════════════════════════════
 #
 # The second strategy on the Equity page. Geometry is engine/candle_ladder.py,
@@ -15882,6 +16091,81 @@ def _scalp_option_chart_timestamp(value: Any) -> int | None:
     return int(parsed.timestamp())
 
 
+def _chart_session_analytics(candles: list[dict]) -> dict:
+    """CPR + floor pivots + a 20-EMA for any intraday candle series.
+
+    Phil's chart standard (2026-08-13): every entry chart carries the previous
+    session's CPR (P/BC/TC), R1-R4 and S1-S4, and a 20-EMA — the same frame he
+    reads on TradingView. Pivots come from the PREVIOUS session's H/L/C of the
+    series being charted; with no previous session there are no pivots, and the
+    EMA alone is returned rather than pivots invented from a partial day.
+
+    Colours are literal hex because Canvas silently ignores var(--x).
+    """
+    lines: list[dict] = []
+    overlays: list[dict] = []
+    if not candles:
+        return {"lines": lines, "overlays": overlays}
+
+    # 20-EMA over closes, drawn only once it has 20 real bars behind it.
+    period = 20
+    k = 2.0 / (period + 1.0)
+    ema = None
+    points = []
+    for i, bar in enumerate(candles):
+        close = float(bar["c"])
+        ema = close if ema is None else close * k + ema * (1.0 - k)
+        if i >= period - 1:
+            points.append({"t": bar["t"], "price": round(ema, 4)})
+    if len(points) >= 2:
+        overlays.append({"label": "EMA 20", "color": "#38bdf8", "width": 1.3, "points": points})
+
+    # Previous IST session's H/L/C.
+    sessions: dict[str, list[dict]] = {}
+    for bar in candles:
+        day = datetime.fromtimestamp(int(bar["t"]), IST).date().isoformat()
+        sessions.setdefault(day, []).append(bar)
+    days = sorted(sessions)
+    if len(days) >= 2:
+        prev = sessions[days[-2]]
+        high = max(float(b["h"]) for b in prev)
+        low = min(float(b["l"]) for b in prev)
+        close = float(prev[-1]["c"])
+        p = (high + low + close) / 3.0
+        bc = (high + low) / 2.0
+        tc = 2.0 * p - bc
+        rng = high - low
+        r1, s1 = 2 * p - low, 2 * p - high
+        r2, s2 = p + rng, p - rng
+        r3, s3 = high + 2 * (p - low), low - 2 * (high - p)
+        r4, s4 = r3 + rng, s3 - rng
+        amber, red, green = "#f59e0b", "#f87171", "#4ade80"
+        for label, price, color in (
+            ("CPR TC", tc, amber),
+            ("CPR P", p, amber),
+            ("CPR BC", bc, amber),
+            ("R1", r1, red),
+            ("R2", r2, red),
+            ("R3", r3, red),
+            ("R4", r4, red),
+            ("S1", s1, green),
+            ("S2", s2, green),
+            ("S3", s3, green),
+            ("S4", s4, green),
+        ):
+            lines.append(
+                {
+                    "label": label,
+                    "price": round(price, 4),
+                    "color": color,
+                    "dash": [] if label.startswith("CPR") else [5, 4],
+                    "width": 1.1 if label == "CPR P" else 0.9,
+                    "opacity": 0.85 if label.startswith("CPR") else 0.55,
+                }
+            )
+    return {"lines": lines, "overlays": overlays}
+
+
 def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
     """Layer the monitored premium onto cached OHLC without inventing a candle."""
     try:
@@ -15890,21 +16174,36 @@ def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
         live_price = 0.0
     result = {**payload, "lines": list(payload.get("lines") or [])}
     if live_price > 0:
-        result["lines"].append({"label": "LIVE", "price": live_price, "filled": True})
+        # Dotted, deliberately: the live premium is a moving reading, and the
+        # solid lines are levels that stay put (Phil, 2026-08-13).
+        result["lines"].append(
+            {
+                "label": "LIVE",
+                "price": live_price,
+                "filled": True,
+                "color": "#e2e8f0",
+                "dash": [2, 3],
+                "width": 1.2,
+                "opacity": 0.95,
+            }
+        )
         result["live_price"] = live_price
         result["live_timestamp"] = int(datetime.now(IST).timestamp())
     return result
 
 
 @app.get("/api/scalp/trades/{trade_id}/chart")
-async def get_scalp_option_chart(trade_id: int, request: Request):
+async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str = "5m"):
     """Return native Dhan OHLC candles for the exact option contract in an open scalp."""
     user_id = _request_user_id(request)
     trade = await _scalp_open_trade_for_chart(user_id, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Active scalp trade not found")
 
-    cache_key = (int(user_id), int(trade_id))
+    tf = str(timeframe or "5m").lower()
+    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
+    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    cache_key = (int(user_id), int(trade_id), tf)
     cached = _SCALP_OPTION_CHART_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
         return {**_scalp_option_chart_with_live_price(cached[1], trade), "cached": True}
@@ -15928,8 +16227,9 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
         raise HTTPException(status_code=503, detail="Broker connection is required to load the option chart")
 
     today = datetime.now(IST).date()
-    # Dhan intraday requests need business-day room across weekends/holidays.
-    from_date = (today - timedelta(days=4)).isoformat()
+    # Dhan intraday requests need business-day room across weekends/holidays,
+    # and the pivots need a complete previous session behind the chart.
+    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
     exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
     try:
         frame = await asyncio.to_thread(
@@ -15939,7 +16239,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
             instrument_type="OPTIDX",
             from_date=from_date,
             to_date=today.isoformat(),
-            candle_type="5",
+            candle_type=candle_type,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Option candle request failed: {exc}") from exc
@@ -15966,9 +16266,10 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
 
     entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
     entry_price = float(trade.get("entry_premium") or 0)
+    analytics = _chart_session_analytics(candles)
     payload = {
         "status": "ok",
-        "timeframe": "5m",
+        "timeframe": tf,
         "instrument": {
             "underlying": underlying,
             "strike": strike,
@@ -15979,9 +16280,25 @@ async def get_scalp_option_chart(trade_id: int, request: Request):
         "candles": candles,
         "entries": ([{"t": entry_time, "price": entry_price}] if entry_time and entry_price > 0 else []),
         "lines": [
-            {"label": "TARGET", "price": float(trade.get("target_premium") or 0)},
-            {"label": "STOP", "price": float(trade.get("sl_premium") or 0)},
+            {
+                "label": "TARGET",
+                "price": float(trade.get("target_premium") or 0),
+                "color": "#10b981",
+                "dash": [6, 3],
+                "width": 1.2,
+                "opacity": 0.95,
+            },
+            {
+                "label": "STOP",
+                "price": float(trade.get("sl_premium") or 0),
+                "color": "#ef4444",
+                "dash": [6, 3],
+                "width": 1.2,
+                "opacity": 0.95,
+            },
+            *analytics["lines"],
         ],
+        "overlays": analytics["overlays"],
         "trade_id": int(trade_id),
     }
     _SCALP_OPTION_CHART_CACHE[cache_key] = (time.monotonic(), payload)

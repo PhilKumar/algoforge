@@ -6332,6 +6332,68 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   }
   [data-theme="light"] .pf-info-doc code { background: rgba(15,23,42,0.06); }
 
+  /* ── Doc languages — English | தமிழ் ────────────────────────────────
+     The tab row spans every column; the ACTIVE language is display:contents
+     so its sections keep flowing into the doc's own columns, and the idle
+     one simply does not exist for layout. Never display:block here — that
+     would put the whole second language into the first column. */
+  .pf-doc-langs {
+    column-span: all;
+    display: flex; gap: 6px; margin: 0 0 12px;
+  }
+  .pf-doc-lang-btn {
+    font: 700 10.5px 'JetBrains Mono', monospace;
+    letter-spacing: .6px;
+    padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--border, rgba(255,255,255,0.12));
+    background: transparent; color: var(--muted);
+    cursor: pointer;
+  }
+  .pf-doc-lang-btn.is-active {
+    color: var(--text);
+    border-color: var(--accent, #38bdf8);
+    background: rgba(56,189,248,0.10);
+  }
+  .pf-doc-lang { display: none; }
+  .pf-doc-lang.is-active { display: contents; }
+  /* Tamil glyphs need a touch more air than Latin at the same size. */
+  .pf-doc-lang[data-pf-lang="ta"] p { line-height: 1.62; }
+
+  /* ── The one chart header strip ─────────────────────────────────────
+     Timeframes · − zoom% + · refresh · close, above every canvas chart.
+     Built by pfChartStrip() in philforge-bench-chart.js — pages never
+     hand-roll this row, so every chart carries the same controls. */
+  .pf-chart-strip {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 8px; flex-wrap: wrap;
+    margin: 0 0 10px;
+  }
+  .pf-chart-strip .terminal-cascade-tf-toggle { margin: 0; }
+  .pf-chart-strip-close { color: #fca5a5; }
+
+  /* The zoom cluster every canvas host carries — floats over the plot's
+     top-right corner so no caller has to build it. */
+  .pf-bench-zoom {
+    position: absolute; top: 8px; right: 8px; z-index: 3;
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border, rgba(255,255,255,0.14));
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--card, #0b1220) 82%, transparent);
+    backdrop-filter: blur(4px);
+  }
+  .pf-bench-zoom button {
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--text); font: 700 13px 'JetBrains Mono', monospace;
+    min-width: 24px; padding: 2px 7px; border-radius: 7px;
+  }
+  .pf-bench-zoom button:hover { background: rgba(148,163,184,0.15); }
+  .pf-bench-zoom [data-bench-zoom-level] {
+    min-width: 42px; text-align: center;
+    font: 600 10.5px 'JetBrains Mono', monospace;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+
 /* ═════════════════════════════════════════════════════════════════════
    DEPTH PASS — CryptoForge's material grade, in PhilForge's own palette.
    Appended last so it wins the cascade over the flatter originals above.

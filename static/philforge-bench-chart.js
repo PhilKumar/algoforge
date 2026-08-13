@@ -45,9 +45,17 @@ function _pfChartInr(value) {
 }
 
 function _pfBenchChartHostHtml() {
+  // The zoom cluster is part of the HOST, not any one caller's toolbar, so
+  // every chart on the site carries the same − % + controls without each page
+  // remembering to add them (Phil's one-strip standard, 2026-08-13).
   return '<div class="pf-bench-canvas-host" id="pf-bench-canvas-host">'
     + '<canvas id="pf-bench-canvas-main"></canvas>'
     + '<canvas id="pf-bench-canvas-overlay"></canvas>'
+    + '<div class="pf-bench-zoom" data-bench-zoom>'
+    + '<button type="button" data-bench-zoom-out aria-label="Zoom out">&minus;</button>'
+    + '<span data-bench-zoom-level title="Double-click the chart to reset">100%</span>'
+    + '<button type="button" data-bench-zoom-in aria-label="Zoom in">+</button>'
+    + '</div>'
     + '</div>';
 }
 
@@ -169,6 +177,24 @@ function _pfChartCanvasMount(d, scope) {
   var c = _pfChartCanvas;
   _pfChartCanvasResize();
   _pfChartCanvasBindInteraction(_pfChartCanvas);
+  // The host's own zoom cluster. Bound per-mount; teardown removes the host.
+  var zoomBox = host.querySelector('[data-bench-zoom]');
+  if (zoomBox) {
+    var paintLevel = function () {
+      var level = zoomBox.querySelector('[data-bench-zoom-level]');
+      if (level && typeof pfChartZoomPercent === 'function') level.textContent = pfChartZoomPercent() + '%';
+    };
+    zoomBox.addEventListener('click', function (event) {
+      if (event.target.closest('[data-bench-zoom-in]')) _pfChartCanvasZoom(0.8);
+      else if (event.target.closest('[data-bench-zoom-out]')) _pfChartCanvasZoom(1.25);
+      else return;
+      paintLevel();
+    });
+    // Wheel-zoom and double-click reset land on the canvas; keep the readout
+    // honest without a caller having to wire anything.
+    host.addEventListener('wheel', function () { requestAnimationFrame(paintLevel); }, { passive: true });
+    host.addEventListener('dblclick', function () { requestAnimationFrame(paintLevel); });
+  }
   // Canvas pixels do not inherit CSS colours. Watch the single theme attribute
   // and repaint from the same payload/viewport when it changes; SVG gets this
   // for free through a fresh DOM render, Canvas must do it explicitly.
@@ -674,11 +700,45 @@ function _pfChartCanvasLines(c, p, PAL, labels) {
   var d = c.data || {}, count = 0;
   (d.lines || []).forEach(function (line, index) {
     if (line == null || line.price == null) return;
-    var color = PAL.fibs[index % PAL.fibs.length];
+    // A line may name its own colour/dash (CPR, R1-R4, S1-S4, the dotted LIVE
+    // line). Literal hex only -- Canvas silently ignores var(--x). Lines that
+    // name nothing keep the old palette-by-index behaviour.
+    var color = line.color || PAL.fibs[index % PAL.fibs.length];
     var spent = Number(line.inr_notional) || 0;
     var text = String(line.label || '') + ' (' + Number(line.price).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ')'
       + (spent > 0 ? '  ' + _pfChartInr(spent) : '');
-    count += _pfChartCanvasHline(c, p, labels, Number(line.price), color, text, line.filled ? [] : [4, 3], line.filled ? 1.1 : 0.8, line.filled ? 0.9 : 0.45) ? 1 : 0;
+    var dash = Array.isArray(line.dash) ? line.dash : (line.filled ? [] : [4, 3]);
+    var width = Number(line.width) || (line.filled ? 1.1 : 0.8);
+    var opacity = Number(line.opacity) || (line.filled ? 0.9 : 0.45);
+    count += _pfChartCanvasHline(c, p, labels, Number(line.price), color, text, dash, width, opacity) ? 1 : 0;
+  });
+  return count;
+}
+
+// Indicator polylines -- the 20-EMA and anything else that is a running series
+// rather than a level. overlays: [{label, color, dash, width, points:[{t,price}]}]
+function _pfChartCanvasOverlays(c, p, PAL, labels) {
+  var d = c.data || {}, ctx = c.ctx, count = 0;
+  (d.overlays || []).forEach(function (ov) {
+    var pts = (ov && ov.points || []).filter(function (pt) { return pt && pt.t != null && pt.price != null; });
+    if (pts.length < 2) return;
+    var color = ov.color || PAL.avg;
+    _pfChartCanvasClip(ctx, p, function () {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Number(ov.width) || 1.3;
+      ctx.setLineDash(Array.isArray(ov.dash) ? ov.dash : []);
+      ctx.globalAlpha = Number(ov.opacity) || 0.9;
+      ctx.beginPath();
+      pts.forEach(function (pt, i) {
+        var x = p.xOf(pt.t), y = p.yOf(pt.price);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    });
+    var last = pts[pts.length - 1];
+    if (ov.label && p.inPrice(last.price)) labels.push({ kind: 'gutter', y: p.yOf(last.price), text: String(ov.label), color: color });
+    count += 1;
   });
   return count;
 }
@@ -808,6 +868,7 @@ function _pfChartCanvasDraw() {
   var candleCount = _pfChartCanvasCandles(c, p, PAL);
   var trendlineCount = _pfChartCanvasTrendlines(c, p, PAL, labels);
   var fibCount = _pfChartCanvasFibs(c, p, PAL, labels);
+  var overlayCount = _pfChartCanvasOverlays(c, p, PAL, labels);
   var markerCount = _pfChartCanvasMarkers(c, p, PAL, labels);
   var labelCount = _pfChartCanvasLabels(c, p, labels);
   // E2E reads this small semantic paint record in addition to real pixels. It
@@ -815,6 +876,7 @@ function _pfChartCanvasDraw() {
   // but silently loses candles/labels/geometry.
   c.paint = {
     candles: candleCount, trendlines: trendlineCount, fibs: fibCount, markers: markerCount,
+    overlays: overlayCount,
     gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
     theme: document.documentElement.getAttribute('data-theme') || 'auto'
@@ -996,4 +1058,73 @@ function pfBenchDrawChart(container, payload) {
   // whichever host happens to come first in the document.
   _pfChartCanvasMount(payload, container);
   return true;
+}
+
+// ── The one chart header strip ───────────────────────────────────────
+// Phil, 2026-08-13: "Change or modify all the charts in the site to this
+// specifications for the header strip" — the Campaign Chart's row of
+// timeframes, − zoom% +, refresh and close, on every canvas. This builds
+// that strip once so a caller cannot drift from the standard: it owns only
+// the callbacks (what a timeframe change or refresh MEANS for its data).
+//
+// pfChartStrip(host, {
+//   timeframes: ['5m','15m','1h'],   // omit for a chart with one timeframe
+//   active: '5m',
+//   onTimeframe: function (tf) {},
+//   onRefresh: function () {},       // omit to hide the refresh button
+//   onClose: function () {},         // omit to hide the close button
+// })
+// Zoom buttons drive the mounted canvas directly; the % readout is the
+// fitted span over the visible span, so 100% is "the framed view".
+function pfChartZoomPercent() {
+  var c = _pfChartCanvas;
+  if (!c || !c.viewport) return 100;
+  var fit = _pfChartCanvasFit(c);
+  if (!fit) return 100;
+  var span = c.viewport.tMax - c.viewport.tMin;
+  if (!(span > 0)) return 100;
+  return Math.max(1, Math.round(((fit.tMax - fit.tMin) / span) * 100));
+}
+
+function pfChartStrip(host, opts) {
+  if (!host) return null;
+  opts = opts || {};
+  var strip = document.createElement('div');
+  strip.className = 'pf-chart-strip';
+  var html = '';
+  if (Array.isArray(opts.timeframes) && opts.timeframes.length) {
+    html += '<div class="terminal-cascade-tf-toggle pf-chart-strip-tfs" role="radiogroup" aria-label="Chart timeframe">'
+      + opts.timeframes.map(function (tf) {
+        var active = String(tf) === String(opts.active || opts.timeframes[0]);
+        return '<button type="button" class="terminal-cascade-tf-option' + (active ? ' is-active' : '') + '" data-strip-tf="'
+          + tf + '" role="radio" aria-checked="' + (active ? 'true' : 'false') + '">' + String(tf).toUpperCase() + '</button>';
+      }).join('')
+      + '</div>';
+  }
+  // Zoom lives on the canvas host itself (every chart gets it for free), so
+  // the strip carries only what the host cannot know: timeframes and actions.
+  if (typeof opts.onRefresh === 'function') {
+    html += '<button type="button" class="btn btn-sm btn-outline" data-strip-refresh aria-label="Refresh chart" title="Refresh">&#x27F3;</button>';
+  }
+  if (typeof opts.onClose === 'function') {
+    html += '<button type="button" class="btn btn-sm btn-outline pf-chart-strip-close" data-strip-close aria-label="Close chart" title="Close">&#x2715;</button>';
+  }
+  strip.innerHTML = html;
+
+  strip.addEventListener('click', function (event) {
+    var tfBtn = event.target.closest('[data-strip-tf]');
+    if (tfBtn) {
+      strip.querySelectorAll('[data-strip-tf]').forEach(function (b) {
+        var on = b === tfBtn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      if (typeof opts.onTimeframe === 'function') opts.onTimeframe(tfBtn.getAttribute('data-strip-tf'));
+      return;
+    }
+    if (event.target.closest('[data-strip-refresh]')) { opts.onRefresh(); return; }
+    if (event.target.closest('[data-strip-close]')) { opts.onClose(); }
+  });
+  host.insertBefore(strip, host.firstChild);
+  return strip;
 }

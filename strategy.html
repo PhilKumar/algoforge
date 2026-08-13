@@ -1268,6 +1268,20 @@
 
 <!-- ═══ LIVE MONITOR PAGE ═══ -->
 <div id="live-page" class="page-section" style="padding: 0;">
+  <!-- The hero keeps the page's zero side padding: the tab bar and panels
+       below manage their own 28px gutters, so the hero carries its own. -->
+  <section class="pf-workspace-hero" aria-label="Live trading overview" style="margin: 16px 28px 4px;">
+    <div class="pf-workspace-hero-copy">
+      <div class="pf-workspace-eyebrow">Execution floor</div>
+      <h1>Live &amp; Paper</h1>
+      <p>Every deployed strategy — its positions, signals and event log, with the entered contract one click away.</p>
+    </div>
+    <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Engines</span><strong>Paper &middot; Live</strong></div>
+      <div><span>Positions</span><strong>Monitored</strong></div>
+      <div><span>Entry</span><strong>Charted</strong></div>
+    </div>
+  </section>
 
   <!-- Tab bar for multi-strategy switching -->
   <div id="live-tabs-bar" style="display:flex; align-items:center; gap:0; padding:0 28px; background:var(--card); border-bottom:1px solid var(--border); overflow-x:auto;">
@@ -1475,7 +1489,19 @@
 </div>
 
 <!-- ═══ EQUITY PAGE (two strategies: Cash Cascade, Two-red ladder) ═══ -->
-<div id="stock-terminal-page" class="page-section">
+<div id="stock-terminal-page" class="page-section pf-unified-page">
+  <section class="pf-workspace-hero" aria-label="Equity desk overview">
+    <div class="pf-workspace-hero-copy">
+      <div class="pf-workspace-eyebrow">Cash equity desk</div>
+      <h1>Equity</h1>
+      <p>Nifty 200 and the BEES ETFs — the Cascade and two-red campaigns, and a manual desk for direct orders.</p>
+    </div>
+    <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Universe</span><strong>Nifty 200 + BEES</strong></div>
+      <div><span>Strategies</span><strong>Cascade &middot; Two-red</strong></div>
+      <div><span>Orders</span><strong>Manual desk</strong></div>
+    </div>
+  </section>
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
       <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.28);color:var(--accent);" id="stock-terminal-head-ico"></span>
@@ -1561,6 +1587,15 @@
          Sources: engine/cascade_scanner.py (steps 1), engine/cascade_options.py
          (2-4), engine/cascade_equity.py (5-11). -->
     <div id="cash-cascade-rules" class="pf-info-pop pf-info-doc">
+      <!-- One doc, two languages. The buttons swap which wrapper is .is-active;
+           the active wrapper is display:contents so its sections keep flowing
+           into the doc's own columns. The choice persists in localStorage and
+           every doc on the site follows it. -->
+      <div class="pf-doc-langs" role="tablist" aria-label="Language">
+        <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+        <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+      </div>
+      <div class="pf-doc-lang is-active" data-pf-lang="en">
       <p class="pf-info-lede">You pick the stock and name one candle. Everything after that runs by itself: the engine draws the fall, decides where to buy on the way down, waits for a turn before spending, and sells the whole basket at one target. <strong>Paper only</strong> — no order reaches Dhan while this says LIVE LOCKED.</p>
 
       <section>
@@ -1613,6 +1648,53 @@
         <h5>10 &middot; What it costs</h5>
         <p>Delivery only &mdash; <strong>CNC</strong>, never MTF, because MTF interest and pledge costs are not modelled and a months-long campaign would report a profit it never made. Every round is netted for brokerage (0.03%, capped &#8377;20 an order), STT 0.1%, exchange and SEBI charges, stamp duty 0.015% on buys, and 18% GST. <strong>Net &#8377; on this page is after all of it.</strong></p>
       </section>
+      </div><!-- /en -->
+
+      <div class="pf-doc-lang" data-pf-lang="ta">
+      <p class="pf-info-lede">நீங்கள் பங்கைத் தேர்ந்தெடுத்து ஒரு கேண்டிலைச் சொன்னால் போதும். அதன் பிறகு எல்லாம் தானாக நடக்கும்: விலை இறக்கத்தை எஞ்சின் வரைந்து, இறங்கும் வழியில் எங்கு வாங்க வேண்டும் என்று முடிவு செய்து, திரும்பும் வரை காத்திருந்து, முழு கூடையையும் ஒரே இலக்கில் விற்கும். <strong>பேப்பர் மட்டும்</strong> — LIVE LOCKED என்று இருக்கும் வரை எந்த ஆர்டரும் Dhan-ஐ அடையாது.</p>
+
+      <section>
+        <h5>1 &middot; பட்டியலில் எது வரும்</h5>
+        <p>&#8377;200-க்கு மேல் உள்ள Nifty 200 பங்குகள், கூடவே எல்லா BEES ETF-களும் (விலை வரம்பு பங்குத் தரச் சோதனை; ETF-களுக்கு அது தேவையில்லை). ஒரு பெயர் காட்டப்படுவது: <strong>கடந்த 60 அமர்வுகளில் ஏறியிருக்க வேண்டும்</strong>, <strong>கடந்த 20 அமர்வுகளின் உச்சத்திலிருந்து 1&ndash;25% கீழே</strong> இருக்க வேண்டும், உங்கள் முதலீட்டில் குறைந்தது ஒரு பங்கு வாங்க முடிய வேண்டும். 25%-க்கு மேல் விழுந்தால் அது pullback அல்ல, உடைந்த போக்கு &mdash; அது முதலிடம் பெறாமல் நீக்கப்படும். வரிசை: தள்ளுபடி &times; போக்கு &times; மூன்று ரங்குகளில் எத்தனை ஒரு பங்கு வாங்க முடியும்.</p>
+      </section>
+      <section>
+        <h5>2 &middot; மதர் கேண்டில்</h5>
+        <p>நீங்கள்தான் சொல்கிறீர்கள்; தானாக எதுவும் தேர்வாகாது. அதன் <strong>உச்சம்தான் முழு campaign-இன் கூரை</strong> &mdash; ஒவ்வொரு வீழ்ச்சியும் அங்கிருந்து கீழ்நோக்கி அளக்கப்படும், இலக்கு அதை நோக்கியே திரும்ப அளக்கப்படும். NIFTYBEES, BANKBEES ஆகியவை NIFTY, BANKNIFTY-இலிருந்து geometry படிக்கும்; மற்ற எல்லா பெயர்களும் தம் சொந்த சார்ட்டிலேயே.</p>
+      </section>
+      <section>
+        <h5>3 &middot; ட்ரெண்ட்லைன், பிறகு ஒரு leg</h5>
+        <p>மதர் உச்சத்திலிருந்து கடைசி தாழ்ந்த உச்சம் வழியாக ஒரு கோடு வரையப்படும். விலை <strong>அந்தக் கோட்டைத் தொட்டு, தோற்று, ஓடும் தாழ்வுக்குக் கீழே ஒரு சிவப்பு கேண்டில் உறுதியாக மூடும்போது</strong> ஒரு leg வெட்டப்படும். Leg-இன் உச்சம் கோட்டின் மீது பட்ட மிக உயர்ந்த தொடுதல்; தாழ்வு தொடுதல் தொடங்கியபோது உறைந்த தாழ்வு. ஒரு leg குறைந்தது 0.1% அகலம் இருக்க வேண்டும், <strong>முந்தைய leg-இன் தாழ்வுக்குக் கீழே</strong> மூட வேண்டும் (ஒரே மேடையில் இரண்டாம் leg இல்லை), ஏற்கனவே வரைந்த leg-ஐ ஒருபோதும் மாற்றாது.</p>
+      </section>
+      <section>
+        <h5>4 &middot; எங்கு வாங்கும் &mdash; fib ரங்குகள்</h5>
+        <p>ஒவ்வொரு leg-க்கும் <strong>L2, L4, L8</strong> ரங்குகள், விலை <code>high &minus; n &times; (high &minus; low)</code>. அதாவது L2 என்பது leg-இன் தாழ்வுக்கு ஒரு leg-நீளம் கீழே, L8 ஏழு. மிக அகலமான leg-இல் பூஜ்ஜியத்துக்குக் கீழே விழும் ரங்கு நீக்கப்பட்டு, அதன் பணம் வாங்கக்கூடிய ரங்குகளுக்குப் பகிரப்படும்.</p>
+      </section>
+      <section>
+        <h5>5 &middot; ஒவ்வொரு leg-க்கும் எவ்வளவு பணம்</h5>
+        <p>தொகுப்பு என்பது <strong>வீழ்ச்சியின் அளவு, முதலீட்டின் சதவீதமாக</strong>: 4% வீழ்ச்சி உங்கள் முதலீட்டின் 4%-க்கு நிதி. Leg 1 மதர் உச்சத்திலிருந்து; பிந்தைய ஒவ்வொன்றும் முந்தைய leg-இன் தாழ்விலிருந்து. அந்தத் தொகுப்பு <strong>L2-க்கு 20%, L4-க்கு 30%, L8-க்கு 50%</strong> என பிரியும் &mdash; வேண்டுமென்றே அடிபாரம், ஏனெனில் ஆழமான ரங்குதான் மலிவான பங்கு. இதனால்தான் &#8377;1,789 பங்கில் &#8377;1,00,000 campaign &#8377;380 தொகுப்பு காட்டினாலும் சரியாகவே வேலை செய்கிறது: அது ஒரு சிறு leg-இன் ஒரு ரங்கின் பங்கு &mdash; வாங்க முடியும் வரை காத்து, சேர்த்துக்கொண்டே இருக்கும்.</p>
+      </section>
+      <section>
+        <h5>6 &middot; நுழைவு &mdash; ரங்கு தொட்டவுடன் வாங்காது</h5>
+        <p>ரங்கு விலையைத் தொடுவது <strong>அந்த ரங்கின் பணத்தை மட்டும் சேகரிக்கும்</strong>. வாங்க வீழ்ச்சி திரும்ப வேண்டும்: சேகரிக்கும் கோட்டுக்குக் கீழே <strong>இரண்டு சிவப்பு close-கள்</strong> வந்தால் <strong>முதல் சிவப்பின் close-இல் buy-stop</strong> தயாராகும்; மேலும் தாழும் ஒவ்வொரு சிவப்பும் அந்த stop-ஐ சந்தையுடன் கீழே நகர்த்தும். Stop <em>வழியாக</em> மேலேறினால் மட்டுமே fill. திரும்பாத கத்தி ஒருபோதும் வாங்கப்படாது. முழு பங்குகளில் செலவழிக்க முடியாத மீதி அடுத்த fill-க்கு எடுத்துச் செல்லப்படும், வீணாகாது.</p>
+      </section>
+      <section>
+        <h5>7 &middot; வெளியேற்றம் &mdash; கூடைக்கு ஒரே இலக்கு</h5>
+        <p>ஒரு சுற்றில் வாங்கிய எல்லா பங்குகளும் <strong>சராசரி நுழைவு + 0.25 &times; (மதர் உச்சம் &minus; சராசரி நுழைவு)</strong> என்ற விலையில் ஒன்றாக வெளியேறும் &mdash; கூரையை நோக்கி கால் பங்கு தூரம், நிலையான சதவீதம் அல்ல. <strong>Stop-loss இல்லை</strong>: இலக்கு அல்லது உங்கள் Kill மட்டுமே சுற்றை மூடும். ஒரு சுற்று பணமானபின், விலை <strong>campaign-இன் மிகத் தாழ்ந்த தாழ்வுக்கும் கீழே புதிய தாழ்வு</strong> செய்தால் மட்டுமே ரங்குகள் மறுபடி வேலை செய்யும் &mdash; அதே மேடையை மறுமுறை வாங்கவே முடியாது.</p>
+      </section>
+      <section>
+        <h5>8 &middot; ஏணி &mdash; campaign எப்படி முதிர்கிறது</h5>
+        <p><em>Climb to 1W</em> என வைத்தால், 200 கேண்டில்களுக்குப் பிறகு அமைப்பு ஒரு படி ஏறும்: <strong>5m &rarr; 15m &rarr; 1H &rarr; 1D &rarr; 1W</strong>. 4H தவிர்க்கப்படுகிறது &mdash; NSE அமர்வு 375 நிமிடம்; 4H அதன் சரியான பங்கல்ல. <strong>அமைப்பு மட்டுமே</strong> ஏறும்; நுழைவு, fill, வெளியேற்றம் அடிப்படை கேண்டில்களிலேயே &mdash; விலை தொட்ட கணமே stop நிரம்பும். Buy-stop காத்திருக்கும்போது ஏறாது. ஏற்கனவே வரைந்தது எதுவும் மாறாது.</p>
+        <p class="pf-info-warn"><strong>ஏறுவது இலவசப் பணம் அல்ல.</strong> 15 NSE பங்குகளில் 2 ஆண்டுகள் அளந்தது: 15m-இல் தொடங்கி ஏறியது <strong>+&#8377;19,804</strong>; வெறும் <strong>நிலையான 1H</strong> <strong>+&#8377;32,764</strong> &mdash; 44% கூடுதல் சுற்றுகளில் 40% குறைவான பணம். வீழ்ச்சியின் முதல், சிறந்த பகுதியை நிதியளிக்க முடியாத நுண்ணிய கேண்டில்களில் ஏணி செலவழிப்பதுதான் காரணம். இரண்டு அமைப்புகளும் உண்டு; அளவீட்டில் சிறந்தது 1H நிலையானது.</p>
+      </section>
+      <section>
+        <h5>9 &middot; Campaign எப்படி முடிகிறது</h5>
+        <p>மதர் <strong>உடைந்தால்</strong> (எந்தக் கேண்டிலும் மதர் உச்சத்துக்கு மேல் அச்சிட்டால்) அல்லது <strong>மறுசோதனை</strong> ஆனால் (விலை 0.5% விலகி, பிறகு 0.15%-க்குள் திரும்பினால்) geometry இறக்கிறது. அதன் பிறகு புதிய leg உருவாகாது. கையில் உள்ள பங்குகள் இலக்கை நோக்கியே தொடரும்; flat ஆனதும் campaign முடிந்தது. <strong>தானாக அடுத்த சந்ததி தொடங்காது</strong> &mdash; புதிய உச்சத்தின் கீழ் வீழ்ச்சி தொடர்ந்தால், புதிய மதரை நீங்கள்தான் சொல்ல வேண்டும். (Backtest தலைமுறைகளைத் தொடரும்; இந்தப் பக்கம் ஒன்றே ஓட்டும்.)</p>
+      </section>
+      <section>
+        <h5>10 &middot; செலவு என்ன</h5>
+        <p>Delivery மட்டும் &mdash; <strong>CNC</strong>, MTF ஒருபோதும் இல்லை: MTF வட்டியும் pledge செலவும் மாதிரியில் இல்லை; மாதக்கணக்கான campaign ஈட்டாத லாபத்தைக் காட்டும். ஒவ்வொரு சுற்றிலும் brokerage (0.03%, ஆர்டருக்கு &#8377;20 வரம்பு), STT 0.1%, exchange &amp; SEBI கட்டணம், வாங்கலில் stamp duty 0.015%, 18% GST எல்லாம் கழிக்கப்படும். <strong>இந்தப் பக்கத்தின் நிகர &#8377; இவை எல்லாம் போக மீதி.</strong></p>
+      </section>
+      </div><!-- /ta -->
     </div>
 
     <div class="terminal-cascade-workspace">
@@ -1734,22 +1816,8 @@
     </section>
   </div>
 
-  <div class="card terminal-cascade-shell" id="terminal-events-panel">
-    <div class="terminal-cascade-head">
-      <div class="terminal-cascade-title-block">
-        <div class="terminal-cascade-eyebrow">Cash Cascade</div>
-        <h3>Engine Events</h3>
-        <div id="terminal-events-meta" class="terminal-cascade-reference">Every campaign&#39;s events in one feed, latest first.</div>
-      </div>
-      <div class="terminal-cascade-actions">
-        <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Filter engine events by scrip" id="terminal-events-filters"></div>
-      </div>
-    </div>
-    <div id="terminal-events-body" class="terminal-cascade-log-body" style="max-height:280px;">
-      <div class="terminal-cascade-empty">No events yet.</div>
-    </div>
-  </div>
-
+  <!-- Closed Rounds sits ABOVE Engine Events (Phil, 2026-08-13): the banked
+       money is the headline, the event feed is the working. -->
   <div class="card terminal-cascade-shell" id="terminal-rounds-ledger-panel">
     <div class="terminal-cascade-head">
       <div class="terminal-cascade-title-block">
@@ -1765,6 +1833,22 @@
       <div class="terminal-cascade-empty">No closed rounds yet.</div>
     </div>
     <div class="terminal-cascade-pager" id="terminal-rounds-ledger-pager"></div>
+  </div>
+
+  <div class="card terminal-cascade-shell" id="terminal-events-panel">
+    <div class="terminal-cascade-head">
+      <div class="terminal-cascade-title-block">
+        <div class="terminal-cascade-eyebrow">Cash Cascade</div>
+        <h3>Engine Events</h3>
+        <div id="terminal-events-meta" class="terminal-cascade-reference">Every campaign&#39;s events in one feed, latest first.</div>
+      </div>
+      <div class="terminal-cascade-actions">
+        <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Filter engine events by scrip" id="terminal-events-filters"></div>
+      </div>
+    </div>
+    <div id="terminal-events-body" class="terminal-cascade-log-body" style="max-height:280px;">
+      <div class="terminal-cascade-empty">No events yet.</div>
+    </div>
   </div>
 
   <div class="card terminal-cascade-shell" id="terminal-closed-campaigns-panel">
@@ -1821,12 +1905,88 @@
       <div class="terminal-cascade-head">
         <div class="terminal-cascade-title-block">
           <div class="terminal-cascade-eyebrow">Two-red ladder</div>
-          <h3>Start a campaign</h3>
+          <h3>Start a campaign <button type="button" class="pf-info-btn" data-pf-info="two-red-rules" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
           <div class="terminal-cascade-reference" id="tworeds-setup-reference">Name the mother candle. Everything after that runs by itself.</div>
         </div>
         <div class="terminal-cascade-actions">
           <span class="terminal-cascade-pill terminal-cascade-pill-warn">PAPER ONLY</span>
         </div>
+      </div>
+
+      <!-- THE STRATEGY, AS THE ENGINE ACTUALLY RUNS IT — the same contract as
+           the Cash Cascade doc above: every number is the value the code uses
+           today, and the measurement that made each rule is stated with it.
+           Sources: engine/two_red_equity.py, engine/candle_ladder.py. -->
+      <div id="two-red-rules" class="pf-info-pop pf-info-doc">
+        <div class="pf-doc-langs" role="tablist" aria-label="Language">
+          <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+          <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+        </div>
+        <div class="pf-doc-lang is-active" data-pf-lang="en">
+        <p class="pf-info-lede">One rule, run patiently: wait for a stock that has already fallen hard, buy only when the fall turns, size the buy by how deep the fall is, and sell the whole basket at one target most of the way back up. <strong>Paper only</strong> — no order reaches Dhan from this panel.</p>
+
+        <section>
+          <h5>1 &middot; Wait &mdash; 8% down before the first buy</h5>
+          <p>Nothing is bought until price sits at least <strong>8% below the mother candle's high</strong>. This gate is the finding, not a preference: run without it, the ladder buys ~0.15% under its run-mother, wins nearly every trade and nets about zero &mdash; the quarter-way target is worth &#8377;8&ndash;18 against a &#8377;86 round trip. The scrip screen above measures the same idea from the 20-session high, so the two agree in spirit, not to the rupee.</p>
+        </section>
+        <section>
+          <h5>2 &middot; Two reds &mdash; buy the recovery</h5>
+          <p><strong>Two red closes</strong>, the second below the first's close, arm a <strong>buy-stop at the first red's close</strong> &mdash; the higher one. Every further lower red drags the stop down with the market; only a rise back <em>through</em> it fills. A knife that never turns is never bought.</p>
+        </section>
+        <section>
+          <h5>3 &middot; Size &mdash; the fall funds the buy</h5>
+          <p>Down <strong>9% commits 9% of the purse</strong>; down 12% commits 12%. The deeper the discount, the more money it is trusted with &mdash; and a shallow dip is never allowed to spend big.</p>
+        </section>
+        <section>
+          <h5>4 &middot; Climb &mdash; 1H &rarr; 1D &rarr; 1W, only on a new low</h5>
+          <p>Each fill marks its low and moves the rule one chart up. The next rung may arm <strong>only below the previous rung's low</strong> &mdash; the ladder adds to a deepening fall, never averages sideways on the same shelf.</p>
+        </section>
+        <section>
+          <h5>5 &middot; Exit &mdash; 0.75 of the way back, one sale</h5>
+          <p>The whole basket leaves together at <strong>average entry + 0.75 &times; (mother high &minus; average entry)</strong>. No stop-loss: the target, a Kill, or a voided mother is the only way out. Measured over 36 months on 23 NSE names with the 8% gate and this target: <strong>61 of 61 first-basket rounds closed green, 47 of 47 on the second</strong> &mdash; those two constants are the defaults because of that measurement, not taste.</p>
+        </section>
+        <section>
+          <h5>6 &middot; When a waiting campaign dies</h5>
+          <p>A close back <strong>above the mother high</strong> voids a campaign that has not bought anything &mdash; the fall it was waiting for is over. Without this, a ladder fed a live tape waits months, buys in a rally far above its mother, and targets a price <em>below</em> its own entry; the backtest read &minus;12% to &minus;27% a year on that alone.</p>
+        </section>
+        <section>
+          <h5>7 &middot; What it costs</h5>
+          <p>Delivery (<strong>CNC</strong>) at cash rates: brokerage, STT, exchange and SEBI charges, stamp duty, GST, <em>and the flat depository charge on every sell</em> &mdash; the single line that decided whether three years of this rule made money. Net &#8377; here is after all of it.</p>
+        </section>
+        </div><!-- /en -->
+
+        <div class="pf-doc-lang" data-pf-lang="ta">
+        <p class="pf-info-lede">ஒரே விதி, பொறுமையாக: ஏற்கனவே கடுமையாக விழுந்த பங்குக்காகக் காத்திரு, வீழ்ச்சி திரும்பும்போது மட்டும் வாங்கு, வீழ்ச்சியின் ஆழத்துக்கு ஏற்ப அளவு வை, முழு கூடையையும் மேலே திரும்பும் வழியின் முக்கால் தூரத்தில் ஒரே விற்பனையில் விற்று விடு. <strong>பேப்பர் மட்டும்</strong> — இந்தப் பலகையிலிருந்து எந்த ஆர்டரும் Dhan-ஐ அடையாது.</p>
+
+        <section>
+          <h5>1 &middot; காத்திரு &mdash; முதல் வாங்கலுக்கு முன் 8% இறக்கம்</h5>
+          <p>விலை <strong>மதர் கேண்டிலின் உச்சத்திலிருந்து குறைந்தது 8% கீழே</strong> வரும் வரை எதுவும் வாங்கப்படாது. இது விருப்பம் அல்ல, அளவீட்டின் முடிவு: இந்த வாயில் இல்லாமல் ஓட்டினால் ஏணி மதருக்கு ~0.15% கீழேயே வாங்கி, கிட்டத்தட்ட எல்லா trade-களிலும் வென்று, நிகரில் பூஜ்ஜியம் &mdash; கால்-தூர இலக்கு &#8377;8&ndash;18 மதிப்பு, ஒரு சுற்றுச் செலவு &#8377;86. மேலே உள்ள Scrip Screen அதே எண்ணத்தை 20-அமர்வு உச்சத்திலிருந்து அளக்கிறது &mdash; இரண்டும் கருத்தில் ஒன்று, ரூபாய்க்கு ரூபாய் அல்ல.</p>
+        </section>
+        <section>
+          <h5>2 &middot; இரண்டு சிவப்பு &mdash; மீட்சியை வாங்கு</h5>
+          <p><strong>இரண்டு சிவப்பு close-கள்</strong> (இரண்டாவது முதலின் close-க்குக் கீழே) வந்தால், <strong>முதல் சிவப்பின் close-இல் buy-stop</strong> &mdash; உயர்ந்த விலையில். மேலும் தாழும் ஒவ்வொரு சிவப்பும் stop-ஐ கீழே இழுக்கும்; அதன் <em>வழியாக</em> மேலேறினால் மட்டுமே வாங்கல். திரும்பாத கத்தி ஒருபோதும் வாங்கப்படாது.</p>
+        </section>
+        <section>
+          <h5>3 &middot; அளவு &mdash; வீழ்ச்சியே பணம் தருகிறது</h5>
+          <p><strong>9% இறக்கம் என்றால் பணப்பையின் 9%</strong>; 12% என்றால் 12%. தள்ளுபடி ஆழமானால்தான் அதிக பணம் நம்பப்படும் &mdash; சிறு சரிவு ஒருபோதும் பெரிதாகச் செலவழிக்க அனுமதிக்கப்படாது.</p>
+        </section>
+        <section>
+          <h5>4 &middot; ஏறு &mdash; 1H &rarr; 1D &rarr; 1W, புதிய தாழ்வில் மட்டும்</h5>
+          <p>ஒவ்வொரு fill-உம் தன் தாழ்வைக் குறித்து விதியை ஒரு சார்ட் மேலே நகர்த்தும். அடுத்த படி <strong>முந்தைய படியின் தாழ்வுக்குக் கீழே மட்டுமே</strong> தயாராகும் &mdash; ஏணி ஆழமாகும் வீழ்ச்சியில் சேர்க்கிறது; ஒரே மேடையில் பக்கவாட்டில் சராசரி செய்யாது.</p>
+        </section>
+        <section>
+          <h5>5 &middot; வெளியேற்றம் &mdash; திரும்பும் வழியில் 0.75, ஒரே விற்பனை</h5>
+          <p>முழு கூடையும் <strong>சராசரி நுழைவு + 0.75 &times; (மதர் உச்சம் &minus; சராசரி நுழைவு)</strong> விலையில் ஒன்றாக வெளியேறும். Stop-loss இல்லை: இலக்கு, Kill, அல்லது செல்லாத மதர் மட்டுமே வழி. 23 NSE பெயர்களில் 36 மாதங்கள், 8% வாயிலும் இந்த இலக்கும் சேர்ந்து: <strong>முதல் கூடையில் 61-இல் 61 சுற்றுகள் லாபம், இரண்டாவதில் 47-இல் 47</strong> &mdash; அந்த அளவீடுதான் இந்த இரண்டு எண்களும், ருசி அல்ல.</p>
+        </section>
+        <section>
+          <h5>6 &middot; காத்திருக்கும் campaign எப்போது இறக்கிறது</h5>
+          <p>எதுவும் வாங்காத campaign-இல் விலை <strong>மதர் உச்சத்துக்கு மேல்</strong> close ஆனால் அது செல்லாது &mdash; காத்திருந்த வீழ்ச்சி முடிந்து விட்டது. இந்த விதி இல்லாமல், நேரடி தரவில் ஏணி மாதக்கணக்கில் காத்திருந்து, மதருக்கு வெகு மேலே rally-யில் வாங்கி, தன் நுழைவுக்கே <em>கீழே</em> இலக்கு வைக்கும்; அதற்கே backtest ஆண்டுக்கு &minus;12% முதல் &minus;27% காட்டியது.</p>
+        </section>
+        <section>
+          <h5>7 &middot; செலவு என்ன</h5>
+          <p>Delivery (<strong>CNC</strong>) cash கட்டணங்களில்: brokerage, STT, exchange &amp; SEBI கட்டணம், stamp duty, GST, <em>கூடவே ஒவ்வொரு விற்பனைக்குமான நிலையான depository கட்டணம்</em> &mdash; மூன்று ஆண்டுகளில் இந்த விதி லாபமா நட்டமா என்பதை முடிவு செய்த ஒற்றை வரி அதுதான். இங்குள்ள நிகர &#8377; எல்லாம் போக மீதி.</p>
+        </section>
+        </div><!-- /ta -->
       </div>
       <div class="terminal-cascade-workspace">
         <section class="terminal-cascade-start-panel">
@@ -2005,7 +2165,10 @@
         <h3 style="font-size:15px;font-weight:700;margin:0;color:var(--accent);">Velocity Entry</h3>
         <div style="display:flex;gap:8px;align-items:center;">
           <input type="hidden" id="stock-terminal-symbol" value="">
-          <span id="stock-terminal-security" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">sec —</span>
+          <!-- Dhan's own instrument number for the picked stock — the id the
+               order is actually placed against. Shown so a wrong pick is
+               catchable before an order, not a mystery code. -->
+          <span id="stock-terminal-security" title="Dhan security id — the broker's instrument number this order will be placed against" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;">Dhan ID —</span>
         </div>
       </div>
 
@@ -2137,6 +2300,19 @@
       </div>
       <div id="stock-terminal-entry-status" style="min-height:18px;margin-top:8px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;"></div>
     </div>
+  </div>
+
+  <!-- The picked stock, in the site's one renderer — CPR, pivots, 20-EMA and
+       the live price the ticket above will fill at. Draws on selection. -->
+  <div class="card" style="padding: 18px;" id="stock-terminal-chart-card" hidden>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin:0;" id="stock-terminal-chart-title">Chart</h3>
+        <div id="stock-terminal-chart-meta" style="font-size:11px;color:var(--muted);margin-top:3px;">Pick a stock to draw its chart.</div>
+      </div>
+      <div id="stock-terminal-chart-strip"></div>
+    </div>
+    <div id="stock-terminal-chart-body" style="min-height:320px;"></div>
   </div>
 
   <div class="card" style="padding: 18px;">
@@ -2571,7 +2747,19 @@
 </div>
 
 <!-- ═══ SCALP PAGE ═══ -->
-<div id="insights-page" class="page-section">
+<div id="insights-page" class="page-section pf-unified-page">
+  <section class="pf-workspace-hero" aria-label="Insights overview">
+    <div class="pf-workspace-hero-copy">
+      <div class="pf-workspace-eyebrow">Market pulse</div>
+      <h1>Insights</h1>
+      <p>What moved today and why it matters — the live heatmap, and the study lounge for the hours between trades.</p>
+    </div>
+    <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Heatmap</span><strong>Live prices</strong></div>
+      <div><span>Movers</span><strong>Nifty 50</strong></div>
+      <div><span>Study</span><strong>Lounge</strong></div>
+    </div>
+  </section>
 
   <div class="oc-tabs" role="tablist" aria-label="Insights views">
     <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" title="What moved today, and by how much"><span class="oc-tab-name">▦ Heatmap</span><span class="oc-tab-sub">Gainers, losers and the profit/loss grid · live prices</span></button>
@@ -3085,6 +3273,18 @@
 
 <!-- ═══ CHARTS VIEWER ═══ -->
 <div id="charts-page" class="page-section" style="margin: 0 auto;">
+  <section class="pf-workspace-hero" aria-label="Journal overview" style="margin-bottom: 14px;">
+    <div class="pf-workspace-hero-copy">
+      <div class="pf-workspace-eyebrow">Trading journal</div>
+      <h1>Journal</h1>
+      <p>Every trading day's charts and notes, filed by date — the record the strategies are judged against.</p>
+    </div>
+    <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Charts</span><strong>By date</strong></div>
+      <div><span>Notes</span><strong>Daily</strong></div>
+      <div><span>Paste</span><strong>Ctrl+V</strong></div>
+    </div>
+  </section>
   <div id="charts-shell" class="cj-split">
     <!-- LEFT: Date Sidebar + Chart Grid (65%) -->
     <div class="cj-left">

@@ -289,7 +289,10 @@ test('a ladder that can never reach one share says THAT, and names the capital',
 
 /** How many columns the doc is actually rendered in, measured, not declared. */
 async function renderedColumns(doc: any) {
-  const xs = await doc.locator('section').evaluateAll(nodes =>
+  // Only the ACTIVE language's sections: the doc now carries English and Tamil
+  // side by side, and the idle language is display:none — its sections all
+  // report x=0, which would count as a phantom column.
+  const xs = await doc.locator('.pf-doc-lang.is-active section').evaluateAll(nodes =>
     nodes.map(n => Math.round(n.getBoundingClientRect().x)));
   return new Set(xs).size;
 }
@@ -344,7 +347,9 @@ test('the doc admits the climbing ladder measured worse than fixed 1H', async ({
   // comment; if that verdict is ever re-measured, this test is the reminder
   // that the page says it too.
   const doc = await openStrategyDoc(page);
-  const warn = doc.locator('.pf-info-warn');
+  // The doc exists in two languages; the verdict must be visible in the one
+  // actually showing.
+  const warn = doc.locator('.pf-doc-lang.is-active .pf-info-warn');
   await expect(warn).toBeVisible();
   await expect(warn).toContainText('19,804');
   await expect(warn).toContainText('32,764');

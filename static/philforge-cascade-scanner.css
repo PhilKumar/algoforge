@@ -154,6 +154,19 @@
   grid-column: 1 / -1; font-size: 11px; opacity: .5; line-height: 1.45;
 }
 
+/* THE RULE strip on the two-red panel is exactly five cards, and Phil wants
+   them read as one sentence: one row, never 4+1. auto-fit cannot promise that,
+   so this strip alone names its column count; the note still spans the row.
+   On a phone the sentence stacks instead — five 60px columns is unreadable. */
+#tworeds-rule-flow .cascade-scan-rungs-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+  #tworeds-rule-flow .cascade-scan-rungs-strip {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
 /* A cell whose number does not clear its own floor -- the ladder's "under 1"
  * share count. Its own rule, not appended to the .is-short list above: adding
  * a selector there would have quietly restyled the rung tiles too. */

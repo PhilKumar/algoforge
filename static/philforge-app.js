@@ -5897,7 +5897,7 @@ function selectStockTerminal(symbol, options = {}) {
   const chip = document.getElementById('stock-terminal-selected-chip');
   if (chip) chip.textContent = stock.symbol;
   const sec = document.getElementById('stock-terminal-security');
-  if (sec) sec.textContent = stock.security_id ? `sec ${stock.security_id}` : 'sec missing';
+  if (sec) sec.textContent = stock.security_id ? `Dhan ID ${stock.security_id}` : 'Dhan ID missing';
   const ltp = document.getElementById('stock-terminal-ltp');
   if (ltp) {
     ltp.textContent = '—';
@@ -5909,6 +5909,51 @@ function selectStockTerminal(symbol, options = {}) {
   _setLocalState(_STOCK_TERMINAL_KEY, stock.symbol);
   renderStockTerminalList();
   if (!options.skipQuote) refreshStockTerminalQuote(true);
+  drawStockTerminalChart();
+}
+
+// ── The Velocity Entry chart — the picked stock, site-standard canvas ──
+let _stockTerminalChartTf = '5m';
+let _stockTerminalChartRequest = 0;
+
+async function drawStockTerminalChart() {
+  const card = document.getElementById('stock-terminal-chart-card');
+  const body = document.getElementById('stock-terminal-chart-body');
+  const title = document.getElementById('stock-terminal-chart-title');
+  const meta = document.getElementById('stock-terminal-chart-meta');
+  if (!card || !body || !_stockTerminalSelected) return;
+  card.hidden = false;
+  const stripHost = document.getElementById('stock-terminal-chart-strip');
+  if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
+    pfChartStrip(stripHost, {
+      timeframes: ['5m', '15m', '1h', '1d'],
+      active: _stockTerminalChartTf,
+      onTimeframe: (tf) => { _stockTerminalChartTf = tf; drawStockTerminalChart(); },
+      onRefresh: () => drawStockTerminalChart(),
+    });
+  }
+  const symbol = _stockTerminalSelected.symbol;
+  const requestId = ++_stockTerminalChartRequest;
+  if (title) title.textContent = symbol;
+  if (meta) meta.textContent = 'Loading candles…';
+  try {
+    const qs = `symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(_stockTerminalChartTf)}`;
+    const response = await fetch(`/api/terminal/stock-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (requestId !== _stockTerminalChartRequest) return;
+    if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
+    if (meta) {
+      const live = Number(data.live_price || 0);
+      meta.textContent = `${data.candles.length} ${String(data.timeframe).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'No live quote'}${String(data.timeframe) === '1d' ? ' · 20-EMA' : ' · CPR, R1-R4, S1-S4, 20-EMA'} · drag to pan, wheel to zoom, double-click to reset`;
+    }
+    if (typeof pfBenchDrawChart !== 'function' || !pfBenchDrawChart(body, data)) {
+      throw new Error('Stock chart could not be drawn.');
+    }
+  } catch (error) {
+    if (requestId !== _stockTerminalChartRequest) return;
+    if (meta) meta.textContent = '';
+    body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Stock chart unavailable')}</div>`;
+  }
 }
 
 async function refreshStockTerminalQuote(force) {
@@ -5924,7 +5969,7 @@ async function refreshStockTerminalQuote(force) {
     if (data.stock) {
       _stockTerminalSelected = data.stock;
       const sec = document.getElementById('stock-terminal-security');
-      if (sec) sec.textContent = data.stock.security_id ? `sec ${data.stock.security_id}` : 'sec missing';
+      if (sec) sec.textContent = data.stock.security_id ? `Dhan ID ${data.stock.security_id}` : 'Dhan ID missing';
     }
     if (data.status === 'ok' && Number(data.ltp) > 0) {
       _stockTerminalLastLtp = Number(data.ltp);
@@ -9323,6 +9368,7 @@ function _buildScalpActiveRow(t) {
 
 let _scalpOptionChartRequest = 0;
 let _scalpOptionChartTradeId = null;
+let _scalpOptionChartTf = '5m';
 let _scalpOptionChartPollTimer = null;
 let _scalpOptionChartPollInFlight = false;
 
@@ -9360,10 +9406,7 @@ function _ensureScalpOptionChartOverlay() {
         <h3 id="scalp-option-chart-title">Option Chart</h3>
         <div id="scalp-option-chart-meta">Exact traded option premium candles.</div>
       </div>
-      <div class="terminal-cascade-chart-actions">
-        <button type="button" class="btn btn-sm scalp-option-chart-refresh" onclick="refreshScalpOptionChart()">Refresh</button>
-        <button type="button" class="btn btn-danger btn-sm" onclick="hideScalpOptionChart()">Close</button>
-      </div>
+      <div class="terminal-cascade-chart-actions" id="scalp-option-chart-actions"></div>
     </div>
     <div id="scalp-option-chart-body" class="terminal-cascade-chart-body"><div class="pf-cascade-chart-empty">Loading option candles...</div></div>
   </section>`;
@@ -9371,6 +9414,16 @@ function _ensureScalpOptionChartOverlay() {
     if (event.target === overlay) hideScalpOptionChart();
   });
   document.body.appendChild(overlay);
+  // The site's one chart strip: timeframes, zoom, refresh, close.
+  if (typeof pfChartStrip === 'function') {
+    pfChartStrip(overlay.querySelector('#scalp-option-chart-actions'), {
+      timeframes: ['5m', '15m', '1h'],
+      active: _scalpOptionChartTf,
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; refreshScalpOptionChart(); },
+      onRefresh: () => refreshScalpOptionChart(),
+      onClose: () => hideScalpOptionChart(),
+    });
+  }
   return overlay;
 }
 
@@ -9387,7 +9440,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
   document.body.classList.add('terminal-cascade-chart-open');
   if (!liveRefresh && body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
   try {
-    const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart`, { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart?timeframe=${encodeURIComponent(_scalpOptionChartTf)}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (requestId !== _scalpOptionChartRequest || _scalpOptionChartTradeId !== id) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
@@ -9398,7 +9451,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     if (title) title.textContent = symbol || 'Option Chart';
     if (meta) {
       const live = Number(data.live_price || 0);
-      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · 5-minute candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)}` : 'Waiting for live premium'} · Entry, target and stop are marked`;
+      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S4, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
     }
     if (body) {
       if (!liveRefresh) body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
@@ -9448,6 +9501,129 @@ function hideScalpOptionChart() {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && document.getElementById('scalp-option-chart-overlay')?.classList.contains('is-open')) {
     hideScalpOptionChart();
+  }
+});
+
+// ── The Live/Paper run's entry chart — the scalp standard, on the run page ──
+// The run panel repaints itself on every status poll, so a canvas inside it
+// would be torn down every few seconds. The chart therefore lives in its own
+// overlay, exactly like the scalp option chart it copies.
+let _liveEntryChartRunId = '';
+let _liveEntryChartTf = '5m';
+let _liveEntryChartRequest = 0;
+let _liveEntryChartPollTimer = null;
+
+function _ensureLiveEntryChartOverlay() {
+  let overlay = document.getElementById('live-entry-chart-overlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'live-entry-chart-overlay';
+  overlay.className = 'pf-cascade-chart-overlay terminal-cascade-chart-overlay scalp-option-chart-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Entered contract chart');
+  overlay.innerHTML = `<section class="pf-cascade-chart-dialog terminal-cascade-chart-dialog scalp-option-chart-dialog">
+    <div class="terminal-cascade-chart-toolbar">
+      <div class="terminal-cascade-chart-title">
+        <h3 id="live-entry-chart-title">Entry Chart</h3>
+        <div id="live-entry-chart-meta">The contract this run entered.</div>
+      </div>
+      <div class="terminal-cascade-chart-actions" id="live-entry-chart-actions"></div>
+    </div>
+    <div id="live-entry-chart-body" class="terminal-cascade-chart-body"><div class="pf-cascade-chart-empty">Loading entry candles...</div></div>
+  </section>`;
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) hideLiveEntryChart();
+  });
+  document.body.appendChild(overlay);
+  if (typeof pfChartStrip === 'function') {
+    pfChartStrip(overlay.querySelector('#live-entry-chart-actions'), {
+      timeframes: ['5m', '15m', '1h'],
+      active: _liveEntryChartTf,
+      onTimeframe: (tf) => { _liveEntryChartTf = tf; openLiveEntryChart(_liveEntryChartRunId); },
+      onRefresh: () => openLiveEntryChart(_liveEntryChartRunId),
+      onClose: () => hideLiveEntryChart(),
+    });
+  }
+  return overlay;
+}
+
+async function openLiveEntryChart(runId, options = {}) {
+  const liveRefresh = !!options.liveRefresh;
+  _liveEntryChartRunId = runId || _liveEntryChartRunId || '';
+  const requestId = ++_liveEntryChartRequest;
+  const overlay = _ensureLiveEntryChartOverlay();
+  const body = document.getElementById('live-entry-chart-body');
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('terminal-cascade-chart-open');
+  if (!liveRefresh && body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading the entered contract’s candles...</div>';
+  try {
+    const qs = `run_id=${encodeURIComponent(_liveEntryChartRunId)}&timeframe=${encodeURIComponent(_liveEntryChartTf)}`;
+    const response = await fetch(`/api/live/entry-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (requestId !== _liveEntryChartRequest) return;
+    if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
+    const instrument = data.instrument || {};
+    const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
+    const title = document.getElementById('live-entry-chart-title');
+    const meta = document.getElementById('live-entry-chart-meta');
+    if (title) title.textContent = symbol || 'Entry Chart';
+    if (meta) {
+      const live = Number(data.live_price || 0);
+      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · ${data.is_open ? (live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Position open') : 'Position closed — entry and exit marked'} · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom`;
+    }
+    if (body) {
+      if (!liveRefresh) body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>';
+      const host = document.getElementById('live-entry-chart-canvas');
+      const view = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#live-entry-chart-canvas') === host;
+      const refreshed = liveRefresh && canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+      if (!refreshed) {
+        if (!host || typeof pfBenchDrawChart !== 'function') throw new Error('Entry chart renderer is unavailable');
+        if (!(data.candles || []).length) throw new Error('No candles for the entered contract yet.');
+        if (!pfBenchDrawChart(host, data)) throw new Error('Entry chart could not be drawn.');
+      }
+    }
+    if (!liveRefresh && data.is_open) _startLiveEntryChartPolling();
+  } catch (error) {
+    if (requestId !== _liveEntryChartRequest) return;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Entry chart unavailable')}</div>`;
+  }
+}
+
+function _startLiveEntryChartPolling() {
+  if (_liveEntryChartPollTimer) clearInterval(_liveEntryChartPollTimer);
+  _liveEntryChartPollTimer = setInterval(() => {
+    const overlay = document.getElementById('live-entry-chart-overlay');
+    if (!overlay || !overlay.classList.contains('is-open')) {
+      clearInterval(_liveEntryChartPollTimer);
+      _liveEntryChartPollTimer = null;
+      return;
+    }
+    openLiveEntryChart(_liveEntryChartRunId, { liveRefresh: true });
+  }, 5000);
+}
+
+function hideLiveEntryChart() {
+  _liveEntryChartRequest++;
+  if (_liveEntryChartPollTimer) { clearInterval(_liveEntryChartPollTimer); _liveEntryChartPollTimer = null; }
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+  const overlay = document.getElementById('live-entry-chart-overlay');
+  if (overlay) {
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+  if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')
+    && !document.getElementById('scalp-option-chart-overlay')?.classList.contains('is-open')) {
+    document.body.classList.remove('terminal-cascade-chart-open');
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.getElementById('live-entry-chart-overlay')?.classList.contains('is-open')) {
+    hideLiveEntryChart();
   }
 });
 
@@ -13399,6 +13575,7 @@ function renderLivePanel(d, idx) {
       ${badgeHtml}
     </div>
     <div class="live-panel-actions" style="display:flex;gap:8px;">
+      ${(d.positions || []).length || (d.closed_trades || []).length ? `<button class="btn" onclick="openLiveEntryChart('${safeRunIdJs}')" style="--btn-bg: rgba(56,189,248,0.15);--btn-color: #7dd3fc;--btn-border: rgba(56,189,248,0.3);font-size:12px;padding:6px 16px;">${ICO.chart ? ICO.chart(14) : ''} Entry Chart</button>` : ''}
       <button class="btn" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(139,92,246,0.15);--btn-color: #a78bfa;--btn-border: rgba(139,92,246,0.3);font-size:12px;padding:6px 16px;">${ICO.eye(14)} Strategy</button>
       ${running ? `<button class="btn" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(239,68,68,0.15);--btn-color: var(--red);--btn-border: rgba(239,68,68,0.3);font-size:12px;padding:6px 16px;">${ICO.sqstop(14)} Stop</button>` : ''}
       ${!running && runId ? `<button class="btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')" style="--btn-bg: rgba(34,197,94,0.15);--btn-color: #4ade80;--btn-border: rgba(34,197,94,0.3);font-size:12px;padding:6px 16px;">${ICO.play(14)} Start</button>` : ''}
@@ -17273,6 +17450,31 @@ document.addEventListener('click', (event) => {
   const open = target.classList.toggle('is-open');
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 });
+
+/* Doc languages: one choice for the whole site, remembered. Picking தமிழ் on
+   the Cascade doc means the two-red doc opens in Tamil too — the reader picked
+   a language, not a language-per-document. */
+function _applyDocLang(lang) {
+  document.querySelectorAll('.pf-doc-lang').forEach((div) => {
+    div.classList.toggle('is-active', div.getAttribute('data-pf-lang') === lang);
+  });
+  document.querySelectorAll('.pf-doc-lang-btn').forEach((b) => {
+    const active = b.getAttribute('data-pf-doc-lang') === lang;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.pf-doc-lang-btn');
+  if (!btn) return;
+  const lang = btn.getAttribute('data-pf-doc-lang') || 'en';
+  _applyDocLang(lang);
+  try { localStorage.setItem('pf-doc-lang', lang); } catch (e) {}
+});
+try {
+  const savedDocLang = localStorage.getItem('pf-doc-lang');
+  if (savedDocLang && savedDocLang !== 'en') _applyDocLang(savedDocLang);
+} catch (e) {}
 
 // ── Recovery (two reds, stop on the entry candle low) ─────────────
 // Phil's stop-loss recovery rules. The panel is a monitor: mothers are named by
