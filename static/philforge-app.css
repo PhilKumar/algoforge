@@ -6772,6 +6772,80 @@ input:focus, select:focus {
   }
 }
 
+/* Results should read like the Cascade monitor, not a neon scorecard. */
+#results-page #results-content {
+  --success: #34d399;
+  --green: #34d399;
+  --danger: #f87171;
+  --red: #f87171;
+  --warn: #fbbf24;
+}
+
+#results-page #results-content :is(.stat-value, .stat-value-lg) {
+  opacity: 1;
+  text-shadow: none;
+}
+
+#results-page #results-content .results-metrics-grid > .stat-box,
+#results-page #results-content .results-pair-grid > .stat-box {
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 10px;
+  background: rgba(9, 15, 28, .54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+
+#results-page #results-content .results-metrics-grid > .stat-box:hover,
+#results-page #results-content .results-pair-grid > .stat-box:hover {
+  transform: none;
+  border-color: rgba(148, 163, 184, .20);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+#results-page #results-content > .card:not(.pf-results-command) {
+  border-color: rgba(148, 163, 184, .14);
+  border-radius: 10px;
+  background: rgba(8, 13, 24, .52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+#results-page #results-content .analytics-inner {
+  border-color: rgba(148, 163, 184, .12);
+  border-radius: 10px;
+  background: rgba(7, 16, 29, .46);
+  box-shadow: none;
+}
+
+#results-page #results-content .analysis-row {
+  border-color: rgba(148, 163, 184, .08);
+  background: rgba(255, 255, 255, .018);
+}
+
+#results-page #results-content .analysis-bar-wrap {
+  border: 1px solid rgba(148, 163, 184, .10);
+  background: rgba(255, 255, 255, .02);
+  box-shadow: none;
+}
+
+#results-page #monthly-pnl-grid table td,
+#results-page #pnl-heatmap > div > div {
+  text-shadow: none;
+}
+
+[data-theme="light"] #results-page #results-content .results-metrics-grid > .stat-box,
+[data-theme="light"] #results-page #results-content .results-pair-grid > .stat-box,
+[data-theme="light"] #results-page #results-content > .card:not(.pf-results-command),
+[data-theme="light"] #results-page #results-content .analytics-inner {
+  border-color: rgba(15, 23, 42, .10);
+  background: rgba(248, 250, 252, .88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+[data-theme="light"] #results-page #results-content .analysis-row,
+[data-theme="light"] #results-page #results-content .analysis-bar-wrap {
+  border-color: rgba(15, 23, 42, .08);
+  background: rgba(15, 23, 42, .018);
+}
+
 /* =====================================================================
    STANDARD LEDGER TABLES
    One table contract for every workspace and overlay.  This deliberately

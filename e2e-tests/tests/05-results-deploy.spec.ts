@@ -156,3 +156,48 @@ test('opening a run from the list scrolls its results into view', async ({ page 
   // looked like it had done nothing.
   await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBe(0);
 });
+
+test('Results analytics use the restrained Cascade contrast', async ({ page }) => {
+  await stubRun(page);
+  await login(page);
+
+  await page.click('#nav-results');
+  const row = page.locator('#runs-list-results td[title="E2E_Deploy_Run"]');
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect(page.locator('#results-run-title')).toHaveText('E2E_Deploy_Run');
+
+  const contrast = await page.evaluate(() => {
+    const value = getComputedStyle(document.querySelector('#res-win-rate')!);
+    const stat = getComputedStyle(document.querySelector('#results-page .results-metrics-grid .stat-box')!);
+    const panel = getComputedStyle(document.querySelector('#results-page .analytics-inner')!);
+    const bars = Array.from(document.querySelectorAll('#year-analysis .analysis-bar-wrap > div'))
+      .map(el => {
+        const style = getComputedStyle(el);
+        return { background: style.backgroundColor, color: style.color };
+      });
+    const monthlyCell = Array.from(document.querySelectorAll('#monthly-pnl-grid tbody td'))
+      .find(el => el.textContent?.includes('12,345'))!;
+    return {
+      valueShadow: value.textShadow,
+      statBackground: stat.backgroundColor,
+      statShadow: stat.boxShadow,
+      panelBackground: panel.backgroundColor,
+      panelShadow: panel.boxShadow,
+      bars,
+      monthlyBackground: getComputedStyle(monthlyCell).backgroundColor,
+    };
+  });
+
+  expect(contrast.valueShadow).toBe('none');
+  expect(contrast.statBackground).toBe('rgba(9, 15, 28, 0.54)');
+  expect(contrast.statShadow).not.toContain('18px');
+  expect(contrast.panelBackground).toBe('rgba(7, 16, 29, 0.46)');
+  expect(contrast.panelShadow).toBe('none');
+  expect(contrast.bars).toEqual([
+    { background: 'rgba(52, 211, 153, 0.18)', color: 'rgb(110, 231, 183)' },
+    { background: 'rgba(248, 113, 113, 0.16)', color: 'rgb(252, 165, 165)' },
+  ]);
+  expect(contrast.monthlyBackground).toMatch(/^rgba\(52, 211, 153, /);
+  expect(Number(contrast.monthlyBackground.match(/, ([\d.]+)\)$/)?.[1])).toBeLessThanOrEqual(0.10);
+});

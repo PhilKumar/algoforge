@@ -11746,7 +11746,7 @@ function renderResults(data, payload) {
         const val = byYear[yr][m] || 0;
         yearTotal += val;
         const isP = val >= 0;
-        const bg = val !== 0 ? (isP ? `rgba(34,197,94,${Math.min(0.25, Math.abs(val)/200000)})` : `rgba(239,68,68,${Math.min(0.25, Math.abs(val)/200000)})`) : '';
+        const bg = val !== 0 ? (isP ? `rgba(52,211,153,${Math.min(0.10, Math.abs(val)/500000)})` : `rgba(248,113,113,${Math.min(0.10, Math.abs(val)/500000)})`) : '';
         const color = val !== 0 ? (isP ? 'var(--success)' : 'var(--danger)') : 'var(--muted)';
         tbl += `<td style="padding:6px 4px;text-align:center;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:11px;color:${color};background:${bg};border-radius:3px;" title="${yr}-${String(m).padStart(2,'0')}: ${fmt(val)}">${val !== 0 ? fmt(val) : '—'}</td>`;
       }
@@ -11898,8 +11898,8 @@ function renderDOW(dowData) {
     container.innerHTML += `<div class="analysis-row">
       <span style="width: 75px; font-size: 11px; color: var(--muted);">${day}</span>
       <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
-        <div style="width: ${hitPct}%; background: linear-gradient(180deg, rgba(34,197,94,1), rgba(21,128,61,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #03150a;">Hit ${d.hits}</div>
-        <div style="width: ${missPct}%; background: linear-gradient(180deg, rgba(239,68,68,1), rgba(153,27,27,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff;">Miss ${d.miss}</div>
+        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #6ee7b7;">Hit ${d.hits}</div>
+        <div style="width: ${missPct}%; background: rgba(248,113,113,.16); box-shadow: inset 0 0 0 1px rgba(248,113,113,.12); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fca5a5;">Miss ${d.miss}</div>
       </div>
       <span style="font-size: 10px; color: var(--success); font-family: 'JetBrains Mono', monospace; width: 75px; text-align: right;">${fmt(d.profit)}</span>
       <span style="font-size: 10px; color: var(--danger); font-family: 'JetBrains Mono', monospace; width: 80px; text-align: right;">-${fmt(Math.abs(d.loss))}</span>
@@ -11917,8 +11917,8 @@ function renderYearly(yearData) {
     container.innerHTML += `<div class="analysis-row">
       <span style="width: 40px; font-size: 11px; font-weight: 600;">${y.year}</span>
       <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
-        <div style="width: ${hitPct}%; background: linear-gradient(180deg, rgba(34,197,94,1), rgba(21,128,61,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #03150a;">Hit ${y.hits}</div>
-        <div style="width: ${missPct}%; background: linear-gradient(180deg, rgba(239,68,68,1), rgba(153,27,27,1)); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff;">Miss ${y.miss}</div>
+        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #6ee7b7;">Hit ${y.hits}</div>
+        <div style="width: ${missPct}%; background: rgba(248,113,113,.16); box-shadow: inset 0 0 0 1px rgba(248,113,113,.12); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fca5a5;">Miss ${y.miss}</div>
       </div>
       <span style="font-size: 10px; color: var(--success); font-family: 'JetBrains Mono', monospace; width: 75px; text-align: right;">${fmt(y.profit)}</span>
       <span style="font-size: 10px; color: var(--danger); font-family: 'JetBrains Mono', monospace; width: 80px; text-align: right;">-${fmt(Math.abs(y.loss))}</span>
@@ -11951,9 +11951,9 @@ function renderHeatmap(trades) {
     html += `<div style="font-size: 11px; font-weight: 700; display: flex; align-items: center;">${year}</div>`;
     for (let m = 1; m <= 12; m++) {
       const val = grid[year][m] || 0;
-      const intensity = Math.min(0.8, (Math.abs(val) / absMax) * 0.7 + 0.1);
-      const bg = val > 0 ? `rgba(34,197,94,${intensity})` : (val < 0 ? `rgba(239,68,68,${intensity})` : 'rgba(255,255,255,0.03)');
-      const textColor = val !== 0 ? (intensity > 0.4 ? '#fff' : (val > 0 ? 'rgb(74,222,128)' : 'rgb(248,113,113)')) : 'var(--muted)';
+      const intensity = Math.min(0.22, (Math.abs(val) / absMax) * 0.16 + 0.04);
+      const bg = val > 0 ? `rgba(52,211,153,${intensity})` : (val < 0 ? `rgba(248,113,113,${intensity})` : 'rgba(255,255,255,0.018)');
+      const textColor = val !== 0 ? (val > 0 ? 'var(--success)' : 'var(--danger)') : 'var(--muted)';
       const label = val !== 0 ? (val > 0 ? '+' : '') + (Math.abs(val) > 999 ? Math.round(val/1000) + 'k' : Math.round(val)) : '';
       html += `<div style="background:${bg};border-radius:4px;height:34px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;font-family:'JetBrains Mono',monospace;color:${textColor};transition:transform 0.15s;" title="${year}-${String(m).padStart(2,'0')}: ${fmt(val)}" onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'">${label}</div>`;
     }
