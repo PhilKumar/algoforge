@@ -4412,7 +4412,7 @@ function filterRuns(mode, btn) {
   });
   if (btn) {
     btn.classList.add('active');
-    if (mode === 'all') _setV(btn, 'linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,200,150),0.3) 0%, rgba(0,150,110,0.5) 100%)', 'rgb(52,211,153)', 'rgba(var(--pf-tint-primary-rgb, 0,200,150),0.6)');
+    if (mode === 'all') _setV(btn, 'linear-gradient(180deg, rgba(96,165,250,0.28) 0%, rgba(30,64,175,0.48) 100%)', '#dbeafe', 'rgba(147,197,253,0.54)');
     else if (mode === 'backtest') _setV(btn, 'linear-gradient(180deg, rgba(59,130,246,0.35) 0%, rgba(40,90,180,0.55) 100%)', 'rgb(96,165,250)', 'rgba(59,130,246,0.7)');
     else if (mode === 'paper') _setV(btn, 'linear-gradient(180deg, rgba(245,158,11,0.35) 0%, rgba(180,120,8,0.55) 100%)', 'rgb(251,191,36)', 'rgba(245,158,11,0.7)');
     else if (mode === 'live') _setV(btn, 'linear-gradient(180deg, rgba(139,92,246,0.35) 0%, rgba(100,60,200,0.55) 100%)', 'rgb(167,139,250)', 'rgba(139,92,246,0.7)');
@@ -7057,6 +7057,7 @@ function _terminalCascadeCanvasViewSnapshot() {
     start: _tcv.start,
     count: _tcv.count,
     atRight: _tcv.start + _tcv.count >= _tcv.candles.length - 0.5,
+    rightOffset: _tcv.start + _tcv.count - _tcv.candles.length,
     yAuto: _tcv.yAuto,
     yMin: _tcv.yMin,
     yMax: _tcv.yMax,
@@ -7067,6 +7068,16 @@ function _tcvMinCount(total) {
   // A young campaign has only a handful of bars; a 10-bar floor made zoom a
   // no-op there (9 candles could never dip under it, freezing the readout).
   return Math.min(5, total);
+}
+
+function _tcvStartBounds(total, count) {
+  // A fitted chart still has to move. Clamping start to [0, total - count]
+  // made that interval [0, 0] at 100%, so every drag snapped straight back
+  // to its starting point. Keep a modest empty margin on either side, like a
+  // trading chart's future/scroll space, while preventing the data from being
+  // dragged completely out of sight.
+  const overscroll = Math.max(2, Math.min(Number(count) * 0.2, 30));
+  return { min: -overscroll, max: Math.max(Number(total) - Number(count), 0) + overscroll };
 }
 
 function _terminalCascadeMountCanvas(payload, keepView = null) {
@@ -7089,7 +7100,9 @@ function _terminalCascadeMountCanvas(payload, keepView = null) {
   if (sameContext) {
     view.count = Math.min(Math.max(keepView.count, _tcvMinCount(n)), n);
     // Pinned to the newest candle stays pinned when the poll appends bars.
-    view.start = keepView.atRight ? n - view.count : Math.max(0, Math.min(keepView.start, n - view.count));
+    view.start = keepView.atRight
+      ? n - view.count + (Number(keepView.rightOffset) || 0)
+      : Number(keepView.start) || 0;
     view.yAuto = keepView.yAuto;
     view.yMin = keepView.yMin;
     view.yMax = keepView.yMax;
@@ -7177,7 +7190,8 @@ function _terminalCascadeCanvasDraw() {
   const x0 = L.gutter, x1 = L.w - L.padR, y0 = L.padT, y1 = L.h - L.padB;
   const plotW = Math.max(x1 - x0, 40), plotH = Math.max(y1 - y0, 40);
   _tcv.count = Math.max(_tcvMinCount(n), Math.min(_tcv.count, n));
-  _tcv.start = Math.max(0, Math.min(_tcv.start, n - _tcv.count));
+  const startBounds = _tcvStartBounds(n, _tcv.count);
+  _tcv.start = Math.max(startBounds.min, Math.min(_tcv.start, startBounds.max));
   const barW = plotW / _tcv.count;
   const X = index => x0 + (index - _tcv.start + 0.5) * barW;
 
@@ -7555,9 +7569,11 @@ function _terminalCascadeCanvasBindEvents() {
       yMin: _tcv.yMin,
       yMax: _tcv.yMax,
       axis: x > _tcv.frame.x1,
-      yAutoWas: _tcv.yAuto,
+      pointerId: event.pointerId,
     };
+    _tcv.cross = null;
     ov.style.cursor = _tcv.drag.axis ? 'ns-resize' : 'grabbing';
+    event.preventDefault();
     try { ov.setPointerCapture(event.pointerId); } catch (err) { /* fine */ }
   });
   ov.addEventListener('pointermove', event => {
@@ -7577,11 +7593,14 @@ function _terminalCascadeCanvasBindEvents() {
         _tcv.yAuto = false;
       } else {
         _tcv.start = drag.start - (x - drag.x) / _tcv.frame.barW;
-        if (!drag.yAutoWas) {
-          const perPx = (drag.yMax - drag.yMin) / _tcv.frame.plotH;
-          _tcv.yMin = drag.yMin + (y - drag.y) * perPx;
-          _tcv.yMax = drag.yMax + (y - drag.y) * perPx;
-        }
+        // Plot dragging pans price as well as time. Previously the first
+        // vertical drag was discarded while auto-scale was on, so users had
+        // to discover and drag the price axis before the chart would follow
+        // their pointer vertically.
+        const perPx = (drag.yMax - drag.yMin) / _tcv.frame.plotH;
+        _tcv.yMin = drag.yMin + (y - drag.y) * perPx;
+        _tcv.yMax = drag.yMax + (y - drag.y) * perPx;
+        _tcv.yAuto = false;
       }
       _terminalCascadeCanvasDraw();
       return;
@@ -7589,15 +7608,21 @@ function _terminalCascadeCanvasBindEvents() {
     _tcv.cross = { x, y };
     _terminalCascadeCanvasDrawOverlay();
   });
-  const release = () => {
+  const release = event => {
     if (!_tcv) return;
+    const pointerId = event?.pointerId ?? _tcv.drag?.pointerId;
     _tcv.drag = null;
     ov.style.cursor = 'crosshair';
+    if (pointerId !== undefined) {
+      try { ov.releasePointerCapture(pointerId); } catch (err) { /* already released */ }
+    }
   };
   ov.addEventListener('pointerup', release);
   ov.addEventListener('pointercancel', release);
+  ov.addEventListener('lostpointercapture', release);
   ov.addEventListener('pointerleave', () => {
     if (!_tcv) return;
+    if (_tcv.drag) return;
     _tcv.cross = null;
     _terminalCascadeCanvasDrawOverlay();
   });
@@ -8426,7 +8451,7 @@ async function fetchScalpLTP() {
     if (match) {
       _scalpCurrentLTP = match.current_premium;
       el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
-      el.style.color = 'var(--green)';
+      el.style.color = 'var(--scalp-info)';
       updateScalpMargin();
       return;
     }
@@ -8442,13 +8467,13 @@ async function fetchScalpLTP() {
     const d = await r.json();
     if (d.status === 'ok' && d.ltp > 0) {
       el.textContent = '₹' + d.ltp.toFixed(2);
-      el.style.color = 'var(--green)';
+      el.style.color = 'var(--scalp-info)';
       _scalpCurrentLTP = d.ltp;
     } else {
       // Fallback: keep last known LTP if we had one, show N/A only if truly unknown
       if (_scalpCurrentLTP > 0) {
         el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
-        el.style.color = 'rgba(52,211,153,0.5)';
+        el.style.color = 'var(--scalp-info)';
       } else {
         el.textContent = 'N/A';
         el.style.color = 'var(--muted)';
@@ -9101,7 +9126,7 @@ function _buildScalpActiveRow(t) {
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
-        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
+        <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
         <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </div></td>
@@ -9119,7 +9144,7 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
-      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%,rgba(4,130,155,0.4) 100%);--btn-color:var(--accent);--btn-border:rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5);">Set</button>
+      <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
       <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
     </div></td>
@@ -9361,7 +9386,9 @@ function _renderScalpStatus(data) {
     if (!events.length) {
       logEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No events yet</div>';
     } else {
-      const colors = { entry: 'var(--green)', exit: 'var(--green)', stop: 'var(--danger)', error: 'var(--danger)', info: 'var(--accent)' };
+      // Cascade-style hierarchy: operational events are blue/purple/amber;
+      // green and red are reserved for actual trade direction and P&L.
+      const colors = { entry: 'var(--scalp-info)', exit: 'var(--scalp-caution)', stop: 'var(--danger)', error: 'var(--danger)', info: 'var(--scalp-info-secondary)' };
       logEl.innerHTML = events.map(e =>
         `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
           <span style="color:var(--muted);margin-right:6px;">${escapeHtml(e.time || '')}</span>
@@ -15150,7 +15177,7 @@ function _updateLivePremiumFromWS(openTrades) {
     const el = _getScalpEl('scalp-live-ltp');
     if (el) {
       el.textContent = '₹' + match.current_premium.toFixed(2);
-      el.style.color = 'var(--green)';
+      el.style.color = 'var(--scalp-info)';
     }
     _scalpCurrentLTP = match.current_premium;
     _scalpLTPFromWS = Date.now();  // mark as fresh — suppresses REST fallback

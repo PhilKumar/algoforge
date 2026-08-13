@@ -1476,13 +1476,13 @@
 <div id="stock-terminal-page" class="page-section">
   <div class="card-glass" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
-      <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.28);color:#4ade80;" id="stock-terminal-head-ico"></span>
+      <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.28);color:var(--accent);" id="stock-terminal-head-ico"></span>
       <span style="font-size: 13px; font-weight: 700; color: var(--text);">Equity &middot; Nifty 200 + BEES</span>
       <span id="stock-terminal-status" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Loading</span>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
       <span id="stock-terminal-selected-chip" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);padding:5px 9px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);">—</span>
-      <span id="stock-terminal-ltp" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:#4ade80;">—</span>
+      <span id="stock-terminal-ltp" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:var(--accent);">—</span>
       <button class="btn btn-sm" onclick="initStockTerminalPage(true)" style="padding:5px 12px;font-size:11px;">Refresh</button>
     </div>
   </div>
@@ -2036,7 +2036,7 @@
         <div style="display:flex;align-items:baseline;gap:8px;min-width:0;">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap;">Stock Price</label>
           <div style="display:flex;align-items:baseline;gap:5px;min-width:0;">
-            <span id="stock-unit-price" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:#4ade80;">—</span>
+            <span id="stock-unit-price" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;color:var(--accent);">—</span>
             <span id="stock-unit-price-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;">LTP</span>
           </div>
         </div>
@@ -2872,7 +2872,7 @@
       <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
     </div>
     <div style="display: flex; gap: 8px;">
-      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 6,182,212),0.25) 0%, rgba(4,130,155,0.4) 100%); --btn-color: var(--accent); --btn-border: rgba(var(--pf-tint-primary-rgb, 6,182,212),0.5); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
       <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
     </div>
   </div>
@@ -2919,7 +2919,7 @@
 
     <!-- Entry Form -->
     <div class="card" style="padding: 20px;">
-      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--accent);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
+      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
         <!-- Row 1: UNDERLYING | EXPIRY -->
         <div>
@@ -2938,7 +2938,7 @@
         <!-- Row 2: LIVE PREMIUM | MARGIN REQUIRED -->
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Live Premium</label>
-          <div id="scalp-live-ltp" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #34d399; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
+          <div id="scalp-live-ltp" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--scalp-info); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
         </div>
         <div>
           <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
