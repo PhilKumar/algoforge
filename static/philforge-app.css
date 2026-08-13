@@ -6191,15 +6191,15 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #oc-tab-bench .tb-entries-card h3 { margin: 0 0 10px; font-size: 14px; }
 #oc-tab-bench .tb-table-scroll { overflow-x: auto; }
 #oc-tab-bench .tb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-#oc-tab-bench .tb-table th {
-  text-align: left; padding: 6px 10px; font: 10px 'JetBrains Mono', monospace;
-  letter-spacing: .5px; text-transform: uppercase; color: var(--muted); white-space: nowrap;
-}
+/* The site ledger alignment (candle-entry sets the convention): numbers and
+   states read from the right, only the first two naming columns read left. */
+#oc-tab-bench .tb-table th,
 #oc-tab-bench .tb-table td {
-  padding: 7px 10px; border-top: 1px solid rgba(148,163,184,.18);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+  text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-#oc-tab-bench .tb-table .tb-none { color: var(--muted); padding: 20px 10px; white-space: normal; }
+#oc-tab-bench .tb-table th:first-child, #oc-tab-bench .tb-table th:nth-child(2),
+#oc-tab-bench .tb-table td:first-child, #oc-tab-bench .tb-table td:nth-child(2) { text-align: left; }
+#oc-tab-bench .tb-table .tb-none { color: var(--muted); padding: 20px 10px; white-space: normal; text-align: left; }
 #oc-tab-bench .tb-gap { color: #b45309; font-size: 11px; }
 
 @media (max-width: 860px) {

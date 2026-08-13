@@ -17560,15 +17560,15 @@ async function _tbLoadSaved(page) {
       <td${open ? ' style="color:var(--warn);"' : ''}>${escapeHtml(String(row.outcome || '—'))}</td>
       <td>${escapeHtml(String(row.entry_count ?? 0))}</td>
       <td${tone}>${isFinite(pnl) ? _tbInr(pnl) : '—'}</td>
-      <td><button class="btn btn-sm cascade-options-control" type="button" data-pf-action="deleteSavedTestBenchRun" data-tb-run="${row.id}" aria-label="Delete this saved run">×</button></td>
+      <td><button class="cascade-options-control is-danger" type="button" data-pf-action="deleteSavedTestBenchRun" data-tb-run="${row.id}" aria-label="Delete this saved run">Delete</button></td>
     </tr>`;
   }).join('');
   table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
   if (pager) {
     pager.innerHTML = data.pages <= 1 ? '' : `
-      <button class="btn btn-sm cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? 'disabled' : ''}>‹ Prev</button>
+      <button class="cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? 'disabled' : ''}>‹ Prev</button>
       <span>Page ${data.page} of ${data.pages} · ${data.total} run${data.total === 1 ? '' : 's'}</span>
-      <button class="btn btn-sm cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.min(data.pages, data.page + 1)}" ${data.page >= data.pages ? 'disabled' : ''}>Next ›</button>`;
+      <button class="cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.min(data.pages, data.page + 1)}" ${data.page >= data.pages ? 'disabled' : ''}>Next ›</button>`;
   }
 }
 

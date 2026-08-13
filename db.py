@@ -1343,7 +1343,11 @@ async def save_test_bench_run(user_id: int, query_key: str, summary: dict, paylo
 
 
 async def list_test_bench_runs(user_id: int, *, search: str = "", page: int = 1, per_page: int = 10) -> dict:
-    """One page of stored runs, newest first.
+    """One page of stored runs, most recently RUN first.
+
+    Ordered by created_at, not the mother's own date: replaying an old mother
+    refreshes its row (save_test_bench_run bumps created_at), so the run you
+    just made is always the top row — Phil's reading of "newest first".
 
     ``search`` matches the mother date/time, the instrument, the strategy or
     the timeframe, so typing a date finds that day's runs directly.
@@ -1370,7 +1374,7 @@ async def list_test_bench_runs(user_id: int, *, search: str = "", page: int = 1,
             f"""SELECT id, instrument, strategy, timeframe, mother_timestamp, rung_inr,
                        itm_steps, outcome, net_pnl, entry_count, created_at
                 FROM test_bench_runs {where}
-                ORDER BY mother_timestamp DESC, id DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?""",  # nosec B608
             [*params, per_page, (page - 1) * per_page],
         ) as cursor:
