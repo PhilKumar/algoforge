@@ -545,6 +545,50 @@ test('with nothing picked it asks for a scrip, it does not chart a campaign', as
    much lower high, broken within the hour. The scanner hint was TEXT; it
    carries the timeframe now. */
 
+test('Cash Cascade chart pans at 100% and follows a vertical plot drag', async ({ page }) => {
+  // This interaction is renderer-only, so it also runs against the static page
+  // without broker credentials or a live application process.
+  await page.goto('/strategy.html');
+  await page.waitForFunction(() => typeof (window as any)._terminalCascadeMountCanvas === 'function');
+  const candles = Array.from({ length: 106 }, (_, i) => ({
+    t: new Date(Date.UTC(2026, 7, 1, 3, 45 + i * 15)).toISOString(),
+    o: 1200 + i * 0.2,
+    h: 1203 + i * 0.2,
+    l: 1197 + i * 0.2,
+    c: 1201 + i * 0.2,
+  }));
+  await page.evaluate((rows) => {
+    const chartOverlay = document.getElementById('terminal-cascade-chart-overlay')!;
+    document.body.appendChild(chartOverlay);
+    chartOverlay.classList.add('is-open');
+    const body = document.getElementById('terminal-cascade-chart-body')!;
+    const payload = {
+      candles: rows,
+      instrument: { symbol: 'GOLDBEES', reference_mode: 'own_scrip' },
+      mother: {}, geometry: { trendlines: [], legs: [] },
+    };
+    body.innerHTML = (window as any)._terminalCascadeChartHtml(payload);
+    (window as any)._terminalCascadeMountCanvas(payload);
+  }, candles);
+
+  const overlay = page.locator('#terminal-cascade-canvas-overlay');
+  const box = (await overlay.boundingBox())!;
+  const before = await page.evaluate(() => (window as any)._terminalCascadeCanvasViewSnapshot());
+  expect(before.count).toBe(106);
+  expect(before.start).toBe(0);
+  expect(before.yAuto).toBe(true);
+
+  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.45);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.42, box.y + box.height * 0.58, { steps: 5 });
+  await page.mouse.up();
+
+  const after = await page.evaluate(() => (window as any)._terminalCascadeCanvasViewSnapshot());
+  expect(after.start).toBeGreaterThan(0);
+  expect(after.yAuto).toBe(false);
+  expect(after.yMin).not.toBe(before.yMin);
+});
+
 function scanChart(timeframe: string) {
   const day = timeframe === '1d';
   const candles = [];
