@@ -2794,6 +2794,35 @@ def _request_user_id(request: Request) -> int:
     return int(user_id or 0)
 
 
+_VIEWER_OWNER_CACHE: tuple[float, int] | None = None
+_VIEWER_OWNER_TTL_SECONDS = 60.0
+
+
+async def _viewer_data_owner_id() -> int:
+    """The account whose trading a read-only login is shown.
+
+    There is exactly one owner here -- this is a single trader's site with a
+    few family members watching -- so it is the admin account, looked up
+    rather than configured. Cached briefly because it is consulted on every
+    viewer read and it almost never changes.
+    """
+
+    global _VIEWER_OWNER_CACHE
+    now = time.monotonic()
+    if _VIEWER_OWNER_CACHE and now - _VIEWER_OWNER_CACHE[0] < _VIEWER_OWNER_TTL_SECONDS:
+        return _VIEWER_OWNER_CACHE[1]
+    owner_id = 0
+    try:
+        owner = await _get_preferred_admin_user()
+        if owner:
+            owner_id = int(owner.get("id") or 0)
+    except Exception as owner_error:
+        _logger.warning("[Auth] Could not resolve the viewer data owner: %s", owner_error)
+        return 0
+    _VIEWER_OWNER_CACHE = (now, owner_id)
+    return owner_id
+
+
 async def _resolve_history_user_id(explicit_user_id: int | None = None, source: dict | None = None) -> int:
     """Resolve a run-history owner from request context, engine state, or admin fallback."""
     candidates: list[object] = [explicit_user_id]
@@ -3519,6 +3548,24 @@ async def auth_middleware(request: Request, call_next):
                 "code": "read_only_account",
             },
         )
+    if _auth_mod.is_viewer(user):
+        if not _auth_mod.viewer_may_read(path):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "A read-only account cannot see the account balance.",
+                    "code": "read_only_account",
+                },
+            )
+        # A viewer has no trading of their own, so the reads on the allowlist
+        # are answered from the owner's account instead. current_user stays the
+        # viewer -- who they are, what they may do, and their own login are all
+        # still theirs; only the DATA moves.
+        if _auth_mod.viewer_reads_owner_data(request.method, path):
+            owner_id = await _viewer_data_owner_id()
+            if owner_id:
+                request.state.viewer_id = user["id"]
+                request.state.user_id = owner_id
     action_class = _auth_mod.classify_sensitive_action(request.method, path)
     if action_class:
         if not bool(user.get("mfa_enabled")):

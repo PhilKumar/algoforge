@@ -349,3 +349,81 @@ def viewer_may_call(method: str, path: str) -> bool:
     if method.upper() in SAFE_METHODS:
         return True
     return path in VIEWER_WRITE_ALLOWLIST
+
+
+# Every read below is answered from the OWNER's account rather than the
+# viewer's own, because a viewer has no trading of their own to look at — an
+# unshared viewer login shows an empty site, which is not what a read-only
+# account is for.
+#
+# This is an allowlist and must stay one. The tempting inverse ("share
+# everything except…") fails open, and the first thing it would leak is the
+# owner's broker credentials, which hang off the same user id. Anything not
+# named here keeps answering from the viewer's own account, so a route added
+# later shows them nothing instead of showing them too much.
+VIEWER_SHARED_READ_PREFIXES = (
+    "/api/backfill/",
+    "/api/backtest/",
+    "/api/broker/trades",
+    "/api/candle-entry/",
+    "/api/cascade/",
+    "/api/charts/",
+    "/api/dashboard/",
+    "/api/engine-control/",
+    "/api/engines/",
+    "/api/feed/",
+    "/api/fib-boundary/",
+    "/api/fib-space/",
+    "/api/financial-plan",
+    "/api/journal/",
+    "/api/live/",
+    "/api/options/",
+    "/api/orders",
+    "/api/paper/",
+    "/api/portfolio/",
+    "/api/positions",
+    "/api/recovery/",
+    "/api/runs",
+    "/api/scalp/",
+    "/api/strategies",
+    "/api/study-library",
+    "/api/terminal/",
+    "/api/test-bench/",
+    "/api/two-red/",
+)
+
+# Named for emphasis rather than necessity: none of these start with a shared
+# prefix, so the allowlist already excludes them. They are the reads that must
+# stay the viewer's OWN — who they are and what they may do.
+VIEWER_PRIVATE_READS = (
+    "/api/admin/",
+    "/api/auth/",
+    "/api/user/",
+)
+
+# The account balance, refused outright. Keeping these off the shared list is
+# not enough: both resolve their broker client from the user record and fall
+# back to the admin's, so an unrefused viewer would be handed the real funds no
+# matter whose user id the request carried. Neither is called by any page, so
+# refusing them costs nothing on screen — the balance is genuinely withheld,
+# not merely hidden.
+VIEWER_REFUSED_READS = frozenset(
+    {
+        "/api/funds",
+        "/api/portfolio/summary",
+    }
+)
+
+
+def viewer_may_read(path: str) -> bool:
+    """False for the handful of reads that would expose the balance."""
+    return path not in VIEWER_REFUSED_READS
+
+
+def viewer_reads_owner_data(method: str, path: str) -> bool:
+    """True when this read should be answered from the owner's account."""
+    if method.upper() not in SAFE_METHODS:
+        return False
+    if path.startswith(VIEWER_PRIVATE_READS):
+        return False
+    return path.startswith(VIEWER_SHARED_READ_PREFIXES)

@@ -88,5 +88,70 @@ class ViewerRoleTests(unittest.TestCase):
             )
 
 
+class ViewerSharedDataTests(unittest.TestCase):
+    """Which reads come from the owner's account, and which stay the viewer's.
+
+    A viewer has no trading of their own, so without sharing the whole feature
+    shows an empty site. Sharing is an allowlist because the failure mode of
+    the inverse is handing out the owner's broker credentials.
+    """
+
+    def test_the_pages_a_viewer_is_meant_to_watch_show_the_owners_data(self):
+        for path in (
+            "/api/strategies",
+            "/api/runs",
+            "/api/runs/347",
+            "/api/live/status",
+            "/api/positions",
+            "/api/orders",
+            "/api/paper/status",
+            "/api/portfolio/history",
+            "/api/terminal/cascade/status",
+            "/api/scalp/status",
+            "/api/journal/2026-08-13",
+            "/api/engines/all",
+            "/api/broker/trades",
+            "/api/two-red/status",
+            "/api/fib-space/paper/status",
+        ):
+            self.assertTrue(auth.viewer_reads_owner_data("GET", path), path)
+
+    def test_who_you_are_is_never_borrowed_from_the_owner(self):
+        for path in (
+            "/api/auth/status",
+            "/api/auth/passkeys",
+            "/api/user/profile",
+            "/api/user/execution-ip-status",
+            "/api/admin/users",
+        ):
+            self.assertFalse(auth.viewer_reads_owner_data("GET", path), path)
+
+    def test_sharing_is_reads_only(self):
+        """Redirecting a WRITE at the owner's account would be catastrophic."""
+        for method in ("POST", "PUT", "PATCH", "DELETE"):
+            self.assertFalse(auth.viewer_reads_owner_data(method, "/api/strategies"))
+            self.assertFalse(auth.viewer_reads_owner_data(method, "/api/live/start"))
+
+    def test_an_unknown_future_read_is_not_shared(self):
+        """Fails closed: a new route shows a viewer nothing, never too much."""
+        self.assertFalse(auth.viewer_reads_owner_data("GET", "/api/something/invented/next-year"))
+
+    def test_the_balance_is_refused_outright(self):
+        """Not merely unshared -- these fall back to the admin's broker."""
+        self.assertFalse(auth.viewer_may_read("/api/funds"))
+        self.assertFalse(auth.viewer_may_read("/api/portfolio/summary"))
+
+    def test_everything_else_is_still_readable(self):
+        for path in ("/api/portfolio/history", "/api/positions", "/api/live/status", "/app"):
+            self.assertTrue(auth.viewer_may_read(path), path)
+
+    def test_no_shared_prefix_ever_reaches_a_private_one(self):
+        for private in auth.VIEWER_PRIVATE_READS:
+            self.assertFalse(
+                any(private.startswith(shared) for shared in auth.VIEWER_SHARED_READ_PREFIXES),
+                f"{private} is reachable through the shared allowlist",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
