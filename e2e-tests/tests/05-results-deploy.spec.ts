@@ -169,7 +169,8 @@ test('Results analytics use the restrained Cascade contrast', async ({ page }) =
 
   const contrast = await page.evaluate(() => {
     const value = getComputedStyle(document.querySelector('#res-win-rate')!);
-    const stat = getComputedStyle(document.querySelector('#results-page .results-metrics-grid .stat-box')!);
+    const statEl = document.querySelector('#results-page .results-metrics-grid .results-stat-metric')!;
+    const stat = getComputedStyle(statEl);
     const panel = getComputedStyle(document.querySelector('#results-page .analytics-inner')!);
     const bars = Array.from(document.querySelectorAll('#year-analysis .analysis-bar-wrap > div'))
       .map(el => {
@@ -180,6 +181,11 @@ test('Results analytics use the restrained Cascade contrast', async ({ page }) =
       .find(el => el.textContent?.includes('12,345'))!;
     return {
       valueShadow: value.textShadow,
+      metricCount: document.querySelectorAll('#results-page .results-stat-metric').length,
+      primaryColumns: getComputedStyle(document.querySelector('#results-page .results-metrics-grid')!).gridTemplateColumns.split(' ').length,
+      secondaryColumns: getComputedStyle(document.querySelector('#results-page .results-pair-grid')!).gridTemplateColumns.split(' ').length,
+      statHeight: statEl.getBoundingClientRect().height,
+      valueSize: value.fontSize,
       statBackground: stat.backgroundColor,
       statShadow: stat.boxShadow,
       panelBackground: panel.backgroundColor,
@@ -190,6 +196,11 @@ test('Results analytics use the restrained Cascade contrast', async ({ page }) =
   });
 
   expect(contrast.valueShadow).toBe('none');
+  expect(contrast.metricCount).toBe(11);
+  expect(contrast.primaryColumns).toBe(5);
+  expect(contrast.secondaryColumns).toBe(6);
+  expect(contrast.statHeight).toBeLessThanOrEqual(72);
+  expect(contrast.valueSize).toBe('19px');
   expect(contrast.statBackground).toBe('rgba(9, 15, 28, 0.54)');
   expect(contrast.statShadow).not.toContain('18px');
   expect(contrast.panelBackground).toBe('rgba(7, 16, 29, 0.46)');

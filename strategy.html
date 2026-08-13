@@ -915,47 +915,33 @@
       <canvas id="equity-chart" style="width: 100%; height: 300px;"></canvas>
     </div>
 
-    <!-- Primary Stats -->
-    <div class="results-metrics-grid">
-      <div class="stat-box"><div class="stat-label">Winning Probability</div><div id="res-win-rate" class="stat-value-lg" style="color: var(--success);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Win Loss Ratio</div><div id="res-wl-ratio" class="stat-value-lg">0:0</div></div>
-      <div class="stat-box"><div class="stat-label">Risk Per Trade</div><div id="res-risk" class="stat-value-lg" style="color: var(--success);">0%</div></div>
-      <div class="stat-box"><div class="stat-label">Max Drawdown</div><div id="res-max-dd" class="stat-value-lg" style="color: var(--danger);">0</div></div>
-      <div class="stat-box"><div class="stat-label">Drawdown Days</div><div id="res-dd-days" class="stat-value-lg">0</div></div>
-    </div>
-    <!-- Secondary Stats -->
-    <div class="results-pair-grid">
-      <div class="stat-box result-pair-box">
-        <div class="result-pair-item">
-          <div class="stat-label">AVG Profit</div>
-          <div id="res-avg-profit" class="stat-value" style="color: var(--success);">₹0</div>
+    <!-- Institutional research ledger — compact like the Cascade monitor. -->
+    <section class="results-stat-ledger" aria-labelledby="results-stat-ledger-title">
+      <header class="results-stat-ledger-head">
+        <div>
+          <span id="results-stat-ledger-title">Risk &amp; performance ledger</span>
+          <strong>Outcome, exposure and drawdown at a glance</strong>
         </div>
-        <div class="result-pair-item">
-          <div class="stat-label">Avg Loss</div>
-          <div id="res-avg-loss" class="stat-value" style="color: var(--danger);">₹0</div>
+        <em>11 decision metrics</em>
+      </header>
+      <div class="results-stat-ledger-body">
+        <div class="results-metrics-grid">
+          <article class="results-stat-metric"><div class="stat-label">Winning Probability</div><div id="res-win-rate" class="stat-value-lg" style="color: var(--success);">0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Win Loss Ratio</div><div id="res-wl-ratio" class="stat-value-lg">0:0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Risk Per Trade</div><div id="res-risk" class="stat-value-lg" style="color: var(--success);">0%</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Max Drawdown</div><div id="res-max-dd" class="stat-value-lg" style="color: var(--danger);">0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Drawdown Days</div><div id="res-dd-days" class="stat-value-lg">0</div></article>
         </div>
-      </div>
-      <div class="stat-box result-pair-box">
-        <div class="result-pair-item">
-          <div class="stat-label">Win Streak</div>
-          <div id="res-win-streak" class="stat-value">0</div>
-        </div>
-        <div class="result-pair-item">
-          <div class="stat-label">Loss Streak</div>
-          <div id="res-loss-streak" class="stat-value">0</div>
+        <div class="results-pair-grid">
+          <article class="results-stat-metric"><div class="stat-label">Avg Profit</div><div id="res-avg-profit" class="stat-value" style="color: var(--success);">₹0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Avg Loss</div><div id="res-avg-loss" class="stat-value" style="color: var(--danger);">₹0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Win Streak</div><div id="res-win-streak" class="stat-value">0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Loss Streak</div><div id="res-loss-streak" class="stat-value">0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Max Profit</div><div id="res-max-profit" class="stat-value" style="color: var(--success);">₹0</div></article>
+          <article class="results-stat-metric"><div class="stat-label">Max Loss</div><div id="res-max-loss" class="stat-value" style="color: var(--danger);">₹0</div></article>
         </div>
       </div>
-      <div class="stat-box result-pair-box">
-        <div class="result-pair-item">
-          <div class="stat-label">MAX Profit</div>
-          <div id="res-max-profit" class="stat-value" style="color: var(--success);">₹0</div>
-        </div>
-        <div class="result-pair-item">
-          <div class="stat-label">Max Loss</div>
-          <div id="res-max-loss" class="stat-value" style="color: var(--danger);">₹0</div>
-        </div>
-      </div>
-    </div>
+    </section>
 
     <!-- Transactions Analytics — Glossy -->
     <div class="card" style="padding: 22px; margin-bottom: 16px;">

@@ -6786,16 +6786,14 @@ input:focus, select:focus {
   text-shadow: none;
 }
 
-#results-page #results-content .results-metrics-grid > .stat-box,
-#results-page #results-content .results-pair-grid > .stat-box {
+#results-page #results-content .results-stat-metric {
   border: 1px solid rgba(148, 163, 184, .14);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(9, 15, 28, .54);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
-#results-page #results-content .results-metrics-grid > .stat-box:hover,
-#results-page #results-content .results-pair-grid > .stat-box:hover {
+#results-page #results-content .results-stat-metric:hover {
   transform: none;
   border-color: rgba(148, 163, 184, .20);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
@@ -6831,8 +6829,7 @@ input:focus, select:focus {
   text-shadow: none;
 }
 
-[data-theme="light"] #results-page #results-content .results-metrics-grid > .stat-box,
-[data-theme="light"] #results-page #results-content .results-pair-grid > .stat-box,
+[data-theme="light"] #results-page #results-content .results-stat-metric,
 [data-theme="light"] #results-page #results-content > .card:not(.pf-results-command),
 [data-theme="light"] #results-page #results-content .analytics-inner {
   border-color: rgba(15, 23, 42, .10);
@@ -6844,6 +6841,145 @@ input:focus, select:focus {
 [data-theme="light"] #results-page #results-content .analysis-bar-wrap {
   border-color: rgba(15, 23, 42, .08);
   background: rgba(15, 23, 42, .018);
+}
+
+/* Compact institutional KPI ledger. Its dimensions and hierarchy intentionally
+   follow the Cascade summary strip instead of the generic dashboard stat cards. */
+#results-page .results-stat-ledger {
+  margin-bottom: var(--pf-workspace-gap);
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 10px;
+  background: rgba(8, 13, 24, .52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+#results-page .results-stat-ledger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 13px;
+  border-bottom: 1px solid rgba(148, 163, 184, .12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, .012));
+}
+
+#results-page .results-stat-ledger-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+#results-page .results-stat-ledger-head span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#results-page .results-stat-ledger-head strong,
+#results-page .results-stat-ledger-head em {
+  color: var(--muted);
+  font: 500 10px var(--font-mono);
+  font-style: normal;
+}
+
+#results-page .results-stat-ledger-head em {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+#results-page .results-stat-ledger-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+#results-page .results-stat-ledger :is(.results-metrics-grid, .results-pair-grid) {
+  display: grid;
+  gap: 8px;
+  margin: 0 !important;
+}
+
+#results-page .results-stat-ledger .results-metrics-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+#results-page .results-stat-ledger .results-pair-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+#results-page .results-stat-metric {
+  min-width: 0;
+  min-height: 68px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 9px 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#results-page .results-stat-ledger .stat-label {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: 800 9px var(--font-mono);
+  letter-spacing: .07em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+#results-page .results-stat-ledger .stat-value-lg,
+#results-page .results-stat-ledger .stat-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#results-page .results-stat-ledger .results-metrics-grid .stat-value-lg {
+  font-size: 19px;
+}
+
+[data-theme="light"] #results-page .results-stat-ledger {
+  border-color: rgba(15, 23, 42, .10);
+  background: rgba(248, 250, 252, .88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .84);
+}
+
+[data-theme="light"] #results-page .results-stat-ledger-head {
+  border-bottom-color: rgba(15, 23, 42, .08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .82), rgba(15, 23, 42, .018));
+}
+
+@media (max-width: 1100px) {
+  #results-page .results-stat-ledger .results-metrics-grid,
+  #results-page .results-stat-ledger .results-pair-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  #results-page .results-stat-ledger .results-metrics-grid,
+  #results-page .results-stat-ledger .results-pair-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #results-page .results-stat-ledger-head { align-items: flex-start; }
+  #results-page .results-stat-metric { min-height: 64px; }
+}
+
+@media (max-width: 350px) {
+  #results-page .results-stat-ledger .results-metrics-grid,
+  #results-page .results-stat-ledger .results-pair-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* =====================================================================
