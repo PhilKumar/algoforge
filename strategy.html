@@ -2851,8 +2851,11 @@
           <div class="terminal-cascade-chart-title"><h3>Fib-space campaign chart</h3><div id="fsx-chart-meta">Loading chart…</div></div>
           <div class="terminal-cascade-chart-actions">
             <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ fib level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div>
-            <!-- No timeframe picker: this chart replays the campaign's OWN
-                 bars, so a different timeframe would not be the same run. -->
+            <!-- Filled from the payload: the campaign's own timeframe plus the
+                 coarser ones its bars fold onto. Finer ones are never offered,
+                 because this chart replays the campaign's OWN bars and cannot
+                 invent a bar smaller than the one it ran on. -->
+            <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="fsx-chart-tf"></div>
             <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
               <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-out title="Zoom out" aria-label="Zoom out">&minus;</button>
               <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>

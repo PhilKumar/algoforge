@@ -112,6 +112,7 @@ from engine.cascade_scanner import ScanInput
 from engine.cascade_scanner import chart_window as cascade_scan_chart_window
 from engine.cascade_scanner import scan as cascade_scan
 from engine.fib_space_cascade import SpaceCascadeConfig
+from engine.fib_space_chart_fold import fold_campaign_chart, foldable_timeframes
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
@@ -12401,7 +12402,7 @@ async def fib_space_paper_campaign_delete(request: Request):
 
 
 @app.get("/api/fib-space/paper/chart")
-async def fib_space_paper_chart(campaign_id: str, request: Request):
+async def fib_space_paper_chart(campaign_id: str, request: Request, timeframe: str = ""):
     """The campaign drawn: geometry, fills and target, for the shared renderer."""
     runtime, campaign = _fib_space_campaign_or_404(request, campaign_id)
     # A campaign that has not been polled yet still HAS geometry -- it just has
@@ -12416,6 +12417,16 @@ async def fib_space_paper_chart(campaign_id: str, request: Request):
     payload = runtime.host.book.campaign_chart(campaign)
     if payload.get("status") != "ok":
         raise HTTPException(status_code=409, detail=payload.get("reason") or "This campaign has nothing to draw yet.")
+    # A coarser view of the SAME replay bars. This chart cannot re-fetch another
+    # timeframe the way the swing-ladder chart does -- it is drawn from the
+    # campaign's own run precisely so it cannot disagree with the trade beside
+    # it -- but folding those bars is that same data, read further back.
+    payload["timeframes"] = foldable_timeframes(payload.get("timeframe") or "")
+    if timeframe:
+        try:
+            payload = fold_campaign_chart(payload, timeframe)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     return payload
 
 

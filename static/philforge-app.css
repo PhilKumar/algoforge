@@ -6788,10 +6788,14 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* The close button is the Campaign Chart's is-danger control now, so it
      brings its own colour; overriding it here made this one chart's ✕ a
      different red from every other chart's. */
-  /* Exactly ONE zoom control per chart: where the strip supplies the toolbar
-     cluster (the Campaign Chart design), the host's floating one stands down.
-     Charts with no strip keep the floating cluster and lose nothing. */
-  .pf-cascade-chart-dialog:has(.pf-chart-strip-zoom) .pf-bench-zoom { display: none; }
+  /* Exactly ONE zoom control per chart: where a toolbar supplies the cluster
+     (the Campaign Chart design), the host's floating one stands down. Charts
+     with no toolbar zoom keep the floating cluster and lose nothing.
+     Keyed on the ATTRIBUTE the buttons carry, not on a class: keying it to
+     .pf-chart-strip-zoom only matched pfChartStrip's generated toolbar, so the
+     hand-written fib-space and two-red toolbars still showed TWO zoom clusters
+     — one in the bar and one floating on the plot (Phil, 2026-08-15). */
+  .pf-cascade-chart-dialog:has([data-strip-zoom-out]) .pf-bench-zoom { display: none; }
 
   /* The zoom cluster every canvas host carries — floats over the plot's
      top-right corner so no caller has to build it. */

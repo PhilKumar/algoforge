@@ -3065,6 +3065,41 @@ function _renderFibSpaceDetail(c) {
   }).join(''));
 }
 
+// Which timeframe the campaign chart is being READ on. Empty means the
+// campaign's own — the timeframe it actually ran and decided on.
+let _fsxChartTf = '';
+
+// The server says which timeframes these bars fold onto, so the bar cannot
+// offer a chart the payload can't produce. Built once per open, then only the
+// active button moves.
+function _fsxRenderChartTimeframes(data) {
+  const host = document.getElementById('fsx-chart-tf');
+  if (!host) return;
+  const offered = Array.isArray(data.timeframes) ? data.timeframes : [];
+  const base = String(data.base_timeframe || data.timeframe || '');
+  const active = String(data.timeframe || '');
+  if (offered.length < 2) { host.innerHTML = ''; return; }
+  if (host.childElementCount !== offered.length) {
+    host.innerHTML = offered.map(tf => {
+      const own = tf === base ? ' title="The timeframe this campaign ran on"' : '';
+      return `<button type="button" class="terminal-cascade-tf-option" role="radio" aria-checked="false" data-fsx-tf="${escapeAttr(tf)}"${own}>${escapeHtml(tf.toUpperCase())}</button>`;
+    }).join('');
+  }
+  host.querySelectorAll('[data-fsx-tf]').forEach(b => {
+    const on = b.getAttribute('data-fsx-tf') === active;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function _fsxChartTimeframeClicked(event) {
+  const btn = event.target.closest('#fsx-chart-tf [data-fsx-tf]');
+  if (!btn) return;
+  _fsxChartTf = btn.getAttribute('data-fsx-tf') || '';
+  loadFibSpaceChart();
+}
+document.addEventListener('click', _fsxChartTimeframeClicked);
+
 async function loadFibSpaceChart() {
   if (!_fsxOpenCampaignId) return;
   const chart = document.getElementById('fsx-chart');
@@ -3073,9 +3108,12 @@ async function loadFibSpaceChart() {
   pfSetCascadeChartOverlayOpen(overlay, true);
   if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading the campaign\'s own replay…</div>';
   try {
-    const response = await fetch(`/api/fib-space/paper/chart?campaign_id=${encodeURIComponent(_fsxOpenCampaignId)}`, { credentials: 'same-origin', cache: 'no-store' });
+    const query = new URLSearchParams({ campaign_id: _fsxOpenCampaignId });
+    if (_fsxChartTf) query.set('timeframe', _fsxChartTf);
+    const response = await fetch(`/api/fib-space/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
+    _fsxRenderChartTimeframes(data);
     // Only one canvas may be mounted — the renderer finds its surfaces by fixed
     // id, so any other chart has to be folded away before this one mounts.
     _fibBoundaryCollapseBacktestChart();
@@ -3095,6 +3133,8 @@ async function loadFibSpaceChart() {
 function hideFibSpaceChart() {
   const overlay = document.getElementById('fsx-chart-overlay');
   pfSetCascadeChartOverlayOpen(overlay, false);
+  // The next campaign opens on ITS own timeframe, not this one's override.
+  _fsxChartTf = '';
   // Without the teardown the renderer's observers leak on every open.
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
 }
