@@ -123,6 +123,21 @@ html[data-theme="light"] .doc-section { background: rgba(250,252,254,.82); }
 .chapter-gate { margin: 50px 0 76px 280px; padding: 26px; display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center; border: 1px solid var(--line-strong); border-radius: 15px; background: linear-gradient(125deg, rgba(var(--accent-rgb),.08), transparent 48%), var(--surface); }
 .chapter-gate .eyebrow { margin-bottom: 8px; }.chapter-gate h2 { margin: 0; font-size: 24px; }.chapter-gate p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }.chapter-gate a { padding: 13px 15px; border: 1px solid rgba(var(--accent-rgb),.4); border-radius: 8px; color: var(--text); background: rgba(var(--accent-rgb),.08); text-decoration: none; font: 600 9px var(--mono); }.chapter-gate a b { color: var(--accent); margin-left: 8px; }
 footer { width: min(1500px, calc(100% - 40px)); min-height: 70px; margin: 0 auto; padding: 20px 0; display: flex; justify-content: space-between; gap: 18px; align-items: center; border-top: 1px solid var(--line); color: var(--dim); font: 500 8px var(--mono); letter-spacing: .06em; }
+
+/* The full blueprint reader lives below the normal PhilForge page heading.
+   Its document rail owns the inner scroll while the global app shell remains
+   visible, so there is no second brand header or duplicate navigation. */
+body.is-embedded { min-width: 0; background-color: var(--bg); }
+body.is-embedded .reader-header,
+body.is-embedded > footer,
+body.is-embedded .chapter-gate,
+body.is-embedded .skip-link { display: none !important; }
+body.is-embedded .reader-shell { width: calc(100% - 28px); }
+body.is-embedded .document-hero { min-height: 320px; }
+body.is-embedded .document-rail { top: 14px; }
+body.is-embedded .rail-sticky { max-height: calc(100vh - 28px); }
+body.is-embedded .doc-section,
+body.is-embedded .doc-section h3.doc-subheading { scroll-margin-top: 18px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 @media (max-width: 1050px) {

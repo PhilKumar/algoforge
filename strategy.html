@@ -190,10 +190,10 @@
       <span class="tab-icon" style="color: #fb7185;" id="ico-results"></span>
       <span class="tab-label">Results</span>
     </button>
-    <a id="nav-architecture" class="nav-tab" href="/architecture" title="System Architecture Atlas">
+    <button id="nav-architecture" class="nav-tab" data-pf-nav-page="architecture-page" title="System Architecture Atlas">
       <span class="tab-icon" style="color: #75adff;" aria-hidden="true">⌬</span>
       <span class="tab-label">Architecture</span>
-    </a>
+    </button>
       </div>
     </nav>
   </div>
@@ -3632,6 +3632,44 @@
 
 </div>
 
+<!-- ═══ ARCHITECTURE ═══ -->
+<div id="architecture-page" class="page-section pf-unified-page">
+  <section class="pf-workspace-hero" aria-label="Architecture overview">
+    <div class="pf-workspace-hero-copy">
+      <div class="pf-workspace-eyebrow">System blueprint</div>
+      <h1>Architecture</h1>
+      <p>The live map, platform boundaries, and complete CryptoForge and PhilForge blueprints—inside the same operating workspace.</p>
+    </div>
+    <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Scope</span><strong>2 platforms</strong></div>
+      <div><span>State</span><strong>Repository-backed</strong></div>
+      <div><span>Access</span><strong>Private</strong></div>
+    </div>
+  </section>
+
+  <section class="pf-architecture-workspace" aria-labelledby="architecture-view-title">
+    <div class="pf-architecture-viewbar">
+      <div>
+        <span class="pf-architecture-viewbar-label">Architecture view</span>
+        <strong id="architecture-view-title">The Eagle's View</strong>
+      </div>
+      <div class="pf-architecture-tabs" role="tablist" aria-label="Architecture view">
+        <button type="button" role="tab" aria-selected="true" aria-controls="architecture-overview-panel" data-pf-architecture-view="overview">Atlas</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="architecture-reader-panel" tabindex="-1" data-pf-architecture-view="cryptoforge"><i class="crypto"></i>CryptoForge</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="architecture-reader-panel" tabindex="-1" data-pf-architecture-view="philforge"><i class="phil"></i>PhilForge</button>
+      </div>
+    </div>
+
+    <div id="architecture-overview-panel" class="pf-architecture-panel" role="tabpanel">
+      <philforge-architecture-atlas data-asset-version="__ASSET_VERSION__"></philforge-architecture-atlas>
+    </div>
+    <div id="architecture-reader-panel" class="pf-architecture-panel pf-architecture-reader" role="tabpanel" hidden>
+      <div class="pf-architecture-reader-status" id="architecture-reader-status" aria-live="polite">Choose a platform blueprint.</div>
+      <iframe id="architecture-reader-frame" title="Architecture blueprint" loading="lazy"></iframe>
+    </div>
+  </section>
+</div>
+
 <!-- ═══ CHARTS VIEWER ═══ -->
 <div id="charts-page" class="page-section" style="margin: 0 auto;">
   <section class="pf-workspace-hero" aria-label="Journal overview" style="margin-bottom: 14px;">
@@ -4070,6 +4108,8 @@
   </div>
 </div>
 
+<script src="/static/architecture.js?v=__ASSET_VERSION__"></script>
+<script src="/static/philforge-architecture-page.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-flow-chart-1"></script>
   <!-- The two Insights panels keep their own scripts; both expose a starter
        and skip self-starting when the app shell is present. -->

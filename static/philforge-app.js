@@ -1424,6 +1424,7 @@ const NAV_BUTTON_MAP = {
   'options-cascade-page': 'nav-trading',
   'charts-page': 'nav-charts',
   'insights-page': 'nav-insights',
+  'architecture-page': 'nav-architecture',
 };
 
 const TRADING_SECTION_BY_PAGE = {
@@ -1434,6 +1435,63 @@ const TRADING_SECTION_BY_PAGE = {
 const TRADING_PAGE_BY_SECTION = Object.fromEntries(
   Object.entries(TRADING_SECTION_BY_PAGE).map(([page, section]) => [section, page])
 );
+
+const ARCHITECTURE_VIEWS = new Set(['overview', 'cryptoforge', 'philforge']);
+let _architectureView = 'overview';
+let _architectureThemeObserver = null;
+
+function _syncArchitectureReaderTheme() {
+  const frame = document.getElementById('architecture-reader-frame');
+  try {
+    if (frame?.contentDocument?.documentElement) {
+      frame.contentDocument.documentElement.dataset.theme = document.documentElement.dataset.theme || 'dark';
+    }
+  } catch (_) {}
+}
+
+function initArchitecturePage(requestedView = _architectureView) {
+  const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : 'overview';
+  _architectureView = view;
+  const overview = document.getElementById('architecture-overview-panel');
+  const reader = document.getElementById('architecture-reader-panel');
+  const frame = document.getElementById('architecture-reader-frame');
+  const title = document.getElementById('architecture-view-title');
+  if (!overview || !reader || !frame) return;
+
+  document.querySelectorAll('[data-pf-architecture-view]').forEach((tab) => {
+    const selected = tab.getAttribute('data-pf-architecture-view') === view;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  const isOverview = view === 'overview';
+  overview.hidden = !isOverview;
+  reader.hidden = isOverview;
+  if (title) title.textContent = isOverview ? "The Eagle's View" : `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
+
+  if (!isOverview) {
+    const expectedPath = `/architecture/${view}?embedded=1`;
+    if (!frame.getAttribute('src')?.endsWith(expectedPath)) frame.src = expectedPath;
+    frame.title = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} architecture blueprint`;
+    frame.addEventListener('load', _syncArchitectureReaderTheme, { once: true });
+    if (!_architectureThemeObserver) {
+      _architectureThemeObserver = new MutationObserver(_syncArchitectureReaderTheme);
+      _architectureThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }
+  }
+}
+
+function openArchitectureView(view, options = {}) {
+  const nextView = ARCHITECTURE_VIEWS.has(view) ? view : 'overview';
+  showPage('architecture-page', document.getElementById('nav-architecture'), {
+    scrollToTop: options.scrollToTop !== false,
+    pushHistory: options.pushHistory !== false,
+    historyState: { architectureView: nextView },
+  });
+  initArchitecturePage(nextView);
+}
+
+window.initArchitecturePage = initArchitecturePage;
+window.openArchitectureView = openArchitectureView;
 
 function syncTradingSectionControls(page) {
   const section = TRADING_SECTION_BY_PAGE[page] || '';
@@ -1625,6 +1683,10 @@ function buildNavState(page, extra = {}) {
 function navHashForState(state) {
   const page = state?.page || 'dashboard-page';
   if (TRADING_SECTION_BY_PAGE[page]) return `#trading/${TRADING_SECTION_BY_PAGE[page]}`;
+  if (page === 'architecture-page') {
+    const view = ARCHITECTURE_VIEWS.has(state?.architectureView) ? state.architectureView : 'overview';
+    return `#architecture/${view}`;
+  }
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0) {
     return `#results-page/${Number(state.runId)}`;
   }
@@ -1637,6 +1699,9 @@ function navStateFromLocation() {
   const [page, runIdRaw] = raw.split('/');
   if (page === 'trading' && TRADING_PAGE_BY_SECTION[runIdRaw]) {
     return { page: TRADING_PAGE_BY_SECTION[runIdRaw] };
+  }
+  if (page === 'architecture' && ARCHITECTURE_VIEWS.has(runIdRaw || 'overview')) {
+    return { page: 'architecture-page', architectureView: runIdRaw || 'overview' };
   }
   if (!page || !document.getElementById(page)) return null;
   const state = { page };
@@ -1740,6 +1805,13 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const architectureEl = event.target.closest('[data-pf-architecture-view]');
+  if (architectureEl) {
+    event.preventDefault();
+    openArchitectureView(architectureEl.getAttribute('data-pf-architecture-view'));
+    return;
+  }
+
   const navEl = event.target.closest('[data-pf-nav-page]');
   if (navEl) {
     event.preventDefault();
@@ -1764,7 +1836,12 @@ async function applyNavState(state) {
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
+  if (page === 'architecture-page') initArchitecturePage(state?.architectureView || 'overview');
 }
+
+document.addEventListener('architecture-view-change', (event) => {
+  openArchitectureView(event.detail?.view || 'overview');
+});
 
 let _portfolioRefreshTimer = null;
 let _portfolioLoadedOnce = false;
@@ -1851,6 +1928,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
     ensurePortfolioLoaded();
   }
+  if (id === 'architecture-page') initArchitecturePage(options.historyState?.architectureView || _architectureView);
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();

@@ -73,7 +73,8 @@
     }
   };
 
-  const q = (selector) => document.querySelector(selector);
+  function initArchitectureAtlas(root = document) {
+  const q = (selector) => root.querySelector(selector);
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -160,7 +161,8 @@
 
   function render(platform) {
     const view = views[platform] || views.estate;
-    document.body.dataset.platform = platform;
+    const platformOwner = root === document ? document.body : root.host;
+    if (platformOwner) platformOwner.dataset.platform = platform;
     q('#active-view-name').textContent = view.name;
     q('#map-title').textContent = view.title;
     q('#map-subtitle').textContent = view.subtitle;
@@ -173,7 +175,7 @@
     renderOwnership(view.ownership);
   }
 
-  const tabs = [...document.querySelectorAll('[role="tab"][data-platform]')];
+  const tabs = [...root.querySelectorAll('[role="tab"][data-platform]')];
   tabs.forEach((tab, index) => {
     tab.addEventListener('click', () => {
       tabs.forEach((item) => {
@@ -197,14 +199,24 @@
   });
 
   const themeButton = q('#theme-toggle');
-  const savedTheme = localStorage.getItem('forge-architecture-theme');
-  if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.dataset.theme = savedTheme;
-  themeButton.addEventListener('click', () => {
-    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('forge-architecture-theme', next);
-    themeButton.setAttribute('aria-label', `Switch to ${next === 'light' ? 'dark' : 'light'} theme`);
-  });
+  if (themeButton) {
+    const savedTheme = localStorage.getItem('forge-architecture-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.dataset.theme = savedTheme;
+    themeButton.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('forge-architecture-theme', next);
+      themeButton.setAttribute('aria-label', `Switch to ${next === 'light' ? 'dark' : 'light'} theme`);
+    });
+  }
 
   render('estate');
+  }
+
+  window.initArchitectureAtlas = initArchitectureAtlas;
+  const startStandaloneAtlas = () => {
+    if (document.querySelector('#flow-nodes')) initArchitectureAtlas(document);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startStandaloneAtlas, { once: true });
+  else startStandaloneAtlas();
 })();

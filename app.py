@@ -4435,14 +4435,11 @@ async def serve_study_lounge(request: Request):
 
 @app.get("/architecture", response_class=HTMLResponse)
 async def serve_architecture(request: Request):
-    """Serve the read-only architecture atlas inside the private terminal."""
+    """Keep the legacy atlas URL, but open Architecture in the app shell."""
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
-    html_path = os.path.join(_HERE, "ARCHITECTURE.html")
-    if os.path.exists(html_path):
-        return HTMLResponse(_read_frontend_template(html_path))
-    return HTMLResponse("<h2>ARCHITECTURE.html not found. Place it beside app.py</h2>", status_code=404)
+    return RedirectResponse("/app#architecture/overview", status_code=307)
 
 
 _ARCHITECTURE_DOCUMENTS = {
@@ -4471,7 +4468,7 @@ async def serve_architecture_document(platform: str, request: Request):
         return _render_login_page()
     if platform.lower() not in _ARCHITECTURE_DOCUMENTS:
         raise HTTPException(status_code=404, detail="Architecture document not found")
-    return RedirectResponse(f"/architecture/{platform.lower()}", status_code=307)
+    return RedirectResponse(f"/app#architecture/{platform.lower()}", status_code=307)
 
 
 @app.get("/architecture/content/{platform}", response_class=PlainTextResponse)
@@ -4492,7 +4489,7 @@ async def serve_architecture_content(platform: str, request: Request):
 
 @app.get("/architecture/{platform}", response_class=HTMLResponse)
 async def serve_architecture_blueprint(platform: str, request: Request):
-    """Render one platform blueprint as a first-class visual product page."""
+    """Render a blueprint inside the app, redirecting old top-level links."""
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
@@ -4500,6 +4497,8 @@ async def serve_architecture_blueprint(platform: str, request: Request):
     document = _ARCHITECTURE_DOCUMENTS.get(platform_key)
     if not document:
         raise HTTPException(status_code=404, detail="Architecture document not found")
+    if request.query_params.get("embedded") != "1":
+        return RedirectResponse(f"/app#architecture/{platform_key}", status_code=307)
     template_path = os.path.join(_HERE, "ARCHITECTURE_DOCUMENT.html")
     if not os.path.exists(template_path):
         return HTMLResponse("<h2>ARCHITECTURE_DOCUMENT.html not found.</h2>", status_code=404)
@@ -4511,6 +4510,7 @@ async def serve_architecture_blueprint(platform: str, request: Request):
         "__ARCH_DESCRIPTION__": document["description"],
         "__ARCH_MONOGRAM__": document["monogram"],
         "__ARCH_SOURCE__": f"/architecture/content/{platform_key}",
+        "__ARCH_BODY_CLASS__": "is-embedded",
     }
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, _escape_html(value, quote=True))
