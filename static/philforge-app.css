@@ -7932,8 +7932,9 @@ body :is(
    desk draws now lives inside this card, so there is exactly one outer gutter
    (28px, the hero's) and one inner one (16px, below). */
 #live-page .live-desk {
-  margin: 0 28px 24px;
-  border: 1px solid var(--border); border-radius: 14px;
+  margin: 0;
+  border: 1px solid var(--pf-workspace-line, var(--border));
+  border-radius: var(--pf-workspace-radius);
   background: var(--card); overflow: hidden;
 }
 #live-tabs-bar {
@@ -8114,7 +8115,7 @@ body :is(
   #live-page .live-panel-main { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  #live-page .live-desk { margin: 0 12px 16px; border-radius: 12px; }
+  #live-page .live-desk { border-radius: 12px; }
   #live-page .live-panel-header,
   #live-page .live-conditions { padding-left: 12px; padding-right: 12px; }
   #live-page .live-panel-stats { padding: 12px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }

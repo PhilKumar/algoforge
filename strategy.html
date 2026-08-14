@@ -1267,10 +1267,13 @@
 </div>
 
 <!-- ═══ LIVE MONITOR PAGE ═══ -->
-<div id="live-page" class="page-section" style="padding: 0;">
-  <!-- The hero keeps the page's zero side padding: the tab bar and panels
-       below manage their own 28px gutters, so the hero carries its own. -->
-  <section class="pf-workspace-hero" aria-label="Live trading overview" style="margin: 16px 28px 4px;">
+<!-- `pf-unified-page` is not decoration: it DEFINES --pf-workspace-radius,
+     --pf-workspace-gap and the 1640px measure that every other desk is built
+     on. Without it the hero's `border-radius: var(--pf-workspace-radius)`
+     resolved to nothing, so this page's heading was the only square one on the
+     site, on its own hand-typed 28px gutter instead of the shell's. -->
+<div id="live-page" class="page-section pf-unified-page">
+  <section class="pf-workspace-hero" aria-label="Live trading overview">
     <div class="pf-workspace-hero-copy">
       <div class="pf-workspace-eyebrow">Execution floor</div>
       <h1>Live &amp; Paper</h1>
