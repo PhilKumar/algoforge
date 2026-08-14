@@ -2861,9 +2861,30 @@ let _fsxOpenCampaignId = null;
 // above them is glass (backdrop-filter: blur), so the browser re-composites
 // the blurred backdrop on every rebuild. That is the flicker seen through the
 // open chart: the chart itself never redraws, the page under it does.
+// Comparing the markup is not enough on its own: the rows carry live prices and
+// clocks, so the string genuinely differs on most 3s polls and the repaint goes
+// ahead anyway. While a chart overlay is up, the paint is HELD rather than
+// skipped, then flushed when the overlay closes, so the page under the glass
+// stays still and still catches up.
+const _fsxHeldPaints = new Map();
+
+function _fsxChartOverlayOpen() {
+  return document.body.classList.contains('terminal-cascade-chart-open');
+}
+
 function _fsxPaint(el, html) {
   if (!el || el.innerHTML === html) return;
+  if (_fsxChartOverlayOpen()) { _fsxHeldPaints.set(el, html); return; }
+  _fsxHeldPaints.delete(el);
   el.innerHTML = html;
+}
+
+function _fsxFlushHeldPaints() {
+  if (!_fsxHeldPaints.size) return;
+  _fsxHeldPaints.forEach((html, el) => {
+    if (el && el.isConnected && el.innerHTML !== html) el.innerHTML = html;
+  });
+  _fsxHeldPaints.clear();
 }
 
 function _fsxMoney(value) {
@@ -8353,6 +8374,7 @@ function hideTerminalCascadeChart() {
     overlay.setAttribute('aria-hidden', 'true');
   }
   document.body.classList.remove('terminal-cascade-chart-open');
+  _fsxFlushHeldPaints();
 }
 
 function terminalCascadeChartBackdrop(event) {
@@ -9826,6 +9848,7 @@ function hideScalpOptionChart() {
   }
   if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')) {
     document.body.classList.remove('terminal-cascade-chart-open');
+  _fsxFlushHeldPaints();
   }
 }
 
@@ -9960,6 +9983,7 @@ function hideLiveEntryChart() {
   if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')
     && !document.getElementById('scalp-option-chart-overlay')?.classList.contains('is-open')) {
     document.body.classList.remove('terminal-cascade-chart-open');
+  _fsxFlushHeldPaints();
   }
 }
 
