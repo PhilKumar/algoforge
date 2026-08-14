@@ -263,23 +263,21 @@
     </div>
 
     <div id="dash-summary-grid">
-      <div id="dash-today-card" class="stat-box">
-        <div class="stat-label" style="margin-bottom: 8px;">Today's P&L</div>
-        <div class="dash-today-split">
-          <div style="flex: 1;">
-            <div style="font-size: 9px; font-weight: 600; color: var(--warn); letter-spacing: 0.5px; margin-bottom: 2px;">PAPER</div>
-            <div id="dash-paper-pnl-card" class="dash-today-value">₹0.00</div>
-            <div id="dash-paper-pnl-sub" class="dash-card-sub">Strategy + SCALP</div>
-            <div id="dash-paper-pnl-trades" class="dash-card-meta">0 trades</div>
-          </div>
-          <div class="dash-summary-divider"></div>
-          <div style="flex: 1;">
-            <div style="font-size: 9px; font-weight: 600; color: var(--accent2); letter-spacing: 0.5px; margin-bottom: 2px;">REAL</div>
-            <div id="dash-real-pnl-card" class="dash-today-value">₹0.00</div>
-            <div id="dash-real-pnl-sub" class="dash-card-sub">Dhan today</div>
-            <div id="dash-real-pnl-trades" class="dash-card-meta">0 trades</div>
-          </div>
-        </div>
+      <!-- Three panels, three equal columns. Paper and Real used to share one
+           card split by a divider, which left the third column carrying Broker
+           Status alone and stretched — the empty space on the right Phil
+           flagged. Every id is unchanged; only the shell around them moved. -->
+      <div id="dash-paper-card-shell" class="stat-box">
+        <div class="stat-label">Today's P&L · Paper</div>
+        <div id="dash-paper-pnl-card" class="dash-today-value">₹0.00</div>
+        <div id="dash-paper-pnl-sub" class="dash-card-sub">Strategy + SCALP</div>
+        <div id="dash-paper-pnl-trades" class="dash-card-meta">0 trades</div>
+      </div>
+      <div id="dash-real-card-shell" class="stat-box">
+        <div class="stat-label">Today's P&L · Real</div>
+        <div id="dash-real-pnl-card" class="dash-today-value">₹0.00</div>
+        <div id="dash-real-pnl-sub" class="dash-card-sub">Dhan today</div>
+        <div id="dash-real-pnl-trades" class="dash-card-meta">0 trades</div>
       </div>
       <div id="dash-broker-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Broker Status</div>
