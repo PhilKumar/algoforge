@@ -3433,6 +3433,9 @@
   .pf-architecture-tabs i { width: 7px; height: 7px; border-radius: 50%; }
   .pf-architecture-tabs i.crypto { background: #f5b84b; box-shadow: 0 0 9px rgba(245,184,75,.55); }
   .pf-architecture-tabs i.phil { background: #27d3b4; box-shadow: 0 0 9px rgba(39,211,180,.55); }
+  /* Third document, third tint: the tearsheet is neither blueprint, so it
+     carries the reader palette's violet rather than borrowing PhilForge teal. */
+  .pf-architecture-tabs i.tear { background: #a78bfa; box-shadow: 0 0 9px rgba(167,139,250,.55); }
   .pf-architecture-panel[hidden] { display: none !important; }
   .pf-architecture-panel { min-width: 0; }
   philforge-architecture-atlas { width: 100%; }

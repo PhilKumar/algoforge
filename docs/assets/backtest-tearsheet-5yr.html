@@ -5,13 +5,15 @@
    document reads as one more page of the site rather than a foreign PDF
    dropped into a frame. Two deliberate departures from that stylesheet:
 
-   1. The reader keeps its bright accent in light mode. Teal on a white card is
-      about 2.1:1 and this document is held to zero axe violations, so the light
-      accent is darkened and only the dark theme runs bright. It is set for the
-      WORST light ground it lands on, which is not the card but the accent-tinted
-      risk chip (--accent-soft over the card): #0e7c66 clears the card at 4.9:1
-      and still fails that chip at 4.41, so the value is #0c6f5b (5.25 on the
-      chip). Re-check against the chip, not the card, if it is ever changed.
+   1. The accent is VIOLET, not the reader's teal. The Assets viewbar marks each
+      document with its own tint — amber for CryptoForge, teal for PhilForge —
+      and the tearsheet is a third document, so it takes the reader palette's
+      third hue and the tab carries a matching dot.
+      Light mode cannot use the bright violet: #a78bfa is 2.65:1 on a white card.
+      The light value is set for the WORST light ground it lands on, which is
+      not the card but the accent-tinted risk chip (--accent-soft over the card).
+      #6d4bd8 clears the card at 5.6:1 and the chip at 4.93:1. Re-check against
+      the CHIP, not the card, if it is ever changed.
    2. The cumulative-profit line does NOT use the accent. Teal beside the
       profit-green day bars is two neighbouring hues carrying different meanings;
       the line gets --curve (blue, also from the reader's palette) instead. */
@@ -21,7 +23,7 @@
   --ink:#182436; --ink-2:#33415a; --muted:#596a7f; --dim:#596a7f;
   --line:rgba(38,65,93,.16); --line-2:rgba(38,65,93,.10); --line-strong:rgba(38,65,93,.28);
   --grid:rgba(31,55,82,.055);
-  --accent:#0c6f5b; --accent-rgb:12,111,91; --accent-soft:rgba(12,111,91,.09);
+  --accent:#6d4bd8; --accent-rgb:109,75,216; --accent-soft:rgba(109,75,216,.09);
   --curve:#2f6fd0; --curve-rgb:47,111,208;
   --pos:#146B4C; --neg:#A2382A; --flat:#5D6874;
   --pos-fill:20,107,76; --neg-fill:162,56,42;
@@ -35,7 +37,7 @@
     --ink:#e5ecf6; --ink-2:#bcc8d4; --muted:#8b98aa; --dim:#8b98aa;
     --line:rgba(126,157,196,.18); --line-2:rgba(126,157,196,.11); --line-strong:rgba(126,157,196,.32);
     --grid:rgba(104,138,178,.045);
-    --accent:#27d3b4; --accent-rgb:39,211,180; --accent-soft:rgba(39,211,180,.10);
+    --accent:#a78bfa; --accent-rgb:167,139,250; --accent-soft:rgba(167,139,250,.10);
     --curve:#75adff; --curve-rgb:117,173,255;
     --pos:#43C48D; --neg:#E67D6B; --flat:#8792A0;
     --pos-fill:67,196,141; --neg-fill:230,125,107;
@@ -47,7 +49,7 @@
   --ink:#e5ecf6; --ink-2:#bcc8d4; --muted:#8b98aa; --dim:#8b98aa;
   --line:rgba(126,157,196,.18); --line-2:rgba(126,157,196,.11); --line-strong:rgba(126,157,196,.32);
   --grid:rgba(104,138,178,.045);
-  --accent:#27d3b4; --accent-rgb:39,211,180; --accent-soft:rgba(39,211,180,.10);
+  --accent:#a78bfa; --accent-rgb:167,139,250; --accent-soft:rgba(167,139,250,.10);
   --curve:#75adff; --curve-rgb:117,173,255;
   --pos:#43C48D; --neg:#E67D6B; --flat:#8792A0;
   --pos-fill:67,196,141; --neg-fill:230,125,107;
