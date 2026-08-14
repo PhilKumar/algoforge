@@ -13811,10 +13811,14 @@ function renderLivePanel(d, idx) {
     <div class="live-panel-side">
       <div class="live-panel-card">
         <div class="live-card-head"><div class="live-card-title">Open Positions</div></div>
+        <!-- Six columns will not fit a phone.  The card clips its overflow, so
+             without this scroll window the Action button is simply gone. -->
+        <div class="live-data-window">
         <table class="trade-table live-positions-table">
           <thead><tr><th>Symbol</th><th>Type</th><th>Entry</th><th>Current</th><th>Unr. P&L</th><th>Action</th></tr></thead>
           <tbody>${posHtml}</tbody>
         </table>
+        </div>
       </div>
       <div class="live-panel-card is-grow">
         <div class="live-card-head"><div class="live-card-title">Event Log</div></div>

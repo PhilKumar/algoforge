@@ -8093,6 +8093,10 @@ body :is(
   padding: 22px 13px !important; color: var(--muted) !important;
   text-align: center !important; white-space: normal !important;
 }
+/* A phone rule holds every card table at 560px so real columns stay readable
+   and scroll.  An empty state has no columns to protect — held at 560 it
+   centres its one sentence off the right edge of the card. */
+#live-page .live-panel-card table:has(.live-table-empty) { min-width: 0 !important; }
 #live-page .live-closed-block { margin: 0 24px 24px; }
 
 @media (max-width: 1100px) {
@@ -8100,12 +8104,25 @@ body :is(
 }
 @media (max-width: 640px) {
   #live-page .live-panel-header,
-  #live-page .live-conditions { padding-left: 16px; padding-right: 16px; }
-  #live-page .live-panel-stats { padding: 14px 16px 8px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
-  #live-page .live-panel-main { padding: 8px 16px 16px; }
-  #live-page .live-closed-block { margin: 0 16px 20px; }
-  #live-page .live-panel-actions { width: 100%; }
+  #live-page .live-conditions { padding-left: 12px; padding-right: 12px; }
+  #live-page .live-panel-stats { padding: 14px 12px 8px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
   #live-tabs-bar { padding: 0 12px; }
+
+  /* One gutter down the whole page.  An older phone block still sets
+     `.live-panel-main { padding: 12px !important }` and pushes
+     `.live-panel-closed` out by another 8px, so the cards, the closed block
+     and its inner card each landed on a different left edge (24 / 28 / 36).
+     Everything here resolves to the same 24px. */
+  #live-page .live-closed-block { margin: 0 12px 20px; }
+  #live-page .live-panel-closed { margin-left: 0 !important; margin-right: 0 !important; }
+
+  /* The header actions are `.cascade-options-control`, not `.btn` — the old
+     two-up rule only named `.btn`, so all four buttons stacked full width. */
+  #live-page .live-panel-actions { width: 100%; }
+  #live-page .live-panel-actions .cascade-options-control,
+  #live-page .live-panel-actions .cascade-options-primary-btn {
+    flex: 1 1 calc(50% - 8px); justify-content: center;
+  }
 }
 [data-theme="light"] #live-page .live-chip { background: rgba(15,23,42,.04); }
 [data-theme="light"] #live-page .live-conditions { background: rgba(15,23,42,.03); }
