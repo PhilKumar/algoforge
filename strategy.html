@@ -190,9 +190,9 @@
       <span class="tab-icon" style="color: #fb7185;" id="ico-results"></span>
       <span class="tab-label">Results</span>
     </button>
-    <button id="nav-architecture" class="nav-tab" data-pf-nav-page="architecture-page" title="System Architecture Atlas">
+    <button id="nav-assets" class="nav-tab" data-pf-nav-page="assets-page" title="Assets: published evidence and system architecture">
       <span class="tab-icon" style="color: #75adff;" aria-hidden="true">⌬</span>
-      <span class="tab-label">Architecture</span>
+      <span class="tab-label">Assets</span>
     </button>
       </div>
     </nav>
@@ -3633,16 +3633,16 @@
 </div>
 
 <!-- ═══ ARCHITECTURE ═══ -->
-<div id="architecture-page" class="page-section pf-unified-page">
+<div id="assets-page" class="page-section pf-unified-page">
   <section class="pf-workspace-hero" aria-label="Architecture overview">
     <div class="pf-workspace-hero-copy">
-      <div class="pf-workspace-eyebrow">System blueprint</div>
-      <h1>Architecture</h1>
-      <p>The live map, platform boundaries, and complete CryptoForge and PhilForge blueprints—inside the same operating workspace.</p>
+      <div class="pf-workspace-eyebrow">Evidence and blueprints</div>
+      <h1>Assets</h1>
+      <p>The published five-year tearsheet, the live map, and the complete CryptoForge and PhilForge blueprints—inside the same operating workspace.</p>
     </div>
     <div class="pf-workspace-hero-meta" aria-hidden="true">
+      <div><span>Evidence</span><strong>5 years</strong></div>
       <div><span>Scope</span><strong>2 platforms</strong></div>
-      <div><span>State</span><strong>Repository-backed</strong></div>
       <div><span>Access</span><strong>Private</strong></div>
     </div>
   </section>
@@ -3650,11 +3650,12 @@
   <section class="pf-architecture-workspace" aria-labelledby="architecture-view-title">
     <div class="pf-architecture-viewbar">
       <div>
-        <span class="pf-architecture-viewbar-label">Architecture view</span>
+        <span class="pf-architecture-viewbar-label">Asset view</span>
         <strong id="architecture-view-title">The Eagle's View</strong>
       </div>
-      <div class="pf-architecture-tabs" role="tablist" aria-label="Architecture view">
+      <div class="pf-architecture-tabs" role="tablist" aria-label="Asset view">
         <button type="button" role="tab" aria-selected="true" aria-controls="architecture-overview-panel" data-pf-architecture-view="overview">Atlas</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="assets-tearsheet-panel" tabindex="-1" data-pf-architecture-view="tearsheet">Tearsheet</button>
         <button type="button" role="tab" aria-selected="false" aria-controls="architecture-reader-panel" tabindex="-1" data-pf-architecture-view="cryptoforge"><i class="crypto"></i>CryptoForge</button>
         <button type="button" role="tab" aria-selected="false" aria-controls="architecture-reader-panel" tabindex="-1" data-pf-architecture-view="philforge"><i class="phil"></i>PhilForge</button>
       </div>
@@ -3666,6 +3667,20 @@
     <div id="architecture-reader-panel" class="pf-architecture-panel pf-architecture-reader" role="tabpanel" hidden>
       <div class="pf-architecture-reader-status" id="architecture-reader-status" aria-live="polite">Choose a platform blueprint.</div>
       <philforge-architecture-reader id="architecture-reader-view" data-asset-version="__ASSET_VERSION__" data-platform="cryptoforge"></philforge-architecture-reader>
+    </div>
+    <!-- The tearsheet is a complete published document: its own stylesheet,
+         canvas, language toggle and element IDs. It is framed rather than
+         inlined so those cannot collide with the terminal's, which keeps the
+         embedded copy identical to the one shared with buyers. -->
+    <div id="assets-tearsheet-panel" class="pf-architecture-panel pf-tearsheet-panel" role="tabpanel" hidden>
+      <div class="pf-tearsheet-bar">
+        <span class="pf-tearsheet-name">PHILFORGE OPTIONS TEARSHEET</span>
+        <span class="pf-tearsheet-meta">935 trades · 891 trading days · bilingual</span>
+        <a class="pf-tearsheet-open" id="assets-tearsheet-open" href="/assets/tearsheet" target="_blank" rel="noopener">Open full document ↗</a>
+      </div>
+      <!-- src is set from JS so the document arrives already carrying the
+           terminal's theme; a static src paints one theme and then swaps. -->
+      <iframe id="assets-tearsheet-frame" title="Five-year options tearsheet" data-src="/assets/tearsheet"></iframe>
     </div>
   </section>
 </div>

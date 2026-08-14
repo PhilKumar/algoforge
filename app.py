@@ -4433,13 +4433,57 @@ async def serve_study_lounge(request: Request):
     return HTMLResponse("<h2>study_lounge.html not found. Place it beside app.py</h2>")
 
 
-@app.get("/architecture", response_class=HTMLResponse)
-async def serve_architecture(request: Request):
-    """Keep the legacy atlas URL, but open Architecture in the app shell."""
+@app.get("/assets", response_class=HTMLResponse)
+async def serve_assets(request: Request):
+    """Open the Assets workspace — evidence first, then the blueprints."""
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
-    return RedirectResponse("/app#architecture/overview", status_code=307)
+    return RedirectResponse("/app#assets/overview", status_code=307)
+
+
+# The five-year tearsheet is stored exactly as it was published — an
+# artifact-style fragment that opens with <title> and <style> and carries no
+# document shell of its own. Wrapping it here rather than editing it is what
+# keeps the served page identical to the version already shared with buyers.
+_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "backtest-tearsheet-5yr.html")
+
+
+@app.get("/assets/tearsheet", response_class=HTMLResponse)
+async def serve_assets_tearsheet(request: Request):
+    """Serve the five-year options tearsheet as a standalone private document."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    if not os.path.exists(_TEARSHEET_PATH):
+        raise HTTPException(status_code=404, detail="Tearsheet document not found")
+    with open(_TEARSHEET_PATH, encoding="utf-8") as handle:
+        fragment = handle.read()
+    # The workspace owns the theme; the document follows it rather than deciding
+    # for itself, or the embed would fight the page around it.
+    theme = request.query_params.get("theme", "")
+    theme_attr = f' data-theme="{theme}"' if theme in {"light", "dark"} else ""
+    shell = (
+        "<!DOCTYPE html>\n"
+        f'<html lang="en"{theme_attr}>\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<meta name="color-scheme" content="dark light">\n'
+        "</head>\n<body>\n"
+        f"{fragment}\n"
+        "</body>\n</html>\n"
+    )
+    return HTMLResponse(shell)
+
+
+@app.get("/architecture", response_class=HTMLResponse)
+async def serve_architecture(request: Request):
+    """The page is called Assets now. Bookmarks, the installed PWA and every
+    old link still ask for this path, so forward them instead of 404-ing."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    return RedirectResponse("/app#assets/overview", status_code=307)
 
 
 _ARCHITECTURE_DOCUMENTS = {
@@ -4468,7 +4512,7 @@ async def serve_architecture_document(platform: str, request: Request):
         return _render_login_page()
     if platform.lower() not in _ARCHITECTURE_DOCUMENTS:
         raise HTTPException(status_code=404, detail="Architecture document not found")
-    return RedirectResponse(f"/app#architecture/{platform.lower()}", status_code=307)
+    return RedirectResponse(f"/app#assets/{platform.lower()}", status_code=307)
 
 
 @app.get("/architecture/content/{platform}", response_class=PlainTextResponse)
@@ -4498,7 +4542,7 @@ async def serve_architecture_blueprint(platform: str, request: Request):
     if not document:
         raise HTTPException(status_code=404, detail="Architecture document not found")
     if request.query_params.get("embedded") != "1":
-        return RedirectResponse(f"/app#architecture/{platform_key}", status_code=307)
+        return RedirectResponse(f"/app#assets/{platform_key}", status_code=307)
     template_path = os.path.join(_HERE, "ARCHITECTURE_DOCUMENT.html")
     if not os.path.exists(template_path):
         return HTMLResponse("<h2>ARCHITECTURE_DOCUMENT.html not found.</h2>", status_code=404)
@@ -4531,6 +4575,7 @@ async def robots_txt():
             "Disallow: /charts-viewer",
             "Disallow: /study-lounge",
             "Disallow: /architecture",
+            "Disallow: /assets",
             "",
             "Sitemap: https://philforge.in/sitemap.xml",
             "",

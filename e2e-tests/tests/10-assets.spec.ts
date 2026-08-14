@@ -1,5 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -11,20 +13,20 @@ async function login(page: Page) {
   expect(response.status()).toBe(200);
 }
 
-test('Architecture stays private and opens inside the normal application shell', async ({ page }) => {
+test('Assets stays private and opens inside the normal application shell', async ({ page }) => {
   const unauthenticated = await page.request.get('/architecture', { maxRedirects: 0 });
   expect(unauthenticated.status()).toBe(401);
 
   await login(page);
   const legacyAtlas = await page.request.get('/architecture', { maxRedirects: 0 });
   expect(legacyAtlas.status()).toBe(307);
-  expect(legacyAtlas.headers().location).toBe('/app#architecture/overview');
+  expect(legacyAtlas.headers().location).toBe('/app#assets/overview');
 
-  await page.goto('/app#architecture/overview');
+  await page.goto('/app#assets/overview');
   await expect(page.locator('.header-shell')).toBeVisible();
-  await expect(page.locator('#nav-architecture')).toHaveClass(/active/);
-  await expect(page.locator('#architecture-page')).toHaveClass(/active-page/);
-  await expect(page.locator('#architecture-page .pf-workspace-hero h1')).toHaveText('Architecture');
+  await expect(page.locator('#nav-assets')).toHaveClass(/active/);
+  await expect(page.locator('#assets-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#assets-page .pf-workspace-hero h1')).toHaveText('Assets');
   const atlas = page.locator('philforge-architecture-atlas');
   await expect(atlas.locator('#flow-nodes .flow-node')).toHaveCount(6);
 
@@ -35,15 +37,17 @@ test('Architecture stays private and opens inside the normal application shell',
   for (const platform of ['cryptoforge', 'philforge'] as const) {
     const legacyResponse = await page.request.get(`/architecture/docs/${platform}`, { maxRedirects: 0 });
     expect(legacyResponse.status()).toBe(307);
-    expect(legacyResponse.headers().location).toBe(`/app#architecture/${platform}`);
+    expect(legacyResponse.headers().location).toBe(`/app#assets/${platform}`);
     const oldReader = await page.request.get(`/architecture/${platform}`, { maxRedirects: 0 });
     expect(oldReader.status()).toBe(307);
-    expect(oldReader.headers().location).toBe(`/app#architecture/${platform}`);
+    expect(oldReader.headers().location).toBe(`/app#assets/${platform}`);
 
-    await page.goto(`/app#architecture/${platform}`);
+    await page.goto(`/app#assets/${platform}`);
     await expect(page.locator('.header-shell')).toBeVisible();
     await expect(page.locator('#architecture-reader-panel')).toBeVisible();
-    await expect(page.locator('#architecture-page iframe')).toHaveCount(0);
+    // The blueprint reader must stay frame-free — that is the fix this guards.
+    // The tearsheet panel is a separate, deliberate frame.
+    await expect(page.locator('#architecture-reader-panel iframe')).toHaveCount(0);
     const reader = page.locator('#architecture-reader-view');
     await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
@@ -70,7 +74,7 @@ test('each blueprint chapter reveals only its own collapsed topic list', async (
   await login(page);
 
   for (const platform of ['cryptoforge', 'philforge']) {
-    await page.goto(`/app#architecture/${platform}`);
+    await page.goto(`/app#assets/${platform}`);
     const reader = page.locator('#architecture-reader-view');
     await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
@@ -96,13 +100,13 @@ test('each blueprint chapter reveals only its own collapsed topic list', async (
 
     await groups.nth(2).locator('.toc-topics a').nth(1).click();
     await expect(groups.nth(2)).toHaveAttribute('open', '');
-    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#architecture/${platform}`);
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#assets/${platform}`);
   }
 });
 
 test('platform tabs redraw the system map and support keyboard navigation', async ({ page }) => {
   await login(page);
-  await page.goto('/app#architecture/overview');
+  await page.goto('/app#assets/overview');
 
   await expect(page.locator('.topbar-brand-text')).toHaveText('PhilForge');
   const atlas = page.locator('philforge-architecture-atlas');
@@ -124,9 +128,9 @@ test('platform tabs redraw the system map and support keyboard navigation', asyn
   await expect(atlas.locator('#flow-nodes')).toContainText('Dhan + Upstox');
 });
 
-test('architecture atlas is accessible and does not overflow desktop or mobile', async ({ page }) => {
+test('assets page is accessible and does not overflow desktop or mobile', async ({ page }) => {
   await login(page);
-  await page.goto('/app#architecture/overview');
+  await page.goto('/app#assets/overview');
   const atlas = page.locator('philforge-architecture-atlas');
   await expect(atlas.locator('#flow-nodes .flow-node')).toHaveCount(6);
 
@@ -138,14 +142,14 @@ test('architecture atlas is accessible and does not overflow desktop or mobile',
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.locator('#architecture-page .pf-workspace-hero h1')).toBeVisible();
+  await expect(page.locator('#assets-page .pf-workspace-hero h1')).toBeVisible();
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   expect(mobileOverflow).toBe(false);
 });
 
 test('visual blueprint search filters sections without exposing Markdown downloads', async ({ page }) => {
   await login(page);
-  await page.goto('/app#architecture/cryptoforge');
+  await page.goto('/app#assets/cryptoforge');
   const reader = page.locator('#architecture-reader-view');
   await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
 
@@ -163,7 +167,7 @@ test('blueprint navigation stays fixed while each document scrolls', async ({ pa
   await page.setViewportSize({ width: 1440, height: 900 });
 
   for (const platform of ['cryptoforge', 'philforge']) {
-    await page.goto(`/app#architecture/${platform}`);
+    await page.goto(`/app#assets/${platform}`);
     const reader = page.locator('#architecture-reader-view');
     await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
@@ -192,7 +196,7 @@ test('both visual readers pass accessibility and responsive overflow checks', as
   ];
   for (const platform of platforms) {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.goto(`/app#architecture/${platform.id}`);
+    await page.goto(`/app#assets/${platform.id}`);
     const reader = page.locator('#architecture-reader-view');
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('.header-shell')).toBeVisible();
@@ -212,7 +216,7 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     expect(readingSizes.table).toBeGreaterThanOrEqual(13);
     let overflow = await reader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
-    const results = await new AxeBuilder({ page }).include('#architecture-page').analyze();
+    const results = await new AxeBuilder({ page }).include('#assets-page').exclude('#assets-tearsheet-frame').analyze();
     expect(results.violations).toEqual([]);
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -222,4 +226,72 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     overflow = await mobileReader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
   }
+});
+
+test('the tearsheet is served whole and embedded in the workspace it belongs to', async ({ page }) => {
+  const unauthenticated = await page.request.get('/assets/tearsheet', { maxRedirects: 0 });
+  expect(unauthenticated.status()).toBe(401);
+
+  await login(page);
+  const assetsPath = await page.request.get('/assets', { maxRedirects: 0 });
+  expect(assetsPath.status()).toBe(307);
+  expect(assetsPath.headers().location).toBe('/app#assets/overview');
+
+  const document_ = await page.request.get('/assets/tearsheet');
+  expect(document_.status()).toBe(200);
+  const body = await document_.text();
+  // Served with a real document shell, not as the bare artifact fragment.
+  expect(body.startsWith('<!DOCTYPE html>')).toBe(true);
+  expect(body).toContain('PhilForge Options Tearsheet');
+  // The figure the document exists to publish must survive the round trip.
+  expect(body).toContain('11,60,571');
+
+  await page.goto('/app#assets/tearsheet');
+  await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
+  await expect(page.locator('#architecture-view-title')).toHaveText('Five-Year Tearsheet');
+
+  const framed = page.frameLocator('#assets-tearsheet-frame');
+  await expect(framed.locator('h1')).toBeVisible();
+  await expect(framed.locator('body')).toContainText('11,60,571');
+
+  // The terminal stamps data-theme only when it is light, so an unstamped
+  // workspace is dark. The document must not fall back to its own default.
+  const framedTheme = () => page.locator('#assets-tearsheet-frame')
+    .evaluate((node: HTMLIFrameElement) => node.contentDocument?.documentElement.dataset.theme || '');
+  await expect.poll(framedTheme).toBe('dark');
+  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?theme=dark');
+
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+  await expect.poll(framedTheme).toBe('light');
+  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?theme=light');
+  await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+  await expect.poll(framedTheme).toBe('dark');
+
+  // A framed document is the one place a horizontal scrollbar hides.
+  const framedOverflow = await page.locator('#assets-tearsheet-frame').evaluate((node: HTMLIFrameElement) => {
+    const win = node.contentWindow!;
+    win.scrollTo(9999, 0);
+    const x = win.scrollX;
+    win.scrollTo(0, 0);
+    return x;
+  });
+  expect(framedOverflow).toBe(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#assets-tearsheet-open')).toBeVisible();
+  const mobileOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  );
+  expect(mobileOverflow).toBe(false);
+});
+
+test('production CSP permits the same-origin tearsheet frame and nothing else', async ({ page }) => {
+  // The embed is invisible in production if this policy forbids frames — which
+  // it did, as frame-src 'none'. Locally there is no nginx in front of the app,
+  // so the deployed policy can only be checked by reading it.
+  const conf = readFileSync(resolve(process.cwd(), '..', 'deploy', 'nginx.conf'), 'utf8');
+  expect(conf).toContain("frame-src 'self'");
+  expect(conf).not.toContain("frame-src 'none'");
+  expect(conf).toContain("frame-ancestors 'self'");
+  expect(page).toBeTruthy();
 });

@@ -1424,7 +1424,7 @@ const NAV_BUTTON_MAP = {
   'options-cascade-page': 'nav-trading',
   'charts-page': 'nav-charts',
   'insights-page': 'nav-insights',
-  'architecture-page': 'nav-architecture',
+  'assets-page': 'nav-assets',
 };
 
 const TRADING_SECTION_BY_PAGE = {
@@ -1436,7 +1436,40 @@ const TRADING_PAGE_BY_SECTION = Object.fromEntries(
   Object.entries(TRADING_SECTION_BY_PAGE).map(([page, section]) => [section, page])
 );
 
-const ARCHITECTURE_VIEWS = new Set(['overview', 'cryptoforge', 'philforge']);
+const ARCHITECTURE_VIEWS = new Set(['overview', 'tearsheet', 'cryptoforge', 'philforge']);
+
+// The tearsheet is a separate document in a frame, but it honours the same
+// data-theme contract as the terminal, so it is handed the terminal's theme
+// rather than choosing its own.
+// The terminal has no data-theme attribute when it is dark — only "light" is
+// ever stamped. Left unresolved, the framed document sees no theme, falls back
+// to prefers-color-scheme, and renders a white page inside a dark workspace.
+function _assetsEffectiveTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+function _syncAssetsTearsheetTheme() {
+  const theme = _assetsEffectiveTheme();
+  const link = document.getElementById('assets-tearsheet-open');
+  if (link) link.href = `/assets/tearsheet?theme=${theme}`;
+  const frame = document.getElementById('assets-tearsheet-frame');
+  const framed = frame?.contentDocument;
+  if (!framed?.documentElement) return;
+  framed.documentElement.dataset.theme = theme;
+  // Its chart reads colours from CSS tokens at paint time and only repaints on
+  // resize, so a theme swap alone leaves the canvas in the old palette.
+  frame.contentWindow?.dispatchEvent(new Event('resize'));
+}
+
+let _assetsTearsheetThemeObserver = null;
+function _watchAssetsTearsheetTheme() {
+  if (_assetsTearsheetThemeObserver) return;
+  _assetsTearsheetThemeObserver = new MutationObserver(_syncAssetsTearsheetTheme);
+  _assetsTearsheetThemeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+}
 let _architectureView = 'overview';
 
 function initArchitecturePage(requestedView = _architectureView) {
@@ -1446,6 +1479,7 @@ function initArchitecturePage(requestedView = _architectureView) {
   const reader = document.getElementById('architecture-reader-panel');
   const documentReader = document.getElementById('architecture-reader-view');
   const readerStatus = document.getElementById('architecture-reader-status');
+  const tearsheet = document.getElementById('assets-tearsheet-panel');
   const title = document.getElementById('architecture-view-title');
   if (!overview || !reader || !documentReader) return;
 
@@ -1455,11 +1489,31 @@ function initArchitecturePage(requestedView = _architectureView) {
     tab.tabIndex = selected ? 0 : -1;
   });
   const isOverview = view === 'overview';
+  const isTearsheet = view === 'tearsheet';
+  const isBlueprint = !isOverview && !isTearsheet;
   overview.hidden = !isOverview;
-  reader.hidden = isOverview;
-  if (title) title.textContent = isOverview ? "The Eagle's View" : `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
+  reader.hidden = !isBlueprint;
+  if (tearsheet) tearsheet.hidden = !isTearsheet;
+  if (title) {
+    if (isOverview) title.textContent = "The Eagle's View";
+    else if (isTearsheet) title.textContent = 'Five-Year Tearsheet';
+    else title.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
+  }
 
-  if (!isOverview) {
+  if (isTearsheet) {
+    const frame = document.getElementById('assets-tearsheet-frame');
+    // Deferred until the tab is opened: it is a 320 KB document nobody has
+    // asked for while they are reading the atlas.
+    if (frame && !frame.getAttribute('src')) {
+      frame.addEventListener('load', _syncAssetsTearsheetTheme);
+      frame.src = `/assets/tearsheet?theme=${_assetsEffectiveTheme()}`;
+    } else {
+      _syncAssetsTearsheetTheme();
+    }
+    _watchAssetsTearsheetTheme();
+  }
+
+  if (isBlueprint) {
     if (readerStatus) readerStatus.textContent = `Loading ${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint…`;
     documentReader.addEventListener('architecture-document-ready', () => {
       if (readerStatus) readerStatus.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint ready.`;
@@ -1472,7 +1526,7 @@ function initArchitecturePage(requestedView = _architectureView) {
 
 function openArchitectureView(view, options = {}) {
   const nextView = ARCHITECTURE_VIEWS.has(view) ? view : 'overview';
-  showPage('architecture-page', document.getElementById('nav-architecture'), {
+  showPage('assets-page', document.getElementById('nav-assets'), {
     scrollToTop: options.scrollToTop !== false,
     pushHistory: options.pushHistory !== false,
     historyState: { architectureView: nextView },
@@ -1673,9 +1727,9 @@ function buildNavState(page, extra = {}) {
 function navHashForState(state) {
   const page = state?.page || 'dashboard-page';
   if (TRADING_SECTION_BY_PAGE[page]) return `#trading/${TRADING_SECTION_BY_PAGE[page]}`;
-  if (page === 'architecture-page') {
+  if (page === 'assets-page') {
     const view = ARCHITECTURE_VIEWS.has(state?.architectureView) ? state.architectureView : 'overview';
-    return `#architecture/${view}`;
+    return `#assets/${view}`;
   }
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0) {
     return `#results-page/${Number(state.runId)}`;
@@ -1690,8 +1744,8 @@ function navStateFromLocation() {
   if (page === 'trading' && TRADING_PAGE_BY_SECTION[runIdRaw]) {
     return { page: TRADING_PAGE_BY_SECTION[runIdRaw] };
   }
-  if (page === 'architecture' && ARCHITECTURE_VIEWS.has(runIdRaw || 'overview')) {
-    return { page: 'architecture-page', architectureView: runIdRaw || 'overview' };
+  if ((page === 'assets' || page === 'architecture') && ARCHITECTURE_VIEWS.has(runIdRaw || 'overview')) {
+    return { page: 'assets-page', architectureView: runIdRaw || 'overview' };
   }
   if (!page || !document.getElementById(page)) return null;
   const state = { page };
@@ -1826,7 +1880,7 @@ async function applyNavState(state) {
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
-  if (page === 'architecture-page') initArchitecturePage(state?.architectureView || 'overview');
+  if (page === 'assets-page') initArchitecturePage(state?.architectureView || 'overview');
 }
 
 document.addEventListener('architecture-view-change', (event) => {
@@ -1918,7 +1972,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
     ensurePortfolioLoaded();
   }
-  if (id === 'architecture-page') initArchitecturePage(options.historyState?.architectureView || _architectureView);
+  if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || _architectureView);
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();

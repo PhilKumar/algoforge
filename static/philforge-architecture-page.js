@@ -92,10 +92,11 @@
       </section>
 
       <section class="document-dock" aria-labelledby="architecture-documents-title">
-        <div><p class="eyebrow"><span>DOCUMENTS</span> Complete references</p><h2 id="architecture-documents-title">Independent platform blueprints</h2><p>Open either full blueprint here without leaving the PhilForge application.</p></div>
+        <div><p class="eyebrow"><span>DOCUMENTS</span> Complete references</p><h2 id="architecture-documents-title">Every asset, in full</h2><p>The published performance record and both platform blueprints, opened here without leaving the PhilForge application.</p></div>
         <div class="document-cards">
-          <a href="#architecture/cryptoforge" data-architecture-view="cryptoforge"><i class="dot crypto"></i><span><strong>CryptoForge Blueprint</strong><small>Complete 24/7 digital-asset architecture</small></span><b>→</b></a>
-          <a href="#architecture/philforge" data-architecture-view="philforge"><i class="dot phil"></i><span><strong>PhilForge Blueprint</strong><small>Complete Indian-market architecture</small></span><b>→</b></a>
+          <a href="#assets/tearsheet" data-architecture-view="tearsheet"><i class="dot phil"></i><span><strong>Five-Year Tearsheet</strong><small>Backtest evidence, net of all charges</small></span><b>→</b></a>
+          <a href="#assets/cryptoforge" data-architecture-view="cryptoforge"><i class="dot crypto"></i><span><strong>CryptoForge Blueprint</strong><small>Complete 24/7 digital-asset architecture</small></span><b>→</b></a>
+          <a href="#assets/philforge" data-architecture-view="philforge"><i class="dot phil"></i><span><strong>PhilForge Blueprint</strong><small>Complete Indian-market architecture</small></span><b>→</b></a>
         </div>
       </section>
     </div>`;

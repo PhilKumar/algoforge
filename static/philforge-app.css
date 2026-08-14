@@ -3346,7 +3346,7 @@
   .nav-tabs > #nav-builder { order: 6; }
   .nav-tabs > #nav-charts { order: 7; }
   .nav-tabs > #nav-results { order: 8; }
-  .nav-tabs > #nav-architecture { order: 9; }
+  .nav-tabs > #nav-assets { order: 9; }
   .nav-tab {
     background: none;
     border: none;
@@ -3462,6 +3462,49 @@
     overflow: clip;
     border-radius: inherit;
     background: transparent;
+  }
+  /* The tearsheet keeps its own stylesheet inside the frame; only the chrome
+     around it belongs to the terminal. */
+  .pf-tearsheet-panel {
+    border: 1px solid var(--border-hi);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .pf-tearsheet-bar {
+    min-height: 48px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-hi);
+  }
+  .pf-tearsheet-name { color: var(--text); font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .1em; }
+  .pf-tearsheet-meta { color: var(--muted); font: 500 10px 'JetBrains Mono', monospace; letter-spacing: .05em; }
+  .pf-tearsheet-open {
+    margin-left: auto;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    border: 1px solid var(--border-hi);
+    border-radius: 9px;
+    color: var(--text);
+    background: transparent;
+    text-decoration: none;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .03em;
+  }
+  .pf-tearsheet-open:hover { border-color: var(--accent); }
+  #assets-tearsheet-frame {
+    display: block;
+    width: 100%;
+    height: min(1120px, calc(100vh - 210px));
+    border: 0;
+    background: var(--panel);
+    color-scheme: dark light;
   }
   html[data-theme="light"] .pf-architecture-viewbar { background: rgba(255,255,255,.58); }
   html[data-theme="light"] .pf-architecture-reader { background: #eef3f8; }
