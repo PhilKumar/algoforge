@@ -256,6 +256,24 @@ test('the tearsheet is served whole and embedded in the workspace it belongs to'
   await expect(framed.locator('h1')).toBeVisible();
   await expect(framed.locator('body')).toContainText('11,60,571');
 
+  // The document wears the blueprint reader's chrome rather than its own, so a
+  // reader moving between the Tearsheet and CryptoForge tabs sees one design:
+  // meta chips, a search box and a contents rail built from the headings.
+  await expect(framed.locator('.document-hero .meta-chip').first()).toBeVisible();
+  await expect(framed.locator('#tearsheet-search')).toBeVisible();
+  const contents = framed.locator('#document-toc a');
+  expect(await contents.count()).toBe(await framed.locator('#document-body > section').count());
+  await expect(contents.first()).toBeVisible();
+
+  // The search filters sections; it is the one piece of reader behaviour this
+  // document had to reimplement, so it is worth proving rather than assuming.
+  await framed.locator('#tearsheet-search').fill('drawdown');
+  await expect.poll(async () => framed.locator('#document-body > section:visible').count())
+    .toBeLessThan(await contents.count());
+  await framed.locator('#tearsheet-search').fill('');
+  await expect.poll(async () => framed.locator('#document-body > section:visible').count())
+    .toBe(await contents.count());
+
   // The terminal stamps data-theme only when it is light, so an unstamped
   // workspace is dark. The document must not fall back to its own default.
   const framedTheme = () => page.locator('#assets-tearsheet-frame')

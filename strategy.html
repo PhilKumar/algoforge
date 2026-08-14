@@ -3671,11 +3671,12 @@
     <!-- The tearsheet is a complete published document: its own stylesheet,
          canvas, language toggle and element IDs. It is framed rather than
          inlined so those cannot collide with the terminal's, which keeps the
-         embedded copy identical to the one shared with buyers. -->
+         embedded copy identical to the one shared with buyers. Its shell is
+         built to the blueprint reader's design, so it carries its own eyebrow,
+         heading, meta chips, search and contents rail — the bar here holds only
+         the one thing the frame cannot provide, a way out of it. -->
     <div id="assets-tearsheet-panel" class="pf-architecture-panel pf-tearsheet-panel" role="tabpanel" hidden>
       <div class="pf-tearsheet-bar">
-        <span class="pf-tearsheet-name">PHILFORGE OPTIONS TEARSHEET</span>
-        <span class="pf-tearsheet-meta">935 trades · 891 trading days · bilingual</span>
         <a class="pf-tearsheet-open" id="assets-tearsheet-open" href="/assets/tearsheet" target="_blank" rel="noopener">Open full document ↗</a>
       </div>
       <!-- src is set from JS so the document arrives already carrying the
