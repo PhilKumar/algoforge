@@ -3,9 +3,9 @@
 :root {
   color-scheme: light dark;
   --paper:#EDF0F3; --surface:#FFFFFF; --surface-2:#F5F7F9;
-  --ink:#0F151C; --ink-2:#3C4854; --muted:#66727E; --line:#D5DCE3; --line-2:#E7ECF1;
+  --ink:#0F151C; --ink-2:#3C4854; --muted:#5D6874; --line:#D5DCE3; --line-2:#E7ECF1;
   --accent:#1F4E79; --accent-soft:rgba(31,78,121,.10);
-  --pos:#146B4C; --neg:#A2382A; --flat:#8A939C;
+  --pos:#146B4C; --neg:#A2382A; --flat:#6B7480;
   --pos-fill:20,107,76; --neg-fill:162,56,42;
   --shadow:0 1px 2px rgba(15,21,28,.06), 0 8px 24px rgba(15,21,28,.06);
   --sans:"Outfit",ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -16,7 +16,7 @@
     --paper:#090D12; --surface:#111820; --surface-2:#0D141B;
     --ink:#E8EEF4; --ink-2:#BCC8D4; --muted:#8493A1; --line:#212C37; --line-2:#1A232C;
     --accent:#78ADDD; --accent-soft:rgba(120,173,221,.13);
-    --pos:#43C48D; --neg:#E67D6B; --flat:#78838E;
+    --pos:#43C48D; --neg:#E67D6B; --flat:#8792A0;
     --pos-fill:67,196,141; --neg-fill:230,125,107;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
   }
@@ -25,7 +25,7 @@
   --paper:#090D12; --surface:#111820; --surface-2:#0D141B;
   --ink:#E8EEF4; --ink-2:#BCC8D4; --muted:#8493A1; --line:#212C37; --line-2:#1A232C;
   --accent:#78ADDD; --accent-soft:rgba(120,173,221,.13);
-  --pos:#43C48D; --neg:#E67D6B; --flat:#78838E;
+  --pos:#43C48D; --neg:#E67D6B; --flat:#8792A0;
   --pos-fill:67,196,141; --neg-fill:230,125,107;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
 }
@@ -43,7 +43,7 @@ body {
 h1 { font-size:clamp(30px,5vw,44px); line-height:1.06; letter-spacing:-.025em;
      margin:8px 0 10px; font-weight:700; text-wrap:balance; }
 h2 { font-size:20px; letter-spacing:-.015em; margin:0 0 4px; font-weight:700; text-wrap:balance; }
-h3 { font-size:14px; letter-spacing:-.005em; margin:0 0 10px; font-weight:700; }
+h3, .note-h { font-size:14px; letter-spacing:-.005em; margin:0 0 10px; font-weight:700; }
 p { margin:0 0 12px; max-width:68ch; color:var(--ink-2); }
 a { color:var(--accent); }
 .lede { font-size:16.5px; color:var(--ink-2); max-width:70ch; }
@@ -114,8 +114,10 @@ tbody tr:last-child td, tbody tr:last-child th { border-bottom:0; }
           border:1px solid transparent; }
 .mcell-void { background:repeating-linear-gradient(135deg,var(--line-2) 0 4px,transparent 4px 8px);
                border-radius:6px; opacity:.55; }
-.mcell.pos { background:rgba(var(--pos-fill),calc(var(--w) * .82 + .06)); }
-.mcell.neg { background:rgba(var(--neg-fill),calc(var(--w) * .82 + .06)); }
+/* Alpha is capped at .46, not .88: the value sits ON this tint, and a
+   full-strength fill drops the ink to 2.35:1 in dark mode. */
+.mcell.pos { background:rgba(var(--pos-fill),calc(var(--w) * .40 + .06)); }
+.mcell.neg { background:rgba(var(--neg-fill),calc(var(--w) * .40 + .06)); }
 .mcell-m { display:block; font-family:var(--mono); font-size:8.5px; font-weight:700;
             letter-spacing:.1em; color:var(--muted); }
 .mcell-v { display:block; font-family:var(--mono); font-variant-numeric:tabular-nums;
@@ -222,7 +224,9 @@ html[data-theme="dark"] .langbar button[aria-selected="true"] { color:#0A1119; }
    against the wrong line's free space and pushes ~50px of scrollable overflow
    onto the document. It sits as an ordinary fourth item, and is dropped on
    touch widths where there is no hover to hint at. */
-.legend > span:last-child { color:var(--muted); opacity:.85; }
+/* No opacity here: it composites --muted down to 4.07:1 on the light surface,
+   under the 4.5:1 floor. The hint is already de-emphasised by --muted alone. */
+.legend > span:last-child { color:var(--muted); }
 @media (max-width: 960px) { .legend > span:last-child { display:none; } }
 .ledger-controls { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; align-items:center; }
 .ledger-controls button { appearance:none; cursor:pointer; background:var(--surface-2);
@@ -242,7 +246,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 
 </style>
 
-<div class="wrap">
+<main class="wrap">
 
 <div class="langbar" id="langbar" role="tablist" aria-label="Language / மொழி">
   <button type="button" role="tab" data-lang="en" aria-selected="true">English</button>
@@ -263,7 +267,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </header>
 
 <div class="note">
-  <h3><span class="tr"><i lang="en">Two corrections were mandatory before any figure here could be quoted</i><i lang="ta">இங்கு எந்த எண்ணையும் சொல்வதற்கு முன் இரண்டு திருத்தங்கள் கட்டாயம்</i></span></h3>
+  <h2 class="note-h"><span class="tr"><i lang="en">Two corrections were mandatory before any figure here could be quoted</i><i lang="ta">இங்கு எந்த எண்ணையும் சொல்வதற்கு முன் இரண்டு திருத்தங்கள் கட்டாயம்</i></span></h2>
   <p><span class="tr"><i lang="en">The source export stamps <strong>quantity 260 on every trade in all five years</strong> &mdash; four lots at <em>today's</em> NIFTY lot size &mdash; and reports profit <strong>gross of costs</strong>. The real lot was 50 until Apr 2024, 25 until Dec 2024, then 75, then 65. Left uncorrected, that alone overstates the early years.</i><i lang="ta">மூல ஏற்றுமதி (export) <strong>ஐந்து ஆண்டுகளின் ஒவ்வொரு டிரேடுக்கும் 260 என்ற அளவையே</strong> பதிக்கிறது &mdash; அதாவது <em>இன்றைய</em> NIFTY லாட் அளவில் நான்கு லாட் &mdash; மேலும் லாபத்தை <strong>கட்டணங்களுக்கு முன்</strong> காட்டுகிறது. உண்மையான லாட் ஏப்ரல் 2024 வரை 50, டிசம்பர் 2024 வரை 25, பின்னர் 75, பின்னர் 65. திருத்தாமல் விட்டால் இதுவே ஆரம்ப ஆண்டுகளை மிகைப்படுத்திக் காட்டும்.</i></span></p>
   <p><span class="tr"><i lang="en">Restating both moves the headline from <span class="num">₹14,45,184</span> as exported to <span class="num"><strong>₹11,60,571</strong></span> net &mdash; <span class="num">₹1,68,996</span> of that gap is transaction cost. The lower number is the one this document uses throughout.</i><i lang="ta">இரண்டையும் திருத்தியதும் தலைப்பு எண் <span class='num'>₹14,45,184</span> என்பதிலிருந்து <span class='num'><strong>₹11,60,571</strong></span> நிகரமாக மாறுகிறது &mdash; அந்த இடைவெளியில் <span class='num'>₹1,68,996</span> பரிவர்த்தனைக் கட்டணம். இந்த ஆவணம் முழுவதும் சிறிய எண்ணையே பயன்படுத்துகிறது.</i></span></p>
 </div>
@@ -317,7 +321,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     </tbody>
   </table></div>
   <div class="note" style="margin-top:14px">
-    <h3><span class="tr"><i lang="en">Flat brokerage is the single largest charge, and it is the one that scales badly</i><i lang="ta">நிலையான புரோக்கரேஜ்தான் மிகப்பெரிய கட்டணம் &mdash; அளவு கூடினாலும் அது குறையாது</i></span></h3>
+    <h2 class="note-h"><span class="tr"><i lang="en">Flat brokerage is the single largest charge, and it is the one that scales badly</i><i lang="ta">நிலையான புரோக்கரேஜ்தான் மிகப்பெரிய கட்டணம் &mdash; அளவு கூடினாலும் அது குறையாது</i></span></h2>
     <p><span class="tr"><i lang="en"><span class="num">₹74,800</span> of the <span class="num">₹1,68,996</span> taken &mdash; <strong>44%</strong> &mdash; is the flat &#8377;80 per round trip. It does not shrink with position size, so it is a fixed toll on every trade regardless of how many lots are behind it. Turnover-linked charges (exchange, STT, GST, stamp, SEBI) come to <span class="num">₹94,196</span>, or <span class="num">0.091%</span> of the <span class="num">₹10,33,17,269</span> traded. This is exactly why the small-size rows in the capital table below earn a lower return per rupee.</i><i lang="ta">பிடிக்கப்பட்ட <span class='num'>₹1,68,996</span>-இல் <span class='num'>₹74,800</span> &mdash; <strong>44%</strong> &mdash; ஒரு டிரேடுக்கு &#8377;80 என்ற நிலையான புரோக்கரேஜ். பொசிஷன் அளவு கூடினாலும் அது குறையாது; எத்தனை லாட் இருந்தாலும் ஒவ்வொரு டிரேடுக்கும் அது நிலையான சுங்கம். டர்ன்ஓவர் சார்ந்த கட்டணங்கள் (எக்ஸ்சேஞ்ச், STT, GST, ஸ்டாம்ப், SEBI) மொத்தம் <span class='num'>₹94,196</span>, அதாவது வர்த்தகமான <span class='num'>₹10,33,17,269</span>-இல் <span class='num'>0.091%</span>. கீழே உள்ள மூலதன அட்டவணையில் சிறிய அளவுகள் ஏன் குறைவான வருவாய் தருகின்றன என்பதற்கு இதுவே காரணம்.</i></span></p>
   </div>
 </section>
@@ -363,7 +367,8 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <button type="button" data-year="all" aria-pressed="true"><span class="tr"><i lang="en">All</i><i lang="ta">அனைத்தும்</i></span></button>
     <button type="button" data-year="2021" aria-pressed="false">2021</button><button type="button" data-year="2022" aria-pressed="false">2022</button><button type="button" data-year="2023" aria-pressed="false">2023</button><button type="button" data-year="2024" aria-pressed="false">2024</button><button type="button" data-year="2025" aria-pressed="false">2025</button><button type="button" data-year="2026" aria-pressed="false">2026</button>
   </div>
-  <div class="ledger-scroll" id="ledger" data-total="891">
+  <div class="ledger-scroll" id="ledger" tabindex="0" role="region"
+       aria-label="<span class="tr"><i lang="en">Daily profit and loss ledger</i><i lang="ta">தினசரி லாப நஷ்ட பதிவு</i></span>" data-total="891">
     <table>
       <thead><tr>
         <th scope="col"><span class="tr"><i lang="en">Date</i><i lang="ta">தேதி</i></span></th>
@@ -487,7 +492,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     </div>
   </div>
   <div class="note" style="margin-top:14px">
-    <h3><span class="tr"><i lang="en">The live engine already prices slippage &mdash; it is not assumed away</i><i lang="ta">லைவ் என்ஜின் ஏற்கனவே ஸ்லிப்பேஜை கணக்கிடுகிறது &mdash; அது புறக்கணிக்கப்படவில்லை</i></span></h3>
+    <h2 class="note-h"><span class="tr"><i lang="en">The live engine already prices slippage &mdash; it is not assumed away</i><i lang="ta">லைவ் என்ஜின் ஏற்கனவே ஸ்லிப்பேஜை கணக்கிடுகிறது &mdash; அது புறக்கணிக்கப்படவில்லை</i></span></h2>
     <p><span class="tr"><i lang="en">Both books carry <span class="num">6 bps</span> entry slippage, <span class="num">8 bps</span> exit slippage and a <span class="num">12 bps</span> spread allowance in the engine itself, on top of the charges above. Orders go out as MARKET on both sides under MIS, with a leg stop placed at the broker. Signals are read only from a <strong>closed</strong> 5-minute bar and the fill goes in one second into the next bar, so no trade can act on a candle that has not finished.</i><i lang="ta">இரண்டு புத்தகங்களும் என்ஜினிலேயே <span class='num'>6 bps</span> நுழைவு ஸ்லிப்பேஜ், <span class='num'>8 bps</span> வெளியேற்ற ஸ்லிப்பேஜ், <span class='num'>12 bps</span> ஸ்ப்ரெட் ஒதுக்கீடு ஆகியவற்றை மேற்கண்ட கட்டணங்களுக்கு மேல் கணக்கிடுகின்றன. ஆர்டர்கள் MIS-இல் இரு பக்கமும் MARKET ஆக செல்கின்றன, ஸ்டாப் லாஸ் புரோக்கரிடம் வைக்கப்படுகிறது. சிக்னல் <strong>முடிந்த</strong> 5 நிமிட கேண்டிலிலிருந்து மட்டுமே படிக்கப்படுகிறது; அடுத்த கேண்டில் தொடங்கிய ஒரு வினாடியில் நுழைவு நிகழ்கிறது. எனவே முடியாத கேண்டிலின் மீது எந்த டிரேடும் செயல்பட முடியாது.</i></span></p>
   </div>
 </section>
@@ -682,7 +687,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <li><span class="tr"><i lang="en"><strong>No survivorship editing.</strong> Every trade the rules produced is included, including the losing weekday and the losing months.</i><i lang="ta"><strong>தேர்ந்தெடுத்த திருத்தம் இல்லை.</strong> விதிகள் உருவாக்கிய ஒவ்வொரு டிரேடும் சேர்க்கப்பட்டுள்ளது &mdash; நஷ்டம் தரும் வார நாளும், நஷ்ட மாதங்களும் உட்பட.</i></span></li>
   </ol></div>
   <div class="note note-warn" style="margin-top:14px">
-    <h3><span class="tr"><i lang="en">What this document is not</i><i lang="ta">இந்த ஆவணம் எது அல்ல</i></span></h3>
+    <h2 class="note-h"><span class="tr"><i lang="en">What this document is not</i><i lang="ta">இந்த ஆவணம் எது அல்ல</i></span></h2>
     <p><span class="tr"><i lang="en">It is a backtest. It assumes every signal was filled at the recorded premium, with no rejection, no partial fill and no slippage beyond the modelled costs. Live execution adds all three. Past behaviour of an index, its lot size and its expiry calendar is not a commitment that any of them stay put &mdash; and this record already contains two such changes. Nothing here is investment advice or an offer to manage money.</i><i lang="ta">இது ஒரு பேக்டெஸ்ட். ஒவ்வொரு சிக்னலும் பதிவான பிரீமியத்தில் நிறைவேறியதாக, நிராகரிப்பு இல்லாமல், பகுதி நிறைவேற்றம் இல்லாமல், கணக்கிட்ட கட்டணங்களுக்கு மேல் ஸ்லிப்பேஜ் இல்லாமல் கருதுகிறது. லைவ் செயல்பாடு இந்த மூன்றையும் சேர்க்கிறது. ஒரு குறியீட்டின் கடந்தகால நடத்தை, அதன் லாட் அளவு, எக்ஸ்பயரி நாட்காட்டி ஆகியவை அப்படியே நீடிக்கும் என்பதற்கு உத்தரவாதம் இல்லை &mdash; இந்தப் பதிவிலேயே அத்தகைய இரண்டு மாற்றங்கள் உள்ளன. இங்குள்ள எதுவும் முதலீட்டு ஆலோசனை அல்ல, பணத்தை நிர்வகிக்கும் சலுகையும் அல்ல.</i></span></p>
   </div>
 </section>
@@ -693,7 +698,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
   Upstox expired-option history. Figures in Indian rupees, net of charges.
 </footer>
 
-</div>
+</main>
 
 <script>
 (function () {

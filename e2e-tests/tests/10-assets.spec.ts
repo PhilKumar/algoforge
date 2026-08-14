@@ -216,7 +216,9 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     expect(readingSizes.table).toBeGreaterThanOrEqual(13);
     let overflow = await reader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
-    const results = await new AxeBuilder({ page }).include('#assets-page').exclude('#assets-tearsheet-frame').analyze();
+    // No frame exclusion: axe walks the same-origin tearsheet, and the
+    // document is expected to pass on its own terms too.
+    const results = await new AxeBuilder({ page }).include('#assets-page').analyze();
     expect(results.violations).toEqual([]);
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -294,4 +296,14 @@ test('production CSP permits the same-origin tearsheet frame and nothing else', 
   expect(conf).not.toContain("frame-src 'none'");
   expect(conf).toContain("frame-ancestors 'self'");
   expect(page).toBeTruthy();
+});
+
+test('the tearsheet document passes accessibility on its own, in both themes', async ({ page }) => {
+  await login(page);
+  for (const theme of ['dark', 'light'] as const) {
+    await page.goto(`/assets/tearsheet?theme=${theme}`);
+    await expect(page.locator('h1')).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  }
 });
