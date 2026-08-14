@@ -905,8 +905,17 @@ function _pfChartCanvasSetViewport(c, next) {
   var pSpan = Number(next.pMax) - Number(next.pMin);
   if (!isFinite(tSpan) || !isFinite(pSpan) || tSpan <= 0 || pSpan <= 0) return;
   c.viewport = { tMin: Number(next.tMin), tMax: Number(next.tMax), pMin: Number(next.pMin), pMax: Number(next.pMax) };
-  var fit = _pfChartCanvasFit(c), label = document.getElementById('pf-bench-zoom-level');
-  if (fit && label) label.textContent = Math.round((fit.tMax - fit.tMin) / tSpan * 100) + '%';
+  // Every readout on the page shows the SAME number: the Test Bench toolbar's
+  // (by id), the host cluster's, and any chart-strip's. Updating only the id
+  // left the dialog's own readout frozen at 100% while the chart zoomed.
+  var fit = _pfChartCanvasFit(c);
+  if (fit) {
+    var pct = Math.round((fit.tMax - fit.tMin) / tSpan * 100) + '%';
+    var legacy = document.getElementById('pf-bench-zoom-level');
+    if (legacy) legacy.textContent = pct;
+    document.querySelectorAll('[data-pf-zoom-readout], [data-bench-zoom-level]')
+      .forEach(function (node) { node.textContent = pct; });
+  }
   _pfChartCanvasDraw();
 }
 
@@ -1169,13 +1178,25 @@ function pfChartStrip(host, opts) {
       }).join('')
       + '</div>';
   }
-  // Zoom lives on the canvas host itself (every chart gets it for free), so
-  // the strip carries only what the host cannot know: timeframes and actions.
+  // ONE chart toolbar for the whole site, copied from the Campaign Chart
+  // (Equity -> Cash Cascade) because that is the design Phil adjudicated:
+  // timeframes, then zoom, then the round controls, in that order. Zoom used
+  // to float over the canvas here and sit in the toolbar there, which is
+  // exactly the "deviates everywhere a chart exists" complaint. It lives in
+  // the toolbar now; the host's floating cluster is hidden by CSS wherever
+  // this strip supplies one.
+  if (opts.zoom !== false) {
+    html += '<div class="terminal-cascade-tf-toggle pf-chart-strip-zoom" role="group" aria-label="Chart zoom">'
+      + '<button type="button" class="terminal-cascade-tf-option" data-strip-zoom-out title="Zoom out" aria-label="Zoom out">&minus;</button>'
+      + '<button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>'
+      + '<button type="button" class="terminal-cascade-tf-option" data-strip-zoom-in title="Zoom in" aria-label="Zoom in">+</button>'
+      + '</div>';
+  }
   if (typeof opts.onRefresh === 'function') {
-    html += '<button type="button" class="btn btn-sm btn-outline" data-strip-refresh aria-label="Refresh chart" title="Refresh">&#x27F3;</button>';
+    html += '<button type="button" class="terminal-cascade-chart-control" data-strip-refresh aria-label="Refresh chart" title="Refresh chart">&#x27F3;</button>';
   }
   if (typeof opts.onClose === 'function') {
-    html += '<button type="button" class="btn btn-sm btn-outline pf-chart-strip-close" data-strip-close aria-label="Close chart" title="Close">&#x2715;</button>';
+    html += '<button type="button" class="terminal-cascade-chart-control is-danger pf-chart-strip-close" data-strip-close aria-label="Close chart" title="Close chart">&#x2715;</button>';
   }
   strip.innerHTML = html;
 
@@ -1190,9 +1211,25 @@ function pfChartStrip(host, opts) {
       if (typeof opts.onTimeframe === 'function') opts.onTimeframe(tfBtn.getAttribute('data-strip-tf'));
       return;
     }
+    // Zoom is NOT handled here — one delegated listener below drives it for
+    // every toolbar, generated or hand-written, so they cannot drift apart.
     if (event.target.closest('[data-strip-refresh]')) { opts.onRefresh(); return; }
     if (event.target.closest('[data-strip-close]')) { opts.onClose(); }
   });
   host.insertBefore(strip, host.firstChild);
   return strip;
 }
+
+// The zoom trio behaves the same wherever it appears: the Campaign Chart's
+// hand-written toolbar, a pfChartStrip, or the host's floating cluster. One
+// delegated listener is what makes that true -- per-toolbar handlers are how
+// the controls drifted apart in the first place. Factors match the host
+// cluster's exactly (1.25 out, 0.8 in) so the same click zooms the same amount
+// on every chart.
+document.addEventListener('click', function (event) {
+  var target = event.target;
+  if (!target || typeof target.closest !== 'function') return;
+  if (target.closest('[data-strip-zoom-out]')) { _pfChartCanvasZoom(1.25); return; }
+  if (target.closest('[data-strip-zoom-in]')) { _pfChartCanvasZoom(0.8); return; }
+  if (target.closest('[data-strip-zoom-reset]')) _pfChartCanvasZoom(0, true);
+});

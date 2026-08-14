@@ -2118,7 +2118,13 @@
               <button type="button" class="terminal-cascade-tf-option is-active" data-tworeds-tf="1d" role="radio" aria-checked="true">1D</button>
               <button type="button" class="terminal-cascade-tf-option" data-tworeds-tf="1w" role="radio" aria-checked="false">1W</button>
             </div>
-            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close" aria-label="Close chart">&#10005;</button>
+            <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
+              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-out title="Zoom out" aria-label="Zoom out">&minus;</button>
+              <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>
+              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-in title="Zoom in" aria-label="Zoom in">+</button>
+            </div>
+            <button type="button" class="terminal-cascade-chart-control" data-pf-action="loadTwoRedChart" title="Refresh chart" aria-label="Refresh chart">&#x27F3;</button>
+            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close chart" aria-label="Close chart">&#10005;</button>
           </div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body">
@@ -2843,7 +2849,18 @@
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title"><h3>Fib-space campaign chart</h3><div id="fsx-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ fib level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><button class="terminal-cascade-chart-control is-danger" type="button" data-pf-action="hideFibSpaceChart" title="Close chart" aria-label="Close chart">&#10005;</button></div>
+          <div class="terminal-cascade-chart-actions">
+            <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ fib level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div>
+            <!-- No timeframe picker: this chart replays the campaign's OWN
+                 bars, so a different timeframe would not be the same run. -->
+            <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
+              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-out title="Zoom out" aria-label="Zoom out">&minus;</button>
+              <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>
+              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-in title="Zoom in" aria-label="Zoom in">+</button>
+            </div>
+            <button type="button" class="terminal-cascade-chart-control" data-pf-action="loadFibSpaceChart" title="Refresh chart" aria-label="Refresh chart">&#x27F3;</button>
+            <button class="terminal-cascade-chart-control is-danger" type="button" data-pf-action="hideFibSpaceChart" title="Close chart" aria-label="Close chart">&#10005;</button>
+          </div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="fsx-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Native closed candles from the campaign's own replay — the same run the fills came out of. Drag to pan, wheel to zoom, double-click to reset.</div></div></div>
       </div>
@@ -3108,9 +3125,18 @@
     </div>
   </section>
 
-  <div class="oc-tabs" role="tablist" aria-label="Insights views">
-    <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" title="What moved today, and by how much"><span class="oc-tab-name">▦ Heatmap</span><span class="oc-tab-sub">Gainers, losers and the profit/loss grid · live prices</span></button>
-    <button id="insights-tabbtn-study" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="insights-study" tabindex="-1" data-pf-action="showInsightsTab" data-insights-tab="study" title="Reading and reference, between trades"><span class="oc-tab-name">◫ Study Lounge</span><span class="oc-tab-sub">Reset, replay one idea, come back sharper</span></button>
+  <!-- The same view bar Assets wears: a labelled title on the left, one pill
+       group on the right. Insights used to carry its own two-line tab cards,
+       which is what made the page read as a foreign document. -->
+  <div class="pf-architecture-viewbar">
+    <div>
+      <span class="pf-architecture-viewbar-label">Insights view</span>
+      <strong id="insights-view-title">Heatmap</strong>
+    </div>
+    <div class="pf-architecture-tabs" role="tablist" aria-label="Insights views">
+      <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" data-insights-title="Heatmap" title="What moved today, and by how much"><i class="heat"></i>Heatmap</button>
+      <button id="insights-tabbtn-study" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="insights-study" tabindex="-1" data-pf-action="showInsightsTab" data-insights-tab="study" data-insights-title="Study Lounge" title="Reading and reference, between trades"><i class="study"></i>Study Lounge</button>
+    </div>
   </div>
 
   <!-- ── TAB · Heatmap ── (markup lifted from market_movers.html; its CSS is
@@ -3254,12 +3280,12 @@
 
   <!-- ── TAB · Study Lounge ── -->
   <div id="insights-study" class="oc-tab-panel" role="tabpanel" aria-labelledby="insights-tabbtn-study" aria-hidden="true" style="display:none;">
+    <!-- The Track filter is rendered by study_lounge.js, inside the library,
+         with its own control styling. A second <select> lived here carrying
+         the SAME id, so getElementById bound the change handler to this dead
+         one and picking a track did nothing at all. -->
     <div class="insights-strip">
       <span id="library-status" class="cascade-options-state">Loading…</span>
-      <label class="insights-strip-note" for="category-filter-select">Category</label>
-      <select id="category-filter-select" style="padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;">
-        <option value="">All categories</option>
-      </select>
     </div>
 <div class="study-shell">
       <section class="hero-grid">

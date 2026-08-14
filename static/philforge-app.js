@@ -2674,11 +2674,14 @@ const _INSIGHTS_TABS = ['heatmap', 'study'];
 
 function showInsightsTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
+  const viewTitle = document.getElementById('insights-view-title');
   document.querySelectorAll('#insights-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-insights-tab') === tab;
     b.classList.toggle('is-active', selected);
     b.setAttribute('aria-selected', String(selected));
     b.tabIndex = selected ? 0 : -1;
+    // The bar names the view you are on, the way the Assets bar does.
+    if (selected && viewTitle) viewTitle.textContent = b.getAttribute('data-insights-title') || '';
   });
   _INSIGHTS_TABS.forEach(name => {
     const panel = document.getElementById(`insights-${name}`);

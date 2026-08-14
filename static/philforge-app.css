@@ -6584,69 +6584,19 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .dashboard-flow-panel-chevron { transition: none; }
 }
 
-/* Insights uses the same compact, tactile button language as the Study
-   Lounge asset filters. The explanatory copy stays in each button's title,
-   while the visible picker remains a clean single row. */
-#insights-page > .oc-tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: auto;
-  margin-bottom: 16px;
-  padding: 5px;
-  border: 1px solid rgba(148,163,184,.18);
-  border-radius: 16px;
-  background: rgba(15,23,42,.32);
-}
-#insights-page > .oc-tabs .oc-tab {
-  position: relative;
-  min-height: 36px;
-  padding: 0 16px;
-  overflow: hidden;
-  border: 1px solid rgba(84,128,233,.44);
-  border-radius: 11px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(91,109,170,.98) 0%, rgba(58,72,124,.98) 58%, rgba(27,34,63,1) 100%);
-  color: #c7d6ff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -10px 16px rgba(6,11,28,.34), 0 8px 18px rgba(2,6,23,.24);
-  text-shadow: 0 1px 0 rgba(8,15,30,.42);
-}
-#insights-page > .oc-tabs .oc-tab::before {
-  content: '';
-  position: absolute;
-  inset: 2px 2px auto;
-  height: 48%;
-  border-radius: inherit;
-  background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.03));
-  pointer-events: none;
-}
-#insights-page > .oc-tabs .oc-tab:hover { border-color: rgba(112,157,255,.62); color: #e6efff; }
-#insights-page > .oc-tabs .oc-tab.is-active {
-  border-color: rgba(27,181,135,.54);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.24) 0%, rgba(255,255,255,.08) 34%, rgba(255,255,255,0) 35%),
-    linear-gradient(180deg, rgba(33,193,137,.98) 0%, rgba(11,154,116,.98) 58%, rgba(5,99,80,1) 100%);
-  color: #a6ffdd;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.26), inset 0 -10px 16px rgba(5,78,63,.28), 0 10px 22px rgba(5,73,58,.24);
-}
-#insights-page > .oc-tabs .oc-tab-name { position: relative; z-index: 1; white-space: nowrap; }
-#insights-page > .oc-tabs .oc-tab-sub { display: none; }
-[data-theme="light"] #insights-page > .oc-tabs { border-color: rgba(15,23,42,.14); background: rgba(241,245,249,.88); }
-[data-theme="light"] #insights-page > .oc-tabs .oc-tab {
-  border-color: rgba(96,126,198,.38);
-  background: linear-gradient(180deg, #fff 0%, #f7faff 36%, #dee8f8 100%);
-  color: #1a3156;
-  text-shadow: none;
-}
-[data-theme="light"] #insights-page > .oc-tabs .oc-tab.is-active {
-  border-color: rgba(5,150,105,.44);
-  background: linear-gradient(180deg, #fff 0%, #f0fdf7 36%, #cff3e0 100%);
-  color: #0a7357;
-}
+/* Insights wears the Assets view bar, not a language of its own. Everything
+   structural comes from .pf-architecture-viewbar / .pf-architecture-tabs, so
+   only the title size and the two view dots belong here. The previous glossy
+   two-tone buttons were the reason the page read as a foreign document. */
+#insights-view-title { color: var(--text); font-size: 13px; }
+.pf-architecture-tabs i.heat { background: #f97362; box-shadow: 0 0 9px rgba(249,115,98,.55); }
+.pf-architecture-tabs i.study { background: #7dd3fc; box-shadow: 0 0 9px rgba(125,211,252,.55); }
 @media (max-width: 560px) {
-  #insights-page > .oc-tabs { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-  #insights-page > .oc-tabs .oc-tab { justify-content: center; min-width: 0; padding-inline: 10px; }
+  /* The bar stacks rather than squeezing: two views cannot share 390px with a
+     label and still keep a 36px touch target. */
+  #insights-page > .pf-architecture-viewbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  #insights-page > .pf-architecture-viewbar .pf-architecture-tabs { display: grid; grid-template-columns: 1fr 1fr; }
+  #insights-page > .pf-architecture-viewbar .pf-architecture-tabs button { padding-inline: 8px; }
 }
 
 #oc-tab-bench .tb-entries-card { padding: 16px 18px; }
@@ -6835,7 +6785,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
     margin: 0 0 10px;
   }
   .pf-chart-strip .terminal-cascade-tf-toggle { margin: 0; }
-  .pf-chart-strip-close { color: #fca5a5; }
+  /* The close button is the Campaign Chart's is-danger control now, so it
+     brings its own colour; overriding it here made this one chart's ✕ a
+     different red from every other chart's. */
+  /* Exactly ONE zoom control per chart: where the strip supplies the toolbar
+     cluster (the Campaign Chart design), the host's floating one stands down.
+     Charts with no strip keep the floating cluster and lose nothing. */
+  .pf-cascade-chart-dialog:has(.pf-chart-strip-zoom) .pf-bench-zoom { display: none; }
 
   /* The zoom cluster every canvas host carries — floats over the plot's
      top-right corner so no caller has to build it. */
