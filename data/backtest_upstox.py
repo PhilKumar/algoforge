@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Callable, Optional
 
 import pandas as pd
 
@@ -33,7 +34,13 @@ class HistoricalOptionSelection:
 class UpstoxHistoricalPremiumSelector:
     """Resolve premium-target NIFTY option legs with exact historical OHLC."""
 
-    def __init__(self, instrument: str, *, cache_only: bool = False) -> None:
+    def __init__(
+        self,
+        instrument: str,
+        *,
+        cache_only: bool = False,
+        progress: Optional[Callable[[str], None]] = None,
+    ) -> None:
         if str(instrument or "26000") not in {"26000", "NIFTY"}:
             raise ValueError("Upstox premium-target backtests currently support NIFTY 50 only.")
         self.source = UpstoxPremiumSource(
@@ -48,6 +55,8 @@ class UpstoxHistoricalPremiumSelector:
         self.selection_cache_hits = 0
         self.selection_cache_misses = 0
         self.last_gap = ""
+        self._active_expiry: date | None = None
+        self._progress = progress
 
     def _load_selection_cache(self) -> dict[str, dict]:
         """Load resolved strikes from earlier identical historical replays.
@@ -114,16 +123,38 @@ class UpstoxHistoricalPremiumSelector:
                 return None
             wanted = months[offset]
             return max(value for value in future if (value.year, value.month) == wanted)
-        return future[0]
+        # A missing weekly expiry must be a gap. Without this guard, asking for
+        # a date before Upstox coverage silently selects the oldest available
+        # contract even when it expires many weeks later.
+        return future[0] if (future[0] - on).days <= 7 else None
+
+    def _activate_expiry(self, expiry: date) -> None:
+        if self._active_expiry == expiry:
+            return
+        self._frames.clear()
+        release = getattr(self.source, "release_memory", None)
+        if callable(release):
+            release()
+        self._active_expiry = expiry
 
     def _frame(self, instrument_key: str, expiry: date, strike: int, timeframe: int) -> pd.DataFrame:
         cache_key = (instrument_key, expiry, int(timeframe))
         cached = self._frames.get(cache_key)
         if cached is not None:
             return cached
+        if self._progress is not None:
+            self._progress(
+                f"Resolving real Upstox options — expiry {expiry.isoformat()}, "
+                f"strike {strike:,} · {self.source.requests_made} request(s)"
+            )
         series = self.source._minute_series(instrument_key, expiry)
         if not series:
-            return pd.DataFrame()
+            empty = pd.DataFrame()
+            # Empty 200 responses are a known Upstox shape. Cache the miss for
+            # this expiry too; otherwise an always-true signal can rescan the
+            # same 16 empty strikes on every candle of the session.
+            self._frames[cache_key] = empty
+            return empty
         rows = [
             {"timestamp": stamp, "open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
             for stamp, bar in series.items()
@@ -148,8 +179,9 @@ class UpstoxHistoricalPremiumSelector:
             return None
         expiry = self._expiry_for(self.expiries, entry_time.date(), leg.get("expiry") or "current_week")
         if expiry is None:
-            self.last_gap = "no eligible Upstox expiry"
+            self.last_gap = "no eligible Upstox expiry within the requested weekly window"
             return None
+        self._activate_expiry(expiry)
         contracts = self.source._contract_index(expiry)
         atm = round_to_nearest_step(entry_spot, 50)
         cache_key = self._selection_cache_key(
@@ -216,10 +248,14 @@ class UpstoxHistoricalPremiumSelector:
             f"upstox|{instrument_key}|{expiry.isoformat()}|{strike}|{option_type}", frame, strike, expiry, price
         )
 
-    def cache_summary(self) -> dict[str, int]:
-        return {
+    def cache_summary(self) -> dict[str, int | str]:
+        summary: dict[str, int | str] = {
             "selection_hits": self.selection_cache_hits,
             "selection_misses": self.selection_cache_misses,
             "stored_selections": len(self._selection_cache),
             "candle_requests": self.source.requests_made,
         }
+        if self.expiries:
+            summary["first_expiry"] = self.expiries[0].isoformat()
+            summary["last_expiry"] = self.expiries[-1].isoformat()
+        return summary

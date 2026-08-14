@@ -88,6 +88,34 @@ def get_lot_size(instrument, trade_date):
     return 1
 
 
+def get_option_contract_lot_size(instrument, contract_expiry):
+    """Return the exchange lot attached to an option contract's expiry.
+
+    NIFTY lot-size revisions transition by contract expiry cycle, not simply by
+    the trade date.  In particular, the 30-Jan-2025 monthly contract retained
+    the old 25-lot while January weekly contracts already used 75.
+    """
+    name = _instrument_family(instrument)
+    if name != "NIFTY":
+        return get_lot_size(instrument, contract_expiry)
+
+    expiry = contract_expiry
+    if isinstance(expiry, datetime):
+        expiry = expiry.date()
+    if not isinstance(expiry, date):
+        expiry = date.fromisoformat(str(expiry))
+
+    if expiry <= date(2024, 4, 25):
+        return 50
+    if expiry <= date(2024, 12, 26):
+        return 25
+    if expiry == date(2025, 1, 30):
+        return 25
+    if expiry <= date(2025, 12, 30):
+        return 75
+    return 65
+
+
 def get_strike_step(instrument):
     """ATM strike rounding: 50 for NIFTY, 100 for BANKNIFTY/SENSEX"""
     if "26009" in str(instrument) or "BANK" in str(instrument).upper():
@@ -694,12 +722,17 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         exit_conditions=exit_conditions,
     )
     sc["indicators"] = indicators
-    execution_timeframe = infer_execution_timeframe(
+    explicit_execution_timeframe = int(sc.get("execution_timeframe_minutes", 0) or 0)
+    execution_timeframe = explicit_execution_timeframe or infer_execution_timeframe(
         indicators,
         entry_conditions,
         default=int(sc.get("timeframe_minutes", 5) or 5),
     )
     sc["timeframe_minutes"] = execution_timeframe
+    entry_evaluation_timeframe = max(
+        1,
+        int(sc.get("entry_evaluation_timeframe_minutes", execution_timeframe) or execution_timeframe),
+    )
     legs = sc.get("legs", []) or []
     option_legs = [leg for leg in legs if leg.get("option_type") in ("CE", "PE")]
     instrument = sc.get("instrument", "26000")
@@ -712,6 +745,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     exit_slippage_bps = max(0.0, float(sc.get("exit_slippage_bps", 0) or 0))
     entry_delay_candles = max(0, int(sc.get("entry_delay_candles", 0) or 0))
     signal_exit_delay_candles = max(0, int(sc.get("signal_exit_delay_candles", 0) or 0))
+    signal_exit_next_open = bool(sc.get("signal_exit_next_open", False))
     enforce_capital = bool(sc.get("enforce_capital", False))
     capital_buffer_pct = min(99.0, max(0.0, float(sc.get("capital_buffer_pct", 0) or 0)))
     sell_option_margin_per_lot = get_sell_option_margin_per_lot(instrument, sc.get("sell_option_margin_per_lot", 0))
@@ -787,6 +821,20 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     def _history_value(position, ts, field, default=None, raw=False):
         row = _history_row(position, ts, raw=raw)
+        if row is None and ts is not None:
+            # Illiquid historical options do not print in every execution
+            # bucket. Mark them at the most recent REAL Upstox close from the
+            # same session; never fall through to the synthetic spot model.
+            history_df = _history_frame(position, raw=raw)
+            if history_df is not None and not history_df.empty:
+                prior = history_df.loc[history_df.index <= ts]
+                if not prior.empty and prior.index[-1].date() == ts.date():
+                    carried = prior.iloc[-1].get("close")
+                    try:
+                        if carried is not None and not pd.isna(carried):
+                            return float(carried)
+                    except (TypeError, ValueError):
+                        pass
         if row is None:
             return default
         value = row.get(field, default)
@@ -829,6 +877,10 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             hist_price = _history_value(position, ts, field)
             if hist_price is not None:
                 return hist_price
+            raise ValueError(
+                f"Missing real historical option price for {position.get('display_symbol', 'option')} "
+                f"at {ts}; synthetic fallback is disabled for Upstox-priced trades."
+            )
         if position["is_option"]:
             return _est_prem(
                 spot_price,
@@ -930,6 +982,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     symbol=position["display_symbol"],
                     lots=position["lots"],
                     lot_size=position["lot_size"],
+                    contract_expiry=position.get("contract_expiry", ""),
                 )
             )
 
@@ -983,6 +1036,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         if option_legs:
             for leg_num, leg in enumerate(option_legs, start=1):
                 leg_lots = int(leg.get("lots", base_lots) or base_lots or 1)
+                position_lot_size = day_lot_size
+                contract_expiry = None
                 history_key = leg.get("_bt_option_history_key")
                 strike_used, entry_price, display_symbol, atm_prem = _resolve_option_entry(
                     instrument,
@@ -1019,6 +1074,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     history_key = resolution.history_key
                     option_history_map[history_key] = resolution.history
                     strike_used = resolution.strike
+                    contract_expiry = resolution.expiry
+                    if user_lot_size <= 0:
+                        position_lot_size = get_option_contract_lot_size(instrument, resolution.expiry)
                     entry_price = resolution.entry_price
                     display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
                     pricing_mode = "historical"
@@ -1057,8 +1115,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         "underlying_symbol": _instrument_label(instrument),
                         "strike": strike_used,
                         "lots": leg_lots,
-                        "lot_size": day_lot_size,
-                        "qty": leg_lots * day_lot_size,
+                        "lot_size": position_lot_size,
+                        "qty": leg_lots * position_lot_size,
+                        "contract_expiry": contract_expiry.isoformat() if contract_expiry else "",
                         "sl_pct": float(leg.get("sl_pct", 0) or 0),
                         "target_pct": float(leg.get("target_pct", 0) or 0),
                         "sl_points": float(leg.get("sl_points", 0) or 0),
@@ -1201,10 +1260,20 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if not exited_this_candle and pending_signal_exit:
                 pending_signal_exit["remaining"] -= 1
                 if pending_signal_exit["remaining"] <= 0:
+                    if pending_signal_exit.get("at_open"):
+                        open_spot = float(row["open"])
+
+                        def exit_price_fn(position, spot=open_spot, exit_ts=ts):
+                            return _position_price(position, spot, exit_ts, "open")
+                    else:
+
+                        def exit_price_fn(position, snap_map=snapshots):
+                            return snap_map[id(position)]["current"]
+
                     _close_selected_positions(
                         list(open_positions),
                         ts,
-                        lambda position, snap_map=snapshots: snap_map[id(position)]["current"],
+                        exit_price_fn,
                         "Signal",
                     )
                     exited_this_candle = True
@@ -1214,7 +1283,9 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     for key, value in signal_candle.items():
                         exit_row[key] = value
                 if eval_condition_group(exit_row, exit_conditions, prev_row):
-                    if signal_exit_delay_candles > 0:
+                    if signal_exit_next_open:
+                        pending_signal_exit = {"remaining": 1, "at_open": True}
+                    elif signal_exit_delay_candles > 0:
                         pending_signal_exit = {"remaining": signal_exit_delay_candles}
                     else:
                         _close_selected_positions(
@@ -1361,7 +1432,16 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 prev_prev_row = prev_row
                 prev_row = row
                 continue
-            if prev_row is not None and eval_condition_group(prev_row, entry_conditions, prev_prev_row):
+            open_minutes = mkt_open.hour * 60 + mkt_open.minute
+            current_minutes = ct.hour * 60 + ct.minute
+            entry_boundary = is_daily or (
+                current_minutes >= open_minutes and (current_minutes - open_minutes) % entry_evaluation_timeframe == 0
+            )
+            if (
+                entry_boundary
+                and prev_row is not None
+                and eval_condition_group(prev_row, entry_conditions, prev_prev_row)
+            ):
                 trade_group_id += 1
                 next_signal_candle = {
                     "Signal_Candle_Open": float(prev_row["open"]),

@@ -95,7 +95,7 @@ DEEP_TARGET_FRACTION = 0.5
 REBASE_WATCH_BARS = 5
 
 # Statuses no further candle can change.
-_TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
+_TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN", "SPAN_TOO_SMALL"})
 
 # The charts a mother candle may be read on. Entries are always watched on 1m.
 GEOMETRY_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
@@ -557,6 +557,57 @@ class FibTouchConfig:
     # "make a trailing SL to catch the higher move as far as it goes."
     trailing_stop: bool = False
     trail_span_multiple: float = 1.0
+    # WHERE A TOUCH BUYS. Off, a rung is a limit order resting on the line and
+    # fills AT the line. On, the touch only triggers the buy and the price paid
+    # is the CLOSE of that candle -- above the line or below it, whichever the
+    # candle actually did. Phil, 2026-08-07: "if it touches the line and close,
+    # then buy whether it is above the level line or below the level line ...
+    # the buy would be deep down to get the target comfortably."
+    #
+    # A candle that punches through a level closes below it, so the ladder pays
+    # less and the average entry sits lower, which drags the target down with
+    # it. A candle that only wicks the level and recovers pays MORE than the
+    # line -- that is the cost of the rule, and it is the honest half of it.
+    fill_on_close: bool = False
+    # SPAN FLOOR. A swing this small is not a setup: the 0.25 target it implies
+    # is worth less than the theta paid while waiting for it. 07 Aug 2026's
+    # 09:59 mother had an 11.25pt span, asked for 9pt, and lost on every ladder
+    # start tried. Zero disables the gate.
+    min_span_points: float = 0.0
+    # STOP LOSS. Until this existed the campaign had three ways out -- target,
+    # trail, mother -- and if price did none of them the basket rode to expiry
+    # and the premium went to zero. Eighteen campaigns in 22 months did exactly
+    # that, at about -Rs 65,000 each, and they were the whole of the loss.
+    # Expressed as a fraction of the rupees actually deployed: 0.3 closes the
+    # basket once it is 30% down. Zero disables it.
+    stop_loss_fraction: float = 0.0
+    # TIME STOP. Square the basket off this many days before its own expiry,
+    # rather than holding into the last sessions where theta is steepest.
+    time_stop_days: int = 0
+    # STRUCTURAL STOP. Phil, 2026-08-07: "the SL has to be below the 3rd buy
+    # candle." Once the Nth buy lands, a stop rests just past that candle's
+    # extreme -- below its LOW on a CE, above its HIGH on a PE. Price reaching
+    # it says the fall the ladder was buying has not turned, so the thesis is
+    # dead and the basket goes. Zero disables it.
+    #
+    # Note what this implies: the next rung down sits BELOW that candle, so the
+    # stop is reached before the rung is. In practice this caps the ladder at
+    # `stop_after_buys` buys.
+    stop_after_buys: int = 0
+    # INTRADAY ONLY. Square the basket off at the close of the session it was
+    # bought in, carrying nothing overnight. Every other exit here can be
+    # jumped by a gap: 90 of 153 stop-outs were on positions held overnight,
+    # and an option that gaps at the open is already past the level when the
+    # next bar prints. This is the one exit a gap cannot get in front of.
+    intraday_only: bool = False
+    # When the square-off happens, IST. 15:15 leaves a quarter hour of
+    # liquidity before the 15:30 close.
+    square_off_hour: int = 15
+    square_off_minute: int = 15
+    # LOT ESCALATION. Off, every rung buys `lots_per_rung`. On, the Nth buy of
+    # a campaign takes N times that -- 1 lot, then 2, then 3 -- so the deeper
+    # the ladder is forced, the more it commits. The rupee cap still ends it.
+    lots_escalate: bool = False
     lookback_bars: int = 240
     involvement_candles: int = INVOLVEMENT_CANDLES
 
@@ -741,6 +792,10 @@ class FibTouchLadder:
         # price seen since. Both reset with the campaign, never across one.
         self._trail_armed = False
         self._trail_best: Optional[float] = None
+        # The index level a structural stop rests at, taken from the candle
+        # that carried the Nth buy. None until that buy happens.
+        self._stop_index: Optional[float] = None
+        self._stop_from_buy: Optional[int] = None
 
     # ── derived views ─────────────────────────────────────────────
 
@@ -886,9 +941,10 @@ class FibTouchLadder:
                         days_left=left,
                     )
                     return
-            # Fill AT the level, not at the close -- a touch is a limit order
-            # resting on the line, and the line is the price it gets.
-            fill_index = rung.index_price
+            # Fill AT the level -- a touch is a limit order resting on the line,
+            # and the line is the price it gets. Unless `fill_on_close`, where
+            # the touch is only the trigger and the candle's close is the price.
+            fill_index = float(bar.close) if self.config.fill_on_close else rung.index_price
             try:
                 strike, expiry = self._resolve_contract(bar.timestamp, fill_index)
             except FibTouchError as exc:
@@ -905,6 +961,8 @@ class FibTouchLadder:
                 break
 
             lots = self.config.lots_per_rung
+            if self.config.lots_escalate:
+                lots *= len(self.fills) + 1
             quantity = lots * self.config.lot_size
             cost = float(premium) * quantity
             if self.deployed_inr + cost > self.config.capital_cap_inr:
@@ -959,6 +1017,17 @@ class FibTouchLadder:
             # The first buy fixes the campaign's contract series for good.
             self.expiry_locked = expiry
             self._last_fill_timestamp = bar.timestamp
+            # The Nth buy plants the structural stop on ITS OWN candle. Set
+            # once: a later buy cannot happen without price passing the stop.
+            if self.config.stop_after_buys and len(self.fills) == self.config.stop_after_buys:
+                self._stop_index = float(bar.low) if self.side == "CE" else float(bar.high)
+                self._stop_from_buy = len(self.fills)
+                self._log(
+                    bar.timestamp,
+                    "stop_armed",
+                    buy_number=len(self.fills),
+                    stop_index=round(self._stop_index, 2),
+                )
             rung.status = "FILLED"
             rung.filled_at = bar.timestamp
             if self.status != "OPEN_CAPPED":
@@ -1222,6 +1291,124 @@ class FibTouchLadder:
             ).total
         return total
 
+    def _close_basket(self, bar: Bar, prices: Sequence[float], reason: str, status: str) -> bool:
+        """Sell everything held, at these prices, and book the campaign."""
+        try:
+            self.executor.sell_all(
+                when=bar.timestamp,
+                legs=[
+                    {
+                        "strike": fill.strike,
+                        "expiry": fill.expiry.isoformat(),
+                        "option_type": fill.option_type,
+                        "quantity": fill.quantity,
+                    }
+                    for fill in self.fills
+                ],
+            )
+        except ExecutionRefused as exc:
+            self.data_gaps.append(f"{reason} exit not sent: {exc}")
+            self._log(bar.timestamp, "exit_refused", detail=str(exc))
+            self.status = "EXIT_REFUSED"
+            return False
+        self._exit_premiums = list(prices)
+        self.exit_timestamp = bar.timestamp
+        self.exit_index = float(bar.close)
+        self.exit_reason = reason
+        self.status = status
+        self._settle(list(prices))
+        self._log(bar.timestamp, reason, net=self.net_pnl)
+        return True
+
+    def _basket_prices(self, bar: Bar) -> Optional[list[float]]:
+        """What every open leg is worth now, or None if one cannot be valued.
+
+        A basket that cannot be priced must not be closed on a guess -- the
+        campaign stays open and the next bar tries again.
+        """
+        prices: list[float] = []
+        for fill in self.fills:
+            price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
+            if price is None:
+                intrinsic = (
+                    max(float(bar.close) - fill.strike, 0.0)
+                    if self.side == "CE"
+                    else max(fill.strike - float(bar.close), 0.0)
+                )
+                price = intrinsic if intrinsic > 0 else None
+            if price is None:
+                return None
+            prices.append(float(price))
+        return prices
+
+    def _try_stop_loss(self, bar: Bar) -> bool:
+        """Close the basket once it is down more than the configured fraction."""
+        if not self.config.stop_loss_fraction or not self.fills:
+            return False
+        if self._last_fill_timestamp is not None and bar.timestamp <= self._last_fill_timestamp:
+            # Never buy and stop out on the same candle: inside one bar the low
+            # that fills and the low that stops are unordered.
+            return False
+        prices = self._basket_prices(bar)
+        if prices is None:
+            self._note_gap("stop loss reached but the basket cannot be priced", bar.timestamp)
+            return False
+        deployed = sum(fill.premium * fill.quantity for fill in self.fills)
+        value = sum(price * fill.quantity for price, fill in zip(prices, self.fills))
+        if value - deployed > -self.config.stop_loss_fraction * deployed:
+            return False
+        return self._close_basket(bar, prices, "stop_loss", "CLOSED")
+
+    def _try_square_off(self, bar: Bar) -> bool:
+        """Close everything at the session's square-off time, same day."""
+        if not self.config.intraday_only or not self.fills:
+            return False
+        from datetime import time as dt_time
+
+        cutoff = dt_time(self.config.square_off_hour, self.config.square_off_minute)
+        if bar.timestamp.time() < cutoff:
+            return False
+        prices = self._basket_prices(bar)
+        if prices is None:
+            self._note_gap("square-off due but the basket cannot be priced", bar.timestamp)
+            return False
+        return self._close_basket(bar, prices, "square_off", "CLOSED")
+
+    def _try_structural_stop(self, bar: Bar) -> bool:
+        """Close the basket once price trades past the Nth buy's candle.
+
+        A resting stop order, so a TOUCH is enough -- the same reading the rungs
+        get. Never on the candle that armed it: that candle's own low IS the
+        level, and it would fire the instant it was placed.
+        """
+        if self._stop_index is None or not self.fills:
+            return False
+        if self._last_fill_timestamp is not None and bar.timestamp <= self._last_fill_timestamp:
+            return False
+        hit = float(bar.low) <= self._stop_index if self.side == "CE" else float(bar.high) >= self._stop_index
+        if not hit:
+            return False
+        prices = self._basket_prices(bar)
+        if prices is None:
+            self._note_gap("structural stop reached but the basket cannot be priced", bar.timestamp)
+            return False
+        return self._close_basket(bar, prices, "structural_stop", "CLOSED")
+
+    def _try_time_stop(self, bar: Bar) -> bool:
+        """Square off before the contract's last, steepest days of decay."""
+        days = self.config.time_stop_days
+        if not days or not self.fills or self.expiry_locked is None:
+            return False
+        if (self.expiry_locked - bar.timestamp.date()).days > days:
+            return False
+        if self._last_fill_timestamp is not None and bar.timestamp <= self._last_fill_timestamp:
+            return False
+        prices = self._basket_prices(bar)
+        if prices is None:
+            self._note_gap("time stop reached but the basket cannot be priced", bar.timestamp)
+            return False
+        return self._close_basket(bar, prices, "time_stop", "CLOSED")
+
     def _try_expiry_exit(self, bar: Bar) -> bool:
         """Settle each leg on ITS OWN expiry, not the whole basket on the first.
 
@@ -1302,6 +1489,17 @@ class FibTouchLadder:
         )
         if anchor is None:
             return
+        if self.config.min_span_points > 0 and anchor.span < self.config.min_span_points:
+            # Too small to be a setup. Refused BEFORE arming, so the campaign
+            # never puts a rupee down and the console can say why.
+            self.status = "SPAN_TOO_SMALL"
+            self._log(
+                anchor.confirmed_at,
+                "span_below_floor",
+                span=round(anchor.span, 2),
+                floor=self.config.min_span_points,
+            )
+            return
         self.anchor = anchor
         self._build_rungs()
         self.status = "ARMED"
@@ -1338,6 +1536,15 @@ class FibTouchLadder:
             return
         self._try_fill(bar)
         if self._try_exit(bar):
+            return
+        # The target gets first refusal; only then the ways of giving up.
+        if self._try_square_off(bar):
+            return
+        if self._try_structural_stop(bar):
+            return
+        if self._try_stop_loss(bar):
+            return
+        if self._try_time_stop(bar):
             return
         self._try_expiry_exit(bar)
 
@@ -1434,6 +1641,13 @@ class FibTouchLadder:
                 "target_fraction": config.target_fraction,
                 "itm_steps": config.itm_steps,
                 "min_dte": config.min_dte,
+                # The four rule switches. Without these a restart silently put
+                # a running ladder back on the default rules -- fills back on
+                # the line, trail off -- mid-campaign.
+                "deep_target": config.deep_target,
+                "trailing_stop": config.trailing_stop,
+                "trail_span_multiple": config.trail_span_multiple,
+                "fill_on_close": config.fill_on_close,
                 "lookback_bars": config.lookback_bars,
                 "involvement_candles": config.involvement_candles,
             },
@@ -1524,6 +1738,10 @@ class FibTouchLadder:
             target_fraction=float(terms.get("target_fraction", 0.25)),
             itm_steps=int(terms.get("itm_steps", 2)),
             min_dte=int(terms.get("min_dte", 4)),
+            deep_target=bool(terms.get("deep_target", True)),
+            trailing_stop=bool(terms.get("trailing_stop", False)),
+            trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),
+            fill_on_close=bool(terms.get("fill_on_close", False)),
             lookback_bars=int(terms.get("lookback_bars", 240)),
             involvement_candles=int(terms.get("involvement_candles", INVOLVEMENT_CANDLES)),
         )

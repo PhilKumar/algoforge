@@ -31,7 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from data.cascade_upstox import UpstoxPremiumSource  # noqa: E402
+from engine.backtest import get_lot_size  # noqa: E402
 from engine.fib_touch_ladder import (  # noqa: E402
+    HALVING_LEVELS,
     FibTouchConfig,
     FibTouchLadder,
     symbol_terms,
@@ -168,15 +170,22 @@ def sweep(args) -> None:
             symbol=terms.symbol,
             side=args.side,
             mother_timestamp=start.timestamp,
-            lot_size=65 if terms.symbol == "NIFTY" else terms.lot_size,
+            # The lot as it WAS on that day, not as it is now. NIFTY went 50 ->
+            # 75 on 2024-11-20 and 75 -> 65 on 2026-01-01; a flat 65 across a
+            # multi-year window sizes every pre-2026 campaign about 15% small
+            # and lets an extra rung under the cap that the cap would not have
+            # funded at the time.
+            lot_size=get_lot_size(terms.symbol, start.timestamp.date()),
             strike_step=terms.strike_step,
             timeframe=args.timeframe,
             capital_cap_inr=args.cap,
             itm_steps=args.itm_steps,
             min_dte=args.min_dte,
+            levels=args.levels,
             deep_target=not args.flat_target,
             trailing_stop=args.trail > 0,
             trail_span_multiple=args.trail or 1.0,
+            fill_on_close=args.fill_on_close,
         )
         engine = FibTouchLadder(config, premium_lookup=lookup, expiry_source=lambda on: expiries)
         window = every[index : index + args.horizon_days * 400]
@@ -190,13 +199,20 @@ def sweep(args) -> None:
             if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
                 break
         st = engine.get_status()
-        if st["fills"]:
+        # A campaign that ran to expiry has moved every leg into `settled_fills`
+        # and left `fills` EMPTY. Testing `fills` alone therefore threw away the
+        # campaigns that expired -- and those are the ones that lost nearly the
+        # whole premium, because expiry is what happens when the target never
+        # comes and the mother never breaks. Eighteen of them were invisible
+        # across 22 months, worth -Rs 1,160,854 against a reported +Rs 326,053.
+        traded = st["fills"] + st.get("settled_fills", [])
+        if traded:
             rows.append(
                 {
                     "mother": start.timestamp,
                     "status": st["status"],
                     "exit": st["exit_reason"],
-                    "fills": len(st["fills"]),
+                    "fills": len(traded),
                     "net": st["net_pnl"],
                     "gaps": len(st["data_gaps"]),
                     "rebases": sum(1 for e in st["events"] if e["event"] == "mother_rebased"),
@@ -212,6 +228,8 @@ def sweep(args) -> None:
     net = sum(r["net"] for r in priced)
     mode = "flat 0.25" if args.flat_target else "0.25/0.5 deep"
     mode += f" · trail {args.trail} span" if args.trail else " · no trail"
+    mode += " · fill on close" if args.fill_on_close else " · fill at the line"
+    mode += " · L" + "/L".join(str(level) for level in args.levels)
     print(f"\n=== {terms.symbol} {args.side} · {args.timeframe} mother · {mode} · {first} to {last} ===")
     print(f"campaigns that bought : {len(rows)}   priced {len(priced)}   unpriced {unpriced}")
     if priced:
@@ -245,6 +263,17 @@ def main() -> None:
     ap.add_argument("--to", dest="to_day", help="sweep mode: last day")
     ap.add_argument("--flat-target", action="store_true", help="keep 0.25 at every depth")
     ap.add_argument("--trail", type=float, default=0.0, help="trailing exit, in fib spans (0 = off)")
+    ap.add_argument(
+        "--fill-on-close",
+        action="store_true",
+        help="a touch triggers the buy; the candle's CLOSE is the price paid",
+    )
+    ap.add_argument(
+        "--levels",
+        type=lambda raw: tuple(int(part) for part in raw.split(",")),
+        default=HALVING_LEVELS,
+        help="the rung ladder, e.g. 3,4,6,8,12,16 to skip L2",
+    )
     args = ap.parse_args()
 
     if args.from_day:

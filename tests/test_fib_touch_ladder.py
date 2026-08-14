@@ -1050,7 +1050,7 @@ class MotherRebaseTests(unittest.TestCase):
 
 
 class TrailingStopTests(unittest.TestCase):
-    """Phil: "make a trailing SL to catch the higher move as far as it goes.\""""
+    """Phil: "make a trailing SL to catch the higher move as far as it goes.\" """
 
     def trailing(self, multiple=1.0):
         # The standard fixture's mother tops at 24,780, and a trailing move has
@@ -1141,6 +1141,82 @@ class TrailingStopTests(unittest.TestCase):
         self.assertEqual(plain.exit_index, 24_550.0)  # the 0.25 target
         self.assertEqual(trailed.exit_index, 24_700.0)  # rode 150 points further
         self.assertGreater(trailed.exit_index, plain.exit_index)
+
+
+class FillOnCloseTests(unittest.TestCase):
+    """Phil, 2026-08-07: "if it touches the line and close, then buy whether it
+    is above the level line or below the level line."
+
+    The touch stops being the price and becomes only the trigger. A candle that
+    punches through pays less than the line; one that wicks and recovers pays
+    more. Both halves have to be true or the rule is being flattered.
+    """
+
+    def build(self, on_close: bool, last: Bar):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            fill_on_close=on_close,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(last)
+        return engine
+
+    def test_a_candle_that_punches_through_buys_below_the_line(self):
+        # L2 is 24,500. The candle wicks to 24,480 and CLOSES at 24,485.
+        after = falling_then_bouncing()[-1].timestamp + timedelta(minutes=1)
+        through = Bar(after, 24_610, 24_612, 24_480, 24_485)
+        self.assertEqual(self.build(False, through).fills[0].index_price, 24_500.0)
+        self.assertEqual(self.build(True, through).fills[0].index_price, 24_485.0)
+
+    def test_a_wick_that_recovers_pays_MORE_than_the_line(self):
+        # The honest half: same touch, but the candle closes back at 24,540.
+        after = falling_then_bouncing()[-1].timestamp + timedelta(minutes=1)
+        wick = Bar(after, 24_610, 24_612, 24_495, 24_540)
+        self.assertEqual(self.build(False, wick).fills[0].index_price, 24_500.0)
+        self.assertEqual(self.build(True, wick).fills[0].index_price, 24_540.0)
+
+    def test_a_deeper_close_drags_the_target_down_with_it(self):
+        after = falling_then_bouncing()[-1].timestamp + timedelta(minutes=1)
+        through = Bar(after, 24_610, 24_612, 24_480, 24_485)
+        at_line = self.build(False, through).target_index
+        on_close = self.build(True, through).target_index
+        assert at_line is not None and on_close is not None
+        self.assertLess(on_close, at_line, "a lower average entry must lower the target")
+
+    def test_the_switch_survives_a_restart(self):
+        after = falling_then_bouncing()[-1].timestamp + timedelta(minutes=1)
+        engine = self.build(True, Bar(after, 24_610, 24_612, 24_480, 24_485))
+        restored = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertTrue(restored.config.fill_on_close, "a restart quietly put the ladder back on the line")
+
+    def test_the_other_rule_switches_survive_a_restart_too(self):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            deep_target=False,
+            trailing_stop=True,
+            trail_span_multiple=0.5,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        restored = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertFalse(restored.config.deep_target)
+        self.assertTrue(restored.config.trailing_stop)
+        self.assertEqual(restored.config.trail_span_multiple, 0.5)
 
 
 class FlatTargetTests(unittest.TestCase):
@@ -1347,7 +1423,7 @@ class ExpiryLockTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()

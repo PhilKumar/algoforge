@@ -107,6 +107,15 @@ class RecoveryConfig:
     #              so a wider stop that survives the entry bar's own wobble
     #   "ultimate" the lowest low since the mother (the original reading)
     sl_source: str = "entry"
+    # WHERE THE ENTRY IS TAKEN once a red pair qualifies:
+    #   "high"   the second red's HIGH -- price must rise back through it, so
+    #            the trade only starts if the fall is already turning.
+    #   "close"  the second red's CLOSE -- the candle closes and the position is
+    #            taken, filled at the next bar's open. Phil, 2026-08-11:
+    #            "entry at previous candle's close". No confirmation is waited
+    #            for, so it enters lower and more often, and it enters into
+    #            falls that never turn.
+    entry_source: str = "high"
     # ATM minus this many strike steps (CE), per the locked options work.
     itm_steps: int = 2
     min_dte: int = 4
@@ -130,6 +139,8 @@ class RecoveryConfig:
             raise ValueError("max_trades and horizon_sessions must be positive")
         if self.sl_source not in {"entry", "previous", "ultimate"}:
             raise ValueError("sl_source must be entry, previous or ultimate")
+        if self.entry_source not in {"high", "close"}:
+            raise ValueError("entry_source must be high or close")
 
     def lots_for_trade(self, trade_no: int) -> int:
         return int(self.lots_schedule[min(trade_no - 1, len(self.lots_schedule) - 1)])
@@ -340,11 +351,12 @@ class TwoRedRecovery:
             self._end(bar, "max_trades")
             return
         when = self._bar_close_time(bar)
+        entry_at = float(bar.close) if self.config.entry_source == "close" else float(bar.high)
         if self._pending is None:
             trade = RecoveryTrade(
                 trade_no=len(self.trades) + 1,
                 armed_at=when,
-                trigger=float(bar.high),
+                trigger=entry_at,
                 cost_model=self.config.cost_model,
             )
             self.trades.append(trade)
@@ -356,7 +368,7 @@ class TwoRedRecovery:
             # A newer qualifying pair re-arms at ITS second red's high -- the
             # trigger follows the fall down, exactly like the older ladder.
             self._pending.armed_at = when
-            self._pending.trigger = float(bar.high)
+            self._pending.trigger = entry_at
             self._log(when, "rearmed", trade=self._pending.trade_no, trigger=self._pending.trigger)
 
     # ── filling ─────────────────────────────────────────────────────────────
@@ -379,11 +391,19 @@ class TwoRedRecovery:
 
     def _try_fill(self, bar: RecoveryBar) -> None:
         trade = self._pending
-        if trade is None or bar.high < trade.trigger:
+        if trade is None:
             return
-        # A gap straight over the trigger fills at the open, not at a price the
-        # market never traded on the way up.
-        entry_index = float(max(trade.trigger, bar.open))
+        if self.config.entry_source == "close":
+            # The candle closed and the position is taken -- there is nothing to
+            # wait for, so this bar's OPEN is the price. Quoting the previous
+            # close itself would be quoting a price the order never met.
+            entry_index = float(bar.open)
+        else:
+            if bar.high < trade.trigger:
+                return
+            # A gap straight over the trigger fills at the open, not at a price
+            # the market never traded on the way up.
+            entry_index = float(max(trade.trigger, bar.open))
         picked = self.contract_for(bar.timestamp, entry_index)
         if picked is None:
             trade.exit_reason = "no_contract"
@@ -677,11 +697,12 @@ class FibZoneEntry:
         if bar.close >= zone.upper:  # the zone's first level must be broken
             return
         when = self._bar_close_time(bar)
+        entry_at = float(bar.close) if self.config.entry_source == "close" else float(bar.high)
         if self._pending is None:
             trade = RecoveryTrade(
                 trade_no=len(self.trades) + 1,
                 armed_at=when,
-                trigger=float(bar.high),
+                trigger=entry_at,
                 cost_model=self.config.cost_model,
             )
             self.trades.append(trade)

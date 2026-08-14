@@ -1,6 +1,7 @@
 import contextlib
 import io
 import unittest
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -34,6 +35,50 @@ def _run_backtest(*args, **kwargs):
 
 
 class BacktestRegressionTests(unittest.TestCase):
+    def test_historical_option_gap_carries_last_real_close_not_synthetic_model(self):
+        df = _make_ohlcv("2026-03-18 09:20", [25000, 25100, 26000])
+        option_frame = pd.DataFrame(
+            {"open": [250.0], "high": [252.0], "low": [248.0], "close": [251.0]},
+            index=[pd.Timestamp("2026-03-18 09:21")],
+        )
+
+        class Selector:
+            last_gap = ""
+
+            def select(self, *_args, **_kwargs):
+                return SimpleNamespace(
+                    history_key="upstox-test",
+                    history=option_frame,
+                    strike=25000,
+                    expiry=pd.Timestamp("2026-03-19").date(),
+                    entry_price=250.0,
+                )
+
+        result = _run_backtest(
+            df,
+            entry_conditions=_always_true_conditions(),
+            exit_conditions=_always_true_conditions(),
+            strategy_config={
+                "instrument": "26000",
+                "timeframe_minutes": 1,
+                "lot_size": 1,
+                "_upstox_premium_selector": Selector(),
+                "legs": [
+                    {
+                        "option_type": "CE",
+                        "transaction_type": "BUY",
+                        "strike_type": "premium_above",
+                        "strike_value": 250,
+                        "lots": 1,
+                    }
+                ],
+            },
+        )
+
+        trade = result["trades"][0]
+        self.assertEqual(trade["entry_price"], 250.0)
+        self.assertEqual(trade["exit_price"], 251.0)
+
     def test_touches_distinguishes_candle_range_from_close_value(self):
         row = pd.Series(
             {"open": 101.0, "high": 105.0, "low": 100.0, "close": 102.0},

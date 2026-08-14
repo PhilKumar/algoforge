@@ -9,6 +9,8 @@ the disk cache directly, so no token or network is required.
 """
 
 import json
+import os
+import time
 from datetime import date
 from pathlib import Path
 
@@ -85,6 +87,34 @@ def test_cache_only_mode_never_fetches_or_writes_a_cache_miss(tmp_path: Path) ->
     with pytest.raises(UpstoxAccessError):
         source.available_expiries()
     assert source.requests_made == 0
+
+
+def test_stale_expiry_cache_refreshes_and_keeps_new_weeklies(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path, NIFTY_INDEX_KEY)
+    cache = tmp_path / "expiries.json"
+    cache.write_text(json.dumps(["2026-07-28"]))
+    stale = time.time() - (7 * 60 * 60)
+    os.utime(cache, (stale, stale))
+    monkeypatch.setattr(
+        source,
+        "_get",
+        lambda *_args, **_kwargs: {"status": "success", "data": ["2026-07-28", "2026-08-04"]},
+    )
+
+    assert source.available_expiries() == {date(2026, 7, 28), date(2026, 8, 4)}
+    assert json.loads(cache.read_text())[-1] == "2026-08-04"
+
+
+def test_uncached_provider_failure_is_not_silenced_as_an_empty_series(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path, NIFTY_INDEX_KEY)
+    monkeypatch.setattr(
+        source,
+        "_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(UpstoxAccessError("expired token")),
+    )
+
+    with pytest.raises(UpstoxAccessError, match="expired token"):
+        source._minute_series("NSE_FO|missing", date(2026, 7, 30))
 
 
 if __name__ == "__main__":
