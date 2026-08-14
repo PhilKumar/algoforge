@@ -35,8 +35,12 @@
        new palette instead of the old orange and mint. */
     --amber: var(--brass);
     --mint: var(--jade);
-    --pink: #e5a8ef;
-    --cyan: #8ee9f2;
+    /* The logo's depth columns and the hero SVG's wicks used to be neon pink
+       and cyan. They keep their names so the rules that draw them still work,
+       but they now point at the vermilion and the muted slate this palette
+       actually contains. */
+    --pink: #C2452D;
+    --cyan: #5C6B7A;
     --ink: var(--void);
 
     --serif: Spectral, Georgia, 'Times New Roman', serif;
