@@ -955,12 +955,11 @@ test('Insights carries Heatmap and Study Lounge as tabs, and repaints nothing', 
 
   // The dropdown is gone; Insights is a page like Cascade is.
   await expect(page.locator('#nav-insights-menu')).toHaveCount(0);
-  // ...but it must not MOVE. The CSS orders the nav by id, and the rule used
-  // to key the wrapper this commit deleted, which sent Insights to order 0
-  // and put it first in the row.
+  // ...but it must not MOVE. Trading now owns Equity, Scalp, and Cascade as
+  // sections, so Insights follows the consolidated Trading entry at order 4.
   const order = await page.evaluate(() =>
     getComputedStyle(document.getElementById('nav-insights')!).order);
-  expect(order).toBe('6');
+  expect(order).toBe('4');
   // The panels' actions wear the app's button, not their own skin.
   await expect(page.locator('#insights-study a.btn').first()).toBeVisible();
   await expect(page.locator('#insights-page .app-btn')).toHaveCount(0);
