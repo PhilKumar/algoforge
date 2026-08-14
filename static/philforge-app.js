@@ -1849,6 +1849,27 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  // An Arsenal desk card. It carries its OWN attribute rather than reusing
+  // data-pf-trading-page: the Trading hero's section tabs are addressed by
+  // that attribute, and four more elements answering to it on the dashboard
+  // meant a click meant for the section tab could land on a card instead —
+  // which navigated to the right page but the wrong TAB, leaving the Fib
+  // Boundary panel hidden and its Backtest button unclickable.
+  const deskEl = event.target.closest('[data-pf-desk-page]');
+  if (deskEl) {
+    event.preventDefault();
+    showPage(deskEl.getAttribute('data-pf-desk-page'), document.getElementById('nav-trading'), { scrollToTop: true });
+    const deskAfter = deskEl.getAttribute('data-pf-after-nav');
+    if (deskAfter && typeof window[deskAfter] === 'function') window[deskAfter]();
+    // Deep-link to the strategy's own tab, so a card opens the strategy it
+    // advertises rather than whichever tab happened to be open last.
+    const deskTab = deskEl.getAttribute('data-pf-desk-tab');
+    if (deskTab && typeof showOptionsCascadeTab === 'function') {
+      showOptionsCascadeTab(null, { getAttribute: (name) => (name === 'data-oc-tab' ? deskTab : null) });
+    }
+    return;
+  }
+
   const architectureEl = event.target.closest('[data-pf-architecture-view]');
   if (architectureEl) {
     event.preventDefault();
@@ -2674,14 +2695,11 @@ const _INSIGHTS_TABS = ['heatmap', 'study'];
 
 function showInsightsTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
-  const viewTitle = document.getElementById('insights-view-title');
   document.querySelectorAll('#insights-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-insights-tab') === tab;
     b.classList.toggle('is-active', selected);
     b.setAttribute('aria-selected', String(selected));
     b.tabIndex = selected ? 0 : -1;
-    // The bar names the view you are on, the way the Assets bar does.
-    if (selected && viewTitle) viewTitle.textContent = b.getAttribute('data-insights-title') || '';
   });
   _INSIGHTS_TABS.forEach(name => {
     const panel = document.getElementById(`insights-${name}`);

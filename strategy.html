@@ -294,6 +294,18 @@
       </div>
     </div>
 
+    <!-- Running Now sits WITH Active Trading, not inside the Arsenal. The
+         Arsenal is where you pick a strategy to start; what is already running
+         belongs beside the panel that reports on it (Phil, 2026-08-15). -->
+    <div id="arsenal-running-wrap" style="display:none; margin-bottom: 16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(16,185,129,0.16),rgba(52,211,153,0.08));border:1px solid rgba(16,185,129,0.28);border-radius:7px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path></svg></span></span>
+        <div style="font-size:12px;font-weight:800;letter-spacing:0.35px;color:var(--success);">Running Now</div>
+        <div class="arsenal-running-subtitle">Quick jump to active engines</div>
+      </div>
+      <div id="arsenal-running-grid"></div>
+    </div>
+
     <!-- Active Trading Status -->
     <div id="dash-active-engines" class="card-glass" style="padding: 16px; margin-bottom: 16px; display: none;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -381,66 +393,60 @@
       <h3 style="margin:0; font-size: 16px;">Strategy Arsenal</h3>
       <span class="arsenal-subtitle">Choose Your Weapon</span>
     </div>
-    <div id="arsenal-running-wrap" style="display:none; margin-bottom: 16px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(16,185,129,0.16),rgba(52,211,153,0.08));border:1px solid rgba(16,185,129,0.28);border-radius:7px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path></svg></span></span>
-        <div style="font-size:12px;font-weight:800;letter-spacing:0.35px;color:var(--success);">Running Now</div>
-        <div class="arsenal-running-subtitle">Quick jump to active engines</div>
-      </div>
-      <div id="arsenal-running-grid"></div>
-    </div>
     <div id="template-grid">
-      <!-- The Trend Sentinel -->
-      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('supertrend_cpr')">
-        <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(99,102,241,0.08) 0%,transparent 70%);pointer-events:none;"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.25);border-radius:6px;color:var(--accent);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span></span>
-          <div class="arsenal-template-title">The Trend Sentinel</div>
+      <!-- The desks themselves, in the order Phil ranks them. These are not
+           Builder templates: each card opens the real strategy page (and its
+           tab), because a card that only filled a form was advertising a
+           strategy the desk does not run. -->
+      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#f5b84b;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="space">
+        <div class="arsenal-template-glow" aria-hidden="true"></div>
+        <div class="arsenal-template-head">
+          <span class="arsenal-template-icon" aria-hidden="true">◈</span>
+          <div class="arsenal-template-title">Fib Space Cascade</div>
         </div>
-        <div class="arsenal-template-copy">Locks onto the dominant trend and strikes when consolidation tightens — patience rewarded with precision entries.</div>
-        <div style="margin-top:8px;display:flex;gap:6px;">
-          <span class="arsenal-tag instrument">NIFTY 5m</span>
-          <span class="arsenal-tag success">Supertrend</span>
-          <span class="arsenal-tag success">CPR</span>
-        </div>
-      </div>
-      <!-- The Dawn Raider -->
-      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('orb_breakout')">
-        <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(251,191,36,0.08) 0%,transparent 70%);pointer-events:none;"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(251,191,36,0.15),rgba(245,158,11,0.08));border:1px solid rgba(251,191,36,0.25);border-radius:6px;color:var(--warn);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg></span></span>
-          <div class="arsenal-template-title">The Dawn Raider</div>
-        </div>
-        <div class="arsenal-template-copy">First 15 minutes set the battlefield — this strategy ambushes the breakout and rides the opening momentum wave.</div>
-        <div style="margin-top:8px;display:flex;gap:6px;">
-          <span class="arsenal-tag instrument">NIFTY 15m</span>
-          <span class="arsenal-tag warn">ORB</span>
+        <div class="arsenal-template-copy">Your mother candle, then the desk draws its own trendlines and fibs and buys where two of them converge. The measured design.</div>
+        <div class="arsenal-template-tags">
+          <span class="arsenal-tag instrument">NIFTY · BANKNIFTY</span>
+          <span class="arsenal-tag warning">15m geometry</span>
+          <span class="arsenal-tag success">Paper</span>
         </div>
       </div>
-      <!-- The Momentum Engine -->
-      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('ema_crossover')">
-        <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(59,130,246,0.08) 0%,transparent 70%);pointer-events:none;"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(96,165,250,0.08));border:1px solid rgba(59,130,246,0.25);border-radius:6px;color:var(--accent2);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor" stroke="none"/></svg></span></span>
-          <div class="arsenal-template-title">The Momentum Engine</div>
+      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#a78bfa;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="fib">
+        <div class="arsenal-template-glow" aria-hidden="true"></div>
+        <div class="arsenal-template-head">
+          <span class="arsenal-template-icon" aria-hidden="true">⑃</span>
+          <div class="arsenal-template-title">Fib Boundary Ladder</div>
         </div>
-        <div class="arsenal-template-copy">Two moving averages converge, cross, and ignite — a timeless momentum machine that catches trends early.</div>
-        <div style="margin-top:8px;display:flex;gap:6px;">
-          <span class="arsenal-tag instrument">NIFTY 5m</span>
-          <span class="arsenal-tag accent2">EMA 9/21</span>
+        <div class="arsenal-template-copy">A swing-anchored touch ladder on 1m bars: one lot at every fib rung from L2 down to L16, target a quarter of the span.</div>
+        <div class="arsenal-template-tags">
+          <span class="arsenal-tag instrument">NIFTY 1m</span>
+          <span class="arsenal-tag purple">L2 → L16</span>
+          <span class="arsenal-tag success">Paper + Backtest</span>
         </div>
       </div>
-      <!-- The Contrarian Strike -->
-      <div class="card card-compact arsenal-template-card" onmouseover="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 20px rgba(99,102,241,0.1)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'" onclick="loadTemplate('rsi_reversal')">
-        <div style="position:absolute;top:-12px;right:-12px;width:48px;height:48px;background:radial-gradient(circle,rgba(139,92,246,0.08) 0%,transparent 70%);pointer-events:none;"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(167,139,250,0.08));border:1px solid rgba(139,92,246,0.25);border-radius:6px;color:var(--purple);font-size:12px;flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span></span>
-          <div class="arsenal-template-title">The Contrarian Strike</div>
+      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#38bdf8;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="candle">
+        <div class="arsenal-template-glow" aria-hidden="true"></div>
+        <div class="arsenal-template-head">
+          <span class="arsenal-template-icon" aria-hidden="true">◧</span>
+          <div class="arsenal-template-title">Two Red Candles</div>
         </div>
-        <div class="arsenal-template-copy">When fear peaks and RSI screams oversold, this strategy steps in — buying what others are panic-selling.</div>
-        <div style="margin-top:8px;display:flex;gap:6px;">
-          <span class="arsenal-tag instrument">BNKN 15m</span>
-          <span class="arsenal-tag purple">RSI 14</span>
+        <div class="arsenal-template-copy">Two reds break lower, then buy the recovery — climbing 1m to 1H and sizing 1, 2, 3, 4 lots as the ladder deepens.</div>
+        <div class="arsenal-template-tags">
+          <span class="arsenal-tag instrument">NIFTY</span>
+          <span class="arsenal-tag info">1m → 1H</span>
+          <span class="arsenal-tag success">Paper</span>
+        </div>
+      </div>
+      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#34d399;" data-pf-desk-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+        <div class="arsenal-template-glow" aria-hidden="true"></div>
+        <div class="arsenal-template-head">
+          <span class="arsenal-template-icon" aria-hidden="true">◰</span>
+          <div class="arsenal-template-title">Equity Cash Cascade</div>
+        </div>
+        <div class="arsenal-template-copy">The same ladder on cash equity — Nifty 200 names and the BEES ETFs, on your own broker holdings.</div>
+        <div class="arsenal-template-tags">
+          <span class="arsenal-tag instrument">Nifty 200 + BEES</span>
+          <span class="arsenal-tag success">Cash delivery</span>
         </div>
       </div>
     </div>
@@ -1439,10 +1445,13 @@
         <h3>Monthly Profit &amp; Loss</h3>
         <p>Realised execution by trading day</p>
       </div>
+      <!-- The site's own square control, the one every chart toolbar wears.
+           These were generic .btn, which is the glossy raised blue button and
+           the only thing on the page still shaped like one. -->
       <div class="portfolio-month-controls" aria-label="Choose portfolio month">
-        <button onclick="changeMonthlyMonth(-1)" class="btn btn-sm" aria-label="Previous month">◀</button>
+        <button type="button" onclick="changeMonthlyMonth(-1)" class="terminal-cascade-chart-control" aria-label="Previous month">&#9664;</button>
         <span id="portfolio-monthly-label"></span>
-        <button onclick="changeMonthlyMonth(1)" class="btn btn-sm" aria-label="Next month">▶</button>
+        <button type="button" onclick="changeMonthlyMonth(1)" class="terminal-cascade-chart-control" aria-label="Next month">&#9654;</button>
       </div>
     </header>
     <div id="portfolio-monthly-summary"></div>
@@ -3128,18 +3137,18 @@
     </div>
   </section>
 
-  <!-- The same view bar Assets wears: a labelled title on the left, one pill
-       group on the right. Insights used to carry its own two-line tab cards,
-       which is what made the page read as a foreign document. -->
-  <div class="pf-architecture-viewbar">
-    <div>
-      <span class="pf-architecture-viewbar-label">Insights view</span>
-      <strong id="insights-view-title">Heatmap</strong>
-    </div>
-    <div class="pf-architecture-tabs" role="tablist" aria-label="Insights views">
-      <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" data-insights-title="Heatmap" title="What moved today, and by how much"><i class="heat"></i>Heatmap</button>
-      <button id="insights-tabbtn-study" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="insights-study" tabindex="-1" data-pf-action="showInsightsTab" data-insights-tab="study" data-insights-title="Study Lounge" title="Reading and reference, between trades"><i class="study"></i>Study Lounge</button>
-    </div>
+  <!-- The Trading desk selector, verbatim: icon tile, name, one line of what
+       it is. Phil picked this over the Assets pill bar for Insights, so the
+       classes are the SAME ones — a second lookalike would drift. -->
+  <div class="trading-section-tabs" role="tablist" aria-label="Insights views">
+    <button id="insights-tabbtn-heatmap" class="trading-section-tab oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" data-insights-title="Heatmap">
+      <span class="trading-section-icon trading-section-icon-heatmap" aria-hidden="true">▦</span>
+      <span><strong>Heatmap</strong><small>What moved today</small></span>
+    </button>
+    <button id="insights-tabbtn-study" class="trading-section-tab oc-tab" type="button" role="tab" aria-selected="false" aria-controls="insights-study" tabindex="-1" data-pf-action="showInsightsTab" data-insights-tab="study" data-insights-title="Study Lounge">
+      <span class="trading-section-icon trading-section-icon-study" aria-hidden="true">◫</span>
+      <span><strong>Study Lounge</strong><small>Between trades</small></span>
+    </button>
   </div>
 
   <!-- ── TAB · Heatmap ── (markup lifted from market_movers.html; its CSS is

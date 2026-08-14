@@ -2096,6 +2096,38 @@
     position: relative;
     overflow: hidden;
   }
+  /* A desk card carries its strategy's own tint, the way the Trading section
+     tabs do — the hover colour used to be hard-coded indigo in an inline
+     onmouseover, so four different strategies all lit up the same. */
+  .arsenal-strategy-card { display: grid; gap: 8px; align-content: start; }
+  .arsenal-strategy-card:hover,
+  .arsenal-strategy-card:focus-visible {
+    border-color: color-mix(in srgb, var(--tint, var(--accent)) 55%, transparent);
+    box-shadow: 0 0 22px color-mix(in srgb, var(--tint, var(--accent)) 14%, transparent);
+    outline: none;
+  }
+  .arsenal-template-glow {
+    position: absolute;
+    top: -12px; right: -12px;
+    width: 48px; height: 48px;
+    background: radial-gradient(circle, color-mix(in srgb, var(--tint) 22%, transparent) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .arsenal-template-head { display: flex; align-items: center; gap: 8px; }
+  .arsenal-template-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--tint) 34%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--tint) 13%, transparent);
+    color: var(--tint);
+    font-size: 13px;
+    line-height: 1;
+  }
+  .arsenal-template-tags { display: flex; gap: 6px; flex-wrap: wrap; }
   .arsenal-template-title {
     font-weight: 700;
     color: var(--accent);
@@ -3820,6 +3852,9 @@
   .trading-section-icon-equity { color: #4ade80; }
   .trading-section-icon-scalp { color: #22d3ee; }
   .trading-section-icon-cascade { color: #fbbf24; }
+  /* Insights uses the same desk selector, so its two views tint here too. */
+  .trading-section-icon-heatmap { color: #f97362; }
+  .trading-section-icon-study { color: #7dd3fc; }
 
   [data-theme="light"] .trading-workspace-head {
     background:
@@ -6584,20 +6619,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .dashboard-flow-panel-chevron { transition: none; }
 }
 
-/* Insights wears the Assets view bar, not a language of its own. Everything
-   structural comes from .pf-architecture-viewbar / .pf-architecture-tabs, so
-   only the title size and the two view dots belong here. The previous glossy
-   two-tone buttons were the reason the page read as a foreign document. */
-#insights-view-title { color: var(--text); font-size: 13px; }
-.pf-architecture-tabs i.heat { background: #f97362; box-shadow: 0 0 9px rgba(249,115,98,.55); }
-.pf-architecture-tabs i.study { background: #7dd3fc; box-shadow: 0 0 9px rgba(125,211,252,.55); }
-@media (max-width: 560px) {
-  /* The bar stacks rather than squeezing: two views cannot share 390px with a
-     label and still keep a 36px touch target. */
-  #insights-page > .pf-architecture-viewbar { flex-direction: column; align-items: stretch; gap: 10px; }
-  #insights-page > .pf-architecture-viewbar .pf-architecture-tabs { display: grid; grid-template-columns: 1fr 1fr; }
-  #insights-page > .pf-architecture-viewbar .pf-architecture-tabs button { padding-inline: 8px; }
-}
+/* Insights uses the Trading desk selector itself (.trading-section-tabs), so
+   it needs no tab styling of its own — only the two icon tints, which live
+   beside the other desk tints. Nothing else belongs here: a second set of
+   lookalike rules is exactly how the page drifted out of the site before. */
 
 #oc-tab-bench .tb-entries-card { padding: 16px 18px; }
 #oc-tab-bench .tb-entries-card h3 { margin: 0 0 10px; font-size: 14px; }
@@ -7536,11 +7561,11 @@ input:focus, select:focus {
   gap: 6px;
 }
 
-#portfolio-page .portfolio-month-controls .btn {
+#portfolio-page .portfolio-month-controls .terminal-cascade-chart-control {
   width: 27px;
   min-width: 27px;
   min-height: 27px;
-  padding: 0 !important;
+  padding: 0;
   border-radius: 7px;
   font-size: 9px;
 }
