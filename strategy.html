@@ -3665,7 +3665,7 @@
     </div>
     <div id="architecture-reader-panel" class="pf-architecture-panel pf-architecture-reader" role="tabpanel" hidden>
       <div class="pf-architecture-reader-status" id="architecture-reader-status" aria-live="polite">Choose a platform blueprint.</div>
-      <iframe id="architecture-reader-frame" title="Architecture blueprint" loading="lazy"></iframe>
+      <philforge-architecture-reader id="architecture-reader-view" data-asset-version="__ASSET_VERSION__" data-platform="cryptoforge"></philforge-architecture-reader>
     </div>
   </section>
 </div>
@@ -4109,6 +4109,7 @@
 </div>
 
 <script src="/static/architecture.js?v=__ASSET_VERSION__"></script>
+<script src="/static/architecture-document.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-architecture-page.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-app.js?v=__ASSET_VERSION__&cascade=20260726-terminal-cascade-flow-chart-1"></script>
   <!-- The two Insights panels keep their own scripts; both expose a starter

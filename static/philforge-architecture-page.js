@@ -100,6 +100,60 @@
       </section>
     </div>`;
 
+  const readerMarkup = `
+    <div id="blueprint-content" class="reader-shell">
+      <section class="document-hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span>BLUEPRINT</span> Production architecture reference</p>
+          <h1 id="reader-title"></h1>
+          <p id="reader-description"></p>
+          <div id="document-meta" class="document-meta" aria-label="Document metadata"></div>
+        </div>
+        <div class="system-sigil" aria-hidden="true">
+          <div class="sigil-ring ring-one"></div><div class="sigil-ring ring-two"></div><div class="sigil-ring ring-three"></div>
+          <div class="sigil-core" id="reader-monogram"></div>
+          <span class="sigil-label label-one">SYSTEM</span><span class="sigil-label label-two">CONTROL</span>
+        </div>
+      </section>
+      <section class="reader-toolbar" aria-label="Document tools">
+        <label class="document-search" for="blueprint-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+          <input id="blueprint-search" type="search" placeholder="Search this blueprint" autocomplete="off">
+          <kbd>⌘ K</kbd>
+        </label>
+        <div class="search-status" id="search-status" aria-live="polite">Full document</div>
+      </section>
+      <div class="reader-layout">
+        <aside class="document-rail" aria-label="Document navigation">
+          <div class="rail-sticky">
+            <p class="rail-label">ON THIS PAGE</p>
+            <nav id="document-toc"></nav>
+            <div class="rail-card">
+              <span>DOCUMENT STATE</span>
+              <strong><i></i> Full blueprint complete</strong>
+              <small>All assigned chapters · repository-backed</small>
+            </div>
+          </div>
+        </aside>
+        <article id="document-body" class="document-body" aria-busy="true">
+          <div class="document-loading"><span></span><p>Building visual blueprint…</p></div>
+        </article>
+      </div>
+    </div>`;
+
+  const readerDocuments = {
+    cryptoforge: {
+      title: 'CryptoForge Architecture',
+      description: 'The complete system view for the 24/7 digital-asset strategy, execution, portfolio, and buyer Cascade platform.',
+      monogram: 'CF',
+    },
+    philforge: {
+      title: 'PhilForge Architecture',
+      description: 'The complete system view for the session-aware Indian equities, options, strategy, execution, and portfolio platform.',
+      monogram: 'PF',
+    },
+  };
+
   class PhilForgeArchitectureAtlas extends HTMLElement {
     connectedCallback() {
       if (this.shadowRoot) return;
@@ -154,7 +208,90 @@
     }
   }
 
+  class PhilForgeArchitectureReader extends HTMLElement {
+    connectedCallback() {
+      if (!this.shadowRoot) {
+        const version = encodeURIComponent(this.dataset.assetVersion || 'current');
+        const root = this.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+          <link rel="stylesheet" href="/static/architecture-document.css?v=${version}">
+          <style>
+            :host {
+              --bg: #070b13; --grid: rgba(104,138,178,.045); --surface: #0c1320; --surface-2: #101a2a;
+              --surface-3: #142033; --line: rgba(126,157,196,.18); --line-strong: rgba(126,157,196,.32);
+              --text: #e5ecf6; --muted: #8b98aa; --dim: #8b98aa; --accent: #f5b84b; --accent-rgb: 245,184,75;
+              --blue: #75adff; --violet: #a78bfa; --amber: #f5b84b; --red: #fa7781;
+              --mono: 'JetBrains Mono','SFMono-Regular',Consolas,ui-monospace,monospace;
+              --sans: 'Outfit','Avenir Next',Inter,system-ui,sans-serif;
+              display: block; min-width: 0; color: var(--text); font-family: var(--sans);
+              background-color: var(--bg);
+              background-image: linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),radial-gradient(circle at 75% 0%,rgba(var(--accent-rgb),.075),transparent 28%);
+              background-size: 64px 64px,64px 64px,auto;
+            }
+            :host([data-platform="philforge"]) { --accent:#27d3b4; --accent-rgb:39,211,180; }
+            :host-context(html[data-theme="light"]) {
+              --bg:#eef3f8; --grid:rgba(31,55,82,.055); --surface:#fafcfe; --surface-2:#eef3f8;
+              --surface-3:#e5edf5; --line:rgba(38,65,93,.16); --line-strong:rgba(38,65,93,.28);
+              --text:#182436; --muted:#596a7f; --dim:#596a7f;
+            }
+            .reader-shell { width: calc(100% - 28px); }
+            .document-hero { min-height: 320px; }
+            .document-rail { top: 112px; }
+            .rail-sticky { max-height: calc(100vh - 132px); }
+            .doc-section, .doc-section h3.doc-subheading { scroll-margin-top: 112px; }
+            :host-context(html[data-theme="light"]) .reader-toolbar,
+            :host-context(html[data-theme="light"]) .doc-section { background: rgba(250,252,254,.86); }
+            @media (max-width:760px) { .reader-shell { width: calc(100% - 18px); } }
+          </style>
+          ${readerMarkup}`;
+      }
+      this.load(this.dataset.platform || 'cryptoforge');
+    }
+
+    load(platform) {
+      const nextPlatform = readerDocuments[platform] ? platform : 'cryptoforge';
+      const currentBody = this.shadowRoot?.querySelector('#document-body');
+      if (this._loadedPlatform === nextPlatform && currentBody?.getAttribute('aria-busy') === 'false') {
+        return Promise.resolve();
+      }
+      if (this._loadingPlatform === nextPlatform && this._loadPromise) return this._loadPromise;
+      this._loadController?.abort();
+      this._loadController = new AbortController();
+      this._loadingPlatform = nextPlatform;
+      if (this.dataset.platform !== nextPlatform) this.dataset.platform = nextPlatform;
+      const root = this.shadowRoot;
+      if (!root || typeof window.mountArchitectureDocument !== 'function') return;
+      const documentInfo = readerDocuments[nextPlatform];
+      root.querySelector('#reader-title').textContent = documentInfo.title;
+      root.querySelector('#reader-description').textContent = documentInfo.description;
+      root.querySelector('#reader-monogram').textContent = documentInfo.monogram;
+      root.querySelector('#document-meta').replaceChildren();
+      root.querySelector('#document-toc').replaceChildren();
+      root.querySelector('#blueprint-search').value = '';
+      root.querySelector('#search-status').textContent = 'Full document';
+      const documentBody = root.querySelector('#document-body');
+      documentBody.setAttribute('aria-busy', 'true');
+      documentBody.innerHTML = '<div class="document-loading"><span></span><p>Building visual blueprint…</p></div>';
+      this._loadPromise = window.mountArchitectureDocument({
+        root,
+        host: this,
+        source: `/architecture/content/${nextPlatform}`,
+        platform: nextPlatform,
+        signal: this._loadController.signal,
+      }).then(() => {
+        if (this._loadingPlatform === nextPlatform && !this._loadController.signal.aborted) {
+          this._loadedPlatform = nextPlatform;
+          this._loadingPlatform = null;
+        }
+      });
+      return this._loadPromise;
+    }
+  }
+
   if (!customElements.get('philforge-architecture-atlas')) {
     customElements.define('philforge-architecture-atlas', PhilForgeArchitectureAtlas);
+  }
+  if (!customElements.get('philforge-architecture-reader')) {
+    customElements.define('philforge-architecture-reader', PhilForgeArchitectureReader);
   }
 })();

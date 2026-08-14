@@ -1,19 +1,24 @@
 (() => {
   'use strict';
 
-  const body = document.body;
-  const source = body.dataset.documentSource;
-  const platform = body.dataset.platform;
-  const documentRoot = document.querySelector('#document-body');
-  const tocRoot = document.querySelector('#document-toc');
-  const metaRoot = document.querySelector('#document-meta');
-  const searchInput = document.querySelector('#blueprint-search');
-  const searchStatus = document.querySelector('#search-status');
+  function mountArchitectureDocument(options = {}) {
+  const root = options.root || document;
+  const ownerDocument = root.ownerDocument || document;
+  const body = options.host || document.body;
+  const source = options.source || body.dataset.documentSource;
+  const platform = options.platform || body.dataset.platform;
+  const documentRoot = root.querySelector('#document-body');
+  const tocRoot = root.querySelector('#document-toc');
+  const metaRoot = root.querySelector('#document-meta');
+  const searchInput = root.querySelector('#blueprint-search');
+  const searchStatus = root.querySelector('#search-status');
   const usedSectionIds = new Set();
   let currentTocTopics = null;
 
+  if (!source || !documentRoot || !tocRoot || !metaRoot || !searchInput || !searchStatus) return;
+
   const make = (tag, className, text) => {
-    const node = document.createElement(tag);
+    const node = ownerDocument.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined) node.textContent = text;
     return node;
@@ -72,14 +77,14 @@
     }
     const wrap = make('div', 'doc-table-wrap');
     const table = make('table', 'doc-table');
-    const thead = document.createElement('thead');
-    const headRow = document.createElement('tr');
-    headers.forEach((value) => { const th = document.createElement('th'); appendInline(th, value); headRow.append(th); });
+    const thead = ownerDocument.createElement('thead');
+    const headRow = ownerDocument.createElement('tr');
+    headers.forEach((value) => { const th = ownerDocument.createElement('th'); appendInline(th, value); headRow.append(th); });
     thead.append(headRow);
-    const tbody = document.createElement('tbody');
+    const tbody = ownerDocument.createElement('tbody');
     rows.forEach((values) => {
-      const row = document.createElement('tr');
-      headers.forEach((_, cellIndex) => { const td = document.createElement('td'); appendInline(td, values[cellIndex] || ''); row.append(td); });
+      const row = ownerDocument.createElement('tr');
+      headers.forEach((_, cellIndex) => { const td = ownerDocument.createElement('td'); appendInline(td, values[cellIndex] || ''); row.append(td); });
       tbody.append(row);
     });
     table.append(thead, tbody);
@@ -124,7 +129,7 @@
   }
 
   function renderMetadata(metadata) {
-    const fragment = document.createDocumentFragment();
+    const fragment = ownerDocument.createDocumentFragment();
     metadata.forEach(([label, value]) => {
       const chip = make('div', 'meta-chip');
       chip.append(make('span', '', label));
@@ -141,8 +146,8 @@
     currentTocTopics = null;
     const lines = markdown.replace(/\r\n/g, '\n').split('\n');
     const metadata = [];
-    const content = document.createDocumentFragment();
-    const toc = document.createDocumentFragment();
+    const content = ownerDocument.createDocumentFragment();
+    const toc = ownerDocument.createDocumentFragment();
     let section = null;
     let index = 0;
 
@@ -202,7 +207,7 @@
         continue;
       }
       if (/^-\s+/.test(line)) {
-        const list = document.createElement('ul');
+        const list = ownerDocument.createElement('ul');
         while (index < lines.length && /^-\s+/.test(lines[index].trim())) {
           const item = make('li');
           appendInline(item, lines[index].trim().replace(/^-\s+/, ''));
@@ -213,7 +218,7 @@
         continue;
       }
       if (/^\d+\.\s+/.test(line)) {
-        const list = document.createElement('ol');
+        const list = ownerDocument.createElement('ol');
         while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
           const item = make('li');
           appendInline(item, lines[index].trim().replace(/^\d+\.\s+/, ''));
@@ -263,6 +268,12 @@
         });
       });
     });
+    tocRoot.querySelectorAll('a[data-target]').forEach((link) => {
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        root.querySelector(`#${CSS.escape(link.dataset.target)}`)?.scrollIntoView({ block: 'start' });
+      });
+    });
   }
 
   function installSectionObserver() {
@@ -295,37 +306,57 @@
     if (query && visible === 0) documentRoot.append(make('div', 'empty-search', `No blueprint section contains “${searchInput.value.trim()}”.`));
   }
 
-  document.querySelectorAll('[data-reader-platform]').forEach((link) => {
+  root.querySelectorAll('[data-reader-platform]').forEach((link) => {
     if (link.dataset.readerPlatform === platform) link.setAttribute('aria-current', 'page');
   });
   searchInput.addEventListener('input', applySearch);
-  document.addEventListener('keydown', (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchInput.focus(); }
-  });
-  document.querySelector('#print-blueprint').addEventListener('click', () => window.print());
+  const keyTarget = root === document ? ownerDocument : root;
+  if (!keyTarget.__architectureSearchShortcutBound) {
+    keyTarget.addEventListener('keydown', (event) => {
+      const activeSearch = root.querySelector('#blueprint-search');
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && activeSearch) {
+        event.preventDefault();
+        activeSearch.focus();
+      }
+    });
+    keyTarget.__architectureSearchShortcutBound = true;
+  }
+  root.querySelector('#print-blueprint')?.addEventListener('click', () => window.print());
 
-  const themeButton = document.querySelector('#reader-theme-toggle');
-  const savedTheme = localStorage.getItem('forge-architecture-theme');
-  if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.dataset.theme = savedTheme;
-  themeButton.addEventListener('click', () => {
-    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('forge-architecture-theme', next);
-  });
+  const themeButton = root.querySelector('#reader-theme-toggle');
+  if (themeButton) {
+    const savedTheme = localStorage.getItem('forge-architecture-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.dataset.theme = savedTheme;
+    themeButton.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('forge-architecture-theme', next);
+    });
+  }
 
-  const progress = document.querySelector('#reading-progress-bar');
+  const progress = root.querySelector('#reading-progress-bar');
   function updateProgress() {
     const available = document.documentElement.scrollHeight - window.innerHeight;
     progress.style.width = `${available > 0 ? Math.min(100, (window.scrollY / available) * 100) : 0}%`;
   }
-  addEventListener('scroll', updateProgress, { passive: true });
-  addEventListener('resize', updateProgress, { passive: true });
+  if (progress) {
+    addEventListener('scroll', updateProgress, { passive: true });
+    addEventListener('resize', updateProgress, { passive: true });
+  }
 
-  fetch(source, { credentials: 'same-origin', headers: { Accept: 'text/markdown' } })
+  return fetch(source, { credentials: 'same-origin', headers: { Accept: 'text/markdown' }, signal: options.signal })
     .then((response) => { if (!response.ok) throw new Error(`Blueprint source returned ${response.status}`); return response.text(); })
-    .then(renderMarkdown)
+    .then((markdown) => {
+      renderMarkdown(markdown);
+      body.dispatchEvent(new CustomEvent('architecture-document-ready', { bubbles: true, composed: true }));
+    })
     .catch((error) => {
+      if (error.name === 'AbortError') return;
       documentRoot.setAttribute('aria-busy', 'false');
       documentRoot.replaceChildren(make('div', 'empty-search', `The blueprint could not be displayed. ${error.message}`));
     });
+  }
+
+  window.mountArchitectureDocument = mountArchitectureDocument;
+  if (document.body?.dataset.documentSource) mountArchitectureDocument();
 })();

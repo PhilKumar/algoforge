@@ -43,9 +43,9 @@ test('Architecture stays private and opens inside the normal application shell',
     await page.goto(`/app#architecture/${platform}`);
     await expect(page.locator('.header-shell')).toBeVisible();
     await expect(page.locator('#architecture-reader-panel')).toBeVisible();
-    const reader = page.frameLocator('#architecture-reader-frame');
-    await expect(reader.locator('body')).toHaveAttribute('data-platform', platform);
-    await expect(reader.locator('body')).toHaveClass(/is-embedded/);
+    await expect(page.locator('#architecture-page iframe')).toHaveCount(0);
+    const reader = page.locator('#architecture-reader-view');
+    await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
     expect(await reader.locator('.doc-section').count()).toBeGreaterThan(35);
     expect(await reader.locator('.doc-table').count()).toBeGreaterThan(12);
@@ -54,7 +54,7 @@ test('Architecture stays private and opens inside the normal application shell',
     const renderedChapterLabels = await reader.locator('#document-toc .toc-chapter').allTextContents();
     expect(renderedChapterLabels.map((label) => label.match(/^Chapter \d+ ·/)?.[0])).toEqual(chapterLabels[platform]);
     await expect(reader.locator('.rail-card')).toContainText('Full blueprint complete');
-    await expect(reader.locator('.reader-header')).toBeHidden();
+    await expect(reader.locator('.reader-header')).toHaveCount(0);
     const ids = await reader.locator('.doc-section').evaluateAll((sections) => sections.map((section) => section.id));
     expect(new Set(ids).size).toBe(ids.length);
     await expect(reader.locator('.empty-search')).toHaveCount(0);
@@ -71,8 +71,8 @@ test('each blueprint chapter reveals only its own collapsed topic list', async (
 
   for (const platform of ['cryptoforge', 'philforge']) {
     await page.goto(`/app#architecture/${platform}`);
-    const reader = page.frameLocator('#architecture-reader-frame');
-    await expect(reader.locator('body')).toHaveAttribute('data-platform', platform);
+    const reader = page.locator('#architecture-reader-view');
+    await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
 
     const groups = reader.locator('#document-toc .toc-group');
@@ -96,7 +96,7 @@ test('each blueprint chapter reveals only its own collapsed topic list', async (
 
     await groups.nth(2).locator('.toc-topics a').nth(1).click();
     await expect(groups.nth(2)).toHaveAttribute('open', '');
-    await expect.poll(() => reader.locator('body').evaluate(() => window.location.hash)).not.toBe('');
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#architecture/${platform}`);
   }
 });
 
@@ -146,7 +146,7 @@ test('architecture atlas is accessible and does not overflow desktop or mobile',
 test('visual blueprint search filters sections without exposing Markdown downloads', async ({ page }) => {
   await login(page);
   await page.goto('/app#architecture/cryptoforge');
-  const reader = page.frameLocator('#architecture-reader-frame');
+  const reader = page.locator('#architecture-reader-view');
   await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
 
   await reader.locator('#blueprint-search').fill('Ed25519');
@@ -164,25 +164,21 @@ test('blueprint navigation stays fixed while each document scrolls', async ({ pa
 
   for (const platform of ['cryptoforge', 'philforge']) {
     await page.goto(`/app#architecture/${platform}`);
-    const reader = page.frameLocator('#architecture-reader-frame');
-    await expect(reader.locator('body')).toHaveAttribute('data-platform', platform);
+    const reader = page.locator('#architecture-reader-view');
+    await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
-    const readerFrame = await (await page.locator('#architecture-reader-frame').elementHandle())?.contentFrame();
-    expect(readerFrame).toBeTruthy();
-
-    const rail = readerFrame!.locator('.document-rail');
-    await readerFrame!.evaluate(() => {
+    const rail = reader.locator('.document-rail');
+    await reader.locator('.reader-layout').evaluate((node) => {
       document.documentElement.style.scrollBehavior = 'auto';
-      const layout = document.querySelector('.reader-layout');
-      if (layout) document.documentElement.scrollTop = layout.getBoundingClientRect().top + window.scrollY + 200;
+      window.scrollTo(0, node.getBoundingClientRect().top + window.scrollY + 200);
     });
-    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(14);
+    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
 
-    const contentBefore = await readerFrame!.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top);
-    await readerFrame!.evaluate(() => { document.documentElement.scrollTop += 520; });
-    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(14);
+    const contentBefore = await reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top);
+    await page.evaluate(() => { window.scrollBy(0, 520); });
+    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
 
-    await expect.poll(() => readerFrame!.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top))
+    await expect.poll(() => reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top))
       .toBeLessThan(contentBefore - 400);
     await expect(rail.locator('.rail-sticky')).toHaveCSS('overflow-y', 'auto');
   }
@@ -197,22 +193,22 @@ test('both visual readers pass accessibility and responsive overflow checks', as
   for (const platform of platforms) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/app#architecture/${platform.id}`);
-    const reader = page.frameLocator('#architecture-reader-frame');
+    const reader = page.locator('#architecture-reader-view');
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('.header-shell')).toBeVisible();
-    await expect(reader.locator('.reader-header')).toBeHidden();
-    const accent = await reader.locator('body').evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
+    await expect(reader.locator('.reader-header')).toHaveCount(0);
+    const accent = await reader.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
     expect(accent).toBe(platform.accent);
-    let overflow = await reader.locator('body').evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    let overflow = await reader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
     const results = await new AxeBuilder({ page }).include('#architecture-page').analyze();
     expect(results.violations).toEqual([]);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    const mobileReader = page.frameLocator('#architecture-reader-frame');
+    const mobileReader = page.locator('#architecture-reader-view');
     await expect(mobileReader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
-    overflow = await mobileReader.locator('body').evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    overflow = await mobileReader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
   }
 });

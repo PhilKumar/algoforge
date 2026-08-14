@@ -1438,25 +1438,16 @@ const TRADING_PAGE_BY_SECTION = Object.fromEntries(
 
 const ARCHITECTURE_VIEWS = new Set(['overview', 'cryptoforge', 'philforge']);
 let _architectureView = 'overview';
-let _architectureThemeObserver = null;
-
-function _syncArchitectureReaderTheme() {
-  const frame = document.getElementById('architecture-reader-frame');
-  try {
-    if (frame?.contentDocument?.documentElement) {
-      frame.contentDocument.documentElement.dataset.theme = document.documentElement.dataset.theme || 'dark';
-    }
-  } catch (_) {}
-}
 
 function initArchitecturePage(requestedView = _architectureView) {
   const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : 'overview';
   _architectureView = view;
   const overview = document.getElementById('architecture-overview-panel');
   const reader = document.getElementById('architecture-reader-panel');
-  const frame = document.getElementById('architecture-reader-frame');
+  const documentReader = document.getElementById('architecture-reader-view');
+  const readerStatus = document.getElementById('architecture-reader-status');
   const title = document.getElementById('architecture-view-title');
-  if (!overview || !reader || !frame) return;
+  if (!overview || !reader || !documentReader) return;
 
   document.querySelectorAll('[data-pf-architecture-view]').forEach((tab) => {
     const selected = tab.getAttribute('data-pf-architecture-view') === view;
@@ -1469,14 +1460,13 @@ function initArchitecturePage(requestedView = _architectureView) {
   if (title) title.textContent = isOverview ? "The Eagle's View" : `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
 
   if (!isOverview) {
-    const expectedPath = `/architecture/${view}?embedded=1`;
-    if (!frame.getAttribute('src')?.endsWith(expectedPath)) frame.src = expectedPath;
-    frame.title = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} architecture blueprint`;
-    frame.addEventListener('load', _syncArchitectureReaderTheme, { once: true });
-    if (!_architectureThemeObserver) {
-      _architectureThemeObserver = new MutationObserver(_syncArchitectureReaderTheme);
-      _architectureThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    }
+    if (readerStatus) readerStatus.textContent = `Loading ${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint…`;
+    documentReader.addEventListener('architecture-document-ready', () => {
+      if (readerStatus) readerStatus.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint ready.`;
+    }, { once: true });
+    documentReader.load?.(view).then?.(() => {
+      if (readerStatus) readerStatus.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint ready.`;
+    });
   }
 }
 

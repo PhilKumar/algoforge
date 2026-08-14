@@ -3439,7 +3439,7 @@
   .pf-architecture-reader {
     position: relative;
     min-height: min(1120px, calc(100vh - 180px));
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid var(--border-hi);
     border-radius: 14px;
     background: #070b13;
@@ -3453,14 +3453,14 @@
     color: var(--muted);
     font: 500 10px 'JetBrains Mono', monospace;
   }
-  #architecture-reader-frame {
+  #architecture-reader-view {
     position: relative;
     z-index: 1;
     display: block;
     width: 100%;
-    height: min(1120px, calc(100vh - 180px));
     min-height: 720px;
-    border: 0;
+    overflow: clip;
+    border-radius: inherit;
     background: transparent;
   }
   html[data-theme="light"] .pf-architecture-viewbar { background: rgba(255,255,255,.58); }
@@ -3471,7 +3471,7 @@
     .pf-architecture-viewbar { align-items: stretch; flex-direction: column; padding: 12px; }
     .pf-architecture-tabs { width: 100%; }
     .pf-architecture-tabs button { min-width: 0; flex: 1; padding-inline: 7px; font-size: 9px; }
-    .pf-architecture-reader, #architecture-reader-frame { height: calc(100vh - 170px); min-height: 620px; }
+    .pf-architecture-reader, #architecture-reader-view { min-height: 620px; }
   }
   .nav-tab:hover {
     color: var(--text);
