@@ -7925,9 +7925,20 @@ body :is(
    tiles borrow the stat-box proportions, the buttons are the page's own
    controls, and the tables inherit the Campaigns ledger contract. Colour is
    spent only where it means something -- P&L and state. */
+/* ONE rounded panel, on the hero's own 28px gutter.  Before this the tab bar,
+   the run header, the rule strip and the tiles were four square full-bleed
+   strips running edge to edge while the cards inside them sat inset — the page
+   had three different left edges and no rounded shell at all.  Everything the
+   desk draws now lives inside this card, so there is exactly one outer gutter
+   (28px, the hero's) and one inner one (16px, below). */
+#live-page .live-desk {
+  margin: 0 28px 24px;
+  border: 1px solid var(--border); border-radius: 14px;
+  background: var(--card); overflow: hidden;
+}
 #live-tabs-bar {
   display: flex; align-items: stretch; flex-wrap: wrap; gap: 4px;
-  padding: 0 24px; background: var(--card);
+  padding: 0 16px; background: var(--card);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
 }
@@ -7981,7 +7992,7 @@ body :is(
 #live-page .live-panel-header {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; flex-wrap: wrap;
-  padding: 16px 24px 14px; background: var(--card);
+  padding: 16px; background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 #live-page .live-panel-header.has-conditions { border-bottom: 0; }
@@ -8011,7 +8022,7 @@ body :is(
 /* The rule strip. */
 #live-page .live-conditions {
   display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-start;
-  padding: 12px 24px; background: rgba(0,0,0,.15);
+  padding: 12px 16px; background: rgba(0,0,0,.15);
   border-bottom: 1px solid var(--border);
 }
 #live-page .live-cond-group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
@@ -8040,7 +8051,7 @@ body :is(
 /* Tiles: they wrap instead of crushing, and every figure is tabular. */
 #live-page .live-panel-stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-  gap: 12px; padding: 18px 24px 10px;
+  gap: 12px; padding: 16px;
 }
 #live-page .live-stat {
   padding: 13px 14px; border-radius: 10px;
@@ -8062,7 +8073,7 @@ body :is(
 
 #live-page .live-panel-main {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px; padding: 8px 24px 20px; align-items: start;
+  gap: 16px; padding: 0 16px 16px; align-items: start;
 }
 #live-page .live-panel-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 #live-page .live-panel-card.is-grow { flex: 1; }
@@ -8097,23 +8108,23 @@ body :is(
    and scroll.  An empty state has no columns to protect — held at 560 it
    centres its one sentence off the right edge of the card. */
 #live-page .live-panel-card table:has(.live-table-empty) { min-width: 0 !important; }
-#live-page .live-closed-block { margin: 0 24px 24px; }
+#live-page .live-closed-block { margin: 0 16px 16px; }
 
 @media (max-width: 1100px) {
   #live-page .live-panel-main { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
+  #live-page .live-desk { margin: 0 12px 16px; border-radius: 12px; }
   #live-page .live-panel-header,
   #live-page .live-conditions { padding-left: 12px; padding-right: 12px; }
-  #live-page .live-panel-stats { padding: 14px 12px 8px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  #live-page .live-panel-stats { padding: 12px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
   #live-tabs-bar { padding: 0 12px; }
 
-  /* One gutter down the whole page.  An older phone block still sets
+  /* One gutter inside the desk.  An older phone block still sets
      `.live-panel-main { padding: 12px !important }` and pushes
      `.live-panel-closed` out by another 8px, so the cards, the closed block
-     and its inner card each landed on a different left edge (24 / 28 / 36).
-     Everything here resolves to the same 24px. */
-  #live-page .live-closed-block { margin: 0 12px 20px; }
+     and its inner card each landed on a different left edge. */
+  #live-page .live-closed-block { margin: 0 12px 12px; }
   #live-page .live-panel-closed { margin-left: 0 !important; margin-right: 0 !important; }
 
   /* The header actions are `.cascade-options-control`, not `.btn` — the old

@@ -13744,8 +13744,7 @@ function renderLivePanel(d, idx) {
   <div class="live-panel-header${conditionsHtml ? ' has-conditions' : ''}">
     <div class="live-panel-title">
       <div class="live-panel-eyebrow">${mode === 'auto' ? 'Auto &middot; live orders' : 'Paper'}</div>
-      <div class="live-panel-name">${safeName} ${badgeHtml}</div>
-      <div class="live-panel-folder">${folderBadgeHtml}</div>
+      <div class="live-panel-name">${safeName} ${badgeHtml} ${folderBadgeHtml}</div>
     </div>
     <div class="live-panel-actions">
       ${(d.positions || []).length || (d.closed_trades || []).length ? `<button type="button" class="cascade-options-control" onclick="openLiveEntryChart('${safeRunIdJs}')">${ICO.chart ? ICO.chart(13) : ''} Entry Chart</button>` : ''}
