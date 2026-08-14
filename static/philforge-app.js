@@ -1253,12 +1253,34 @@ const NAV_BUTTON_MAP = {
   'builder-page': 'nav-builder',
   'results-page': 'nav-results',
   'live-page': 'nav-live',
-  'stock-terminal-page': 'nav-terminal',
-  'scalp-page': 'nav-scalp',
-  'options-cascade-page': 'nav-cascade',
+  'stock-terminal-page': 'nav-trading',
+  'scalp-page': 'nav-trading',
+  'options-cascade-page': 'nav-trading',
   'charts-page': 'nav-charts',
   'insights-page': 'nav-insights',
 };
+
+const TRADING_SECTION_BY_PAGE = {
+  'stock-terminal-page': 'equity',
+  'scalp-page': 'scalp',
+  'options-cascade-page': 'cascade',
+};
+const TRADING_PAGE_BY_SECTION = Object.fromEntries(
+  Object.entries(TRADING_SECTION_BY_PAGE).map(([page, section]) => [section, page])
+);
+
+function syncTradingSectionControls(page) {
+  const section = TRADING_SECTION_BY_PAGE[page] || '';
+  document.querySelectorAll('[data-pf-trading-page]').forEach((button) => {
+    const selected = button.getAttribute('data-pf-trading-page') === page;
+    button.classList.toggle('is-active', selected);
+    button.setAttribute('aria-selected', selected ? 'true' : 'false');
+    button.tabIndex = selected ? 0 : -1;
+  });
+  document.querySelectorAll('.trading-workspace-head').forEach((header) => {
+    if (section) header.setAttribute('data-trading-current', section);
+  });
+}
 
 let _mobileNavSyncTimer = null;
 let _insightsMenuHome = null;
@@ -1436,6 +1458,7 @@ function buildNavState(page, extra = {}) {
 
 function navHashForState(state) {
   const page = state?.page || 'dashboard-page';
+  if (TRADING_SECTION_BY_PAGE[page]) return `#trading/${TRADING_SECTION_BY_PAGE[page]}`;
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0) {
     return `#results-page/${Number(state.runId)}`;
   }
@@ -1446,6 +1469,9 @@ function navStateFromLocation() {
   const raw = String(location.hash || '').replace(/^#/, '').trim();
   if (!raw) return null;
   const [page, runIdRaw] = raw.split('/');
+  if (page === 'trading' && TRADING_PAGE_BY_SECTION[runIdRaw]) {
+    return { page: TRADING_PAGE_BY_SECTION[runIdRaw] };
+  }
   if (!page || !document.getElementById(page)) return null;
   const state = { page };
   const runId = Number(runIdRaw);
@@ -1537,6 +1563,16 @@ document.addEventListener('click', (event) => {
     }
   }
 
+  const tradingEl = event.target.closest('[data-pf-trading-page]');
+  if (tradingEl) {
+    event.preventDefault();
+    const page = tradingEl.getAttribute('data-pf-trading-page');
+    showPage(page, document.getElementById('nav-trading'), { scrollToTop: true });
+    const after = tradingEl.getAttribute('data-pf-after-nav');
+    if (after && typeof window[after] === 'function') window[after]();
+    return;
+  }
+
   const navEl = event.target.closest('[data-pf-nav-page]');
   if (navEl) {
     event.preventDefault();
@@ -1617,7 +1653,7 @@ function showPage(id, btn, options = {}) {
   const activePage = document.getElementById(id);
   activePage.classList.add('active-page');
   activePage.removeAttribute('aria-hidden');
-  const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
+  const activeBtn = document.getElementById(NAV_BUTTON_MAP[id] || '') || btn;
   if (activeBtn) {
     activeBtn.classList.add('active');
     activeBtn.setAttribute('aria-current', 'page');
@@ -1627,6 +1663,7 @@ function showPage(id, btn, options = {}) {
     const pageLabel = activeBtn?.querySelector('.tab-label')?.textContent?.trim() || 'PhilForge';
     mainContent.setAttribute('aria-label', pageLabel + ' workspace');
   }
+  syncTradingSectionControls(id);
   closeCascadeMenu();
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();

@@ -4016,7 +4016,7 @@ async def serve_landing():
 
     This is the shared landing for both desks: it tells the Homma story once
     and then forks to the equities terminal here at /app and to the crypto
-    terminal on crypto.philforge.in. The terminal itself moved to /app, and
+    terminal through /crypto or crypto.philforge.in. The terminal itself moved to /app, and
     every CTA on this page points there.
     """
     landing_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "landing", "forge.html")
@@ -4344,6 +4344,90 @@ async def serve_study_lounge(request: Request):
     return HTMLResponse("<h2>study_lounge.html not found. Place it beside app.py</h2>")
 
 
+@app.get("/architecture", response_class=HTMLResponse)
+async def serve_architecture(request: Request):
+    """Serve the read-only architecture atlas inside the private terminal."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    html_path = os.path.join(_HERE, "ARCHITECTURE.html")
+    if os.path.exists(html_path):
+        return HTMLResponse(_read_frontend_template(html_path))
+    return HTMLResponse("<h2>ARCHITECTURE.html not found. Place it beside app.py</h2>", status_code=404)
+
+
+_ARCHITECTURE_DOCUMENTS = {
+    "cryptoforge": {
+        "filename": "cryptoforge-product-architecture-system-blueprint.md",
+        "title": "CryptoForge Architecture",
+        "description": "The complete system view for the 24/7 digital-asset strategy, execution, portfolio, and buyer Cascade platform.",
+        "monogram": "CF",
+        "label": "CRYPTOFORGE",
+    },
+    "philforge": {
+        "filename": "philforge-product-architecture-system-blueprint.md",
+        "title": "PhilForge Architecture",
+        "description": "The complete system view for the session-aware Indian equities, options, strategy, execution, and portfolio platform.",
+        "monogram": "PF",
+        "label": "PHILFORGE",
+    },
+}
+
+
+@app.get("/architecture/docs/{platform}")
+async def serve_architecture_document(platform: str, request: Request):
+    """Keep old blueprint links useful by sending them to the visual reader."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    if platform.lower() not in _ARCHITECTURE_DOCUMENTS:
+        raise HTTPException(status_code=404, detail="Architecture document not found")
+    return RedirectResponse(f"/architecture/{platform.lower()}", status_code=307)
+
+
+@app.get("/architecture/content/{platform}", response_class=PlainTextResponse)
+async def serve_architecture_content(platform: str, request: Request):
+    """Supply trusted Markdown source to the private visual blueprint reader."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    document = _ARCHITECTURE_DOCUMENTS.get(platform.lower())
+    if not document:
+        raise HTTPException(status_code=404, detail="Architecture document not found")
+    doc_path = os.path.join(_HERE, "docs", "architecture", document["filename"])
+    if not os.path.exists(doc_path):
+        raise HTTPException(status_code=404, detail="Architecture document not found")
+    with open(doc_path, encoding="utf-8") as handle:
+        return PlainTextResponse(handle.read(), media_type="text/markdown")
+
+
+@app.get("/architecture/{platform}", response_class=HTMLResponse)
+async def serve_architecture_blueprint(platform: str, request: Request):
+    """Render one platform blueprint as a first-class visual product page."""
+    user = await _get_page_user(request)
+    if not user:
+        return _render_login_page()
+    platform_key = platform.lower()
+    document = _ARCHITECTURE_DOCUMENTS.get(platform_key)
+    if not document:
+        raise HTTPException(status_code=404, detail="Architecture document not found")
+    template_path = os.path.join(_HERE, "ARCHITECTURE_DOCUMENT.html")
+    if not os.path.exists(template_path):
+        return HTMLResponse("<h2>ARCHITECTURE_DOCUMENT.html not found.</h2>", status_code=404)
+    html = _read_frontend_template(template_path)
+    replacements = {
+        "__ARCH_PLATFORM__": platform_key,
+        "__ARCH_PLATFORM_LABEL__": document["label"],
+        "__ARCH_TITLE__": document["title"],
+        "__ARCH_DESCRIPTION__": document["description"],
+        "__ARCH_MONOGRAM__": document["monogram"],
+        "__ARCH_SOURCE__": f"/architecture/content/{platform_key}",
+    }
+    for placeholder, value in replacements.items():
+        html = html.replace(placeholder, _escape_html(value, quote=True))
+    return HTMLResponse(html)
+
+
 @app.get("/robots.txt", include_in_schema=False)
 async def robots_txt():
     """The landing pages exist to be found; the terminal does not. The old
@@ -4357,6 +4441,7 @@ async def robots_txt():
             "Disallow: /api/",
             "Disallow: /charts-viewer",
             "Disallow: /study-lounge",
+            "Disallow: /architecture",
             "",
             "Sitemap: https://philforge.in/sitemap.xml",
             "",

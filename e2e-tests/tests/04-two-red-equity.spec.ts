@@ -16,6 +16,11 @@ import { test, expect, Page } from '@playwright/test';
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 
+async function openEquity(page: Page) {
+  await page.click('#nav-trading');
+  await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
+}
+
 async function login(page: Page) {
   await page.goto('/app');
   await page.fill('#username-input', USERNAME);
@@ -29,17 +34,17 @@ async function login(page: Page) {
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
 
-test('the Equity tab carries both strategies and switches between them', async ({ page }) => {
+test('the Trading page carries the Equity section and its strategies', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(String(err)));
 
   await login(page);
 
-  // The tab is called Equity now, not Terminal.
-  const tab = page.locator('#nav-terminal');
-  await expect(tab).toContainText('Equity');
-  await tab.click();
+  const tab = page.locator('#nav-trading');
+  await expect(tab).toContainText('Trading');
+  await openEquity(page);
+  await expect(page.locator('#nav-terminal')).toContainText('Equity');
 
   const cascade = page.locator('#equity-strategy-cascade');
   const tworeds = page.locator('#equity-strategy-tworeds');
@@ -91,7 +96,7 @@ test('the Equity tab carries both strategies and switches between them', async (
 
 test('the start button is wired through the delegated-action allowlist', async ({ page }) => {
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
 
   // No scrip typed: the handler must run and complain, which is the proof the
@@ -133,7 +138,7 @@ test('the ladder screen renders its own columns and arithmetic', async ({ page }
   });
 
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await page.fill('#tworeds-scan-capital', '200000');
   await page.click('#tworeds-scan-run');
@@ -182,7 +187,7 @@ test('the mother finder lists live mothers and picking one fills the form', asyn
   });
 
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await page.fill('#tworeds-symbol', 'RELIANCE');
   await page.click('#tworeds-find-mothers');
@@ -229,7 +234,7 @@ test('the ladder chart is the Canvas renderer, not a hand-rolled SVG', async ({ 
   });
 
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await page.fill('#tworeds-symbol', 'RELIANCE');
   await page.click('#tworeds-chart-btn');
@@ -312,7 +317,7 @@ test('the scanner chart is the Canvas renderer and carries all five timeframes',
   });
 
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await page.click('#tworeds-scan-run');
   await expect(page.locator('#tworeds-scan-body table')).toBeVisible({ timeout: 10_000 });
@@ -370,7 +375,7 @@ async function openScanChart(page: Page) {
   // Shrink the chart deadline so the timeout BEHAVIOUR can be asserted without
   // waiting the real 45 seconds for it.
   await page.evaluate(() => { (window as any).pfScanChartTimeoutMs = 400; });
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="cascade"]');
   await page.click('#cascade-scan-run');
   await expect(page.locator('#cascade-scan-body table')).toBeVisible({ timeout: 10_000 });
@@ -434,7 +439,7 @@ async function openTwoReds(page: Page, status: object) {
     status: 200, contentType: 'application/json', body: JSON.stringify(status),
   }));
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await expect(page.locator('#tworeds-campaigns-body table')).toBeVisible({ timeout: 10_000 });
 }

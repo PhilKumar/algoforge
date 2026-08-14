@@ -173,6 +173,17 @@ async function login(page: Page) {
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
 
+async function openTradingSection(page: Page, section: 'equity' | 'scalp' | 'cascade') {
+  await page.click('#nav-trading');
+  const pageId = {
+    equity: 'stock-terminal-page',
+    scalp: 'scalp-page',
+    cascade: 'options-cascade-page',
+  }[section];
+  await page.locator('.page-section.active-page [data-pf-trading-page="' + pageId + '"]').click();
+  await expect(page.locator('#' + pageId)).toHaveClass(/active-page/);
+}
+
 async function seriousAccessibilityViolations(page: Page, include?: string) {
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
   if (include) builder = builder.include(include);
@@ -218,9 +229,7 @@ test('Authenticated primary surfaces have landmarks and no serious automated WCA
     ['#nav-portfolio', '#portfolio-page'],
     ['#nav-insights', '#insights-page'],
     ['#nav-live', '#live-page'],
-    ['#nav-terminal', '#stock-terminal-page'],
-    ['#nav-scalp', '#scalp-page'],
-    ['#nav-cascade', '#options-cascade-page'],
+    ['#nav-trading', '#stock-terminal-page'],
     ['#nav-builder', '#builder-page'],
     ['#nav-charts', '#charts-page'],
     ['#nav-results', '#results-page'],
@@ -228,6 +237,14 @@ test('Authenticated primary surfaces have landmarks and no serious automated WCA
   for (const [control, pageSection] of surfaces) {
     await page.click(control);
     await expect(page.locator(control)).toHaveAttribute('aria-current', 'page');
+    expect(await seriousAccessibilityViolations(page, pageSection), pageSection).toEqual([]);
+  }
+  for (const [section, pageSection] of [
+    ['equity', '#stock-terminal-page'],
+    ['scalp', '#scalp-page'],
+    ['cascade', '#options-cascade-page'],
+  ] as const) {
+    await openTradingSection(page, section);
     expect(await seriousAccessibilityViolations(page, pageSection), pageSection).toEqual([]);
   }
 });
@@ -248,7 +265,7 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
   await page.keyboard.press('ArrowLeft');
   await expect(page.locator('#insights-tabbtn-heatmap')).toHaveAttribute('aria-selected', 'true');
 
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   for (const [control, panel] of [
     ['#oc-tabbtn-fib', '#oc-tab-fib'],
     ['#oc-tabbtn-candle', '#oc-tab-candle'],
@@ -308,9 +325,7 @@ test('Every primary navigation surface has a working owner and active page', asy
     ['#nav-dashboard', '#dashboard-page'],
     ['#nav-portfolio', '#portfolio-page'],
     ['#nav-live', '#live-page'],
-    ['#nav-terminal', '#stock-terminal-page'],
-    ['#nav-scalp', '#scalp-page'],
-    ['#nav-cascade', '#options-cascade-page'],
+    ['#nav-trading', '#stock-terminal-page'],
     ['#nav-builder', '#builder-page'],
     ['#nav-charts', '#charts-page'],
     ['#nav-results', '#results-page'],
@@ -318,6 +333,10 @@ test('Every primary navigation surface has a working owner and active page', asy
   for (const [control, pageSection] of surfaces) {
     await page.click(control);
     await expect(page.locator(pageSection)).toHaveClass(/active-page/);
+  }
+
+  for (const section of ['equity', 'scalp', 'cascade'] as const) {
+    await openTradingSection(page, section);
   }
 
   // Insights is a page with tabs now, not a dropdown of links.
@@ -332,6 +351,36 @@ test('Every primary navigation surface has a working owner and active page', asy
 
   // The retired chart-type choices had no calculation or backend owner.
   await expect(page.locator('#cpr-modal .chart-type-btn')).toHaveCount(0);
+});
+
+test('Trading owns the Equity, Scalp, and Cascade sections with stable deep links', async ({ page }) => {
+  await login(page);
+
+  const primaryLabels = await page.locator('.nav-tabs > .nav-tab .tab-label').allTextContents();
+  expect(primaryLabels).toContain('Trading');
+  expect(primaryLabels).not.toContain('Equity');
+  expect(primaryLabels).not.toContain('Scalp');
+  expect(primaryLabels).not.toContain('Cascade');
+
+  await page.click('#nav-trading');
+  await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
+  await expect(page).toHaveURL(/#trading\/equity$/);
+
+  const activeEquityTab = page.locator('#stock-terminal-page .trading-section-tab.is-active');
+  await expect(activeEquityTab).toContainText('Equity');
+  await activeEquityTab.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  await expect(page).toHaveURL(/#trading\/scalp$/);
+
+  await page.locator('#scalp-page .trading-section-tab[data-pf-trading-page="options-cascade-page"]').click();
+  await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
+  await expect(page).toHaveURL(/#trading\/cascade$/);
+
+  await page.reload();
+  await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#nav-trading')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#options-cascade-page .trading-section-tab.is-active')).toContainText('Cascade');
 });
 
 test('Appearance presets switch and persist after reload', async ({ page }) => {
@@ -459,7 +508,7 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
     maxDiffPixelRatio: 0.04,
   });
 
-  await page.click('#nav-scalp');
+  await openTradingSection(page, 'scalp');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await expect(page.locator('#scalp-form-title')).toBeVisible();
   await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {
@@ -534,7 +583,7 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
   await page.route('**/api/test-bench/run', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(testBenchRunMock) }));
 
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-bench');
   // The app upgrades every datetime-local input into its own read-only calendar
   // widget, so the value is set the way that widget sets it.
@@ -575,7 +624,7 @@ test('Test Bench draws one mother candle and every level it bought', async ({ pa
 
 test('Test Bench calendar offers only the minutes its timeframe can open on', async ({ page }) => {
   await login(page);
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-bench');
 
   // A 5-minute picker cannot express a 1m mother at all, and an every-minute
@@ -607,7 +656,7 @@ test('Test Bench calendar offers only the minutes its timeframe can open on', as
 
 test('Test Bench switches cleanly between the two strategies', async ({ page }) => {
   await login(page);
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-bench');
 
   // Fib names the levels it buys; Two Red names the charts it climbs through.
@@ -658,7 +707,7 @@ test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
 
 test('Candle Entry tab offers the full ladder of starting charts', async ({ page }) => {
   await login(page);
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-candle');
 
   // The four ladders, each named by the charts it climbs through.
@@ -681,7 +730,7 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   page.on('pageerror', (err) => jsErrors.push(String(err)));
 
   await login(page);
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
 
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
@@ -800,7 +849,7 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await page.route('**/api/fib-boundary/paper/chart**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fibTouchChart) }));
 
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
 
   // The monitor renders the running ladder before the chart is even opened.
@@ -913,7 +962,7 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
   page.on('pageerror', (err) => jsErrors.push(String(err)));
 
   await login(page);
-  await page.click('#nav-cascade');
+  await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-recovery');
 
   await expect(page.locator('#oc-tab-recovery')).toBeVisible();

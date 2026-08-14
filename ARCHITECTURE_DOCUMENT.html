@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="__ARCH_DESCRIPTION__">
+  <title>__ARCH_TITLE__ · Architecture Blueprint</title>
+  <link rel="icon" href="/static/pwa-icons/favicon-32.png?v=__ASSET_VERSION__" sizes="32x32" type="image/png">
+  <link rel="stylesheet" href="/static/architecture-document.css?v=__ASSET_VERSION__">
+  <script src="/static/architecture-document.js?v=__ASSET_VERSION__" defer></script>
+</head>
+<body data-platform="__ARCH_PLATFORM__" data-document-source="__ARCH_SOURCE__">
+  <div class="reading-progress" aria-hidden="true"><span id="reading-progress-bar"></span></div>
+  <a class="skip-link" href="#blueprint-content">Skip to blueprint</a>
+
+  <header class="reader-header">
+    <a class="reader-brand" href="/architecture" aria-label="Back to Architecture Atlas">
+      <img class="brand-logo" src="/static/logo.png?v=__ASSET_VERSION__" alt="">
+      <span><strong>PHILFORGE</strong><small>Blueprint Reader</small></span>
+    </a>
+    <nav class="platform-switch" aria-label="Blueprint selection">
+      <a href="/architecture/cryptoforge" data-reader-platform="cryptoforge"><i></i>CryptoForge</a>
+      <a href="/architecture/philforge" data-reader-platform="philforge"><i></i>PhilForge</a>
+    </nav>
+    <div class="reader-actions">
+      <button id="print-blueprint" type="button" class="reader-button" title="Print or save as PDF">Print</button>
+      <button id="reader-theme-toggle" type="button" class="icon-button" aria-label="Switch colour theme" title="Switch colour theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path></svg>
+      </button>
+      <a class="reader-button primary" href="/architecture">Architecture Atlas</a>
+    </div>
+  </header>
+
+  <main id="blueprint-content" class="reader-shell">
+    <section class="document-hero">
+      <div class="hero-copy">
+        <p class="eyebrow"><span>BLUEPRINT</span> Production architecture reference</p>
+        <h1>__ARCH_TITLE__</h1>
+        <p>__ARCH_DESCRIPTION__</p>
+        <div id="document-meta" class="document-meta" aria-label="Document metadata"></div>
+      </div>
+      <div class="system-sigil" aria-hidden="true">
+        <div class="sigil-ring ring-one"></div><div class="sigil-ring ring-two"></div><div class="sigil-ring ring-three"></div>
+        <div class="sigil-core">__ARCH_MONOGRAM__</div>
+        <span class="sigil-label label-one">SYSTEM</span><span class="sigil-label label-two">CONTROL</span>
+      </div>
+    </section>
+
+    <section class="reader-toolbar" aria-label="Document tools">
+      <label class="document-search" for="blueprint-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+        <input id="blueprint-search" type="search" placeholder="Search this blueprint" autocomplete="off">
+        <kbd>⌘ K</kbd>
+      </label>
+      <div class="search-status" id="search-status" aria-live="polite">Full document</div>
+    </section>
+
+    <div class="reader-layout">
+      <aside class="document-rail" aria-label="Document navigation">
+        <div class="rail-sticky">
+          <p class="rail-label">ON THIS PAGE</p>
+          <nav id="document-toc"></nav>
+          <div class="rail-card">
+            <span>DOCUMENT STATE</span>
+            <strong><i></i> Full blueprint complete</strong>
+            <small>All assigned chapters · repository-backed</small>
+          </div>
+        </div>
+      </aside>
+
+      <article id="document-body" class="document-body" aria-busy="true">
+        <div class="document-loading"><span></span><p>Building visual blueprint…</p></div>
+      </article>
+    </div>
+
+    <section class="chapter-gate">
+      <div><p class="eyebrow"><span>COMPLETE</span> Architecture reference</p><h2>The full blueprint is ready</h2><p>Routes, pages, user journeys, integrations, strategies, costs, controls, and risk rules are mapped to the repository snapshot.</p></div>
+      <a href="/architecture">Return to the Eagle's View <b>→</b></a>
+    </section>
+  </main>
+
+  <footer><span>PHILFORGE · __ARCH_PLATFORM_LABEL__ BLUEPRINT</span><span>Runtime controls and broker records remain authoritative.</span></footer>
+</body>
+</html>
