@@ -1050,7 +1050,7 @@ class MotherRebaseTests(unittest.TestCase):
 
 
 class TrailingStopTests(unittest.TestCase):
-    """Phil: "make a trailing SL to catch the higher move as far as it goes.\" """
+    """Phil: "make a trailing SL to catch the higher move as far as it goes.\""""
 
     def trailing(self, multiple=1.0):
         # The standard fixture's mother tops at 24,780, and a trailing move has
@@ -1423,7 +1423,7 @@ class ExpiryLockTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()
