@@ -16,6 +16,11 @@ import { test, expect, Page } from '@playwright/test';
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
+
+async function openCascade(page: Page) {
+  await page.locator('[data-pf-trading-page="options-cascade-page"]').first()
+    .evaluate((button: HTMLElement) => button.click());
+}
 const BASE_ORIGIN = new URL(process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:8000').origin;
 
 /** One campaign as /api/fib-boundary/paper/status reports it. */
@@ -101,7 +106,7 @@ async function login(page: Page, campaigns: () => unknown[]) {
  * and starts the poll; calling showPage directly skips all of it.
  */
 async function openFibTab(page: Page) {
-  await page.click('#nav-cascade');
+  await openCascade(page);
   await page.click('#oc-tabbtn-fib');
   await page.waitForFunction(() => document.querySelectorAll('#fibx-monitors > *').length > 0, null, { timeout: 10_000 });
   // Monitors are COLLAPSED by default now (Phil, 2026-08-13); these tests

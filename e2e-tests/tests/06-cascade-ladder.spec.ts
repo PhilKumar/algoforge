@@ -16,6 +16,10 @@ import { test, expect, Page } from '@playwright/test';
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 
+async function openEquity(page: Page) {
+  await page.click('#nav-trading');
+}
+
 async function login(page: Page) {
   await page.goto('/app');
   await page.fill('#username-input', USERNAME);
@@ -56,7 +60,7 @@ async function openEquityCascade(page: Page, status: object) {
     status: 200, contentType: 'application/json', body: JSON.stringify(status),
   }));
   await login(page);
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="cascade"]');
 }
 

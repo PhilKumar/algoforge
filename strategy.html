@@ -174,17 +174,9 @@
       <span class="live-dot" id="live-tab-dot"></span>
       <span class="tab-label">Live</span>
     </button>
-    <button id="nav-terminal" class="nav-tab" data-pf-nav-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage" style="--accent-tab: #22c55e;">
+    <button id="nav-trading" class="nav-tab" data-pf-nav-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage" style="--accent-tab: #22c55e;" title="Equity, Scalp, and Cascade trading workspaces">
       <span class="tab-icon" style="color: #22c55e;" id="ico-terminal"></span>
-      <span class="tab-label">Equity</span>
-    </button>
-    <button id="nav-scalp" class="nav-tab" data-pf-nav-page="scalp-page" data-pf-after-nav="initScalpPage" style="--accent-tab: #06b6d4;">
-      <span class="tab-icon" style="color: #06b6d4;" id="scalp-engine-dot">⚡</span>
-      <span class="tab-label">Scalp</span>
-    </button>
-    <button id="nav-cascade" class="nav-tab" data-pf-nav-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" style="--accent-tab: #f59e0b;">
-      <span class="tab-icon" style="color: #f59e0b;">↗</span>
-      <span class="tab-label">Cascade</span>
+      <span class="tab-label">Trading</span>
     </button>
     <button id="nav-builder" class="nav-tab" data-pf-nav-page="builder-page" title="Strategy Builder">
       <span class="tab-icon" style="color: #f59e0b;" id="ico-builder"></span>
@@ -198,6 +190,10 @@
       <span class="tab-icon" style="color: #fb7185;" id="ico-results"></span>
       <span class="tab-label">Results</span>
     </button>
+    <a id="nav-architecture" class="nav-tab" href="/architecture" title="System Architecture Atlas">
+      <span class="tab-icon" style="color: #75adff;" aria-hidden="true">⌬</span>
+      <span class="tab-label">Architecture</span>
+    </a>
       </div>
     </nav>
   </div>
@@ -1498,21 +1494,29 @@
 
 <!-- ═══ EQUITY PAGE (two strategies: Cash Cascade, Two-red ladder) ═══ -->
 <div id="stock-terminal-page" class="page-section pf-unified-page">
-  <section class="pf-workspace-hero" aria-label="Equity desk overview">
-    <div class="pf-workspace-hero-copy">
-      <div class="pf-workspace-eyebrow">Cash equity desk</div>
-      <h1>Equity</h1>
-      <p>Nifty 200 and the BEES ETFs — the Cascade and two-red campaigns, and a manual desk for direct orders.</p>
+  <section class="trading-workspace-head" data-trading-current="equity" aria-labelledby="trading-title-equity">
+    <div class="trading-workspace-intro">
+      <div class="trading-workspace-kicker">Execution workspace</div>
+      <h1 id="trading-title-equity">Trading</h1>
+      <p>Choose the desk that matches the trade you want to manage.</p>
     </div>
-    <div class="pf-workspace-hero-meta" aria-hidden="true">
-      <div><span>Universe</span><strong>Nifty 200 + BEES</strong></div>
-      <div><span>Strategies</span><strong>Cascade &middot; Two-red</strong></div>
-      <div><span>Orders</span><strong>Manual desk</strong></div>
+    <div class="trading-section-tabs" role="tablist" aria-label="Trading sections">
+      <button id="nav-terminal" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+        <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
+        <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
+        <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage">
+        <span class="trading-section-icon trading-section-icon-cascade" aria-hidden="true">↗</span>
+        <span><strong>Cascade</strong><small>Structured campaigns</small></span>
+      </button>
     </div>
   </section>
-  <!-- The old status strip is gone (Phil: "Remove this... No use of this
-       strip") — the hero above says what the page is, and the ids the page's
-       JS writes into live on invisibly so nothing null-crashes. -->
+  <!-- The former standalone Equity status strip stays removed. Its live ids
+       remain hidden so the existing desk refresh path keeps its contract. -->
   <div hidden aria-hidden="true">
     <span id="stock-terminal-head-ico"></span>
     <span id="stock-terminal-status"></span>
@@ -2373,6 +2377,27 @@
 <!-- ═══ TEST BENCH · one mother candle, replayed in full ═══ -->
 <!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
 <div id="options-cascade-page" class="page-section">
+  <section class="trading-workspace-head" data-trading-current="cascade" aria-labelledby="trading-title-cascade">
+    <div class="trading-workspace-intro">
+      <div class="trading-workspace-kicker">Execution workspace</div>
+      <h1 id="trading-title-cascade">Trading</h1>
+      <p>Choose the desk that matches the trade you want to manage.</p>
+    </div>
+    <div class="trading-section-tabs" role="tablist" aria-label="Trading sections">
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+        <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
+        <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
+        <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button id="nav-cascade" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage">
+        <span class="trading-section-icon trading-section-icon-cascade" aria-hidden="true">↗</span>
+        <span><strong>Cascade</strong><small>Structured campaigns</small></span>
+      </button>
+    </div>
+  </section>
   <div class="card-glass oc-hero">
     <div class="oc-hero-content">
       <div class="oc-hero-copy">
@@ -3360,16 +3385,25 @@
 </div>
 
 <div id="scalp-page" class="page-section pf-unified-page">
-  <section class="pf-workspace-hero" aria-label="Scalp desk overview">
-    <div class="pf-workspace-hero-copy">
-      <div class="pf-workspace-eyebrow">Execution workspace</div>
-      <h1>Scalp Desk</h1>
-      <p>Prepare precise option entries, monitor the feed, and keep execution activity in one focused desk.</p>
+  <section class="trading-workspace-head" data-trading-current="scalp" aria-labelledby="trading-title-scalp">
+    <div class="trading-workspace-intro">
+      <div class="trading-workspace-kicker">Execution workspace</div>
+      <h1 id="trading-title-scalp">Trading</h1>
+      <p>Choose the desk that matches the trade you want to manage.</p>
     </div>
-    <div class="pf-workspace-hero-meta" aria-hidden="true">
-      <div><span>Monitor</span><strong>Positions</strong></div>
-      <div><span>Prepare</span><strong>Entry</strong></div>
-      <div><span>Review</span><strong>History</strong></div>
+    <div class="trading-section-tabs" role="tablist" aria-label="Trading sections">
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+        <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
+        <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
+      </button>
+      <button id="nav-scalp" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
+        <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage">
+        <span class="trading-section-icon trading-section-icon-cascade" aria-hidden="true">↗</span>
+        <span><strong>Cascade</strong><small>Structured campaigns</small></span>
+      </button>
     </div>
   </section>
 

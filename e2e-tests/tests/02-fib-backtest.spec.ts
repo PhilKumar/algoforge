@@ -18,6 +18,11 @@
 
 import { test, expect, Page } from '@playwright/test';
 
+async function openCascade(page: Page) {
+  await page.locator('[data-pf-trading-page="options-cascade-page"]').first()
+    .evaluate((button: HTMLElement) => button.click());
+}
+
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -134,6 +139,10 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/fib-space/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
+    else if (path === '/api/terminal/nifty200') await route.fulfill({ json: { status: 'ok', symbols: [] } });
+    else if (path === '/api/terminal/cascade/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/terminal/cascade/closed') await route.fulfill({ json: { status: 'ok', campaigns: [] } });
+    else if (path === '/api/terminal/forever') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else throw new Error(`Offline E2E has no mock for ${route.request().method()} ${path}`);
@@ -152,7 +161,7 @@ async function openCascadePage(page: Page, backtestBody: object, paperStatus?: o
     for (const digit of PIN.split('')) await page.click(`[data-val="${digit}"]`);
   }
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
-  await page.click('#nav-cascade');
+  await openCascade(page);
 }
 
 async function openFibPanel(page: Page, backtestBody: object) {

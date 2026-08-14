@@ -16,6 +16,10 @@
  */
 import { test, expect, Page } from '@playwright/test';
 
+async function openEquity(page: Page) {
+  await page.click('#nav-trading');
+}
+
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 
@@ -106,7 +110,7 @@ test('a scalp chart still paints with an Equity scan chart left open', async ({ 
   await login(page);
 
   // Open a scanner chart and deliberately LEAVE IT OPEN.
-  await page.click('#nav-terminal');
+  await openEquity(page);
   await page.click('[data-equity-strategy="tworeds"]');
   await page.click('#tworeds-scan-run');
   await expect(page.locator('#tworeds-scan-body table')).toBeVisible({ timeout: 10_000 });
