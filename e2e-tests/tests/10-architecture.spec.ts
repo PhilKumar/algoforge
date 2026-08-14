@@ -199,6 +199,17 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     await expect(reader.locator('.reader-header')).toHaveCount(0);
     const accent = await reader.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
     expect(accent).toBe(platform.accent);
+    const readingSizes = await reader.locator('.doc-section').first().evaluate((section) => {
+      const root = section.getRootNode() as ShadowRoot;
+      return {
+        body: Number.parseFloat(getComputedStyle(section.querySelector('p')!).fontSize),
+        topic: Number.parseFloat(getComputedStyle(root.querySelector('#document-toc a')!).fontSize),
+        table: Number.parseFloat(getComputedStyle(root.querySelector('.doc-table td')!).fontSize),
+      };
+    });
+    expect(readingSizes.body).toBeGreaterThanOrEqual(16);
+    expect(readingSizes.topic).toBeGreaterThanOrEqual(12);
+    expect(readingSizes.table).toBeGreaterThanOrEqual(13);
     let overflow = await reader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
     const results = await new AxeBuilder({ page }).include('#architecture-page').analyze();
