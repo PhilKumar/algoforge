@@ -7,8 +7,8 @@
    either (a) new to the two-desk page, or (b) a per-desk accent.
 
    Per-desk tints, used nowhere else:
-     PhilForge  teal  #3bb9ad — taken from --pf-tint-primary
-     CryptoForge amber #f5a623 — the existing --amber
+     PhilForge  teal  #2F8F86 — taken from --pf-tint-primary
+     CryptoForge amber var(--brass) — the existing --amber
 
    Keep this file free of inline <style>/<script> dependencies: both
    philforge.in and crypto.philforge.in send a CSP, and a rule that
@@ -16,9 +16,9 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  --teal: #3bb9ad;
-  --teal-rgb: 59, 185, 173;
-  --amber-rgb: 245, 166, 35;
+  --teal: #2F8F86;
+  --teal-rgb: 47, 143, 134;
+  --amber-rgb: 201, 162, 39;   /* brass */
 }
 
 /* Reveal delays as classes — landing.css drives .rv, these only stagger it.
@@ -35,18 +35,21 @@
 /* ═══════════ TINTED CTAs ═══════════
    landing.css ships one white .pill. With two destinations on the page,
    the button has to say which desk it opens before you read the label. */
+.pill-teal, .pill-amber {
+  background: rgba(12,15,20,.82);
+  backdrop-filter: blur(6px);
+  font-weight: 500; letter-spacing: .02em;
+}
 .pill-teal {
-  background: linear-gradient(140deg, #4fd3c5, var(--teal));
-  color: #04211f;
-  box-shadow: 0 0 0 1px rgba(var(--teal-rgb), .5), 0 10px 30px rgba(var(--teal-rgb), .18);
+  color: #7FD8CE;
+  box-shadow: inset 0 0 0 1px rgba(var(--teal-rgb), .55);
 }
-.pill-teal:hover { box-shadow: 0 0 42px rgba(var(--teal-rgb), .5), 0 0 0 1px rgba(var(--teal-rgb), .7); }
+.pill-teal:hover { box-shadow: inset 0 0 0 1px rgba(var(--teal-rgb), .95), 0 0 34px rgba(var(--teal-rgb), .22); }
 .pill-amber {
-  background: linear-gradient(140deg, #ffc45f, var(--amber));
-  color: #2a1a03;
-  box-shadow: 0 0 0 1px rgba(var(--amber-rgb), .5), 0 10px 30px rgba(var(--amber-rgb), .18);
+  color: var(--brass-hi);
+  box-shadow: inset 0 0 0 1px rgba(var(--amber-rgb), .55);
 }
-.pill-amber:hover { box-shadow: 0 0 42px rgba(var(--amber-rgb), .5), 0 0 0 1px rgba(var(--amber-rgb), .7); }
+.pill-amber:hover { box-shadow: inset 0 0 0 1px rgba(var(--amber-rgb), .95), 0 0 34px rgba(var(--amber-rgb), .22); }
 .cta-row .pill + .pill { margin-left: 12px; }
 /* The closer sits below the fold, so its CTA row must not inherit the
    hero's delayed keyframe — that would leave it invisible. */
@@ -58,7 +61,7 @@
 .desks { background: var(--ink); padding: 118px 48px 96px; }
 .desks-head { max-width: 720px; margin: 0 auto 62px; text-align: center; }
 .desks-head h2 { font-size: clamp(24px, 3vw, 42px); margin: 16px 0 18px; }
-.desks-head p { color: #a9a294; font-size: 15.5px; line-height: 1.8; }
+.desks-head p { color: var(--text-lo); font-size: 15.5px; line-height: 1.8; }
 
 .desk-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 26px;
@@ -67,8 +70,8 @@
 
 .desk {
   position: relative; display: flex; flex-direction: column;
-  border: 1px solid #1c1d24; border-radius: 24px; padding: 38px 34px 32px;
-  background: radial-gradient(130% 120% at 50% 0%, #10121a 0%, #07080d 72%);
+  border: 1px solid var(--slate-2); border-radius: 24px; padding: 38px 34px 32px;
+  background: radial-gradient(130% 120% at 50% 0%, var(--obsidian) 0%, #07080d 72%);
   overflow: hidden;
   transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease,
               opacity 1s ease;
@@ -97,26 +100,26 @@
 .desk-mark {
   width: 44px; height: 44px; border-radius: 12px; flex: none;
   display: grid; place-items: center;
-  font-family: Michroma, sans-serif; font-size: 13px; color: var(--tint);
+  font-family: var(--mono); font-size: 13px; color: var(--tint);
   background: linear-gradient(145deg, rgba(26,26,26,.92), rgba(0,0,0,.92));
   border: 1px solid rgba(var(--tint-rgb), .32);
   box-shadow: 0 0 24px rgba(var(--tint-rgb), .12);
 }
 .desk-top h3 {
-  font-family: Michroma, sans-serif; font-weight: 400; font-size: 17px;
-  letter-spacing: .04em; color: #f2ede2;
+  font-family: var(--serif); font-weight: 400; font-size: 17px;
+  letter-spacing: .04em; color: var(--text-hi);
 }
 .desk-kind {
   font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
-  color: #7d7466; margin-top: 6px;
+  color: var(--text-lo); margin-top: 6px;
 }
 
-.desk-lede { color: #cdc6ba; font-size: 15px; line-height: 1.75; margin-bottom: 24px; }
+.desk-lede { color: var(--text); font-size: 15px; line-height: 1.75; margin-bottom: 24px; }
 
 .desk-spec { list-style: none; margin: 0 0 26px; }
 .desk-spec li {
   position: relative; padding-left: 22px; margin-bottom: 12px;
-  color: #a9a294; font-size: 13.5px; line-height: 1.65;
+  color: var(--text-lo); font-size: 13.5px; line-height: 1.65;
 }
 .desk-spec li::before {
   content: ""; position: absolute; left: 2px; top: 8px;
@@ -127,9 +130,9 @@
 /* The one honest difference between the desks: the clock. */
 .desk-clock {
   display: flex; align-items: center; gap: 9px; margin-top: auto;
-  font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
-  letter-spacing: .1em; color: #8b8577;
-  border-top: 1px solid #17181f; padding-top: 20px; margin-bottom: 24px;
+  font-family: var(--mono); font-size: 11.5px;
+  letter-spacing: .1em; color: var(--text-lo);
+  border-top: 1px solid var(--slate); padding-top: 20px; margin-bottom: 24px;
 }
 .desk-clock .dot {
   width: 7px; height: 7px; border-radius: 50%; background: var(--tint);
@@ -150,24 +153,24 @@
   max-width: 1120px; margin: 0 auto;
 }
 .engine-cell {
-  border: 1px solid #1c1d24; border-radius: 18px; padding: 30px 26px;
-  background: radial-gradient(120% 130% at 50% 0%, #0e1017 0%, #06070b 72%);
+  border: 1px solid var(--slate-2); border-radius: 18px; padding: 30px 26px;
+  background: radial-gradient(120% 130% at 50% 0%, var(--obsidian) 0%, #06070b 72%);
   transition: border-color .2s ease;
 }
 .engine-cell:hover { border-color: rgba(var(--amber-rgb), .3); }
 .engine-k {
-  font-family: Michroma, sans-serif; font-size: 10.5px; letter-spacing: .28em;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .28em;
   text-transform: uppercase; color: var(--amber); margin-bottom: 16px;
 }
-.engine-cell p { color: #8b8577; font-size: 13.5px; line-height: 1.75; }
+.engine-cell p { color: var(--text-lo); font-size: 13.5px; line-height: 1.75; }
 
 /* ═══════════ FOOTER LINKS ═══════════ */
 .footer-links { display: flex; gap: 26px; flex-wrap: wrap; }
 .footer-links a {
-  color: #7d7466; text-decoration: none; font-size: 11px; letter-spacing: .14em;
+  color: var(--text-lo); text-decoration: none; font-size: 11px; letter-spacing: .14em;
   text-transform: uppercase; font-weight: 500; transition: color .18s ease;
 }
-.footer-links a:hover { color: #d8d2c6; }
+.footer-links a:hover { color: var(--text); }
 
 /* ═══════════ RESPONSIVE ═══════════ */
 @media (max-width: 980px) {
@@ -230,12 +233,14 @@
   gap: 16px; padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13.5px; }
 .proof-rows span { opacity: .70; }
 .proof-rows b { font: 500 13px 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
-.proof-rows b.neg { color: #f0968a; }
+.proof-rows b.neg { color: var(--vermilion); }
 .proof-note { margin: 18px 0 0; font-size: 12.5px; line-height: 1.65; opacity: .68; }
 .proof-cta { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; }
 .proof-cta-note { flex: 1 1 260px; font-size: 12px; line-height: 1.6; opacity: .60; }
-.pill-ghost { border: 1px solid rgba(255,255,255,.22); background: transparent; color: #fff; }
-.pill-ghost:hover { border-color: var(--teal); }
+/* Hairline, not white: pure #fff is off this palette and reads as a second
+   primary beside the brass. */
+.pill-ghost { border: 1px solid var(--hairline-hi); background: transparent; color: var(--text-hi); font-weight: 500; }
+.pill-ghost:hover { border-color: var(--brass); color: var(--brass-hi); }
 @media (max-width: 640px) {
   .proof-card { padding: 24px 20px 22px; }
   .proof-head { text-align: left; }
