@@ -23,7 +23,7 @@ test('remaining workspaces follow the Cascade hierarchy under a green appearance
     const custom = (selector: string, property: string) =>
       getComputedStyle(document.querySelector(selector)!).getPropertyValue(property).trim();
     return {
-      dashboard: color('#dash-active-count'),
+      dashboard: color('#strategy-arsenal-card span[style*="color:var(--accent)"]'),
       builder: color('#builder-page label[style*="color: var(--accent)"]'),
       results: color('#results-page .analytics-inner h4'),
       resultsRisk: color('#res-risk'),
@@ -61,7 +61,7 @@ test('remaining workspaces follow the Cascade hierarchy under a green appearance
     const custom = (selector: string, property: string) =>
       getComputedStyle(document.querySelector(selector)!).getPropertyValue(property).trim();
     return {
-      dashboard: color('#dash-active-count'),
+      dashboard: color('#strategy-arsenal-card span[style*="color:var(--accent)"]'),
       builder: color('#builder-page label[style*="color: var(--accent)"]'),
       results: color('#results-page .analytics-inner h4'),
       resultsRisk: color('#res-risk'),

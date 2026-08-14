@@ -1930,6 +1930,11 @@ function showPage(id, btn, options = {}) {
   }
   const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
   if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
+  // A chart overlay is mounted at the BODY so page transforms cannot clip it,
+  // which also means it is no longer inside the .page-section being hidden
+  // below. Leaving one open would float it over the page you navigated to,
+  // still holding the scroll lock. Navigation closes it.
+  if (previousPageId && previousPageId !== id) pfCloseAllCascadeChartOverlays();
   document.querySelectorAll('.page-section').forEach(p => {
     p.classList.remove('active-page');
     p.setAttribute('aria-hidden', 'true');
@@ -2482,13 +2487,52 @@ function _cascadeOptionsChartSvg(payload) {
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" aria-label="NIFTY 5 minute mother candle chart">${parts.join('')}</svg>`;
 }
 
+// Full chart dialogs follow the Equity -> Cash Cascade contract: mount at the
+// body, lock page scrolling, then let the fixed-height canvas own the viewport.
+// This also keeps page-section transforms and background polling from
+// restaging the chart while it is being read.
+function pfSetCascadeChartOverlayOpen(overlay, open) {
+  if (!overlay) return;
+  if (open) {
+    if (overlay.parentNode !== document.body) document.body.appendChild(overlay);
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('terminal-cascade-chart-open');
+    return;
+  }
+  overlay.classList.remove('is-open');
+  overlay.setAttribute('aria-hidden', 'true');
+  if (!document.querySelector('.pf-cascade-chart-overlay.is-open')) {
+    document.body.classList.remove('terminal-cascade-chart-open');
+  }
+}
+
+function pfWaitForCascadeChartLayout() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+// Each dialog's own hide() releases what it owns -- the renderer's observers,
+// the timeframe strip, the remembered mother. Prefer them, then sweep whatever
+// is still open (a dialog without a named hide) so the body class cannot stick.
+function pfCloseAllCascadeChartOverlays() {
+  if (!document.querySelector('.pf-cascade-chart-overlay.is-open')) return;
+  ['hideFibBoundaryChart', 'hideFibSpaceChart', 'hideCascadeOptionsChart', 'hideTwoRedChart']
+    .forEach(name => { if (typeof window[name] === 'function') window[name](); });
+  document.querySelectorAll('.pf-cascade-chart-overlay.is-open')
+    .forEach(overlay => pfSetCascadeChartOverlayOpen(overlay, false));
+}
+
+window.pfSetCascadeChartOverlayOpen = pfSetCascadeChartOverlayOpen;
+window.pfWaitForCascadeChartLayout = pfWaitForCascadeChartLayout;
+window.pfCloseAllCascadeChartOverlays = pfCloseAllCascadeChartOverlays;
+
 async function loadCascadeOptionsChart() {
   const timestamp = _cascadeOptionsEl('cascade-options-mother-timestamp')?.value || _lastCascadeOptionsStatus?.campaign?.mother?.timestamp;
   const chart = _cascadeOptionsEl('cascade-options-chart');
   const meta = _cascadeOptionsEl('cascade-options-chart-meta');
   const overlay = _cascadeOptionsEl('cascade-options-chart-overlay');
   if (!timestamp) { _cascadeOptionsSetFormStatus('Choose a mother timestamp first.', 'error'); return; }
-  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+  pfSetCascadeChartOverlayOpen(overlay, true);
   if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading actual closed NIFTY 5m candles…</div>';
   try {
     const response = await fetch(`/api/cascade/paper/chart?mother_timestamp=${encodeURIComponent(timestamp)}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -2512,7 +2556,7 @@ async function loadCascadeOptionsChart() {
 
 function hideCascadeOptionsChart() {
   const overlay = _cascadeOptionsEl('cascade-options-chart-overlay');
-  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  pfSetCascadeChartOverlayOpen(overlay, false);
 }
 
 async function startCascadeOptionsPaper() {
@@ -3023,7 +3067,7 @@ async function loadFibSpaceChart() {
   const chart = document.getElementById('fsx-chart');
   const meta = document.getElementById('fsx-chart-meta');
   const overlay = document.getElementById('fsx-chart-overlay');
-  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+  pfSetCascadeChartOverlayOpen(overlay, true);
   if (chart) chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading the campaign\'s own replay…</div>';
   try {
     const response = await fetch(`/api/fib-space/paper/chart?campaign_id=${encodeURIComponent(_fsxOpenCampaignId)}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -3035,7 +3079,7 @@ async function loadFibSpaceChart() {
     // The renderer sizes itself from the host's measured width, so it must not
     // draw in the same frame the overlay opened — that yields a 2px canvas.
     // The fetch above usually buys enough time; this makes it certain.
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await pfWaitForCascadeChartLayout();
     if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, data);
     if (meta) meta.textContent = `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${data.legs.length} fibs · ${data.trendlines.length} trendlines · ${data.entries.length} buys · drag to pan, wheel to zoom, double-click to reset`;
   } catch (error) {
@@ -3047,7 +3091,7 @@ async function loadFibSpaceChart() {
 
 function hideFibSpaceChart() {
   const overlay = document.getElementById('fsx-chart-overlay');
-  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  pfSetCascadeChartOverlayOpen(overlay, false);
   // Without the teardown the renderer's observers leak on every open.
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
 }
@@ -3315,6 +3359,7 @@ async function initOptionsCascadePage() {
   await refreshFibSpaceStatus();
   if (!_fibBoundaryPollTimer) {
     _fibBoundaryPollTimer = setInterval(() => {
+      if (document.querySelector('.pf-cascade-chart-overlay.is-open')) return;
       if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); refreshFibSpaceStatus(); }
     }, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
@@ -3928,7 +3973,7 @@ async function loadFibBoundaryChart(_event, button) {
   const overlay = el('fibx-chart-overlay');
   const title = el('fibx-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
-  if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+  pfSetCascadeChartOverlayOpen(overlay, true);
   if (title) title.textContent = `${symbol} ${side} swing ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
   // The site strip: timeframes + refresh, once. Zoom lives on the canvas host.
   const stripHost = el('fibx-chart-strip');
@@ -3967,7 +4012,13 @@ async function loadFibBoundaryChart(_event, button) {
     const drawnKey = `${symbol}|${side}|${timestamp}|${data.timeframe || timeframe}`;
     const view = canvasIsThisChart && drawnKey === _fibxChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
     const refreshed = canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(benchPayload, view);
-    if (!refreshed && chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, benchPayload);
+    if (!refreshed && chart && typeof pfBenchDrawChart === 'function') {
+      // A FIRST mount sizes itself off the measured host, so it must not draw
+      // in the frame the overlay opened — that yields a 2px canvas. The
+      // in-place refresh above is already sized and needs no wait.
+      await pfWaitForCascadeChartLayout();
+      pfBenchDrawChart(chart, benchPayload);
+    }
     _fibxChartDrawnKey = drawnKey;
     if (meta) {
       meta.textContent = data.anchor
@@ -3992,7 +4043,7 @@ function _fibBoundaryCollapseBacktestChart() {
 
 function hideFibBoundaryChart() {
   const overlay = document.getElementById('fibx-chart-overlay');
-  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+  pfSetCascadeChartOverlayOpen(overlay, false);
   // The next campaign opens on its own mother chart, not this one's override.
   _fibxChartTf = '';
   _fibxChartDrawnKey = '';
@@ -6733,7 +6784,10 @@ async function _terminalCascadePollChartRefresh() {
     const keep = _terminalCascadeCanvasViewSnapshot();
     _terminalCascadeChartPayload = data;
     const body = _terminalCascadeEl('terminal-cascade-chart-body');
-    if (body) {
+    // Update the mounted surfaces in place. Replacing the whole body once a
+    // minute made the accepted Cash Cascade chart visibly blink and dropped
+    // its pointer state even though the dialog itself never closed.
+    if (!_terminalCascadeRefreshCanvas(data, keep) && body) {
       body.innerHTML = _terminalCascadeChartHtml(data);
       _terminalCascadeMountCanvas(data, keep);
     }
@@ -7521,6 +7575,7 @@ function _terminalCascadeCanvasHtml() {
 }
 
 function _terminalCascadeUnmountCanvas() {
+  if (_tcv?.resizeFrame) cancelAnimationFrame(_tcv.resizeFrame);
   if (_tcv && _tcv.ro) { try { _tcv.ro.disconnect(); } catch (err) { /* detached */ } }
   _tcv = null;
 }
@@ -7538,6 +7593,28 @@ function _terminalCascadeCanvasViewSnapshot() {
     yMin: _tcv.yMin,
     yMax: _tcv.yMax,
   };
+}
+
+function _terminalCascadeRefreshCanvas(payload, keepView = null) {
+  if (!_tcv?.host?.isConnected) return false;
+  const candles = (Array.isArray(payload?.candles) ? payload.candles : [])
+    .filter(row => [row.o, row.h, row.l, row.c].every(value => Number.isFinite(Number(value))));
+  if (!candles.length) return false;
+  const n = candles.length;
+  const count = Math.min(Math.max(Number(keepView?.count) || n, _tcvMinCount(n)), n);
+  const start = keepView?.atRight
+    ? n - count + (Number(keepView.rightOffset) || 0)
+    : Number(keepView?.start) || 0;
+  _tcv.payload = payload;
+  _tcv.candles = candles;
+  _tcv.count = count;
+  _tcv.start = start;
+  _tcv.yAuto = keepView?.yAuto !== false;
+  _tcv.yMin = Number(keepView?.yMin) || _tcv.yMin;
+  _tcv.yMax = Number(keepView?.yMax) || _tcv.yMax;
+  _tcv.cross = null;
+  _terminalCascadeCanvasDraw();
+  return true;
 }
 
 function _tcvMinCount(total) {
@@ -7587,10 +7664,17 @@ function _terminalCascadeMountCanvas(payload, keepView = null) {
     host, main, overlay, payload, candles,
     start: view.start, count: view.count,
     yAuto: view.yAuto, yMin: view.yMin, yMax: view.yMax,
-    cross: null, drag: null, ro: null,
+    cross: null, drag: null, ro: null, resizeFrame: 0,
   };
   _terminalCascadeCanvasBindEvents();
-  _tcv.ro = new ResizeObserver(() => { _terminalCascadeCanvasDraw(); });
+  const mounted = _tcv;
+  _tcv.ro = new ResizeObserver(() => {
+    if (mounted.resizeFrame) return;
+    mounted.resizeFrame = requestAnimationFrame(() => {
+      mounted.resizeFrame = 0;
+      if (_tcv === mounted) _terminalCascadeCanvasDraw();
+    });
+  });
   _tcv.ro.observe(host);
   _terminalCascadeCanvasDraw();
 }
@@ -10589,6 +10673,20 @@ function _savedFolderDomId(folderName) {
   return 'saved-folder-' + base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+function toggleDashboardSavedStrategies(forceOpen = null) {
+  const panel = document.getElementById('dash-saved-strategies-card');
+  const toggle = document.getElementById('dash-saved-strategies-toggle');
+  const body = document.getElementById('dash-saved-strategies-body');
+  if (!panel || !toggle || !body) return;
+  const open = forceOpen === null ? !panel.classList.contains('open') : !!forceOpen;
+  panel.classList.toggle('open', open);
+  toggle.setAttribute('aria-expanded', String(open));
+  body.setAttribute('aria-hidden', String(!open));
+  body.inert = !open;
+}
+
+window.toggleDashboardSavedStrategies = toggleDashboardSavedStrategies;
+
 function _findSavedStrategyByRef(strategyName, explicitFolder = '', strategyId = 0) {
   const id = Number(strategyId || 0);
   if (id) {
@@ -10643,6 +10741,7 @@ function _highlightSavedStrategyRow(row) {
 async function openSavedStrategyFolder(strategyName, folderName = '', strategyId = 0) {
   showPage('dashboard-page', document.getElementById('nav-dashboard'));
   await ensureStrategiesLoaded(true);
+  toggleDashboardSavedStrategies(true);
 
   const resolvedFolder = _resolveSavedStrategyFolder(strategyName, folderName, strategyId);
   if (!resolvedFolder) {
@@ -10781,18 +10880,16 @@ function renderRunningArsenal(engines) {
     const statusColor = engine.in_trade ? '#4ade80' : '#f59e0b';
     return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}','${escapeJsSingleQuoted(engine.mode || '')}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
       <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
-        <div style="min-width:0;">
-          <div class="arsenal-running-card-name">${escapeHtml(strategyName)}</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
-            <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:${modeBg};color:${modeColor};border:1px solid ${modeBorder};text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(mode)}</span>
-            <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:rgba(34,197,94,0.12);color:${statusColor};border:1px solid rgba(34,197,94,0.22);text-transform:uppercase;letter-spacing:0.55px;">${escapeHtml(statusLabel)}</span>
-          </div>
-        </div>
+      <div class="arsenal-running-card-head">
+        <div class="arsenal-running-card-name">${escapeHtml(strategyName)}</div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-size:16px;font-weight:800;font-family:'JetBrains Mono';color:${pnlColor};">₹${pnl.toFixed(2)}</div>
           <div class="arsenal-running-trades">${escapeHtml(String(tradesToday))} trade${tradesToday === 1 ? '' : 's'} today</div>
         </div>
+      </div>
+      <div class="arsenal-running-status-row">
+        <span class="arsenal-running-status-pill" style="background:${modeBg};color:${modeColor};border-color:${modeBorder};">${escapeHtml(mode)}</span>
+        <span class="arsenal-running-status-pill" style="background:rgba(34,197,94,0.12);color:${statusColor};border-color:rgba(34,197,94,0.22);">${escapeHtml(statusLabel)}</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <span class="arsenal-tag instrument" style="font-size:10px;padding:3px 8px;">${escapeHtml(instLabel)}</span>
@@ -15276,13 +15373,6 @@ async function loadDashboardSummary() {
     rpEl.style.color = _dashValueColor(realPnl);
     document.getElementById('dash-real-pnl-sub').textContent = realFlow.source_label || d.real_source_label || 'Dhan today';
     document.getElementById('dash-real-pnl-trades').textContent = `${realTrades} trades${d.real_stale ? ' · Cached' : ''}`;
-
-    // Active count
-    document.getElementById('dash-active-count').textContent = d.active_count || 0;
-    document.getElementById('dash-active-detail').textContent = d.active_detail || 'No strategies running';
-
-    document.getElementById('dash-strategies-count').textContent = d.strategy_count || 0;
-    document.getElementById('dash-backtests-count').textContent = (d.backtest_count || 0) + ' backtests';
 
     // Active engines panel
     const enginesPanel = document.getElementById('dash-active-engines');

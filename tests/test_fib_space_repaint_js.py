@@ -37,6 +37,16 @@ function grab(name) {
   for (;; i++) { if (src[i] === '{') depth++; else if (src[i] === '}') { depth--; if (!depth) break; } }
   return src.slice(start, i + 1);
 }
+// _fsxPaint leans on two neighbours: the held-paint map, and the probe that
+// asks whether a chart overlay is up. The probe is grabbed from the real file
+// too -- stubbing it here would let the guard rot without a test noticing.
+// Only the browser globals it reads are stood up.
+let _overlayOpen = false;
+const document = {
+  body: { classList: { contains: (name) => _overlayOpen && name === 'terminal-cascade-chart-open' } },
+};
+const _fsxHeldPaints = new Map();
+eval(grab('_fsxChartOverlayOpen'));
 eval(grab('_fsxPaint'));
 
 // A node that counts how many times the markup was actually assigned. A real
@@ -52,6 +62,7 @@ function makeNode(initial) {
 }
 
 const call = JSON.parse(process.argv[2]);
+_overlayOpen = !!call.overlayOpen;
 const node = call.node === null ? null : makeNode(call.node);
 for (const html of call.paints) _fsxPaint(node, html);
 console.log(JSON.stringify(node === null ? {writes: 0, html: null} : {writes: node.writes, html: node.innerHTML}));
@@ -60,9 +71,10 @@ console.log(JSON.stringify(node === null ? {writes: 0, html: null} : {writes: no
 
 @unittest.skipIf(_NODE is None, "node is not installed")
 class FibSpaceRepaintTests(unittest.TestCase):
-    def paint(self, initial, *paints):
+    def paint(self, initial, *paints, overlay_open=False):
+        call = {"node": initial, "paints": list(paints), "overlayOpen": overlay_open}
         proc = subprocess.run(
-            [_NODE, "-e", _HARNESS, "--", _APP_JS, json.dumps({"node": initial, "paints": list(paints)})],
+            [_NODE, "-e", _HARNESS, "--", _APP_JS, json.dumps(call)],
             capture_output=True,
             text=True,
             timeout=30,
@@ -90,6 +102,12 @@ class FibSpaceRepaintTests(unittest.TestCase):
     def test_a_missing_element_is_not_an_error(self):
         """Every call site passes a getElementById result straight in."""
         self.assertEqual(self.paint(None, "anything")["writes"], 0)
+
+    def test_an_open_chart_holds_the_paint(self):
+        """The page under the glass must not move while a chart is being read."""
+        result = self.paint("<tr>0 fills</tr>", "<tr>1 fill</tr>", overlay_open=True)
+        self.assertEqual(result["writes"], 0)
+        self.assertEqual(result["html"], "<tr>0 fills</tr>")
 
 
 if __name__ == "__main__":

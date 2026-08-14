@@ -281,16 +281,6 @@
           </div>
         </div>
       </div>
-      <div id="dash-active-summary-card" class="stat-box dash-summary-mini">
-        <div class="stat-label">Active Strategies</div>
-        <div class="stat-value" id="dash-active-count" style="color: var(--accent); font-size: 22px; line-height: 1.05;">0</div>
-        <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-active-detail">No strategies running</div>
-      </div>
-      <div id="dash-saved-summary-card" class="stat-box dash-summary-mini">
-        <div class="stat-label">Saved Strategies</div>
-        <div class="stat-value" id="dash-strategies-count" style="color: var(--accent2); font-size: 22px; line-height: 1.05;">0</div>
-        <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" id="dash-backtests-count">0 backtests</div>
-      </div>
       <div id="dash-broker-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Broker Status</div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
@@ -497,13 +487,23 @@
       <div style="display:flex;gap:4px;margin-top:8px;" id="win-streak-dots"></div>
     </div>
   </div>
-  <div class="card" style="margin: 0 0 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
-      <h3 style="margin: 0;">Saved Strategies</h3>
+  <div id="dash-saved-strategies-card" class="card dashboard-flow-panel" style="margin: 0 0 20px;">
+    <div class="dashboard-flow-panel-head">
+      <button id="dash-saved-strategies-toggle" class="dashboard-flow-panel-toggle" type="button" aria-expanded="false" aria-controls="dash-saved-strategies-body" onclick="toggleDashboardSavedStrategies()">
+        <span>
+          <strong>Saved Strategies</strong>
+          <small>Folders and reusable strategy setups</small>
+        </span>
+        <span class="dashboard-flow-panel-chevron" aria-hidden="true">&#9654;</span>
+      </button>
       <button class="btn btn-sm btn-purple" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px;">+ New Folder</button>
     </div>
-    <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-    <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
+    <div id="dash-saved-strategies-body" class="dashboard-flow-panel-body" aria-hidden="true" inert>
+      <div class="dashboard-flow-panel-body-inner">
+        <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+        <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
+      </div>
+    </div>
   </div>
   <div class="card" style="margin: 0 0 20px;">
     <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
@@ -2099,8 +2099,8 @@
       </div>
     </div>
 
-    <div class="pf-cascade-chart-overlay" id="tworeds-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Two-red ladder chart">
-      <section class="pf-cascade-chart-dialog">
+    <div class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" id="tworeds-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Two-red ladder chart">
+      <section class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title">
             <h3 id="tworeds-chart-title">Ladder chart</h3>
@@ -2121,7 +2121,9 @@
             <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close" aria-label="Close chart">&#10005;</button>
           </div>
         </div>
-        <div id="tworeds-chart" class="pf-cascade-chart"></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body">
+          <div id="tworeds-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div>
+        </div>
       </section>
     </div>
 
@@ -2619,21 +2621,17 @@
       </div>
     </template>
 
-    <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
-      <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
-        <!-- The one site toolbar: title block left, timeframes + refresh +
-             close at the top right, exactly like every other chart dialog. -->
+    <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
+      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
+        <!-- The one site toolbar: title block left, legend + timeframes +
+             refresh + close at the top right, exactly like every other chart
+             dialog. The strip renders its OWN close, so the toolbar must not
+             carry a second one. -->
         <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title">
-            <h3 id="fibx-chart-title">Swing ladder chart</h3>
-            <div id="fibx-chart-meta">Loading chart…</div>
-          </div>
-          <div class="terminal-cascade-chart-actions">
-            <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);white-space:nowrap;"><span style="color:#38bdf8;">▬</span> level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
-            <div id="fibx-chart-strip"></div>
-          </div>
+          <div class="terminal-cascade-chart-title"><h3 id="fibx-chart-title">Swing ladder chart</h3><div id="fibx-chart-meta">Loading chart…</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="fibx-chart-strip"></div></div>
         </div>
-        <div id="fibx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="fibx-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div></div>
       </div>
     </div>
   </div>
@@ -2841,16 +2839,13 @@
       </details>
     </div>
 
-    <div id="fsx-chart-overlay" class="pf-cascade-chart-overlay" aria-hidden="true">
-      <div class="pf-cascade-chart-dialog" role="dialog" aria-modal="true" aria-label="Fib-space campaign chart">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px;">
-          <div><h3 style="margin:0;font-size:15px;">Fib-space campaign chart</h3><div id="fsx-chart-meta" style="margin-top:4px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Loading chart…</div></div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="font:10px 'JetBrains Mono',monospace;color:var(--muted);"><span style="color:#38bdf8;">▬</span> fib level &nbsp; <span style="color:#fff;">▲</span> buy &nbsp; <span style="color:#fbbf24;">▼</span> exit &nbsp; <span style="color:#a78bfa;">▣</span> mother</div>
-            <button class="btn btn-sm" type="button" data-pf-action="hideFibSpaceChart">Close chart</button>
-          </div>
+    <div id="fsx-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Fib-space campaign chart">
+      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title"><h3>Fib-space campaign chart</h3><div id="fsx-chart-meta">Loading chart…</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ fib level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><button class="terminal-cascade-chart-control is-danger" type="button" data-pf-action="hideFibSpaceChart" title="Close chart" aria-label="Close chart">&#10005;</button></div>
         </div>
-        <div id="fsx-chart" class="pf-cascade-chart"><div class="pf-cascade-chart-empty">Native closed candles from the campaign's own replay — the same run the fills came out of. Drag to pan, wheel to zoom, double-click to reset.</div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="fsx-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Native closed candles from the campaign's own replay — the same run the fills came out of. Drag to pan, wheel to zoom, double-click to reset.</div></div></div>
       </div>
     </div>
   </div>

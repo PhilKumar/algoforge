@@ -413,7 +413,8 @@
     var overlay = $('tworeds-chart-overlay');
     var box = $('tworeds-chart');
     var title = $('tworeds-chart-title');
-    if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
+    if (typeof window.pfSetCascadeChartOverlayOpen === 'function') window.pfSetCascadeChartOverlayOpen(overlay, true);
+    else if (overlay) { overlay.classList.add('is-open'); overlay.setAttribute('aria-hidden', 'false'); }
     if (title) title.textContent = symbol + ' · ' + chartTf.toUpperCase();
     // No "Loading…" flash over a chart already showing: hold the old frame
     // until the new candles arrive, then repaint once (Phil's flicker report,
@@ -443,7 +444,13 @@
         ? window._pfChartCanvasRefreshState() : null;
       var refreshed = canvasIsThisChart && typeof window._pfChartCanvasRefresh === 'function'
         && window._pfChartCanvasRefresh(payload, view);
-      if (!refreshed) window.pfBenchDrawChart(box, payload);
+      if (!refreshed) {
+        // A FIRST mount measures the host to size itself, so it must not draw
+        // in the frame the overlay opened — that yields a 2px canvas. An
+        // in-place refresh above is already sized and skips the wait.
+        if (typeof window.pfWaitForCascadeChartLayout === 'function') await window.pfWaitForCascadeChartLayout();
+        window.pfBenchDrawChart(box, payload);
+      }
       drawnTf = drawnKey;
       var meta = $('tworeds-chart-meta');
       if (meta) {
@@ -458,7 +465,8 @@
 
   window.hideTwoRedChart = function hideTwoRedChart() {
     var overlay = $('tworeds-chart-overlay');
-    if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+    if (typeof window.pfSetCascadeChartOverlayOpen === 'function') window.pfSetCascadeChartOverlayOpen(overlay, false);
+    else if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
     // Not tearing down leaks the resize/mutation observers the renderer mounts.
     if (typeof window._pfChartCanvasTeardown === 'function') window._pfChartCanvasTeardown();
     var box = $('tworeds-chart');
