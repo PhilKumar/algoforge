@@ -220,11 +220,15 @@
 
   <div class="proof-cta rv">
     <a class="pill pill-teal" href="/assets">Read the five-year tearsheet</a>
-    <!-- Points at the closing section, not at a login: viewer accounts are
-         granted, not self-served, and a button onto a form nobody can pass is
-         worse than no button. -->
-    <a class="pill pill-ghost" href="#enter">Request viewer access</a>
-    <span class="proof-cta-note">A viewer account is read-only by design: live positions and history, never orders, balances or keys.</span>
+    <!-- Viewer accounts are granted by hand, never self-served, so this opens
+         an email rather than a login or a sign-up form. A mailto needs no
+         endpoint, stores nobody's details and so adds no DPDP surface; the
+         cost is that the address is scrapable from the href.
+         philforge.in has no MX record, so the only address that can actually
+         receive this is the personal one. -->
+    <a class="pill pill-ghost"
+       href="mailto:phil.shiny@gmail.com?subject=PhilForge%20viewer%20access&amp;body=Who%20you%20are%2C%20and%20what%20you%20want%20to%20look%20at.">Ask for viewer access</a>
+    <span class="proof-cta-note">Viewer accounts are granted by hand, and are read-only by design: live positions and history, never orders, balances or keys.</span>
   </div>
 </section>
 
