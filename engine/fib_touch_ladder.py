@@ -594,25 +594,38 @@ class FibTouchConfig:
 
 @dataclass
 class TouchRung:
-    """One fib level and what happened to it."""
+    """One fib level and what happened to it.
+
+    Identified by (fib, level) since 2026-08-15, not by level alone: fibs stack
+    now, so two of them both have an L4 at different prices holding different
+    money. `fib_id` 0 is the pre-merge single-structure ladder, which had no
+    fibs to tell apart.
+    """
 
     level: int
     index_price: float
     # PENDING -> FILLED, or UNFUNDED when the ladder's rupee cap stopped here.
     status: str = "PENDING"
     filled_at: Optional[datetime] = None
+    fib_id: int = 0
+    # When the parent fib was DRAWN. Nothing may trade this level before it --
+    # the structure did not exist yet, and filling earlier reads the future the
+    # same way the old swing anchor did before `confirmed_at`.
+    drawn_at: Optional[datetime] = None
 
     @property
     def key(self) -> str:
-        return f"L{self.level}"
+        return f"L{self.level}" if not self.fib_id else f"F{self.fib_id}L{self.level}"
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "level": self.level,
+            "fib_id": self.fib_id,
             "key": self.key,
             "index_price": round(self.index_price, 2),
             "status": self.status,
             "filled_at": self.filled_at.isoformat() if self.filled_at else None,
+            "drawn_at": self.drawn_at.isoformat() if self.drawn_at else None,
         }
 
 
