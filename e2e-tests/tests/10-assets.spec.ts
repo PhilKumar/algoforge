@@ -317,6 +317,13 @@ test('production CSP permits the same-origin tearsheet frame and nothing else', 
 });
 
 test('the tearsheet document passes accessibility on its own, in both themes', async ({ page }) => {
+  // This test does a login, then TWO full navigations and TWO whole-document
+  // axe scans of a long tearsheet — inside the 30s default meant for one.
+  // On a loaded CI runner it lands at 30.6s and 31.5s, i.e. it fails while
+  // still making progress, and it blocked two deploys on 2026-08-15 with
+  // nothing wrong in the diff. The assertions are unchanged; only the budget
+  // is honest about the work.
+  test.setTimeout(90_000);
   await login(page);
   for (const theme of ['dark', 'light'] as const) {
     await page.goto(`/assets/tearsheet?theme=${theme}`);
