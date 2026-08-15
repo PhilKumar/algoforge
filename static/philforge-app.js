@@ -1303,6 +1303,14 @@ function renderAdminUsers(users, engineRows) {
         copyBtn.addEventListener('click', () => copyAdminExamplesToUser(Number(user.id), user.username));
         actions.appendChild(copyBtn);
       }
+
+      // Last, and marked: Disable is the reversible retirement path, this one
+      // destroys everything the account owns.
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'admin-action-btn admin-action-danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => deleteAdminUser(Number(user.id), user.username));
+      actions.appendChild(deleteBtn);
     }
     actionsCell.appendChild(actions);
     row.appendChild(actionsCell);
@@ -1397,6 +1405,42 @@ async function resetAdminUserPassword(userId, username) {
     toast(data.message || `Password reset for ${username}`, 'success');
   } catch (e) {
     toast(e.message || 'Failed to reset password', 'danger');
+  }
+}
+
+async function deleteAdminUser(userId, username) {
+  // Typing the name is the point: Delete sits one button along from Disable,
+  // and nothing it removes can be recovered from the app.
+  const typed = await customConfirm(
+    `Permanently delete <strong>${escapeHtml(username)}</strong> and everything the account owns?`
+      + `<br><span style="font-size:11px;color:var(--muted);">Strategies, saved runs and backtests, journals, plans, scalp trades,`
+      + ` trade history, passkeys, stored broker credentials and their charts folder all go. This cannot be undone —`
+      + ` <strong>Disable</strong> is the reversible option.<br><br>Type <strong>${escapeHtml(username)}</strong> to confirm.</span>`,
+    {
+      title: 'Delete User',
+      icon: ICO.shield(24),
+      okText: 'Delete',
+      danger: true,
+      prompt: true,
+      promptPlaceholder: username,
+      promptValue: '',
+    }
+  );
+  if (typed == null) return;
+  if (String(typed).trim() !== String(username)) {
+    toast('Name did not match — nothing was deleted', 'warn');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to delete user');
+    const rows = Object.values(data.removed || {}).reduce((sum, n) => sum + Number(n || 0), 0);
+    toast(`Deleted "${username}" — ${rows} row${rows === 1 ? '' : 's'} removed`, 'success', 3600);
+    await loadAdminConsole(true);
+  } catch (e) {
+    toast(e.message || 'Failed to delete user', 'danger');
   }
 }
 

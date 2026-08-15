@@ -3319,6 +3319,18 @@
     background: rgba(255,255,255,0.08);
     border-color: var(--border-hi);
   }
+  /* Delete sits one button along from Disable and cannot be undone, so it does
+     not look like its neighbours. Its own rule, never appended to a selector
+     list — a rule added inside one steals the earlier selectors with it. */
+  .admin-action-btn.admin-action-danger {
+    color: #fca5a5;
+    border-color: rgba(239,68,68,0.34);
+    background: rgba(239,68,68,0.10);
+  }
+  .admin-action-btn.admin-action-danger:hover {
+    background: rgba(239,68,68,0.18);
+    border-color: rgba(239,68,68,0.55);
+  }
   .admin-empty-state {
     padding: 20px;
     text-align: center;
@@ -3996,6 +4008,12 @@
     border-color: rgba(15,23,42,0.08);
   }
   [data-theme="light"] .admin-action-btn:hover { background: rgba(241,245,249,0.96); }
+  [data-theme="light"] .admin-action-btn.admin-action-danger {
+    color: #b91c1c;
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.30);
+  }
+  [data-theme="light"] .admin-action-btn.admin-action-danger:hover { background: rgba(239,68,68,0.14); }
   [data-theme="light"] .admin-table-wrap { background: rgba(255,255,255,0.96); border-color: rgba(15,23,42,0.08); }
   [data-theme="light"] .admin-table th { background: rgba(248,250,252,0.98); color: #475569; }
   [data-theme="light"] .admin-table td { border-bottom-color: rgba(15,23,42,0.05); color: #0f172a; }

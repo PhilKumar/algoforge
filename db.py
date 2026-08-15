@@ -61,6 +61,21 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_action_tokens_user_expiry ON action_tokens(user_id, expires_at)",
+    # One confirmation, then a window. A token is still one-shot and still
+    # bound to one exact request; what this remembers is that the person at
+    # this session proved themselves for a whole CLASS of action recently, so
+    # the admin console stops demanding a fresh code per user it touches. Bound
+    # to the session hash, so it dies with logout and never travels.
+    """CREATE TABLE IF NOT EXISTS action_grants (
+        user_id      INTEGER NOT NULL,
+        session_hash TEXT    NOT NULL,
+        action_class TEXT    NOT NULL,
+        expires_at   TEXT    NOT NULL,
+        created_at   TEXT    NOT NULL,
+        PRIMARY KEY (user_id, session_hash, action_class),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_action_grants_expiry ON action_grants(expires_at)",
     # Passkeys — Face ID / fingerprint sign-in. Only PUBLIC keys live here; the
     # private key never leaves the phone's secure hardware and no biometric is
     # ever transmitted, so this table holds nothing that can impersonate anyone.
@@ -610,6 +625,94 @@ async def consume_action_token(
         )
         await db.commit()
         return cursor.rowcount == 1
+
+
+async def grant_action_class(user_id: int, session_hash: str, action_class: str, expires_at: str) -> None:
+    """Remember that this session proved itself for a class of action."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        now = _now_iso()
+        await db.execute("DELETE FROM action_grants WHERE expires_at <= ?", (now,))
+        await db.execute(
+            """INSERT INTO action_grants (user_id, session_hash, action_class, expires_at, created_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, session_hash, action_class)
+               DO UPDATE SET expires_at = excluded.expires_at, created_at = excluded.created_at""",
+            (int(user_id), session_hash, action_class, expires_at, now),
+        )
+        await db.commit()
+
+
+async def has_action_grant(user_id: int, session_hash: str, action_class: str) -> bool:
+    """True while this session's confirmation for that class is still good."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT 1 FROM action_grants
+               WHERE user_id = ? AND session_hash = ? AND action_class = ? AND expires_at > ?
+               LIMIT 1""",
+            (int(user_id), session_hash, action_class, _now_iso()),
+        )
+        return await cursor.fetchone() is not None
+
+
+async def delete_action_grants_for_user(user_id: int) -> None:
+    """Drop every remembered confirmation for a user (password reset, delete)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute("DELETE FROM action_grants WHERE user_id = ?", (int(user_id),))
+        await db.commit()
+
+
+async def delete_action_grants_for_session(session_hash: str) -> None:
+    """Close the re-ask window for one session (logout)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute("DELETE FROM action_grants WHERE session_hash = ?", (session_hash,))
+        await db.commit()
+
+
+# Every table that keys rows to a user id. Deleting an account has to clear all
+# of them or the next account to be handed the same id inherits the leftovers.
+_USER_OWNED_TABLES: tuple[str, ...] = (
+    "sessions",
+    "action_tokens",
+    "action_grants",
+    "passkeys",
+    "webauthn_challenges",
+    "strategies",
+    "runs",
+    "trade_history",
+    "journals",
+    "financial_plans",
+    "scalp_trades",
+    "test_bench_runs",
+    "fib_backtest_runs",
+)
+
+
+async def delete_user_and_data(user_id: int) -> dict[str, int]:
+    """Delete a user and every row that belongs to them, in one transaction.
+
+    Returns the row count removed per table, so the caller can say what it
+    actually destroyed rather than claiming success blind. The user's broker
+    credentials and MFA secrets are columns on the users row, so they go with
+    it; their charts live on disk and are the caller's to remove.
+    """
+    removed: dict[str, int] = {}
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute("BEGIN")
+        try:
+            for table in _USER_OWNED_TABLES:
+                # nosec B608 - the table name is one of the module-level literals
+                # in _USER_OWNED_TABLES; nothing from a request reaches this string,
+                # and the only value is bound as a parameter.
+                cursor = await db.execute(f"DELETE FROM {table} WHERE user_id = ?", (int(user_id),))  # nosec B608
+                if cursor.rowcount > 0:
+                    removed[table] = cursor.rowcount
+            cursor = await db.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
+            removed["users"] = cursor.rowcount
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    return removed
 
 
 async def get_app_state(key: str) -> str | None:

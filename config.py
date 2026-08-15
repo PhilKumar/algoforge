@@ -114,6 +114,12 @@ ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip()
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")  # Fernet key for broker creds at rest
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
 ACTION_TOKEN_TTL_SECONDS = max(30, min(int(os.getenv("ACTION_TOKEN_TTL_SECONDS", "120")), 300))
+# How long one password + authenticator confirmation keeps admitting further
+# actions of the SAME class without asking again. Applies only to the classes
+# in auth.GRACE_ACTION_CLASSES — running the admin console meant re-typing a
+# code for every single user you touched. Money-moving classes are excluded
+# there, so this never widens live trading or broker orders.
+ACTION_GRANT_TTL_SECONDS = max(60, min(int(os.getenv("ACTION_GRANT_TTL_SECONDS", "1800")), 7200))
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "5"))
 BACKUP_ROOT = _env_first(

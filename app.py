@@ -3634,7 +3634,15 @@ async def auth_middleware(request: Request, call_next):
                     "mfa_enrolled": False,
                 },
             )
+        # One confirmation, then a window (admin actions only — see
+        # auth.GRACE_ACTION_CLASSES). Checked before the token is demanded, so
+        # a second user row does not raise a second challenge.
+        in_window = await _auth_mod.has_action_window(
+            user_id=int(user["id"]), session_token=token, action_class=action_class
+        )
         action_token = str(request.headers.get("X-PhilForge-Action-Token", "") or "")
+        if in_window and not action_token:
+            return await call_next(request)
         if not action_token:
             return JSONResponse(
                 status_code=428,
@@ -3677,6 +3685,12 @@ async def auth_middleware(request: Request, call_next):
             request.method.upper(),
             getattr(request.state, "request_id", ""),
         )
+        # A good token opens the window for the rest of that class.
+        window = await _auth_mod.grant_action_window(
+            user_id=int(user["id"]), session_token=token, action_class=action_class
+        )
+        if window:
+            _logger.info("[Auth] Action window open user_id=%s class=%s for %ss", user["id"], action_class, window)
     return await call_next(request)
 
 
@@ -6222,7 +6236,83 @@ async def admin_reset_password(user_id: int, request: Request):
     hashed = _auth_mod.hash_password(new_password)
     await _db_mod.update_user(user_id, password_hash=hashed)
     await _db_mod.delete_sessions_for_user(user_id)
+    await _db_mod.delete_action_grants_for_user(user_id)
     return {"status": "ok", "message": f"Password reset for '{user['username']}'"}
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: int, request: Request):
+    """Delete a user and everything they own (admin only).
+
+    Disable is the reversible retirement path and it stays. This is the other
+    one: strategies, runs, backtests, journals, plans, scalp trades, trade
+    history, passkeys, sessions and the account's stored broker credentials all
+    go, along with the user's chart and export folder on disk. Nothing here is
+    recoverable from the app, so it refuses in every case where the answer is
+    not obviously "yes".
+    """
+    admin = await _auth_mod.require_admin(request)
+    if int(user_id) == int(admin["id"]):
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Never leave the install without a way in.
+    if str(user.get("role", "")) == "admin":
+        others = [
+            u
+            for u in await _db_mod.list_users()
+            if str(u.get("role", "")) == "admin" and int(u["id"]) != int(user_id) and bool(u.get("is_active", 1))
+        ]
+        if not others:
+            raise HTTPException(status_code=400, detail="This is the last active admin account")
+
+    # Deleting someone mid-trade would orphan live orders the app can no longer
+    # attribute to anyone. Stop their engines first, deliberately.
+    control = _runtime_control_summary(int(user_id))
+    scalp_engine = _scalp_engines.get(int(user_id))
+    scalp_open = len(getattr(scalp_engine, "open_trades", {}) or {}) if scalp_engine else 0
+    if control.get("any_running") or scalp_open:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{user['username']}' still has running engines or open scalp trades. "
+                "Stop them first, or disable the account instead."
+            ),
+        )
+
+    # Files before rows: if the folder cannot be removed the account survives,
+    # which is recoverable. The reverse leaves orphaned data under a freed id.
+    storage_root = _user_storage_root(int(user_id))
+    removed_files = False
+    if os.path.isdir(storage_root):
+        real_root = os.path.realpath(storage_root)
+        if not real_root.startswith(os.path.realpath(_USER_DATA_ROOT) + os.sep):
+            raise HTTPException(status_code=500, detail="Refusing to delete a storage path outside the user root")
+        shutil.rmtree(real_root)
+        removed_files = True
+
+    removed = await _db_mod.delete_user_and_data(int(user_id))
+    if not removed.get("users"):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    _logger.warning(
+        "[Admin] User '%s' (id=%s) DELETED by '%s' — rows=%s files=%s",
+        user["username"],
+        user_id,
+        admin["username"],
+        removed,
+        removed_files,
+    )
+    return {
+        "status": "ok",
+        "user_id": int(user_id),
+        "username": user["username"],
+        "removed": removed,
+        "removed_files": removed_files,
+    }
 
 
 @app.post("/api/admin/users/{user_id}/copy-examples")

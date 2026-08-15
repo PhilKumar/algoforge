@@ -127,6 +127,10 @@ async def destroy_session(token: str) -> None:
     """Destroy a session (logout)."""
     if not token:
         return
+    # The re-ask window belongs to the session, so signing out closes it. It is
+    # keyed by session hash and would expire on its own, but leaving a live
+    # grant behind after a deliberate logout is not what "signed out" means.
+    await db.delete_action_grants_for_session(_session_storage_key(token))
     await db.delete_session(_session_storage_key(token))
     await db.delete_session(token)
 
@@ -216,7 +220,21 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("PUT", re.compile(r"^/api/user/password$"), "account_security"),
     ("POST", re.compile(r"^/api/admin/users$"), "admin_account"),
     ("PUT", re.compile(r"^/api/admin/users/[^/]+/(?:toggle|password)$"), "admin_account"),
+    # Deleting an account destroys everything that account owns. It sits on the
+    # same gate as creating one.
+    ("DELETE", re.compile(r"^/api/admin/users/[^/]+$"), "admin_account"),
 )
+
+# Classes where ONE confirmation admits further actions of that class for a
+# while (config.ACTION_GRANT_TTL_SECONDS). Running the admin console meant a
+# fresh password + authenticator code for every single user touched, which is
+# what made Phil ask for this.
+#
+# Deliberately narrow. `live_trading`, `broker_order` and `broker_credentials`
+# are NOT here: those move money or hand over the keys that do, and there the
+# per-request challenge is the whole point. `account_security` is out too — a
+# password change should always be its own decision.
+GRACE_ACTION_CLASSES: frozenset[str] = frozenset({"admin_account"})
 
 
 def classify_sensitive_action(method: str, path: str) -> str | None:
@@ -265,6 +283,23 @@ async def consume_action_authorization(
         method,
         path,
     )
+
+
+async def grant_action_window(*, user_id: int, session_token: str, action_class: str) -> int:
+    """Open the re-ask window for one class, and say how long it lasts."""
+    if action_class not in GRACE_ACTION_CLASSES:
+        return 0
+    ttl = int(config.ACTION_GRANT_TTL_SECONDS)
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+    await db.grant_action_class(int(user_id), _session_storage_key(session_token), action_class, expires_at)
+    return ttl
+
+
+async def has_action_window(*, user_id: int, session_token: str, action_class: str) -> bool:
+    """True while a recent confirmation still covers this class for this session."""
+    if action_class not in GRACE_ACTION_CLASSES or not session_token:
+        return False
+    return await db.has_action_grant(int(user_id), _session_storage_key(session_token), action_class)
 
 
 # ── Request Helpers ──────────────────────────────────────────────
