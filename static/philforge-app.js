@@ -4122,7 +4122,12 @@ async function loadFibBoundaryChart(_event, button) {
     chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed ${escapeHtml(symbol)} ${escapeHtml(timeframe)} candles…</div>`;
   }
   try {
-    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe });
+    // base_timeframe is the MOTHER's timeframe and decides every price on this
+    // chart; timeframe only picks the candles drawn underneath them. Sending
+    // one parameter for both meant the 1M/5M/15M/1H buttons rebuilt the ladder
+    // -- a different swing, different level prices, no longer the ones the
+    // engine was working, with nothing on screen saying so.
+    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe, base_timeframe: baseTf });
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
@@ -4150,9 +4155,16 @@ async function loadFibBoundaryChart(_event, button) {
     }
     _fibxChartDrawnKey = drawnKey;
     if (meta) {
+      // When the view is finer than the mother, say which timeframe the prices
+      // came from. "closed 5M candles · swing 24427.95-24677.05" otherwise
+      // reads as a 5M swing, and it is not — it is the 1H one, drawn over 5M
+      // candles so you can see inside the bars.
+      const readOn = String(data.base_timeframe || data.timeframe).toUpperCase();
+      const viewedOn = String(data.timeframe).toUpperCase();
+      const source = readOn === viewedOn ? '' : ` · swing and levels read on ${readOn}, not ${viewedOn}`;
       meta.textContent = data.anchor
-        ? `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels · drag to pan, wheel to zoom, double-click to reset`
-        : `${data.candles.length} closed ${String(data.timeframe).toUpperCase()} candles · ${data.note}`;
+        ? `${data.candles.length} closed ${viewedOn} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels${source} · drag to pan, wheel to zoom, double-click to reset`
+        : `${data.candles.length} closed ${viewedOn} candles · ${data.note}`;
     }
   } catch (error) {
     if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();

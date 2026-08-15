@@ -10821,14 +10821,31 @@ async def fib_boundary_paper_chart(
     symbol: str = "NIFTY",
     side: str = "CE",
     timeframe: str = "1m",
+    base_timeframe: str = "",
 ):
-    """The swing ladder's own window: real 1m candles, the swing, every level.
+    """The swing ladder's own window: the swing, every level, on real candles.
 
     The anchor is recomputed here with the SAME `find_swing_anchor` the engine
     runs, rather than read off the live campaign. That is deliberate: the
     function is pure over (candles, mother, side), so a chart drawn from it
     cannot drift from the ladder being traded -- and the chart still works
     before a campaign is started, which is when it is most useful.
+
+    TWO timeframes, and the difference is the whole point:
+
+      base_timeframe  the MOTHER's own timeframe. Every number comes from here
+                      -- the swing high and low, all seven levels, the
+                      trendline. A 1H mother means a 1H ladder, full stop.
+      timeframe       which candles get DRAWN underneath it. View only.
+
+    They used to be one parameter, so the 1M/5M/15M/1H buttons on the chart
+    silently rebuilt the ladder: pressing 5M found a different swing, priced
+    different levels, and drew a different trendline. The levels on screen were
+    then not the levels the engine was working, with nothing saying so. Phil
+    caught it on 2026-08-15 looking at a 1H mother.
+
+    base_timeframe defaults to `timeframe` so an old client that sends only one
+    keeps exactly its current behaviour.
     """
 
     try:
@@ -10841,6 +10858,11 @@ async def fib_boundary_paper_chart(
     timeframe = str(timeframe).lower()
     if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
         raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+    base_timeframe = str(base_timeframe or timeframe).lower()
+    if base_timeframe not in _FIB_TOUCH_GEOMETRY_TF:
+        raise HTTPException(
+            status_code=400, detail=f"base_timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}."
+        )
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     now = datetime.now(IST)
     if mother.date() > now.date():
@@ -10849,28 +10871,40 @@ async def fib_boundary_paper_chart(
     if broker_client is None:
         raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {terms.symbol} chart.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    try:
-        # Drawn on the MOTHER's chart: that is the chart the swing was read on,
-        # and a 15m mother rendered over days of 1m bars is unreadable.
-        candles = await adapter.async_get_candles(terms.symbol, timeframe, from_date=mother.date(), to_date=now.date())
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503, detail=f"Unable to load {terms.symbol} {timeframe} candles: {exc}"
-        ) from exc
-    rows = _cascade_gap_adjusted_candles(candles, mother)
-    if not any(row["is_mother"] for row in rows):
+
+    async def _load(resolution: str):
+        try:
+            return await adapter.async_get_candles(
+                terms.symbol, resolution, from_date=mother.date(), to_date=now.date()
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Unable to load {terms.symbol} {resolution} candles: {exc}"
+            ) from exc
+
+    # The ladder is read off the mother's own candles and nothing else. The
+    # view may be finer (drill into a 1H bar to see where price actually went)
+    # or the same, but it never decides a price.
+    geometry_candles = await _load(base_timeframe)
+    candles = geometry_candles if timeframe == base_timeframe else await _load(timeframe)
+
+    # Checked against the GEOMETRY candles: the mother is a bar on its own
+    # timeframe, and whether some other timeframe happens to open at the same
+    # minute says nothing about whether the mother exists.
+    if not any(row["is_mother"] for row in _cascade_gap_adjusted_candles(geometry_candles, mother)):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Dhan has no {terms.symbol} {timeframe} candle opening at "
+                f"Dhan has no {terms.symbol} {base_timeframe} candle opening at "
                 f"{mother.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
             ),
         )
+    rows = _cascade_gap_adjusted_candles(candles, mother)
 
-    anchor = _fib_touch_find_anchor(candles, mother, side)
+    anchor = _fib_touch_find_anchor(geometry_candles, mother, side)
     # Drawn only. Phil asked for CryptoForge's trendline on this chart but kept
     # the fib on the swing, so the line is rendered and consulted by nothing.
-    trendline = _fib_touch_find_trendline(candles, mother, side, anchor) if anchor is not None else None
+    trendline = _fib_touch_find_trendline(geometry_candles, mother, side, anchor) if anchor is not None else None
     levels: list[dict] = []
     if anchor is not None:
         levels = [
@@ -10884,6 +10918,10 @@ async def fib_boundary_paper_chart(
         "status": "ok",
         "symbol": terms.symbol,
         "timeframe": timeframe,
+        # Which timeframe every price on this chart was actually read from. The
+        # client says so in the header, because a 1H ladder drawn over 5m
+        # candles is the right picture only while you know that is what it is.
+        "base_timeframe": base_timeframe,
         "side": side,
         "chart_mode": "visual_gap_adjusted",
         "candles": rows,

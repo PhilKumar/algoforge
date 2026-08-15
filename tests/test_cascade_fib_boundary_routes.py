@@ -655,5 +655,140 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Connect a Dhan account", str(raised.exception.detail))
 
 
+class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
+    """The chart's timeframe buttons pick CANDLES, never prices.
+
+    They used to pick both. One parameter carried the mother's timeframe and
+    the view, so pressing 5M on a 1H mother re-read the swing off 5m candles,
+    re-priced all seven levels and redrew the trendline. What you were looking
+    at was then not the ladder the engine was working, and nothing said so.
+    Phil caught it on 2026-08-15.
+    """
+
+    # A 1H mother whose swing is high 24,700 / low 24,600 -> a 100pt span, so
+    # the ladder walks down in whole hundreds and is inspectable by eye.
+    _HOURLY = [
+        (24_660, 24_665, 24_640, 24_642),  # MOTHER
+        (24_642, 24_644, 24_620, 24_622),
+        (24_622, 24_624, 24_600, 24_602),  # low 24,600
+        (24_602, 24_612, 24_600, 24_610),
+        (24_610, 24_620, 24_608, 24_618),  # LOW frozen
+        (24_618, 24_650, 24_615, 24_645),
+        (24_645, 24_700, 24_640, 24_695),  # high 24,700
+        (24_695, 24_698, 24_680, 24_682),
+        (24_682, 24_684, 24_670, 24_672),  # HIGH frozen
+    ]
+    # Deliberately a DIFFERENT shape: if the view ever leaks into the geometry
+    # these numbers are what show up, and they are unmistakable.
+    _MINUTE = [
+        (24_660, 24_665, 24_640, 24_642),  # MOTHER, same open so it is found
+        (24_642, 24_644, 24_500, 24_505),
+        (24_505, 24_510, 24_400, 24_405),  # low 24,400 -- 200 under the 1H one
+        (24_405, 24_420, 24_400, 24_415),
+        (24_415, 24_430, 24_410, 24_425),
+        (24_425, 24_600, 24_420, 24_590),
+        (24_590, 24_900, 24_585, 24_890),  # high 24,900 -- 200 over
+        (24_890, 24_895, 24_870, 24_875),
+        (24_875, 24_880, 24_860, 24_865),
+    ]
+
+    def _mother(self):
+        now = datetime.now(app_module.IST)
+        mother = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        if mother + timedelta(hours=1) > now:
+            mother -= timedelta(days=1)
+        return mother
+
+    def _adapter(self, mother):
+        """One adapter that answers with a different shape per resolution."""
+        by_tf = {"1h": self._HOURLY, "1m": self._MINUTE, "5m": self._MINUTE, "15m": self._MINUTE}
+        step = {
+            "1h": timedelta(hours=1),
+            "15m": timedelta(minutes=15),
+            "5m": timedelta(minutes=5),
+            "1m": timedelta(minutes=1),
+        }
+        asked: list[str] = []
+
+        class _Adapter:
+            def __init__(self, *a, **k):
+                pass
+
+            async def async_get_candles(self, _symbol, resolution, **_k):
+                asked.append(resolution)
+                rows = by_tf[resolution]
+                return [
+                    app_module.IndexCandle(mother + i * step[resolution], o, h, low, c)
+                    for i, (o, h, low, c) in enumerate(rows)
+                ]
+
+        return _Adapter, asked
+
+    async def _chart(self, **kwargs):
+        mother = self._mother()
+        adapter_cls, asked = self._adapter(mother)
+        with patch.object(
+            app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, _Broker(), "user"))
+        ):
+            with patch.object(app_module, "CascadeOptionsAdapter", adapter_cls):
+                data = await app_module.fib_boundary_paper_chart(
+                    mother.isoformat(), _DummyRequest(), symbol="NIFTY", side="CE", **kwargs
+                )
+        return data, asked
+
+    # The ladder a 1H mother must always produce, whatever is drawn under it.
+    _HOURLY_LEVELS = [24_500.0, 24_400.0, 24_300.0, 24_100.0, 23_900.0, 23_500.0, 23_100.0]
+
+    async def test_the_ladder_comes_from_the_mother_timeframe(self):
+        data, _asked = await self._chart(timeframe="1h", base_timeframe="1h")
+        self.assertEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
+        self.assertEqual(data["anchor"]["high"], 24_700.0)
+        self.assertEqual(data["anchor"]["low"], 24_600.0)
+
+    async def test_drilling_into_one_minute_does_not_move_a_single_level(self):
+        """The bug, stated as a test: same mother, finer view, same ladder."""
+        data, asked = await self._chart(timeframe="1m", base_timeframe="1h")
+        self.assertEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
+        self.assertEqual(data["anchor"]["high"], 24_700.0, "the 1m swing high (24,900) must not leak in")
+        self.assertEqual(data["anchor"]["low"], 24_600.0, "nor the 1m low (24,400)")
+        self.assertEqual(data["base_timeframe"], "1h")
+        self.assertEqual(data["timeframe"], "1m")
+        # And the CANDLES really are the finer ones -- the view did change.
+        self.assertIn("1m", asked)
+        self.assertIn("1h", asked)
+
+    async def test_every_view_gives_the_same_ladder(self):
+        for view in ("1m", "5m", "15m", "1h"):
+            data, _asked = await self._chart(timeframe=view, base_timeframe="1h")
+            self.assertEqual(
+                [row["price"] for row in data["levels"]], self._HOURLY_LEVELS, f"{view} view changed the ladder"
+            )
+
+    async def test_one_fetch_when_the_view_is_the_mother_timeframe(self):
+        """No second round trip to Dhan to draw the candles it already has."""
+        _data, asked = await self._chart(timeframe="1h", base_timeframe="1h")
+        self.assertEqual(asked, ["1h"])
+
+    async def test_an_old_client_sending_one_timeframe_is_unchanged(self):
+        data, _asked = await self._chart(timeframe="1h")
+        self.assertEqual(data["base_timeframe"], "1h")
+        self.assertEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
+
+    async def test_the_old_behaviour_is_what_moved_the_ladder(self):
+        """Exactly what pressing 1M used to do: the view became the geometry.
+        Kept as a test so the difference is provable rather than argued -- the
+        1m ladder is a real ladder, it is just not the one being traded."""
+        data, _asked = await self._chart(timeframe="1m", base_timeframe="1m")
+        self.assertEqual(data["anchor"]["high"], 24_900.0)
+        self.assertEqual(data["anchor"]["low"], 24_400.0)
+        self.assertNotEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
+
+    async def test_a_bad_base_timeframe_is_refused(self):
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await self._chart(timeframe="1h", base_timeframe="3h")
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("base_timeframe must be one of", str(raised.exception.detail))
+
+
 if __name__ == "__main__":
     unittest.main()
