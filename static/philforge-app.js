@@ -2752,6 +2752,11 @@ let _fibBoundaryPollTimer = null;
 // each need THEIR campaign, not "the" campaign.
 let _lastFibBoundaryStatus = {};
 let _fibBoundaryLiveAvailable = false;
+// The backtest on screen. Declared here rather than sprung into existence by
+// its first assignment: reading an undeclared name throws ReferenceError, so
+// anything that asks "is a backtest showing?" before one has ever been run
+// would take the page down with it.
+let _lastFibBacktest = null;
 
 // Everything options lives on one page now; each tab owns its own engine.
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
@@ -3483,6 +3488,7 @@ async function initOptionsCascadePage() {
   _syncFibLevelsHint();
   _syncFibModeHint();
   _ceRenderTimeframes();
+  _restoreLastFibBoundaryBacktest();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
   await refreshFibSpaceStatus();
@@ -4231,6 +4237,30 @@ async function runFibBoundaryBacktest() {
   }
 }
 
+// A replay costs a Dhan round trip per contract and several seconds, and it
+// used to survive only as long as the page went undisturbed: the result lived
+// in one variable over a panel that starts hidden, so any redraw lost it and
+// the only way back was to pay for the whole thing again. The run is filed
+// server-side now, so re-opening the page brings the last one back.
+//
+// Deliberately not awaited by the caller and never fatal: a missing or broken
+// saved run must not stop the page from loading.
+async function _restoreLastFibBoundaryBacktest() {
+  if (_lastFibBacktest) return;  // this session already has one on screen
+  try {
+    const response = await fetch('/api/fib-boundary/backtests/latest', { credentials: 'same-origin' });
+    if (!response.ok) return;
+    const data = await response.json().catch(() => ({}));
+    const payload = data && data.run && data.run.payload;
+    if (!payload || payload.status !== 'ok' || _lastFibBacktest) return;
+    _renderFibBoundaryBacktest(payload);
+    const note = document.getElementById('fibx-backtest-note');
+    if (note) note.textContent = `${note.textContent} · saved run from ${_cascadeOptionsTimestamp(data.run.created_at)}`;
+  } catch (_error) {
+    /* No saved run, or it cannot be read — the panel simply stays closed. */
+  }
+}
+
 function _renderFibBoundaryBacktest(data) {
   const panel = document.getElementById('fibx-backtest');
   if (panel) panel.style.display = '';
@@ -4274,9 +4304,15 @@ function _renderFibBoundaryBacktest(data) {
   const note = document.getElementById('fibx-backtest-note');
   if (note) {
     const a = c.anchor;
+    // A mother that moved on its own has to say so. The engine rebases when
+    // price closes past the typed mother before anything is bought, and the
+    // chart then measures from a candle the reader never chose.
+    const moved = data.chart && data.chart.mother_rebased
+      ? ` · mother moved to ${_cascadeOptionsTimestamp(data.chart.mother_timestamp)} (the one typed was passed before any buy)`
+      : '';
     note.textContent = a
-      ? `Fib ${a.low}–${a.high} (${a.span} pts), confirmed ${_cascadeOptionsTimestamp(a.confirmed_at)} · ${data.candles_replayed} 1m bars to ${data.horizon_to}`
-      : `No fib formed in ${data.candles_replayed} bars to ${data.horizon_to} — the swing never settled.`;
+      ? `Fib ${a.low}–${a.high} (${a.span} pts), confirmed ${_cascadeOptionsTimestamp(a.confirmed_at)} · ${data.candles_replayed} 1m bars to ${data.horizon_to}${moved}`
+      : `No fib formed in ${data.candles_replayed} bars to ${data.horizon_to} — the swing never settled.${moved}`;
   }
 
   const gapsEl = document.getElementById('fibx-backtest-gaps');

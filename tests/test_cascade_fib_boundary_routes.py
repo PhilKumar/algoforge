@@ -655,6 +655,80 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Connect a Dhan account", str(raised.exception.detail))
 
 
+class FibBoundaryBacktestPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    """A replay must outlive the page it was run on.
+
+    It cost a Dhan round trip per contract and several seconds, then lived in
+    one browser variable over a panel that starts hidden -- so any redraw of
+    the page lost it and the only way back was to pay for it again. Phil,
+    2026-08-15: "Complete backtest result panel is gone."
+
+    db.save_fib_backtest_run and the list/export routes were written for this
+    and never wired to anything, so the table had always been empty.
+    """
+
+    async def asyncSetUp(self):
+        if TEST_DB.exists():
+            TEST_DB.unlink()
+        if TEST_USER_DATA.exists():
+            shutil.rmtree(TEST_USER_DATA, ignore_errors=True)
+        app_module.config.DB_PATH = str(TEST_DB)
+        app_module.config.USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._db_mod.config.DB_PATH = str(TEST_DB)
+        app_module._db_mod.config.USER_DATA_ROOT = str(TEST_USER_DATA)
+        app_module._db_mod._initialized = False
+        await app_module._db_mod.init_db()
+        # The runs table has a foreign key to users, so a run needs an owner.
+        for user_id in (11, 99):
+            await app_module._db_mod.create_user(f"owner{user_id}", "x", role="user")
+        self.user_ids = {}
+        for name in ("owner11", "owner99"):
+            row = await app_module._db_mod.get_user_by_username(name)
+            self.user_ids[name] = int(row["id"])
+
+    def _payload(self, net=149.27):
+        return {
+            "status": "ok",
+            "mode": "backtest",
+            "symbol": "NIFTY",
+            "side": "CE",
+            "timeframe": "1m",
+            "mother": {"timestamp": "2026-08-14T10:11:00"},
+            "horizon_to": "2026-08-15",
+            "campaign": {"net_pnl": net, "fills": [], "levels": []},
+            "chart": {"candles": [{"t": "2026-08-14T10:11:00", "o": 1, "h": 2, "l": 0, "c": 1}]},
+            "result": {"fully_priced": True, "net_pnl": net, "data_gaps": []},
+        }
+
+    async def test_nothing_saved_is_not_an_error(self):
+        """Never having run one is a normal state, not a 404."""
+        data = await app_module.latest_fib_boundary_backtest(_DummyRequest(self.user_ids["owner11"]))
+        self.assertEqual(data["status"], "ok")
+        self.assertIsNone(data["run"])
+
+    async def test_a_saved_run_comes_back_whole(self):
+        await app_module._db_mod.save_fib_backtest_run(self.user_ids["owner11"], self._payload())
+        data = await app_module.latest_fib_boundary_backtest(_DummyRequest(self.user_ids["owner11"]))
+        self.assertIsNotNone(data["run"])
+        # The payload is the exact response the backtest route returned, so the
+        # panel re-renders it through the same function with nothing special-cased.
+        payload = data["run"]["payload"]
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["campaign"]["net_pnl"], 149.27)
+        self.assertTrue(payload["chart"]["candles"])
+
+    async def test_the_latest_is_the_one_that_comes_back(self):
+        await app_module._db_mod.save_fib_backtest_run(self.user_ids["owner11"], self._payload(net=10.0))
+        await app_module._db_mod.save_fib_backtest_run(self.user_ids["owner11"], self._payload(net=99.0))
+        data = await app_module.latest_fib_boundary_backtest(_DummyRequest(self.user_ids["owner11"]))
+        self.assertEqual(data["run"]["payload"]["campaign"]["net_pnl"], 99.0)
+
+    async def test_one_user_never_sees_another_users_run(self):
+        await app_module._db_mod.save_fib_backtest_run(self.user_ids["owner99"], self._payload(net=42.0))
+        data = await app_module.latest_fib_boundary_backtest(_DummyRequest(self.user_ids["owner11"]))
+        self.assertIsNone(data["run"], "a run belongs to the account that made it")
+
+
 class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
     """The chart's timeframe buttons pick CANDLES, never prices.
 

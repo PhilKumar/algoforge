@@ -11357,6 +11357,22 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
 
     campaign = outcome["campaign"]
     anchor = campaign.get("anchor")
+    # The mother the ladder ENDED on, which is not always the one that was
+    # typed. When price closes past the mother before anything is bought the
+    # engine moves it to a better bar and throws the old geometry away
+    # (FibTouchLadder._rebase, Phil's rule of 2026-08-07). Marking the typed
+    # candle then put the MC column and the MOTHER HIGH line on one candle
+    # while the swing, the levels and the fill all belonged to another --
+    # which is exactly what "everything is upside down" looked like on the
+    # 2026-08-14 NIFTY CE chart: a mother sitting 22 points BELOW its own
+    # swing, hours to the left of it.
+    effective_mother = mother_timestamp
+    rebased_to = campaign.get("mother_timestamp")
+    if rebased_to:
+        try:
+            effective_mother = datetime.fromisoformat(rebased_to)
+        except (TypeError, ValueError):
+            effective_mother = mother_timestamp
     # The chart speaks the SAME payload the live chart route does, so the
     # console draws both through one translator.
     chart = {
@@ -11365,15 +11381,20 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         "timeframe": timeframe,
         "side": side,
         "chart_mode": "visual_gap_adjusted",
-        "candles": _cascade_gap_adjusted_candles(geometry_candles, mother_timestamp),
+        "candles": _cascade_gap_adjusted_candles(geometry_candles, effective_mother),
         "anchor": anchor,
         "levels": [{"level": row["level"], "price": row["index_price"]} for row in (campaign.get("levels") or [])],
         "trendline": None,
+        # Said out loud, because a mother that moved on its own is worth
+        # knowing about when you are reading the chart it produced.
+        "mother_timestamp": effective_mother.isoformat(),
+        "mother_rebased": effective_mother != mother_timestamp,
+        "typed_mother_timestamp": mother_timestamp.isoformat(),
     }
     if anchor is not None:
         line = _fib_touch_find_trendline(
             geometry_candles,
-            mother_timestamp,
+            effective_mother,
             side,
             _FibTouchSwingAnchor(
                 high=float(anchor["high"]),
@@ -11386,7 +11407,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         )
         chart["trendline"] = line.as_dict() if line is not None else None
 
-    return {
+    result = {
         "status": "ok",
         "mode": "backtest",
         "engine": "fib_touch_ladder",
@@ -11410,11 +11431,50 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
             else "No recorded option history was reachable, so this replay is geometry only — no prices, no P&L."
         ),
     }
+    # Keep it. A replay costs a Dhan round trip per contract and several
+    # seconds, and it was being thrown away the instant the page redrew --
+    # the result lived only in one browser variable, over a panel that starts
+    # hidden. db.save_fib_backtest_run and the list/export routes were all
+    # written for this and never wired to anything, so the runs table has
+    # always been empty. Never fatal: a replay that ran is worth showing even
+    # if it could not be filed.
+    try:
+        result["run_id"] = await _db_mod.save_fib_backtest_run(
+            _request_user_id(request),
+            {**result, "result": {"fully_priced": outcome["priced"], **campaign}},
+        )
+    except Exception as exc:
+        _logger.warning("[FIB-BACKTEST] could not save run: %s", exc)
+    return result
 
 
 @app.get("/api/fib-boundary/backtests")
 async def list_fib_boundary_backtests(request: Request, limit: int = 50):
     return {"status": "ok", "runs": await _db_mod.list_fib_backtest_runs(_request_user_id(request), limit)}
+
+
+@app.get("/api/fib-boundary/backtests/latest")
+async def latest_fib_boundary_backtest(request: Request):
+    """The last replay this user ran, ready to re-render.
+
+    The panel holds its result in one browser variable over a section that
+    starts hidden, so any redraw of the page lost it and the only way back was
+    to pay for the whole replay again. `payload` is the exact response the
+    backtest route returned, so the client re-renders it through the same
+    function with nothing special-cased.
+
+    `{"run": null}` rather than a 404: having never run one is not an error.
+    """
+    runs = await _db_mod.list_fib_backtest_runs(_request_user_id(request), 1)
+    if not runs:
+        return {"status": "ok", "run": None}
+    full = await _db_mod.get_fib_backtest_run(_request_user_id(request), int(runs[0]["id"]))
+    if full is None:
+        return {"status": "ok", "run": None}
+    return {
+        "status": "ok",
+        "run": {"id": full["id"], "created_at": full["created_at"], "payload": full["payload"]},
+    }
 
 
 async def _owned_fib_backtest(request: Request, run_id: int) -> dict:

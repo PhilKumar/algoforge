@@ -965,6 +965,25 @@ class MotherRebaseTests(unittest.TestCase):
             engine.on_candle(Bar(base + timedelta(minutes=i), o, h, low, c))
         self.assertEqual(engine.mother_high, 24_950.0)
 
+    def test_the_status_reports_the_mother_it_moved_to(self):
+        """What every chart of this ladder has to mark.
+
+        The backtest chart marked the mother that was TYPED, so once the engine
+        had moved on, the MC column and the MOTHER HIGH line described one
+        candle while the swing, the levels and the fill all belonged to
+        another. On the 2026-08-14 NIFTY CE replay that put the mother 22
+        points below its own swing and hours to the left of it -- the chart
+        Phil described as "everything upside down".
+        """
+        engine, base = self.unfilled()
+        typed = engine.config.mother_timestamp
+        for i, high in enumerate((24_800, 24_900, 25_000, 25_100, 25_200), start=1):
+            engine.on_candle(Bar(base + timedelta(minutes=i), high - 20, high, high - 40, high - 10))
+        status = engine.get_status()
+        self.assertNotEqual(status["mother_timestamp"], typed.isoformat())
+        self.assertEqual(status["mother_timestamp"], engine.config.mother_timestamp.isoformat())
+        self.assertEqual(engine.mother_high, 25_200.0)
+
     def test_it_can_rebase_again_and_again(self):
         engine, base = self.unfilled()
         step = 0
