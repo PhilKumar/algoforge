@@ -1086,12 +1086,21 @@
     --glass-mid: rgba(15,23,42,0.025);
     --glass-lo: rgba(15,23,42,0.012);
   }
+  /* The page wash belongs in background-image with the tints, NOT on the
+     `background` shorthand above them: the shorthand takes a gradient (so it
+     blanks background-color to transparent) and then the background-image
+     line below it replaces that gradient outright. Written the old way, light
+     mode painted nothing at all and fell through to the UA's flat white. The
+     dark rule gets away with the same two-line shape only because it hands
+     the shorthand a COLOUR (`background: var(--bg)`). Wash goes last — the
+     first image in the list is the topmost. */
   [data-theme="light"] body {
-    background: linear-gradient(180deg, #fcfdff 0%, #f7fafc 44%, #eef4fb 100%);
+    background-color: #fcfdff;
     background-image:
       radial-gradient(ellipse 960px 720px at 12% 20%, rgba(5,150,105,0.055) 0%, transparent 68%),
       radial-gradient(ellipse 760px 620px at 84% 16%, rgba(37,99,235,0.05) 0%, transparent 66%),
-      radial-gradient(ellipse 880px 720px at 82% 82%, rgba(148,163,184,0.11) 0%, transparent 70%);
+      radial-gradient(ellipse 880px 720px at 82% 82%, rgba(148,163,184,0.11) 0%, transparent 70%),
+      linear-gradient(180deg, #fcfdff 0%, #f7fafc 44%, #eef4fb 100%);
     color: #0f172a;
   }
   [data-theme="light"] body::before,
