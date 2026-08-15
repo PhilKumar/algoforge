@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
+from engine.fib_ladder_geometry import LadderGeometry
+
 __all__ = [
     "HALVING_LEVELS",
     "DEEP_TARGET_FROM_LEVEL",
@@ -83,13 +85,20 @@ HALVING_LEVELS: tuple[int, ...] = (2, 3, 4, 6, 8, 12, 16)
 # than imported so this module stays free of that engine's option plumbing.
 INVOLVEMENT_CANDLES = 2
 
+# The two things one merged strategy can be. Phil, 2026-08-15: "Fold into 1
+# with a switch." The geometry is identical either way -- only the question
+# "which drawn price is worth money?" differs.
+BUY_MODES: tuple[str, ...] = ("levels", "convergence")
+
 # Past this rung the ladder has paid for a big move, so it asks for half the
 # way back to the anchor instead of a quarter.
 DEEP_TARGET_FROM_LEVEL = 4
 DEEP_TARGET_FRACTION = 0.5
 
-# When the mother breaks before the ladder has bought anything, the setup has
-# not failed -- it has MOVED. Watch this many 1-minute bars from the break and
+# RETIRED 2026-08-15. The mother no longer moves: Phil reversed the rebase and
+# a break before any buy now ends the campaign. Kept only so a ladder persisted
+# under the old rule still loads.
+# Historic note -- watch this many 1-minute bars from the break and
 # take the best of them as the new mother, rather than grabbing the first bar
 # that happened to poke through.
 REBASE_WATCH_BARS = 5
@@ -533,11 +542,11 @@ class FibTouchConfig:
     # level are measured from. Phil picks a 5m / 15m / 1H mother when he wants a
     # wider swing under the ladder.
     timeframe: str = "1m"
-    # Touches are always watched on the finest bar available. A touch of 24,500
-    # is the same touch on any chart, so reading it on a slow one only delays
-    # the fill -- the timeframe belongs to the geometry, not the trigger. Same
-    # split the fib-space engine uses (15m geometry, faster entries).
-    entry_timeframe: str = "1m"
+    # The bar touches are read on. Phil, 2026-08-15: "Why watched at 1m.. Make
+    # it as what I select." Empty means FOLLOW THE MOTHER's timeframe, which is
+    # what he asked for; an explicit value still overrides, because the
+    # backtest route replays 1m entries under a slower mother on purpose.
+    entry_timeframe: str = ""
     levels: tuple[int, ...] = HALVING_LEVELS
     lots_per_rung: int = 1
     # A cap on the WHOLE ladder, not per rung.  Phil: "per ladder it will 75k
@@ -547,6 +556,17 @@ class FibTouchConfig:
     target_fraction: float = 0.25
     itm_steps: int = 2
     min_dte: int = 4
+    # WHAT THIS LADDER BUYS. Phil folded Fib Boundary and Fib Space into one
+    # strategy on 2026-08-15: same geometry underneath, and this chooses which
+    # of the two it behaves as.
+    #   "levels"       every level of every drawn fib   (was Fib Boundary)
+    #   "convergence"  only where two fibs' levels meet (was Fib Space)
+    buy_mode: str = "levels"
+    # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
+    # after the mother is drawn from the first bounce instead of waiting for a
+    # trendline. Off by default: measured on the Fib Space side and it does not
+    # combine well with the level-1 convergence set.
+    seed_first_fib: bool = False
     # Deep ladders normally ask for half the way back instead of a quarter.
     # Turning this off keeps the quarter at every depth -- worth measuring,
     # because raising the bar when the ladder is deepest is counter-intuitive.
@@ -583,10 +603,17 @@ class FibTouchConfig:
             raise FibTouchError("min_dte cannot be negative")
         if str(self.timeframe).lower() not in GEOMETRY_TIMEFRAMES:
             raise FibTouchError(f"timeframe must be one of {', '.join(GEOMETRY_TIMEFRAMES)}")
+        if str(self.buy_mode) not in BUY_MODES:
+            raise FibTouchError(f"buy_mode must be one of {', '.join(BUY_MODES)}")
 
     @property
     def working_side(self) -> str:
         return str(self.side).upper()
+
+    @property
+    def entry_bar_timeframe(self) -> str:
+        """The timeframe touches are actually read on."""
+        return str(self.entry_timeframe or self.timeframe).lower()
 
 
 # ── live state ────────────────────────────────────────────────────
@@ -644,6 +671,14 @@ class TouchFill:
     expiry: date
     option_type: str
     order_id: str = ""
+    # WHICH fib's level this came from. Fibs stack since 2026-08-15, so two
+    # fills can both be "level 2" at different prices holding different money;
+    # the level alone no longer names a rung. 0 is a pre-merge fill.
+    fib_id: int = 0
+
+    @property
+    def rung_key(self) -> str:
+        return f"L{self.level}" if not self.fib_id else f"F{self.fib_id}L{self.level}"
 
     @property
     def funded_inr(self) -> float:
@@ -653,7 +688,8 @@ class TouchFill:
         return {
             "buy_number": self.buy_number,
             "level": self.level,
-            "rung_key": f"L{self.level}",
+            "fib_id": self.fib_id,
+            "rung_key": self.rung_key,
             "timestamp": self.timestamp.isoformat(),
             "index_price": round(self.index_price, 2),
             "premium": round(self.premium, 2),
@@ -712,6 +748,11 @@ class FibTouchLadder:
         self.mother_high: Optional[float] = None
         self.mother_low: Optional[float] = None
         self.anchor: Optional[SwingAnchor] = None
+        # THE GEOMETRY, since the 2026-08-15 merge. Trendlines and fibs by
+        # Phil's adjudicated rule, fibs stacking as they are drawn. `anchor`
+        # above is now a VIEW of the newest fib, kept so the status payload,
+        # the chart and everything already persisted read unchanged.
+        self.geometry = LadderGeometry(config.levels, seed_first_fib=config.seed_first_fib)
         self.rungs: list[TouchRung] = []
         self.fills: list[TouchFill] = []
         self.events: list[dict[str, Any]] = []
@@ -727,10 +768,6 @@ class FibTouchLadder:
         # high that pays and the low that buys are unordered inside one bar, so
         # settling on the entry bar would be reading the future half the time.
         self._last_fill_timestamp: Optional[datetime] = None
-        # Bars gathered since an unfilled mother broke, waiting to pick the
-        # best replacement. Empty whenever no rebase is in flight.
-        self._rebase_watch: list[Bar] = []
-        self._rebased = False
         self.exit_timestamp: Optional[datetime] = None
         self.exit_reason: Optional[str] = None
         self.exit_index: Optional[float] = None
@@ -802,18 +839,24 @@ class FibTouchLadder:
 
     @property
     def target_index(self) -> Optional[float]:
-        """A fraction of the way back from the average entry toward the anchor.
+        """A fraction of the way back from the average entry toward the MOTHER.
+
+        Phil, 2026-08-15: the target runs to the mother, not to the swing the
+        ladder happens to be measured on. With fibs stacking there is no single
+        swing to aim at any more, and the mother is the one price that does not
+        move for the life of the campaign.
 
         Recomputed on every fill, so a deeper buy pulls the target down (CE) or
         up (PE) with the average -- and, past L4, widens the fraction too.
         """
         average = self.average_index_entry
-        if average is None or self.anchor is None:
+        edge = self.mother_high if self.side == "CE" else self.mother_low
+        if average is None or edge is None:
             return None
         fraction = self.target_fraction
         if self.side == "CE":
-            return average + fraction * (self.anchor.high - average)
-        return average - fraction * (average - self.anchor.low)
+            return average + fraction * (float(edge) - average)
+        return average - fraction * (average - float(edge))
 
     def _beyond(self, price: float, level_price_: float) -> bool:
         """Has price reached a level, in the direction the ladder runs?"""
@@ -856,13 +899,30 @@ class FibTouchLadder:
     # ── the ladder ────────────────────────────────────────────────
 
     def _build_rungs(self) -> None:
-        anchor = self.anchor
-        if anchor is None:
-            return
-        self.rungs = [
-            TouchRung(level=int(level), index_price=level_price(self.side, anchor.high, anchor.low, level))
-            for level in self.config.levels
-        ]
+        """Re-list the ladder from every fib drawn so far.
+
+        Called after each geometry bar, because a new fib ADDS its levels and
+        the old ones keep resting. Rungs already touched keep their state: a
+        rung is remembered by (fib, level), so a redraw can never resurrect a
+        filled level or forget an unfunded one.
+        """
+        known = {rung.key: rung for rung in self.rungs}
+        rebuilt: list[TouchRung] = []
+        for row in self.geometry.all_levels():
+            existing = known.get(row.key)
+            if existing is not None:
+                # Price is a property of the fib, which never moves once drawn.
+                rebuilt.append(existing)
+                continue
+            rebuilt.append(
+                TouchRung(
+                    level=row.level,
+                    index_price=row.price,
+                    fib_id=row.fib_id,
+                    drawn_at=row.drawn_at,
+                )
+            )
+        self.rungs = rebuilt
 
     def _resolve_contract(self, when: datetime, spot: float) -> tuple[float, date]:
         """Strike and expiry for a buy happening now, at this index level.
@@ -889,6 +949,12 @@ class FibTouchLadder:
         """Buy every level this candle touched, shallowest first."""
         for rung in self.rungs:
             if rung.status != "PENDING":
+                continue
+            # The structure has to exist before its levels can be traded.
+            # Filling a level on a bar earlier than the fib that defines it is
+            # reading the future -- the same guard the old swing anchor had in
+            # `confirmed_at`, now carried per rung because fibs stack.
+            if rung.drawn_at is not None and bar.timestamp < rung.drawn_at:
                 continue
             if not self._touched(bar, rung.index_price):
                 # Levels are ordered shallow-first, so the first untouched one
@@ -979,6 +1045,7 @@ class FibTouchLadder:
                 expiry=expiry,
                 option_type=self.side,
                 order_id=str(receipt.get("order_id") or ""),
+                fib_id=rung.fib_id,
             )
             self.fills.append(fill)
             # The first buy fixes the campaign's contract series for good.
@@ -1016,26 +1083,30 @@ class FibTouchLadder:
         if edge is None:
             return False
 
-        # A rebase already under way keeps collecting until it has seen enough.
-        if self._rebase_watch:
-            self._rebase_watch.append(bar)
-            if len(self._rebase_watch) >= REBASE_WATCH_BARS:
-                self._rebase(self._rebase_watch)
-            return False
-
         broken = float(bar.close) > edge if self.side == "CE" else float(bar.close) < edge
         if not broken:
             return False
 
         if not self.fills and not self._settled:
-            # NOTHING IS BOUGHT, so nothing has failed -- the setup has moved.
-            # Phil, 2026-08-07: "before if it breaks, then mother is changed."
-            # Ending here threw away 20 of 24 campaigns before they could trade.
-            # The first bar through is not necessarily the best mother, so five
-            # minutes are watched and the best of them wins.
-            self._rebase_watch = [bar]
-            self._log(bar.timestamp, "mother_break_rebasing", close=round(float(bar.close), 2), edge=round(edge, 2))
-            return False
+            # NOTHING IS BOUGHT, so there is nothing to close out -- but the
+            # campaign is over all the same. Phil reversed his 2026-08-07
+            # rebase rule on 2026-08-15: "Mother doesn't move if no buy
+            # happened, but close the trade with no buys.. And wait for my next
+            # MC." The engine no longer picks its own mother; he does.
+            self.status = "MOTHER_BROKEN"
+            self.exit_reason = "mother_broken_no_buys"
+            self.exit_timestamp = bar.timestamp
+            self.exit_index = float(bar.close)
+            self.gross_pnl = self.gross_pnl or 0.0
+            self.costs_total = self.costs_total or 0.0
+            self.net_pnl = self.net_pnl or 0.0
+            self._log(
+                bar.timestamp,
+                "mother_broken_no_buys",
+                close=round(float(bar.close), 2),
+                edge=round(edge, 2),
+            )
+            return True
 
         if self.fills:
             prices: list[Optional[float]] = []
@@ -1080,45 +1151,6 @@ class FibTouchLadder:
         self.status = "MOTHER_BROKEN"
         self._log(bar.timestamp, "mother_broken", close=round(float(bar.close), 2), edge=round(edge, 2))
         return True
-
-    def _rebase(self, watched: list[Bar]) -> None:
-        """Move the mother to the best of the watched bars and start over.
-
-        Best means the extreme in the working direction: the highest high for a
-        CE, the lowest low for a PE. Everything measured from the old mother --
-        the swing, the levels, the rung states -- is discarded, because it was
-        geometry for a setup that no longer exists.
-
-        The new mother is a ONE-MINUTE candle, so the swing is measured on the
-        1m stream from here on. The chosen mother chart describes where the
-        FIRST mother came from; once the market has moved past it, the ladder
-        re-anchors at the resolution it actually watches.
-        """
-        best = (
-            max(watched, key=lambda row: float(row.high))
-            if self.side == "CE"
-            else min(watched, key=lambda row: float(row.low))
-        )
-        object.__setattr__(self.config, "mother_timestamp", best.timestamp)
-        self.mother_high, self.mother_low = float(best.high), float(best.low)
-        self.anchor = None
-        self.rungs = []
-        self._rebase_watch = []
-        # A rebase only ever runs before the first buy, so no contract is
-        # committed yet and the next ladder picks its own expiry afresh.
-        self.expiry_locked = None
-        # The old mother's geometry stream is meaningless now; the new mother
-        # lives on the 1m series, so the swing is searched there.
-        self.geometry_history = list(watched)
-        self._rebased = True
-        self.status = "WAITING_FOR_SWING"
-        self._log(
-            best.timestamp,
-            "mother_rebased",
-            high=round(float(best.high), 2),
-            low=round(float(best.low), 2),
-            watched=len(watched),
-        )
 
     def _try_exit(self, bar: Bar) -> bool:
         """Close the whole basket when the index reaches the target."""
@@ -1313,32 +1345,43 @@ class FibTouchLadder:
         Only the swing is read from this stream. Nothing trades here: a 1H bar
         closing tells you where the ladder sits, not that a level was touched.
         """
-        if self.anchor is not None or self.status in _TERMINAL_STATUSES:
+        if self.status in _TERMINAL_STATUSES:
             return
         self.geometry_history.append(bar)
-        if bar.timestamp == self.config.mother_timestamp:
+        is_mother = bar.timestamp == self.config.mother_timestamp
+        if is_mother:
             self.mother_high, self.mother_low = float(bar.high), float(bar.low)
-        anchor = find_swing_anchor(
-            self.geometry_history,
-            self.config.mother_timestamp,
-            self.side,
-            lookback_bars=self.config.lookback_bars,
-            involvement=self.config.involvement_candles,
-        )
-        if anchor is None:
+        before = {fib.fib_id for fib in self.geometry.fibs}
+        self.geometry.on_bar(bar, is_mother=is_mother)
+        drawn = [fib for fib in self.geometry.fibs if fib.fib_id not in before]
+        if not drawn:
             return
-        self.anchor = anchor
+        # A new structure adds its levels to the ones already resting.
         self._build_rungs()
-        self.status = "ARMED"
-        self._log(
-            anchor.confirmed_at,
-            "swing_anchored",
-            timeframe=self.config.timeframe,
-            high=anchor.high,
-            low=anchor.low,
-            span=round(anchor.span, 2),
-            levels=[rung.as_dict() for rung in self.rungs],
-        )
+        for fib in drawn:
+            # `anchor` is a VIEW of the newest fib, so the status payload, the
+            # chart and every persisted ladder keep reading one pair of prices.
+            self.anchor = SwingAnchor(
+                high=float(fib.fib0),
+                low=float(fib.fib1),
+                high_timestamp=fib.touch_timestamp,
+                low_timestamp=fib.drawn_timestamp,
+                confirmed_at=fib.drawn_timestamp,
+                involvement_candles=self.config.involvement_candles,
+            )
+            self._log(
+                fib.drawn_timestamp,
+                "fib_drawn",
+                timeframe=self.config.timeframe,
+                fib=fib.fib_id,
+                trendline=fib.trendline_id,
+                high=round(float(fib.fib0), 2),
+                low=round(float(fib.fib1), 2),
+                span=round(float(fib.span), 2),
+                levels=[rung.as_dict() for rung in self.rungs if rung.fib_id == fib.fib_id],
+            )
+        if self.status == "WAITING_FOR_SWING":
+            self.status = "ARMED"
 
     def on_candle(self, bar: Bar) -> None:
         """Advance the campaign by one CLOSED 1-minute index candle."""
@@ -1348,7 +1391,7 @@ class FibTouchLadder:
         # A 1m mother needs no separate stream -- the entry bars ARE the
         # geometry bars, so feed them through as well. A rebased campaign is in
         # the same position: its new mother came off the 1m series.
-        if self.config.timeframe == self.config.entry_timeframe or self._rebased:
+        if self.config.timeframe == self.config.entry_bar_timeframe:
             self.on_geometry_candle(bar)
         if self.anchor is None:
             return
@@ -1452,7 +1495,7 @@ class FibTouchLadder:
                 "lot_size": config.lot_size,
                 "strike_step": config.strike_step,
                 "timeframe": config.timeframe,
-                "entry_timeframe": config.entry_timeframe,
+                "entry_timeframe": config.entry_bar_timeframe,
                 "levels": list(config.levels),
                 "lots_per_rung": config.lots_per_rung,
                 "capital_cap_inr": config.capital_cap_inr,
@@ -1500,6 +1543,10 @@ class FibTouchLadder:
                     "expiry": fill.expiry.isoformat(),
                     "option_type": fill.option_type,
                     "order_id": fill.order_id,
+                    # Which fib's level this was. Without it a restored ladder
+                    # forgets that two of its buys were different structures'
+                    # level 2, and every rung key collapses back to "L2".
+                    "fib_id": fill.fib_id,
                 }
                 for fill in self.fills
             ],
@@ -1590,6 +1637,7 @@ class FibTouchLadder:
                 expiry=date.fromisoformat(row["expiry"]),
                 option_type=str(row["option_type"]),
                 order_id=str(row.get("order_id") or ""),
+                fib_id=int(row.get("fib_id") or 0),
             )
             for row in raw.get("fills") or []
         ]
@@ -1607,6 +1655,7 @@ class FibTouchLadder:
                     expiry=date.fromisoformat(row["expiry"]),
                     option_type=str(row["option_type"]),
                     order_id=str(row.get("order_id") or ""),
+                    fib_id=int(row.get("fib_id") or 0),
                 ),
                 float(row["settled_at"]),
             )
@@ -1649,7 +1698,7 @@ class FibTouchLadder:
             "symbol": self.config.symbol,
             "side": self.side,
             "timeframe": self.config.timeframe,
-            "entry_timeframe": self.config.entry_timeframe,
+            "entry_timeframe": self.config.entry_bar_timeframe,
             "mode": getattr(self.executor, "mode", "paper"),
             "is_live": bool(getattr(self.executor, "is_live", False)),
             "armed": bool(getattr(self.executor, "armed", False)),

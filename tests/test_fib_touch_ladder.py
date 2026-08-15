@@ -43,27 +43,50 @@ def bars(rows, start: datetime = IST_START, step_minutes: int = 1) -> list[Bar]:
 
 
 def falling_then_bouncing() -> list[Bar]:
-    """The CE shape: mother, a fall, buyer involvement, a bounce, sellers back.
+    """The CE shape, as the MERGED geometry actually draws it (2026-08-15).
 
-    Both anchors sit AFTER the mother -- 0 is the mother itself, 3-4 are the two
-    greens that freeze the low at 24,600, and 7-8 are the two reds that freeze
-    the high at 24,700 once the bounce runs out. Span 100.
+    The old shape stopped at bar 8, where the previous rule had both swing
+    anchors frozen. The trendline+fib rule needs more than that: a fib is only
+    DRAWN once its own low is broken, because the levels exist to fund the way
+    down and nothing is drawn while the market rises. So the fixture carries on
+    into the second leg, and that is what puts real structures on the chart.
 
-    The mother's high is 24,780, deliberately ABOVE the bounce: a close past it
-    now ends the campaign, so a fixture meant to keep trading has to contain
-    its own bounce.
+    What it produces, verified bar by bar:
+        bar  2  lowest low 24,600
+        bar  3  the low LOCKS -- closes back above bar 2's close
+        bar  6  the bounce tops at 24,700
+        bar  9  a red closes decisively under 24,600: TL1 drawn, and with it
+                FIB 1  0 = 24,698.00  1 = 24,600.00  span 98
+        bar 11  a candle tags the standing line and closes back under it
+        bar 12  that structure's low breaks:
+                FIB 2  0 = 24,690.00  1 = 24,560.00  span 130
+
+    Two fibs, so the ladder STACKS: F1L2 sits at 24,502.00 and F2L2 at
+    24,430.00, and a walk down the rungs crosses between the two structures.
+
+    The last bar stops at 24,505, deliberately just ABOVE the shallowest rung:
+    the fixture ends with structure drawn and nothing bought, so a test that
+    wants a position asks for one explicitly rather than inheriting a fill it
+    never mentioned.
+
+    The mother's high is 24,780, deliberately above the bounce -- a close past
+    it ends the campaign, so a fixture meant to keep trading stays under it.
     """
     return bars(
         [
             (24_660, 24_780, 24_640, 24_642),  # 0 red   <- MOTHER, high 24,780
             (24_642, 24_644, 24_620, 24_622),  # 1 red
             (24_622, 24_624, 24_600, 24_602),  # 2 red   <- lowest low 24,600
-            (24_602, 24_612, 24_600, 24_610),  # 3 green
-            (24_610, 24_620, 24_608, 24_618),  # 4 green <- LOW frozen at 24,600
+            (24_602, 24_612, 24_600, 24_610),  # 3 green <- low LOCKS
+            (24_610, 24_620, 24_608, 24_618),  # 4 green
             (24_618, 24_650, 24_615, 24_645),  # 5 green
-            (24_645, 24_700, 24_640, 24_695),  # 6 green <- highest high 24,700
+            (24_645, 24_700, 24_640, 24_695),  # 6 green <- bounce high 24,700
             (24_695, 24_698, 24_680, 24_682),  # 7 red
-            (24_682, 24_684, 24_670, 24_672),  # 8 red   <- HIGH frozen, confirmed
+            (24_682, 24_684, 24_670, 24_672),  # 8 red
+            (24_672, 24_674, 24_560, 24_570),  # 9  red  <- TL1 + FIB 1 drawn
+            (24_570, 24_640, 24_565, 24_635),  # 10 green
+            (24_635, 24_690, 24_630, 24_640),  # 11 green <- tags the line
+            (24_640, 24_642, 24_505, 24_510),  # 12 red  <- FIB 2 drawn
         ]
     )
 
@@ -229,12 +252,13 @@ class LadderTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # Drop through L2 (24,500) with a wick; close well away from it.
+        # Drop through F1L2 (24,502) with a wick; close well away from it.
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_560))
         self.assertEqual(len(engine.fills), 1)
         fill = engine.fills[0]
         self.assertEqual(fill.level, 2)
-        self.assertEqual(fill.index_price, 24_500.0)  # the line, not 24,560
+        self.assertEqual(fill.rung_key, "F1L2")
+        self.assertEqual(fill.index_price, 24_502.0)  # the line, not 24,560
         self.assertEqual(fill.buy_number, 1)
         self.assertEqual(fill.lots, 1)
         self.assertEqual(fill.quantity, 65)
@@ -243,12 +267,13 @@ class LadderTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # One candle that sweeps L2 (24,500), L3 (24,400) and L4 (24,300).
+        # One candle sweeping to 24,295 crosses five rungs, and they come from
+        # BOTH fibs -- which is the stack. One lot each, in price order.
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
-        self.assertEqual([f.level for f in engine.fills], [2, 3, 4])
-        self.assertEqual([f.buy_number for f in engine.fills], [1, 2, 3])
-        self.assertEqual([f.lots for f in engine.fills], [1, 1, 1])
-        self.assertEqual(engine.open_lots, 3)  # "at L4 level, we have 3 lots sitting"
+        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2", "F1L3", "F1L4", "F2L3"])
+        self.assertEqual([f.buy_number for f in engine.fills], [1, 2, 3, 4, 5])
+        self.assertEqual([f.lots for f in engine.fills], [1, 1, 1, 1, 1])
+        self.assertEqual(engine.open_lots, 5)  # one lot per rung, however many fibs drew it
 
     def test_the_rupee_cap_ends_the_ladder_and_marks_the_rest_unfunded(self):
         # 200 x 65 = Rs 13,000 a lot, so Rs 30,000 funds exactly two.
@@ -256,12 +281,15 @@ class LadderTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_100, 24_150))
-        self.assertEqual(len(engine.fills), 2)
+        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2"])
         self.assertEqual(engine.deployed_inr, 26_000.0)
         self.assertEqual(engine.remaining_inr, 4_000.0)
         self.assertEqual(engine.status, "OPEN_CAPPED")
-        unfunded = [rung.level for rung in engine.rungs if rung.status == "UNFUNDED"]
-        self.assertEqual(unfunded, [4, 6, 8, 12, 16])
+        # Every rung the cap stopped is marked, across BOTH fibs -- priced and
+        # drawn but unfunded, never silently missing.
+        unfunded = [rung.key for rung in engine.rungs if rung.status == "UNFUNDED"]
+        self.assertEqual(unfunded[:4], ["F1L3", "F1L4", "F2L3", "F2L4"])
+        self.assertEqual(len(unfunded), 12)
 
     def test_the_strike_follows_the_index_down_so_the_basket_holds_several(self):
         engine, candles, seen = ladder()
@@ -269,21 +297,33 @@ class LadderTests(unittest.TestCase):
             engine.on_candle(bar)
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
         strikes = [f.strike for f in engine.fills]
-        # ATM-2 against 24,500 / 24,400 / 24,300 on a 50 ladder.
-        self.assertEqual(strikes, [24_400.0, 24_300.0, 24_200.0])
-        self.assertEqual(len(set(strikes)), 3)
+        # ATM-2 re-resolved at each rung's own price, so the basket holds
+        # several strikes as the index walks down.
+        self.assertEqual(strikes, [24_400.0, 24_350.0, 24_300.0, 24_200.0, 24_200.0])
+        self.assertEqual(len(set(strikes)), 4)
+        self.assertTrue(all(a >= b for a, b in zip(strikes, strikes[1:])), "strikes only walk down")
 
-    def test_the_target_is_a_quarter_back_toward_the_anchor(self):
+    def test_the_target_is_a_quarter_back_toward_the_MOTHER(self):
+        """Phil, 2026-08-15: the target runs to the mother, not to the swing
+        the ladder is measured on. With fibs stacking there is no single swing
+        left to aim at, and the mother is the one price fixed for the campaign."""
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        # One fill at 24,500; anchor high 24,700.
-        self.assertAlmostEqual(engine.target_index, 24_550.0, places=2)
-        # A second, deeper fill pulls the average and so the target down.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
-        self.assertAlmostEqual(engine.average_index_entry, 24_450.0, places=2)
-        self.assertAlmostEqual(engine.target_index, 24_512.5, places=2)
+        # One fill, F1L2 at 24,502; mother high 24,780.
+        self.assertAlmostEqual(engine.average_index_entry, 24_502.0, places=2)
+        self.assertAlmostEqual(engine.target_index, 24_502.0 + 0.25 * (24_780.0 - 24_502.0), places=2)
+        self.assertAlmostEqual(engine.target_index, 24_571.50, places=2)
+        # A deeper fill pulls the average down, and the target with it.
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_440))
+        self.assertLess(engine.average_index_entry, 24_502.0)
+        self.assertLess(engine.target_index, 24_571.50)
+        self.assertAlmostEqual(
+            engine.target_index,
+            engine.average_index_entry + engine.target_fraction * (24_780.0 - engine.average_index_entry),
+            places=6,
+        )
 
     def test_reaching_the_target_closes_the_basket_and_ends_the_campaign(self):
         engine, candles, _ = ladder(premium=200.0)
@@ -292,7 +332,8 @@ class LadderTests(unittest.TestCase):
         base = candles[-1].timestamp
         engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
         self.assertEqual(engine.status, "OPEN")
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
+        # One fill at 24,502, mother 24,780 -> the target is 24,571.50.
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         self.assertEqual(engine.status, "CLOSED")
         self.assertEqual(engine.exit_reason, "target")
         self.assertIsNotNone(engine.net_pnl)
@@ -309,8 +350,10 @@ class LadderTests(unittest.TestCase):
             engine.on_candle(bar)
         base = candles[-1].timestamp
         engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
-        engine.on_candle(Bar(base + timedelta(minutes=3), 24_555, 24_560, 24_100, 24_110))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
+        # A deep fall AFTER the close must buy nothing, however many rungs it
+        # crosses -- and with fibs stacking there are plenty left resting.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, 24_100, 24_110))
         self.assertEqual(len(engine.fills), 1)
         self.assertEqual(engine.status, "CLOSED")
 
@@ -426,7 +469,9 @@ class TimeframeTests(unittest.TestCase):
                 timeframe="4h",
             )
 
-    def test_entries_stay_on_one_minute_whatever_the_mother_is(self):
+    def test_entries_follow_the_timeframe_he_selected(self):
+        """Phil, 2026-08-15: "Why watched at 1m.. Make it as what I select."
+        An unset entry timeframe now means FOLLOW THE MOTHER."""
         config = FibTouchConfig(
             symbol="NIFTY",
             side="CE",
@@ -436,19 +481,41 @@ class TimeframeTests(unittest.TestCase):
             timeframe="15m",
         )
         self.assertEqual(config.timeframe, "15m")
-        self.assertEqual(config.entry_timeframe, "1m")
+        self.assertEqual(config.entry_bar_timeframe, "15m")
 
-    def test_a_slow_mother_anchors_off_the_slow_stream_and_fills_on_1m(self):
-        # 15m geometry: a wide swing the 1m stream never contains.
+    def test_an_explicit_entry_timeframe_still_wins(self):
+        """The backtest route replays 1m entries under a slower mother on
+        purpose, so naming one has to keep overriding."""
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=IST_START,
+            lot_size=65,
+            strike_step=50.0,
+            timeframe="15m",
+            entry_timeframe="1m",
+        )
+        self.assertEqual(config.entry_bar_timeframe, "1m")
+
+    def test_a_slow_mother_draws_on_the_slow_stream_and_fills_on_1m(self):
+        """Geometry on the mother's chart, touches on a faster one.
+
+        The split is opt-in since 2026-08-15 -- an unset entry timeframe now
+        follows the mother -- so this names 1m explicitly, which is what the
+        backtest route does.
+        """
         geometry = bars(
             [
                 (24_900, 24_920, 24_880, 24_890),  # 0 red   <- MOTHER, high 24,920
                 (24_890, 24_900, 24_000, 24_020),  # 1 red   <- low 24,000
-                (24_020, 24_200, 24_010, 24_180),  # 2 green
-                (24_180, 24_300, 24_170, 24_290),  # 3 green <- LOW frozen
-                (24_290, 25_000, 24_280, 24_980),  # 4 green <- high 25,000
-                (24_980, 24_990, 24_900, 24_910),  # 5 red
-                (24_910, 24_920, 24_850, 24_860),  # 6 red   <- HIGH frozen
+                (24_020, 24_200, 24_010, 24_180),  # 2 green <- the low LOCKS
+                (24_180, 24_300, 24_170, 24_290),  # 3 green
+                (24_290, 24_600, 24_280, 24_580),  # 4 green <- bounce, under the mother
+                (24_580, 24_590, 24_400, 24_420),  # 5 red
+                (24_420, 24_430, 23_950, 23_980),  # 6 red   <- TL1 + FIB 1 drawn
+                (23_980, 24_300, 23_970, 24_280),  # 7 green
+                (24_280, 24_520, 24_270, 24_300),  # 8 green <- tags the line
+                (24_300, 24_310, 23_900, 23_930),  # 9 red   <- FIB 2 drawn
             ],
             step_minutes=15,
         )
@@ -459,6 +526,7 @@ class TimeframeTests(unittest.TestCase):
             lot_size=65,
             strike_step=50.0,
             timeframe="15m",
+            entry_timeframe="1m",
         )
         engine = FibTouchLadder(
             config,
@@ -467,24 +535,27 @@ class TimeframeTests(unittest.TestCase):
         )
         for bar in geometry:
             engine.on_geometry_candle(bar)
+        # Two structures on the 15m stream: 0 = 24,590 / 1 = 24,000 (span 590),
+        # then 0 = 24,520 / 1 = 23,950 (span 570). The mother's own high is
+        # never an anchor.
+        self.assertEqual(len(engine.geometry.fibs), 2)
         assert engine.anchor is not None
-        self.assertEqual(engine.anchor.high, 25_000.0)
-        self.assertEqual(engine.anchor.low, 24_000.0)
+        self.assertEqual(engine.anchor.high, 24_520.0)
         self.assertNotEqual(engine.anchor.high, 24_920.0)  # not the mother's own high
-        # Span 1,000 -> L2 sits at 25,000 - 2,000 = 23,000.
-        self.assertEqual(engine.rungs[0].index_price, 23_000.0)
+        self.assertEqual(engine.rungs[0].key, "F1L2")
+        self.assertEqual(engine.rungs[0].index_price, 23_410.0)  # 24,590 - 2 x 590
 
-        # A 1m bar BEFORE the swing was confirmed may not trade, even if it
-        # touches: the anchor was not knowable when it printed.
-        early = Bar(geometry[2].timestamp + timedelta(minutes=1), 24_000, 24_010, 22_990, 23_100)
+        # A 1m bar from BEFORE the fib was drawn may not trade it, even if it
+        # touches: the structure did not exist when that bar printed.
+        early = Bar(geometry[2].timestamp + timedelta(minutes=1), 24_000, 24_010, 23_000, 23_100)
         engine.on_candle(early)
-        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.fills, [], "a level cannot fill before its fib was drawn")
 
-        # After confirmation, a 1m touch fills at the level.
-        late = Bar(geometry[-1].timestamp + timedelta(minutes=1), 23_100, 23_110, 22_990, 23_050)
+        # A 1m bar AFTER it can.
+        # Down to 23,370: past F1L2 (23,410) and F2L2 (23,380), both fibs.
+        late = Bar(geometry[-1].timestamp + timedelta(minutes=1), 23_500, 23_510, 23_370, 23_420)
         engine.on_candle(late)
-        self.assertEqual(len(engine.fills), 1)
-        self.assertEqual(engine.fills[0].index_price, 23_000.0)
+        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2"])
 
     def test_a_1m_mother_needs_no_second_stream(self):
         engine, candles, _ = ladder()
@@ -821,9 +892,22 @@ class PersistenceTests(unittest.TestCase):
         engine = self.open_ladder()
         back = self.revive(engine)
         base = engine.fills[-1].timestamp
-        back.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
+        # The target is a quarter of the way to the MOTHER (24,780) now, so a
+        # bar topping at 24,560 no longer reaches it.
+        back.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         self.assertEqual(back.status, "CLOSED")
         self.assertEqual(back.exit_reason, "target")
+
+    def test_a_restored_fill_remembers_which_fib_it_came_from(self):
+        """Fibs stack, so "level 2" alone does not name a rung. A ladder that
+        forgets the fib collapses two different buys at two different prices
+        into the same key -- which is what happened before `fib_id` was
+        persisted: as_dict said F1L2 and the reload said L2."""
+        engine = self.open_ladder()
+        self.assertEqual(engine.fills[0].rung_key, "F1L2")
+        back = self.revive(engine)
+        self.assertEqual(back.fills[0].fib_id, engine.fills[0].fib_id)
+        self.assertEqual(back.fills[0].rung_key, "F1L2")
 
     def test_the_entry_bar_guard_survives_so_it_cannot_exit_on_its_own_fill_bar(self):
         engine = self.open_ladder()
@@ -904,168 +988,77 @@ class MotherBreakTests(unittest.TestCase):
         self.assertEqual(engine.status, "MOTHER_BROKEN")
 
 
-class MotherRebaseTests(unittest.TestCase):
-    """Phil, 2026-08-07: "before if it breaks, then mother is changed."
+class MotherBrokenNoBuysTests(unittest.TestCase):
+    """Phil REVERSED the rebase on 2026-08-15.
 
-    A first measurement killed 20 of 24 campaigns on a mother break before any
-    buy. Nothing was at risk in any of them -- the setup had simply moved on.
+    His 2026-08-07 rule moved the mother when it broke before any buy, because
+    ending there had killed 20 of 24 campaigns with nothing at risk. He has now
+    taken that back: "Mother doesn't move if not buy happened, but close the
+    trade with no buys.. And wait for my next MC." The engine no longer picks
+    its own mother -- he does.
     """
 
     def unfilled(self):
-        """A ladder that is armed on the swing but has bought nothing."""
+        """A ladder with structure drawn but nothing bought -- which is exactly
+        where the shared fixture ends."""
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        self.assertEqual(engine.status, "ARMED")
-        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.fills, [], "the fixture must not have bought yet")
+        self.assertTrue(engine.geometry.fibs, "but the geometry must have drawn")
         return engine, candles[-1].timestamp
 
-    def test_a_break_with_nothing_bought_does_not_end_the_campaign(self):
+    def test_a_break_with_nothing_bought_ends_the_campaign(self):
         engine, base = self.unfilled()
         engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
-        self.assertNotEqual(engine.status, "MOTHER_BROKEN")
-        self.assertIsNone(engine.exit_reason)
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.exit_reason, "mother_broken_no_buys")
 
-    def test_it_watches_five_bars_then_takes_the_best_as_the_new_mother(self):
+    def test_it_closes_flat_rather_than_inventing_a_loss(self):
+        """Nothing was bought, so nothing was lost. The books must say zero,
+        not None and not a fabricated number."""
         engine, base = self.unfilled()
-        old_mother = engine.config.mother_timestamp
-        # Five bars from the break; the THIRD prints the highest high.
-        walk = [
-            (24_700, 24_800, 24_690, 24_790),
-            (24_790, 24_820, 24_780, 24_810),
-            (24_810, 24_900, 24_800, 24_890),  # <- highest high 24,900
-            (24_890, 24_895, 24_870, 24_880),
-            (24_880, 24_885, 24_860, 24_870),
-        ]
-        stamps = []
-        for i, (o, h, low, c) in enumerate(walk, start=1):
-            stamp = base + timedelta(minutes=i)
-            stamps.append(stamp)
-            engine.on_candle(Bar(stamp, o, h, low, c))
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
+        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.net_pnl, 0.0)
+        self.assertEqual(engine.gross_pnl, 0.0)
+        self.assertEqual(engine.costs_total, 0.0)
 
-        self.assertEqual(engine.config.mother_timestamp, stamps[2])
-        self.assertEqual(engine.mother_high, 24_900.0)
-        self.assertNotEqual(engine.config.mother_timestamp, old_mother)
-        # The old geometry belonged to a setup that no longer exists.
-        self.assertIsNone(engine.anchor)
-        self.assertEqual(engine.rungs, [])
-        self.assertEqual(engine.status, "WAITING_FOR_SWING")
-
-    def test_the_first_bar_through_does_not_automatically_win(self):
-        """The whole reason for waiting: it is usually not the best one."""
-        engine, base = self.unfilled()
-        walk = [
-            (24_700, 24_800, 24_690, 24_790),  # first through, high 24,800
-            (24_790, 24_950, 24_780, 24_940),  # <- the real high
-            (24_940, 24_945, 24_920, 24_930),
-            (24_930, 24_935, 24_910, 24_920),
-            (24_920, 24_925, 24_900, 24_910),
-        ]
-        for i, (o, h, low, c) in enumerate(walk, start=1):
-            engine.on_candle(Bar(base + timedelta(minutes=i), o, h, low, c))
-        self.assertEqual(engine.mother_high, 24_950.0)
-
-    def test_the_status_reports_the_mother_it_moved_to(self):
-        """What every chart of this ladder has to mark.
-
-        The backtest chart marked the mother that was TYPED, so once the engine
-        had moved on, the MC column and the MOTHER HIGH line described one
-        candle while the swing, the levels and the fill all belonged to
-        another. On the 2026-08-14 NIFTY CE replay that put the mother 22
-        points below its own swing and hours to the left of it -- the chart
-        Phil described as "everything upside down".
-        """
+    def test_the_mother_stays_exactly_where_he_typed_it(self):
         engine, base = self.unfilled()
         typed = engine.config.mother_timestamp
-        for i, high in enumerate((24_800, 24_900, 25_000, 25_100, 25_200), start=1):
-            engine.on_candle(Bar(base + timedelta(minutes=i), high - 20, high, high - 40, high - 10))
-        status = engine.get_status()
-        self.assertNotEqual(status["mother_timestamp"], typed.isoformat())
-        self.assertEqual(status["mother_timestamp"], engine.config.mother_timestamp.isoformat())
-        self.assertEqual(engine.mother_high, 25_200.0)
-
-    def test_it_can_rebase_again_and_again(self):
-        engine, base = self.unfilled()
-        step = 0
-        for _round in range(2):
-            for high in (24_800, 24_900, 25_000, 25_100, 25_200):
-                step += 1
-                engine.on_candle(Bar(base + timedelta(minutes=step), high - 20, high, high - 40, high - 10))
-        # Two full rebases, each taking the best of its own five bars.
-        self.assertEqual(engine.mother_high, 25_200.0)
-        self.assertEqual(engine.status, "WAITING_FOR_SWING")
-
-    def test_a_rebased_ladder_finds_a_new_swing_and_trades_again(self):
-        engine, base = self.unfilled()
-        step = 0
-
-        def push(o, h, low, c):
-            nonlocal step
-            step += 1
-            engine.on_candle(Bar(base + timedelta(minutes=step), o, h, low, c))
-
-        for row in [
-            (24_700, 24_800, 24_690, 24_790),
-            (24_790, 24_820, 24_780, 24_810),
-            (24_810, 25_000, 24_800, 24_990),  # best -> new mother, high 25,000
-            (24_990, 24_995, 24_970, 24_980),
-            (24_980, 24_985, 24_960, 24_970),
-        ]:
-            push(*row)
-        self.assertEqual(engine.mother_high, 25_000.0)
-
-        # A fresh fall, buyers in, a bounce, sellers back: a new swing forms.
-        for row in [
-            (24_970, 24_975, 24_900, 24_905),
-            (24_905, 24_910, 24_800, 24_805),  # low 24,800
-            (24_805, 24_830, 24_800, 24_825),  # green
-            (24_825, 24_845, 24_820, 24_840),  # green -> LOW frozen
-            (24_840, 24_900, 24_835, 24_895),  # high 24,900
-            (24_895, 24_898, 24_880, 24_882),  # red
-            (24_882, 24_884, 24_870, 24_872),  # red -> HIGH frozen
-        ]:
-            push(*row)
-        assert engine.anchor is not None
-        self.assertEqual(engine.anchor.low, 24_800.0)
-        self.assertEqual(engine.anchor.high, 24_900.0)
-        # L2 = 24,900 - 2x100 = 24,700, and a touch buys it.
-        push(24_870, 24_875, 24_695, 24_710)
-        self.assertEqual([f.level for f in engine.fills], [2])
-
-    def test_a_pe_rebases_on_the_lowest_low(self):
-        candles = bars(
+        high = engine.mother_high
+        for i, (o, h, low, c) in enumerate(
             [
-                (24_640, 24_660, 24_500, 24_658),  # 0 green <- MOTHER, low 24,500
-                (24_658, 24_680, 24_655, 24_675),
-                (24_675, 24_700, 24_670, 24_695),
-                (24_695, 24_698, 24_688, 24_690),
-                (24_690, 24_692, 24_680, 24_682),  # HIGH frozen
-                (24_682, 24_684, 24_650, 24_652),
-                (24_652, 24_654, 24_600, 24_602),
-                (24_602, 24_612, 24_600, 24_610),
-                (24_610, 24_620, 24_608, 24_618),  # LOW frozen -> ARMED
-            ]
-        )
-        config = FibTouchConfig(
-            symbol="NIFTY", side="PE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
-        )
-        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
-        for bar in candles:
-            engine.on_candle(bar)
-        self.assertEqual(engine.fills, [])
-        base = candles[-1].timestamp
-        walk = [
-            (24_490, 24_495, 24_480, 24_485),  # closes below the mother's 24,500
-            (24_485, 24_490, 24_400, 24_410),
-            (24_410, 24_415, 24_300, 24_310),  # <- lowest low 24,300
-            (24_310, 24_320, 24_305, 24_315),
-            (24_315, 24_325, 24_310, 24_320),
-        ]
-        for i, (o, h, low, c) in enumerate(walk, start=1):
+                (24_700, 24_800, 24_690, 24_790),
+                (24_790, 24_820, 24_780, 24_810),
+                (24_810, 24_900, 24_800, 24_890),
+            ],
+            start=1,
+        ):
             engine.on_candle(Bar(base + timedelta(minutes=i), o, h, low, c))
-        self.assertEqual(engine.mother_low, 24_300.0)
-        self.assertEqual(engine.status, "WAITING_FOR_SWING")
-        self.assertIsNone(engine.exit_reason)
+        self.assertEqual(engine.config.mother_timestamp, typed, "the mother never moves now")
+        self.assertEqual(engine.mother_high, high)
+
+    def test_a_broken_campaign_ignores_everything_after(self):
+        engine, base = self.unfilled()
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
+        stamp = engine.exit_timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_790, 24_950, 24_780, 24_940))
+        self.assertEqual(engine.exit_timestamp, stamp)
+        self.assertEqual(engine.fills, [])
+
+    def test_a_break_AFTER_buying_is_the_other_rule_and_still_closes_the_basket(self):
+        """The distinction that matters: money out means the basket is SOLD,
+        not that the campaign quietly stops with nothing booked."""
+        engine, base = self.unfilled()
+        # Buy F1L2 at 24,502 first.
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        self.assertTrue(engine.fills, "a rung must have filled")
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertNotEqual(engine.exit_reason, "mother_broken_no_buys")
+        self.assertIsNotNone(engine.net_pnl, "a sold basket books a number")
 
 
 class TrailingStopTests(unittest.TestCase):
@@ -1086,7 +1079,11 @@ class TrailingStopTests(unittest.TestCase):
                 (24_618, 24_650, 24_615, 24_645),
                 (24_645, 24_700, 24_640, 24_695),  # high 24,700
                 (24_695, 24_698, 24_680, 24_682),  # red
-                (24_682, 24_684, 24_670, 24_672),  # red -> HIGH frozen
+                (24_682, 24_684, 24_670, 24_672),  # red
+                (24_672, 24_674, 24_560, 24_570),  # TL1 + FIB 1 drawn
+                (24_570, 24_640, 24_565, 24_635),
+                (24_635, 24_690, 24_630, 24_640),  # tags the line
+                (24_640, 24_642, 24_505, 24_510),  # FIB 2 drawn, nothing bought
             ]
         )
         config = FibTouchConfig(
@@ -1102,51 +1099,56 @@ class TrailingStopTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        # One buy at L2 (24,500); span 100, so the target sits at 24,550.
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        # One buy at F1L2 (24,446). The taller mother changes the line, so this
+        # fixture draws ONE fib -- 0 = 24,674, 1 = 24,560, span 114 -- and its
+        # L2 sits lower than the standard fixture's. The mother tops at 26,000,
+        # so the target is a quarter of the long way back up to it.
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_440, 24_460))
         return engine, base
 
     def test_reaching_the_target_arms_the_trail_instead_of_selling(self):
         engine, base = self.trailing()
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_560, 24_505, 24_555))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_840, 24_505, 24_835))
         self.assertEqual(engine.status, "OPEN", "the target must no longer end the trade")
         self.assertTrue(engine.get_status()["trail_armed"])
-        self.assertEqual(engine.get_status()["trail_best"], 24_560.0)
+        self.assertEqual(engine.get_status()["trail_best"], 24_840.0)
 
     def test_it_rides_the_move_and_keeps_raising_the_best(self):
         engine, base = self.trailing()
-        for i, high in enumerate((24_560, 24_620, 24_700, 24_800), start=2):
+        for i, high in enumerate((24_840, 24_900, 24_980, 25_080), start=2):
             engine.on_candle(Bar(base + timedelta(minutes=i), high - 20, high, high - 30, high - 5))
         self.assertEqual(engine.status, "OPEN")
-        self.assertEqual(engine.get_status()["trail_best"], 24_800.0)
+        self.assertEqual(engine.get_status()["trail_best"], 25_080.0)
 
     def test_it_leaves_when_price_gives_back_one_span(self):
         engine, base = self.trailing(multiple=1.0)
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
-        # Best 24,800, span 100 -> the stop sits at 24,700.
-        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_650, 24_690))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 25_080, 24_505, 25_070))
+        # The rally draws a SECOND fib (0 = 24,642, 1 = 24,505, span 137), and
+        # the trail measures off the newest structure -- so best 25,080 puts the
+        # stop at 24,943.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 25_070, 25_075, 24_900, 24_930))
         self.assertEqual(engine.status, "CLOSED")
         self.assertEqual(engine.exit_reason, "trail_stop")
-        self.assertEqual(engine.exit_index, 24_700.0)
+        self.assertEqual(engine.exit_index, 24_943.0)
 
     def test_a_wick_through_the_stop_does_not_end_the_move(self):
         engine, base = self.trailing(multiple=1.0)
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
-        # Low pierces 24,700 but the CLOSE holds above it.
-        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_650, 24_720))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 25_080, 24_505, 25_070))
+        # Low pierces 24,943 but the CLOSE holds above it.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 25_070, 25_075, 24_900, 24_990))
         self.assertEqual(engine.status, "OPEN")
 
     def test_a_tighter_trail_leaves_sooner(self):
         engine, base = self.trailing(multiple=0.25)
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_800, 24_505, 24_790))
-        # Best 24,800, 0.25 span = 25 -> stop 24,775, and 24,770 closes under it.
-        engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_760, 24_770))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 25_080, 24_505, 25_070))
+        # Best 25,080, 0.25 of the 137 span = 34.25 -> stop 25,045.75.
+        engine.on_candle(Bar(base + timedelta(minutes=3), 25_070, 25_075, 25_030, 25_040))
         self.assertEqual(engine.status, "CLOSED")
-        self.assertEqual(engine.exit_index, 24_775.0)
+        self.assertEqual(engine.exit_index, 25_045.75)
 
     def test_the_trail_beats_the_plain_target_on_a_move_that_keeps_going(self):
         """The whole point: a quarter-way exit leaves the rest on the table."""
-        walk = [(24_510, 24_800, 24_505, 24_790), (24_790, 24_795, 24_650, 24_690)]
+        walk = [(24_510, 25_080, 24_505, 25_070), (25_070, 25_075, 24_900, 24_930)]
 
         plain, base = self.trailing()
         object.__setattr__(plain.config, "trailing_stop", False)
@@ -1157,8 +1159,8 @@ class TrailingStopTests(unittest.TestCase):
         for i, row in enumerate(walk, start=2):
             trailed.on_candle(Bar(base2 + timedelta(minutes=i), *row))
 
-        self.assertEqual(plain.exit_index, 24_550.0)  # the 0.25 target
-        self.assertEqual(trailed.exit_index, 24_700.0)  # rode 150 points further
+        self.assertEqual(plain.exit_index, 24_834.5)  # the 0.25 target to the mother
+        self.assertEqual(trailed.exit_index, 24_943.0)  # rode 108.5 points further
         self.assertGreater(trailed.exit_index, plain.exit_index)
 
 
@@ -1231,8 +1233,11 @@ class PartialExpiryTests(unittest.TestCase):
         for bar in candles:
             step(bar)
         base = candles[-1].timestamp
+        # Two fills, one per bar: F1L2 at 24,502 then F2L2 at 24,430. The
+        # second bar stops above F1L3 (24,404) so the basket stays two legs --
+        # with fibs stacking, a deeper sweep would take three.
         step(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        step(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
+        step(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_440))
         return engine
 
     def test_the_near_expiry_settles_and_the_far_leg_keeps_running(self):
@@ -1240,8 +1245,9 @@ class PartialExpiryTests(unittest.TestCase):
         self.assertEqual(len(engine.fills), 2)
         self.assertEqual({f.expiry for f in engine.fills}, {date(2026, 8, 11), date(2026, 8, 18)})
 
-        # 11 Aug 15:15: only the leg that actually expired is booked.
-        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        # 11 Aug 15:15: only the leg that actually expired is booked. The
+        # bar sits above the pending rungs so it settles without buying.
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_420, 24_425, 24_415, 24_420))
         self.assertEqual(engine.status, "OPEN")
         self.assertEqual(len(engine.fills), 1)
         self.assertEqual(engine.fills[0].expiry, date(2026, 8, 18))
@@ -1250,8 +1256,8 @@ class PartialExpiryTests(unittest.TestCase):
 
     def test_the_campaign_ends_when_the_LAST_leg_expires(self):
         engine = self.two_expiry_basket()
-        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
-        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_300, 24_310, 24_290, 24_300))
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_420, 24_425, 24_415, 24_420))
+        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_420, 24_425, 24_415, 24_420))
         self.assertEqual(engine.status, "EXPIRED")
         self.assertEqual(engine.fills, [])
         self.assertIsNotNone(engine.net_pnl)
@@ -1259,13 +1265,11 @@ class PartialExpiryTests(unittest.TestCase):
     def test_both_legs_are_in_the_final_pnl_not_just_the_last(self):
         engine = self.two_expiry_basket()
         entries = [(f.strike, f.premium, f.quantity) for f in engine.fills]
-        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
-        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_300, 24_310, 24_290, 24_300))
-        # 24,400 settles the 11 Aug leg; 24,500 settles the 18 Aug one.
-        expected = sum(
-            (max(close - strike, 0.0) - premium) * qty
-            for (strike, premium, qty), close in zip(entries, (24_400.0, 24_300.0))
-        )
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_420, 24_425, 24_415, 24_420))
+        engine.on_candle(Bar(datetime(2026, 8, 18, 15, 15), 24_420, 24_425, 24_415, 24_420))
+        # Both legs settle at 24,420 -- a price chosen to sit ABOVE every
+        # rung still resting, so a settlement bar cannot also buy one.
+        expected = sum((max(24_420.0 - strike, 0.0) - premium) * qty for strike, premium, qty in entries)
         self.assertAlmostEqual(engine.gross_pnl, expected, places=2)
 
     def test_a_leg_with_life_left_is_never_zeroed_by_an_earlier_expiry(self):
@@ -1325,7 +1329,7 @@ class ExpiryLockTests(unittest.TestCase):
 
     def test_the_whole_campaign_ends_on_its_one_expiry(self):
         engine = self._laddered(*self._rolling_chain())
-        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_400, 24_405, 24_395, 24_400))
+        engine.on_candle(Bar(datetime(2026, 8, 11, 15, 15), 24_420, 24_425, 24_415, 24_420))
         self.assertEqual(engine.status, "EXPIRED")
         self.assertEqual(engine.fills, [])
         self.assertIsNotNone(engine.net_pnl, "an expired campaign is booked, not left hanging")
@@ -1342,8 +1346,10 @@ class ExpiryLockTests(unittest.TestCase):
         self.assertEqual(len(engine.fills), held, "a rung was bought a day before its own expiry")
         self.assertEqual({rung.status for rung in pending}, {"EXPIRING"})
 
-    def test_a_rebase_frees_the_expiry_again(self):
-        """No buy has happened, so no contract is committed."""
+    def test_a_campaign_that_never_bought_never_locked_an_expiry(self):
+        """The rebase used to free the lock; there is no rebase any more. A
+        mother that breaks with nothing bought just ends, and a campaign that
+        never bought never committed to a contract in the first place."""
         expiries, holder = self._rolling_chain()
         candles = falling_then_bouncing()
         config = FibTouchConfig(
@@ -1351,9 +1357,13 @@ class ExpiryLockTests(unittest.TestCase):
         )
         engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
         holder["engine"] = engine
-        engine.expiry_locked = date(2026, 8, 11)
-        engine._rebase(candles[:5])
+        for bar in candles:
+            engine.on_candle(bar)
+        self.assertEqual(engine.fills, [])
         self.assertIsNone(engine.expiry_locked)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_700, 24_800, 24_690, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertIsNone(engine.expiry_locked, "nothing was ever committed")
 
     def test_a_ladder_saved_before_the_lock_comes_back_locked(self):
         engine = self._laddered(*self._rolling_chain())
@@ -1373,21 +1383,24 @@ class DeepTargetTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        self.assertEqual([f.level for f in engine.fills], [2])
+        self.assertEqual([f.level for f in engine.fills], [2], "only F1L2 is reached")
         self.assertEqual(engine.target_fraction, 0.25)
-        # avg 24,500, anchor high 24,700 -> a quarter of 200.
-        self.assertAlmostEqual(engine.target_index, 24_550.0, places=2)
+        # avg 24,502, mother 24,780 -> a quarter of the 278 between them.
+        self.assertAlmostEqual(engine.target_index, 24_571.50, places=2)
 
     def test_reaching_level_four_widens_the_target_to_a_half(self):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # Sweep L2 (24,500), L3 (24,400) and L4 (24,300) in one bar.
+        # One bar sweeping to 24,295 crosses five rungs -- and they come from
+        # BOTH fibs, which is the stack: F1L2 24,502, F2L2 24,430, F1L3 24,404,
+        # F1L4 24,306, F2L3 24,300. Two of them are a level 2.
         engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
-        self.assertEqual([f.level for f in engine.fills], [2, 3, 4])
-        self.assertEqual(engine.target_fraction, DEEP_TARGET_FRACTION)
-        # avg 24,400 -> half of the 300 back to 24,700.
-        self.assertAlmostEqual(engine.target_index, 24_550.0, places=2)
+        self.assertEqual([f.level for f in engine.fills], [2, 2, 3, 4, 3])
+        self.assertEqual(len({f.rung_key for f in engine.fills}), 5, "five distinct rungs, no double-fill")
+        self.assertEqual(engine.target_fraction, DEEP_TARGET_FRACTION, "an L4 filled, so half")
+        self.assertAlmostEqual(engine.average_index_entry, 24_388.40, places=2)
+        self.assertAlmostEqual(engine.target_index, 24_584.20, places=2)
 
     def test_the_deep_threshold_is_level_four(self):
         self.assertEqual(DEEP_TARGET_FROM_LEVEL, 4)

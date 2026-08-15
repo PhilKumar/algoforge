@@ -331,7 +331,8 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         status = revived["NIFTY"].engine.get_status()
         self.assertEqual(len(status["fills"]), len(engine.fills))
         self.assertEqual(status["deployed_inr"], engine.deployed_inr)
-        self.assertEqual(status["anchor"]["high"], 24_700.0)
+        # The newest fib is the anchor now: 0 = 24,698, 1 = 24,600.
+        self.assertEqual(status["anchor"]["high"], 24_698.0)
         self.assertEqual(status["anchor"]["low"], 24_600.0)
         # THE RULE: a restart is not a person deciding to trade real money.
         self.assertEqual(status["mode"], "live")

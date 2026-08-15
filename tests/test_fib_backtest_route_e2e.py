@@ -57,13 +57,17 @@ INDEX_CANDLES = {
     _dt(10, 15): (24095.0, 24098.0, 24080.0, 24085.0),  # red
     # Second red freezes the high AND wicks through L2 in the same bar.
     _dt(10, 30): (24085.0, 24088.0, 23890.0, 23900.0),  # red   -> HIGH frozen + L2 fill
-    _dt(10, 45): (23900.0, 23960.0, 23895.0, 23955.0),  # green -> target 23,950
+    _dt(10, 45): (23900.0, 23960.0, 23895.0, 23955.0),  # green
+    # The target runs to the MOTHER now (24,367.30), not to the swing high, so
+    # it sits at 24,018.33 -- further than the old anchor-based one and out of
+    # reach of the bar above. This is the bar that pays.
+    _dt(11, 0): (23955.0, 24030.0, 23950.0, 24025.0),  # green -> target 24,018.33
 }
 
 # One deliberately thin minute: the L2 fill (10:30) has no bar of its own and
 # is priced from the last real trade at 10:27 -- disclosed, never a gap. The
 # exit minute does print, so the round settles.
-OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 45): 520.0}
+OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 45): 520.0, _dt(11, 0): 545.0}
 
 
 class _StubDhanClient:
@@ -181,9 +185,14 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
 
         campaign = body["campaign"]
         # The swing the ladder measured from, found by the engine -- not typed.
+        # The fib the trendline rule draws: 0 = the touch high 24,100,
+        # 1 = the low that broke, 24,005. Neither is the mother's own high.
+        # The fib the trendline rule draws through this route: 0 = the touch
+        # high 24,098, 1 = the low that broke, 24,000. Neither is the mother's
+        # own high, which is the whole point of measuring off the structure.
         self.assertEqual(campaign["anchor"]["low"], 24_000.0)
-        self.assertEqual(campaign["anchor"]["high"], 24_100.0)
-        self.assertEqual(campaign["anchor"]["span"], 100.0)
+        self.assertEqual(campaign["anchor"]["high"], 24_098.0)
+        self.assertEqual(campaign["anchor"]["span"], 98.0)
 
         # The whole point: real numbers on the panel, nothing withheld.
         self.assertEqual(campaign["status"], "CLOSED")
@@ -191,12 +200,12 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         self.assertEqual(len(campaign["fills"]), 1)
         fill = campaign["fills"][0]
         self.assertEqual(fill["level"], 2)
-        self.assertEqual(fill["index_price"], 23_900.0)
+        self.assertEqual(fill["index_price"], 23_902.0)  # F1L2 = 24,098 - 2 x 98
         self.assertEqual(fill["premium"], 300.0)  # the 10:27 trade, 3 min back
         self.assertEqual(fill["quantity"], 65)
         self.assertEqual(campaign["data_gaps"], [])
         self.assertEqual(body["premium_failures"], [])
-        self.assertAlmostEqual(campaign["gross_pnl"], (520 - 300) * 65, places=2)
+        self.assertAlmostEqual(campaign["gross_pnl"], (545 - 300) * 65, places=2)
         self.assertIsNotNone(campaign["net_pnl"])
         self.assertGreater(campaign["costs_total"], 0)
         # Net is gross minus real statutory cost, never the same number.

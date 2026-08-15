@@ -10635,6 +10635,12 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         lot_size=lot_size,
         strike_step=terms.strike_step,
         timeframe=timeframe,
+        # This route feeds the geometry the mother's own bars and the entries a
+        # SEPARATE 1m stream, so it names 1m rather than taking the default.
+        # Since 2026-08-15 an unset entry timeframe follows the mother, and
+        # leaving it unset here would let the 1m entry bars into the geometry
+        # and redraw a 15m mother's structures on one-minute candles.
+        entry_timeframe="1m",
         capital_cap_inr=float(payload.capital_cap_inr),
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
@@ -11299,6 +11305,12 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         lot_size=lot_size,
         strike_step=terms.strike_step,
         timeframe=timeframe,
+        # This route feeds the geometry the mother's own bars and the entries a
+        # SEPARATE 1m stream, so it names 1m rather than taking the default.
+        # Since 2026-08-15 an unset entry timeframe follows the mother, and
+        # leaving it unset here would let the 1m entry bars into the geometry
+        # and redraw a 15m mother's structures on one-minute candles.
+        entry_timeframe="1m",
         capital_cap_inr=float(payload.capital_cap_inr),
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
