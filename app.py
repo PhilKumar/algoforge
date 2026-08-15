@@ -434,6 +434,45 @@ def _new_portfolio_period_bucket() -> dict:
     }
 
 
+# A rupee amount is anything whose key ends one of these ways. Counts (trades,
+# wins, trade_legs, order_count) are deliberately NOT money: a viewer is meant
+# to see how much was traded, just never for how much.
+_MONEY_KEY_SUFFIXES = ("pnl", "charges", "brokerage", "costs")
+
+
+_MONEY_FIELD_RE = re.compile(r"(pnl|price|profit|charges|brokerage|costs|value|amount)$", re.IGNORECASE)
+
+
+def _redact_trade_money(trades: list) -> list:
+    """Blank the rupee fields on executed trades, keeping time, instrument, side and size.
+
+    Masking only the P&L column would be pointless here: quantity and the two
+    prices give it back exactly. So every amount goes, and what a viewer keeps
+    is what was traded and how much of it — never for how much.
+    """
+    return [
+        {key: (None if _MONEY_FIELD_RE.search(str(key)) else value) for key, value in trade.items()}
+        if isinstance(trade, dict)
+        else trade
+        for trade in (trades or [])
+    ]
+
+
+def _redact_money(buckets: dict[str, dict]) -> dict[str, dict]:
+    """Blank every rupee figure in a set of portfolio buckets, keeping the shape.
+
+    The page draws the panel from these keys, so they have to survive — a
+    viewer sees the months, the trade counts and the layout, and `null` where
+    an amount would be, which the front end prints as asterisks. Sending zeros
+    instead would be a lie the page cannot tell apart from a flat month, and
+    dropping the keys would leave the panel unable to draw itself at all.
+    """
+    return {
+        key: {field: (None if field.endswith(_MONEY_KEY_SUFFIXES) else value) for field, value in bucket.items()}
+        for key, bucket in (buckets or {}).items()
+    }
+
+
 def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: list[dict] | None):
     """Combine persisted real trade history and paper runs into daily/monthly/yearly buckets."""
 
@@ -7817,6 +7856,9 @@ async def get_broker_trades(request: Request):
             except Exception as pe:
                 print(f"[TRADE_HISTORY] Persist error: {pe}")
 
+        if _auth_mod.is_viewer(getattr(getattr(request, "state", None), "current_user", None)):
+            trades = _redact_trade_money(trades)
+
         return {"status": "success", "broker": "Dhan", "source": source, "count": len(trades), "trades": trades}
 
     except Exception as e:
@@ -7992,6 +8034,15 @@ async def get_portfolio_history(request: Request):
                 print(f"[PORTFOLIO] Trade-history repair skipped: {repair_error}")
         runs = await _db_mod.list_runs(user_id)
         daily, monthly, yearly = _aggregate_portfolio_history(real_history, runs)
+        # A viewer keeps every panel on the Portfolio page; what they lose is
+        # the amounts. Masking in the page alone would be theatre — the figures
+        # would still be sitting in this response for anyone who opened the
+        # network tab — so the blanking happens here, and the front end has
+        # nothing left to reveal. `request` is None in the route's unit tests.
+        if _auth_mod.is_viewer(getattr(getattr(request, "state", None), "current_user", None)):
+            daily = _redact_money(daily)
+            monthly = _redact_money(monthly)
+            yearly = _redact_money(yearly)
         return {"status": "success", "daily": daily, "monthly": monthly, "yearly": yearly}
     except Exception as e:
         print(f"[PORTFOLIO] History error: {e}")

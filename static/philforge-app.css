@@ -3221,11 +3221,12 @@
     cursor: not-allowed;
   }
 
-  /* Portfolio's two-column row loses its right-hand card for a viewer, so the
-     survivor takes the whole width instead of sitting beside a hole. The
-     column count is an inline style on the element, hence !important. */
-  html.read-only-account #portfolio-dual-grid {
-    grid-template-columns: 1fr !important;
+  /* A masked amount must not keep its colour. Green and red say "up" and
+     "down" as loudly as the digits do, so a month of asterisks painted red
+     still hands over the sign of every figure on the page. */
+  .pf-masked-money {
+    color: var(--muted) !important;
+    letter-spacing: 0.12em;
   }
   .admin-toolbar {
     display: flex;

@@ -563,6 +563,25 @@ function isReadOnlyAccount() {
   return document.documentElement.classList.contains('read-only-account');
 }
 
+// ── Masked money for read-only accounts ────────────────────────────────────
+// A viewer keeps every panel on the Portfolio page — the months, the trading
+// days, the counts — and loses the amounts. The server has already sent them
+// as null (app.py `_redact_money`), so there is nothing here to reveal; these
+// two helpers only decide what gets printed and painted in their place.
+const PF_MONEY_MASK = '*****';
+
+function pfMoney(value, digits = 2, sep = '') {
+  if (isReadOnlyAccount()) return '₹' + sep + PF_MONEY_MASK;
+  return '₹' + sep + Number(value || 0).toFixed(digits);
+}
+
+// Green and red announce the sign as loudly as the digits do, so a masked
+// figure has to lose its colour too, or a wall of asterisks still says which
+// months made money.
+function pfMoneyTone(tone) {
+  return isReadOnlyAccount() ? 'var(--muted)' : tone;
+}
+
 async function loadAuthContext() {
   try {
     const res = await fetch('/api/auth/status');
@@ -14593,9 +14612,9 @@ async function loadPortfolioData() {
     const availableBal = Number(brokerData.available_balance || brokerData.funds?.availabelBalance || 0);
 
     // Update the UI
-    document.getElementById('portfolio-balance').textContent = '₹' + availableBal.toFixed(2);
-    document.getElementById('portfolio-today-pnl').textContent = '₹' + todayPnL.toFixed(2);
-    document.getElementById('portfolio-today-pnl').style.color = todayPnL >= 0 ? 'var(--success)' : 'var(--danger)';
+    document.getElementById('portfolio-balance').textContent = pfMoney(availableBal);
+    document.getElementById('portfolio-today-pnl').textContent = pfMoney(todayPnL);
+    document.getElementById('portfolio-today-pnl').style.color = pfMoneyTone(todayPnL >= 0 ? 'var(--success)' : 'var(--danger)');
     const todayTradeCount = Number(
       todayHistoryEntry.real_order_count ||
       todayOrders.length ||
@@ -14607,7 +14626,12 @@ async function loadPortfolioData() {
     ) || 0;
     document.getElementById('portfolio-total-trades').textContent = todayTradeCount;
     window._portfolioTodayDisplayTradeCount = todayTradeCount;
-    document.getElementById('portfolio-win-rate').textContent = totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%';
+    // A win rate is a performance number, and with the amounts blanked it can
+    // no longer be computed anyway — it would read a flat 0% and look like a
+    // fact rather than a redaction.
+    document.getElementById('portfolio-win-rate').textContent = isReadOnlyAccount()
+      ? PF_MONEY_MASK
+      : (totalTrades > 0 ? ((winningTrades / totalTrades) * 100).toFixed(1) + '%' : '0%');
 
     // ── Paper Trade P&L summary card ──
     const fallbackPaperClosed = Array.isArray(paperData.closed_trades) ? paperData.closed_trades : [];
@@ -14625,8 +14649,8 @@ async function loadPortfolioData() {
       : (paperData.strategy_name || paperData.run_name || '');
     const pfPaperPnlEl = document.getElementById('portfolio-paper-total-pnl');
     if (pfPaperPnlEl) {
-      pfPaperPnlEl.textContent = '₹' + paperTotalPnl.toFixed(2);
-      pfPaperPnlEl.style.color = paperTotalPnl > 0 ? 'var(--success)' : paperTotalPnl < 0 ? 'var(--danger)' : 'var(--muted)';
+      pfPaperPnlEl.textContent = pfMoney(paperTotalPnl);
+      pfPaperPnlEl.style.color = pfMoneyTone(paperTotalPnl > 0 ? 'var(--success)' : paperTotalPnl < 0 ? 'var(--danger)' : 'var(--muted)');
     }
     const pfStatus = document.getElementById('portfolio-paper-status');
     if (pfStatus) { pfStatus.textContent = paperRunning ? 'Running' : 'Idle'; pfStatus.style.color = paperRunning ? 'var(--success)' : 'var(--muted)'; }
@@ -14639,11 +14663,11 @@ async function loadPortfolioData() {
       if (hasRunningPaperSnapshot) {
         const engineLabel = `${runningPaperSnapshot.activeCount} active run${runningPaperSnapshot.activeCount !== 1 ? 's' : ''}`;
         const positionLabel = `${runningPaperSnapshot.openPositions} open position${runningPaperSnapshot.openPositions !== 1 ? 's' : ''}`;
-        pfMeta.textContent = `${engineLabel} · ${positionLabel} · Unrealized ₹${runningPaperSnapshot.openUnrealized.toFixed(2)}`;
+        pfMeta.textContent = `${engineLabel} · ${positionLabel} · Unrealized ${pfMoney(runningPaperSnapshot.openUnrealized)}`;
       } else {
         const unrealized = paperPositions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
         pfMeta.textContent = paperRunning
-          ? `${paperPositions.length} open position${paperPositions.length !== 1 ? 's' : ''} · Unrealized ₹${unrealized.toFixed(2)}`
+          ? `${paperPositions.length} open position${paperPositions.length !== 1 ? 's' : ''} · Unrealized ${pfMoney(unrealized)}`
           : 'No paper run active';
       }
     }
@@ -14691,10 +14715,10 @@ async function loadPortfolioData() {
             <td style="padding: 10px 0;">${escapeHtml(tradeTime)}</td>
             <td>${escapeHtml(symbol)}</td>
             <td>${escapeHtml(txnType + optionType)}</td>
-            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">₹${buyPrice.toFixed(2)}</td>
-            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">₹${sellPrice.toFixed(2)}</td>
+            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(buyPrice)}</td>
+            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(sellPrice)}</td>
             <td>${escapeHtml(qty)}</td>
-            <td style="font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono'; font-size: 11px;">₹${pnl.toFixed(2)}</td>
+            <td style="font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(pnl)}</td>
           </tr>
         `;
       }).join('');
@@ -14912,11 +14936,11 @@ function renderMonthlyDailyGrid() {
     <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Overall P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${isGrossProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalGrossRealPnl.toFixed(2)}</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isGrossProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalGrossRealPnl, 2, ' ')}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net Realised P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${isNetProfit ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${totalNetRealPnl.toFixed(2)}</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isNetProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalNetRealPnl, 2, ' ')}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
@@ -14924,15 +14948,15 @@ function renderMonthlyDailyGrid() {
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Charges</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">₹ ${totalCharges.toFixed(2)}</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${pfMoney(totalCharges, 2, ' ')}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Brokerage</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">₹ ${totalBrokerage.toFixed(2)}</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${pfMoney(totalBrokerage, 2, ' ')}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Profitable Days</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--success); font-family: 'JetBrains Mono';">${profitDays}/${tradingDays}</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone('var(--success)')}; font-family: 'JetBrains Mono';">${isReadOnlyAccount() ? '*' : profitDays}/${tradingDays}</div>
       </div>
     </div>
     <div style="margin-top: 8px; font-size: 10px; color: var(--muted);">Charges include GST, STT, SEBI Fees, Exchange Transaction Charges and Stamp Duty. Brokerage is shown separately.</div>
@@ -14946,17 +14970,21 @@ function renderMonthlyDailyGrid() {
     realDayEntries.forEach(e => {
       const isWin = e.grossReal >= 0;
       const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
-      const detailLines = [`Gross: ₹${e.grossReal.toFixed(2)}`, `Net: ₹${e.netReal.toFixed(2)}`];
-      if (e.charges > 0) detailLines.push(`Charges: ₹${e.charges.toFixed(2)}`);
-      if (e.brokerage > 0) detailLines.push(`Brokerage: ₹${e.brokerage.toFixed(2)}`);
+      const detailLines = [`Gross: ${pfMoney(e.grossReal)}`, `Net: ${pfMoney(e.netReal)}`];
+      if (e.charges > 0) detailLines.push(`Charges: ${pfMoney(e.charges)}`);
+      if (e.brokerage > 0) detailLines.push(`Brokerage: ${pfMoney(e.brokerage)}`);
       if (e.realOrderCount > 0 && e.realOrderCount !== e.realTrades) detailLines.push(`Orders: ${e.realOrderCount}`);
-      if (e.paper !== 0) detailLines.push(`Paper: ₹${e.paper.toFixed(2)}`);
+      if (e.paper !== 0) detailLines.push(`Paper: ${pfMoney(e.paper)}`);
       const details = detailLines.length ? `\n${detailLines.join('\n')}` : '';
+      // The day tile's wash is the sign in another form, so a masked tile goes
+      // neutral: asterisks on a green card are still a green day.
+      const tileFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)');
+      const tileEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
       html += `
-        <div style="padding: 8px 6px; background: ${isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ₹${e.grossReal.toFixed(2)}${details} (${e.displayTradeCount} trades)">
+        <div style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-          <div style="font-size: 13px; font-weight: 700; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹${e.grossReal.toFixed(0)}</div>
-          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ₹' + e.charges.toFixed(0) + ' chg' : ''}</div>
+          <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 0)}</div>
+          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ' + pfMoney(e.charges, 0) + ' chg' : ''}</div>
         </div>
       `;
     });
@@ -14986,10 +15014,10 @@ function renderMonthlyDailyGrid() {
       tableHtml += `<tr>
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
         <td style="padding: 10px 8px; text-align: center;" title="${e.realOrderCount > 0 && e.realOrderCount !== e.realTrades ? `${e.realOrderCount} orders, ${e.realTrades} fills` : `${e.displayTradeCount} trades`}">${e.displayTradeCount}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isRealWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.grossReal.toFixed(2)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${isNetWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono';">₹ ${e.netReal.toFixed(2)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.charges.toFixed(2)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">₹ ${e.brokerage.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${pfMoneyTone(isRealWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 2, ' ')}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${pfMoneyTone(isNetWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.netReal, 2, ' ')}</td>
+        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">${pfMoney(e.charges, 2, ' ')}</td>
+        <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono';">${pfMoney(e.brokerage, 2, ' ')}</td>
       </tr>`;
     });
     tableHtml += `</tbody></table>`;
@@ -15028,14 +15056,16 @@ function renderMonthlyDailyGrid() {
       paperDays.forEach(e => {
         const win = e.paper >= 0;
         const dl = String(e.day).padStart(2,'0') + ' ' + MONTH_NAMES_SHORT[month-1];
-        ph += `<div style="padding:6px 4px;background:${win?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)'};border:1px solid ${win?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)'};border-radius:5px;text-align:center;">
+        const paperFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (win?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)');
+        const paperEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (win?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)');
+        ph += `<div style="padding:6px 4px;background:${paperFill};border:1px solid ${paperEdge};border-radius:5px;text-align:center;">
           <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${dl}</div>
-          <div style="font-size:12px;font-weight:700;color:${win?'var(--success)':'var(--danger)'};font-family:'JetBrains Mono',monospace;">₹${e.paper.toFixed(0)}</div>
+          <div style="font-size:12px;font-weight:700;color:${pfMoneyTone(win?'var(--success)':'var(--danger)')};font-family:'JetBrains Mono',monospace;">${pfMoney(e.paper, 0)}</div>
           <div style="font-size:8px;color:var(--muted);margin-top:1px;">${e.paperTrades}T</div>
         </div>`;
       });
       ph += `</div>`;
-      ph += `<div style="font-size:11px;color:var(--muted);">Month total: <strong style="color:${isPaperPos?'var(--success)':'var(--danger)'};font-family:'JetBrains Mono',monospace;">₹${paperTotal.toFixed(2)}</strong></div>`;
+      ph += `<div style="font-size:11px;color:var(--muted);">Month total: <strong style="color:${pfMoneyTone(isPaperPos?'var(--success)':'var(--danger)')};font-family:'JetBrains Mono',monospace;">${pfMoney(paperTotal)}</strong></div>`;
       paperMonthEl.innerHTML = ph;
     }
   }
@@ -15078,15 +15108,17 @@ function renderYearlyMonthlyTable() {
         const paperPnl = Number(data.paper_pnl || 0);
         const charges = Number(data.real_charges || 0);
         const brokerage = Number(data.real_brokerage || 0);
-        const detailLines = [`${key}: ${trades} trades`, `Net real: ₹${pnl.toFixed(2)}`];
+        // The hover card is a second copy of the same figures — masking the
+        // cell and leaving the tooltip would hand them straight back.
+        const detailLines = [`${key}: ${trades} trades`, `Net real: ${pfMoney(pnl)}`];
         if (grossRealPnl !== pnl || charges !== 0 || brokerage !== 0) {
-          detailLines.push(`Gross real: ₹${grossRealPnl.toFixed(2)}`);
-          detailLines.push(`Charges: ₹${charges.toFixed(2)}`);
-          detailLines.push(`Brokerage: ₹${brokerage.toFixed(2)}`);
+          detailLines.push(`Gross real: ${pfMoney(grossRealPnl)}`);
+          detailLines.push(`Charges: ${pfMoney(charges)}`);
+          detailLines.push(`Brokerage: ${pfMoney(brokerage)}`);
         }
-        if (paperPnl !== 0) detailLines.push(`Paper: ₹${paperPnl.toFixed(2)}`);
+        if (paperPnl !== 0) detailLines.push(`Paper: ${pfMoney(paperPnl)}`);
         html += `<td style="padding: 10px 4px; text-align: center;" title="${detailLines.join('\n')}">
-          <div style="font-weight: 600; color: ${isWin ? 'var(--success)' : 'var(--danger)'}; font-family: 'JetBrains Mono'; font-size: 11px;">₹${pnl.toFixed(0)}</div>
+          <div style="font-weight: 600; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(pnl, 0)}</div>
           <div style="font-size: 9px; color: var(--muted);">${trades}T</div>
         </td>`;
       } else {
@@ -15095,7 +15127,7 @@ function renderYearlyMonthlyTable() {
     }
 
     const isYearWin = yearTotal >= 0;
-    html += `<td class="portfolio-ytd-total-cell" style="padding: 10px 6px; text-align: center; color: ${yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)'};"><span class="portfolio-ytd-total-value">₹${yearTotal.toFixed(0)}</span></td>`;
+    html += `<td class="portfolio-ytd-total-cell" style="padding: 10px 6px; text-align: center; color: ${pfMoneyTone(yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)')};"><span class="portfolio-ytd-total-value">${pfMoney(yearTotal, 0)}</span></td>`;
     html += `</tr>`;
   });
 

@@ -1376,10 +1376,10 @@
         <span id="portfolio-capital-ledger-title">Capital &amp; session pulse</span>
         <strong>Available funds and today's execution health</strong>
       </div>
-      <em class="read-only-hide">4 live metrics</em>
+      <em>4 live metrics</em>
     </header>
     <div class="portfolio-capital-grid">
-      <article class="portfolio-capital-metric read-only-hide">
+      <article class="portfolio-capital-metric">
         <div class="portfolio-metric-label">Available Balance</div>
         <div class="portfolio-metric-value accent" id="portfolio-balance">₹0.00</div>
         <div class="portfolio-metric-note">Total funds available</div>
@@ -1437,7 +1437,7 @@
   </section>
 
   <!-- Monthly P&L Chart (Daily breakdown for current month) -->
-  <section class="card portfolio-book-card portfolio-monthly-book read-only-hide">
+  <section class="card portfolio-book-card portfolio-monthly-book">
     <header class="portfolio-book-head">
       <div>
         <h3>Monthly Profit &amp; Loss</h3>
@@ -1485,6 +1485,10 @@
     </div>
 
   <!-- Year-to-Date Performance (Monthly grid per year) -->
+  <!-- A viewer sees this panel in full — the years, the months, the trade
+       counts — with the rupee figures masked. The server sends them as null;
+       see _redact_money in app.py. Hiding the whole card was the earlier
+       answer and it took away far more than the numbers. -->
   <div class="card portfolio-ledger-panel">
     <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Year-to-Date Performance</h3>
     <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
