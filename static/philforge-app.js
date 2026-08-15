@@ -521,7 +521,12 @@ async function logoutUser() {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {}
   await purgeAuthenticatedShellCaches();
-  location.reload();
+  // Signing out puts you at the front door, not back at the keypad. Reloading
+  // /app left whoever just left staring at the lock screen of the thing they
+  // had chosen to leave. `replace` so Back does not return to the terminal.
+  // A session that EXPIRES still reloads in place — that one is not a choice
+  // to leave, and the deep link is worth keeping behind the prompt.
+  location.replace('/');
 }
 
 async function purgeAuthenticatedShellCaches() {

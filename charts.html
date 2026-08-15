@@ -662,7 +662,8 @@ body::before {
     <button class="topbar-btn" id="charts-theme-toggle" type="button" aria-label="Toggle theme">◐ Theme</button>
     <a href="/app" class="topbar-btn">← Back to Dashboard</a>
     <button class="topbar-btn" data-install-app hidden>Install App</button>
-    <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())">Logout</button>
+    <!-- Same rule as the terminal's own Logout: out means the front door. -->
+    <button class="topbar-btn" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.replace('/'))">Logout</button>
   </div>
 </div>
 

@@ -551,7 +551,7 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <button type="button" data-year="2021" aria-pressed="false">2021</button><button type="button" data-year="2022" aria-pressed="false">2022</button><button type="button" data-year="2023" aria-pressed="false">2023</button><button type="button" data-year="2024" aria-pressed="false">2024</button><button type="button" data-year="2025" aria-pressed="false">2025</button><button type="button" data-year="2026" aria-pressed="false">2026</button>
   </div>
   <div class="ledger-scroll" id="ledger" tabindex="0" role="region"
-       aria-label="<span class="tr"><i lang="en">Daily profit and loss ledger</i><i lang="ta">தினசரி லாப நஷ்ட பதிவு</i></span>" data-total="891">
+       aria-label="Daily profit and loss ledger" data-l10n-attr="aria-label" data-l10n-en="Daily profit and loss ledger" data-l10n-ta="தினசரி லாப நஷ்ட பதிவு" data-total="891">
     <table>
       <thead><tr>
         <th scope="col"><span class="tr"><i lang="en">Date</i><i lang="ta">தேதி</i></span></th>
@@ -1031,6 +1031,13 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     // rest of the page uses; it is the one string that has to be swapped here.
     var find = document.getElementById('tearsheet-search');
     if (find) find.placeholder = find.dataset['ph' + (l === 'ta' ? 'Ta' : 'En')];
+    // Every other attribute string, marked up by t_attr(). Putting t()'s span
+    // in an attribute closes it on the first quote and spills the tag onto the
+    // page, so they carry their translation in data-* and get swapped here.
+    [].forEach.call(document.querySelectorAll('[data-l10n-attr]'), function (el) {
+      var v = el.getAttribute('data-l10n-' + (l === 'ta' ? 'ta' : 'en'));
+      if (v !== null) el.setAttribute(el.getAttribute('data-l10n-attr'), v);
+    });
     try { localStorage.setItem('pf-tearsheet-lang', l); } catch (e) {}
     window.dispatchEvent(new Event('resize'));
   }
