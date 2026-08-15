@@ -1462,7 +1462,10 @@
   width: 100%;
   min-height: 42px;
   padding: 0 44px 0 16px;
-  border-radius: 10px;
+  /* A pill, like the Track chips it sits beside. De-glossing this control
+     also flattened its corners from 18px to 10px, which is the rounding Phil
+     saw go missing -- flat was the ask, square was not. */
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel-hi);
   color: var(--text);
