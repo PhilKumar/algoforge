@@ -820,6 +820,15 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-rung-inr')).toHaveCount(0);
   await expect(page.locator('#fibx-levels-hint')).toContainText('L16');
 
+  // The session rule, and it is what gets SENT. Phil, 2026-08-16: intraday
+  // close at 3:15, with the carry-on rule still available beside it.
+  await expect(page.locator('#fibx-session')).toHaveValue('intraday');
+  await expect(page.locator('#fibx-levels-hint')).toContainText('OUT 3:15');
+  await page.click('#fibx-session-toggle [data-value="normal"]');
+  await expect(page.locator('#fibx-session')).toHaveValue('normal');
+  await expect(page.locator('#fibx-levels-hint')).toContainText('CARRIES');
+  await page.click('#fibx-session-toggle [data-value="intraday"]');
+
   // Every chart a mother may be read on. Entries stay 1m whichever is picked.
   // A button row, not a dropdown -- all four charts visible at once.
   await expect(page.locator('#fibx-timeframe .fibx-tf')).toHaveCount(4);
@@ -1186,11 +1195,11 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // built into it and wired to nothing -- the page could only ever start one of
   // the two halves.
   await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
-  await expect(page.locator('#fibx-levels-hint')).toHaveText('L2·L3·L4·L6·L8·L12·L16');
+  await expect(page.locator('#fibx-levels-hint')).toContainText('L2·L3·L4·L6·L8·L12·L16');
   await page.click('#fibx-buy-mode-toggle [data-value="convergence"]');
   await expect(page.locator('#fibx-buy-mode')).toHaveValue('convergence');
   // A hidden input fires no change event, so the hint proves the handler ran.
-  await expect(page.locator('#fibx-levels-hint')).toHaveText('ZONES · L1·L2·L4·L8');
+  await expect(page.locator('#fibx-levels-hint')).toContainText('ZONES · L1·L2·L4·L8');
   await page.click('#fibx-buy-mode-toggle [data-value="levels"]');
   await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
 

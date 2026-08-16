@@ -2618,6 +2618,16 @@
             <button type="button" class="scalp-toggle-btn" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" aria-checked="false"><span>◈ Where two meet</span></button>
           </div>
         </div>
+        <div style="margin-top:10px;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
+          <!-- Phil, 2026-08-16: "I need intraday close at 3:15 and normal
+               option to be selected from console UI." -->
+          <input type="hidden" id="fibx-session" value="intraday">
+          <div id="fibx-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
+            <button type="button" class="scalp-toggle-btn active" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" aria-checked="true"><span>⏱ Intraday · 3:15</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" aria-checked="false"><span>↗ Normal · carry</span></button>
+          </div>
+        </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
         <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step

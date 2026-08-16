@@ -1859,6 +1859,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'armFibBoundaryLive',
   'setFibBoundaryMode',
   'setFibBoundaryBuyMode',
+  'setFibBoundarySession',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -2853,7 +2854,8 @@ function _syncFibLevelsHint() {
   const levelsHint = document.getElementById('fibx-levels-hint');
   if (levelsHint) {
     const buys = document.getElementById('fibx-buy-mode')?.value || 'levels';
-    levelsHint.textContent = buys === 'convergence' ? 'ZONES · L1·L2·L4·L8' : 'L2·L3·L4·L6·L8·L12·L16';
+    const session = (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday' ? ' · OUT 3:15' : ' · CARRIES';
+    levelsHint.textContent = (buys === 'convergence' ? 'ZONES · L1·L2·L4·L8' : 'L2·L3·L4·L6·L8·L12·L16') + session;
     levelsHint.title = buys === 'convergence'
       ? 'Buys only where a level of one fib meets a level of another — the deepest two spaces.'
       : 'Buys every level of every drawn fib, one lot each.';
@@ -3234,7 +3236,13 @@ function _renderFibBoundaryCampaign(root, campaign) {
     (acc, round) => acc.concat((Array.isArray(round.fills) ? round.fills : []).map(f => ({ ...f, round: round.round, exit_premium: f.exit_premium }))),
     [],
   );
-  const everyFill = historicFills.concat(fills);
+  // DE-DUPED. Parking clears `fills`, but a campaign that simply ENDS keeps
+  // them -- so a closed round's legs are in both lists and every buy was about
+  // to be printed twice.
+  const seenFill = new Set(historicFills.map(f => `${f.rung_key}|${f.timestamp}|${f.buy_number}`));
+  const everyFill = historicFills.concat(
+    fills.filter(f => !seenFill.has(`${f.rung_key}|${f.timestamp}|${f.buy_number}`)),
+  );
   const levels = Array.isArray(campaign.levels) ? campaign.levels : [];
   const anchor = campaign.anchor || null;
   const symbol = String(campaign.symbol || 'NIFTY');
@@ -3429,6 +3437,7 @@ async function startFibBoundaryPaper() {
     timeframe: _fibTimeframe(),
     mode: el('fibx-mode')?.value || 'paper',
     buy_mode: _fibBuyMode(),
+    intraday_close: _fibIntradayClose(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -3790,6 +3799,28 @@ function setFibBoundaryBuyMode(_event, button) {
   _syncFibLevelsHint();
 }
 
+// Intraday closes the campaign at 3:15; Normal lets it run to its target,
+// however many days that takes. Phil's own words, 2026-08-16.
+function setFibBoundarySession(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'intraday';
+  const input = document.getElementById('fibx-session');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-session-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  _syncFibLevelsHint();
+}
+
+function _fibIntradayClose() {
+  return (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday';
+}
+
 function _fibBuyMode() {
   return document.getElementById('fibx-buy-mode')?.value || 'levels';
 }
@@ -3950,6 +3981,7 @@ async function runFibBoundaryBacktest() {
     side: el('fibx-side')?.value || 'CE',
     timeframe: _fibTimeframe(),
     buy_mode: _fibBuyMode(),
+    intraday_close: _fibIntradayClose(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -4113,6 +4145,7 @@ window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
+window.setFibBoundarySession = setFibBoundarySession;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

@@ -14,6 +14,7 @@ from engine.fib_touch_ladder import (
     DEEP_TARGET_FROM_LEVEL,
     GEOMETRY_TIMEFRAMES,
     HALVING_LEVELS,
+    INTRADAY_CLOSE_AT,
     ExecutionRefused,
     FibTouchConfig,
     FibTouchError,
@@ -242,7 +243,17 @@ def take_the_turn(engine, start, level, *, minutes=1, sweep_from=None):
     return rise
 
 
-def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=0, rearm=True):
+def ladder(
+    side="CE",
+    *,
+    cap=75_000.0,
+    premium=200.0,
+    lot_size=65,
+    levels=None,
+    mother_index=0,
+    rearm=True,
+    intraday=False,
+):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
     config = FibTouchConfig(
@@ -254,6 +265,10 @@ def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, 
         levels=tuple(levels) if levels else HALVING_LEVELS,
         capital_cap_inr=cap,
         rearm_on_new_low=rearm,
+        # Phil's 2026-08-16 session switch. The shared fixture runs NORMAL, so
+        # the expiry and multi-day tests keep meaning what they say; the
+        # intraday rule is exercised by IntradayCloseTests.
+        intraday_close=intraday,
     )
     seen: list = []
     return (
@@ -431,6 +446,7 @@ class LadderTests(unittest.TestCase):
             mother_timestamp=candles[0].timestamp,
             lot_size=65,
             strike_step=50.0,
+            intraday_close=False,
         )
         engine = FibTouchLadder(
             config,
@@ -655,6 +671,7 @@ class ExecutorTests(unittest.TestCase):
             mother_timestamp=candles[0].timestamp,
             lot_size=65,
             strike_step=50.0,
+            intraday_close=False,
         )
         engine = FibTouchLadder(
             config,
@@ -1277,7 +1294,12 @@ class PartialExpiryTests(unittest.TestCase):
         """
         candles = falling_then_bouncing()
         config = FibTouchConfig(
-            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            intraday_close=False,
         )
         chain = [date(2026, 8, 11), date(2026, 8, 18)]
         holder: dict = {}
@@ -1383,7 +1405,12 @@ class ExpiryLockTests(unittest.TestCase):
     def _laddered(self, expiries, holder):
         candles = falling_then_bouncing()
         config = FibTouchConfig(
-            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            intraday_close=False,
         )
         engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
         holder["engine"] = engine
@@ -1434,7 +1461,12 @@ class ExpiryLockTests(unittest.TestCase):
         expiries, holder = self._rolling_chain()
         candles = falling_then_bouncing()
         config = FibTouchConfig(
-            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            intraday_close=False,
         )
         engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=expiries)
         holder["engine"] = engine
@@ -1594,6 +1626,7 @@ class RestingExitTests(unittest.TestCase):
             mother_timestamp=candles[0].timestamp,
             lot_size=65,
             strike_step=50.0,
+            intraday_close=False,
         )
         engine = FibTouchLadder(config, premium_lookup=premium, expiry_source=lambda on: [date(2026, 8, 11)])
         for bar in candles:
@@ -1676,7 +1709,12 @@ class RestingExitTests(unittest.TestCase):
         quote, not a measurement."""
         candles = falling_then_bouncing()
         config = FibTouchConfig(
-            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            intraday_close=False,
         )
         by_time = {bar.timestamp: bar for bar in candles}
 
@@ -1696,6 +1734,89 @@ class RestingExitTests(unittest.TestCase):
         self.turn(push, candles[-1].timestamp, 24_502)
         self.assertTrue(engine.fills)
         self.assertEqual(engine.resting_exits, [])
+
+
+class IntradayCloseTests(unittest.TestCase):
+    """Phil, 2026-08-16: "I need intraday close at 3:15 and normal option to be
+    selected from console UI." The 22-Jul replay bought on the 24th and sold on
+    the 27th, which is not the scalp he trades."""
+
+    def held(self, **overrides):
+        engine, candles, _ = ladder(intraday=True, **overrides)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertEqual(len(engine.fills), 1)
+        return engine
+
+    def _at(self, hh, mm):
+        return datetime(2026, 8, 6, hh, mm)
+
+    def test_the_basket_is_sold_at_a_quarter_past_three(self):
+        engine = self.held()
+        engine.on_candle(Bar(self._at(15, 15), 24_520, 24_525, 24_515, 24_520))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "intraday_close")
+        self.assertEqual(len(engine.rounds), 1, "the day's round is booked")
+        self.assertIsNotNone(engine.net_pnl)
+        # Terminal, so nothing can be added to it tomorrow. (An ended campaign
+        # keeps its legs as the record, exactly as a target close does; the
+        # status is what says the position is gone.)
+        self.assertIn(engine.status, {"CLOSED"})
+        engine.on_candle(Bar(self._at(15, 20), 24_520, 24_525, 24_400, 24_410))
+        self.assertEqual(len(engine.rounds), 1, "and nothing trades after it")
+
+    def test_it_is_1515_not_1530(self):
+        engine = self.held()
+        engine.on_candle(Bar(self._at(15, 14), 24_520, 24_525, 24_515, 24_520))
+        self.assertEqual(engine.status, "OPEN", "14 minutes past three is still the session")
+        engine.on_candle(Bar(self._at(15, 15), 24_520, 24_525, 24_515, 24_520))
+        self.assertEqual(engine.status, "CLOSED")
+
+    def test_a_mother_that_bought_nothing_still_ends_with_the_day(self):
+        engine, candles, _ = ladder(intraday=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        self.assertEqual(engine.fills, [])
+        engine.on_candle(Bar(self._at(15, 15), 24_610, 24_615, 24_605, 24_610))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "intraday_close")
+
+    def test_nothing_is_bought_in_the_closing_window(self):
+        """A rung reached at 15:14 must not open a position the next bar has to
+        close."""
+        engine, candles, _ = ladder(intraday=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, self._at(15, 15), 24_502)
+        self.assertEqual(engine.fills, [])
+        self.assertEqual(engine.status, "CLOSED")
+
+    def test_the_normal_rule_carries_on_past_the_close(self):
+        engine, candles, _ = ladder()  # intraday OFF -- the other option
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        engine.on_candle(Bar(self._at(15, 15), 24_520, 24_525, 24_515, 24_520))
+        self.assertEqual(engine.status, "OPEN")
+        self.assertEqual(len(engine.fills), 1, "the position is still held")
+
+    def test_the_setting_survives_a_restart(self):
+        engine = self.held()
+        saved = engine.to_dict()
+        back = FibTouchLadder.from_dict(
+            saved,
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+        )
+        self.assertTrue(back.config.intraday_close)
+        self.assertEqual(back.config.intraday_close_at, INTRADAY_CLOSE_AT)
+
+    def test_the_status_payload_says_which_rule_is_running(self):
+        engine = self.held()
+        payload = engine.get_status()
+        self.assertTrue(payload["intraday_close"])
+        self.assertEqual(payload["intraday_close_at"], "15:15")
 
 
 class RearmOnNewLowTests(unittest.TestCase):

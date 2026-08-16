@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from datetime import time as dt_time
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
 from engine.fib_ladder_geometry import LadderGeometry
@@ -79,6 +80,10 @@ __all__ = [
 # Phil's ladder: the doubling levels with one half-step folded into each gap.
 # L2 -> L3 -> L4 -> L6 -> L8 -> L12 -> L16.
 HALVING_LEVELS: tuple[int, ...] = (2, 3, 4, 6, 8, 12, 16)
+
+# 15:15 IST, not 15:30: the last quarter hour is the auction run-in, and Phil
+# wants the position out before it rather than into it.
+INTRADAY_CLOSE_AT: dt_time = dt_time(15, 15)
 
 # "2 layers specifically 2 or more green candles" -- Phil, off a 25 Mar chart
 # where a 3-bar pivot took the low 273 points lower and two sessions late.  The
@@ -616,6 +621,14 @@ class FibTouchConfig:
     #   "levels"       every level of every drawn fib   (was Fib Boundary)
     #   "convergence"  only where two fibs' levels meet (was Fib Space)
     buy_mode: str = "levels"
+    # INTRADAY. Phil, 2026-08-16: "I need intraday close at 3:15 and normal
+    # option to be selected from console UI." On this setting the campaign is
+    # over at 15:15 IST on its own day -- the basket is sold at whatever it is
+    # worth and the mother is finished, because tomorrow gets a fresh one. Off,
+    # the campaign runs until its target, a broken mother or expiry, which is
+    # what every replay before today did.
+    intraday_close: bool = True
+    intraday_close_at: dt_time = INTRADAY_CLOSE_AT
     # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
     # after the mother is drawn from the first bounce instead of waiting for a
     # trendline. Off by default: measured on the Fib Space side and it does not
@@ -1945,6 +1958,11 @@ class FibTouchLadder:
         if self.status == "WAITING_NEW_LOW":
             self._try_rearm(bar)
             return
+        # 15:15 ENDS THE DAY, and so the campaign. Checked before anything can
+        # buy: a rung touched at 15:14 must not open a position the very next
+        # bar has to close.
+        if self._try_intraday_close(bar):
+            return
         # In order, and the order is the rule: what the candle REACHED, then
         # whether the fall has turned, then the one buy that turn allows.
         self._collect(bar)
@@ -1953,6 +1971,74 @@ class FibTouchLadder:
         if self._try_exit(bar):
             return
         self._try_expiry_exit(bar)
+
+    def _try_intraday_close(self, bar: Bar) -> bool:
+        """Sell out at 15:15 and finish the mother, when set to intraday.
+
+        Phil, 2026-08-16: the 22-Jul replay bought on the 24th and sold on the
+        27th, and "as I said it is mostly intraday". So on this setting the
+        campaign lives for its own session: at 15:15 the basket goes at whatever
+        it is worth and the mother is done -- not parked, because a parked
+        mother waits for a lower low and this one is not coming back tomorrow.
+
+        A leg that cannot be priced at all leaves the campaign OPEN rather than
+        booking a round nobody could value; the next quote tries again.
+        """
+        if not self.config.intraday_close:
+            return False
+        if bar.timestamp.time() < self.config.intraday_close_at:
+            return False
+        if not self.fills:
+            self.status = "CLOSED"
+            self.exit_timestamp = bar.timestamp
+            self.exit_index = float(bar.close)
+            self.exit_reason = "intraday_close"
+            self._clear_resting_exits()
+            self._log(bar.timestamp, "intraday_close", open_lots=0, bought=False)
+            return True
+        prices: list[Optional[float]] = []
+        for fill in self.fills:
+            price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
+            if price is None:
+                intrinsic = (
+                    max(float(bar.close) - fill.strike, 0.0)
+                    if self.side == "CE"
+                    else max(fill.strike - float(bar.close), 0.0)
+                )
+                price = intrinsic if intrinsic > 0 else None
+            if price is None:
+                self._note_gap("intraday close: a leg has no price", bar.timestamp)
+                return False
+            prices.append(price)
+        try:
+            self.executor.sell_all(
+                when=bar.timestamp,
+                legs=[
+                    {
+                        "strike": fill.strike,
+                        "expiry": fill.expiry.isoformat(),
+                        "option_type": fill.option_type,
+                        "quantity": fill.quantity,
+                    }
+                    for fill in self.fills
+                ],
+            )
+        except ExecutionRefused as exc:
+            self.data_gaps.append(f"intraday close not sent: {exc}")
+            self._log(bar.timestamp, "exit_refused", detail=str(exc))
+            self.status = "EXIT_REFUSED"
+            return False
+        booked = len(self.rounds)
+        self._exit_premiums = prices
+        self.exit_timestamp = bar.timestamp
+        self.exit_index = float(bar.close)
+        self.exit_reason = "intraday_close"
+        self._settle(prices)
+        if len(self.rounds) == booked:
+            return False  # nothing was booked, so nothing may be declared over
+        self.status = "CLOSED"
+        self._log(bar.timestamp, "intraday_close", net=self.net_pnl, lots=len(prices))
+        return True
 
     def kill_and_close(self, bar: Bar) -> bool:
         """Close the campaign by hand, at whatever the basket is worth now.
@@ -2049,6 +2135,12 @@ class FibTouchLadder:
                 "min_dte": config.min_dte,
                 "lookback_bars": config.lookback_bars,
                 "involvement_candles": config.involvement_candles,
+                # Which of Phil's two session rules this campaign is running
+                # under. A restart that forgot it would carry an intraday
+                # ladder overnight -- the exact thing it exists to prevent.
+                "buy_mode": config.buy_mode,
+                "intraday_close": config.intraday_close,
+                "intraday_close_at": config.intraday_close_at.strftime("%H:%M"),
             },
             "mode": getattr(self.executor, "mode", "paper"),
             "status": self.status,
@@ -2164,6 +2256,13 @@ class FibTouchLadder:
             min_dte=int(terms.get("min_dte", 4)),
             lookback_bars=int(terms.get("lookback_bars", 240)),
             involvement_candles=int(terms.get("involvement_candles", INVOLVEMENT_CANDLES)),
+            buy_mode=str(terms.get("buy_mode", "levels")),
+            intraday_close=bool(terms.get("intraday_close", True)),
+            intraday_close_at=(
+                dt_time(*(int(part) for part in str(terms["intraday_close_at"]).split(":")[:2]))
+                if terms.get("intraday_close_at")
+                else INTRADAY_CLOSE_AT
+            ),
         )
         engine = cls(
             config,
@@ -2301,6 +2400,8 @@ class FibTouchLadder:
             # levels the fall has collected, and the price a rise must clear
             # before any of it becomes a buy.
             "collected": [rung.key for rung in self.rungs if rung.status == "COLLECTED"],
+            "intraday_close": self.config.intraday_close,
+            "intraday_close_at": self.config.intraday_close_at.strftime("%H:%M"),
             "buy_stop": round(self._buy_stop, 2) if self._buy_stop is not None else None,
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when

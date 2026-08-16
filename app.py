@@ -4026,6 +4026,11 @@ class FibTouchStartPayload(BaseModel):
     min_dte: int = Field(default=4, ge=0, le=45)
     # "paper" or "live". Live is built but refuses to send; see LiveExecutor.
     mode: str = Field(default="paper")
+    # THE SESSION RULE. Phil, 2026-08-16: "I need intraday close at 3:15 and
+    # normal option to be selected from console UI." True closes the campaign at
+    # 15:15 IST on its own day; False lets it run to its target, a broken mother
+    # or expiry, however many days that takes.
+    intraday_close: bool = Field(default=True)
     # THE MERGE'S SWITCH. Phil folded Fib Boundary and Fib Space into one
     # strategy on 2026-08-15: same geometry, and this decides what it buys --
     # "levels" (every level of every fib) or "convergence" (only where two
@@ -4070,9 +4075,10 @@ class FibTouchBacktestPayload(BaseModel):
     # The ladder ends at its target, a broken mother or expiry. Ten days covers
     # the overwhelming majority; the ceiling allows a contract held to expiry.
     horizon_days: int = Field(default=10, ge=1, le=60)
-    # Same switch as the Start payload -- a replay of a convergence campaign has
-    # to be a replay of the campaign that would be traded.
+    # Same switches as the Start payload -- a replay has to be a replay of the
+    # campaign that would actually be traded.
     buy_mode: str = Field(default="levels")
+    intraday_close: bool = Field(default=True)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -10684,6 +10690,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
         buy_mode=buy_mode,
+        intraday_close=bool(payload.intraday_close),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +
@@ -11399,6 +11406,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
         buy_mode=buy_mode,
+        intraday_close=bool(payload.intraday_close),
     )
 
     def _run() -> dict:
