@@ -8478,7 +8478,6 @@ function hideTerminalCascadeChart() {
     overlay.setAttribute('aria-hidden', 'true');
   }
   document.body.classList.remove('terminal-cascade-chart-open');
-  _fsxFlushHeldPaints();
 }
 
 function terminalCascadeChartBackdrop(event) {
@@ -9952,7 +9951,6 @@ function hideScalpOptionChart() {
   }
   if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')) {
     document.body.classList.remove('terminal-cascade-chart-open');
-  _fsxFlushHeldPaints();
   }
 }
 
@@ -10087,7 +10085,6 @@ function hideLiveEntryChart() {
   if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')
     && !document.getElementById('scalp-option-chart-overlay')?.classList.contains('is-open')) {
     document.body.classList.remove('terminal-cascade-chart-open');
-  _fsxFlushHeldPaints();
   }
 }
 
