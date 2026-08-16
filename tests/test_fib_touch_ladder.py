@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 from engine.fib_touch_ladder import (
+    BOUNDARY_LEVELS,
     DEEP_TARGET_FRACTION,
     DEEP_TARGET_FROM_LEVEL,
     GEOMETRY_TIMEFRAMES,
@@ -1373,6 +1374,90 @@ class ExpiryLockTests(unittest.TestCase):
             raw, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 18)]
         )
         self.assertEqual(restored.expiry_locked, date(2026, 8, 11))
+
+
+class BuyModeSwitchTests(unittest.TestCase):
+    """One strategy, one geometry, and a switch for what it buys.
+
+    Phil folded Fib Boundary and Fib Space together on 2026-08-15: "Fold into 1
+    with a switch." Everything else -- one lot per rung, the target, the cap --
+    is shared. Only the list of prices worth money differs.
+    """
+
+    def ladder_in(self, mode):
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            buy_mode=mode,
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        return engine, candles[-1].timestamp
+
+    def test_levels_mode_takes_every_level_of_every_fib(self):
+        engine, _ = self.ladder_in("levels")
+        self.assertEqual(len(engine.rungs), 14, "7 levels on each of 2 fibs")
+        self.assertEqual(engine.rungs[0].key, "F1L2")
+        self.assertTrue(all(rung.zone_floor is None for rung in engine.rungs))
+
+    def test_convergence_mode_takes_only_where_two_fibs_meet(self):
+        engine, _ = self.ladder_in("convergence")
+        self.assertEqual(len(engine.rungs), 1, "these two fibs converge exactly once")
+        rung = engine.rungs[0]
+        # Fib 2's level 1 (its own low, 24,560) meeting fib 1's level 2 (24,502).
+        self.assertEqual(rung.index_price, 24_560.0)
+        self.assertEqual(rung.zone_label, "1-2")
+        self.assertEqual(rung.fib_id, 2)
+        self.assertEqual(rung.zone_bottom_fib_id, 1)
+        self.assertNotEqual(rung.fib_id, rung.zone_bottom_fib_id, "a boundary needs TWO structures")
+
+    def test_a_wide_space_is_worked_down_to_its_middle(self):
+        engine, _ = self.ladder_in("convergence")
+        rung = engine.rungs[0]
+        self.assertAlmostEqual(rung.zone_floor, (24_560.0 + 24_502.0) / 2, places=2)
+
+    def test_the_two_modes_disagree_about_price_and_agree_about_everything_else(self):
+        levels, base = self.ladder_in("levels")
+        spaces, _ = self.ladder_in("convergence")
+        self.assertNotEqual(
+            {r.index_price for r in levels.rungs},
+            {r.index_price for r in spaces.rungs},
+            "the switch has to change WHICH prices are worth money",
+        )
+        for engine in (levels, spaces):
+            self.assertEqual(engine.mother_high, 24_780.0)
+            self.assertEqual(len(engine.geometry.fibs), 2, "same geometry underneath both")
+
+    def test_convergence_buys_one_lot_at_the_top_of_the_space(self):
+        engine, base = self.ladder_in("convergence")
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_600, 24_605, 24_555, 24_570))
+        self.assertEqual(len(engine.fills), 1)
+        fill = engine.fills[0]
+        self.assertEqual(fill.index_price, 24_560.0, "the top line, not the close")
+        self.assertEqual(fill.lots, 1, "one lot per rung in both modes")
+
+    def test_an_unknown_mode_is_refused_at_construction(self):
+        with self.assertRaises(FibTouchError):
+            FibTouchConfig(
+                symbol="NIFTY",
+                side="CE",
+                mother_timestamp=IST_START,
+                lot_size=65,
+                strike_step=50.0,
+                buy_mode="both",
+            )
+
+    def test_the_boundary_set_is_narrower_than_the_drawn_ladder(self):
+        """The ladder DRAWS L2..L16; only 1, 2, 4 and 8 may converge. Phil
+        signed that set off on 2026-08-04 as the one change that improved both
+        symbols."""
+        self.assertEqual(BOUNDARY_LEVELS, (1, 2, 4, 8))
+        self.assertNotEqual(set(BOUNDARY_LEVELS), set(HALVING_LEVELS))
 
 
 class DeepTargetTests(unittest.TestCase):

@@ -46,6 +46,7 @@ from datetime import date, datetime
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
 from engine.fib_ladder_geometry import LadderGeometry
+from engine.fib_spaces import find_spaces, tradable_spaces
 
 __all__ = [
     "HALVING_LEVELS",
@@ -89,6 +90,14 @@ INVOLVEMENT_CANDLES = 2
 # with a switch." The geometry is identical either way -- only the question
 # "which drawn price is worth money?" differs.
 BUY_MODES: tuple[str, ...] = ("levels", "convergence")
+
+# WHICH levels may form a convergence. Narrower than the drawn ladder on
+# purpose: Phil signed this set off on 2026-08-04 because it was the one change
+# that week to improve both symbols (BankNifty +3.60L -> +6.72L). Level 1 is the
+# fib's own low, which is in his boundary vocabulary -- "a zone formed with 8-1
+# boundary". The ladder still DRAWS L2..L16; only convergence eligibility is
+# this set.
+BOUNDARY_LEVELS: tuple[int, ...] = (1, 2, 4, 8)
 
 # Past this rung the ladder has paid for a big move, so it asks for half the
 # way back to the anchor instead of a quarter.
@@ -639,9 +648,20 @@ class TouchRung:
     # the structure did not exist yet, and filling earlier reads the future the
     # same way the old swing anchor did before `confirmed_at`.
     drawn_at: Optional[datetime] = None
+    # CONVERGENCE MODE ONLY. A rung is then a SPACE between two fibs' levels
+    # rather than one line: `zone_floor` is how deep it may still be worked,
+    # `zone_label` is Phil's own name for it ("2-8"), and the other fib is
+    # named so the panel can say which two structures made it. The fill still
+    # happens at `index_price`, the top of the space -- the first price a fall
+    # reaches.
+    zone_floor: Optional[float] = None
+    zone_label: str = ""
+    zone_bottom_fib_id: int = 0
 
     @property
     def key(self) -> str:
+        if self.zone_label:
+            return f"Z{self.fib_id}-{self.zone_bottom_fib_id}:{self.zone_label}"
         return f"L{self.level}" if not self.fib_id else f"F{self.fib_id}L{self.level}"
 
     def as_dict(self) -> dict[str, Any]:
@@ -653,6 +673,8 @@ class TouchRung:
             "status": self.status,
             "filled_at": self.filled_at.isoformat() if self.filled_at else None,
             "drawn_at": self.drawn_at.isoformat() if self.drawn_at else None,
+            "zone_floor": round(self.zone_floor, 2) if self.zone_floor is not None else None,
+            "zone_label": self.zone_label,
         }
 
 
@@ -754,6 +776,11 @@ class FibTouchLadder:
         # the chart and everything already persisted read unchanged.
         self.geometry = LadderGeometry(config.levels, seed_first_fib=config.seed_first_fib)
         self.rungs: list[TouchRung] = []
+        # The deepest the fall has been. Convergence mode needs it: a space the
+        # market has never entered is not a boundary yet, and "the deepest two"
+        # would otherwise chase ground far under the market as each new fib
+        # stacks below the last.
+        self._lowest_low: Optional[float] = None
         self.fills: list[TouchFill] = []
         self.events: list[dict[str, Any]] = []
         self.data_gaps: list[str] = []
@@ -908,21 +935,59 @@ class FibTouchLadder:
         """
         known = {rung.key: rung for rung in self.rungs}
         rebuilt: list[TouchRung] = []
-        for row in self.geometry.all_levels():
+        for row in self._drawable_rungs():
             existing = known.get(row.key)
             if existing is not None:
                 # Price is a property of the fib, which never moves once drawn.
                 rebuilt.append(existing)
                 continue
-            rebuilt.append(
+            rebuilt.append(row)
+        self.rungs = rebuilt
+
+    def _drawable_rungs(self) -> list[TouchRung]:
+        """The prices worth money, which is the whole of the buy-mode switch.
+
+        "levels"      every level of every fib -- the old Fib Boundary.
+        "convergence" only where a level of ONE fib meets a level of ANOTHER,
+                      and only the deepest two of those -- the old Fib Space.
+
+        Everything else about the ladder is identical either way: one lot per
+        rung, the same target, the same cap.
+        """
+        if self.config.buy_mode != "convergence":
+            return [
+                TouchRung(level=row.level, index_price=row.price, fib_id=row.fib_id, drawn_at=row.drawn_at)
+                for row in self.geometry.all_levels()
+            ]
+
+        fibs = self.geometry.fibs
+        drawn_at = {fib.fib_id: fib.drawn_timestamp for fib in fibs}
+        spaces = find_spaces(fibs, levels=BOUNDARY_LEVELS)
+        # `reached` keeps the deepest two honest: a space the fall has never
+        # entered is not a boundary yet, and without this every new fib pushes
+        # the pair further under the market than it has been.
+        live = tradable_spaces(spaces, reached=self._lowest_low)
+        out: list[TouchRung] = []
+        for space in live:
+            # Priced at the TOP of the space -- the shallowest point of the
+            # zone, and so the first price a fall reaches. The floor is carried
+            # for the panel and the chart, not for the trigger.
+            out.append(
                 TouchRung(
-                    level=row.level,
-                    index_price=row.price,
-                    fib_id=row.fib_id,
-                    drawn_at=row.drawn_at,
+                    level=int(space.top_level),
+                    index_price=float(space.top_price),
+                    fib_id=int(space.top_fib_id),
+                    drawn_at=max(
+                        drawn_at.get(space.top_fib_id, self.config.mother_timestamp),
+                        drawn_at.get(space.bottom_fib_id, self.config.mother_timestamp),
+                    ),
+                    zone_floor=float(space.buy_floor),
+                    zone_label=space.label,
+                    zone_bottom_fib_id=int(space.bottom_fib_id),
                 )
             )
-        self.rungs = rebuilt
+        out.sort(key=lambda rung: -rung.index_price)
+        return out
 
     def _resolve_contract(self, when: datetime, spot: float) -> tuple[float, date]:
         """Strike and expiry for a buy happening now, at this index level.
@@ -1351,10 +1416,17 @@ class FibTouchLadder:
         is_mother = bar.timestamp == self.config.mother_timestamp
         if is_mother:
             self.mother_high, self.mother_low = float(bar.high), float(bar.low)
+        low = float(bar.low)
+        self._lowest_low = low if self._lowest_low is None else min(self._lowest_low, low)
         before = {fib.fib_id for fib in self.geometry.fibs}
         self.geometry.on_bar(bar, is_mother=is_mother)
         drawn = [fib for fib in self.geometry.fibs if fib.fib_id not in before]
         if not drawn:
+            # Convergence mode still has to re-look: which two spaces are the
+            # deepest depends on how far the fall has gone, not only on whether
+            # a new structure appeared.
+            if self.config.buy_mode == "convergence" and self.geometry.fibs:
+                self._build_rungs()
             return
         # A new structure adds its levels to the ones already resting.
         self._build_rungs()
