@@ -3634,10 +3634,11 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     const isNewest = id === newestId;
     // The two ends of the structure, ghosted: they are the measuring stick, not
     // rungs, and drawing them solid makes them read as buyable levels.
-    if (isNewest) {
-      lines.push({ price: Number(fib.fib0), label: `F${id} 0`, color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
-      lines.push({ price: Number(fib.fib1), label: `F${id} 1`, color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
-    }
+    // EVERY structure shows its own 0 and 1. Drawing them for the newest fib
+    // only left the older one as a set of levels with nothing to measure them
+    // from -- Phil: "where is the 0 and 1 levels of the blue Fib line?"
+    lines.push({ price: Number(fib.fib0), label: '0', color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
+    lines.push({ price: Number(fib.fib1), label: '1', color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
     (fib.levels || []).forEach(row => {
       const key = `F${id}L${row.level}`;
       const rung = rungByKey[key];
@@ -3660,7 +3661,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
         : '';
       lines.push({
         price: Number(row.price),
-        label: `F${id} ${row.level}${convergence ? '' : state}`,
+        label: `${row.level}${convergence ? '' : state}`,
         color,
         filled: true,
         dash: [],
@@ -3681,13 +3682,13 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     const single = zone.kind === 'level';
     lines.push({
       price: Number(zone.top),
-      label: single ? `F${zone.top_fib_id} ${zone.label} lone fib` : `F${zone.top_fib_id}+F${zone.bottom_fib_id} ${zone.label} zone`,
+      label: single ? `${zone.label} lone fib` : `${zone.label} zone`,
       color, filled: true, dash: [], opacity: 0.95, width: 1.3, inr_notional: 0,
     });
     if (zone.floor != null && Number(zone.floor) !== Number(zone.top)) {
       lines.push({
         price: Number(zone.floor),
-        label: single ? `F${zone.top_fib_id} ${zone.label} floor` : `F${zone.top_fib_id}+F${zone.bottom_fib_id} ${zone.label} floor`,
+        label: `${zone.label} floor`,
         color, filled: true, dash: [], opacity: 0.5, width: 0.8, inr_notional: 0,
       });
     }
@@ -3700,7 +3701,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     const color = fibColor(row.fib_id);
     const status = String(row.status || 'PENDING');
     const lone = !row.zone_bottom_fib_id || row.zone_bottom_fib_id === row.fib_id;
-    const name = lone ? `F${row.fib_id} ${row.zone_label} lone fib` : `F${row.fib_id}+F${row.zone_bottom_fib_id} ${row.zone_label} zone`;
+    const name = lone ? `${row.zone_label} lone fib` : `${row.zone_label} zone`;
     lines.push({
       price: Number(row.index_price),
       label: name + (status === 'FILLED' ? ' filled' : status === 'COLLECTED' ? ' collected' : ''),
@@ -4128,7 +4129,10 @@ function _renderFibBoundaryBacktest(data) {
       _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
       _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
       _cascadeOptionsMetric('Funded', _cascadeOptionsMoney(c.deployed_inr || 0), '#fde68a'),
-      _cascadeOptionsMetric('Lots', `${c.open_lots || 0} · ${(c.fills || []).length} buys`),
+      _cascadeOptionsMetric(
+        'Lots',
+        `${c.open_lots || 0} · ${(c.rounds || []).reduce((n, r) => n + (r.fills || []).length, 0) + (c.fills || []).length} buys`,
+      ),
     ].join('');
   }
 
@@ -4156,20 +4160,34 @@ function _renderFibBoundaryBacktest(data) {
 
   const legs = document.getElementById('fibx-backtest-legs');
   if (legs) {
-    const fills = c.fills || [];
+    // EVERY leg the replay traded, banked rounds included. A round that pays
+    // out empties `fills` and parks the mother, so a replay whose OUTCOME says
+    // TARGET and whose NET P&L says +Rs 4,941 was showing "No level was
+    // touched in this window" underneath it (Phil, 2026-08-16).
+    const rounds = Array.isArray(c.rounds) ? c.rounds : [];
+    const banked = rounds.reduce(
+      (acc, round) => acc.concat((Array.isArray(round.fills) ? round.fills : []).map(f => ({ ...f, round: round.round }))),
+      [],
+    );
+    const seenLeg = new Set(banked.map(f => `${f.rung_key}|${f.timestamp}|${f.buy_number}`));
+    const open = (c.fills || []).filter(f => !seenLeg.has(`${f.rung_key}|${f.timestamp}|${f.buy_number}`));
+    const fills = banked.concat(open);
     const exits = c.exit_premiums || [];
     legs.innerHTML = fills.length ? fills.map((f, i) => {
-      const out = exits[i];
+      // A banked leg carries what it actually sold for; an open one falls back
+      // to the campaign's exit premiums, in the order they were bought.
+      const out = f.exit_premium != null ? f.exit_premium : exits[i - banked.length];
       const pnl = out == null ? null : (Number(out) - Number(f.premium)) * Number(f.quantity);
       const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
       return `<tr style="border-bottom:1px solid var(--border);">`
-        + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.buy_number))}</strong> L${escapeHtml(String(f.level))}</td>`
+        + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.buy_number))}</strong> ${escapeHtml(String(f.rung_key || ('L' + f.level)))}${f.round ? `<span style="margin-left:5px;font-size:9px;color:var(--muted);">R${escapeHtml(String(f.round))}</span>` : ''}</td>`
         + `<td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(f.timestamp))}</td>`
         + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(_cascadeNumber(f.index_price))}</td>`
         + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(Number(f.strike).toLocaleString('en-IN'))}</td>`
-        + `<td style="padding:7px 8px;text-align:right;">₹${escapeHtml(_cascadeNumber(f.premium))}${out == null ? '' : ' → ₹' + escapeHtml(_cascadeNumber(out))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">₹${escapeHtml(_cascadeNumber(f.premium))}</td>`
         + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.lots))}</td>`
         + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.quantity))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${out == null ? '—' : '₹' + escapeHtml(_cascadeNumber(out))}</td>`
         + `<td style="padding:7px 8px;text-align:right;color:${color};font-weight:800;">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`
         + `</tr>`;
     }).join('') : '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--muted);">No level was touched in this window.</td></tr>';

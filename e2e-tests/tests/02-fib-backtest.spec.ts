@@ -222,6 +222,39 @@ test('Backtest replays the ladder Start trades and shows its rupee P&L', async (
   expect(jsErrors).toEqual([]);
 });
 
+test('A banked round still lists its priced legs', async ({ page }) => {
+  // Phil, 2026-08-16: a replay whose OUTCOME said TARGET and whose NET P&L said
+  // +Rs 4,941 showed "No level was touched in this window" under it. A round
+  // that pays out empties `fills` and parks the mother, and the table only ever
+  // read `fills`.
+  const jsErrors: string[] = [];
+  page.on('pageerror', (e) => jsErrors.push(String(e)));
+  const parked = {
+    ...ladderBacktest,
+    campaign: {
+      ...ladderBacktest.campaign,
+      status: 'WAITING_NEW_LOW',
+      fills: [],
+      open_lots: 0,
+      rounds: [{
+        round: 1, gross_pnl: 3900, costs_total: 128.4, net_pnl: 3771.6,
+        exit_timestamp: '2026-07-20T10:45:00+05:30', exit_index: 23960, exit_reason: 'target',
+        fills: (ladderBacktest.campaign.fills || []).map((f: Record<string, unknown>) => ({ ...f, exit_premium: 260 })),
+      }],
+    },
+  };
+  await openFibPanel(page, parked);
+
+  await expect(page.locator('#fibx-backtest-legs')).not.toContainText('No level was touched');
+  await expect(page.locator('#fibx-backtest-legs tr')).toHaveCount(1);
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹200.00');   // paid
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹260.00');   // sold
+  await expect(page.locator('#fibx-backtest-legs')).toContainText('R1');        // which round
+  // And the tile stops saying "0 buys" over a round that traded.
+  await expect(page.locator('#fibx-backtest-summary')).toContainText('1 buys');
+  expect(jsErrors).toEqual([]);
+});
+
 test('A replay with no recorded prices says so instead of showing zeros', async ({ page }) => {
   const unpriced = {
     ...ladderBacktest,

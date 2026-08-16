@@ -1047,8 +1047,11 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   const labels = paint.labelTexts as string[];
   // BOTH structures are on the chart. Fibs stack since the merge, and a chart
   // that draws one of them shows prices that are not the ones holding money.
-  expect(labels.some((t) => t.startsWith('F2 0'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F2 1'))).toBe(true);
+  // EVERY fib draws its own 0 and 1 -- two structures, so two of each.
+  expect(labels.filter((t) => t.startsWith('0 (')).length).toBe(2);
+  expect(labels.filter((t) => t.startsWith('1 (')).length).toBe(2);
+  // and no "F1"/"F2" prefixes: the colour says which structure it is.
+  expect(labels.some((t) => /^F\d/.test(t))).toBe(false);
   // Only the mother edge the ladder works against -- a CE draws its HIGH and
   // never its low, which is the whole of Phil's 2026-08-06 correction.
   expect(labels.some((t) => t.startsWith('MOTHER'))).toBe(true);
@@ -1057,10 +1060,10 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   expect(paint).toMatchObject({ trendlines: 1 });
   // Each rung carries its own live state and names the FIB it belongs to --
   // two of them are "level 2" at different prices.
-  expect(labels.some((t) => t.startsWith('F1 2 filled'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 4 '))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 6 unfunded'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F2 2 '))).toBe(true);
+  expect(labels.some((t) => t.startsWith('2 filled'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('4 ('))).toBe(true);
+  expect(labels.some((t) => t.startsWith('6 unfunded'))).toBe(true);
+  expect(labels.filter((t) => t.startsWith('2 ')).length).toBeGreaterThan(1);
   // A ladder still holding must not claim it sold at the target -- and when the
   // target is a real order on the broker, the line says so.
   expect(labels.some((t) => t.includes('TARGET · 2 resting'))).toBe(true);
@@ -1162,8 +1165,8 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
     const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
     return app._pfChartCanvas?.paint?.labelTexts || [];
   });
-  expect(labels.some((t) => t.startsWith('F1 2'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 2') && t.includes('₹'))).toBe(false);
+  expect(labels.some((t) => t.startsWith('2 ('))).toBe(true);
+  expect(labels.some((t) => t.startsWith('2 (') && t.includes('₹'))).toBe(false);
   // What the round made is on its own sell mark, and the low that wakes the
   // mother is drawn.
   expect(labels.some((t) => t.includes('RE-ARM LOW'))).toBe(true);
