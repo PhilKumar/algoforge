@@ -761,12 +761,22 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-timeframe .fibx-tf[data-tf="15m"]')).toHaveClass(/is-active/);
   await page.click('#fibx-timeframe .fibx-tf[data-tf="1m"]');
 
-  // Paper is what you get by default. Live stays visibly safety-locked until
-  // broker fill, exit, and restart reconciliation have acceptance coverage.
+  // Paper is what you get by default, and Mode is now the Scalp page's plain
+  // toggle -- Phil asked for that on 2026-08-15, with no arming step and no
+  // password + authenticator behind it. The server still refuses real orders
+  // until its broker lifecycle is verified; that gate is not this control.
   await expect(page.locator('#fibx-mode')).toHaveValue('paper');
   await expect(page.locator('#fibx-mode-note')).toContainText('sends nothing');
-  await expect(page.locator('#fibx-mode option[value="live"]')).toBeDisabled();
-  await expect(page.locator('#fibx-mode')).toHaveAttribute('title', /Live remains unavailable/);
+  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="paper"]')).toHaveClass(/active/);
+  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]')).not.toHaveClass(/active/);
+  // It really toggles, both ways, and the hidden field follows it.
+  await page.click('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]');
+  await expect(page.locator('#fibx-mode')).toHaveValue('live');
+  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]')).toHaveClass(/active/);
+  await page.click('#fibx-mode-toggle .scalp-toggle-btn[data-value="paper"]');
+  await expect(page.locator('#fibx-mode')).toHaveValue('paper');
+  // The separate "Arm live" control is gone with the gate it existed for.
+  await expect(page.locator('[data-fx="arm"]')).toHaveCount(0);
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
   // they are getting a weekly contract that does not exist.

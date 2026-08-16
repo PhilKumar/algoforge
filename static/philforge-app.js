@@ -1857,6 +1857,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadTwoRedChart',
   'hideTwoRedChart',
   'armFibBoundaryLive',
+  'setFibBoundaryMode',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -4063,6 +4064,33 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   };
 }
 
+// Paper <-> Live, exactly the Scalp page's toggle. Phil, 2026-08-15: "No
+// need... just give a toggle from paper to live and live to paper like scalp
+// page." There is no arming step behind it any more and no password +
+// authenticator challenge -- choosing live IS the decision.
+//
+// The server still refuses every real order until the broker order lifecycle
+// is verified, which is a correctness gate and a different thing entirely.
+function setFibBoundaryMode(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'paper';
+  const input = document.getElementById('fibx-mode');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-mode-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  // A hidden input fires no `change`, so everything the old <select> listener
+  // did has to be done here by hand.
+  _syncFibModeHint();
+  _syncFibLevelsHint();
+  _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+}
+
 async function armFibBoundaryLive(_event, button) {
   const symbol = _fibxSymbolFor(button);
   if (!symbol) { _fibSetFormStatus('No ladder to arm.', 'error'); return; }
@@ -4383,6 +4411,7 @@ window.deleteFibSpaceCampaign = deleteFibSpaceCampaign;
 window.loadFibSpaceChart = loadFibSpaceChart;
 window.hideFibSpaceChart = hideFibSpaceChart;
 window.refreshFibSpaceStatus = refreshFibSpaceStatus;
+window.setFibBoundaryMode = setFibBoundaryMode;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

@@ -2553,11 +2553,15 @@
             </div>
           </div>
           <div>
-            <label for="fibx-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-            <select id="fibx-mode" title="Paper records fills and sends nothing. Live remains unavailable until broker fills and restart reconciliation are verified." style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-              <option value="paper" selected>▣ Paper</option>
-              <option value="live" disabled>◉ Live · safety verification pending</option>
-            </select>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+            <!-- The Scalp page's toggle, which is what Phil asked for on
+                 2026-08-15: paper to live and back, no separate arming step and
+                 no password + authenticator challenge. -->
+            <input type="hidden" id="fibx-mode" value="paper">
+            <div id="fibx-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+              <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
+              <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
+            </div>
           </div>
         </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
@@ -2609,7 +2613,7 @@
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
         </summary>
-        <div class="cascade-options-strip-actions fibx-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
+        <div class="cascade-options-strip-actions fibx-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
         <div class="cascade-options-window-body">
           <div class="fibx-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>

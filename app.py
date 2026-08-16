@@ -10645,10 +10645,17 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
     )
-    # Live is built and deliberately NOT armed -- the toggle and the whole code
-    # path exist with the exchange call still closed, so arming stays a separate
-    # explicit act rather than something a payload can flip.
-    executor = _FibTouchLiveExecutor(broker_client, terms.symbol) if mode == "live" else _FibTouchPaperExecutor()
+    # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
+    # like the Scalp page, with no separate arming step and no password +
+    # authenticator challenge. Choosing live IS the deliberate act now.
+    #
+    # This does not open real orders on its own: FIB_TOUCH_LIVE_EXECUTION_ENABLED
+    # still refuses every exchange call until broker fills, partial fills and
+    # restart reconciliation are verified. That gate is about correctness, and
+    # it is not what he asked to remove.
+    executor = (
+        _FibTouchLiveExecutor(broker_client, terms.symbol, armed=True) if mode == "live" else _FibTouchPaperExecutor()
+    )
     # A mother from an earlier day needs RECORDED prices; today's needs none,
     # and building the Upstox source blocks, so it is only paid for when the
     # campaign will actually read from it.
@@ -10773,12 +10780,24 @@ async def _kill_fib_boundary_runtime(user_id: int, symbol: str, runtime: _Cascad
 
 @app.post("/api/fib-boundary/paper/kill")
 async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
-    """Kill one paper ladder; live exits use the MFA-gated live route."""
+    """Kill one ladder, paper or live.
+
+    It used to refuse a live ladder and send you to an MFA-gated twin. Phil
+    dropped that gate on 2026-08-15, so there is one Kill for both and no
+    reason to make a live exit the harder of the two -- an exit is the thing
+    you least want standing between you and a position.
+
+    Live still goes out through the live executor, which refuses every real
+    order until its broker lifecycle is verified.
+    """
     symbol, runtime = _fib_boundary_runtime(request, symbol)
-    if bool(getattr(runtime.engine.executor, "is_live", False)):
+    if bool(getattr(runtime.engine.executor, "is_live", False)) and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
         raise HTTPException(
-            status_code=409,
-            detail="This is a live ladder. Reload PhilForge and use its MFA-gated live Kill & close control.",
+            status_code=503,
+            detail=(
+                "Automatic Fib Boundary live exit is disabled because multi-leg fills are not yet reconciled. "
+                "No PhilForge state was changed; manage any real position in Dhan and reconcile before stopping."
+            ),
         )
     return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
 

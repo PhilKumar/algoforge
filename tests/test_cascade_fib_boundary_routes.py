@@ -522,7 +522,11 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.status_code, 404)
             self.assertIn("SENSEX", str(raised.exception.detail))
 
-    async def test_paper_kill_cannot_bypass_the_live_action_gate(self):
+    async def test_killing_a_live_ladder_still_stops_at_the_execution_gate(self):
+        """The MFA gate is gone (Phil, 2026-08-15) and Kill now serves both
+        modes -- but the gate that actually matters is untouched: no real exit
+        goes out while the broker order lifecycle is unverified, and the
+        campaign keeps running rather than pretending it closed."""
         broker = _Broker()
         engine = _live_ladder("NIFTY", broker)
         app_module._fib_boundary_engines[11] = {
@@ -532,7 +536,8 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         }
         with self.assertRaises(app_module.HTTPException) as raised:
             await app_module.fib_boundary_paper_kill(_DummyRequest(), symbol="NIFTY")
-        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIn("not yet reconciled", str(raised.exception.detail))
         self.assertTrue(app_module._fib_boundary_engines[11]["NIFTY"].running)
 
     async def test_live_kill_sends_real_exits_before_stopping(self):

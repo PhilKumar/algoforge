@@ -205,11 +205,13 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("POST", re.compile(r"^/api/terminal/order$"), "broker_order"),
     ("POST", re.compile(r"^/api/terminal/gtt$"), "broker_order"),
     ("DELETE", re.compile(r"^/api/terminal/forever/[^/]+$"), "broker_order"),
-    # The instrument is part of the signed one-time target. A token minted to
-    # arm or kill NIFTY cannot be replayed against BANKNIFTY by changing only a
-    # query string.
-    ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/arm$"), "live_trading"),
-    ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/kill$"), "live_trading"),
+    # FIB BOUNDARY IS NOT HERE ANY MORE. Phil, 2026-08-15: "No need... just give
+    # a toggle from paper to live and live to paper like scalp page." Its live
+    # arm and kill used to cost a password and an authenticator code; he asked
+    # for the pattern his own Scalp page already ships, which is a plain
+    # toggle. Sole user, his money, his call -- and the gate that actually
+    # holds real orders back is FIB_TOUCH_LIVE_EXECUTION_ENABLED, which is a
+    # correctness gate about broker fills and restart recovery, not this one.
     # Scalp orders retain the normal authenticated user session and explicit
     # order/exit confirmations, but do not interrupt execution with a fresh
     # password + TOTP challenge on every entry, exit, stop, or target change.
