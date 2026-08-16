@@ -782,6 +782,33 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   // The separate "Arm live" control is gone with the gate it existed for.
   await expect(page.locator('[data-fx="arm"]')).toHaveCount(0);
 
+  // THE NOTES. This doc is the only place the rules are written down for Phil,
+  // so it has to describe the strategy that is actually running -- it spent a
+  // day describing the swing ladder the merge replaced.
+  await page.click('[data-pf-info="fibx-info"]');
+  const doc = page.locator('#fibx-info .pf-doc-lang[data-pf-lang="en"]');
+  await expect(doc).toBeVisible();
+  await expect(doc).toContainText('one strategy now');
+  await expect(doc).toContainText('It never moves');            // the mother is not rebased
+  await expect(doc).toContainText('cuts back below that low');  // how a fib is drawn
+  await expect(doc).toContainText('Fibs STACK');
+  await expect(doc).toContainText("up to the mother's high");   // what the target is measured to
+  await expect(doc).toContainText('rests on the broker');
+  await expect(doc).toContainText('new deepest low');
+  await expect(doc).toContainText('No stop loss');
+  // And nothing from the geometry it replaced.
+  await expect(doc).not.toContainText('first involvement');
+  await expect(doc).not.toContainText('authenticator code');
+  // Both languages, and the Tamil half is a real translation, not a stub.
+  await page.click('#fibx-info [data-pf-doc-lang="ta"]');
+  const ta = page.locator('#fibx-info .pf-doc-lang[data-pf-lang="ta"]');
+  await expect(ta).toBeVisible();
+  await expect(ta).toContainText('ஒரே strategy');
+  await expect(ta).toContainText('broker-இல் தங்கும்');
+  expect((await ta.innerText()).length).toBeGreaterThan(1500);
+  await page.click('#fibx-info [data-pf-doc-lang="en"]');
+  await page.click('[data-pf-info="fibx-info"]');
+
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
   // they are getting a weekly contract that does not exist.
   await page.selectOption('#fibx-symbol', 'BANKNIFTY');
