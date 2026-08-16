@@ -751,6 +751,10 @@ class TouchRung:
             "drawn_at": self.drawn_at.isoformat() if self.drawn_at else None,
             "zone_floor": round(self.zone_floor, 2) if self.zone_floor is not None else None,
             "zone_label": self.zone_label,
+            # WHICH second fib made this zone. Without it the screen cannot tell
+            # a real convergence from the lone-fib fallback, and calling both
+            # "ZONE" is what made Phil ask where the second fib was.
+            "zone_bottom_fib_id": self.zone_bottom_fib_id,
         }
 
 

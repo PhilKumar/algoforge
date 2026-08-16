@@ -3611,11 +3611,12 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   if (motherEdge !== null) {
     lines.push({
       price: motherEdge,
-      label: side === 'CE' ? 'MOTHER HIGH' : 'MOTHER LOW',
+      label: 'MOTHER',
       color: PAL.mother,
-      // `filled` is the renderer's solid-vs-dashed flag, not a state here.
       filled: true,
-      dash: [5, 3],
+      dash: [],
+      width: 1.1,
+      opacity: 0.9,
       inr_notional: 0,
     });
   }
@@ -3634,8 +3635,8 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     // The two ends of the structure, ghosted: they are the measuring stick, not
     // rungs, and drawing them solid makes them read as buyable levels.
     if (isNewest) {
-      lines.push({ price: Number(fib.fib0), label: `F${id} · 0`, color, filled: false, opacity: 0.45, width: 0.8, inr_notional: 0 });
-      lines.push({ price: Number(fib.fib1), label: `F${id} · 1`, color, filled: false, opacity: 0.45, width: 0.8, inr_notional: 0 });
+      lines.push({ price: Number(fib.fib0), label: `F${id} 0`, color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
+      lines.push({ price: Number(fib.fib1), label: `F${id} 1`, color, filled: true, dash: [], opacity: 0.4, width: 0.8, inr_notional: 0 });
     }
     (fib.levels || []).forEach(row => {
       const key = `F${id}L${row.level}`;
@@ -3649,18 +3650,23 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
       // outside the visible price range.
       // Under "where two meet" these lines are the STRUCTURE, not the ladder:
       // ghosted, and never labelled with a state that suggests they are live.
-      lines.push(convergence ? {
+      // The site's own fib vocabulary: the level NUMBER and its price, in the
+      // structure's colour, solid. A state is added only when it is news --
+      // "PENDING" on every line was prose, not information.
+      const state = status === 'FILLED' ? ' filled'
+        : status === 'GAPPED' ? ' jumped'
+        : status === 'COLLECTED' ? ' collected'
+        : status === 'UNFUNDED' ? ' unfunded'
+        : '';
+      lines.push({
         price: Number(row.price),
-        label: `F${id} L${row.level}`,
-        color, filled: false, dash: [1, 5], opacity: 0.28, width: 0.7, inr_notional: 0,
-      } : {
-        price: Number(row.price),
-        label: `F${id} L${row.level} ${status}`,
+        label: `F${id} ${row.level}${convergence ? '' : state}`,
         color,
-        filled: status === 'FILLED',
-        opacity: status === 'FILLED' ? 0.95 : status === 'UNFUNDED' ? 0.3 : 0.6,
-        width: status === 'FILLED' ? 1.3 : 0.9,
-        inr_notional: spent,
+        filled: true,
+        dash: [],
+        opacity: convergence ? 0.35 : status === 'FILLED' ? 0.95 : status === 'UNFUNDED' ? 0.3 : 0.75,
+        width: convergence ? 0.7 : status === 'FILLED' ? 1.3 : 0.9,
+        inr_notional: convergence ? 0 : spent,
       });
     });
   });
@@ -3669,14 +3675,21 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // running, which is when the question "what would this have taken?" is asked.
   (Array.isArray(payload?.zones) ? payload.zones : []).forEach(zone => {
     const color = fibColor(zone.top_fib_id);
+    // A ZONE is where two fibs meet. When only one was ever drawn there is
+    // nothing to converge with and this is that fib's own line -- calling it a
+    // zone is what made Phil ask "where are the 2 Fibs drawn?".
     const single = zone.kind === 'level';
     lines.push({
       price: Number(zone.top),
-      label: single ? `LONE FIB L${zone.label || ''}`.trim() : `ZONE ${zone.label}`,
-      color, filled: true, opacity: 0.95, width: 1.3, inr_notional: 0,
+      label: single ? `F${zone.top_fib_id} ${zone.label} lone fib` : `F${zone.top_fib_id}+F${zone.bottom_fib_id} ${zone.label} zone`,
+      color, filled: true, dash: [], opacity: 0.95, width: 1.3, inr_notional: 0,
     });
-    if (!single && zone.floor != null && Number(zone.floor) !== Number(zone.top)) {
-      lines.push({ price: Number(zone.floor), label: `ZONE ${zone.label} floor`, color, filled: false, dash: [2, 3], opacity: 0.5, width: 0.8, inr_notional: 0 });
+    if (zone.floor != null && Number(zone.floor) !== Number(zone.top)) {
+      lines.push({
+        price: Number(zone.floor),
+        label: single ? `F${zone.top_fib_id} ${zone.label} floor` : `F${zone.top_fib_id}+F${zone.bottom_fib_id} ${zone.label} floor`,
+        color, filled: true, dash: [], opacity: 0.5, width: 0.8, inr_notional: 0,
+      });
     }
   });
 
@@ -3686,11 +3699,14 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   rungs.filter(row => row && row.zone_label).forEach(row => {
     const color = fibColor(row.fib_id);
     const status = String(row.status || 'PENDING');
+    const lone = !row.zone_bottom_fib_id || row.zone_bottom_fib_id === row.fib_id;
+    const name = lone ? `F${row.fib_id} ${row.zone_label} lone fib` : `F${row.fib_id}+F${row.zone_bottom_fib_id} ${row.zone_label} zone`;
     lines.push({
       price: Number(row.index_price),
-      label: `ZONE ${row.zone_label} ${status}`,
+      label: name + (status === 'FILLED' ? ' filled' : status === 'COLLECTED' ? ' collected' : ''),
       color,
-      filled: status === 'FILLED',
+      filled: true,
+      dash: [],
       opacity: 0.95,
       width: 1.3,
       inr_notional: spentOn(String(row.key || '')),
@@ -3698,8 +3714,8 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     if (row.zone_floor != null) {
       lines.push({
         price: Number(row.zone_floor),
-        label: `ZONE ${row.zone_label} floor`,
-        color, filled: false, dash: [2, 3], opacity: 0.5, width: 0.8, inr_notional: 0,
+        label: `${name.replace(/ (zone|lone fib)$/, '')} floor`,
+        color, filled: true, dash: [], opacity: 0.5, width: 0.8, inr_notional: 0,
       });
     }
   });
@@ -3709,7 +3725,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // is an order waiting to happen rather than a level.
   const stop = price(campaign.buy_stop);
   if (stop !== null) {
-    lines.push({ price: stop, label: 'BUY STOP (waiting for the turn)', color: PAL.sellMark, filled: true, dash: [3, 3], width: 1.2, inr_notional: 0 });
+    lines.push({ price: stop, label: 'BUY STOP', color: PAL.sellMark, filled: true, dash: [], width: 1.2, opacity: 0.9, inr_notional: 0 });
   }
 
   // The low that has to break before this mother trades again. Drawn only while
@@ -3717,7 +3733,21 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // ladder during a live round.
   const rearm = price(campaign.rearm_below);
   if (rearm !== null && !(campaign.fills || []).length && (campaign.rounds || []).length) {
-    lines.push({ price: rearm, label: 'RE-ARMS BELOW', color: PAL.avg, filled: false, dash: [1, 4], opacity: 0.7, width: 1, inr_notional: 0 });
+    lines.push({ price: rearm, label: 'RE-ARM LOW', color: PAL.avg, filled: true, dash: [], opacity: 0.7, width: 1, inr_notional: 0 });
+  }
+
+  const avg = price(campaign.average_index_entry);
+  if (avg !== null) {
+    lines.push({ price: avg, label: 'AVG ENTRY', color: PAL.avg, filled: true, dash: [], width: 1.1, opacity: 0.9, inr_notional: 0 });
+  }
+  const target = price(campaign.target_index);
+  if (target !== null) {
+    const restingNow = (campaign.resting_exits || []).length;
+    lines.push({
+      price: target,
+      label: restingNow ? `TARGET · ${restingNow} resting` : 'TARGET',
+      color: PAL.tp, filled: true, dash: [], width: 1.2, opacity: 0.95, inr_notional: 0,
+    });
   }
 
   const drawable = lines.filter(line => Number.isFinite(line.price) && line.price > 0);
@@ -3762,8 +3792,11 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     lines: drawable,
     entries,
     exits,
-    avg_entry_price: price(campaign.average_index_entry),
-    tp_price: price(campaign.target_index),
+    // Deliberately NOT tp_price / avg_entry_price: the renderer draws those two
+    // dashed for every caller, and Phil has asked repeatedly for no dashed or
+    // dotted lines. They go through `lines` above, solid, in the same colours.
+    avg_entry_price: null,
+    tp_price: null,
     // A ladder still holding must not have its target drawn as if it sold there.
     // When the target is sitting on the broker as a real order, the line says so
     // -- that is the difference between a level being watched and one that fills

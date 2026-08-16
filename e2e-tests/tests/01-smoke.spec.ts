@@ -1047,23 +1047,38 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   const labels = paint.labelTexts as string[];
   // BOTH structures are on the chart. Fibs stack since the merge, and a chart
   // that draws one of them shows prices that are not the ones holding money.
-  expect(labels.some((t) => t.startsWith('F2 · 0'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F2 · 1'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F2 0'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F2 1'))).toBe(true);
   // Only the mother edge the ladder works against -- a CE draws its HIGH and
   // never its low, which is the whole of Phil's 2026-08-06 correction.
-  expect(labels.some((t) => t.includes('MOTHER HIGH'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('MOTHER'))).toBe(true);
   expect(labels.some((t) => t.includes('MOTHER LOW'))).toBe(false);
   // The trendline is drawn even though it gates nothing here.
   expect(paint).toMatchObject({ trendlines: 1 });
   // Each rung carries its own live state and names the FIB it belongs to --
   // two of them are "level 2" at different prices.
-  expect(labels.some((t) => t.startsWith('F1 L2 FILLED'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 L4 PENDING'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 L6 UNFUNDED'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F2 L2 PENDING'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 2 filled'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 4 '))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 6 unfunded'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F2 2 '))).toBe(true);
   // A ladder still holding must not claim it sold at the target -- and when the
   // target is a real order on the broker, the line says so.
-  expect(labels.some((t) => t.includes('TARGET (resting · 2 orders)'))).toBe(true);
+  expect(labels.some((t) => t.includes('TARGET · 2 resting'))).toBe(true);
+
+  // NO DASHED OR DOTTED LINES. Phil has asked for this more times than it
+  // should have taken; the payload is the one place it can be proven.
+  const dashes = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { data?: { lines?: { dash?: number[] }[]; tp_price?: number | null; avg_entry_price?: number | null } } };
+    const d = app._pfChartCanvas?.data || {};
+    return {
+      dashed: (d.lines || []).filter((l) => Array.isArray(l.dash) && l.dash.length).length,
+      tp: d.tp_price, avg: d.avg_entry_price,
+    };
+  });
+  expect(dashes.dashed).toBe(0);
+  // and the two the shared renderer would draw dashed are drawn by us instead
+  expect(dashes.tp).toBeNull();
+  expect(dashes.avg).toBeNull();
 
   // Close moved into the site strip (top-right ✕), like every other chart.
   await page.click('#fibx-chart-strip [data-strip-close]');
@@ -1147,11 +1162,11 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
     const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
     return app._pfChartCanvas?.paint?.labelTexts || [];
   });
-  expect(labels.some((t) => t.startsWith('F1 L2 PENDING'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('F1 L2 PENDING') && t.includes('₹'))).toBe(false);
+  expect(labels.some((t) => t.startsWith('F1 2'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 2') && t.includes('₹'))).toBe(false);
   // What the round made is on its own sell mark, and the low that wakes the
   // mother is drawn.
-  expect(labels.some((t) => t.includes('RE-ARMS BELOW'))).toBe(true);
+  expect(labels.some((t) => t.includes('RE-ARM LOW'))).toBe(true);
   await page.click('#fibx-chart-strip [data-strip-close]');
 
   expect(jsErrors).toEqual([]);
@@ -1163,11 +1178,11 @@ const fibConvergenceCampaign = {
   levels: [
     {
       level: 2, fib_id: 1, key: 'Z1-2:2-4', index_price: 24500, status: 'FILLED',
-      filled_at: '2026-08-06T09:30:00+05:30', zone_floor: 24440, zone_label: '2-4',
+      filled_at: '2026-08-06T09:30:00+05:30', zone_floor: 24440, zone_label: '2-4', zone_bottom_fib_id: 2,
     },
     {
       level: 4, fib_id: 1, key: 'Z1-2:4-8', index_price: 24300, status: 'PENDING',
-      filled_at: null, zone_floor: 24200, zone_label: '4-8',
+      filled_at: null, zone_floor: 24200, zone_label: '4-8', zone_bottom_fib_id: 2,
     },
   ],
   fills: [
@@ -1237,9 +1252,9 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
     if (!app._pfChartCanvas?.paint) throw new Error('The convergence canvas never painted');
     return app._pfChartCanvas.paint.labelTexts || [];
   });
-  expect(labels.some((t) => t.startsWith('ZONE 2-4 FILLED'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('ZONE 2-4 floor'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('ZONE 4-8 PENDING'))).toBe(true);
+  expect(labels.some((t) => t.includes('2-4 zone filled'))).toBe(true);
+  expect(labels.some((t) => t.includes('2-4 floor'))).toBe(true);
+  expect(labels.some((t) => t.includes('4-8 zone'))).toBe(true);
 
   await page.click('#fibx-chart-strip [data-strip-close]');
   expect(jsErrors).toEqual([]);
