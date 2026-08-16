@@ -72,7 +72,7 @@ class ActionWiringTests(unittest.TestCase):
     def test_the_allowlist_was_actually_found(self):
         """A parse that silently found nothing would pass every other test."""
         self.assertGreater(len(self.allowed), 20)
-        self.assertIn("loadFibSpaceChart", self.allowed)
+        self.assertIn("loadFibBoundaryChart", self.allowed)
 
     def test_the_page_scripts_were_actually_found(self):
         """Same blind spot one level up: an empty script list passes everything."""
@@ -100,9 +100,12 @@ class ActionWiringTests(unittest.TestCase):
         self.assertEqual(_TOP_LEVEL_FN_RE.findall("function topLevel() {"), ["topLevel"])
 
     def test_the_delete_button_this_was_written_for_is_wired(self):
-        self.assertIn("deleteFibSpaceCampaign", self.allowed)
-        self.assertIn("deleteFibSpaceCampaign", self.exported)
-        self.assertIn('data-pf-action="deleteFibSpaceCampaign"', _SOURCES["strategy.html"])
+        """Written for a delete button that reached no handler at all. The one
+        it was written against belonged to Fib Space, whose tab was removed on
+        2026-08-16; the surviving delete button holds the same ground."""
+        self.assertIn("deleteFibBoundaryPaper", self.allowed)
+        self.assertIn("deleteFibBoundaryPaper", self.exported)
+        self.assertIn('data-pf-action="deleteFibBoundaryPaper"', _SOURCES["strategy.html"])
 
 
 if __name__ == "__main__":

@@ -128,7 +128,6 @@ async function installOfflineE2E(page: Page) {
     // A LIST now — one ladder per instrument, so the console reads `campaigns`.
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', campaigns: [] } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
-    else if (path === '/api/fib-space/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
@@ -273,7 +272,6 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
   for (const [control, panel] of [
     ['#oc-tabbtn-fib', '#oc-tab-fib'],
     ['#oc-tabbtn-candle', '#oc-tab-candle'],
-    ['#oc-tabbtn-space', '#oc-tab-space'],
     ['#oc-tabbtn-recovery', '#oc-tab-recovery'],
     ['#oc-tabbtn-bench', '#oc-tab-bench'],
   ]) {

@@ -2435,7 +2435,9 @@
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — every level, or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · auto trendlines + stacked fibs · every level <em>or</em> where two meet</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
-    <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-space" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Your mother candle, auto trendlines and fibs — the measured design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Your mother · auto trendlines + fibs · buys where two fibs converge</span></button>
+<!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
+     2026-08-16: same geometry, same levels, and "Where two meet" is what this
+     tab used to be. Two tabs for one strategy is how they drift apart. -->
     <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds breaking lower · SL on the entry candle · recovers the ledger</span></button>
     <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-bench" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother · history only, nothing trades</span></button>
   </div>
@@ -2772,153 +2774,6 @@
           <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </div>
       </section>
-    </div>
-  </div>
-
-  <!-- ── TAB · Fib space (auto geometry) ── -->
-  <div id="oc-tab-space" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-space" aria-hidden="true" style="display:none;">
-    <div class="cascade-options-workspace">
-      <div class="card cascade-options-setup-card" style="padding:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
-          <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Fib-space paper run <button type="button" class="pf-info-btn" data-pf-info="fsx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <span id="fsx-terms-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">15m geometry · 5m entries</span>
-        </div>
-        <div id="fsx-info" class="pf-info-pop pf-info-doc" style="margin-bottom:14px;">
-          <div class="pf-doc-langs" role="tablist" aria-label="Language">
-            <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
-            <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
-          </div>
-          <div class="pf-doc-lang is-active" data-pf-lang="en">
-          <p class="pf-info-lede">You give the mother; the geometry draws itself, and money may only ever sit where two fibs agree. <strong>Paper only</strong> &mdash; no real order is ever sent.</p>
-          <section>
-            <h5>1 &middot; Auto geometry</h5>
-            <p>From your completed 15m mother the engine draws the trendline and the fibs itself, redrawing as the fall develops &mdash; <strong>no typed levels</strong>. Geometry lives on <strong>15m</strong>; entries are timed on <strong>5m</strong>.</p>
-          </section>
-          <section>
-            <h5>2 &middot; Spaces, and only the deepest two</h5>
-            <p>Where two different fibs' levels converge, a <strong>space</strong> forms. Money may only sit in the <strong>deepest two</strong> spaces. A wide space is bought from its top down to about its middle; one too small to have a middle is bought on touch.</p>
-          </section>
-          <section>
-            <h5>3 &middot; The fill</h5>
-            <p>Inside a space, <strong>two red 5m closes</strong> arm a buy-stop at the second close; it fills when price trades back <strong>up</strong> through it &mdash; the same recovery mechanic the whole cascade family uses.</p>
-          </section>
-          <section>
-            <h5>4 &middot; Size</h5>
-            <p>A lot ladder, not a rupee budget: <strong>1, 2, then 3 lots</strong> per round, restarting when a round banks.</p>
-          </section>
-          <section>
-            <h5>5 &middot; Rounds, like the crypto cascade</h5>
-            <p>The <strong>0.25 retrace</strong> &mdash; drawn from the lowest point of the fall back up toward the mother high, Phil's own chart rule, adjudicated against his 26-Feb fixture &mdash; banks the basket and ends the <strong>round</strong>, not the campaign. The next round may only arm on a close <strong>below the previous round's low</strong>: a re-entry is always deeper, never a re-buy of banked ground.</p>
-          </section>
-          <section>
-            <h5>6 &middot; The contract</h5>
-            <p><strong>Monthly</strong> contracts, <strong>ATM&minus;2 CE</strong>, 15&ndash;45 days to expiry. Lot size comes from the live chain, not the backtest's assumption.</p>
-          </section>
-          <p class="pf-info-warn">Measured over 22 months: BankNifty's locked config made <strong>+&#8377;6.72L at a 73% win rate</strong>; NIFTY only survives with a <strong>3-day cooldown</strong> (+&#8377;1.95L, 70%) &mdash; and BankNifty must NOT be given that cooldown, it costs money there. Rounds on NIFTY resolve about 1.8&times; slower.</p>
-          </div><!-- /en -->
-          <div class="pf-doc-lang" data-pf-lang="ta">
-          <p class="pf-info-lede">Mother-ஐ நீங்கள் கொடுக்கிறீர்கள்; geometry தானே வரையும், பணம் இரண்டு fib-கள் ஒத்துப்போகும் இடத்தில் மட்டுமே அமரும். <strong>Paper மட்டும்</strong> &mdash; உண்மை ஆர்டர் ஒருபோதும் போகாது.</p>
-          <section>
-            <h5>1 &middot; தானியங்கி geometry</h5>
-            <p>உங்கள் முடிந்த 15m mother-இலிருந்து engine trendline-ஐயும் fib-களையும் தானே வரையும், வீழ்ச்சி வளர வளர மறுவரைவு &mdash; <strong>type செய்யும் levels இல்லை</strong>. Geometry <strong>15m</strong>-இல்; நுழைவுகள் <strong>5m</strong>-இல்.</p>
-          </section>
-          <section>
-            <h5>2 &middot; Spaces &mdash; ஆழமான இரண்டு மட்டும்</h5>
-            <p>இரண்டு வெவ்வேறு fib-களின் levels ஒன்றுசேரும் இடத்தில் ஒரு <strong>space</strong> உருவாகும். பணம் <strong>ஆழமான இரண்டு</strong> spaces-இல் மட்டுமே. அகலமான space அதன் மேலிருந்து நடு வரை வாங்கப்படும்; நடு இல்லாத சிறியது touch-இல்.</p>
-          </section>
-          <section>
-            <h5>3 &middot; Fill</h5>
-            <p>Space-க்குள் <strong>இரண்டு சிவப்பு 5m close</strong> இரண்டாவது close-இல் buy-stop-ஐ ஆயுதமாக்கும்; விலை அதன் வழியே <strong>மேலே</strong> திரும்பும்போது நிரம்பும் &mdash; cascade குடும்பம் முழுவதும் பயன்படுத்தும் அதே மீட்சி முறை.</p>
-          </section>
-          <section>
-            <h5>4 &middot; அளவு</h5>
-            <p>ரூபாய் வரவு-செலவு அல்ல, lot ladder: ஒரு சுற்றுக்கு <strong>1, 2, பின் 3 lots</strong>; சுற்று வங்கியானதும் மறுதொடக்கம்.</p>
-          </section>
-          <section>
-            <h5>5 &middot; சுற்றுகள் &mdash; crypto cascade போல</h5>
-            <p><strong>0.25 retrace</strong> &mdash; வீழ்ச்சியின் தாழ்ந்த புள்ளியிலிருந்து mother உயர்வு நோக்கி வரையப்படுவது, Phil-இன் சொந்த chart விதி &mdash; கூடையை வங்கி செய்து <strong>சுற்றை</strong> முடிக்கும், campaign-ஐ அல்ல. அடுத்த சுற்று <strong>முந்தைய சுற்றின் low-க்குக் கீழே close</strong> வந்தால்தான் ஆயுதமாகும்: மறு-நுழைவு எப்போதும் ஆழமானது.</p>
-          </section>
-          <section>
-            <h5>6 &middot; ஒப்பந்தம்</h5>
-            <p><strong>Monthly</strong> ஒப்பந்தங்கள், <strong>ATM&minus;2 CE</strong>, expiry-க்கு 15&ndash;45 நாட்கள். Lot அளவு live chain-இலிருந்து.</p>
-          </section>
-          <p class="pf-info-warn">22 மாத அளவீடு: BankNifty-இன் பூட்டிய config <strong>+&#8377;6.72L, 73% வெற்றி</strong>; NIFTY <strong>3-நாள் cooldown</strong>-உடன் மட்டுமே பிழைக்கிறது (+&#8377;1.95L, 70%) &mdash; BankNifty-க்கு அந்த cooldown கொடுக்கக் கூடாது, அங்கு அது நஷ்டம். NIFTY சுற்றுகள் சுமார் 1.8&times; மெதுவாக முடிகின்றன.</p>
-          </div><!-- /ta -->
-        </div>
-        <label for="fsx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:6px;margin-bottom:4px;">Underlying <button type="button" class="pf-info-btn" data-pf-info="fsx-underlying-info" aria-expanded="false" aria-label="Which contract this buys" title="Which contract this buys">i</button></label>
-        <div id="fsx-underlying-info" class="pf-info-pop" style="margin-bottom:8px;">Monthly contracts, <strong>ATM−2 CE</strong>, 15–45 DTE. Lot size comes from the live chain, not the backtest's assumption.</div>
-        <select id="fsx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-          <option value="banknifty" selected>BankNifty — locked config, +₹6.72L / 73% over 22 months</option>
-          <option value="nifty">NIFTY — 3-day cooldown, +₹1.95L / 70%</option>
-        </select>
-        <div class="pf-cascade-campaign-actions"><button id="fsx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibSpacePaper">▶ Start paper run</button><button id="fsx-stop" class="btn cascade-options-control" type="button" data-pf-action="stopFibSpacePaper" style="display:none;">■ Stop</button></div>
-        <div id="fsx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-
-        <div id="fsx-mother-box" style="display:none;margin-top:16px;padding-top:15px;border-top:1px solid var(--border);">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:9px;">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;display:flex;align-items:center;gap:6px;">Give it a mother candle <button type="button" class="pf-info-btn" data-pf-info="fsx-mother-info" aria-expanded="false" aria-label="Which candle to name, and how old it may be" title="Which candle to name, and how old it may be">i</button></div>
-            <span id="fsx-scan-badge" style="font:9.5px 'JetBrains Mono',monospace;color:var(--muted);"></span>
-          </div>
-          <div id="fsx-mother-info" class="pf-info-pop" style="margin-bottom:9px;">A completed <strong>15m</strong> candle open — 09:15, 09:30, 09:45… Its high and low come from Dhan; nothing is typed by hand. Add as many mothers as you like, each runs as its own campaign.<br><br>A mother from a few days back is fine, and its ladder may have <strong>already filled</strong>. Those fills are priced from the contract's own <strong>recorded one-minute candle</strong> and marked <strong>ᴴ</strong> — real traded prices, but not proof the fill would have been got there. Only a leg neither a live quote nor a candle can price is left <strong>unpriced</strong>.</div>
-          <label class="sr-only" for="fsx-mother-timestamp">Mother candle timestamp</label>
-          <input id="fsx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" data-pf-calendar-minutes="0,15,30,45" type="datetime-local" step="900" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-          <div class="pf-cascade-campaign-actions"><button id="fsx-add-mother" class="btn cascade-options-primary-btn" type="button" data-pf-action="addFibSpaceMother">＋ Run this mother</button></div>
-          <div id="fsx-mother-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-        </div>
-
-      </div>
-
-      <details id="fsx-window" class="cascade-options-window" open>
-        <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Book monitor</h3><span id="fsx-badge" class="cascade-options-state">IDLE</span></div><div id="fsx-contract" class="cascade-options-contract">No paper run</div></div>
-          <div id="fsx-gist" class="cascade-options-gist">Start a run to watch it find mothers and ladder into them.</div>
-        </summary>
-        <div class="cascade-options-window-body">
-          <div id="fsx-summary" class="cascade-options-summary"></div>
-          <div id="fsx-error" style="display:none;margin-top:10px;padding:9px 11px;border:1px solid var(--danger);border-radius:7px;font:10.5px 'JetBrains Mono',monospace;color:var(--danger);line-height:1.5;"></div>
-          <div id="fsx-empty" class="cascade-options-empty">Nothing running. Once started it polls only during the NSE session (09:15–15:30) — outside those hours it makes no broker call at all, so an idle evening is expected, not a fault.</div>
-          <div id="fsx-active" style="display:none;margin-top:16px;">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;display:flex;align-items:center;gap:6px;">Campaigns <button type="button" class="pf-info-btn" data-pf-info="fsx-campaigns-info" aria-expanded="false" aria-label="How to read this table" title="How to read this table">i</button></div>
-            <div id="fsx-campaigns-info" class="pf-info-pop" style="margin-bottom:7px;">Click a campaign for its premiums, capital and chart; click it again to collapse. <strong>Net ₹</strong> stays a dash until a round actually banks — a campaign still holding its lots has realised nothing, and a ₹0.00 there would read as a flat result.</div>
-            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="text-align:right;color:var(--muted);"><th style="text-align:left;padding:6px 8px;">Mother</th><th style="padding:6px 8px;">High</th><th style="text-align:left;padding:6px 8px;">State</th><th style="padding:6px 8px;">Fills</th><th style="padding:6px 8px;">Open qty</th><th style="padding:6px 8px;">Net ₹</th><th style="padding:6px 8px;">Open</th></tr></thead><tbody id="fsx-campaigns"></tbody></table></div>
-            <div id="fsx-unpriced-note" style="display:none;margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:#fbbf24;line-height:1.5;"></div>
-          </div>
-
-          <!-- One campaign, in full: what it bought, what it cost, what it is worth -->
-          <div id="fsx-detail" style="display:none;margin-top:16px;padding-top:15px;border-top:1px solid var(--border);">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-              <div><h4 id="fsx-detail-title" style="margin:0;font-size:13px;">Campaign</h4><div id="fsx-detail-contract" style="margin-top:3px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);"></div></div>
-              <div style="display:flex;align-items:center;gap:10px;"><span style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">click the row again to collapse</span><button id="fsx-delete-btn" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibSpaceCampaign" title="Forget this campaign so its mother can be run again">✕ Delete</button><button id="fsx-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadFibSpaceChart">↗ Chart</button></div>
-            </div>
-            <div id="fsx-detail-money" class="cascade-options-summary"></div>
-            <div id="fsx-detail-rounds" style="margin-top:14px;"></div>
-          </div>
-        </div>
-      </details>
-    </div>
-
-    <div id="fsx-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Fib-space campaign chart">
-      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
-        <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title"><h3>Fib-space campaign chart</h3><div id="fsx-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions">
-            <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ fib level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div>
-            <!-- Filled from the payload: the campaign's own timeframe plus the
-                 coarser ones its bars fold onto. Finer ones are never offered,
-                 because this chart replays the campaign's OWN bars and cannot
-                 invent a bar smaller than the one it ran on. -->
-            <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="fsx-chart-tf"></div>
-            <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
-              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-out title="Zoom out" aria-label="Zoom out">&minus;</button>
-              <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>
-              <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-in title="Zoom in" aria-label="Zoom in">+</button>
-            </div>
-            <button type="button" class="terminal-cascade-chart-control" data-pf-action="loadFibSpaceChart" title="Refresh chart" aria-label="Refresh chart">&#x27F3;</button>
-            <button class="terminal-cascade-chart-control is-danger" type="button" data-pf-action="hideFibSpaceChart" title="Close chart" aria-label="Close chart">&#10005;</button>
-          </div>
-        </div>
-        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="fsx-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Native closed candles from the campaign's own replay — the same run the fills came out of. Drag to pan, wheel to zoom, double-click to reset.</div></div></div>
-      </div>
     </div>
   </div>
 

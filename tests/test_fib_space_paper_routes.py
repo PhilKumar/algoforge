@@ -256,7 +256,10 @@ if __name__ == "__main__":
 
 
 class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
-    """Deploys are frequent; a run that dies on one leaves a gap in the record."""
+    """RETIRED 2026-08-16. Fib Space was folded into Fib Boundary and its tab
+    removed, so there is no screen a restored run could appear on and no button
+    that could stop it -- it would just poll Dhan every session, unseen. These
+    tests used to prove the opposite; they now hold the retirement in place."""
 
     async def asyncSetUp(self):
         app_module._db_mod._initialized = False
@@ -273,17 +276,23 @@ class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
     async def _save(self, payload):
         await app_module._db_mod.set_app_state(app_module._fib_space_state_key(7), json.dumps(payload))
 
-    async def test_a_running_run_comes_back(self):
+    async def test_a_running_run_is_not_brought_back(self):
         await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
         with (
             patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
             patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0),
         ):
-            runtime = await app_module._restore_fib_space_paper_run(7, object())
+            self.assertIsNone(await app_module._restore_fib_space_paper_run(7, object()))
+        self.assertEqual(app_module._fib_space_engines, {}, "nothing may be left polling")
 
-        self.assertIsNotNone(runtime)
-        self.assertEqual(runtime.symbol, "banknifty")
-        self.assertEqual(runtime.started_at, datetime(2026, 3, 3, 9, 15))
+    async def test_the_saved_flag_is_cleared_rather_than_ignored(self):
+        """Left set, it would silently wake the run again the day somebody
+        restored the restore."""
+        await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
+        with patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()):
+            await app_module._restore_fib_space_paper_run(7, object())
+        raw = await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7))
+        self.assertFalse(json.loads(raw)["running"])
 
     async def test_a_stopped_run_stays_stopped(self):
         await self._save({"symbol": "banknifty", "running": False, "started_at": "2026-03-03T09:15:00"})
@@ -300,30 +309,17 @@ class RestoreAfterDeployTests(unittest.IsolatedAsyncioTestCase):
         await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
         self.assertIsNone(await app_module._restore_fib_space_paper_run(7, None))
 
-    async def test_an_unsizeable_chain_leaves_the_saved_state_for_next_time(self):
+    async def test_a_run_started_by_hand_is_left_alone(self):
+        """The routes still answer, so a run started deliberately in this
+        process keeps going. Only the automatic restart is gone."""
         await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
-
-        class _Unsizeable(_Adapter):
-            def select_campaign_contract(self, **kwargs):
-                raise RuntimeError("ScripMaster not loaded yet")
-
-        with patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Unsizeable()):
+        app_module._fib_space_engines[7] = object()
+        try:
             self.assertIsNone(await app_module._restore_fib_space_paper_run(7, object()))
-
-        raw = await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7))
-        self.assertTrue(json.loads(raw)["running"], "saved state must survive so the next restart can retry")
-
-    async def test_it_does_not_double_start_an_already_running_run(self):
-        await self._save({"symbol": "banknifty", "running": True, "started_at": "2026-03-03T09:15:00"})
-        with (
-            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _Adapter()),
-            patch.object(app_module, "_cascade_premium_lookup", lambda b: lambda w, c: 100.0),
-        ):
-            first = await app_module._restore_fib_space_paper_run(7, object())
-            second = await app_module._restore_fib_space_paper_run(7, object())
-
-        self.assertIsNotNone(first)
-        self.assertIsNone(second)
+            raw = await app_module._db_mod.get_app_state(app_module._fib_space_state_key(7))
+            self.assertTrue(json.loads(raw)["running"], "a live run's own state is not rewritten")
+        finally:
+            app_module._fib_space_engines.clear()
 
 
 class NamedMotherRouteTests(unittest.IsolatedAsyncioTestCase):

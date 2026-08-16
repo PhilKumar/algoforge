@@ -2477,6 +2477,15 @@ def _fib_space_status_payload(runtime: _FibSpaceRuntime) -> dict:
 async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) -> _FibSpaceRuntime | None:
     """Bring a paper run back after a restart.
 
+    RETIRED 2026-08-16. Fib Space was folded into Fib Boundary and its tab
+    removed, so a restored run would poll Dhan every session with no screen
+    showing it and no button stopping it. The saved flag is cleared instead of
+    ignored -- left set, it would silently wake the run again the day someone
+    restored this function.
+
+    The routes below still answer, and the host is still the code Fib Boundary's
+    convergence mode was measured against; only the automatic restart is gone.
+
     Deploys are frequent, and a run that quietly died on one would leave a gap
     in the record exactly where the design is being judged.  Nothing about the
     campaigns is restored from disk -- the driver rebuilds every decision by
@@ -2487,6 +2496,9 @@ async def _restore_fib_space_paper_run(user_id: int, broker: DhanClient | None) 
     raw = await _db_mod.get_app_state(_fib_space_state_key(user_id))
     if not raw:
         return None
+    await _db_mod.set_app_state(_fib_space_state_key(user_id), json.dumps({"running": False}))
+    _logger.info("[FIBSPACE] Tab retired; not restoring the saved paper run for user %s", user_id)
+    return None
     try:
         saved = json.loads(raw)
     except Exception:

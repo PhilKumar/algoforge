@@ -37,7 +37,6 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
     'fibx-anchor-table',
     'fibx-blocked',
     'fibx-rounds-table',
-    'fsx-rounds-table',
     'portfolio-monthly-trades-table',
     'portfolio-ytd-table',
     'scalp-active-table',
