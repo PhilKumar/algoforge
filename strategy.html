@@ -2444,109 +2444,114 @@
 
   <!-- ── TAB · Fib-boundary ── -->
   <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
+      <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#7dd3fc;">PAPER CAMPAIGNS ON LIVE PRICES · ONE MOTHER, ONE LADDER</div>
+      <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
+      <div style="margin-top:3px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">your mother &rarr; trendlines &rarr; stacked fibs &rarr; every level, or only where two meet</div>
+      <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
+           the same doc standard as the Cash Cascade: numbered sections,
+           the code's own numbers, and the losing measurement stated as
+           plainly as the design. One doc, two languages. -->
+      <div id="fibx-info" class="pf-info-pop pf-info-doc">
+        <div class="pf-doc-langs" role="tablist" aria-label="Language">
+          <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+          <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+        </div>
+        <div class="pf-doc-lang is-active" data-pf-lang="en">
+        <p class="pf-info-lede">You give one candle. The engine draws the lines, waits for the fall, buys the levels on the way down and leaves the sell order on the broker. <strong>Fib Boundary and Fib Space are one strategy now</strong> (15 Aug 2026) — same lines, same levels, and a switch for what it buys. Paper and Live is a plain toggle.</p>
+        <section>
+          <h5>1 &middot; You give the mother. It never moves.</h5>
+          <p>The mother only says <strong>where to start looking</strong>. Nothing is measured from its own range except the target. Pick the chart you read it on — 1m, 5m, 15m or 1H — and the lines are drawn on <em>that</em> chart. If price closes past the mother <strong>before anything is bought</strong>, the campaign closes with no buys and waits for the next mother you give it. The mother is never moved for you.</p>
+        </section>
+        <section>
+          <h5>2 &middot; How the lines get drawn</h5>
+          <p>Same rule as the crypto Cascade. Price falls and makes a low. Buyers lift it off that low to a high. A <strong>trendline</strong> is carried down from above. When price <strong>cuts back below that low</strong>, the leg is finished and a <strong>fib</strong> is drawn on it: <strong>0</strong> is the high the buyers reached, <strong>1</strong> is the low they lifted off. Nothing is drawn while the market is rising.</p>
+        </section>
+        <section>
+          <h5>3 &middot; Fibs STACK</h5>
+          <p>A new fib <strong>adds</strong> its levels; the old ones keep resting. Two fibs both have an L4, at different prices, holding different money — so every rung on the chart and in the table is named by <strong>its fib and its level</strong> (F1&nbsp;L4, F2&nbsp;L4), never by the level alone.</p>
+        </section>
+        <section>
+          <h5>4 &middot; What it buys &mdash; the switch</h5>
+          <p><strong>Every level</strong>: L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16 of every drawn fib, each one that many fib-spans below its own 0.<br><strong>Where two meet</strong>: only the <strong>spaces</strong> where a level of one fib sits next to a level of another — the deepest two, off levels 1 &middot; 2 &middot; 4 &middot; 8. The ladder is still drawn in full; only what may be bought is narrower.</p>
+        </section>
+        <section>
+          <h5>5 &middot; A touch buys</h5>
+          <p>The moment a wick <strong>touches</strong> a rung it is bought — no waiting for a recovery close. <strong>One lot per rung</strong>, so the position grows 1, 2, 3… as the fall deepens.</p>
+        </section>
+        <section>
+          <h5>6 &middot; Money</h5>
+          <p>One rupee cap funds the <strong>whole ladder</strong>, not each rung: at roughly &#8377;13,000 a NIFTY lot, the default &#8377;75,000 funds about five rungs. Deeper rungs stay priced and drawn but marked <strong>UNFUNDED</strong> — never silently skipped.</p>
+        </section>
+        <section>
+          <h5>7 &middot; The contract</h5>
+          <p><strong>ATM&minus;2</strong> (in the money) by default; the nearest expiry at least <strong>4 days</strong> out — the current week where weeklies exist (NIFTY, SENSEX), otherwise the next one. Lot size is read from the live chain, never assumed.</p>
+        </section>
+        <section>
+          <h5>8 &middot; The target, and the order left on the broker</h5>
+          <p><strong>0.25 of the way back from your average entry up to the mother's high</strong> — and once L4 or deeper has filled, the ask widens to <strong>0.5</strong>. It is recomputed on <em>every</em> buy, because every buy moves the average. A matching <strong>SELL order rests on the broker</strong> at that price, so it fills whether or not this app is watching; it is cancelled and re-placed each time a new buy moves the target. A leg whose sell price cannot be measured from real quotes is left without a resting order rather than given a made-up one.</p>
+        </section>
+        <section>
+          <h5>9 &middot; No stop loss</h5>
+          <p>Deliberate. There is no automatic cut — <strong>you cut by hand</strong> if the target is not reached. Half auto, half manual, as asked for.</p>
+        </section>
+        <section>
+          <h5>10 &middot; Rounds &mdash; one target, then wait for a lower low</h5>
+          <p>Banking the target <strong>stops</strong> the campaign; the mother is parked, not killed. If price later makes a <strong>new deepest low of the whole campaign</strong>, the same mother arms again and trades another round. Not the low standing when it sold — the deepest one it has ever seen.</p>
+        </section>
+        <p class="pf-info-warn">Two things worth remembering. <strong>Every Fib Boundary number from before 15 Aug 2026 is void</strong> — the geometry that produced them is gone. And on the 22-month replay, every exit variant of the old touch ladder lost money; this tab exists to paper-prove the merged one forward. Live orders are still blocked in the code until broker fills, partial fills and restart recovery are verified — the Paper/Live toggle does not answer that.</p>
+        </div><!-- /en -->
+        <div class="pf-doc-lang" data-pf-lang="ta">
+        <p class="pf-info-lede">நீங்கள் ஒரே ஒரு candle கொடுக்கிறீர்கள். Engine கோடுகளை வரையும், வீழ்ச்சிக்குக் காத்திருக்கும், இறங்கும் வழியில் levels-ஐ வாங்கும், விற்பனை ஆர்டரை broker-இல் வைத்துவிடும். <strong>Fib Boundary-யும் Fib Space-உம் இப்போது ஒரே strategy</strong> (15 ஆக 2026) &mdash; ஒரே கோடுகள், ஒரே levels, என்ன வாங்குவது என்பதற்கு மட்டும் ஒரு switch. Paper / Live ஒரு எளிய toggle.</p>
+        <section>
+          <h5>1 &middot; Mother நீங்கள் கொடுப்பது. அது நகராது.</h5>
+          <p>Mother சொல்வது <strong>எங்கிருந்து பார்க்க வேண்டும்</strong> என்பது மட்டுமே. இலக்கைத் தவிர வேறு எதுவும் அதன் சொந்த அளவிலிருந்து அளக்கப்படுவதில்லை. நீங்கள் படிக்கும் chart-ஐத் தேர்வு செய்யுங்கள் &mdash; 1m, 5m, 15m அல்லது 1H &mdash; கோடுகள் <em>அதே</em> chart-இல் வரையப்படும். <strong>எதுவும் வாங்கும் முன்</strong> விலை mother-ஐத் தாண்டி close ஆனால், campaign எந்த வாங்கலும் இல்லாமல் மூடப்படும்; நீங்கள் கொடுக்கும் அடுத்த mother-க்குக் காத்திருக்கும். Mother உங்களுக்காக நகர்த்தப்படாது.</p>
+        </section>
+        <section>
+          <h5>2 &middot; கோடுகள் எப்படி வரையப்படுகின்றன</h5>
+          <p>Crypto Cascade-இன் அதே விதி. விலை விழுந்து ஒரு low செய்கிறது. வாங்குபவர்கள் அதை ஒரு high வரை தூக்குகிறார்கள். மேலிருந்து ஒரு <strong>trendline</strong> இறங்கி வருகிறது. விலை <strong>அந்த low-க்குக் கீழே திரும்ப வெட்டும்</strong>போது அந்த leg முடிகிறது; அதன் மேல் ஒரு <strong>fib</strong> வரையப்படுகிறது: <strong>0</strong> = வாங்குபவர்கள் எட்டிய high, <strong>1</strong> = அவர்கள் தூக்கிய low. சந்தை ஏறிக்கொண்டிருக்கும்போது எதுவும் வரையப்படாது.</p>
+        </section>
+        <section>
+          <h5>3 &middot; Fibs அடுக்கப்படும் (STACK)</h5>
+          <p>புதிய fib தன் levels-ஐ <strong>சேர்க்கும்</strong>; பழையவை அப்படியே இருக்கும். இரண்டு fibs-க்கும் L4 உண்டு &mdash; வெவ்வேறு விலை, வெவ்வேறு பணம். எனவே chart-இலும் அட்டவணையிலும் ஒவ்வொரு rung-உம் <strong>அதன் fib + level</strong> என்றே பெயரிடப்படும் (F1&nbsp;L4, F2&nbsp;L4), level மட்டும் அல்ல.</p>
+        </section>
+        <section>
+          <h5>4 &middot; என்ன வாங்குகிறது &mdash; அந்த switch</h5>
+          <p><strong>ஒவ்வொரு level</strong>: வரையப்பட்ட ஒவ்வொரு fib-இன் L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16; ஒவ்வொன்றும் அதன் சொந்த 0-க்குக் கீழே அத்தனை fib-அளவுகள்.<br><strong>இரண்டு சந்திக்கும் இடம்</strong>: ஒரு fib-இன் level இன்னொரு fib-இன் level-க்கு அருகில் அமையும் <strong>இடைவெளிகள்</strong> மட்டும் &mdash; அதில் ஆழமான இரண்டு, levels 1 &middot; 2 &middot; 4 &middot; 8-இல் இருந்து. Ladder முழுவதும் வரையப்படும்; வாங்கக்கூடியது மட்டுமே குறுகும்.</p>
+        </section>
+        <section>
+          <h5>5 &middot; Touch வந்தால் வாங்கல்</h5>
+          <p>ஒரு wick ஒரு rung-ஐ <strong>தொட்ட</strong> கணமே வாங்கல் &mdash; recovery close-க்குக் காத்திருப்பு இல்லை. <strong>ஒரு rung-க்கு ஒரு lot</strong>; வீழ்ச்சி ஆழமாக 1, 2, 3… என நிலை வளரும்.</p>
+        </section>
+        <section>
+          <h5>6 &middot; பணம்</h5>
+          <p>ஒரே ரூபாய் வரம்பு <strong>முழு ladder</strong>-க்கும், ஒவ்வொரு rung-க்கும் அல்ல: NIFTY lot ஒன்று சுமார் &#8377;13,000; இயல்பு &#8377;75,000 சுமார் ஐந்து rungs-க்கு போதும். ஆழமான rungs வரையப்பட்டு <strong>UNFUNDED</strong> என்று காட்டப்படும் &mdash; அமைதியாக தவிர்க்கப்படாது.</p>
+        </section>
+        <section>
+          <h5>7 &middot; ஒப்பந்தம்</h5>
+          <p>இயல்பாக <strong>ATM&minus;2</strong> (ITM); குறைந்தது <strong>4 நாட்கள்</strong> உள்ள அருகிய expiry &mdash; weekly உள்ள இடத்தில் (NIFTY, SENSEX) அந்த வாரம், இல்லையெனில் அடுத்தது. Lot அளவு live chain-இலிருந்து, ஊகம் இல்லை.</p>
+        </section>
+        <section>
+          <h5>8 &middot; இலக்கு, மற்றும் broker-இல் வைக்கப்படும் ஆர்டர்</h5>
+          <p><strong>உங்கள் சராசரி நுழைவிலிருந்து mother-இன் high வரை 0.25</strong> &mdash; L4 அல்லது ஆழத்தில் நிரம்பியதும் கேள்வி <strong>0.5</strong>-ஆக விரிவடையும். <em>ஒவ்வொரு</em> வாங்கலிலும் மறுகணக்கு, ஏனெனில் ஒவ்வொரு வாங்கலும் சராசரியை நகர்த்துகிறது. அதே விலையில் ஒரு <strong>SELL ஆர்டர் broker-இல் தங்கும்</strong>; இந்த app பார்த்துக்கொண்டிருந்தாலும் இல்லாவிட்டாலும் அது நிறைவேறும். புதிய வாங்கல் இலக்கை நகர்த்தும் ஒவ்வொரு முறையும் அது ரத்து செய்யப்பட்டு மீண்டும் வைக்கப்படும். உண்மையான விலைகளிலிருந்து அளக்க முடியாத leg-க்கு கற்பனை விலை கொடுக்காமல், ஆர்டர் இல்லாமலே விடப்படும்.</p>
+        </section>
+        <section>
+          <h5>9 &middot; Stop loss இல்லை</h5>
+          <p>வேண்டுமென்றே. தானியங்கி வெட்டு இல்லை &mdash; இலக்கு எட்டவில்லை என்றால் <strong>நீங்களே கையால் வெட்டுவீர்கள்</strong>. நீங்கள் கேட்டபடி பாதி auto, பாதி manual.</p>
+        </section>
+        <section>
+          <h5>10 &middot; சுற்றுகள் &mdash; ஒரு இலக்கு, பிறகு இன்னும் தாழ்ந்த low-க்குக் காத்திருப்பு</h5>
+          <p>இலக்கை அடைந்து பணமாக்கியதும் campaign <strong>நிற்கும்</strong>; mother அணைக்கப்படவில்லை, ஓய்வில் நிறுத்தப்படுகிறது. பிறகு விலை <strong>முழு campaign-இன் மிக ஆழமான புதிய low</strong>-ஐச் செய்தால், அதே mother மீண்டும் தயாராகி இன்னொரு சுற்று வர்த்தகம் செய்யும். விற்ற நேரத்தில் இருந்த low அல்ல &mdash; அது பார்த்த மிக ஆழமான low.</p>
+        </section>
+        <p class="pf-info-warn">இரண்டு விஷயங்கள் நினைவில் இருக்கட்டும். <strong>15 ஆக 2026-க்கு முந்தைய எல்லா Fib Boundary எண்களும் செல்லாது</strong> &mdash; அவற்றை உருவாக்கிய geometry இப்போது இல்லை. மேலும் 22-மாத replay-இல் பழைய touch ladder-இன் எல்லா exit வகைகளும் நஷ்டம்; இணைக்கப்பட்ட இதை முன்னோக்கி paper-நிரூபிக்கவே இந்த tab. Broker fills, partial fills, restart மீட்பு சரிபார்க்கப்படும் வரை நிஜ ஆர்டர்கள் code-இல் தடுக்கப்பட்டுள்ளன &mdash; Paper/Live toggle அதற்குப் பதில் அல்ல.</p>
+        </div><!-- /ta -->
+      </div>
+    </div>
     <div class="cascade-options-workspace oc-fib-workspace">
       <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
-          <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Start fib-boundary campaign <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
           <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
-        </div>
-        <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
-             the same doc standard as the Cash Cascade: numbered sections,
-             the code's own numbers, and the losing measurement stated as
-             plainly as the design. One doc, two languages. -->
-        <div id="fibx-info" class="pf-info-pop pf-info-doc" style="margin-bottom:14px;">
-          <div class="pf-doc-langs" role="tablist" aria-label="Language">
-            <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
-            <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
-          </div>
-          <div class="pf-doc-lang is-active" data-pf-lang="en">
-          <p class="pf-info-lede">You give one candle. The engine draws the lines, waits for the fall, buys the levels on the way down and leaves the sell order on the broker. <strong>Fib Boundary and Fib Space are one strategy now</strong> (15 Aug 2026) — same lines, same levels, and a switch for what it buys. Paper and Live is a plain toggle.</p>
-          <section>
-            <h5>1 &middot; You give the mother. It never moves.</h5>
-            <p>The mother only says <strong>where to start looking</strong>. Nothing is measured from its own range except the target. Pick the chart you read it on — 1m, 5m, 15m or 1H — and the lines are drawn on <em>that</em> chart. If price closes past the mother <strong>before anything is bought</strong>, the campaign closes with no buys and waits for the next mother you give it. The mother is never moved for you.</p>
-          </section>
-          <section>
-            <h5>2 &middot; How the lines get drawn</h5>
-            <p>Same rule as the crypto Cascade. Price falls and makes a low. Buyers lift it off that low to a high. A <strong>trendline</strong> is carried down from above. When price <strong>cuts back below that low</strong>, the leg is finished and a <strong>fib</strong> is drawn on it: <strong>0</strong> is the high the buyers reached, <strong>1</strong> is the low they lifted off. Nothing is drawn while the market is rising.</p>
-          </section>
-          <section>
-            <h5>3 &middot; Fibs STACK</h5>
-            <p>A new fib <strong>adds</strong> its levels; the old ones keep resting. Two fibs both have an L4, at different prices, holding different money — so every rung on the chart and in the table is named by <strong>its fib and its level</strong> (F1&nbsp;L4, F2&nbsp;L4), never by the level alone.</p>
-          </section>
-          <section>
-            <h5>4 &middot; What it buys &mdash; the switch</h5>
-            <p><strong>Every level</strong>: L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16 of every drawn fib, each one that many fib-spans below its own 0.<br><strong>Where two meet</strong>: only the <strong>spaces</strong> where a level of one fib sits next to a level of another — the deepest two, off levels 1 &middot; 2 &middot; 4 &middot; 8. The ladder is still drawn in full; only what may be bought is narrower.</p>
-          </section>
-          <section>
-            <h5>5 &middot; A touch buys</h5>
-            <p>The moment a wick <strong>touches</strong> a rung it is bought — no waiting for a recovery close. <strong>One lot per rung</strong>, so the position grows 1, 2, 3… as the fall deepens.</p>
-          </section>
-          <section>
-            <h5>6 &middot; Money</h5>
-            <p>One rupee cap funds the <strong>whole ladder</strong>, not each rung: at roughly &#8377;13,000 a NIFTY lot, the default &#8377;75,000 funds about five rungs. Deeper rungs stay priced and drawn but marked <strong>UNFUNDED</strong> — never silently skipped.</p>
-          </section>
-          <section>
-            <h5>7 &middot; The contract</h5>
-            <p><strong>ATM&minus;2</strong> (in the money) by default; the nearest expiry at least <strong>4 days</strong> out — the current week where weeklies exist (NIFTY, SENSEX), otherwise the next one. Lot size is read from the live chain, never assumed.</p>
-          </section>
-          <section>
-            <h5>8 &middot; The target, and the order left on the broker</h5>
-            <p><strong>0.25 of the way back from your average entry up to the mother's high</strong> — and once L4 or deeper has filled, the ask widens to <strong>0.5</strong>. It is recomputed on <em>every</em> buy, because every buy moves the average. A matching <strong>SELL order rests on the broker</strong> at that price, so it fills whether or not this app is watching; it is cancelled and re-placed each time a new buy moves the target. A leg whose sell price cannot be measured from real quotes is left without a resting order rather than given a made-up one.</p>
-          </section>
-          <section>
-            <h5>9 &middot; No stop loss</h5>
-            <p>Deliberate. There is no automatic cut — <strong>you cut by hand</strong> if the target is not reached. Half auto, half manual, as asked for.</p>
-          </section>
-          <section>
-            <h5>10 &middot; Rounds &mdash; one target, then wait for a lower low</h5>
-            <p>Banking the target <strong>stops</strong> the campaign; the mother is parked, not killed. If price later makes a <strong>new deepest low of the whole campaign</strong>, the same mother arms again and trades another round. Not the low standing when it sold — the deepest one it has ever seen.</p>
-          </section>
-          <p class="pf-info-warn">Two things worth remembering. <strong>Every Fib Boundary number from before 15 Aug 2026 is void</strong> — the geometry that produced them is gone. And on the 22-month replay, every exit variant of the old touch ladder lost money; this tab exists to paper-prove the merged one forward. Live orders are still blocked in the code until broker fills, partial fills and restart recovery are verified — the Paper/Live toggle does not answer that.</p>
-          </div><!-- /en -->
-          <div class="pf-doc-lang" data-pf-lang="ta">
-          <p class="pf-info-lede">நீங்கள் ஒரே ஒரு candle கொடுக்கிறீர்கள். Engine கோடுகளை வரையும், வீழ்ச்சிக்குக் காத்திருக்கும், இறங்கும் வழியில் levels-ஐ வாங்கும், விற்பனை ஆர்டரை broker-இல் வைத்துவிடும். <strong>Fib Boundary-யும் Fib Space-உம் இப்போது ஒரே strategy</strong> (15 ஆக 2026) &mdash; ஒரே கோடுகள், ஒரே levels, என்ன வாங்குவது என்பதற்கு மட்டும் ஒரு switch. Paper / Live ஒரு எளிய toggle.</p>
-          <section>
-            <h5>1 &middot; Mother நீங்கள் கொடுப்பது. அது நகராது.</h5>
-            <p>Mother சொல்வது <strong>எங்கிருந்து பார்க்க வேண்டும்</strong> என்பது மட்டுமே. இலக்கைத் தவிர வேறு எதுவும் அதன் சொந்த அளவிலிருந்து அளக்கப்படுவதில்லை. நீங்கள் படிக்கும் chart-ஐத் தேர்வு செய்யுங்கள் &mdash; 1m, 5m, 15m அல்லது 1H &mdash; கோடுகள் <em>அதே</em> chart-இல் வரையப்படும். <strong>எதுவும் வாங்கும் முன்</strong> விலை mother-ஐத் தாண்டி close ஆனால், campaign எந்த வாங்கலும் இல்லாமல் மூடப்படும்; நீங்கள் கொடுக்கும் அடுத்த mother-க்குக் காத்திருக்கும். Mother உங்களுக்காக நகர்த்தப்படாது.</p>
-          </section>
-          <section>
-            <h5>2 &middot; கோடுகள் எப்படி வரையப்படுகின்றன</h5>
-            <p>Crypto Cascade-இன் அதே விதி. விலை விழுந்து ஒரு low செய்கிறது. வாங்குபவர்கள் அதை ஒரு high வரை தூக்குகிறார்கள். மேலிருந்து ஒரு <strong>trendline</strong> இறங்கி வருகிறது. விலை <strong>அந்த low-க்குக் கீழே திரும்ப வெட்டும்</strong>போது அந்த leg முடிகிறது; அதன் மேல் ஒரு <strong>fib</strong> வரையப்படுகிறது: <strong>0</strong> = வாங்குபவர்கள் எட்டிய high, <strong>1</strong> = அவர்கள் தூக்கிய low. சந்தை ஏறிக்கொண்டிருக்கும்போது எதுவும் வரையப்படாது.</p>
-          </section>
-          <section>
-            <h5>3 &middot; Fibs அடுக்கப்படும் (STACK)</h5>
-            <p>புதிய fib தன் levels-ஐ <strong>சேர்க்கும்</strong>; பழையவை அப்படியே இருக்கும். இரண்டு fibs-க்கும் L4 உண்டு &mdash; வெவ்வேறு விலை, வெவ்வேறு பணம். எனவே chart-இலும் அட்டவணையிலும் ஒவ்வொரு rung-உம் <strong>அதன் fib + level</strong> என்றே பெயரிடப்படும் (F1&nbsp;L4, F2&nbsp;L4), level மட்டும் அல்ல.</p>
-          </section>
-          <section>
-            <h5>4 &middot; என்ன வாங்குகிறது &mdash; அந்த switch</h5>
-            <p><strong>ஒவ்வொரு level</strong>: வரையப்பட்ட ஒவ்வொரு fib-இன் L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16; ஒவ்வொன்றும் அதன் சொந்த 0-க்குக் கீழே அத்தனை fib-அளவுகள்.<br><strong>இரண்டு சந்திக்கும் இடம்</strong>: ஒரு fib-இன் level இன்னொரு fib-இன் level-க்கு அருகில் அமையும் <strong>இடைவெளிகள்</strong> மட்டும் &mdash; அதில் ஆழமான இரண்டு, levels 1 &middot; 2 &middot; 4 &middot; 8-இல் இருந்து. Ladder முழுவதும் வரையப்படும்; வாங்கக்கூடியது மட்டுமே குறுகும்.</p>
-          </section>
-          <section>
-            <h5>5 &middot; Touch வந்தால் வாங்கல்</h5>
-            <p>ஒரு wick ஒரு rung-ஐ <strong>தொட்ட</strong> கணமே வாங்கல் &mdash; recovery close-க்குக் காத்திருப்பு இல்லை. <strong>ஒரு rung-க்கு ஒரு lot</strong>; வீழ்ச்சி ஆழமாக 1, 2, 3… என நிலை வளரும்.</p>
-          </section>
-          <section>
-            <h5>6 &middot; பணம்</h5>
-            <p>ஒரே ரூபாய் வரம்பு <strong>முழு ladder</strong>-க்கும், ஒவ்வொரு rung-க்கும் அல்ல: NIFTY lot ஒன்று சுமார் &#8377;13,000; இயல்பு &#8377;75,000 சுமார் ஐந்து rungs-க்கு போதும். ஆழமான rungs வரையப்பட்டு <strong>UNFUNDED</strong> என்று காட்டப்படும் &mdash; அமைதியாக தவிர்க்கப்படாது.</p>
-          </section>
-          <section>
-            <h5>7 &middot; ஒப்பந்தம்</h5>
-            <p>இயல்பாக <strong>ATM&minus;2</strong> (ITM); குறைந்தது <strong>4 நாட்கள்</strong> உள்ள அருகிய expiry &mdash; weekly உள்ள இடத்தில் (NIFTY, SENSEX) அந்த வாரம், இல்லையெனில் அடுத்தது. Lot அளவு live chain-இலிருந்து, ஊகம் இல்லை.</p>
-          </section>
-          <section>
-            <h5>8 &middot; இலக்கு, மற்றும் broker-இல் வைக்கப்படும் ஆர்டர்</h5>
-            <p><strong>உங்கள் சராசரி நுழைவிலிருந்து mother-இன் high வரை 0.25</strong> &mdash; L4 அல்லது ஆழத்தில் நிரம்பியதும் கேள்வி <strong>0.5</strong>-ஆக விரிவடையும். <em>ஒவ்வொரு</em> வாங்கலிலும் மறுகணக்கு, ஏனெனில் ஒவ்வொரு வாங்கலும் சராசரியை நகர்த்துகிறது. அதே விலையில் ஒரு <strong>SELL ஆர்டர் broker-இல் தங்கும்</strong>; இந்த app பார்த்துக்கொண்டிருந்தாலும் இல்லாவிட்டாலும் அது நிறைவேறும். புதிய வாங்கல் இலக்கை நகர்த்தும் ஒவ்வொரு முறையும் அது ரத்து செய்யப்பட்டு மீண்டும் வைக்கப்படும். உண்மையான விலைகளிலிருந்து அளக்க முடியாத leg-க்கு கற்பனை விலை கொடுக்காமல், ஆர்டர் இல்லாமலே விடப்படும்.</p>
-          </section>
-          <section>
-            <h5>9 &middot; Stop loss இல்லை</h5>
-            <p>வேண்டுமென்றே. தானியங்கி வெட்டு இல்லை &mdash; இலக்கு எட்டவில்லை என்றால் <strong>நீங்களே கையால் வெட்டுவீர்கள்</strong>. நீங்கள் கேட்டபடி பாதி auto, பாதி manual.</p>
-          </section>
-          <section>
-            <h5>10 &middot; சுற்றுகள் &mdash; ஒரு இலக்கு, பிறகு இன்னும் தாழ்ந்த low-க்குக் காத்திருப்பு</h5>
-            <p>இலக்கை அடைந்து பணமாக்கியதும் campaign <strong>நிற்கும்</strong>; mother அணைக்கப்படவில்லை, ஓய்வில் நிறுத்தப்படுகிறது. பிறகு விலை <strong>முழு campaign-இன் மிக ஆழமான புதிய low</strong>-ஐச் செய்தால், அதே mother மீண்டும் தயாராகி இன்னொரு சுற்று வர்த்தகம் செய்யும். விற்ற நேரத்தில் இருந்த low அல்ல &mdash; அது பார்த்த மிக ஆழமான low.</p>
-          </section>
-          <p class="pf-info-warn">இரண்டு விஷயங்கள் நினைவில் இருக்கட்டும். <strong>15 ஆக 2026-க்கு முந்தைய எல்லா Fib Boundary எண்களும் செல்லாது</strong> &mdash; அவற்றை உருவாக்கிய geometry இப்போது இல்லை. மேலும் 22-மாத replay-இல் பழைய touch ladder-இன் எல்லா exit வகைகளும் நஷ்டம்; இணைக்கப்பட்ட இதை முன்னோக்கி paper-நிரூபிக்கவே இந்த tab. Broker fills, partial fills, restart மீட்பு சரிபார்க்கப்படும் வரை நிஜ ஆர்டர்கள் code-இல் தடுக்கப்பட்டுள்ளன &mdash; Paper/Live toggle அதற்குப் பதில் அல்ல.</p>
-          </div><!-- /ta -->
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
@@ -2699,7 +2704,7 @@
   <!-- ── TAB · Candle-entry ── -->
   <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc" style="max-width:960px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -2783,7 +2788,7 @@
         <div>
           <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">PAPER CAMPAIGNS ON LIVE PRICES · NO REAL ORDER IS EVER SENT</div>
           <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Recovery <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <div id="recovery-info" class="pf-info-pop pf-info-doc" style="max-width:960px;">
+          <div id="recovery-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>

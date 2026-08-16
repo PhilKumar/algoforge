@@ -727,6 +727,72 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
   await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
 });
 
+// Phil, 2026-08-16, pointing at the Cash Cascade page: "Why don't you put the
+// panels in this format?.. The (i) for cascades". They already shared its
+// classes; what they did not share was ROOM. A .pf-info-doc flows its sections
+// into ~34em columns, so a doc boxed inside the narrow setup card, or capped at
+// 960px, can never form them — same stylesheet, different shape on screen.
+test('Every cascade ⓘ reads as the Cash Cascade document', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  await page.setViewportSize({ width: 1600, height: 1100 });
+
+  // The reference, on the Equity desk. It is the format, so it is measured
+  // alongside the others rather than assumed.
+  await openTradingSection(page, 'equity');
+  await page.click('[data-pf-info="cash-cascade-rules"]');
+  const reference = await docShape(page, 'cash-cascade-rules');
+  expect(reference.columns, 'the reference doc itself').toBeGreaterThan(1);
+
+  await openTradingSection(page, 'cascade');
+  for (const [tab, id] of [
+    ['#oc-tabbtn-fib', 'fibx-info'],
+    ['#oc-tabbtn-candle', 'candle-info'],
+    ['#oc-tabbtn-recovery', 'recovery-info'],
+    ['#oc-tabbtn-bench', 'bench-info'],
+  ]) {
+    await page.click(tab);
+    await page.click(`[data-pf-info="${id}"]`);
+    const shape = await docShape(page, id);
+    // More than one column is the whole ask: it is what makes a long doc
+    // readable across a wide screen instead of a ribbon down one side.
+    expect(shape.columns, `${id} columns`).toBeGreaterThan(1);
+    // And it uses the card it is in. A doc half the width of its own card is
+    // the capped layout Phil was looking at.
+    expect(shape.width / shape.hostWidth, `${id} fills its card`).toBeGreaterThan(0.9);
+    // The bilingual header is part of the format.
+    await expect(page.locator(`#${id} .pf-doc-lang-btn`)).toHaveCount(2);
+  }
+
+  // One column on a phone, and never a sideways scroll.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('#oc-tabbtn-fib');
+  const phone = await docShape(page, 'fibx-info');
+  expect(phone.columns, 'a phone gets one column').toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+
+  expect(jsErrors).toEqual([]);
+});
+
+/* Where a .pf-info-doc's sections actually landed. Columns are counted by
+ * distinct left edges rather than read off the CSS: `columns: 34em auto` is a
+ * request, and how many the browser grants is the thing being asserted. */
+async function docShape(page: Page, id: string) {
+  return page.evaluate((docId) => {
+    const doc = document.getElementById(docId)!;
+    const sections = Array.from(doc.querySelectorAll('.pf-doc-lang.is-active > section'));
+    const lefts = new Set(sections.map((s) => Math.round(s.getBoundingClientRect().left)));
+    return {
+      width: Math.round(doc.getBoundingClientRect().width),
+      hostWidth: Math.round((doc.parentElement as HTMLElement).getBoundingClientRect().width),
+      columns: lefts.size,
+      sections: sections.length,
+    };
+  }, id);
+}
+
 test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   const jsErrors: string[] = [];
   page.on('pageerror', (err) => jsErrors.push(String(err)));
