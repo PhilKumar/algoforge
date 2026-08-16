@@ -41,7 +41,7 @@ here too.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
@@ -691,10 +691,22 @@ class TouchRung:
 
     level: int
     index_price: float
-    # PENDING -> FILLED, or UNFUNDED when the ladder's rupee cap stopped here.
+    # PENDING -> COLLECTED -> FILLED. UNFUNDED when the rupee cap stopped here,
+    # GAPPED when the market jumped the price without ever trading at it.
+    #
+    # COLLECTED is the state Phil's rule added on 2026-08-16: a touch no longer
+    # buys, it collects. The buy happens later, once, when the fall turns.
     status: str = "PENDING"
     filled_at: Optional[datetime] = None
     fib_id: int = 0
+    # Price has to have been ABOVE a rung for a later jump past it to mean
+    # anything. TRUE FROM BIRTH, because it is true by construction: a fib is
+    # drawn when price cuts back under its low, and every level sits a full span
+    # or more below that low -- so the market is above all of them the moment
+    # they exist. Waiting to observe it on a bar does not work in a replay, where
+    # the whole geometry stream is consumed before the first entry candle and
+    # those earlier bars are never walked.
+    armed: bool = True
     # When the parent fib was DRAWN. Nothing may trade this level before it --
     # the structure did not exist yet, and filling earlier reads the future the
     # same way the old swing anchor did before `confirmed_at`.
@@ -748,10 +760,24 @@ class TouchFill:
     # fills can both be "level 2" at different prices holding different money;
     # the level alone no longer names a rung. 0 is a pre-merge fill.
     fib_id: int = 0
+    # EVERY rung this one buy spent. A fall can cross several levels before it
+    # turns, and since 2026-08-16 that is one lot, not one per level -- so the
+    # buy has to say what it covered or five of them vanish from the record.
+    covered: list[str] = field(default_factory=list)
 
     @property
     def rung_key(self) -> str:
         return f"L{self.level}" if not self.fib_id else f"F{self.fib_id}L{self.level}"
+
+    @property
+    def covered_levels(self) -> list[int]:
+        """The level NUMBERS this one buy spent, its own included."""
+        out = [int(self.level)]
+        for key in self.covered:
+            _, _, tail = str(key).rpartition("L")
+            if tail.isdigit():
+                out.append(int(tail))
+        return out
 
     @property
     def funded_inr(self) -> float:
@@ -773,6 +799,7 @@ class TouchFill:
             "option_type": self.option_type,
             "funded_inr": self.funded_inr,
             "order_id": self.order_id,
+            "covered": list(self.covered),
         }
 
 
@@ -832,6 +859,16 @@ class FibTouchLadder:
         # would otherwise chase ground far under the market as each new fib
         # stacks below the last.
         self._lowest_low: Optional[float] = None
+        # THE TURN. `_reds` are the consecutive red closes below the collecting
+        # line; `_buy_stop` is the price a rise has to go through before
+        # anything is bought. Both reset on every fill and on every park.
+        self._reds: list[float] = []
+        self._buy_stop: Optional[float] = None
+        # WHEN the stop was last set. A stop is armed at a bar's CLOSE, so that
+        # same bar's high cannot be the rise that takes it -- the high happened
+        # before the close that armed it. Without this the engine buys the
+        # instant the second red prints, which is not a turn at all.
+        self._stop_bar: Optional[datetime] = None
         # TARGET ORDERS SITTING ON THE BROKER, one per leg. Phil asked for the
         # sell to be placed rather than watched for, so it fills whether or not
         # this app is running. Re-priced when a new buy moves the average, and
@@ -929,7 +966,13 @@ class FibTouchLadder:
         quarter; once it has bought at L4 or deeper it has paid for a much
         bigger move and should ask for half of one.
         """
-        if self.config.deep_target and any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
+        # COVERED, not just the level the buy is filed under. Since 2026-08-16
+        # one buy can span several rungs, so a fall that went through L4 on its
+        # way to a deeper L3 has still paid for the bigger move -- reading only
+        # `fill.level` would quietly hand it the shallow target.
+        if self.config.deep_target and any(
+            level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills for level in fill.covered_levels
+        ):
             return DEEP_TARGET_FRACTION
         return self.config.target_fraction
 
@@ -961,6 +1004,29 @@ class FibTouchLadder:
     def _touched(self, bar: Bar, level_price_: float) -> bool:
         """A TOUCH, not a close -- the wick is enough."""
         return float(bar.low) <= level_price_ if self.side == "CE" else float(bar.high) >= level_price_
+
+    def _traded_through(self, bar: Bar, level_price_: float) -> bool:
+        """Did this candle actually TRADE at that price?
+
+        Phil, 2026-08-16, on six buys firing in one opening minute: "it has to
+        buy only one... not all". The cause underneath was worse than the count
+        -- NIFTY closed 23,871 on 23 Jul and opened 23,666 on 24 Jul, so five of
+        the six rungs sat inside a 205-point hole where nothing traded, and
+        `low <= level` called every one of them touched. A level is only real
+        when the candle's own range covers it.
+        """
+        return float(bar.low) <= level_price_ <= float(bar.high)
+
+    def _jumped(self, bar: Bar, level_price_: float) -> bool:
+        """Has price passed this level WITHOUT trading at it?
+
+        For a CE the ladder walks down, so the whole candle being below the
+        level means the market gapped over it. Phil chose 2026-08-16: such a
+        rung is dead for good, not merely skipped -- the fall it was meant to
+        fund happened without it, and buying it on some later rise back up would
+        be a purchase in the wrong direction entirely.
+        """
+        return float(bar.high) < level_price_ if self.side == "CE" else float(bar.low) > level_price_
 
     def _note_gap(self, reason: str, when: datetime) -> None:
         """Record a pricing gap once per reason, with a count and a last-seen."""
@@ -1205,9 +1271,19 @@ class FibTouchLadder:
         strike = atm - offset if self.side == "CE" else atm + offset
         return float(strike), expiry
 
-    def _try_fill(self, bar: Bar) -> None:
-        """Buy every level this candle touched, shallowest first."""
-        before = len(self.fills)
+    def _collect(self, bar: Bar) -> None:
+        """Mark what this candle reached. NOTHING is bought here.
+
+        Phil's rule, 2026-08-16, after watching six lots fire in one opening
+        minute: a touch collects the rung, and the buy waits for the fall to
+        turn. It is his own CryptoForge rule -- "a knife that never turns is
+        never bought" -- which this engine had never been given.
+
+        Three things can happen to a pending rung on a bar:
+          * the candle's range covers it   -> COLLECTED, it is real
+          * the whole candle is past it    -> GAPPED, the market jumped it
+          * price is still above it        -> nothing, and it is now armed
+        """
         for rung in self.rungs:
             if rung.status != "PENDING":
                 continue
@@ -1217,121 +1293,207 @@ class FibTouchLadder:
             # `confirmed_at`, now carried per rung because fibs stack.
             if rung.drawn_at is not None and bar.timestamp < rung.drawn_at:
                 continue
-            if not self._touched(bar, rung.index_price):
-                # Levels are ordered shallow-first, so the first untouched one
-                # ends the walk: nothing deeper can have been reached.
-                break
-            # The ladder never buys into its own contract's last days. Once the
-            # locked expiry is inside `min_dte` the remaining rungs are closed
-            # off: the legs already held run on to the target or to expiry, but
-            # a fresh L12 bought two days out is a lottery ticket, not a rung.
-            if self.expiry_locked is not None:
-                left = (self.expiry_locked - bar.timestamp.date()).days
-                if left < self.config.min_dte:
-                    for remaining in self.rungs:
-                        if remaining.status == "PENDING":
-                            remaining.status = "EXPIRING"
-                    self._log(
-                        bar.timestamp,
-                        "ladder_closed_near_expiry",
-                        expiry=self.expiry_locked.isoformat(),
-                        days_left=left,
-                    )
-                    return
-            # Fill AT the level, not at the close -- a touch is a limit order
-            # resting on the line, and the line is the price it gets.
-            fill_index = rung.index_price
-            try:
-                strike, expiry = self._resolve_contract(bar.timestamp, fill_index)
-            except FibTouchError as exc:
-                self.data_gaps.append(f"{bar.timestamp.isoformat()}: {exc}")
-                self._log(bar.timestamp, "contract_unavailable", level=rung.level, detail=str(exc))
-                break
-            premium = self.premium_lookup(bar.timestamp, strike, expiry, self.side)
-            if premium is None or premium <= 0:
-                self._note_gap(
-                    f"L{rung.level}: no {self.config.symbol} {strike:g}{self.side} {expiry.isoformat()} quote",
-                    bar.timestamp,
+            if self._traded_through(bar, rung.index_price):
+                rung.status = "COLLECTED"
+                rung.armed = True
+                self._log(
+                    bar.timestamp, "level_collected", level=rung.level, rung=rung.key, index=round(rung.index_price, 2)
                 )
-                self._log(bar.timestamp, "premium_missing", level=rung.level, strike=strike)
-                break
-
-            lots = self.config.lots_per_rung
-            quantity = lots * self.config.lot_size
-            cost = float(premium) * quantity
-            if self.deployed_inr + cost > self.config.capital_cap_inr:
-                # The cap ends the ladder.  Every remaining rung is marked so
-                # the console can draw it as priced-but-unfunded rather than
-                # leave the user wondering why a touched level did nothing.
-                for remaining in self.rungs:
-                    if remaining.status == "PENDING":
-                        remaining.status = "UNFUNDED"
-                self.status = "OPEN_CAPPED"
+                continue
+            if rung.armed and self._jumped(bar, rung.index_price):
+                rung.status = "GAPPED"
                 self._log(
                     bar.timestamp,
-                    "capital_cap_reached",
+                    "level_gapped",
                     level=rung.level,
-                    would_cost=round(cost, 2),
-                    deployed=self.deployed_inr,
-                    cap=self.config.capital_cap_inr,
+                    rung=rung.key,
+                    index=round(rung.index_price, 2),
+                    bar_high=round(float(bar.high), 2),
+                    bar_low=round(float(bar.low), 2),
                 )
-                return
+                continue
+            if not self._touched(bar, rung.index_price):
+                rung.armed = True
 
-            try:
-                receipt = self.executor.buy(
-                    when=bar.timestamp,
-                    strike=strike,
-                    expiry=expiry,
-                    option_type=self.side,
-                    quantity=quantity,
-                    lots=lots,
-                    premium=float(premium),
+    def _collected_rungs(self) -> list[TouchRung]:
+        return [rung for rung in self.rungs if rung.status == "COLLECTED"]
+
+    def _advance_turn(self, bar: Bar) -> None:
+        """Work the buy-stop that turns collected levels into ONE buy.
+
+        The rule Phil adjudicated on CryptoForge and asked for here: two red
+        closes below the collecting line arm a buy-stop at the FIRST red's
+        close; every further lower red drags the stop down with the market; only
+        a rise back THROUGH the stop buys.
+        """
+        collected = self._collected_rungs()
+        if not collected:
+            self._reds = []
+            self._buy_stop = None
+            self._stop_bar = None
+            return
+        line = (
+            min(rung.index_price for rung in collected)
+            if self.side == "CE"
+            else max(rung.index_price for rung in collected)
+        )
+        close = float(bar.close)
+        below = close < line if self.side == "CE" else close > line
+        if _is_red(bar) and below:
+            self._reds.append(close)
+            if len(self._reds) == 2:
+                self._buy_stop = self._reds[0]
+                self._stop_bar = bar.timestamp
+                self._log(
+                    bar.timestamp, "turn_armed", stop=round(self._buy_stop, 2), collected=[r.key for r in collected]
                 )
-            except ExecutionRefused as exc:
-                # The decision was right; the executor would not send it. Say so
-                # and leave the rung PENDING rather than record a phantom fill.
-                self.data_gaps.append(f"L{rung.level} not sent: {exc}")
-                self._log(bar.timestamp, "execution_refused", level=rung.level, detail=str(exc))
-                self.status = "EXECUTION_REFUSED"
+            elif len(self._reds) > 2 and self._buy_stop is not None:
+                # "every further lower red moves that stop down with the market"
+                moved = close < self._buy_stop if self.side == "CE" else close > self._buy_stop
+                if moved:
+                    self._buy_stop = close
+                    self._stop_bar = bar.timestamp
+                    self._log(bar.timestamp, "turn_stop_moved", stop=round(close, 2))
+
+    def _try_fill(self, bar: Bar) -> None:
+        """ONE buy, when price rises back through the armed stop.
+
+        One lot, whatever the fall crossed on the way down -- Phil, 2026-08-16.
+        The collected rungs are all spent by that single buy; the fill is
+        recorded against the DEEPEST of them, which is how far the fall went.
+        """
+        before = len(self.fills)
+        collected = self._collected_rungs()
+        if not collected or self._buy_stop is None:
+            return
+        if self._stop_bar is not None and bar.timestamp <= self._stop_bar:
+            return  # the bar that armed it cannot also take it
+        triggered = float(bar.high) >= self._buy_stop if self.side == "CE" else float(bar.low) <= self._buy_stop
+        if not triggered:
+            return
+        # The buy belongs to the DEEPEST level the fall collected -- that is how
+        # far it went, and it is the strike the money should sit on.
+        rung = (
+            min(collected, key=lambda r: r.index_price)
+            if self.side == "CE"
+            else max(collected, key=lambda r: r.index_price)
+        )
+        # The ladder never buys into its own contract's last days. Once the
+        # locked expiry is inside `min_dte` the remaining rungs are closed
+        # off: the legs already held run on to the target or to expiry, but
+        # a fresh L12 bought two days out is a lottery ticket, not a rung.
+        if self.expiry_locked is not None:
+            left = (self.expiry_locked - bar.timestamp.date()).days
+            if left < self.config.min_dte:
+                for remaining in self.rungs:
+                    if remaining.status in {"PENDING", "COLLECTED"}:
+                        remaining.status = "EXPIRING"
+                self._log(
+                    bar.timestamp,
+                    "ladder_closed_near_expiry",
+                    expiry=self.expiry_locked.isoformat(),
+                    days_left=left,
+                )
                 return
-            fill = TouchFill(
-                buy_number=len(self.fills) + 1,
+        # THE STOP is the price, not the level. The fill happens on the way
+        # back up, where the market actually is -- pretending it filled at a
+        # level price the fall left behind is the fiction Phil caught.
+        fill_index = float(self._buy_stop)
+        try:
+            strike, expiry = self._resolve_contract(bar.timestamp, fill_index)
+        except FibTouchError as exc:
+            self.data_gaps.append(f"{bar.timestamp.isoformat()}: {exc}")
+            self._log(bar.timestamp, "contract_unavailable", level=rung.level, detail=str(exc))
+            return
+        premium = self.premium_lookup(bar.timestamp, strike, expiry, self.side)
+        if premium is None or premium <= 0:
+            self._note_gap(
+                f"L{rung.level}: no {self.config.symbol} {strike:g}{self.side} {expiry.isoformat()} quote",
+                bar.timestamp,
+            )
+            self._log(bar.timestamp, "premium_missing", level=rung.level, strike=strike)
+            return
+
+        lots = self.config.lots_per_rung
+        quantity = lots * self.config.lot_size
+        cost = float(premium) * quantity
+        if self.deployed_inr + cost > self.config.capital_cap_inr:
+            # The cap ends the ladder.  Every remaining rung is marked so
+            # the console can draw it as priced-but-unfunded rather than
+            # leave the user wondering why a touched level did nothing.
+            for remaining in self.rungs:
+                if remaining.status in {"PENDING", "COLLECTED"}:
+                    remaining.status = "UNFUNDED"
+            self.status = "OPEN_CAPPED"
+            self._log(
+                bar.timestamp,
+                "capital_cap_reached",
                 level=rung.level,
-                timestamp=bar.timestamp,
-                index_price=fill_index,
-                premium=float(premium),
-                lots=lots,
-                quantity=quantity,
+                would_cost=round(cost, 2),
+                deployed=self.deployed_inr,
+                cap=self.config.capital_cap_inr,
+            )
+            return
+
+        try:
+            receipt = self.executor.buy(
+                when=bar.timestamp,
                 strike=strike,
                 expiry=expiry,
                 option_type=self.side,
-                order_id=str(receipt.get("order_id") or ""),
-                fib_id=rung.fib_id,
-            )
-            self.fills.append(fill)
-            # The first buy fixes the campaign's contract series for good.
-            self.expiry_locked = expiry
-            self._last_fill_timestamp = bar.timestamp
-            rung.status = "FILLED"
-            rung.filled_at = bar.timestamp
-            if self.status != "OPEN_CAPPED":
-                self.status = "OPEN"
-            self._log(
-                bar.timestamp,
-                "fill",
-                level=rung.level,
-                buy_number=fill.buy_number,
-                index=round(fill_index, 2),
-                premium=round(float(premium), 2),
-                lots=lots,
                 quantity=quantity,
-                strike=strike,
-                expiry=expiry.isoformat(),
-                deployed=self.deployed_inr,
+                lots=lots,
+                premium=float(premium),
             )
-        # One re-price per BAR, after everything it bought. A bar can cross
-        # several rungs, and cancelling and replacing between each of them
-        # would be order traffic that changes nothing.
+        except ExecutionRefused as exc:
+            # The decision was right; the executor would not send it. Say so
+            # and leave the rung COLLECTED rather than record a phantom fill.
+            self.data_gaps.append(f"L{rung.level} not sent: {exc}")
+            self._log(bar.timestamp, "execution_refused", level=rung.level, detail=str(exc))
+            self.status = "EXECUTION_REFUSED"
+            return
+        fill = TouchFill(
+            buy_number=len(self.fills) + 1,
+            level=rung.level,
+            timestamp=bar.timestamp,
+            index_price=fill_index,
+            premium=float(premium),
+            lots=lots,
+            quantity=quantity,
+            strike=strike,
+            expiry=expiry,
+            option_type=self.side,
+            order_id=str(receipt.get("order_id") or ""),
+            fib_id=rung.fib_id,
+            covered=[r.key for r in collected],
+        )
+        self.fills.append(fill)
+        # The first buy fixes the campaign's contract series for good.
+        self.expiry_locked = expiry
+        self._last_fill_timestamp = bar.timestamp
+        # ONE buy spends every level it collected. They are not still
+        # waiting to be bought, and they must not be bought again.
+        for spent in collected:
+            spent.status = "FILLED"
+            spent.filled_at = bar.timestamp
+        self._reds = []
+        self._buy_stop = None
+        if self.status != "OPEN_CAPPED":
+            self.status = "OPEN"
+        self._log(
+            bar.timestamp,
+            "fill",
+            level=rung.level,
+            buy_number=fill.buy_number,
+            index=round(fill_index, 2),
+            premium=round(float(premium), 2),
+            lots=lots,
+            quantity=quantity,
+            strike=strike,
+            expiry=expiry.isoformat(),
+            deployed=self.deployed_inr,
+        )
+        # A new buy moves the average, and the resting target with it.
         if len(self.fills) != before:
             self._sync_resting_exits(bar.timestamp, float(bar.close))
 
@@ -1541,10 +1703,17 @@ class FibTouchLadder:
         # Every rung the round bought goes back on the ladder. UNFUNDED ones do
         # too: the cap that stopped them was spent on a position that has since
         # been sold.
+        # GAPPED is NOT in this list. A level the market jumped is dead for
+        # good (Phil, 2026-08-16) -- the fall that was meant to fund it happened
+        # without it, and a later round must not inherit it as if it were fresh.
         for rung in self.rungs:
-            if rung.status in {"FILLED", "UNFUNDED", "EXPIRING"}:
+            if rung.status in {"FILLED", "COLLECTED", "UNFUNDED", "EXPIRING"}:
                 rung.status = "PENDING"
                 rung.filled_at = None
+        # Nothing is collected and no stop is armed on a mother that is asleep.
+        self._reds = []
+        self._buy_stop = None
+        self._stop_bar = None
         self._log(
             bar.timestamp,
             "waiting_for_a_lower_low",
@@ -1776,6 +1945,10 @@ class FibTouchLadder:
         if self.status == "WAITING_NEW_LOW":
             self._try_rearm(bar)
             return
+        # In order, and the order is the rule: what the candle REACHED, then
+        # whether the fall has turned, then the one buy that turn allows.
+        self._collect(bar)
+        self._advance_turn(bar)
         self._try_fill(bar)
         if self._try_exit(bar):
             return
@@ -1899,9 +2072,19 @@ class FibTouchLadder:
                     "index_price": rung.index_price,
                     "status": rung.status,
                     "filled_at": rung.filled_at.isoformat() if rung.filled_at else None,
+                    # Which fib the rung belongs to, and whether price has ever
+                    # been above it. Dropping either on a restart turns a
+                    # COLLECTED rung back into a stranger and lets a gapped
+                    # level look buyable again.
+                    "fib_id": rung.fib_id,
+                    "armed": rung.armed,
                 }
                 for rung in self.rungs
             ],
+            # The turn in progress: a restart mid-fall must not forget that two
+            # reds have already printed and a stop is sitting armed.
+            "reds": list(self._reds),
+            "buy_stop": self._buy_stop,
             "fills": [
                 {
                     "buy_number": fill.buy_number,
@@ -2004,9 +2187,13 @@ class FibTouchLadder:
                 index_price=float(row["index_price"]),
                 status=str(row.get("status", "PENDING")),
                 filled_at=datetime.fromisoformat(row["filled_at"]) if row.get("filled_at") else None,
+                fib_id=int(row.get("fib_id") or 0),
+                armed=bool(row.get("armed")),
             )
             for row in raw.get("rungs") or []
         ]
+        engine._reds = [float(v) for v in (raw.get("reds") or [])]
+        engine._buy_stop = float(raw["buy_stop"]) if raw.get("buy_stop") is not None else None
         engine.fills = [
             TouchFill(
                 buy_number=int(row["buy_number"]),
@@ -2110,6 +2297,11 @@ class FibTouchLadder:
             # and the levels on screen then are not the levels holding money.
             **self.geometry.structures(),
             "levels": [rung.as_dict() for rung in self.rungs],
+            # What the screen has to say while nothing is bought yet: which
+            # levels the fall has collected, and the price a rise must clear
+            # before any of it becomes a buy.
+            "collected": [rung.key for rung in self.rungs if rung.status == "COLLECTED"],
+            "buy_stop": round(self._buy_stop, 2) if self._buy_stop is not None else None,
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when
             # they settle, and without this the panel and the chart would show a

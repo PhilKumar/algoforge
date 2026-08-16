@@ -856,6 +856,8 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(doc).toContainText('It never moves');            // the mother is not rebased
   await expect(doc).toContainText('cuts back below that low');  // how a fib is drawn
   await expect(doc).toContainText('Fibs STACK');
+  await expect(doc).toContainText('A touch COLLECTS');   // the 2026-08-16 rule
+  await expect(doc).toContainText('GAPPED');
   await expect(doc).toContainText("up to the mother's high");   // what the target is measured to
   await expect(doc).toContainText('rests on the broker');
   await expect(doc).toContainText('new deepest low');

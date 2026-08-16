@@ -57,17 +57,24 @@ INDEX_CANDLES = {
     _dt(10, 15): (24095.0, 24098.0, 24080.0, 24085.0),  # red
     # Second red freezes the high AND wicks through L2 in the same bar.
     _dt(10, 30): (24085.0, 24088.0, 23890.0, 23900.0),  # red   -> HIGH frozen + L2 fill
-    _dt(10, 45): (23900.0, 23960.0, 23895.0, 23955.0),  # green
-    # The target runs to the MOTHER now (24,367.30), not to the swing high, so
-    # it sits at 24,018.33 -- further than the old anchor-based one and out of
-    # reach of the bar above. This is the bar that pays.
-    _dt(11, 0): (23955.0, 24030.0, 23950.0, 24025.0),  # green -> target 24,018.33
+    # THE TURN, since 2026-08-16: the 10:30 bar only COLLECTS L2. Two red
+    # closes under it arm a buy-stop at the first red's close (23,880), and
+    # only a rise back through that stop buys -- one lot, at 23,880.
+    _dt(10, 45): (23900.0, 23905.0, 23875.0, 23880.0),  # red  -> first red under L2
+    _dt(11, 0): (23880.0, 23885.0, 23860.0, 23870.0),  # red  -> stop armed at 23,880
+    _dt(11, 15): (23870.0, 23960.0, 23865.0, 23955.0),  # green -> rises through it: BUY
+    # The target runs to the MOTHER (24,367.30), so from a 23,880 entry it sits
+    # at 24,001.83 -- out of reach of the bar above. This is the bar that pays.
+    _dt(11, 30): (23955.0, 24030.0, 23950.0, 24025.0),  # green -> target
 }
 
 # One deliberately thin minute: the L2 fill (10:30) has no bar of its own and
 # is priced from the last real trade at 10:27 -- disclosed, never a gap. The
 # exit minute does print, so the round settles.
-OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(10, 27): 300.0, _dt(10, 45): 520.0, _dt(11, 0): 545.0}
+# The BUY minute (11:15) deliberately has no print of its own: it is priced
+# from the last real trade at 11:12 -- disclosed, never a gap. The exit minute
+# does print, so the round settles.
+OPTION_MINUTES = {_dt(9, 45): 500.0, _dt(11, 12): 300.0, _dt(11, 30): 545.0}
 
 
 class _StubDhanClient:
@@ -206,8 +213,12 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         self.assertEqual(len(campaign["rounds"][0]["fills"]), 1)
         fill = campaign["rounds"][0]["fills"][0]
         self.assertEqual(fill["level"], 2)
-        self.assertEqual(fill["index_price"], 23_902.0)  # F1L2 = 24,098 - 2 x 98
-        self.assertEqual(fill["premium"], 300.0)  # the 10:27 trade, 3 min back
+        # The buy happens at the STOP, not at the level. L2 (23,902) is where
+        # the money was collected; the fall then printed three reds under it and
+        # dragged the stop down to the last one's close, and the rise took it.
+        self.assertEqual(fill["index_price"], 23_870.0)
+        self.assertIn("F1L2", fill["covered"])
+        self.assertEqual(fill["premium"], 300.0)  # the 11:12 trade, 3 min back
         self.assertEqual(fill["quantity"], 65)
         self.assertEqual(campaign["data_gaps"], [])
         self.assertEqual(body["premium_failures"], [])

@@ -81,6 +81,12 @@ def _live_ladder(symbol: str, broker, *, armed: bool = True, live: bool = True):
         (24_695, 24_698, 24_680, 24_682),
         (24_682, 24_684, 24_670, 24_672),
         (24_672, 24_674, 24_495, 24_510),
+        # THE TURN. Since 2026-08-16 a touch only collects; the buy needs two
+        # red closes under the collected line and then a rise back through the
+        # first red's close. Without these three bars this ladder holds nothing.
+        (24_510, 24_512, 24_493, 24_500),
+        (24_500, 24_501, 24_490, 24_494),
+        (24_494, 24_508, 24_492, 24_506),
     ]
     candles = [
         app_module.IndexCandle(base + timedelta(minutes=i), o, h, low, c) for i, (o, h, low, c) in enumerate(rows)

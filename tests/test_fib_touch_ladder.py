@@ -215,6 +215,33 @@ class ExpiryTests(unittest.TestCase):
         self.assertEqual(atm_strike(14_690, 25), 14_700)  # MIDCPNIFTY's 25 step
 
 
+def take_the_turn(engine, start, level, *, minutes=1, sweep_from=None):
+    """Collect `level`, then TURN, which is what actually buys.
+
+    Phil's rule of 2026-08-16: a touch no longer buys, it collects; the buy
+    waits for two red closes below the collected line and then a rise back
+    through the first red's close. Every test that used to drop one candle
+    through a level and expect a fill goes through here instead.
+
+    Three bars, in the order the rule reads:
+        1. trades through the level and closes red under it   -> collected
+        2. a second red under it                              -> stop armed
+        3. rises back through that stop                       -> ONE buy
+
+    Returns the bar that filled, so a caller can keep stepping time from it.
+    """
+    step = timedelta(seconds=minutes)
+    # `sweep_from` makes the collecting candle a WIDE one, the way a real fall
+    # crosses several rungs in a single bar.
+    top = float(sweep_from) if sweep_from is not None else level + 10
+    first = Bar(start + step, top - 2, top, level - 7, level - 2)
+    second = Bar(start + 2 * step, level - 2, level - 1, level - 12, level - 8)
+    rise = Bar(start + 3 * step, level - 8, level + 6, level - 9, level + 4)
+    for bar in (first, second, rise):
+        engine.on_candle(bar)
+    return rise
+
+
 def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=0, rearm=True):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
@@ -251,60 +278,90 @@ class LadderTests(unittest.TestCase):
         self.assertEqual(engine.fills, [])
         self.assertIsNotNone(engine.anchor)
 
-    def test_a_touch_fills_at_the_level_not_the_close(self):
+    def test_a_touch_only_collects_it_does_not_buy(self):
+        """Phil, 2026-08-16. A level reached is money set aside, not spent."""
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # Drop through F1L2 (24,502) with a wick; close well away from it.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_560))
+        # Trade through F1L2 (24,502) and close under it.
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_499))
+        self.assertEqual(engine.fills, [], "a touch buys nothing on its own")
+        collected = [r.key for r in engine.rungs if r.status == "COLLECTED"]
+        self.assertEqual(collected, ["F1L2"])
+
+    def test_the_buy_comes_on_the_turn_and_fills_at_the_stop(self):
+        """Two reds under the collected line arm a buy-stop at the first red's
+        close, and only a rise back through it buys -- at that stop, which is
+        where the market actually was."""
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertEqual(len(engine.fills), 1)
         fill = engine.fills[0]
-        self.assertEqual(fill.level, 2)
         self.assertEqual(fill.rung_key, "F1L2")
-        self.assertEqual(fill.index_price, 24_502.0)  # the line, not 24,560
+        self.assertEqual(fill.index_price, 24_500.0, "the stop -- the first red's close")
         self.assertEqual(fill.buy_number, 1)
         self.assertEqual(fill.lots, 1)
         self.assertEqual(fill.quantity, 65)
 
-    def test_one_lot_per_rung_so_the_position_grows_one_two_three(self):
+    def test_a_knife_that_never_turns_is_never_bought(self):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # One candle sweeping to 24,295 crosses five rungs, and they come from
-        # BOTH fibs -- which is the stack. One lot each, in price order.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
-        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2", "F1L3", "F1L4", "F2L3"])
-        self.assertEqual([f.buy_number for f in engine.fills], [1, 2, 3, 4, 5])
-        self.assertEqual([f.lots for f in engine.fills], [1, 1, 1, 1, 1])
-        self.assertEqual(engine.open_lots, 5)  # one lot per rung, however many fibs drew it
+        base = candles[-1].timestamp
+        # Straight down through five rungs, red all the way, no recovery.
+        for i, low in enumerate((24_495, 24_450, 24_400, 24_350, 24_300), start=1):
+            engine.on_candle(Bar(base + timedelta(minutes=i), low + 40, low + 45, low, low + 5))
+        self.assertEqual(engine.fills, [], "nothing is bought into a fall that keeps falling")
+        self.assertTrue([r for r in engine.rungs if r.status == "COLLECTED"])
 
-    def test_the_rupee_cap_ends_the_ladder_and_marks_the_rest_unfunded(self):
-        # 200 x 65 = Rs 13,000 a lot, so Rs 30,000 funds exactly two.
-        engine, candles, _ = ladder(cap=30_000.0, premium=200.0)
+    def test_one_sweep_is_ONE_buy_however_many_levels_it_crossed(self):
+        """Phil, 2026-08-16, on six lots firing in one opening minute: "it has
+        to buy only one... not all". One lot, and it names the deepest level the
+        fall reached while saying what else it covered."""
+        engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_100, 24_150))
-        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2"])
-        self.assertEqual(engine.deployed_inr, 26_000.0)
-        self.assertEqual(engine.remaining_inr, 4_000.0)
-        self.assertEqual(engine.status, "OPEN_CAPPED")
-        # Every rung the cap stopped is marked, across BOTH fibs -- priced and
-        # drawn but unfunded, never silently missing.
-        unfunded = [rung.key for rung in engine.rungs if rung.status == "UNFUNDED"]
-        self.assertEqual(unfunded[:4], ["F1L3", "F1L4", "F2L3", "F2L4"])
-        self.assertEqual(len(unfunded), 12)
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
+        self.assertEqual(len(engine.fills), 1)
+        fill = engine.fills[0]
+        self.assertEqual(fill.lots, 1)
+        self.assertEqual(engine.open_lots, 1)
+        # Five rungs off BOTH fibs went into that single buy.
+        self.assertEqual(sorted(fill.covered), sorted(["F1L2", "F2L2", "F1L3", "F1L4", "F2L3"]))
+        self.assertEqual(fill.rung_key, "F2L3", "recorded against the deepest one reached")
+        # And every one of them is spent -- none is left waiting to be bought.
+        self.assertEqual([r.key for r in engine.rungs if r.status == "COLLECTED"], [])
 
-    def test_the_strike_follows_the_index_down_so_the_basket_holds_several(self):
+    def test_the_rupee_cap_ends_the_ladder_and_marks_the_rest_unfunded(self):
+        # 200 x 65 = Rs 13,000 a lot, and one buy is one lot, so Rs 20,000
+        # funds exactly one of them.
+        engine, candles, _ = ladder(cap=20_000.0, premium=200.0)
+        for bar in candles:
+            engine.on_candle(bar)
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(engine.deployed_inr, 13_000.0)
+        take_the_turn(engine, last.timestamp, 24_430)
+        self.assertEqual(len(engine.fills), 1, "the cap stopped the second buy")
+        self.assertEqual(engine.status, "OPEN_CAPPED")
+        # Every rung the cap stopped is marked -- priced and drawn but
+        # unfunded, never silently missing.
+        self.assertTrue([rung.key for rung in engine.rungs if rung.status == "UNFUNDED"])
+
+    def test_the_strike_follows_the_index_down_across_buys(self):
         engine, candles, seen = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        take_the_turn(engine, last.timestamp, 24_295, sweep_from=24_500)
         strikes = [f.strike for f in engine.fills]
-        # ATM-2 re-resolved at each rung's own price, so the basket holds
-        # several strikes as the index walks down.
-        self.assertEqual(strikes, [24_400.0, 24_350.0, 24_300.0, 24_200.0, 24_200.0])
-        self.assertEqual(len(set(strikes)), 4)
+        # ATM-2 re-resolved at the price each buy actually happened at, so a
+        # deeper turn holds a lower strike.
+        self.assertEqual(len(engine.fills), 2)
         self.assertTrue(all(a >= b for a, b in zip(strikes, strikes[1:])), "strikes only walk down")
+        self.assertLess(strikes[1], strikes[0])
 
     def test_the_target_is_a_quarter_back_toward_the_MOTHER(self):
         """Phil, 2026-08-15: the target runs to the mother, not to the swing
@@ -313,15 +370,15 @@ class LadderTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        # One fill, F1L2 at 24,502; mother high 24,780.
-        self.assertAlmostEqual(engine.average_index_entry, 24_502.0, places=2)
-        self.assertAlmostEqual(engine.target_index, 24_502.0 + 0.25 * (24_780.0 - 24_502.0), places=2)
-        self.assertAlmostEqual(engine.target_index, 24_571.50, places=2)
-        # A deeper fill pulls the average down, and the target with it.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_440))
-        self.assertLess(engine.average_index_entry, 24_502.0)
-        self.assertLess(engine.target_index, 24_571.50)
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        # One buy, taken at the stop 24,500; mother high 24,780.
+        self.assertAlmostEqual(engine.average_index_entry, 24_500.0, places=2)
+        self.assertAlmostEqual(engine.target_index, 24_500.0 + 0.25 * (24_780.0 - 24_500.0), places=2)
+        self.assertAlmostEqual(engine.target_index, 24_570.00, places=2)
+        # A deeper buy pulls the average down, and the target with it.
+        take_the_turn(engine, last.timestamp, 24_430)
+        self.assertLess(engine.average_index_entry, 24_500.0)
+        self.assertLess(engine.target_index, 24_570.00)
         self.assertAlmostEqual(
             engine.target_index,
             engine.average_index_entry + engine.target_fraction * (24_780.0 - engine.average_index_entry),
@@ -333,7 +390,7 @@ class LadderTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         self.assertEqual(engine.status, "OPEN")
         # One fill at 24,502, mother 24,780 -> the target is 24,571.50.
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
@@ -355,7 +412,7 @@ class LadderTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         # A deep fall AFTER the close must buy nothing, however many rungs it
         # crosses -- and with fibs stacking there are plenty left resting.
@@ -382,7 +439,7 @@ class LadderTests(unittest.TestCase):
         )
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertEqual(engine.fills, [])
         self.assertEqual(len(engine.data_gaps), 1)
         self.assertIn("no NIFTY", engine.data_gaps[0])
@@ -392,7 +449,7 @@ class LadderTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         # 11 Aug 15:15, the expiry the chain hands back.
         expiry_bar = Bar(datetime(2026, 8, 11, 15, 15), 24_500, 24_505, 24_495, 24_500)
         engine.on_candle(expiry_bar)
@@ -405,7 +462,7 @@ class LadderTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         payload = engine.get_status()
         for key in (
             "symbol",
@@ -560,11 +617,11 @@ class TimeframeTests(unittest.TestCase):
         engine.on_candle(early)
         self.assertEqual(engine.fills, [], "a level cannot fill before its fib was drawn")
 
-        # A 1m bar AFTER it can.
-        # Down to 23,370: past F1L2 (23,410) and F2L2 (23,380), both fibs.
-        late = Bar(geometry[-1].timestamp + timedelta(minutes=1), 23_500, 23_510, 23_370, 23_420)
-        engine.on_candle(late)
-        self.assertEqual([f.rung_key for f in engine.fills], ["F1L2", "F2L2"])
+        # A 1m bar AFTER it can collect -- and one turn buys once, covering
+        # both fibs' L2 (F1L2 23,410 and F2L2 23,380).
+        take_the_turn(engine, geometry[-1].timestamp, 23_380, sweep_from=23_510)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(sorted(engine.fills[0].covered), ["F1L2", "F2L2"])
 
     def test_a_1m_mother_needs_no_second_stream(self):
         engine, candles, _ = ladder()
@@ -587,7 +644,7 @@ class ExecutorTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertTrue(engine.fills[0].order_id.startswith("paper-"))
 
     def test_live_refuses_until_it_is_armed_and_records_no_phantom_fill(self):
@@ -607,10 +664,10 @@ class ExecutorTests(unittest.TestCase):
         )
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertEqual(engine.fills, [])
         self.assertEqual(engine.status, "EXECUTION_REFUSED")
-        self.assertEqual(engine.rungs[0].status, "PENDING")
+        self.assertEqual(engine.rungs[0].status, "COLLECTED", "the fall reached it; only the send failed")
         self.assertTrue(any("not sent" in gap for gap in engine.data_gaps))
         self.assertEqual(engine.get_status()["mode"], "live")
         self.assertFalse(engine.get_status()["armed"])
@@ -705,7 +762,7 @@ class ExecutorTests(unittest.TestCase):
         with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
             for bar in candles:
                 engine.on_candle(bar)
-            engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+            take_the_turn(engine, candles[-1].timestamp, 24_502)
             self.assertEqual(sent[0][4], "BUY")
 
             # A restart disarms new entries; it must never disarm an exit.
@@ -860,7 +917,7 @@ class PersistenceTests(unittest.TestCase):
         with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
             for bar in candles:
                 engine.on_candle(bar)
-            engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+            take_the_turn(engine, candles[-1].timestamp, 24_502)
         return engine
 
     def revive(self, engine, executor=None):
@@ -894,7 +951,7 @@ class PersistenceTests(unittest.TestCase):
         back = self.revive(engine)
         base = engine.fills[-1].timestamp
         # The same L2 touch again: the rung is FILLED, so nothing happens.
-        back.on_candle(Bar(base + timedelta(minutes=1), 24_510, 24_512, 24_495, 24_505))
+        take_the_turn(back, base, 24_502)
         self.assertEqual(len(back.fills), 1)
 
     def test_a_revived_ladder_still_exits_on_its_target(self):
@@ -967,7 +1024,7 @@ class MotherBreakTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         self.assertEqual(len(engine.fills), 1)
         # 24,790 closes above the mother's 24,780 high: thesis gone.
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
@@ -989,7 +1046,7 @@ class MotherBreakTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
         self.assertEqual(engine.status, "MOTHER_BROKEN")
         engine.on_candle(Bar(base + timedelta(minutes=3), 24_790, 24_795, 24_100, 24_110))
@@ -1062,7 +1119,7 @@ class MotherBrokenNoBuysTests(unittest.TestCase):
         not that the campaign quietly stops with nothing booked."""
         engine, base = self.unfilled()
         # Buy F1L2 at 24,502 first.
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         self.assertTrue(engine.fills, "a rung must have filled")
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_700, 24_800, 24_690, 24_790))
         self.assertEqual(engine.status, "MOTHER_BROKEN")
@@ -1112,7 +1169,7 @@ class TrailingStopTests(unittest.TestCase):
         # fixture draws ONE fib -- 0 = 24,674, 1 = 24,560, span 114 -- and its
         # L2 sits lower than the standard fixture's. The mother tops at 26,000,
         # so the target is a quarter of the long way back up to it.
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_440, 24_460))
+        take_the_turn(engine, base, 24_440, sweep_from=24_612)
         return engine, base
 
     def test_reaching_the_target_arms_the_trail_instead_of_selling(self):
@@ -1168,7 +1225,7 @@ class TrailingStopTests(unittest.TestCase):
         for i, row in enumerate(walk, start=2):
             trailed.on_candle(Bar(base2 + timedelta(minutes=i), *row))
 
-        self.assertEqual(plain.exit_index, 24_834.5)  # the 0.25 target to the mother
+        self.assertEqual(plain.exit_index, 24_828.5)  # the 0.25 target to the mother, off the stop
         self.assertEqual(trailed.exit_index, 24_943.0)  # rode 108.5 points further
         self.assertGreater(trailed.exit_index, plain.exit_index)
 
@@ -1190,7 +1247,7 @@ class FlatTargetTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         # Sweep L2, L3 and L4 in one bar so the deep rule would apply.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
         return engine
 
     def test_deep_target_on_asks_for_half(self):
@@ -1245,8 +1302,19 @@ class PartialExpiryTests(unittest.TestCase):
         # Two fills, one per bar: F1L2 at 24,502 then F2L2 at 24,430. The
         # second bar stops above F1L3 (24,404) so the basket stays two legs --
         # with fibs stacking, a deeper sweep would take three.
-        step(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        step(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_440))
+        # Each buy takes its own turn: collect, two reds, then the rise.
+        for _bar in (
+            Bar(base + timedelta(seconds=1), 24_502 + 8, 24_502 + 10, 24_502 - 7, 24_502 - 2),
+            Bar(base + timedelta(seconds=2), 24_502 - 2, 24_502 - 1, 24_502 - 12, 24_502 - 8),
+            Bar(base + timedelta(seconds=3), 24_502 - 8, 24_502 + 6, 24_502 - 9, 24_502 + 4),
+        ):
+            step(_bar)
+        for _bar in (
+            Bar(base + timedelta(minutes=1) + timedelta(seconds=1), 24_430 + 8, 24_430 + 10, 24_430 - 7, 24_430 - 2),
+            Bar(base + timedelta(minutes=1) + timedelta(seconds=2), 24_430 - 2, 24_430 - 1, 24_430 - 12, 24_430 - 8),
+            Bar(base + timedelta(minutes=1) + timedelta(seconds=3), 24_430 - 8, 24_430 + 6, 24_430 - 9, 24_430 + 4),
+        ):
+            step(_bar)
         return engine
 
     def test_the_near_expiry_settles_and_the_far_leg_keeps_running(self):
@@ -1322,8 +1390,8 @@ class ExpiryLockTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
-        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_395, 24_410))
+        last = take_the_turn(engine, base, 24_502)
+        take_the_turn(engine, last.timestamp, 24_404)
         return engine
 
     def test_every_leg_shares_the_first_buys_expiry(self):
@@ -1353,7 +1421,11 @@ class ExpiryLockTests(unittest.TestCase):
         # to touch every level still pending.
         engine.on_candle(Bar(datetime(2026, 8, 10, 11, 0), 24_000, 24_005, 20_000, 24_000))
         self.assertEqual(len(engine.fills), held, "a rung was bought a day before its own expiry")
-        self.assertEqual({rung.status for rung in pending}, {"EXPIRING"})
+        self.assertEqual(
+            {rung.status for rung in pending} - {"GAPPED", "COLLECTED"},
+            set(),
+            "nothing was BOUGHT inside min_dte; reached and jumped rungs are not buys",
+        )
 
     def test_a_campaign_that_never_bought_never_locked_an_expiry(self):
         """The rebase used to free the lock; there is no rebase any more. A
@@ -1443,10 +1515,15 @@ class BuyModeSwitchTests(unittest.TestCase):
 
     def test_convergence_buys_one_lot_at_the_top_of_the_space(self):
         engine, base = self.ladder_in("convergence")
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_600, 24_605, 24_555, 24_570))
+        top = max(rung.index_price for rung in engine.rungs)
+        take_the_turn(engine, base, top)
         self.assertEqual(len(engine.fills), 1)
         fill = engine.fills[0]
-        self.assertEqual(fill.index_price, 24_560.0, "the top line, not the close")
+        # The stop the turn armed -- the space is where the money was
+        # COLLECTED; the buy happens where the market came back to.
+        # Bought at the stop the turn armed, which the engine logs.
+        armed = [row for row in engine.events if row["event"] == "turn_armed"][-1]
+        self.assertAlmostEqual(fill.index_price, armed["stop"], places=2)
         self.assertEqual(fill.lots, 1, "one lot per rung in both modes")
 
     def test_an_unknown_mode_is_refused_at_construction(self):
@@ -1477,6 +1554,22 @@ class RestingExitTests(unittest.TestCase):
     and its price has to be a PREMIUM even though the target is an index level.
     Nothing models that: it is measured from this contract's own quotes.
     """
+
+    def turn(self, push, start, level):
+        """The three-bar turn, pushed through the premium curve.
+
+        A touch only collects since 2026-08-16; the buy needs two reds under
+        the collected line and then a rise back through the first red's close.
+        """
+        step = timedelta(seconds=1)
+        bars = [
+            Bar(start + step, level + 8, level + 10, level - 7, level - 2),
+            Bar(start + 2 * step, level - 2, level - 1, level - 12, level - 8),
+            Bar(start + 3 * step, level - 8, level + 6, level - 9, level + 4),
+        ]
+        for bar in bars:
+            push(bar)
+        return bars[-1]
 
     def moving_premium(self):
         """A premium that actually tracks the index, as a real one does.
@@ -1519,33 +1612,33 @@ class RestingExitTests(unittest.TestCase):
         engine, candles, _ = ladder()  # flat 200 premium
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertTrue(engine.fills)
         self.assertEqual(engine.resting_exits, [])
 
     def test_a_buy_leaves_a_sell_resting_at_a_measured_price(self):
         engine, candles, premium, push = self.moving_premium()
         base = candles[-1].timestamp
-        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.turn(push, base, 24_502)
         self.assertEqual(len(engine.fills), 1)
         self.assertEqual(len(engine.resting_exits), 1)
         row = engine.resting_exits[0]
         self.assertEqual(row["quantity"], engine.fills[0].quantity)
         self.assertEqual(row["strike"], engine.fills[0].strike)
-        # 0.5 per point, and the target is 24,571.50 against a 24,510 close.
-        expected = premium(base + timedelta(minutes=1), row["strike"], date(2026, 8, 11), "CE") + 0.5 * (
-            engine.target_index - 24_520.0
-        )
+        # 0.5 per index point, measured from the bar the buy happened on --
+        # which since 2026-08-16 is the rise through the stop, not the fall.
+        fill = engine.fills[0]
+        expected = fill.premium + 0.5 * (engine.target_index - float(engine.history[-1].close))
         self.assertAlmostEqual(row["price"], round(expected, 2), places=2)
         self.assertGreater(row["price"], engine.fills[0].premium, "a target sells ABOVE what was paid")
 
     def test_the_sell_is_re_priced_when_a_deeper_buy_moves_the_average(self):
         engine, candles, _, push = self.moving_premium()
         base = candles[-1].timestamp
-        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.turn(push, base, 24_502)
         first = [dict(row) for row in engine.resting_exits]
-        push(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_445))
-        self.assertEqual(len(engine.fills), 2, "a second rung filled")
+        self.turn(push, engine.history[-1].timestamp, 24_430)
+        self.assertEqual(len(engine.fills), 2, "a second, deeper buy")
         self.assertEqual(len(engine.resting_exits), 2, "both legs rest")
         self.assertNotEqual(
             [row["order_id"] for row in engine.resting_exits],
@@ -1557,7 +1650,7 @@ class RestingExitTests(unittest.TestCase):
         """A resting target that outlives its own position is a naked sell."""
         engine, candles, _, push = self.moving_premium()
         base = candles[-1].timestamp
-        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.turn(push, base, 24_502)
         self.assertTrue(engine.resting_exits)
         push(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         self.assertEqual(engine.status, "WAITING_NEW_LOW", "a banked round parks the mother")
@@ -1569,7 +1662,7 @@ class RestingExitTests(unittest.TestCase):
         blind to them would put a second sell on the same coin."""
         engine, candles, _, push = self.moving_premium()
         base = candles[-1].timestamp
-        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.turn(push, base, 24_502)
         self.assertTrue(engine.resting_exits)
         raw = json.loads(json.dumps(engine.to_dict()))
         back = FibTouchLadder.from_dict(
@@ -1595,9 +1688,12 @@ class RestingExitTests(unittest.TestCase):
         engine = FibTouchLadder(config, premium_lookup=backwards, expiry_source=lambda on: [date(2026, 8, 11)])
         for bar in candles:
             engine.on_candle(bar)
-        buy = Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520)
-        by_time[buy.timestamp] = buy  # the curve has to know this bar too
-        engine.on_candle(buy)
+
+        def push(bar):
+            by_time[bar.timestamp] = bar  # the curve has to know every bar
+            engine.on_candle(bar)
+
+        self.turn(push, candles[-1].timestamp, 24_502)
         self.assertTrue(engine.fills)
         self.assertEqual(engine.resting_exits, [])
 
@@ -1617,7 +1713,7 @@ class RearmOnNewLowTests(unittest.TestCase):
         for bar in candles:
             engine.on_candle(bar)
         base = candles[-1].timestamp
-        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, base, 24_502)
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         return engine, base
 
@@ -1668,7 +1764,9 @@ class RearmOnNewLowTests(unittest.TestCase):
         deepest = engine._rearm_below
         assert deepest is not None
         engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, deepest - 5, deepest))
-        engine.on_candle(Bar(base + timedelta(minutes=4), 24_400, 24_405, 24_290, 24_310))
+        # Clear of F3L3 (24,295): the reds have to close under the DEEPEST rung
+        # the sweep collected, not merely under the one aimed at.
+        take_the_turn(engine, base + timedelta(minutes=4), 24_280, sweep_from=24_500)
         self.assertTrue(engine.fills, "the second round buys")
         engine.on_candle(Bar(base + timedelta(minutes=5), 24_310, 24_700, 24_305, 24_690))
         self.assertEqual(len(engine.rounds), 2)
@@ -1714,25 +1812,27 @@ class DeepTargetTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
         self.assertEqual([f.level for f in engine.fills], [2], "only F1L2 is reached")
         self.assertEqual(engine.target_fraction, 0.25)
-        # avg 24,502, mother 24,780 -> a quarter of the 278 between them.
-        self.assertAlmostEqual(engine.target_index, 24_571.50, places=2)
+        # Bought at the stop, 24,500; mother 24,780 -> a quarter of the 280.
+        self.assertAlmostEqual(engine.target_index, 24_570.00, places=2)
 
-    def test_reaching_level_four_widens_the_target_to_a_half(self):
+    def test_a_fall_THROUGH_level_four_widens_the_target_to_a_half(self):
+        """One buy now, but the depth still counts. The fall crossed F1L4 on
+        its way to a deeper rung, so it has paid for the bigger move -- reading
+        only the level the buy is filed under would hand it the shallow one."""
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        # One bar sweeping to 24,295 crosses five rungs -- and they come from
-        # BOTH fibs, which is the stack: F1L2 24,502, F2L2 24,430, F1L3 24,404,
-        # F1L4 24,306, F2L3 24,300. Two of them are a level 2.
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
-        self.assertEqual([f.level for f in engine.fills], [2, 2, 3, 4, 3])
-        self.assertEqual(len({f.rung_key for f in engine.fills}), 5, "five distinct rungs, no double-fill")
-        self.assertEqual(engine.target_fraction, DEEP_TARGET_FRACTION, "an L4 filled, so half")
-        self.assertAlmostEqual(engine.average_index_entry, 24_388.40, places=2)
-        self.assertAlmostEqual(engine.target_index, 24_584.20, places=2)
+        # A bar sweeping to 24,295 crosses five rungs off BOTH fibs: F1L2
+        # 24,502, F2L2 24,430, F1L3 24,404, F1L4 24,306, F2L3 24,300.
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
+        self.assertEqual(len(engine.fills), 1)
+        fill = engine.fills[0]
+        self.assertEqual(fill.level, 3, "filed under the deepest rung reached")
+        self.assertIn(4, fill.covered_levels, "and it went through an L4")
+        self.assertEqual(engine.target_fraction, DEEP_TARGET_FRACTION, "so it asks for half")
 
     def test_the_deep_threshold_is_level_four(self):
         self.assertEqual(DEEP_TARGET_FROM_LEVEL, 4)
@@ -1742,7 +1842,7 @@ class DeepTargetTests(unittest.TestCase):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
-        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_295, 24_310))
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
         self.assertEqual(engine.get_status()["target_fraction"], 0.5)
 
 

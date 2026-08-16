@@ -3048,7 +3048,16 @@ function _fibSetFormStatus(message, tone = 'muted') {
 }
 
 function _fibxLevelTone(status) {
-  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24', EXPIRING: '#fbbf24' }[status] || 'var(--muted)');
+  return ({
+    PENDING: 'var(--muted)',
+    // Reached, money set aside, waiting for the fall to turn (2026-08-16).
+    COLLECTED: '#38bdf8',
+    FILLED: '#6ee7b7',
+    // The market jumped this price without ever trading at it. Dead for good.
+    GAPPED: '#94a3b8',
+    UNFUNDED: '#fbbf24',
+    EXPIRING: '#fbbf24',
+  }[status] || 'var(--muted)');
 }
 
 // ── One panel per ladder ──────────────────────────────────────────────
@@ -3340,6 +3349,8 @@ function _renderFibBoundaryCampaign(root, campaign) {
       const toneClass = _cascadeOptionsToneClass(stateColor);
       const note = level.status === 'UNFUNDED' ? 'cap spent'
         : level.status === 'EXPIRING' ? 'contract too near expiry'
+        : level.status === 'COLLECTED' ? 'reached — waiting for the turn'
+        : level.status === 'GAPPED' ? 'market jumped it — never traded here'
         : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
       return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
         + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>${escapeHtml(String(level.key))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
@@ -3661,6 +3672,14 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
       });
     }
   });
+
+  // THE STOP. While it is armed this is the only price that matters: nothing is
+  // bought until a rise clears it. Drawn amber, like the sell mark, because it
+  // is an order waiting to happen rather than a level.
+  const stop = price(campaign.buy_stop);
+  if (stop !== null) {
+    lines.push({ price: stop, label: 'BUY STOP (waiting for the turn)', color: PAL.sellMark, filled: true, dash: [3, 3], width: 1.2, inr_notional: 0 });
+  }
 
   // The low that has to break before this mother trades again. Drawn only while
   // it is actually the thing being waited for, so it never competes with the
