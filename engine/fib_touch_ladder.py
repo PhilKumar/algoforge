@@ -463,6 +463,16 @@ class PaperExecutor:
     def sell_all(self, *, when, legs) -> dict:
         return {"order_id": f"paper-exit-{when.strftime('%H%M%S')}", "mode": "paper"}
 
+    def rest_sell(self, *, when, strike, expiry, option_type, quantity, price) -> dict:
+        """A target order the broker would hold. Paper holds it in memory."""
+        return {
+            "order_id": f"paper-rest-{when.strftime('%H%M%S')}-{int(strike)}{option_type}",
+            "mode": "paper",
+        }
+
+    def cancel(self, *, order_id) -> dict:
+        return {"order_id": str(order_id), "cancelled": True, "mode": "paper"}
+
 
 class LiveExecutor:
     """The real-money path. Refuses to send until it is explicitly armed.
@@ -533,6 +543,41 @@ class LiveExecutor:
             order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
             ids.append(order_id or str(order))
         return {"order_id": ",".join(str(i) for i in ids), "mode": "live"}
+
+    def rest_sell(self, *, when, strike, expiry, option_type, quantity, price) -> dict:
+        """Leave a LIMIT sell sitting on the exchange at the target.
+
+        Phil, 2026-08-15: "I just wanted an automated target sell placed on the
+        broker terminal." The point is that it fills whether or not this app is
+        running -- so it is a real resting order, not a price the engine
+        watches for and then chases at market.
+
+        Gated by the same availability guard as every other real order: this is
+        built and closed until broker fills, partial fills and restart
+        reconciliation are verified.
+        """
+        self._availability_guard()
+        if float(price) <= 0:
+            raise ExecutionRefused("a resting sell needs a positive limit price")
+        order = self.broker.place_option_order(
+            underlying=self.symbol,
+            strike_price=float(strike),
+            option_type=str(option_type),
+            expiry=str(expiry),
+            transaction_type="SELL",
+            quantity=int(quantity),
+            order_type="LIMIT",
+            price=float(price),
+            tag="PF_FIB_BOUNDARY_TARGET",
+        )
+        order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
+        return {"order_id": order_id or str(order), "mode": "live"}
+
+    def cancel(self, *, order_id) -> dict:
+        """Pull a resting target, so a re-price cannot leave two on the book."""
+        self._availability_guard()
+        result = self.broker.cancel_order(str(order_id))
+        return {"order_id": str(order_id), "cancelled": True, "raw": result, "mode": "live"}
 
 
 # ── configuration ─────────────────────────────────────────────────
@@ -781,6 +826,16 @@ class FibTouchLadder:
         # would otherwise chase ground far under the market as each new fib
         # stacks below the last.
         self._lowest_low: Optional[float] = None
+        # TARGET ORDERS SITTING ON THE BROKER, one per leg. Phil asked for the
+        # sell to be placed rather than watched for, so it fills whether or not
+        # this app is running. Re-priced when a new buy moves the average, and
+        # never more often than that -- his call, to keep the order traffic
+        # quiet. Each row: {order_id, strike, expiry, option_type, quantity,
+        # price}.
+        self.resting_exits: list[dict[str, Any]] = []
+        # The bar before the current one: (timestamp, close). The second point
+        # a resting order's price is measured from -- see target_premium_for.
+        self._prior_bar: Optional[tuple[datetime, float]] = None
         self.fills: list[TouchFill] = []
         self.events: list[dict[str, Any]] = []
         self.data_gaps: list[str] = []
@@ -989,6 +1044,132 @@ class FibTouchLadder:
         out.sort(key=lambda rung: -rung.index_price)
         return out
 
+    def target_premium_for(self, fill: "TouchFill", when: datetime, index_now: float) -> Optional[float]:
+        """What this leg should be SOLD at, in premium, for the index target.
+
+        The order that rests on the broker is priced in premium; the target is
+        an index level. Nothing here models that relationship -- no delta, no
+        volatility, no Black-Scholes. It MEASURES it, from this leg's own two
+        known points: what it cost at the index price it was bought at, and
+        what it is worth at the index price right now.
+
+            slope = (premium_now - premium_paid) / (index_now - index_paid)
+
+        Phil chose this over a percentage on the premium (2026-08-15) because
+        it keeps the resting order tracking the index target rather than
+        drifting off on its own.
+
+        Returns None rather than a guess whenever the measurement cannot be
+        trusted -- no quote, no distance to measure over, or a slope that says
+        a call gets cheaper as the index rises. A resting sell at a fabricated
+        price is worse than no resting sell at all.
+        """
+        target = self.target_index
+        if target is None:
+            return None
+        premium_now = self.premium_lookup(when, fill.strike, fill.expiry, self.side)
+        if premium_now is None or float(premium_now) <= 0:
+            return None
+        # THE SECOND POINT. On the bar that bought this leg, "what it cost" and
+        # "what it is worth" are the SAME lookup at the same instant -- the fill
+        # was priced from this very quote -- so there is no slope between them
+        # whatever the index did, and a one-lot scalp would never get a resting
+        # order at all. The second point is therefore this same contract priced
+        # at the PREVIOUS bar: two real quotes at two real index levels. The
+        # fill is only the fallback, for the first bar of a campaign.
+        anchor_index, anchor_premium = float(fill.index_price), float(fill.premium)
+        if self._prior_bar is not None:
+            prior_when, prior_index = self._prior_bar
+            prior_premium = self.premium_lookup(prior_when, fill.strike, fill.expiry, self.side)
+            if prior_premium is not None and float(prior_premium) > 0:
+                anchor_index, anchor_premium = float(prior_index), float(prior_premium)
+        moved = float(index_now) - anchor_index
+        if abs(moved) < 1e-9:
+            return None  # no distance to measure a slope over
+        slope = (float(premium_now) - anchor_premium) / moved
+        # A CE gains as the index rises and a PE as it falls. Anything else is
+        # a stale or crossed quote, not a measurement.
+        if self.side == "CE" and slope <= 0:
+            return None
+        if self.side == "PE" and slope >= 0:
+            return None
+        priced = float(premium_now) + slope * (float(target) - float(index_now))
+        if priced <= 0:
+            return None
+        return round(priced, 2)
+
+    def _clear_resting_exits(self) -> None:
+        """Pull every target order. Called whenever the position goes flat."""
+        for row in self.resting_exits:
+            try:
+                self.executor.cancel(order_id=row["order_id"])
+            except Exception as exc:
+                _log_stamp = self.exit_timestamp or self.config.mother_timestamp
+                self._log(_log_stamp, "resting_exit_cancel_failed", order_id=row["order_id"], detail=str(exc))
+        self.resting_exits = []
+
+    def _sync_resting_exits(self, when: datetime, index_now: float) -> None:
+        """Put the target on the broker, and keep it honest as the average moves.
+
+        Called after a buy, because that is the only thing that moves the
+        target. Every existing resting order is pulled first: a re-price that
+        left the old one behind would put two sells on the same coin.
+
+        A leg whose target premium cannot be MEASURED is left without a resting
+        order rather than given a made-up one -- the engine still watches the
+        index for it, so nothing is lost except the safety net.
+        """
+        for row in self.resting_exits:
+            try:
+                self.executor.cancel(order_id=row["order_id"])
+            except Exception as exc:
+                # A cancel that fails is not fatal, but it IS dangerous to
+                # ignore silently: the old order may still be working.
+                self._log(when, "resting_exit_cancel_failed", order_id=row["order_id"], detail=str(exc))
+        self.resting_exits = []
+        rest = getattr(self.executor, "rest_sell", None)
+        if rest is None or not self.fills:
+            return
+        for fill in self.fills:
+            price = self.target_premium_for(fill, when, index_now)
+            if price is None:
+                self._log(when, "resting_exit_unpriced", level=fill.level, strike=fill.strike)
+                continue
+            try:
+                receipt = rest(
+                    when=when,
+                    strike=fill.strike,
+                    expiry=fill.expiry,
+                    option_type=self.side,
+                    quantity=fill.quantity,
+                    price=price,
+                )
+            except ExecutionRefused as exc:
+                self._log(when, "resting_exit_refused", level=fill.level, detail=str(exc))
+                continue
+            except Exception as exc:
+                self._log(when, "resting_exit_failed", level=fill.level, detail=str(exc))
+                continue
+            self.resting_exits.append(
+                {
+                    "order_id": str(receipt.get("order_id") or ""),
+                    "rung_key": fill.rung_key,
+                    "strike": float(fill.strike),
+                    "expiry": fill.expiry.isoformat(),
+                    "option_type": self.side,
+                    "quantity": int(fill.quantity),
+                    "price": float(price),
+                }
+            )
+        if self.resting_exits:
+            self._log(
+                when,
+                "resting_exits_placed",
+                count=len(self.resting_exits),
+                target_index=round(float(self.target_index), 2) if self.target_index else None,
+                prices=[row["price"] for row in self.resting_exits],
+            )
+
     def _resolve_contract(self, when: datetime, spot: float) -> tuple[float, date]:
         """Strike and expiry for a buy happening now, at this index level.
 
@@ -1012,6 +1193,7 @@ class FibTouchLadder:
 
     def _try_fill(self, bar: Bar) -> None:
         """Buy every level this candle touched, shallowest first."""
+        before = len(self.fills)
         for rung in self.rungs:
             if rung.status != "PENDING":
                 continue
@@ -1133,6 +1315,11 @@ class FibTouchLadder:
                 expiry=expiry.isoformat(),
                 deployed=self.deployed_inr,
             )
+        # One re-price per BAR, after everything it bought. A bar can cross
+        # several rungs, and cancelling and replacing between each of them
+        # would be order traffic that changes nothing.
+        if len(self.fills) != before:
+            self._sync_resting_exits(bar.timestamp, float(bar.close))
 
     def _try_mother_break(self, bar: Bar) -> bool:
         """End the campaign when price closes back through the mother.
@@ -1314,6 +1501,9 @@ class FibTouchLadder:
         """Book the open legs at ``exit_prices``, plus anything already settled."""
         if any(price is None for price in exit_prices):
             return
+        # The basket is going flat, so nothing of it may be left working on the
+        # broker. A resting target outliving its own position is a naked sell.
+        self._clear_resting_exits()
         pairs = list(zip(self.fills, [float(p) for p in exit_prices])) + self._settled
         if not pairs:
             return
@@ -1459,6 +1649,9 @@ class FibTouchLadder:
         """Advance the campaign by one CLOSED 1-minute index candle."""
         if self.status in _TERMINAL_STATUSES:
             return
+        if self.history:
+            last = self.history[-1]
+            self._prior_bar = (last.timestamp, float(last.close))
         self.history.append(bar)
         # A 1m mother needs no separate stream -- the entry bars ARE the
         # geometry bars, so feed them through as well. A rebased campaign is in
@@ -1623,6 +1816,11 @@ class FibTouchLadder:
                 for fill in self.fills
             ],
             "settled": [{**fill.as_dict(), "settled_at": price} for fill, price in self._settled],
+            # TARGET ORDERS LEFT ON THE BROKER. Persisted because they outlive
+            # this process: the app can restart while a sell is still working,
+            # and a ladder that came back not knowing about them would place a
+            # second sell on the same coin.
+            "resting_exits": [dict(row) for row in self.resting_exits],
             "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
@@ -1733,6 +1931,7 @@ class FibTouchLadder:
             )
             for row in raw.get("settled") or []
         ]
+        engine.resting_exits = [dict(row) for row in (raw.get("resting_exits") or [])]
         locked = raw.get("expiry_locked")
         # A ladder written before the expiry lock existed still has one contract
         # series in its fills; take it from there rather than leaving it free to
@@ -1801,6 +2000,7 @@ class FibTouchLadder:
             "min_dte": self.config.min_dte,
             # The one contract series this ladder trades, fixed by the first buy.
             "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
+            "resting_exits": [dict(row) for row in self.resting_exits],
             "capital_cap_inr": self.config.capital_cap_inr,
             "deployed_inr": self.deployed_inr,
             "remaining_inr": self.remaining_inr,

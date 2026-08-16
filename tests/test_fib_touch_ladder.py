@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -1458,6 +1459,139 @@ class BuyModeSwitchTests(unittest.TestCase):
         symbols."""
         self.assertEqual(BOUNDARY_LEVELS, (1, 2, 4, 8))
         self.assertNotEqual(set(BOUNDARY_LEVELS), set(HALVING_LEVELS))
+
+
+class RestingExitTests(unittest.TestCase):
+    """The target sits ON THE BROKER, not in this process.
+
+    Phil, 2026-08-15: "I just wanted an automated target sell placed on the
+    broker terminal... If not I'll cut the trade myself." So the sell has to
+    fill whether or not the app is running, which means a real resting order --
+    and its price has to be a PREMIUM even though the target is an index level.
+    Nothing models that: it is measured from this contract's own quotes.
+    """
+
+    def moving_premium(self):
+        """A premium that actually tracks the index, as a real one does.
+
+        The shared fixture prices everything at a flat 200, which carries no
+        information about the relationship at all -- and the engine correctly
+        refuses to rest an order on it.
+        """
+        candles = falling_then_bouncing()
+        by_time: dict = {bar.timestamp: bar for bar in candles}
+
+        def premium(when, strike, expiry, side):
+            bar = by_time.get(when)
+            index = float(bar.close) if bar is not None else 24_500.0
+            # A clean 0.5 per index point off a 24,500 base -- a plausible ITM
+            # call, and exactly measurable.
+            return round(200.0 + 0.5 * (index - 24_500.0), 2)
+
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+        )
+        engine = FibTouchLadder(config, premium_lookup=premium, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+
+        def push(bar):
+            """Feed a bar the premium curve also knows about."""
+            by_time[bar.timestamp] = bar
+            engine.on_candle(bar)
+
+        return engine, candles, premium, push
+
+    def test_a_flat_premium_rests_nothing_rather_than_guessing(self):
+        """No slope in the data means no honest price. A resting sell at a
+        fabricated number is worse than none at all."""
+        engine, candles, _ = ladder()  # flat 200 premium
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.assertTrue(engine.fills)
+        self.assertEqual(engine.resting_exits, [])
+
+    def test_a_buy_leaves_a_sell_resting_at_a_measured_price(self):
+        engine, candles, premium, push = self.moving_premium()
+        base = candles[-1].timestamp
+        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(len(engine.resting_exits), 1)
+        row = engine.resting_exits[0]
+        self.assertEqual(row["quantity"], engine.fills[0].quantity)
+        self.assertEqual(row["strike"], engine.fills[0].strike)
+        # 0.5 per point, and the target is 24,571.50 against a 24,510 close.
+        expected = premium(base + timedelta(minutes=1), row["strike"], date(2026, 8, 11), "CE") + 0.5 * (
+            engine.target_index - 24_520.0
+        )
+        self.assertAlmostEqual(row["price"], round(expected, 2), places=2)
+        self.assertGreater(row["price"], engine.fills[0].premium, "a target sells ABOVE what was paid")
+
+    def test_the_sell_is_re_priced_when_a_deeper_buy_moves_the_average(self):
+        engine, candles, _, push = self.moving_premium()
+        base = candles[-1].timestamp
+        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        first = [dict(row) for row in engine.resting_exits]
+        push(Bar(base + timedelta(minutes=2), 24_510, 24_512, 24_425, 24_445))
+        self.assertEqual(len(engine.fills), 2, "a second rung filled")
+        self.assertEqual(len(engine.resting_exits), 2, "both legs rest")
+        self.assertNotEqual(
+            [row["order_id"] for row in engine.resting_exits],
+            [row["order_id"] for row in first],
+            "the old order is pulled and replaced, never left beside the new one",
+        )
+
+    def test_selling_the_basket_leaves_nothing_working_on_the_broker(self):
+        """A resting target that outlives its own position is a naked sell."""
+        engine, candles, _, push = self.moving_premium()
+        base = candles[-1].timestamp
+        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.assertTrue(engine.resting_exits)
+        push(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.resting_exits, [], "the target order goes with the position")
+
+    def test_the_resting_orders_survive_a_restart(self):
+        """The whole point: they outlive this process. A ladder that came back
+        blind to them would put a second sell on the same coin."""
+        engine, candles, _, push = self.moving_premium()
+        base = candles[-1].timestamp
+        push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
+        self.assertTrue(engine.resting_exits)
+        raw = json.loads(json.dumps(engine.to_dict()))
+        back = FibTouchLadder.from_dict(
+            raw, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back.resting_exits, engine.resting_exits)
+        self.assertEqual(back.get_status()["resting_exits"], engine.resting_exits)
+
+    def test_a_wrong_way_slope_is_refused(self):
+        """A CE that gets CHEAPER as the index rises is a stale or crossed
+        quote, not a measurement."""
+        candles = falling_then_bouncing()
+        config = FibTouchConfig(
+            symbol="NIFTY", side="CE", mother_timestamp=candles[0].timestamp, lot_size=65, strike_step=50.0
+        )
+        by_time = {bar.timestamp: bar for bar in candles}
+
+        def backwards(when, strike, expiry, side):
+            bar = by_time.get(when)
+            index = float(bar.close) if bar is not None else 24_500.0
+            return round(200.0 - 0.5 * (index - 24_500.0), 2)
+
+        engine = FibTouchLadder(config, premium_lookup=backwards, expiry_source=lambda on: [date(2026, 8, 11)])
+        for bar in candles:
+            engine.on_candle(bar)
+        buy = Bar(candles[-1].timestamp + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520)
+        by_time[buy.timestamp] = buy  # the curve has to know this bar too
+        engine.on_candle(buy)
+        self.assertTrue(engine.fills)
+        self.assertEqual(engine.resting_exits, [])
 
 
 class DeepTargetTests(unittest.TestCase):
