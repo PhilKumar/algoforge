@@ -3623,6 +3623,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // THE STRUCTURES. Only the newest few are drawn -- the same cap every other
   // chart on this site uses, because past three the picture is a cat's cradle
   // and the fib that matters is the one nearest the price.
+  const convergence = String(payload?.buy_mode || campaign.buy_mode || 'levels') === 'convergence';
   const fibs = Array.isArray(payload?.fibs) ? payload.fibs : [];
   const kept = typeof window.pfChartLatestStructures === 'function' ? window.pfChartLatestStructures(fibs) : fibs.slice(-3);
   const newestId = fibs.length ? Number(fibs[fibs.length - 1].fib_id) : null;
@@ -3646,7 +3647,13 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
       // and a chart that hides them hides half the ladder. Clutter is handled
       // by the structure cap above and by the renderer, which draws nothing
       // outside the visible price range.
-      lines.push({
+      // Under "where two meet" these lines are the STRUCTURE, not the ladder:
+      // ghosted, and never labelled with a state that suggests they are live.
+      lines.push(convergence ? {
+        price: Number(row.price),
+        label: `F${id} L${row.level}`,
+        color, filled: false, dash: [1, 5], opacity: 0.28, width: 0.7, inr_notional: 0,
+      } : {
         price: Number(row.price),
         label: `F${id} L${row.level} ${status}`,
         color,
@@ -3656,6 +3663,21 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
         inr_notional: spent,
       });
     });
+  });
+
+  // The zones the ROUTE says this mode would buy -- drawn even with no campaign
+  // running, which is when the question "what would this have taken?" is asked.
+  (Array.isArray(payload?.zones) ? payload.zones : []).forEach(zone => {
+    const color = fibColor(zone.top_fib_id);
+    const single = zone.kind === 'level';
+    lines.push({
+      price: Number(zone.top),
+      label: single ? `LONE FIB L${zone.label || ''}`.trim() : `ZONE ${zone.label}`,
+      color, filled: true, opacity: 0.95, width: 1.3, inr_notional: 0,
+    });
+    if (!single && zone.floor != null && Number(zone.floor) !== Number(zone.top)) {
+      lines.push({ price: Number(zone.floor), label: `ZONE ${zone.label} floor`, color, filled: false, dash: [2, 3], opacity: 0.5, width: 0.8, inr_notional: 0 });
+    }
   });
 
   // CONVERGENCE MODE. A rung is then a SPACE between two fibs' levels, not a
@@ -3895,7 +3917,11 @@ async function loadFibBoundaryChart(_event, button) {
     // one parameter for both meant the 1M/5M/15M/1H buttons rebuilt the ladder
     // -- a different swing, different level prices, no longer the ones the
     // engine was working, with nothing on screen saying so.
-    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe, base_timeframe: baseTf });
+    // The chart has to be drawn for the mode being traded: under "where two
+    // meet" the full level ladder is not what the campaign can buy.
+    const mode = campaign?.buy_mode || _fibxChartCtx?.buyMode || _fibBuyMode();
+    _fibxChartCtx.buyMode = mode;
+    const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe, base_timeframe: baseTf, buy_mode: mode });
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
@@ -3935,7 +3961,10 @@ async function loadFibBoundaryChart(_event, button) {
       // it were the whole ladder, which since the merge it never is.
       const fibs = (data.fibs || []).length;
       const newest = fibs ? data.fibs[fibs - 1] : null;
-      meta.textContent = newest
+      const noZones = String(data.buy_mode) === 'convergence' && !(data.zones || []).length;
+      meta.textContent = noZones
+        ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'} · WHERE TWO MEET has no zone here — nothing is buyable on this mother yet`
+        : newest
         ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'}, ${(data.trendlines || []).length} trendline${(data.trendlines || []).length === 1 ? '' : 's'} · newest ${newest.fib1}–${newest.fib0} (${newest.span} pts) · ${(data.levels || []).length} levels${source} · drag to pan, wheel to zoom, double-click to reset`
         : `${data.candles.length} closed ${viewedOn} candles · ${data.note}`;
     }

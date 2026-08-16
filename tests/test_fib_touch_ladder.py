@@ -253,6 +253,7 @@ def ladder(
     mother_index=0,
     rearm=True,
     intraday=False,
+    buy_mode="levels",
 ):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
@@ -269,6 +270,7 @@ def ladder(
         # the expiry and multi-day tests keep meaning what they say; the
         # intraday rule is exercised by IntradayCloseTests.
         intraday_close=intraday,
+        buy_mode=buy_mode,
     )
     seen: list = []
     return (
@@ -1734,6 +1736,35 @@ class RestingExitTests(unittest.TestCase):
         self.turn(push, candles[-1].timestamp, 24_502)
         self.assertTrue(engine.fills)
         self.assertEqual(engine.resting_exits, [])
+
+
+class SingleFibFallbackTests(unittest.TestCase):
+    """Phil, 2026-08-16, on a 5m mother that sat ARMED through a 360-point
+    fall: "we can draw 2 fibs here correct?" The market had drawn only one, and
+    convergence had nothing to pair it with. His own rule covers that case --
+    "that time we can follow the single fib levels rule" -- and the merge had
+    stopped calling it."""
+
+    def one_fib(self):
+        """Stopped at bar 9, where the fixture has drawn its FIRST structure
+        and not yet its second -- the market Phil was looking at."""
+        engine, candles, _ = ladder(buy_mode="convergence")
+        for bar in candles[:10]:
+            engine.on_candle(bar)
+        self.assertEqual(len(engine.geometry.fibs), 1, "exactly one structure")
+        return engine, candles[:10]
+
+    def test_a_lone_fib_still_puts_L4_and_L8_on_the_ladder(self):
+        engine, _ = self.one_fib()
+        levels = sorted({rung.level for rung in engine.rungs})
+        self.assertEqual(levels, [4, 8], "the lone structure's own deep lines")
+
+    def test_and_the_fall_can_actually_buy_them(self):
+        engine, candles = self.one_fib()
+        deepest = min(rung.index_price for rung in engine.rungs)
+        take_the_turn(engine, candles[-1].timestamp, deepest, sweep_from=24_600)
+        self.assertEqual(len(engine.fills), 1, "one buy, on the turn")
+        self.assertEqual(engine.fills[0].lots, 1)
 
 
 class IntradayCloseTests(unittest.TestCase):

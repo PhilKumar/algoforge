@@ -47,7 +47,7 @@ from datetime import time as dt_time
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence
 
 from engine.fib_ladder_geometry import LadderGeometry
-from engine.fib_spaces import find_spaces, tradable_spaces
+from engine.fib_spaces import tradable_zones
 
 __all__ = [
     "HALVING_LEVELS",
@@ -1110,11 +1110,19 @@ class FibTouchLadder:
 
         fibs = self.geometry.fibs
         drawn_at = {fib.fib_id: fib.drawn_timestamp for fib in fibs}
-        spaces = find_spaces(fibs, levels=BOUNDARY_LEVELS)
+        # `tradable_zones`, NOT `find_spaces` alone. A convergence needs levels
+        # from two DIFFERENT fibs, so a market that only ever draws one had no
+        # rungs at all -- Phil's 10-Aug-2026 5m mother sat ARMED through a
+        # 360-point fall for exactly that reason. His own fallback covers it:
+        # "That will happen if the market comes without any move upward.. that
+        # time we can follow the single fib levels rule", which is the lone
+        # structure's own L4 and L8. It was written and tested here all along;
+        # the merge just never called it.
+        #
         # `reached` keeps the deepest two honest: a space the fall has never
         # entered is not a boundary yet, and without this every new fib pushes
         # the pair further under the market than it has been.
-        live = tradable_spaces(spaces, reached=self._lowest_low)
+        live = tradable_zones(fibs, reached=self._lowest_low, levels=BOUNDARY_LEVELS)
         out: list[TouchRung] = []
         for space in live:
             # Priced at the TOP of the space -- the shallowest point of the

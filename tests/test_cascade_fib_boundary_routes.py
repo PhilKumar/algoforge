@@ -939,6 +939,24 @@ class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["anchor"]["low"], 24_160.0)
         self.assertNotEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
 
+    async def test_where_two_meet_draws_ZONES_not_the_level_ladder(self):
+        """Phil, 2026-08-16: "Why no trade taken here?" The chart had drawn
+        seven live-looking rungs under a mode that could not buy any of them."""
+        data, _asked = await self._chart(timeframe="1h", base_timeframe="1h", buy_mode="convergence")
+        self.assertEqual(data["buy_mode"], "convergence")
+        self.assertTrue(data["zones"], "two fibs converge here, so there is something to buy")
+        for zone in data["zones"]:
+            self.assertIn("top", zone)
+            self.assertIn("label", zone)
+        # The full ladder still comes back -- it is the structure the chart
+        # draws underneath -- but the ZONES are what this mode trades.
+        self.assertTrue(data["levels"])
+
+    async def test_every_level_names_no_zones_at_all(self):
+        data, _asked = await self._chart(timeframe="1h", base_timeframe="1h")
+        self.assertEqual(data["buy_mode"], "levels")
+        self.assertEqual(data["zones"], [])
+
     async def test_a_bad_base_timeframe_is_refused(self):
         with self.assertRaises(app_module.HTTPException) as raised:
             await self._chart(timeframe="1h", base_timeframe="3h")

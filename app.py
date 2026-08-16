@@ -121,6 +121,8 @@ from engine.fib_space_chart_fold import fold_campaign_chart, foldable_timeframes
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_spaces import tradable_zones as _fib_tradable_zones
+from engine.fib_touch_ladder import BOUNDARY_LEVELS as _FIB_BOUNDARY_LEVELS
 from engine.fib_touch_ladder import BUY_MODES as _FIB_TOUCH_BUY_MODES
 from engine.fib_touch_ladder import FIB_TOUCH_LIVE_EXECUTION_ENABLED as _FIB_TOUCH_LIVE_EXECUTION_ENABLED
 from engine.fib_touch_ladder import GEOMETRY_TIMEFRAMES as _FIB_TOUCH_GEOMETRY_TF
@@ -10894,6 +10896,7 @@ async def fib_boundary_paper_chart(
     side: str = "CE",
     timeframe: str = "1m",
     base_timeframe: str = "",
+    buy_mode: str = "levels",
 ):
     """The ladder's own window: every drawn fib, every level, on real candles.
 
@@ -10987,6 +10990,24 @@ async def fib_boundary_paper_chart(
     for row in geometry_candles:
         geometry.on_bar(row, is_mother=(row.timestamp == mother))
     structures = geometry.structures()
+    # WHAT THIS MODE WOULD ACTUALLY BUY. Drawing the full level ladder under
+    # "where two meet" showed seven live-looking rungs on a campaign that could
+    # not take any of them -- Phil, 2026-08-16: "Why no trade taken here?"
+    mode = _fib_boundary_buy_mode(buy_mode)
+    zones = []
+    if mode == "convergence":
+        reached = min((float(row.low) for row in geometry_candles), default=None)
+        for space in _fib_tradable_zones(geometry.fibs, reached=reached, levels=_FIB_BOUNDARY_LEVELS):
+            zones.append(
+                {
+                    "top": round(float(space.top_price), 2),
+                    "floor": round(float(space.buy_floor), 2),
+                    "label": space.label,
+                    "top_fib_id": int(space.top_fib_id),
+                    "bottom_fib_id": int(space.bottom_fib_id),
+                    "kind": space.kind,
+                }
+            )
     levels = [
         {"level": row.level, "fib_id": row.fib_id, "key": row.key, "price": round(row.price, 2)}
         for row in geometry.all_levels()
@@ -11033,6 +11054,8 @@ async def fib_boundary_paper_chart(
         "levels": levels,
         "fibs": structures["fibs"],
         "trendlines": structures["trendlines"],
+        "buy_mode": mode,
+        "zones": zones,
         "mother_high": geometry.mother_high,
         "mother_low": geometry.mother_low,
         "note": (
