@@ -1064,6 +1064,88 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
 // The same ladder in the OTHER half of the merged strategy: a rung is then a
 // SPACE between two fibs' levels, and both of its edges have to be drawable or
 // the space cannot be seen at all.
+// A mother that BANKED a round and parked, which is where the screen used to
+// lose the trade: `fills` is emptied when a round pays out, so a campaign that
+// had bought six times and made ₹60,413 rendered "No buy yet." over three
+// zeroed tiles. Found by replaying a real 22-Jul-2026 NIFTY mother.
+const fibParkedCampaign = {
+  ...fibTouchCampaign,
+  status: 'WAITING_NEW_LOW',
+  fills: [],
+  resting_exits: [],
+  // Parking RELEASES the rungs: they are waiting for a fresh touch below the
+  // campaign's deepest low, which is exactly why last round's rupees must not
+  // still be printed on them.
+  levels: fibTouchCampaign.levels.map((row) => ({ ...row, status: 'PENDING', filled_at: null })),
+  open_lots: 0, open_quantity: 0, deployed_inr: 0, remaining_inr: 75000,
+  average_index_entry: null, average_premium: null, target_index: null,
+  rearm_below: 24395,
+  gross_pnl: 61000, costs_total: 587, net_pnl: 60413.05,
+  rounds: [{
+    round: 1,
+    gross_pnl: 61000, costs_total: 587, net_pnl: 60413.05,
+    exit_timestamp: '2026-07-27T11:31:00+05:30', exit_index: 23971.6, exit_reason: 'target',
+    rung_keys: ['F1L2', 'F1L3'], deployed_inr: 13542.75,
+    fills: [
+      { buy_number: 1, level: 2, fib_id: 1, rung_key: 'F1L2', timestamp: '2026-07-24T09:15:00+05:30', index_price: 23898, premium: 93.45, exit_premium: 199.95, lots: 1, quantity: 65, strike: 23800, expiry: '2026-07-28', option_type: 'CE', funded_inr: 6074.25 },
+      { buy_number: 2, level: 3, fib_id: 1, rung_key: 'F1L3', timestamp: '2026-07-24T09:16:00+05:30', index_price: 23834.6, premium: 114.9, exit_premium: 244.25, lots: 1, quantity: 65, strike: 23750, expiry: '2026-07-28', option_type: 'CE', funded_inr: 7468.5 },
+    ],
+  }],
+};
+
+test('A banked round stays on the screen after the mother parks', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  await page.route('**/api/fib-boundary/paper/status**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaigns: [fibParkedCampaign] }) }));
+  await page.route('**/api/fib-boundary/paper/chart**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fibTouchChart) }));
+
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-fib');
+  await page.waitForSelector('#fibx-monitors details');
+  await page.evaluate(() => {
+    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+  });
+
+  // Every buy the mother made, still listed, tagged with the round that sold it
+  // and showing what each leg went out at.
+  await expect(page.locator('#fibx-monitors [data-fx="fills"] tr')).toHaveCount(2);
+  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).toContainText('F1L2');
+  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).toContainText('₹93.45 → ₹199.95');
+  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).not.toContainText('No buy yet');
+  await expect(page.locator('#fibx-monitors [data-fx="fill-summary"]')).toContainText('1 round banked');
+  await expect(page.locator('#fibx-monitors [data-fx="fill-summary"]')).toContainText('60,413');
+
+  // A flat basket has no target and no average; the tiles say what it made and
+  // what it is waiting for instead of printing 0.00 three times.
+  const summary = page.locator('#fibx-monitors [data-fx="summary"]');
+  await expect(summary).toContainText('Banked');
+  await expect(summary).toContainText('60,413');
+  await expect(summary).toContainText('Re-arms below');
+  await expect(summary).toContainText('24,395');
+  await expect(summary).not.toContainText('Index target');
+
+  // And on the chart: the money that was sold is NOT still sitting on a rung
+  // that is waiting to be bought again.
+  await page.click('#fibx-monitors [data-fx="chart"]');
+  await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
+  const labels = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
+    return app._pfChartCanvas?.paint?.labelTexts || [];
+  });
+  expect(labels.some((t) => t.startsWith('F1 L2 PENDING'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 L2 PENDING') && t.includes('₹'))).toBe(false);
+  // What the round made is on its own sell mark, and the low that wakes the
+  // mother is drawn.
+  expect(labels.some((t) => t.includes('RE-ARMS BELOW'))).toBe(true);
+  await page.click('#fibx-chart-strip [data-strip-close]');
+
+  expect(jsErrors).toEqual([]);
+});
+
 const fibConvergenceCampaign = {
   ...fibTouchCampaign,
   buy_mode: 'convergence',

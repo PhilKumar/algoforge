@@ -3215,6 +3215,17 @@ function _renderFibBoundaryCampaign(root, campaign) {
     badge.style.borderColor = tone;
   }
   const fills = Array.isArray(campaign.fills) ? campaign.fills : [];
+  // EVERY buy this mother made, banked rounds included. `fills` holds only the
+  // OPEN basket and is emptied when a round pays out and parks the mother, so
+  // the table read "No buy yet." over a campaign that had bought six times and
+  // made ₹60,413 — the whole trade vanished from the screen at the moment it
+  // succeeded. Each row carries the round it belongs to.
+  const rounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
+  const historicFills = rounds.reduce(
+    (acc, round) => acc.concat((Array.isArray(round.fills) ? round.fills : []).map(f => ({ ...f, round: round.round, exit_premium: f.exit_premium }))),
+    [],
+  );
+  const everyFill = historicFills.concat(fills);
   const levels = Array.isArray(campaign.levels) ? campaign.levels : [];
   const anchor = campaign.anchor || null;
   const symbol = String(campaign.symbol || 'NIFTY');
@@ -3248,9 +3259,18 @@ function _renderFibBoundaryCampaign(root, campaign) {
   const cap = Number(campaign.capital_cap_inr || 0);
   const pct = cap > 0 ? Math.min(100, Math.round((deployed / cap) * 100)) : 0;
   if (summary) {
+    const net = Number(campaign.net_pnl);
+    // A flat basket has no target and no average, and printing "0.00" for them
+    // reads as a broken number rather than as "nothing is held". A parked
+    // mother says what it is waiting for instead, and what it has already made.
+    const flat = !fills.length;
     summary.innerHTML = [
-      _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
-      _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
+      flat && rounds.length
+        ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? '#6ee7b7' : '#fca5a5')
+        : _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
+      flat && campaign.rearm_below != null
+        ? _cascadeOptionsMetric('Re-arms below', _cascadeNumber(campaign.rearm_below), '#fde68a')
+        : _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
       _cascadeOptionsMetric('Avg premium', campaign.average_premium == null ? '—' : `₹${_cascadeNumber(campaign.average_premium)}`),
       _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
       // Compact on purpose: the long form ran past the tile and ellipsised the
@@ -3288,21 +3308,30 @@ function _renderFibBoundaryCampaign(root, campaign) {
 
   const fillsEl = fx('fills');
   if (fillsEl) {
-    fillsEl.innerHTML = fills.length ? fills.map(fill => `<tr style="border-bottom:1px solid var(--border);">`
-      + `<td style="padding:8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(fill.buy_number))}</strong></td>`
-      + `<td style="padding:8px;">L${escapeHtml(String(fill.level))}</td>`
+    fillsEl.innerHTML = everyFill.length ? everyFill.map(fill => `<tr style="border-bottom:1px solid var(--border);${fill.round ? 'opacity:.72;' : ''}">`
+      + `<td style="padding:8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(fill.buy_number))}</strong>${fill.round ? `<span title="A round that already sold" style="margin-left:5px;font-size:9px;color:var(--muted);">R${escapeHtml(String(fill.round))}</span>` : ''}</td>`
+      + `<td style="padding:8px;">${escapeHtml(String(fill.rung_key || ('L' + fill.level)))}</td>`
       + `<td style="padding:8px;">${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(_cascadeNumber(fill.index_price))}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(Number(fill.strike).toLocaleString('en-IN'))} ${escapeHtml(String(fill.option_type))}</td>`
       + `<td style="padding:8px;">${escapeHtml(String(fill.expiry))}</td>`
-      + `<td style="padding:8px;text-align:right;">₹${escapeHtml(_cascadeNumber(fill.premium))}</td>`
+      + `<td style="padding:8px;text-align:right;">₹${escapeHtml(_cascadeNumber(fill.premium))}${fill.exit_premium == null ? '' : ` → ₹${escapeHtml(_cascadeNumber(fill.exit_premium))}`}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.lots))}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.quantity))}</td>`
       + `<td style="padding:8px;text-align:right;font-weight:800;color:#fde68a;">${escapeHtml(_cascadeOptionsMoney(fill.funded_inr))}</td>`
       + `</tr>`).join('') : '<tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
   }
   const fillSummary = fx('fill-summary');
-  if (fillSummary) fillSummary.textContent = fills.length ? `${fills.length} buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
+  if (fillSummary) {
+    // Two different facts, and conflating them is how the banked round went
+    // missing: what is HELD right now, and what this mother has done in total.
+    const banked = rounds.length
+      ? `${rounds.length} round${rounds.length === 1 ? '' : 's'} banked · ${_cascadeOptionsMoney(campaign.net_pnl || 0)} net`
+      : '';
+    const open = fills.length ? `${fills.length} open buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
+    fillSummary.textContent = [open, banked].filter(Boolean).join('  ·  ');
+    fillSummary.style.color = rounds.length && (Number(campaign.net_pnl) || 0) > 0 ? '#6ee7b7' : 'var(--muted)';
+  }
 
   const boundEl = fx('boundaries');
   if (boundEl) {
@@ -3539,7 +3568,12 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   const allFills = (campaign.rounds || [])
     .reduce((acc, round) => acc.concat(Array.isArray(round.fills) ? round.fills : []), [])
     .concat(campaign.fills || []);
-  const spentOn = key => allFills
+  // Money ON a rung means money STILL on it -- the open basket only. A banked
+  // round releases its rungs to be bought again, so counting its buys here
+  // printed "F1 L2 PENDING ₹6,074": a rung waiting for a fresh touch, carrying
+  // rupees that were sold days earlier. What that round made is on its own sell
+  // mark, and where it bought is on the buy marks.
+  const spentOn = key => (campaign.fills || [])
     .filter(f => String(f.rung_key || '') === key)
     .reduce((sum, f) => sum + (Number(f.funded_inr) || 0), 0);
 
