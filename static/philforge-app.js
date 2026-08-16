@@ -1858,6 +1858,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'hideTwoRedChart',
   'armFibBoundaryLive',
   'setFibBoundaryMode',
+  'setFibBoundaryBuyMode',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -3320,6 +3321,18 @@ function _syncFibLevelsHint() {
     note.style.display = terms ? '' : 'none';
   }
 
+  // The drawn ladder is L2..L16 in both modes; convergence only BUYS where two
+  // fibs meet, and eligibility there is the narrower 1/2/4/8 set Phil signed
+  // off on 2026-08-04. The hint has to say which of the two is armed.
+  const levelsHint = document.getElementById('fibx-levels-hint');
+  if (levelsHint) {
+    const buys = document.getElementById('fibx-buy-mode')?.value || 'levels';
+    levelsHint.textContent = buys === 'convergence' ? 'ZONES · L1·L2·L4·L8' : 'L2·L3·L4·L6·L8·L12·L16';
+    levelsHint.title = buys === 'convergence'
+      ? 'Buys only where a level of one fib meets a level of another — the deepest two spaces.'
+      : 'Buys every level of every drawn fib, one lot each.';
+  }
+
   // Do not advertise a real-money path while the server's fill/reconciliation
   // safety gate is closed.
   const mode = document.getElementById('fibx-mode')?.value || 'paper';
@@ -3850,6 +3863,7 @@ async function startFibBoundaryPaper() {
     side: el('fibx-side')?.value || 'CE',
     timeframe: _fibTimeframe(),
     mode: el('fibx-mode')?.value || 'paper',
+    buy_mode: _fibBuyMode(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -3982,77 +3996,159 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     }))
     .filter(row => row.t !== null && [row.o, row.h, row.l, row.c].every(Number.isFinite));
 
-  // Level status comes from the live campaign when one is running; the route
+  // Rung state comes from the live campaign when one is running; the route
   // itself only prices the geometry, so a chart opened before Start shows the
   // ladder with every rung still pending.
-  const statusByLevel = {};
-  (campaign.levels || []).forEach(row => { statusByLevel[Number(row.level)] = String(row.status || 'PENDING'); });
+  //
+  // KEYED BY (FIB, LEVEL), never by level alone. Fibs stack since the merge, so
+  // two rungs are both "level 4" at different prices holding different money --
+  // keying on the level put the deeper fib's status and its rupees onto the
+  // shallower fib's line.
+  const rungs = Array.isArray(campaign.levels) ? campaign.levels : [];
+  const rungByKey = {};
+  rungs.forEach(row => { if (row && row.key) rungByKey[String(row.key)] = row; });
 
-  const anchor = payload?.anchor || null;
+  // Every buy this mother ever made: the open basket plus every round it has
+  // already banked. `fills` is emptied when a round parks the mother, so
+  // without the rounds the chart forgets the trade the moment it pays out.
+  const allFills = (campaign.rounds || [])
+    .reduce((acc, round) => acc.concat(Array.isArray(round.fills) ? round.fills : []), [])
+    .concat(campaign.fills || []);
+  const spentOn = key => allFills
+    .filter(f => String(f.rung_key || '') === key)
+    .reduce((sum, f) => sum + (Number(f.funded_inr) || 0), 0);
+
+  const PAL = typeof window.pfChartPalette === 'function' ? window.pfChartPalette() : { fibs: ['#3b82f6', '#22c55e', '#ef4444'], mother: '#a855f7' };
+  const fibColor = fibId => PAL.fibs[(Math.max(1, Number(fibId) || 1) - 1) % PAL.fibs.length];
+
+  const side = String(payload?.side || campaign.side || 'CE').toUpperCase();
   const lines = [];
-  // The swing itself is the ladder's frame of reference, so it is drawn -- the
-  // levels below are meaningless without it on screen.
+  // The mother is the ladder's frame of reference -- the target is measured
+  // back to it -- so the edge it is measured against is always on screen.
   const motherBar = candles.find(row => row.is_mother);
-  if (motherBar) {
-    const side = String(payload?.side || campaign.side || 'CE').toUpperCase();
+  const motherEdge = side === 'CE'
+    ? (price(payload?.mother_high) ?? (motherBar ? motherBar.h : null))
+    : (price(payload?.mother_low) ?? (motherBar ? motherBar.l : null));
+  if (motherEdge !== null) {
     lines.push({
-      price: side === 'CE' ? motherBar.h : motherBar.l,
+      price: motherEdge,
       label: side === 'CE' ? 'MOTHER HIGH' : 'MOTHER LOW',
-      // `filled` is the renderer's solid-vs-dashed flag, not a state here:
-      // every level on this chart is drawn as a line.
+      color: PAL.mother,
+      // `filled` is the renderer's solid-vs-dashed flag, not a state here.
       filled: true,
+      dash: [5, 3],
       inr_notional: 0,
     });
   }
-  if (anchor) {
-    lines.push({ price: Number(anchor.high), label: 'SWING HIGH', filled: true, inr_notional: 0 });
-    lines.push({ price: Number(anchor.low), label: 'SWING LOW', filled: true, inr_notional: 0 });
-  }
-  (Array.isArray(payload?.levels) ? payload.levels : []).forEach(row => {
-    const level = Number(row.level);
-    const status = statusByLevel[level] || 'PENDING';
-    lines.push({
-      price: Number(row.price),
-      label: `L${level} ${status}`,
-      filled: true,
-      // What this rung actually cost, so a hovered line says how much is on it.
-      inr_notional: (campaign.fills || [])
-        .filter(f => Number(f.level) === level)
-        .reduce((sum, f) => sum + (Number(f.funded_inr) || 0), 0),
+
+  // THE STRUCTURES. Only the newest few are drawn -- the same cap every other
+  // chart on this site uses, because past three the picture is a cat's cradle
+  // and the fib that matters is the one nearest the price.
+  const fibs = Array.isArray(payload?.fibs) ? payload.fibs : [];
+  const kept = typeof window.pfChartLatestStructures === 'function' ? window.pfChartLatestStructures(fibs) : fibs.slice(-3);
+  const newestId = fibs.length ? Number(fibs[fibs.length - 1].fib_id) : null;
+  kept.forEach(fib => {
+    const id = Number(fib.fib_id);
+    const color = fibColor(id);
+    const isNewest = id === newestId;
+    // The two ends of the structure, ghosted: they are the measuring stick, not
+    // rungs, and drawing them solid makes them read as buyable levels.
+    if (isNewest) {
+      lines.push({ price: Number(fib.fib0), label: `F${id} · 0`, color, filled: false, opacity: 0.45, width: 0.8, inr_notional: 0 });
+      lines.push({ price: Number(fib.fib1), label: `F${id} · 1`, color, filled: false, opacity: 0.45, width: 0.8, inr_notional: 0 });
+    }
+    (fib.levels || []).forEach(row => {
+      const key = `F${id}L${row.level}`;
+      const rung = rungByKey[key];
+      const status = rung ? String(rung.status || 'PENDING') : 'PENDING';
+      const spent = spentOn(key);
+      // EVERY rung of every kept fib, not only the newest structure's. An older
+      // fib's untouched levels are live buy orders -- money is going there --
+      // and a chart that hides them hides half the ladder. Clutter is handled
+      // by the structure cap above and by the renderer, which draws nothing
+      // outside the visible price range.
+      lines.push({
+        price: Number(row.price),
+        label: `F${id} L${row.level} ${status}`,
+        color,
+        filled: status === 'FILLED',
+        opacity: status === 'FILLED' ? 0.95 : status === 'UNFUNDED' ? 0.3 : 0.6,
+        width: status === 'FILLED' ? 1.3 : 0.9,
+        inr_notional: spent,
+      });
     });
   });
+
+  // CONVERGENCE MODE. A rung is then a SPACE between two fibs' levels, not a
+  // line: the top is where it fills and the floor is how deep it may still be
+  // worked. Both edges are drawn or the space cannot be seen at all.
+  rungs.filter(row => row && row.zone_label).forEach(row => {
+    const color = fibColor(row.fib_id);
+    const status = String(row.status || 'PENDING');
+    lines.push({
+      price: Number(row.index_price),
+      label: `ZONE ${row.zone_label} ${status}`,
+      color,
+      filled: status === 'FILLED',
+      opacity: 0.95,
+      width: 1.3,
+      inr_notional: spentOn(String(row.key || '')),
+    });
+    if (row.zone_floor != null) {
+      lines.push({
+        price: Number(row.zone_floor),
+        label: `ZONE ${row.zone_label} floor`,
+        color, filled: false, dash: [2, 3], opacity: 0.5, width: 0.8, inr_notional: 0,
+      });
+    }
+  });
+
+  // The low that has to break before this mother trades again. Drawn only while
+  // it is actually the thing being waited for, so it never competes with the
+  // ladder during a live round.
+  const rearm = price(campaign.rearm_below);
+  if (rearm !== null && !(campaign.fills || []).length && (campaign.rounds || []).length) {
+    lines.push({ price: rearm, label: 'RE-ARMS BELOW', color: PAL.avg, filled: false, dash: [1, 4], opacity: 0.7, width: 1, inr_notional: 0 });
+  }
+
   const drawable = lines.filter(line => Number.isFinite(line.price) && line.price > 0);
 
-  // One white buy mark per fill, in the order they were bought.
-  const entries = (campaign.fills || [])
+  // One white buy mark per fill, every round included.
+  const entries = allFills
     .map(fill => ({ t: epoch(fill.timestamp), price: price(fill.index_price) }))
     .filter(row => row.t !== null && row.price !== null);
 
-  // The ladder is one-and-done, so there is at most one exit.
-  const exits = [];
-  if (campaign.exit_timestamp && campaign.exit_index != null) {
+  // ONE MARK PER ROUND. The campaign no longer ends at its first target -- a
+  // new deepest low re-arms the same mother -- so a single exit would draw the
+  // last sale and silently drop the ones before it.
+  const exits = (campaign.rounds || [])
+    .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: Number(round.net_pnl) || 0 }))
+    .filter(row => row.t !== null && row.price !== null);
+  if (!exits.length && campaign.exit_timestamp && campaign.exit_index != null) {
     const at = epoch(campaign.exit_timestamp), p = price(campaign.exit_index);
     if (at !== null && p !== null) exits.push({ t: at, price: p, pnl: Number(campaign.net_pnl) || 0 });
   }
 
+  const holding = (campaign.fills || []).length > 0;
+  const resting = (campaign.resting_exits || []).length;
   return {
     timeframe: payload?.timeframe || '1m',
     candles,
-    // No mother BAND. Only the edge the ladder is measured against gets a line:
-    // the mother's high on a CE, its low on a PE. The other edge is noise on
-    // this chart and Phil asked for it gone. The mother candle itself is still
-    // marked -- `is_mother` paints it -- so nothing is lost by dropping the band.
+    // No mother BAND -- the one edge the ladder is measured against is drawn as
+    // a labelled line above instead, which is what Phil asked for. The mother
+    // candle itself is still painted by `is_mother`.
     mother: { high: null, low: null },
-    // The trendline is a reference the eye needs; it gates nothing, so it is
-    // drawn `active` purely to get the solid stroke rather than the ghost one.
-    trendlines: payload?.trendline
-      ? [{
-          id: 'tl1',
-          a1: { t: epoch(payload.trendline.start_timestamp), p: Number(payload.trendline.start_price) },
-          a2: { t: epoch(payload.trendline.anchor_timestamp), p: Number(payload.trendline.anchor_price) },
-          active: true,
-        }].filter(tl => tl.a1.t !== null && tl.a2.t !== null)
-      : [],
+    // EVERY standing trendline, not one. A fib is only drawn where price cuts
+    // back through a line, so a chart with the lines missing cannot be checked
+    // against the rule that put the fibs there.
+    trendlines: (Array.isArray(payload?.trendlines) ? payload.trendlines : [])
+      .map(tl => ({
+        id: `tl${tl.id}`,
+        a1: { t: epoch(tl.a1 && tl.a1.t), p: Number(tl.a1 && tl.a1.p) },
+        a2: { t: epoch(tl.a2 && tl.a2.t), p: Number(tl.a2 && tl.a2.p) },
+        active: !!tl.active,
+      }))
+      .filter(tl => tl.a1.t !== null && tl.a2.t !== null),
     legs: [],
     lines: drawable,
     entries,
@@ -4060,7 +4156,13 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     avg_entry_price: price(campaign.average_index_entry),
     tp_price: price(campaign.target_index),
     // A ladder still holding must not have its target drawn as if it sold there.
-    tp_label: exits.length ? 'TARGET HIT' : entries.length ? 'TARGET (open — watching)' : 'TARGET (no buy yet)',
+    // When the target is sitting on the broker as a real order, the line says so
+    // -- that is the difference between a level being watched and one that fills
+    // whether or not this app is running.
+    tp_label: !holding && exits.length ? 'TARGET HIT'
+      : holding && resting ? `TARGET (resting · ${resting} order${resting === 1 ? '' : 's'})`
+      : holding ? 'TARGET (open — watching)'
+      : 'TARGET (no buy yet)',
   };
 }
 
@@ -4089,6 +4191,29 @@ function setFibBoundaryMode(_event, button) {
   _syncFibModeHint();
   _syncFibLevelsHint();
   _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+}
+
+// Every level of every fib, or only where two fibs' levels meet. One engine
+// since 2026-08-15; this is the only thing that differs between what used to be
+// two strategies. Same toggle mechanics as Paper/Live above.
+function setFibBoundaryBuyMode(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'levels';
+  const input = document.getElementById('fibx-buy-mode');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-buy-mode-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  _syncFibLevelsHint();
+}
+
+function _fibBuyMode() {
+  return document.getElementById('fibx-buy-mode')?.value || 'levels';
 }
 
 async function armFibBoundaryLive(_event, button) {
@@ -4137,7 +4262,7 @@ async function loadFibBoundaryChart(_event, button) {
   const title = el('fibx-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   pfSetCascadeChartOverlayOpen(overlay, true);
-  if (title) title.textContent = `${symbol} ${side} swing ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
+  if (title) title.textContent = `${symbol} ${side} fib ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
   // The site strip: timeframes + refresh, once. Zoom lives on the canvas host.
   const stripHost = el('fibx-chart-strip');
   if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
@@ -4195,9 +4320,14 @@ async function loadFibBoundaryChart(_event, button) {
       // candles so you can see inside the bars.
       const readOn = String(data.base_timeframe || data.timeframe).toUpperCase();
       const viewedOn = String(data.timeframe).toUpperCase();
-      const source = readOn === viewedOn ? '' : ` · swing and levels read on ${readOn}, not ${viewedOn}`;
-      meta.textContent = data.anchor
-        ? `${data.candles.length} closed ${viewedOn} candles · swing ${data.anchor.low}–${data.anchor.high} (${data.anchor.span} pts) · ${(data.levels || []).length} levels${source} · drag to pan, wheel to zoom, double-click to reset`
+      const source = readOn === viewedOn ? '' : ` · structures read on ${readOn}, not ${viewedOn}`;
+      // Fibs STACK, so the caption counts them rather than naming one swing.
+      // "swing 24427.95–24677.05" was true of the newest fib and read as though
+      // it were the whole ladder, which since the merge it never is.
+      const fibs = (data.fibs || []).length;
+      const newest = fibs ? data.fibs[fibs - 1] : null;
+      meta.textContent = newest
+        ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'}, ${(data.trendlines || []).length} trendline${(data.trendlines || []).length === 1 ? '' : 's'} · newest ${newest.fib1}–${newest.fib0} (${newest.span} pts) · ${(data.levels || []).length} levels${source} · drag to pan, wheel to zoom, double-click to reset`
         : `${data.candles.length} closed ${viewedOn} candles · ${data.note}`;
     }
   } catch (error) {
@@ -4241,6 +4371,7 @@ async function runFibBoundaryBacktest() {
     mother_timestamp: el('fibx-mother-timestamp')?.value,
     side: el('fibx-side')?.value || 'CE',
     timeframe: _fibTimeframe(),
+    buy_mode: _fibBuyMode(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -4412,6 +4543,7 @@ window.loadFibSpaceChart = loadFibSpaceChart;
 window.hideFibSpaceChart = hideFibSpaceChart;
 window.refreshFibSpaceStatus = refreshFibSpaceStatus;
 window.setFibBoundaryMode = setFibBoundaryMode;
+window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

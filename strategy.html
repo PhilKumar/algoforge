@@ -2564,6 +2564,19 @@
             </div>
           </div>
         </div>
+        <div style="margin-top:10px;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
+          <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
+               on 2026-08-15: same trendlines, same fibs, and this decides
+               whether every level of every fib is a rung, or only the places
+               where two fibs' levels meet. The engine has taken it since
+               fcdfb34 and nothing outside a test could reach it until now. -->
+          <input type="hidden" id="fibx-buy-mode" value="levels">
+          <div id="fibx-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
+            <button type="button" class="scalp-toggle-btn active" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" aria-checked="true"><span>⑃ Every level</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" aria-checked="false"><span>◈ Where two meet</span></button>
+          </div>
+        </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
         <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step

@@ -2104,6 +2104,11 @@ class FibTouchLadder:
                 if anchor
                 else None
             ),
+            # The STRUCTURES, not just the rungs. `anchor` above is a view of
+            # the newest fib only, which was enough while a ladder had one; a
+            # stacked ladder drawn from it shows one fib and hides the rest,
+            # and the levels on screen then are not the levels holding money.
+            **self.geometry.structures(),
             "levels": [rung.as_dict() for rung in self.rungs],
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when

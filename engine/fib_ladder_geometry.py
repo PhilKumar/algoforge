@@ -121,6 +121,59 @@ class LadderGeometry:
     def mother_low(self) -> Optional[float]:
         return self._geometry.mother.low if self._geometry is not None else None
 
+    def structures(self) -> dict[str, list[dict[str, Any]]]:
+        """Everything a chart has to draw, in the renderer's own vocabulary.
+
+        The chart used to redraw the geometry for itself out of
+        `find_swing_anchor` -- one swing, one trendline -- which since the merge
+        is not what the ladder trades at all. A stacked ladder drawn as a single
+        fib is a chart that quietly lies: the levels on screen are not the
+        levels holding money.
+
+        Timestamps come back ISO; the route serializes and the client converts.
+        A trendline's first anchor has only an INDEX on `Trendline`, so it is
+        resolved against the bars this object numbered -- the same numbering the
+        slope was measured in, which is why the resolution belongs here.
+        """
+        out: dict[str, list[dict[str, Any]]] = {"fibs": [], "trendlines": []}
+        if self._geometry is None:
+            return out
+        for fib in self._geometry.fibs:
+            out["fibs"].append(
+                {
+                    "fib_id": fib.fib_id,
+                    "trendline_id": fib.trendline_id,
+                    "fib0": round(float(fib.fib0), 2),
+                    "fib1": round(float(fib.fib1), 2),
+                    "span": round(float(fib.span), 2),
+                    "touch_timestamp": fib.touch_timestamp.isoformat(),
+                    "drawn_timestamp": fib.drawn_timestamp.isoformat(),
+                    "levels": [
+                        {"level": int(level), "price": round(float(fib.level_price(level)), 2)} for level in self.levels
+                    ],
+                }
+            )
+        active = getattr(self._geometry, "active_trendline_id", None)
+        for line in self._geometry.trendlines:
+            first = self._bar_at(line.anchor1_index)
+            if first is None:
+                continue
+            out["trendlines"].append(
+                {
+                    "id": line.trendline_id,
+                    "a1": {"t": first.timestamp.isoformat(), "p": round(float(line.anchor1_price), 2)},
+                    "a2": {
+                        "t": line.anchor2_timestamp.isoformat(),
+                        "p": round(float(line.anchor2_price), 2),
+                    },
+                    "active": line.trendline_id == active,
+                }
+            )
+        return out
+
+    def _bar_at(self, index: int) -> Optional[GeoBar]:
+        return self._bars[index] if 0 <= index < len(self._bars) else None
+
     def all_levels(self) -> list[LadderLevel]:
         """Every level of every drawn fib, deepest LAST.
 

@@ -140,6 +140,67 @@ class StackedLevelTests(unittest.TestCase):
         self.assertEqual(g.all_levels(), [])
 
 
+class StructureTests(unittest.TestCase):
+    """What the CHART is handed. It used to redraw the geometry for itself out
+    of the retired single-swing finder, which since the merge is not what the
+    ladder trades -- a stacked ladder drawn as one fib is a chart that quietly
+    shows the wrong prices."""
+
+    def _drawn(self):
+        """A fall, a bounce, a trendline, and a second fib once the first
+        structure's low breaks. Same shape the engine's own tests use."""
+        g = LadderGeometry(LEVELS)
+        rows = [
+            (24_660, 24_780, 24_640, 24_642),
+            (24_642, 24_644, 24_620, 24_622),
+            (24_622, 24_624, 24_600, 24_602),
+            (24_602, 24_612, 24_600, 24_610),
+            (24_610, 24_620, 24_608, 24_618),
+            (24_618, 24_650, 24_615, 24_645),
+            (24_645, 24_700, 24_640, 24_695),
+            (24_695, 24_698, 24_680, 24_682),
+            (24_682, 24_684, 24_670, 24_672),
+            (24_672, 24_674, 24_560, 24_570),
+            (24_570, 24_640, 24_565, 24_635),
+            (24_635, 24_690, 24_630, 24_640),
+            (24_640, 24_642, 24_505, 24_510),
+        ]
+        base = datetime(2026, 8, 6, 9, 15)
+        for i, (o, h, low, c) in enumerate(rows):
+            g.on_bar(_Candle(base + timedelta(minutes=15 * i), o, h, low, c), is_mother=(i == 0))
+        return g
+
+    def test_every_drawn_fib_comes_back_with_its_own_ladder(self):
+        s = self._drawn().structures()
+        self.assertEqual([fib["fib_id"] for fib in s["fibs"]], [1, 2])
+        self.assertEqual([fib["fib0"] for fib in s["fibs"]], [24_698.0, 24_690.0])
+        self.assertEqual([fib["fib1"] for fib in s["fibs"]], [24_600.0, 24_560.0])
+        for fib in s["fibs"]:
+            self.assertEqual([row["level"] for row in fib["levels"]], list(LEVELS))
+            self.assertAlmostEqual(fib["levels"][0]["price"], fib["fib0"] - 2 * fib["span"], places=2)
+
+    def test_a_trendline_carries_both_ends_as_timestamps(self):
+        """`Trendline` holds anchor1 as a BAR INDEX only -- the renderer needs a
+        clock at both ends, and only the object that numbered the bars can
+        resolve one."""
+        s = self._drawn().structures()
+        self.assertTrue(s["trendlines"])
+        line = s["trendlines"][0]
+        self.assertIsInstance(line["a1"]["t"], str)
+        self.assertIsInstance(line["a2"]["t"], str)
+        self.assertLess(line["a1"]["t"], line["a2"]["t"], "the line runs forwards in time")
+
+    def test_exactly_one_trendline_is_the_standing_one(self):
+        s = self._drawn().structures()
+        self.assertEqual(sum(1 for line in s["trendlines"] if line["active"]), 1)
+
+    def test_nothing_drawn_means_nothing_to_draw(self):
+        g = LadderGeometry(LEVELS)
+        self.assertEqual(g.structures(), {"fibs": [], "trendlines": []})
+        g.on_bar(_Candle(datetime(2026, 2, 26, 9, 15), 100, 101, 99, 100), is_mother=True)
+        self.assertEqual(g.structures(), {"fibs": [], "trendlines": []})
+
+
 class ConfigurationTests(unittest.TestCase):
     def test_the_level_set_is_the_caller_s(self):
         g = LadderGeometry((1, 2, 4, 8))

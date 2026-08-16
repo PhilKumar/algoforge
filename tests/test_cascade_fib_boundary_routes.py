@@ -150,6 +150,32 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 503)
         self.assertIn("partial-fill handling", str(raised.exception.detail))
 
+    async def test_start_rejects_an_unknown_buy_mode(self):
+        """The merge's switch: every level of every fib, or only where two fibs
+        meet. Anything else is a typo, and a typo that silently fell back to
+        "levels" would trade the other strategy without saying so."""
+        payload = app_module.FibTouchStartPayload(
+            mother_timestamp=_today_1m_mother().isoformat(), buy_mode="convergance"
+        )
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_paper_start(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("buy_mode must be one of", str(raised.exception.detail))
+
+    async def test_both_halves_of_the_merged_strategy_are_reachable(self):
+        """Fib Boundary and Fib Space are one engine since 2026-08-15. The
+        switch was built into it and wired to nothing -- the page could only
+        ever start one of the two."""
+        for mode in ("levels", "convergence"):
+            payload = app_module.FibTouchStartPayload(mother_timestamp=_today_1m_mother().isoformat(), buy_mode=mode)
+            with patch.object(
+                app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, None, "user"))
+            ):
+                with self.assertRaises(app_module.HTTPException) as raised:
+                    await app_module.fib_boundary_paper_start(payload, _DummyRequest())
+            # Reaching broker validation is what proves the mode was accepted.
+            self.assertIn("Connect a Dhan account", str(raised.exception.detail), mode)
+
     async def test_start_rejects_an_unknown_symbol(self):
         payload = app_module.FibTouchStartPayload(mother_timestamp=_today_1m_mother().isoformat(), symbol="RELIANCE")
         with self.assertRaises(app_module.HTTPException) as raised:
@@ -745,31 +771,47 @@ class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
     Phil caught it on 2026-08-15.
     """
 
-    # A 1H mother whose swing is high 24,700 / low 24,600 -> a 100pt span, so
-    # the ladder walks down in whole hundreds and is inspectable by eye.
+    # A 1H mother that draws TWO fibs under the merged geometry: a fall, a
+    # bounce, a trendline, and a second structure once the first one's low
+    # breaks. The single-swing fixture this class used to carry drew nothing at
+    # all after the merge -- the levels came back empty and the tests passed on
+    # two empty lists, which is the failure mode they exist to catch.
+    #   FIB 1  0 = 24,698  1 = 24,600  span  98
+    #   FIB 2  0 = 24,690  1 = 24,560  span 130
     _HOURLY = [
-        (24_660, 24_665, 24_640, 24_642),  # MOTHER
+        (24_660, 24_780, 24_640, 24_642),  # MOTHER, high 24,780
         (24_642, 24_644, 24_620, 24_622),
-        (24_622, 24_624, 24_600, 24_602),  # low 24,600
-        (24_602, 24_612, 24_600, 24_610),
-        (24_610, 24_620, 24_608, 24_618),  # LOW frozen
+        (24_622, 24_624, 24_600, 24_602),  # lowest low 24,600
+        (24_602, 24_612, 24_600, 24_610),  # low LOCKS
+        (24_610, 24_620, 24_608, 24_618),
         (24_618, 24_650, 24_615, 24_645),
-        (24_645, 24_700, 24_640, 24_695),  # high 24,700
+        (24_645, 24_700, 24_640, 24_695),  # bounce high 24,700
         (24_695, 24_698, 24_680, 24_682),
-        (24_682, 24_684, 24_670, 24_672),  # HIGH frozen
+        (24_682, 24_684, 24_670, 24_672),
+        (24_672, 24_674, 24_560, 24_570),  # TL1 + FIB 1 drawn
+        (24_570, 24_640, 24_565, 24_635),
+        (24_635, 24_690, 24_630, 24_640),  # tags the standing line
+        (24_640, 24_642, 24_505, 24_510),  # FIB 2 drawn
     ]
-    # Deliberately a DIFFERENT shape: if the view ever leaks into the geometry
-    # these numbers are what show up, and they are unmistakable.
+    # The SAME shape 400 points lower with a wider second leg. If the view ever
+    # leaks into the geometry these numbers are what show up, and not one of
+    # them can be mistaken for an hourly rung.
+    #   FIB 1  0 = 24,284  1 = 24,200  span  84
+    #   FIB 2  0 = 24,290  1 = 24,160  span 130
     _MINUTE = [
-        (24_660, 24_665, 24_640, 24_642),  # MOTHER, same open so it is found
-        (24_642, 24_644, 24_500, 24_505),
-        (24_505, 24_510, 24_400, 24_405),  # low 24,400 -- 200 under the 1H one
-        (24_405, 24_420, 24_400, 24_415),
-        (24_415, 24_430, 24_410, 24_425),
-        (24_425, 24_600, 24_420, 24_590),
-        (24_590, 24_900, 24_585, 24_890),  # high 24,900 -- 200 over
-        (24_890, 24_895, 24_870, 24_875),
-        (24_875, 24_880, 24_860, 24_865),
+        (24_660, 24_780, 24_240, 24_242),  # MOTHER, same open so it is found
+        (24_242, 24_244, 24_220, 24_222),
+        (24_222, 24_224, 24_200, 24_202),
+        (24_202, 24_212, 24_200, 24_210),
+        (24_210, 24_220, 24_208, 24_218),
+        (24_218, 24_250, 24_215, 24_245),
+        (24_245, 24_300, 24_240, 24_295),
+        (24_295, 24_298, 24_280, 24_282),
+        (24_282, 24_284, 24_270, 24_272),
+        (24_272, 24_274, 24_160, 24_170),
+        (24_170, 24_240, 24_165, 24_235),
+        (24_235, 24_290, 24_230, 24_240),
+        (24_240, 24_242, 24_105, 24_110),
     ]
 
     def _mother(self):
@@ -816,21 +858,49 @@ class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
                 )
         return data, asked
 
-    # The ladder a 1H mother must always produce, whatever is drawn under it.
-    _HOURLY_LEVELS = [24_500.0, 24_400.0, 24_300.0, 24_100.0, 23_900.0, 23_500.0, 23_100.0]
+    # The ladder a 1H mother must always produce, whatever is drawn under it:
+    # both fibs' rungs, interleaved, deepest last.
+    _HOURLY_LEVELS = sorted(
+        [24_698.0 - level * 98.0 for level in (2, 3, 4, 6, 8, 12, 16)]
+        + [24_690.0 - level * 130.0 for level in (2, 3, 4, 6, 8, 12, 16)],
+        reverse=True,
+    )
 
     async def test_the_ladder_comes_from_the_mother_timeframe(self):
         data, _asked = await self._chart(timeframe="1h", base_timeframe="1h")
         self.assertEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
-        self.assertEqual(data["anchor"]["high"], 24_700.0)
-        self.assertEqual(data["anchor"]["low"], 24_600.0)
+        self.assertEqual([fib["fib0"] for fib in data["fibs"]], [24_698.0, 24_690.0])
+        self.assertEqual([fib["fib1"] for fib in data["fibs"]], [24_600.0, 24_560.0])
+        # `anchor` is the NEWEST fib -- the caption's view, not the whole ladder.
+        self.assertEqual(data["anchor"]["high"], 24_690.0)
+        self.assertEqual(data["anchor"]["low"], 24_560.0)
+
+    async def test_a_rung_is_named_by_its_own_fib(self):
+        """Two fibs both have an L4 at different prices holding different money,
+        so the level alone cannot name a line on the chart."""
+        data, _asked = await self._chart(timeframe="1h", base_timeframe="1h")
+        keys = [row["key"] for row in data["levels"]]
+        self.assertEqual(len(set(keys)), len(keys), "every rung is uniquely named")
+        self.assertIn("F1L4", keys)
+        self.assertIn("F2L4", keys)
+        by_key = {row["key"]: row["price"] for row in data["levels"]}
+        self.assertNotEqual(by_key["F1L4"], by_key["F2L4"])
+
+    async def test_the_standing_trendlines_come_back(self):
+        """A fib is only drawn where price cuts back through a line, so a chart
+        without the lines cannot be checked against the rule that drew it."""
+        data, _asked = await self._chart(timeframe="1h", base_timeframe="1h")
+        self.assertTrue(data["trendlines"], "the line that produced these fibs is drawable")
+        first = data["trendlines"][0]
+        self.assertIn("t", first["a1"])
+        self.assertIn("p", first["a2"])
 
     async def test_drilling_into_one_minute_does_not_move_a_single_level(self):
         """The bug, stated as a test: same mother, finer view, same ladder."""
         data, asked = await self._chart(timeframe="1m", base_timeframe="1h")
         self.assertEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
-        self.assertEqual(data["anchor"]["high"], 24_700.0, "the 1m swing high (24,900) must not leak in")
-        self.assertEqual(data["anchor"]["low"], 24_600.0, "nor the 1m low (24,400)")
+        self.assertEqual(data["anchor"]["high"], 24_690.0, "the 1m structure (24,290) must not leak in")
+        self.assertEqual(data["anchor"]["low"], 24_560.0, "nor its low (24,160)")
         self.assertEqual(data["base_timeframe"], "1h")
         self.assertEqual(data["timeframe"], "1m")
         # And the CANDLES really are the finer ones -- the view did change.
@@ -859,8 +929,8 @@ class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
         Kept as a test so the difference is provable rather than argued -- the
         1m ladder is a real ladder, it is just not the one being traded."""
         data, _asked = await self._chart(timeframe="1m", base_timeframe="1m")
-        self.assertEqual(data["anchor"]["high"], 24_900.0)
-        self.assertEqual(data["anchor"]["low"], 24_400.0)
+        self.assertEqual(data["anchor"]["high"], 24_290.0)
+        self.assertEqual(data["anchor"]["low"], 24_160.0)
         self.assertNotEqual([row["price"] for row in data["levels"]], self._HOURLY_LEVELS)
 
     async def test_a_bad_base_timeframe_is_refused(self):

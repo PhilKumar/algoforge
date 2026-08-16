@@ -146,6 +146,10 @@ async function installOfflineE2E(page: Page) {
         kind: 'PDF', description: 'A short read on position sizing.', url: '#',
         updated_at: '2026-08-01', size: '1.2 MB' }],
     } });
+    // The Fib Boundary panel asks for the last saved replay on every load, so
+    // that the result of a run that cost several Dhan round trips survives a
+    // redraw. No saved run is the normal answer.
+    else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }
@@ -812,16 +816,44 @@ const fibTouchCampaign = {
     confirmed_at: '2026-08-06T09:23:00+05:30',
     involvement_candles: 2,
   },
+  // TWO stacked fibs. Since the merge (2026-08-15) a new structure ADDS its
+  // levels and the old ones keep resting, so a rung is (fib, level): F1 and F2
+  // both have an L2 and they are different prices holding different money.
+  fibs: [
+    {
+      fib_id: 1, trendline_id: 1, fib0: 24700, fib1: 24600, span: 100,
+      touch_timestamp: '2026-08-06T09:16:00+05:30', drawn_timestamp: '2026-08-06T09:23:00+05:30',
+      levels: [{ level: 2, price: 24500 }, { level: 3, price: 24400 }, { level: 4, price: 24300 }, { level: 6, price: 24100 }],
+    },
+    {
+      fib_id: 2, trendline_id: 1, fib0: 24680, fib1: 24560, span: 120,
+      touch_timestamp: '2026-08-06T09:30:00+05:30', drawn_timestamp: '2026-08-06T09:35:00+05:30',
+      levels: [{ level: 2, price: 24440 }, { level: 3, price: 24320 }, { level: 4, price: 24200 }, { level: 6, price: 23960 }],
+    },
+  ],
+  trendlines: [
+    { id: 1, a1: { t: '2026-08-06T09:21:00+05:30', p: 24624 }, a2: { t: '2026-08-06T09:19:00+05:30', p: 24662 }, active: true },
+  ],
+  mother_high: 24624, mother_low: 24600,
   levels: [
-    { level: 2, key: 'L2', index_price: 24500, status: 'FILLED', filled_at: '2026-08-06T09:30:00+05:30' },
-    { level: 3, key: 'L3', index_price: 24400, status: 'FILLED', filled_at: '2026-08-06T09:35:00+05:30' },
-    { level: 4, key: 'L4', index_price: 24300, status: 'PENDING', filled_at: null },
-    { level: 6, key: 'L6', index_price: 24100, status: 'UNFUNDED', filled_at: null },
+    { level: 2, fib_id: 1, key: 'F1L2', index_price: 24500, status: 'FILLED', filled_at: '2026-08-06T09:30:00+05:30' },
+    { level: 3, fib_id: 1, key: 'F1L3', index_price: 24400, status: 'FILLED', filled_at: '2026-08-06T09:35:00+05:30' },
+    { level: 4, fib_id: 1, key: 'F1L4', index_price: 24300, status: 'PENDING', filled_at: null },
+    { level: 6, fib_id: 1, key: 'F1L6', index_price: 24100, status: 'UNFUNDED', filled_at: null },
+    { level: 2, fib_id: 2, key: 'F2L2', index_price: 24440, status: 'PENDING', filled_at: null },
+    { level: 3, fib_id: 2, key: 'F2L3', index_price: 24320, status: 'PENDING', filled_at: null },
   ],
   fills: [
-    { buy_number: 1, level: 2, rung_key: 'L2', timestamp: '2026-08-06T09:30:00+05:30', index_price: 24500, premium: 200, lots: 1, quantity: 65, strike: 24400, expiry: '2026-08-11', option_type: 'CE', funded_inr: 13000 },
-    { buy_number: 2, level: 3, rung_key: 'L3', timestamp: '2026-08-06T09:35:00+05:30', index_price: 24400, premium: 180, lots: 1, quantity: 65, strike: 24300, expiry: '2026-08-11', option_type: 'CE', funded_inr: 11700 },
+    { buy_number: 1, level: 2, fib_id: 1, rung_key: 'F1L2', timestamp: '2026-08-06T09:30:00+05:30', index_price: 24500, premium: 200, lots: 1, quantity: 65, strike: 24400, expiry: '2026-08-11', option_type: 'CE', funded_inr: 13000 },
+    { buy_number: 2, level: 3, fib_id: 1, rung_key: 'F1L3', timestamp: '2026-08-06T09:35:00+05:30', index_price: 24400, premium: 180, lots: 1, quantity: 65, strike: 24300, expiry: '2026-08-11', option_type: 'CE', funded_inr: 11700 },
   ],
+  // The target is a real order sitting on the broker, not something the app
+  // notices and then chases with a market sell.
+  resting_exits: [
+    { order_id: 'PF1', rung_key: 'F1L2', strike: 24400, expiry: '2026-08-11', option_type: 'CE', quantity: 65, price: 236 },
+    { order_id: 'PF2', rung_key: 'F1L3', strike: 24300, expiry: '2026-08-11', option_type: 'CE', quantity: 65, price: 213 },
+  ],
+  rounds: [], rearm_below: null,
   lot_size: 65, strike_step: 50, itm_steps: 2, min_dte: 4,
   capital_cap_inr: 75000, deployed_inr: 24700, remaining_inr: 50300,
   open_lots: 2, open_quantity: 130,
@@ -842,14 +874,16 @@ const fibTouchChart = {
     { t: '2026-08-06T09:35:00+05:30', o: 24510, h: 24512, l: 24395, c: 24410, is_mother: false },
   ],
   anchor: fibTouchCampaign.anchor,
+  // The route hands the chart the STRUCTURES the ladder drew, not one swing.
+  fibs: fibTouchCampaign.fibs,
+  trendlines: fibTouchCampaign.trendlines,
+  mother_high: fibTouchCampaign.mother_high,
+  mother_low: fibTouchCampaign.mother_low,
   levels: [
-    { level: 2, price: 24500 }, { level: 3, price: 24400 },
-    { level: 4, price: 24300 }, { level: 6, price: 24100 },
+    { level: 2, fib_id: 1, key: 'F1L2', price: 24500 }, { level: 3, fib_id: 1, key: 'F1L3', price: 24400 },
+    { level: 4, fib_id: 1, key: 'F1L4', price: 24300 }, { level: 6, fib_id: 1, key: 'F1L6', price: 24100 },
+    { level: 2, fib_id: 2, key: 'F2L2', price: 24440 }, { level: 3, fib_id: 2, key: 'F2L3', price: 24320 },
   ],
-  trendline: {
-    start_timestamp: '2026-08-06T09:21:00+05:30', start_price: 24624,
-    anchor_timestamp: '2026-08-06T09:19:00+05:30', anchor_price: 24662,
-  },
   note: 'Gap adjustment is visual only; the ladder\'s geometry uses native Dhan OHLC.',
 };
 
@@ -909,26 +943,121 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // fallback silently renders none of them.
   expect(paint).toMatchObject({ candles: 6 });
   const labels = paint.labelTexts as string[];
-  // The swing is the ladder's frame of reference and must be on the chart.
-  expect(labels.some((t) => t.includes('SWING HIGH'))).toBe(true);
-  expect(labels.some((t) => t.includes('SWING LOW'))).toBe(true);
+  // BOTH structures are on the chart. Fibs stack since the merge, and a chart
+  // that draws one of them shows prices that are not the ones holding money.
+  expect(labels.some((t) => t.startsWith('F2 · 0'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F2 · 1'))).toBe(true);
   // Only the mother edge the ladder works against -- a CE draws its HIGH and
   // never its low, which is the whole of Phil's 2026-08-06 correction.
   expect(labels.some((t) => t.includes('MOTHER HIGH'))).toBe(true);
   expect(labels.some((t) => t.includes('MOTHER LOW'))).toBe(false);
-  // The trendline is drawn even though it gates nothing.
+  // The trendline is drawn even though it gates nothing here.
   expect(paint).toMatchObject({ trendlines: 1 });
-  // Each level carries its own live state, including the one the cap stopped.
-  expect(labels.some((t) => t.startsWith('L2 FILLED'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('L4 PENDING'))).toBe(true);
-  expect(labels.some((t) => t.startsWith('L6 UNFUNDED'))).toBe(true);
-  // A ladder still holding must not claim it sold at the target.
-  expect(labels.some((t) => t.includes('TARGET (open'))).toBe(true);
+  // Each rung carries its own live state and names the FIB it belongs to --
+  // two of them are "level 2" at different prices.
+  expect(labels.some((t) => t.startsWith('F1 L2 FILLED'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 L4 PENDING'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F1 L6 UNFUNDED'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('F2 L2 PENDING'))).toBe(true);
+  // A ladder still holding must not claim it sold at the target -- and when the
+  // target is a real order on the broker, the line says so.
+  expect(labels.some((t) => t.includes('TARGET (resting · 2 orders)'))).toBe(true);
 
   // Close moved into the site strip (top-right ✕), like every other chart.
   await page.click('#fibx-chart-strip [data-strip-close]');
   await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 
+  expect(jsErrors).toEqual([]);
+});
+
+// The same ladder in the OTHER half of the merged strategy: a rung is then a
+// SPACE between two fibs' levels, and both of its edges have to be drawable or
+// the space cannot be seen at all.
+const fibConvergenceCampaign = {
+  ...fibTouchCampaign,
+  buy_mode: 'convergence',
+  levels: [
+    {
+      level: 2, fib_id: 1, key: 'Z1-2:2-4', index_price: 24500, status: 'FILLED',
+      filled_at: '2026-08-06T09:30:00+05:30', zone_floor: 24440, zone_label: '2-4',
+    },
+    {
+      level: 4, fib_id: 1, key: 'Z1-2:4-8', index_price: 24300, status: 'PENDING',
+      filled_at: null, zone_floor: 24200, zone_label: '4-8',
+    },
+  ],
+  fills: [
+    { buy_number: 1, level: 2, fib_id: 1, rung_key: 'Z1-2:2-4', timestamp: '2026-08-06T09:30:00+05:30', index_price: 24500, premium: 200, lots: 1, quantity: 65, strike: 24400, expiry: '2026-08-11', option_type: 'CE', funded_inr: 13000 },
+  ],
+  resting_exits: [],
+};
+
+test('The merge switch reaches the engine, and convergence draws its spaces', async ({ page }) => {
+  const jsErrors: string[] = [];
+  page.on('pageerror', (err) => jsErrors.push(String(err)));
+
+  await login(page);
+  // Start with NOTHING running: a live NIFTY ladder disables the whole form,
+  // which is the correct behaviour and the wrong state to test a switch in.
+  await page.route('**/api/fib-boundary/paper/status**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaigns: [] }) }));
+  await page.route('**/api/fib-boundary/paper/chart**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fibTouchChart) }));
+
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-fib');
+
+  // Fib Boundary and Fib Space became ONE engine on 2026-08-15. The switch was
+  // built into it and wired to nothing -- the page could only ever start one of
+  // the two halves.
+  await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
+  await expect(page.locator('#fibx-levels-hint')).toHaveText('L2·L3·L4·L6·L8·L12·L16');
+  await page.click('#fibx-buy-mode-toggle [data-value="convergence"]');
+  await expect(page.locator('#fibx-buy-mode')).toHaveValue('convergence');
+  // A hidden input fires no change event, so the hint proves the handler ran.
+  await expect(page.locator('#fibx-levels-hint')).toHaveText('ZONES · L1·L2·L4·L8');
+  await page.click('#fibx-buy-mode-toggle [data-value="levels"]');
+  await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
+
+  // And it is what gets SENT -- a switch the server never hears about is a
+  // switch that does nothing.
+  await page.click('#fibx-buy-mode-toggle [data-value="convergence"]');
+  let sent: Record<string, unknown> | null = null;
+  await page.route('**/api/fib-boundary/paper/start', async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: { status: 'started', campaign: fibConvergenceCampaign } });
+  });
+  // The field is readonly by design -- it is driven by the site's own calendar
+  // popup -- so the value is set the way that popup sets it.
+  await page.evaluate(() => {
+    const input = document.getElementById('fibx-mother-timestamp') as HTMLInputElement;
+    input.value = '2026-08-06T09:21';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.click('#fibx-start');
+  await expect.poll(() => sent && sent.buy_mode).toBe('convergence');
+
+  // The chart: a space is two lines, the price it fills at and how deep it may
+  // still be worked. One line alone is not a space.
+  await page.route('**/api/fib-boundary/paper/status**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaigns: [fibConvergenceCampaign] }) }));
+  await page.evaluate(() => (window as typeof window & { refreshFibBoundaryStatus: () => Promise<void> }).refreshFibBoundaryStatus());
+  await page.waitForSelector('#fibx-monitors details');
+  await page.evaluate(() => {
+    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+  });
+  await page.click('#fibx-monitors [data-fx="chart"]');
+  await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
+  const labels = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
+    if (!app._pfChartCanvas?.paint) throw new Error('The convergence canvas never painted');
+    return app._pfChartCanvas.paint.labelTexts || [];
+  });
+  expect(labels.some((t) => t.startsWith('ZONE 2-4 FILLED'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('ZONE 2-4 floor'))).toBe(true);
+  expect(labels.some((t) => t.startsWith('ZONE 4-8 PENDING'))).toBe(true);
+
+  await page.click('#fibx-chart-strip [data-strip-close]');
   expect(jsErrors).toEqual([]);
 });
 

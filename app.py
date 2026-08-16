@@ -111,11 +111,17 @@ from engine.cascade_scanner import HIGH_LOOKBACK as CASCADE_SCAN_HIGH_LOOKBACK
 from engine.cascade_scanner import ScanInput
 from engine.cascade_scanner import chart_window as cascade_scan_chart_window
 from engine.cascade_scanner import scan as cascade_scan
+
+# The chart draws the ladder's OWN structures now. `find_swing_anchor`,
+# `find_trendline` and `level_price` still exist for the pre-merge ladders that
+# were persisted under them, but nothing in this app draws from them any more.
+from engine.fib_ladder_geometry import LadderGeometry as _FibLadderGeometry
 from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_chart_fold import fold_campaign_chart, foldable_timeframes
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_touch_ladder import BUY_MODES as _FIB_TOUCH_BUY_MODES
 from engine.fib_touch_ladder import FIB_TOUCH_LIVE_EXECUTION_ENABLED as _FIB_TOUCH_LIVE_EXECUTION_ENABLED
 from engine.fib_touch_ladder import GEOMETRY_TIMEFRAMES as _FIB_TOUCH_GEOMETRY_TF
 from engine.fib_touch_ladder import (
@@ -129,10 +135,6 @@ from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
 from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
 from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
-from engine.fib_touch_ladder import SwingAnchor as _FibTouchSwingAnchor
-from engine.fib_touch_ladder import find_swing_anchor as _fib_touch_find_anchor
-from engine.fib_touch_ladder import find_trendline as _fib_touch_find_trendline
-from engine.fib_touch_ladder import level_price as _fib_touch_level_price
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
@@ -4012,6 +4014,12 @@ class FibTouchStartPayload(BaseModel):
     min_dte: int = Field(default=4, ge=0, le=45)
     # "paper" or "live". Live is built but refuses to send; see LiveExecutor.
     mode: str = Field(default="paper")
+    # THE MERGE'S SWITCH. Phil folded Fib Boundary and Fib Space into one
+    # strategy on 2026-08-15: same geometry, and this decides what it buys --
+    # "levels" (every level of every fib) or "convergence" (only where two
+    # fibs' levels meet). The engine has taken it since fcdfb34; without this
+    # field nothing outside a test could ever choose the second half.
+    buy_mode: str = Field(default="levels")
 
 
 class TestBenchPayload(BaseModel):
@@ -4050,6 +4058,9 @@ class FibTouchBacktestPayload(BaseModel):
     # The ladder ends at its target, a broken mother or expiry. Ten days covers
     # the overwhelming majority; the ceiling allows a contract held to expiry.
     horizon_days: int = Field(default=10, ge=1, le=60)
+    # Same switch as the Start payload -- a replay of a convergence campaign has
+    # to be a replay of the campaign that would be traded.
+    buy_mode: str = Field(default="levels")
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -10377,6 +10388,21 @@ def _historical_fib_contract(
     return FixedCampaignOption("NIFTY", strike, expiry, side, 65, "")
 
 
+def _fib_boundary_buy_mode(value: Any) -> str:
+    """Which half of the merged strategy this campaign is.
+
+    Phil folded Fib Boundary and Fib Space into one engine on 2026-08-15: the
+    geometry is shared and this is the only thing that differs. Validated in one
+    place so Start, Backtest and the chart cannot drift into disagreeing about
+    what the same word means.
+    """
+
+    mode = str(value or "levels").lower()
+    if mode not in _FIB_TOUCH_BUY_MODES:
+        raise HTTPException(status_code=400, detail=f"buy_mode must be one of {', '.join(_FIB_TOUCH_BUY_MODES)}.")
+    return mode
+
+
 def _fib_touch_expiry_source(broker: DhanClient, symbol: str):
     """The expiry chain as the scrip master lists it for this symbol.
 
@@ -10539,6 +10565,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     timeframe = str(payload.timeframe).lower()
     if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
         raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+    buy_mode = _fib_boundary_buy_mode(payload.buy_mode)
     mode = str(payload.mode).lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
@@ -10644,6 +10671,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         capital_cap_inr=float(payload.capital_cap_inr),
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
+        buy_mode=buy_mode,
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +
@@ -10848,13 +10876,18 @@ async def fib_boundary_paper_chart(
     timeframe: str = "1m",
     base_timeframe: str = "",
 ):
-    """The swing ladder's own window: the swing, every level, on real candles.
+    """The ladder's own window: every drawn fib, every level, on real candles.
 
-    The anchor is recomputed here with the SAME `find_swing_anchor` the engine
-    runs, rather than read off the live campaign. That is deliberate: the
-    function is pure over (candles, mother, side), so a chart drawn from it
-    cannot drift from the ladder being traded -- and the chart still works
-    before a campaign is started, which is when it is most useful.
+    The geometry is recomputed here with the SAME `LadderGeometry` the engine
+    runs, rather than read off the live campaign. That is deliberate: it is pure
+    over the candle stream, so a chart drawn from it cannot drift from the
+    ladder being traded -- and the chart still works before a campaign is
+    started, which is when it is most useful.
+
+    Fibs STACK since the merge (2026-08-15), so this returns a list of
+    structures and a level list keyed by (fib, level). Drawing one swing here
+    while the engine works several was a chart that showed the wrong prices
+    with nothing on it saying so.
 
     TWO timeframes, and the difference is the whole point:
 
@@ -10926,19 +10959,35 @@ async def fib_boundary_paper_chart(
         )
     rows = _cascade_gap_adjusted_candles(candles, mother)
 
-    anchor = _fib_touch_find_anchor(geometry_candles, mother, side)
-    # Drawn only. Phil asked for CryptoForge's trendline on this chart but kept
-    # the fib on the swing, so the line is rendered and consulted by nothing.
-    trendline = _fib_touch_find_trendline(geometry_candles, mother, side, anchor) if anchor is not None else None
-    levels: list[dict] = []
-    if anchor is not None:
-        levels = [
-            {
-                "level": level,
-                "price": round(_fib_touch_level_price(side, anchor.high, anchor.low, level), 2),
-            }
-            for level in HALVING_LEVELS
-        ]
+    # THE LADDER'S OWN GEOMETRY, run here exactly as the engine runs it: one
+    # `LadderGeometry` fed the mother's candles in order. It used to be
+    # `find_swing_anchor` -- one swing, one trendline -- which since the merge
+    # on 2026-08-15 is not what the ladder trades. A stacked ladder drawn as a
+    # single fib is a chart that quietly lies about which prices hold money.
+    geometry = _FibLadderGeometry(HALVING_LEVELS)
+    for row in geometry_candles:
+        geometry.on_bar(row, is_mother=(row.timestamp == mother))
+    structures = geometry.structures()
+    levels = [
+        {"level": row.level, "fib_id": row.fib_id, "key": row.key, "price": round(row.price, 2)}
+        for row in geometry.all_levels()
+    ]
+    # `anchor` is kept as a VIEW of the newest fib. Nothing on the chart is
+    # measured from it any more -- it is what the header line reports, and
+    # dropping it would blank a caption the whole page reads.
+    newest = structures["fibs"][-1] if structures["fibs"] else None
+    anchor = (
+        SimpleNamespace(
+            high=newest["fib0"],
+            low=newest["fib1"],
+            span=newest["span"],
+            high_timestamp=datetime.fromisoformat(newest["touch_timestamp"]),
+            low_timestamp=datetime.fromisoformat(newest["drawn_timestamp"]),
+            confirmed_at=datetime.fromisoformat(newest["drawn_timestamp"]),
+        )
+        if newest
+        else None
+    )
     return {
         "status": "ok",
         "symbol": terms.symbol,
@@ -10963,11 +11012,14 @@ async def fib_boundary_paper_chart(
             else None
         ),
         "levels": levels,
-        "trendline": trendline.as_dict() if trendline is not None else None,
+        "fibs": structures["fibs"],
+        "trendlines": structures["trendlines"],
+        "mother_high": geometry.mother_high,
+        "mother_low": geometry.mother_low,
         "note": (
             "Gap adjustment is visual only; the ladder's geometry uses native Dhan OHLC."
             if anchor
-            else "No involvement has closed after this mother yet, so the swing is not frozen and no level can be priced."
+            else "No trendline has been cut back through yet, so no fib is drawn and no level can be priced."
         ),
     }
 
@@ -11260,6 +11312,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
     timeframe = str(payload.timeframe).lower()
     if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
         raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+    buy_mode = _fib_boundary_buy_mode(payload.buy_mode)
 
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
@@ -11333,6 +11386,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         capital_cap_inr=float(payload.capital_cap_inr),
         itm_steps=int(payload.itm_steps),
         min_dte=int(payload.min_dte),
+        buy_mode=buy_mode,
     )
 
     def _run() -> dict:
@@ -11414,30 +11468,34 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         "chart_mode": "visual_gap_adjusted",
         "candles": _cascade_gap_adjusted_candles(geometry_candles, effective_mother),
         "anchor": anchor,
-        "levels": [{"level": row["level"], "price": row["index_price"]} for row in (campaign.get("levels") or [])],
-        "trendline": None,
+        "buy_mode": buy_mode,
+        # Every rung, named by (fib, level) -- since the merge two rungs can both
+        # be "level 4" at different prices holding different money, so the level
+        # alone can no longer identify a line on the chart.
+        "levels": [
+            {
+                "level": row["level"],
+                "fib_id": row.get("fib_id", 0),
+                "key": row.get("key"),
+                "price": row["index_price"],
+                "zone_floor": row.get("zone_floor"),
+                "zone_label": row.get("zone_label"),
+            }
+            for row in (campaign.get("levels") or [])
+        ],
+        # THE STRUCTURES THE LADDER ACTUALLY DREW. This used to re-derive one
+        # swing and one trendline from the retired `find_swing_anchor`, which
+        # since the merge draws something the engine never traded.
+        "fibs": campaign.get("fibs") or [],
+        "trendlines": campaign.get("trendlines") or [],
+        "mother_high": campaign.get("mother_high"),
+        "mother_low": campaign.get("mother_low"),
         # Said out loud, because a mother that moved on its own is worth
         # knowing about when you are reading the chart it produced.
         "mother_timestamp": effective_mother.isoformat(),
         "mother_rebased": effective_mother != mother_timestamp,
         "typed_mother_timestamp": mother_timestamp.isoformat(),
     }
-    if anchor is not None:
-        line = _fib_touch_find_trendline(
-            geometry_candles,
-            effective_mother,
-            side,
-            _FibTouchSwingAnchor(
-                high=float(anchor["high"]),
-                low=float(anchor["low"]),
-                high_timestamp=datetime.fromisoformat(anchor["high_timestamp"]),
-                low_timestamp=datetime.fromisoformat(anchor["low_timestamp"]),
-                confirmed_at=datetime.fromisoformat(anchor["confirmed_at"]),
-                involvement_candles=int(anchor.get("involvement_candles") or 2),
-            ),
-        )
-        chart["trendline"] = line.as_dict() if line is not None else None
-
     result = {
         "status": "ok",
         "mode": "backtest",
