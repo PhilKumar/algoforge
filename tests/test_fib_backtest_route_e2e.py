@@ -195,10 +195,16 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         self.assertEqual(campaign["anchor"]["span"], 98.0)
 
         # The whole point: real numbers on the panel, nothing withheld.
-        self.assertEqual(campaign["status"], "CLOSED")
-        self.assertEqual(campaign["exit_reason"], "target")
-        self.assertEqual(len(campaign["fills"]), 1)
-        fill = campaign["fills"][0]
+        # The round banks and the mother PARKS rather than ending: a new
+        # deepest low would trade it again from the same candle.
+        self.assertEqual(campaign["status"], "WAITING_NEW_LOW")
+        self.assertEqual(len(campaign["rounds"]), 1)
+        self.assertEqual(campaign["rounds"][0]["exit_reason"], "target")
+        # The legs live on the ROUND once it banks -- `fills` is the open
+        # position, and this one is closed.
+        self.assertEqual(campaign["fills"], [])
+        self.assertEqual(len(campaign["rounds"][0]["fills"]), 1)
+        fill = campaign["rounds"][0]["fills"][0]
         self.assertEqual(fill["level"], 2)
         self.assertEqual(fill["index_price"], 23_902.0)  # F1L2 = 24,098 - 2 x 98
         self.assertEqual(fill["premium"], 300.0)  # the 10:27 trade, 3 min back

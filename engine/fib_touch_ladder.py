@@ -621,6 +621,12 @@ class FibTouchConfig:
     # trendline. Off by default: measured on the Fib Space side and it does not
     # combine well with the level-1 convergence set.
     seed_first_fib: bool = False
+    # ONE TARGET STOPS THE CAMPAIGN -- unless the market goes lower. Phil,
+    # 2026-08-15: "one target , then stop but if market moves down breaking the
+    # low after target hits, we do it again from the same mother". The low that
+    # re-arms it is the DEEPEST of the whole campaign, which he chose over
+    # CryptoForge's looser "the low standing when the round closed".
+    rearm_on_new_low: bool = True
     # Deep ladders normally ask for half the way back instead of a quarter.
     # Turning this off keeps the quarter at every depth -- worth measuring,
     # because raising the bar when the ladder is deepest is counter-intuitive.
@@ -836,6 +842,14 @@ class FibTouchLadder:
         # The bar before the current one: (timestamp, close). The second point
         # a resting order's price is measured from -- see target_premium_for.
         self._prior_bar: Optional[tuple[datetime, float]] = None
+        # ROUNDS. A campaign can bank more than one, because a new deepest low
+        # re-arms the same mother. Campaign P&L is the sum of them; each row is
+        # what that round did on its own.
+        self.rounds: list[dict[str, Any]] = []
+        # The price the market has to go BELOW to trade this mother again. Set
+        # to the campaign's deepest low when a round banks; None whenever the
+        # ladder is live.
+        self._rearm_below: Optional[float] = None
         self.fills: list[TouchFill] = []
         self.events: list[dict[str, Any]] = []
         self.data_gaps: list[str] = []
@@ -1487,6 +1501,7 @@ class FibTouchLadder:
         self.exit_index = target
         self.exit_reason = "trail_stop" if self.config.trailing_stop else "target"
         self.status = "CLOSED"
+        booked = len(self.rounds)
         self._settle(prices)
         self._log(
             bar.timestamp,
@@ -1495,6 +1510,68 @@ class FibTouchLadder:
             best=round(self._trail_best, 2) if self._trail_best is not None else None,
             net=self.net_pnl,
         )
+        # Park ONLY if the round actually booked. _settle refuses to book when a
+        # leg cannot be priced, and parking anyway would clear the position off
+        # a campaign that never recorded what it made on it.
+        if self.config.rearm_on_new_low and len(self.rounds) > booked:
+            self._park_for_a_lower_low(bar)
+        return True
+
+    def _park_for_a_lower_low(self, bar: Bar) -> None:
+        """A banked round stops the campaign, but does not end it.
+
+        Phil, 2026-08-15: "one target , then stop but if market moves down
+        breaking the low after target hits, we do it again from the same
+        mother." So the ladder goes quiet holding nothing, and only a market
+        that goes BELOW the deepest this campaign has ever seen wakes it up.
+
+        Deliberately stricter than CryptoForge, which releases a closed round's
+        levels once price slips under the low that was standing when it closed.
+        He was offered that and chose the deepest low instead.
+        """
+        self._rearm_below = self._lowest_low
+        self.status = "WAITING_NEW_LOW"
+        # The round is booked; its legs are history now.
+        self.fills = []
+        self._settled = []
+        self._exit_premiums = []
+        self._trail_armed = False
+        self._trail_best = None
+        self._last_fill_timestamp = None
+        # Every rung the round bought goes back on the ladder. UNFUNDED ones do
+        # too: the cap that stopped them was spent on a position that has since
+        # been sold.
+        for rung in self.rungs:
+            if rung.status in {"FILLED", "UNFUNDED", "EXPIRING"}:
+                rung.status = "PENDING"
+                rung.filled_at = None
+        self._log(
+            bar.timestamp,
+            "waiting_for_a_lower_low",
+            below=round(self._rearm_below, 2) if self._rearm_below is not None else None,
+            rounds=len(self.rounds),
+            net=self.net_pnl,
+        )
+
+    def _try_rearm(self, bar: Bar) -> bool:
+        """Wake the mother back up once the market trades below its deepest."""
+        if self.status != "WAITING_NEW_LOW" or self._rearm_below is None:
+            return False
+        broke = float(bar.low) < self._rearm_below if self.side == "CE" else float(bar.high) > self._rearm_below
+        if not broke:
+            return False
+        self.status = "ARMED"
+        self.exit_timestamp = None
+        self.exit_index = None
+        self.exit_reason = None
+        self._log(
+            bar.timestamp,
+            "rearmed_on_a_new_low",
+            low=round(float(bar.low), 2),
+            was=round(self._rearm_below, 2),
+            round_number=len(self.rounds) + 1,
+        )
+        self._rearm_below = None
         return True
 
     def _settle(self, exit_prices: Sequence[Optional[float]]) -> None:
@@ -1507,8 +1584,29 @@ class FibTouchLadder:
         pairs = list(zip(self.fills, [float(p) for p in exit_prices])) + self._settled
         if not pairs:
             return
-        self.gross_pnl = round(sum((price - fill.premium) * fill.quantity for fill, price in pairs), 2)
-        self.costs_total = round(self._costs_for(pairs), 2)
+        gross = round(sum((price - fill.premium) * fill.quantity for fill, price in pairs), 2)
+        costs = round(self._costs_for(pairs), 2)
+        self.rounds.append(
+            {
+                "round": len(self.rounds) + 1,
+                "gross_pnl": gross,
+                "costs_total": costs,
+                "net_pnl": round(gross - costs, 2),
+                "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
+                "exit_index": self.exit_index,
+                "exit_reason": self.exit_reason,
+                "rung_keys": [fill.rung_key for fill, _ in pairs],
+                "deployed_inr": round(sum(fill.premium * fill.quantity for fill, _ in pairs), 2),
+                # The legs themselves, with what each one sold for. `fills` is
+                # cleared when the mother parks, so without this the console
+                # loses every buy the moment the round it belongs to banks --
+                # and "what did this mother actually do" is the whole question.
+                "fills": [{**fill.as_dict(), "exit_premium": round(float(price), 2)} for fill, price in pairs],
+            }
+        )
+        # Campaign P&L is every round it banked, not just the last one.
+        self.gross_pnl = round(sum(row["gross_pnl"] for row in self.rounds), 2)
+        self.costs_total = round(sum(row["costs_total"] for row in self.rounds), 2)
         self.net_pnl = round(self.gross_pnl - self.costs_total, 2)
 
     def _costs_for(self, pairs: Sequence[tuple[TouchFill, float]]) -> float:
@@ -1653,6 +1751,8 @@ class FibTouchLadder:
             last = self.history[-1]
             self._prior_bar = (last.timestamp, float(last.close))
         self.history.append(bar)
+        low = float(bar.low)
+        self._lowest_low = low if self._lowest_low is None else min(self._lowest_low, low)
         # A 1m mother needs no separate stream -- the entry bars ARE the
         # geometry bars, so feed them through as well. A rebased campaign is in
         # the same position: its new mother came off the 1m series.
@@ -1668,6 +1768,13 @@ class FibTouchLadder:
         # The thesis first: a broken mother ends the campaign before a rung on
         # the same bar can add to a position that is about to be closed.
         if self._try_mother_break(bar):
+            return
+        # Parked after a banked round: only a new deepest low restarts it, and
+        # the bar that does so may not also buy. The low that woke the ladder
+        # is not itself a touch of anything -- the rungs went back on the
+        # ladder in the same instant.
+        if self.status == "WAITING_NEW_LOW":
+            self._try_rearm(bar)
             return
         self._try_fill(bar)
         if self._try_exit(bar):
@@ -1821,6 +1928,12 @@ class FibTouchLadder:
             # and a ladder that came back not knowing about them would place a
             # second sell on the same coin.
             "resting_exits": [dict(row) for row in self.resting_exits],
+            # Rounds already banked, and the price the market must go below to
+            # trade this mother again. Without them a restart forgets both the
+            # P&L and the fact that it is waiting.
+            "rounds": [dict(row) for row in self.rounds],
+            "rearm_below": self._rearm_below,
+            "lowest_low": self._lowest_low,
             "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
@@ -1932,6 +2045,9 @@ class FibTouchLadder:
             for row in raw.get("settled") or []
         ]
         engine.resting_exits = [dict(row) for row in (raw.get("resting_exits") or [])]
+        engine.rounds = [dict(row) for row in (raw.get("rounds") or [])]
+        engine._rearm_below = raw.get("rearm_below")
+        engine._lowest_low = raw.get("lowest_low")
         locked = raw.get("expiry_locked")
         # A ladder written before the expiry lock existed still has one contract
         # series in its fills; take it from there rather than leaving it free to
@@ -2001,6 +2117,8 @@ class FibTouchLadder:
             # The one contract series this ladder trades, fixed by the first buy.
             "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "resting_exits": [dict(row) for row in self.resting_exits],
+            "rounds": [dict(row) for row in self.rounds],
+            "rearm_below": self._rearm_below,
             "capital_cap_inr": self.config.capital_cap_inr,
             "deployed_inr": self.deployed_inr,
             "remaining_inr": self.remaining_inr,

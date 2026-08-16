@@ -215,7 +215,7 @@ class ExpiryTests(unittest.TestCase):
         self.assertEqual(atm_strike(14_690, 25), 14_700)  # MIDCPNIFTY's 25 step
 
 
-def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=0):
+def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, mother_index=0, rearm=True):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
     config = FibTouchConfig(
@@ -226,6 +226,7 @@ def ladder(side="CE", *, cap=75_000.0, premium=200.0, lot_size=65, levels=None, 
         strike_step=50.0,
         levels=tuple(levels) if levels else HALVING_LEVELS,
         capital_cap_inr=cap,
+        rearm_on_new_low=rearm,
     )
     seen: list = []
     return (
@@ -336,8 +337,11 @@ class LadderTests(unittest.TestCase):
         self.assertEqual(engine.status, "OPEN")
         # One fill at 24,502, mother 24,780 -> the target is 24,571.50.
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
-        self.assertEqual(engine.status, "CLOSED")
-        self.assertEqual(engine.exit_reason, "target")
+        # The round is banked and the mother PARKS -- it does not end, because a
+        # new deepest low would trade it again.
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        self.assertEqual(len(engine.rounds), 1)
+        self.assertEqual(engine.rounds[0]["exit_reason"], "target")
         self.assertIsNotNone(engine.net_pnl)
         # Flat premium in and out: gross is zero and the round still pays costs.
         self.assertEqual(engine.gross_pnl, 0.0)
@@ -346,7 +350,7 @@ class LadderTests(unittest.TestCase):
         assert engine.net_pnl is not None
         self.assertLess(engine.net_pnl, 0)
 
-    def test_a_closed_campaign_ignores_later_candles(self):
+    def test_a_banked_round_rearms_on_a_new_deepest_low(self):
         engine, candles, _ = ladder()
         for bar in candles:
             engine.on_candle(bar)
@@ -355,9 +359,12 @@ class LadderTests(unittest.TestCase):
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
         # A deep fall AFTER the close must buy nothing, however many rungs it
         # crosses -- and with fibs stacking there are plenty left resting.
+        # That fall goes BELOW the campaign's deepest low, so it re-arms the
+        # same mother -- and the bar that wakes it may not also buy.
         engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, 24_100, 24_110))
-        self.assertEqual(len(engine.fills), 1)
-        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.fills, [], "the banked round's legs are history")
+        self.assertEqual(engine.status, "ARMED")
+        self.assertEqual(len(engine.rounds), 1)
 
     def test_a_missing_premium_is_a_recorded_gap_never_a_guess(self):
         candles = falling_then_bouncing()
@@ -897,8 +904,8 @@ class PersistenceTests(unittest.TestCase):
         # The target is a quarter of the way to the MOTHER (24,780) now, so a
         # bar topping at 24,560 no longer reaches it.
         back.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
-        self.assertEqual(back.status, "CLOSED")
-        self.assertEqual(back.exit_reason, "target")
+        self.assertEqual(back.status, "WAITING_NEW_LOW")
+        self.assertEqual(back.rounds[-1]["exit_reason"], "target")
 
     def test_a_restored_fill_remembers_which_fib_it_came_from(self):
         """Fibs stack, so "level 2" alone does not name a rung. A ladder that
@@ -1129,9 +1136,9 @@ class TrailingStopTests(unittest.TestCase):
         # the trail measures off the newest structure -- so best 25,080 puts the
         # stop at 24,943.
         engine.on_candle(Bar(base + timedelta(minutes=3), 25_070, 25_075, 24_900, 24_930))
-        self.assertEqual(engine.status, "CLOSED")
-        self.assertEqual(engine.exit_reason, "trail_stop")
-        self.assertEqual(engine.exit_index, 24_943.0)
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        self.assertEqual(engine.rounds[-1]["exit_reason"], "trail_stop")
+        self.assertEqual(engine.rounds[-1]["exit_index"], 24_943.0)
 
     def test_a_wick_through_the_stop_does_not_end_the_move(self):
         engine, base = self.trailing(multiple=1.0)
@@ -1145,8 +1152,8 @@ class TrailingStopTests(unittest.TestCase):
         engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 25_080, 24_505, 25_070))
         # Best 25,080, 0.25 of the 137 span = 34.25 -> stop 25,045.75.
         engine.on_candle(Bar(base + timedelta(minutes=3), 25_070, 25_075, 25_030, 25_040))
-        self.assertEqual(engine.status, "CLOSED")
-        self.assertEqual(engine.exit_index, 25_045.75)
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        self.assertEqual(engine.rounds[-1]["exit_index"], 25_045.75)
 
     def test_the_trail_beats_the_plain_target_on_a_move_that_keeps_going(self):
         """The whole point: a quarter-way exit leaves the rest on the table."""
@@ -1553,7 +1560,8 @@ class RestingExitTests(unittest.TestCase):
         push(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_520))
         self.assertTrue(engine.resting_exits)
         push(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
-        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.status, "WAITING_NEW_LOW", "a banked round parks the mother")
+        self.assertEqual(len(engine.rounds), 1)
         self.assertEqual(engine.resting_exits, [], "the target order goes with the position")
 
     def test_the_resting_orders_survive_a_restart(self):
@@ -1592,6 +1600,111 @@ class RestingExitTests(unittest.TestCase):
         engine.on_candle(buy)
         self.assertTrue(engine.fills)
         self.assertEqual(engine.resting_exits, [])
+
+
+class RearmOnNewLowTests(unittest.TestCase):
+    """One target stops the mother -- unless the market goes lower still.
+
+    Phil, 2026-08-15: "one target , then stop but if market moves down breaking
+    the low after target hits, we do it again from the same mother." The low
+    that wakes it is the DEEPEST of the whole campaign, which he chose over
+    CryptoForge's looser rule of the low standing when the round closed.
+    """
+
+    def banked(self, **overrides):
+        """A ladder that has bought, hit its target, and parked."""
+        engine, candles, _ = ladder(**overrides)
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=1), 24_610, 24_612, 24_495, 24_510))
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
+        return engine, base
+
+    def test_a_target_parks_the_mother_rather_than_ending_it(self):
+        engine, _ = self.banked()
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        self.assertEqual(len(engine.rounds), 1)
+        self.assertEqual(engine.fills, [], "the round's legs are booked and gone")
+        self.assertIsNotNone(engine.net_pnl)
+
+    def test_the_rungs_it_bought_go_back_on_the_ladder(self):
+        engine, _ = self.banked()
+        self.assertTrue(engine.rungs)
+        self.assertTrue(all(rung.status == "PENDING" for rung in engine.rungs))
+
+    def test_a_shallower_dip_does_not_wake_it(self):
+        """It has to beat the DEEPEST low, not merely go down a bit."""
+        engine, base = self.banked()
+        deepest = engine._rearm_below
+        assert deepest is not None
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, deepest + 5, deepest + 10))
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        self.assertEqual(engine.fills, [])
+
+    def test_a_new_deepest_low_trades_the_same_mother_again(self):
+        engine, base = self.banked()
+        deepest = engine._rearm_below
+        assert deepest is not None
+        mother_before = engine.config.mother_timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, deepest - 5, deepest))
+        self.assertEqual(engine.status, "ARMED")
+        self.assertEqual(engine.config.mother_timestamp, mother_before, "the SAME mother")
+        self.assertIsNone(engine._rearm_below, "and it is live again, not still waiting")
+
+    def test_the_bar_that_wakes_it_does_not_also_buy(self):
+        """The low that re-armed the ladder is not itself a touch: the rungs
+        went back on in the same instant."""
+        engine, base = self.banked()
+        deepest = engine._rearm_below
+        assert deepest is not None
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, deepest - 200, deepest - 150))
+        self.assertEqual(engine.status, "ARMED")
+        self.assertEqual(engine.fills, [], "no fill on the waking bar")
+
+    def test_a_second_round_adds_to_the_campaign_rather_than_replacing_it(self):
+        engine, base = self.banked()
+        first_net = engine.net_pnl
+        deepest = engine._rearm_below
+        assert deepest is not None
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_580, deepest - 5, deepest))
+        engine.on_candle(Bar(base + timedelta(minutes=4), 24_400, 24_405, 24_290, 24_310))
+        self.assertTrue(engine.fills, "the second round buys")
+        engine.on_candle(Bar(base + timedelta(minutes=5), 24_310, 24_700, 24_305, 24_690))
+        self.assertEqual(len(engine.rounds), 2)
+        self.assertAlmostEqual(
+            engine.net_pnl,
+            round(sum(row["net_pnl"] for row in engine.rounds), 2),
+            places=2,
+            msg="campaign P&L is every round, not the last one",
+        )
+        self.assertNotEqual(engine.net_pnl, first_net)
+
+    def test_turning_the_rule_off_ends_the_campaign_on_one_target(self):
+        engine, _ = self.banked(rearm=False)
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "target")
+
+    def test_a_banked_round_keeps_its_own_legs(self):
+        """`fills` is the OPEN position and empties when the round banks, so
+        the round has to carry what it bought or the console loses it."""
+        engine, _ = self.banked()
+        self.assertEqual(engine.fills, [])
+        legs = engine.rounds[0]["fills"]
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["rung_key"], "F1L2")
+        self.assertIn("exit_premium", legs[0], "and what it sold for")
+
+    def test_a_parked_ladder_comes_back_parked(self):
+        engine, _ = self.banked()
+        raw = json.loads(json.dumps(engine.to_dict()))
+        back = FibTouchLadder.from_dict(
+            raw, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back.status, "WAITING_NEW_LOW")
+        self.assertEqual(back._rearm_below, engine._rearm_below)
+        self.assertEqual(len(back.rounds), 1)
+        self.assertEqual(back.net_pnl, engine.net_pnl)
 
 
 class DeepTargetTests(unittest.TestCase):
