@@ -40,16 +40,37 @@ DEFAULT_ROOT = os.environ.get("PHILFORGE_USER_DATA_ROOT", "user_data")
 
 
 def _state_files(root: str, run_id: str) -> list[str]:
+    """Both records of a run's trades.
+
+    `paper_state_<run>.json` is the live session; `paper_history_<run>.json` is
+    the cumulative trade history the engine loads whenever there is no state
+    file -- and Stop DELETES the state file (so a stopped run does not restore
+    itself). Correcting only the state file, as this script first did, was
+    undone the moment the run was stopped and started: the fresh engine read
+    the history file, which still said ENGINE_STOP (Phil, 2026-08-17 15:45:
+    "sorry same results").
+    """
     hits = []
-    for path in glob.glob(os.path.join(root, "**", "paper_state_*.json"), recursive=True):
-        try:
-            with open(path, encoding="utf-8") as handle:
-                state = json.load(handle)
-        except Exception:
-            continue
-        if not run_id or run_id in os.path.basename(path) or state.get("run_id") == run_id:
-            hits.append(path)
+    for pattern in ("paper_state_*.json", "paper_history_*.json"):
+        for path in glob.glob(os.path.join(root, "**", pattern), recursive=True):
+            if path.endswith(".bak"):
+                continue
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    doc = json.load(handle)
+            except Exception:
+                continue
+            doc_run = doc.get("run_id") if isinstance(doc, dict) else None
+            if not run_id or run_id in os.path.basename(path) or doc_run == run_id:
+                hits.append(path)
     return hits
+
+
+def _trades_of(doc):
+    """The trade list inside either shape: a state dict or a bare history list."""
+    if isinstance(doc, list):
+        return doc
+    return doc.get("closed_trades") or []
 
 
 def _matches(trade: dict, entry_time: str) -> bool:
@@ -108,7 +129,8 @@ def main() -> int:
     for path in files:
         with open(path, encoding="utf-8") as handle:
             state = json.load(handle)
-        trades = state.get("closed_trades") or []
+        trades = _trades_of(state)
+        touched_here = 0
         for i, trade in enumerate(trades):
             if not _matches(trade, args.entry_time):
                 continue
@@ -125,14 +147,19 @@ def main() -> int:
             )
             trades[i] = fixed
             touched += 1
-        if touched and args.apply:
+            touched_here += 1
+        if touched_here and args.apply:
             shutil.copy2(path, path + ".bak")
-            state["closed_trades"] = trades
-            # The day's P&L is the sum of its trades; leaving it stale would put
-            # a corrected trade under an uncorrected total.
-            state["daily_pnl"] = round(sum(float(t.get("pnl") or 0) for t in trades), 2)
+            if isinstance(state, dict):
+                state["closed_trades"] = trades
+                # The day's P&L is the sum of its trades; leaving it stale would
+                # put a corrected trade under an uncorrected total.
+                state["daily_pnl"] = round(sum(float(t.get("pnl") or 0) for t in trades), 2)
+                out = state
+            else:
+                out = trades
             with open(path, "w", encoding="utf-8") as handle:
-                json.dump(state, handle, indent=2)
+                json.dump(out, handle, indent=2)
             print(f"   written · original kept at {os.path.basename(path)}.bak")
 
     if not touched:
@@ -141,7 +168,12 @@ def main() -> int:
     if not args.apply:
         print("\nNothing was written. Re-run with --apply once the numbers above look right.")
     else:
-        print("\nRestart the run (or the app) so the panel reloads the corrected state.")
+        # NOT "restart the run": Stop deletes the state file and Start reads the
+        # history file, which is why both are corrected above. Any engine still
+        # holding the old trade in memory shows it until it is stopped and
+        # started -- and its next _save_state rewrites the state file from
+        # memory, so stop it FIRST if it is running.
+        print("\nIf the run is running: Stop it, then Start it — it reloads the corrected history.")
     return 0
 
 
