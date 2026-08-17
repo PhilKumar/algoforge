@@ -510,6 +510,77 @@ def inspect_condition_group(row, conditions, prev_row=None):
     return bool(overall), details, missing_fields
 
 
+# Which indicator columns a journal chart quotes at the moment of a decision.
+# Anything present on the row is captured; absent ones are simply skipped.
+DECISION_WHY_INDICATOR_KEYS = (
+    "CPR_TC",
+    "CPR_P",
+    "CPR_BC",
+    "CPR_R1",
+    "CPR_R2",
+    "CPR_R3",
+    "CPR_R4",
+    "CPR_S1",
+    "CPR_S2",
+    "CPR_S3",
+    "CPR_S4",
+    "CPR_is_wide",
+    "EMA_20_5m",
+    "EMA_20",
+    "EMA_9",
+    "EMA_50",
+    "VWAP",
+    "RSI_14",
+    "ATR_14",
+)
+
+
+def decision_why(row, conditions, debug=None, prev_row=None, reason=""):
+    """The WHY of an entry or exit, frozen so a journal chart can say it later.
+
+    Phil, 2026-08-17: every live trade's chart has to show "where, when, why
+    the trade was taken and exited, with all CPR and indicators". Both engines
+    already produce per-condition verdicts (`inspect_condition_group`) for the
+    debug panel -- and throw them away on the next bar. This keeps them, with
+    the bar's own indicator readings, so the trade record carries its reasons
+    forever. Read-only over `row`; never raises -- the journal must never be
+    the thing that breaks a trade.
+    """
+    why = {"reason": str(reason or ""), "conditions": [], "indicators": {}, "bar_time": None, "spot": None}
+    try:
+        stamp = row.name if row is not None and hasattr(row, "name") else None
+        if stamp is not None and hasattr(stamp, "isoformat"):
+            why["bar_time"] = stamp.isoformat()
+        if row is not None:
+            for key in ("close", "current_close", "Close"):
+                if key in row and row[key] is not None:
+                    why["spot"] = float(row[key])
+                    break
+            for key in DECISION_WHY_INDICATOR_KEYS:
+                if key in row and row[key] is not None:
+                    value = row[key]
+                    try:
+                        why["indicators"][key] = bool(value) if isinstance(value, (bool, np.bool_)) else float(value)
+                    except (TypeError, ValueError):
+                        continue
+        details = list((debug or {}).get("conditions") or [])
+        if not details and conditions and row is not None:
+            _overall, details, _missing = inspect_condition_group(row, conditions, prev_row)
+        why["conditions"] = [
+            {
+                "condition": str(d.get("condition", "")),
+                "left_value": d.get("left_value"),
+                "right_value": d.get("right_value"),
+                "result": bool(d.get("result", False)),
+            }
+            for d in details
+            if isinstance(d, dict)
+        ]
+    except Exception as exc:
+        why["error"] = str(exc)[:200]
+    return why
+
+
 def debug_condition_group(row, conditions, prev_row=None):
     """Evaluate conditions and return per-condition results for debugging."""
     overall, details, _missing_fields = inspect_condition_group(row, conditions, prev_row)

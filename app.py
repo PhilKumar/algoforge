@@ -13838,6 +13838,198 @@ async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = 
     }
 
 
+def _live_run_history_trades(run_id: str) -> list[dict]:
+    """Every trade a run has ever closed, from its persistent history file.
+
+    Both engines write `paper_history_<run>.json` / `live_history_<run>.json`
+    beside the state file (see engine/paper_trading.py `_save_trade_history`),
+    so a run that has been STOPPED -- or ended by a restart -- still has its
+    trades reachable for the journal. Missing file = no history, not an error.
+    """
+    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(run_id or ""))
+    out: list[dict] = []
+    for prefix in ("paper_history_", "live_history_"):
+        path = (
+            os.path.join(_HERE, f"{prefix}{safe}.json") if safe else os.path.join(_HERE, f"{prefix.rstrip('_')}.json")
+        )
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as handle:
+                    rows = json.load(handle)
+                if isinstance(rows, list):
+                    out.extend(r for r in rows if isinstance(r, dict))
+        except Exception as exc:
+            _logger.warning("[LIVE JOURNAL] history %s unreadable: %s", path, exc)
+    return out
+
+
+@app.get("/api/live/trade-chart")
+async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "", timeframe: str = "5m"):
+    """ONE trade's chart, frozen at its exit, with the WHY -- the journal view.
+
+    Phil, 2026-08-17: "a journal chart on every live trade ... where, when,
+    why the trade was taken and exited, with all CPR and indicators ... a
+    frozen chart like CryptoForge." /api/live/entry-chart shows the OPEN (or
+    latest) contract to today; this picks a SPECIFIC trade by id from the
+    running engine or the run's history file, fetches candles from before the
+    entry TO THE EXIT and stops there -- CryptoForge's `end_ts` freeze, so a
+    trade viewed days later still shows the market as it was -- and returns
+    the entry/exit `why` the engines now record. Same renderer, same
+    CPR/R1-R4/S1-S4/20-EMA analytics as the entry chart.
+    """
+    user_id = _request_user_id(request)
+    engine = None
+    for bucket in (_registry_bucket(live_engines, user_id), _registry_bucket(paper_engines, user_id)):
+        if run_id and run_id in bucket:
+            engine = bucket[run_id]
+            break
+
+    # The trade: engine's closed list first (freshest), then the history file.
+    candidates: list[dict] = []
+    if engine is not None:
+        candidates.extend(getattr(engine, "closed_trades", []) or [])
+        candidates.extend(p for p in (getattr(engine, "positions", []) or []) if p.get("status") == "closed")
+    candidates.extend(_live_run_history_trades(run_id))
+    trade = None
+    if trade_id:
+        for row in candidates:
+            if str(row.get("id")) == str(trade_id):
+                trade = row
+                break
+    if trade is None and candidates:
+        trade = candidates[-1]
+    if trade is None:
+        raise HTTPException(status_code=404, detail="No closed trade with that id on this run")
+
+    underlying = str(trade.get("underlying") or getattr(engine, "instrument", "") or "NIFTY").strip().upper()
+    if underlying.isdigit():
+        underlying = {
+            "26000": "NIFTY",
+            "26009": "BANKNIFTY",
+            "26017": "FINNIFTY",
+            "26037": "MIDCPNIFTY",
+            "1": "SENSEX",
+        }.get(underlying, "NIFTY")
+    strike = int(float(trade.get("strike") or 0))
+    expiry = str(trade.get("expiry") or "").strip()
+    option_type = str(trade.get("option_type") or "").strip().upper()
+    if strike <= 0 or option_type not in {"CE", "PE"}:
+        raise HTTPException(status_code=422, detail="This trade record has no usable contract")
+
+    entry_ts = _scalp_option_chart_timestamp(trade.get("entry_time"))
+    exit_ts = _scalp_option_chart_timestamp(trade.get("exit_time"))
+    if not entry_ts:
+        raise HTTPException(status_code=422, detail="This trade record has no entry time")
+
+    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
+    if not security_id:
+        raise HTTPException(status_code=404, detail="This trade's contract is no longer in the Scrip Master (expired?)")
+
+    broker_client = getattr(engine, "dhan", None) if engine is not None else None
+    if broker_client is None:
+        _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Broker connection is required to load the trade chart")
+
+    tf = str(timeframe or "5m").lower()
+    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
+    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    entry_day = datetime.fromtimestamp(entry_ts, IST).date()
+    # FROZEN WINDOW: from a few sessions before the entry (so CPR has its
+    # prior day and the EMA has warm-up) to the EXIT day -- never "today".
+    end_day = datetime.fromtimestamp(exit_ts, IST).date() if exit_ts else entry_day
+    from_date = (entry_day - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(security_id),
+            exchange_segment=exchange_segment,
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=end_day.isoformat(),
+            candle_type=candle_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Trade-chart candle request failed: {exc}") from exc
+    if frame is None or frame.empty:
+        raise HTTPException(status_code=404, detail="No candles returned for this trade's contract")
+
+    candles = []
+    for timestamp, row in frame.iterrows():
+        stamp = _scalp_option_chart_timestamp(timestamp)
+        if stamp is None:
+            continue
+        # The freeze: nothing after the exit bar. A little runway past the exit
+        # is kept so the exit mark is not the last pixel on the canvas.
+        if exit_ts and stamp > exit_ts + 6 * {"5": 300, "15": 900, "60": 3600}[candle_type]:
+            continue
+        candles.append(
+            {
+                "t": stamp,
+                "o": round(float(row["open"]), 4),
+                "h": round(float(row["high"]), 4),
+                "l": round(float(row["low"]), 4),
+                "c": round(float(row["close"]), 4),
+            }
+        )
+    if not candles:
+        raise HTTPException(status_code=404, detail="Trade-chart candles contained no usable timestamps")
+
+    analytics = _chart_session_analytics(candles)
+    entry_price = float(trade.get("entry_premium") or 0)
+    exit_price = float(trade.get("exit_premium") or 0)
+    lines = list(analytics["lines"])
+    for label, key, color in (("STOP", "sl_premium", "#ef4444"), ("TARGET", "target_premium", "#10b981")):
+        level = float(trade.get(key) or 0)
+        if level > 0:
+            lines.insert(
+                0, {"label": label, "price": level, "color": color, "dash": [6, 3], "width": 1.2, "opacity": 0.95}
+            )
+
+    entry_why = trade.get("entry_why") if isinstance(trade.get("entry_why"), dict) else None
+    exit_why = trade.get("exit_why") if isinstance(trade.get("exit_why"), dict) else None
+    return {
+        "status": "ok",
+        "timeframe": tf,
+        "is_open": False,
+        "frozen_at": exit_ts,
+        "trade": {
+            "id": trade.get("id"),
+            "run_id": run_id,
+            "symbol": trade.get("symbol"),
+            "transaction_type": trade.get("transaction_type"),
+            "quantity": trade.get("quantity"),
+            "lots": trade.get("lots"),
+            "entry_time": entry_ts,
+            "exit_time": exit_ts,
+            "entry_premium": entry_price,
+            "exit_premium": exit_price,
+            "entry_spot": trade.get("entry_spot"),
+            "pnl": float(trade.get("pnl") or 0),
+            "exit_reason": trade.get("exit_reason"),
+        },
+        "why": {"entry": entry_why, "exit": exit_why},
+        "instrument": {
+            "underlying": underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": str(security_id),
+        },
+        "candles": candles,
+        "entries": ([{"t": entry_ts, "price": entry_price}] if entry_price > 0 else []),
+        "exits": (
+            [{"t": exit_ts, "price": exit_price, "pnl": float(trade.get("pnl") or 0)}]
+            if exit_ts and exit_price > 0
+            else []
+        ),
+        "lines": lines,
+        "overlays": analytics["overlays"],
+        "live_price": 0.0,
+    }
+
+
 @app.get("/api/live/debug")
 async def live_debug(request: Request, run_id: str = ""):
     """Deep diagnostic of live engine state — call when trades aren't triggering."""

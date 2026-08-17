@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import (
+    decision_why,
     eval_condition_group,
     get_lot_size,
     get_sell_option_margin_per_lot,
@@ -2034,6 +2035,8 @@ class PaperTradingEngine:
     async def _enter_trade(self, row: pd.Series):
         """Enter trade based on strategy legs — uses REAL option LTP from Dhan"""
         self.log_event("signal", "✅ ENTRY CONDITIONS MET", {"spot": self.current_spot, "time": str(self.current_time)})
+        # The why, frozen at the instant of decision, attached to every leg below.
+        entry_why = decision_why(row, self.entry_conditions, self._condition_debug, self._prev_row, "ENTRY_SIGNAL")
 
         legs = self.strategy.get("legs", [])
         if not legs:
@@ -2119,6 +2122,7 @@ class PaperTradingEngine:
                     "strike": strike,
                     "expiry": expiry,
                     "entry_time": entry_time,
+                    "entry_why": entry_why,
                     "entry_spot": entry_spot,
                     "entry_quote_premium": quoted_entry_premium,
                     "entry_premium": entry_premium,
@@ -2300,6 +2304,19 @@ class PaperTradingEngine:
         position["exit_time"] = self.current_time
         position["exit_reason"] = reason
         position["exit_quote_premium"] = float(exit_premium)
+        # The exit's why: the reason always; the exit conditions' verdicts when
+        # a signal decided it (a stop, target or clock needs no conditions).
+        try:
+            latest = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+        except Exception:
+            latest = None
+        position["exit_why"] = decision_why(
+            latest,
+            self.exit_conditions if str(reason) in ("EXIT_SIGNAL", "TOUCH_EXIT") else [],
+            None,
+            self._prev_row,
+            reason,
+        )
 
         adjusted_exit_premium = self._apply_execution_costs(exit_premium, position["transaction_type"], "exit")
 

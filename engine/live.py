@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
 from broker.dhan import UNDERLYING_MAP, AmbiguousOrderSubmission, DhanClient, ScripMaster
 from engine.backtest import (
+    decision_why,
     eval_condition_group,
     get_lot_size,
     get_sell_option_margin_per_lot,
@@ -2326,6 +2327,8 @@ class LiveEngine:
         Uses true-async httpx calls + parallel leg placement for minimum latency.
         """
         self._entry_submission_ambiguous = False
+        # The why, frozen at the instant of decision, attached to every leg below.
+        entry_why = decision_why(row, self.entry_conditions, self._condition_debug, self._prev_row, "ENTRY_SIGNAL")
         self.log_event(
             "signal",
             "✅ ENTRY CONDITIONS MET",
@@ -2571,6 +2574,7 @@ class LiveEngine:
                 "strike": strike,
                 "expiry": expiry,
                 "entry_time": entry_time,
+                "entry_why": entry_why,
                 "entry_spot": entry_spot,
                 "entry_premium": entry_premium,
                 "current_premium": entry_premium,
@@ -2701,6 +2705,17 @@ class LiveEngine:
         closed_trade["status"] = "closed"
         closed_trade["exit_time"] = self.current_time
         closed_trade["exit_reason"] = reason
+        try:
+            latest = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
+        except Exception:
+            latest = None
+        closed_trade["exit_why"] = decision_why(
+            latest,
+            self.exit_conditions if str(reason) in ("EXIT_SIGNAL", "TOUCH_EXIT") else [],
+            None,
+            self._prev_row,
+            reason,
+        )
         closed_trade["quantity"] = quantity
         closed_trade["lots"] = quantity / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
         closed_trade["exit_premium"] = exit_premium
