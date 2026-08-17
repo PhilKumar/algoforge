@@ -13903,6 +13903,42 @@ function renderLiveTabs() {
   bar.innerHTML = html;
 }
 
+// The Live panel is rebuilt whole on every poll (2-3s), which throws away the
+// scroll position of anything inside it -- Phil, 2026-08-17, trying to read the
+// CPR rows of a 71-field table: "These scroll reset in 2/3 sec.. make it stay".
+//
+// Nodes do not survive an innerHTML write, so a scrolled element is remembered
+// by its POSITION IN THE TREE: the same template rebuilds the same shape, so
+// the child-index path leads back to the same box.
+function _pfCaptureScroll(root) {
+  const saved = [];
+  root.querySelectorAll('*').forEach(el => {
+    if (el.scrollTop > 0 || el.scrollLeft > 0) saved.push([_pfScrollPath(el, root), el.scrollTop, el.scrollLeft]);
+  });
+  return saved;
+}
+
+function _pfScrollPath(el, root) {
+  const path = [];
+  for (let node = el; node && node !== root; node = node.parentElement) {
+    path.push([...node.parentElement.children].indexOf(node));
+  }
+  return path.reverse().join('.');
+}
+
+function _pfRestoreScroll(root, saved) {
+  saved.forEach(([path, top, left]) => {
+    let node = root;
+    for (const step of String(path).split('.')) {
+      if (!node) return;
+      node = node.children[Number(step)];
+    }
+    if (!node) return;
+    node.scrollTop = top;
+    node.scrollLeft = left;
+  });
+}
+
 function renderLivePanel(d, idx) {
   const container = document.getElementById('live-panels-container');
   const running = d.running;
@@ -14063,6 +14099,8 @@ function renderLivePanel(d, idx) {
     </div>`;
   }
 
+  // Keep the reader where they were: this write destroys every node.
+  const _keptScroll = _pfCaptureScroll(container);
   container.innerHTML = `
   <!-- Header bar -->
   <div class="live-panel-header${conditionsHtml ? ' has-conditions' : ''}">
@@ -14158,6 +14196,9 @@ function renderLivePanel(d, idx) {
   <div class="live-closed-block">
     ${closedTradesBlockHtml}
   </div>`;
+  // ...and put them back, so a 3-second poll cannot yank the field list out
+  // from under someone reading row 60 of 71.
+  _pfRestoreScroll(container, _keptScroll);
 }
 
 function _goLiveClosedPage(runId, mode, page) {
