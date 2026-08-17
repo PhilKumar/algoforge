@@ -10986,7 +10986,7 @@ async def fib_boundary_paper_chart(
     # `find_swing_anchor` -- one swing, one trendline -- which since the merge
     # on 2026-08-15 is not what the ladder trades. A stacked ladder drawn as a
     # single fib is a chart that quietly lies about which prices hold money.
-    geometry = _FibLadderGeometry(HALVING_LEVELS)
+    geometry = _FibLadderGeometry(HALVING_LEVELS, side=side)
     for row in geometry_candles:
         geometry.on_bar(row, is_mother=(row.timestamp == mother))
     structures = geometry.structures()

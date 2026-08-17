@@ -286,5 +286,87 @@ class InstrumentScaledSwingGateTests(unittest.TestCase):
             self.assertGreaterEqual(fib.span, 8.0 * 0.99, "a fib narrower than one candle slipped through")
 
 
+class PEMirrorTests(unittest.TestCase):
+    """A PE is the fall-shaped geometry upside down, mirrored AT THE SEAM.
+
+    Until 2026-08-17 there was no mirror: a PE mother was handed CE geometry,
+    waited for a LOW to break on a rising day, and sat at "waiting for swing"
+    forever (Phil's 17-Aug 11:35 mother, index +100 points and no fib). Now the
+    seam negates every price on the way in and back out; the geometry never
+    learns PE exists. A negated DrawnFib has a negative span, so the one
+    arithmetic fib0 - n*span steps UP -- a put ladder -- for free.
+    """
+
+    _M = 2 * 24400.0  # reflect the Aug-14 fall around 24,400 into a rise
+
+    def _pe_bars(self):
+        return [(self._M - o, self._M - lo, self._M - h, self._M - c) for (o, h, lo, c) in _AUG14_5M]
+
+    def _run(self, side, rows):
+        g = LadderGeometry(LEVELS, side=side)
+        base = datetime(2026, 8, 14, 14, 0)
+        for i, (o, h, lo, c) in enumerate(rows):
+            g.on_bar(_Candle(base + timedelta(minutes=5 * i), o, h, lo, c), is_mother=(i == 0))
+        return g
+
+    def test_a_pe_mother_on_a_rise_draws_a_structure(self):
+        g = self._run("PE", self._pe_bars())
+        self.assertEqual(len(g.trendlines), 1, "the mirrored fall must draw its trendline")
+        self.assertEqual(len(g.fibs), 1, "and its fib on the break")
+
+    def test_pe_rungs_step_up_from_fib0(self):
+        g = self._run("PE", self._pe_bars())
+        fib = g.fibs[0]
+        self.assertLess(fib.fib0, fib.fib1, "for a put fib0 is the LOWER price")
+        prices = [g.level_price(fib, n) for n in LEVELS]
+        self.assertEqual(prices, sorted(prices), "levels climb: L2 below L3 below L4 ...")
+        self.assertGreater(prices[0], fib.fib1, "every rung sits ABOVE the structure")
+
+    def test_pe_prices_are_market_terms_everywhere(self):
+        """The whole point of the seam: nobody downstream sees a negative price."""
+        g = self._run("PE", self._pe_bars())
+        s = g.structures()
+        seen = [
+            s["fibs"][0]["fib0"],
+            s["fibs"][0]["fib1"],
+            s["trendlines"][0]["a1"]["p"],
+            s["trendlines"][0]["a2"]["p"],
+        ]
+        seen += [row.price for row in g.all_levels()]
+        seen += [g.mother_high, g.mother_low]
+        self.assertTrue(all(p > 20000 for p in seen), seen)
+        self.assertGreater(s["fibs"][0]["span"], 0, "span is reported as a size, not a signed number")
+
+    def test_the_seam_equals_hand_negation(self):
+        """Feed the geometry negated bars by hand and compare -- the seam adds
+        nothing of its own; any CE/PE asymmetry is the rule's (red/green swap)."""
+        from engine.fib_space_geometry import Bar as GB
+        from engine.fib_space_geometry import SpaceGeometry
+
+        rows = self._pe_bars()
+        base = datetime(2026, 8, 14, 14, 0)
+        bars = [
+            GB(index=i, timestamp=base + timedelta(minutes=5 * i), open=-o, high=-lo, low=-h, close=-c)
+            for i, (o, h, lo, c) in enumerate(rows)
+        ]
+        raw = SpaceGeometry(mother=bars[0])
+        for b in bars[1:]:
+            raw.on_bar(b)
+        seam = self._run("PE", rows)
+        self.assertEqual([(f.fib0, f.fib1) for f in seam.fibs], [(-f.fib0, -f.fib1) for f in raw.fibs])
+
+    def test_ce_is_untouched(self):
+        g = self._run("CE", _AUG14_5M)
+        fib = g.fibs[0]
+        self.assertAlmostEqual(fib.fib0, 24384.40, places=2)
+        self.assertGreater(fib.fib0, fib.fib1)
+        prices = [g.level_price(fib, n) for n in LEVELS]
+        self.assertEqual(prices, sorted(prices, reverse=True), "a call ladder still steps DOWN")
+
+    def test_side_is_validated(self):
+        with self.assertRaises(ValueError):
+            LadderGeometry(LEVELS, side="XX")
+
+
 if __name__ == "__main__":
     unittest.main()

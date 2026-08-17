@@ -29,7 +29,7 @@ Nothing here decides anything. It draws, and it lists what is drawable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
@@ -58,14 +58,40 @@ class LadderLevel:
 class LadderGeometry:
     """Draws the structures and lists their levels, in bar order."""
 
-    def __init__(self, levels: Sequence[int], *, seed_first_fib: bool = False) -> None:
+    def __init__(self, levels: Sequence[int], *, seed_first_fib: bool = False, side: str = "CE") -> None:
         if not levels:
             raise ValueError("levels must not be empty")
+        side = str(side).upper()
+        if side not in {"CE", "PE"}:
+            raise ValueError("side must be CE or PE")
         self.levels = tuple(int(level) for level in levels)
         self.seed_first_fib = bool(seed_first_fib)
+        # THE PE MIRROR. `SpaceGeometry` knows one shape: a FALL under a
+        # mother -- locked lows, a decisive close BELOW, fib1 at the low, rungs
+        # stepping DOWN. A PE is the same structure upside down: the mother
+        # marks a low, the setup is a rise that fails, the break is a close
+        # ABOVE a locked high, and the rungs step UP. Rather than teach the
+        # geometry a second shape (Phil, 2026-08-17: one geometry under
+        # everything, entries differ only), a PE feeds it the world negated --
+        # every price times -1, high and low swapped -- and every price read
+        # back out is negated again. The engine never learns PE exists.
+        #
+        # Until 2026-08-17 there was no mirror at all: a PE mother was handed
+        # CE geometry, waited for a LOW to break on a rising day, and sat at
+        # "waiting for swing" forever (Phil's 17-Aug 11:35 mother).
+        self.side = side
+        self._sign = -1.0 if side == "PE" else 1.0
         self._geometry: Optional[SpaceGeometry] = None
         self._bars: list[GeoBar] = []
         self._prev: Optional[GeoBar] = None
+
+    def _in(self, price: float) -> float:
+        """A market price as the fall-shaped geometry must see it."""
+        return float(price) * self._sign
+
+    def _out(self, price: float) -> float:
+        """A geometry price back in market terms."""
+        return float(price) * self._sign
 
     # -- feeding ---------------------------------------------------------
 
@@ -80,14 +106,18 @@ class LadderGeometry:
         stamp = bar.timestamp
         prev_close = None
         if self._prev is not None and self._prev.timestamp.date() != stamp.date():
-            prev_close = self._prev.close
+            prev_close = self._prev.close  # already in geometry terms
+        # Under negation the bar's high becomes its low and vice versa; open
+        # and close keep their roles, so red/green flip -- which is exactly the
+        # PE reading (a rising red day is a falling green day, mirrored).
+        hi, lo = self._in(bar.high), self._in(bar.low)
         return GeoBar(
             index=len(self._bars),
             timestamp=stamp,
-            open=float(bar.open),
-            high=float(bar.high),
-            low=float(bar.low),
-            close=float(bar.close),
+            open=self._in(bar.open),
+            high=max(hi, lo),
+            low=min(hi, lo),
+            close=self._in(bar.close),
             session_prev_close=prev_close,
         )
 
@@ -107,6 +137,24 @@ class LadderGeometry:
 
     @property
     def fibs(self) -> list[DrawnFib]:
+        """Every drawn fib in MARKET terms.
+
+        For a PE the geometry's fib0/fib1 are negated back. Because
+        `DrawnFib.level_price` is fib0 - n*span and span = fib0 - fib1, a
+        negated fib has a NEGATIVE span and its levels step UP -- which is
+        exactly a put ladder. So one arithmetic serves both sides, and every
+        consumer of these fibs (rungs, the convergence spaces, the chart)
+        is correct without knowing which side it is on.
+        """
+        if self._geometry is None:
+            return []
+        if self._sign > 0:
+            return list(self._geometry.fibs)
+        return [replace(fib, fib0=self._out(fib.fib0), fib1=self._out(fib.fib1)) for fib in self._geometry.fibs]
+
+    @property
+    def raw_fibs(self) -> list[DrawnFib]:
+        """The geometry's own fibs, un-mirrored. Diagnostics only."""
         return list(self._geometry.fibs) if self._geometry is not None else []
 
     @property
@@ -115,11 +163,26 @@ class LadderGeometry:
 
     @property
     def mother_high(self) -> Optional[float]:
-        return self._geometry.mother.high if self._geometry is not None else None
+        if self._geometry is None:
+            return None
+        m = self._geometry.mother
+        return max(self._out(m.high), self._out(m.low))
 
     @property
     def mother_low(self) -> Optional[float]:
-        return self._geometry.mother.low if self._geometry is not None else None
+        if self._geometry is None:
+            return None
+        m = self._geometry.mother
+        return min(self._out(m.high), self._out(m.low))
+
+    def level_price(self, fib: DrawnFib, level: int) -> float:
+        """A fib level in MARKET terms. `fib` must come from `self.fibs`
+        (already market terms), where a PE fib's negative span steps UP."""
+        return float(fib.level_price(level))
+
+    def market_fib(self, fib: DrawnFib) -> tuple[float, float]:
+        """(fib0, fib1) of a `self.fibs` entry. For a PE fib0 is the LOWER price."""
+        return float(fib.fib0), float(fib.fib1)
 
     def structures(self) -> dict[str, list[dict[str, Any]]]:
         """Everything a chart has to draw, in the renderer's own vocabulary.
@@ -138,18 +201,18 @@ class LadderGeometry:
         out: dict[str, list[dict[str, Any]]] = {"fibs": [], "trendlines": []}
         if self._geometry is None:
             return out
-        for fib in self._geometry.fibs:
+        for fib in self.fibs:
             out["fibs"].append(
                 {
                     "fib_id": fib.fib_id,
                     "trendline_id": fib.trendline_id,
                     "fib0": round(float(fib.fib0), 2),
                     "fib1": round(float(fib.fib1), 2),
-                    "span": round(float(fib.span), 2),
+                    "span": round(abs(float(fib.span)), 2),
                     "touch_timestamp": fib.touch_timestamp.isoformat(),
                     "drawn_timestamp": fib.drawn_timestamp.isoformat(),
                     "levels": [
-                        {"level": int(level), "price": round(float(fib.level_price(level)), 2)} for level in self.levels
+                        {"level": int(level), "price": round(self.level_price(fib, level), 2)} for level in self.levels
                     ],
                 }
             )
@@ -161,10 +224,10 @@ class LadderGeometry:
             out["trendlines"].append(
                 {
                     "id": line.trendline_id,
-                    "a1": {"t": first.timestamp.isoformat(), "p": round(float(line.anchor1_price), 2)},
+                    "a1": {"t": first.timestamp.isoformat(), "p": round(self._out(line.anchor1_price), 2)},
                     "a2": {
                         "t": line.anchor2_timestamp.isoformat(),
-                        "p": round(float(line.anchor2_price), 2),
+                        "p": round(self._out(line.anchor2_price), 2),
                     },
                     "active": line.trendline_id == active,
                 }
@@ -188,9 +251,11 @@ class LadderGeometry:
                     LadderLevel(
                         fib_id=fib.fib_id,
                         level=int(level),
-                        price=float(fib.level_price(level)),
+                        price=self.level_price(fib, level),
                         drawn_at=fib.drawn_timestamp,
                     )
                 )
-        out.sort(key=lambda row: -row.price)
+        # Deepest LAST in the direction the ladder runs: down the chart for a
+        # CE, UP the chart for a PE -- the order money is committed in either way.
+        out.sort(key=lambda row: -row.price * self._sign)
         return out

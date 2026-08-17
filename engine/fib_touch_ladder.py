@@ -879,7 +879,7 @@ class FibTouchLadder:
         # Phil's adjudicated rule, fibs stacking as they are drawn. `anchor`
         # above is now a VIEW of the newest fib, kept so the status payload,
         # the chart and everything already persisted read unchanged.
-        self.geometry = LadderGeometry(config.levels, seed_first_fib=config.seed_first_fib)
+        self.geometry = LadderGeometry(config.levels, seed_first_fib=config.seed_first_fib, side=self.side)
         self.rungs: list[TouchRung] = []
         # The deepest the fall has been. Convergence mode needs it: a space the
         # market has never entered is not a boundary yet, and "the deepest two"
@@ -1941,9 +1941,12 @@ class FibTouchLadder:
         for fib in drawn:
             # `anchor` is a VIEW of the newest fib, so the status payload, the
             # chart and every persisted ladder keep reading one pair of prices.
+            # Market terms, via the seam: a PE's fib0/fib1 come back mirrored,
+            # so the anchor's "high" is genuinely the higher market price.
+            fib0_mkt, fib1_mkt = self.geometry.market_fib(fib)
             self.anchor = SwingAnchor(
-                high=float(fib.fib0),
-                low=float(fib.fib1),
+                high=max(fib0_mkt, fib1_mkt),
+                low=min(fib0_mkt, fib1_mkt),
                 high_timestamp=fib.touch_timestamp,
                 low_timestamp=fib.drawn_timestamp,
                 confirmed_at=fib.drawn_timestamp,
@@ -1955,8 +1958,8 @@ class FibTouchLadder:
                 timeframe=self.config.timeframe,
                 fib=fib.fib_id,
                 trendline=fib.trendline_id,
-                high=round(float(fib.fib0), 2),
-                low=round(float(fib.fib1), 2),
+                high=round(max(fib0_mkt, fib1_mkt), 2),
+                low=round(min(fib0_mkt, fib1_mkt), 2),
                 span=round(float(fib.span), 2),
                 levels=[rung.as_dict() for rung in self.rungs if rung.fib_id == fib.fib_id],
             )
