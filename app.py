@@ -18167,9 +18167,13 @@ async def _shutdown_cleanup():
         try:
             status = engine.get_status()
             if engine.running:
-                engine.stop()
+                # SUSPEND, never close. The process is going away; the trade is
+                # not over. `_restore_paper_engines` brings this run back with
+                # its position still on -- the live engine has always worked
+                # this way and paper was the odd one out (Phil, 2026-08-17).
+                engine.stop(close_positions=False)
             await _save_paper_run_to_history(status, explicit_user_id=getattr(engine, "_user_id", None))
-            print(f"🛑 [Shutdown] Saved paper engine: {owner_id}:{run_id}")
+            print(f"🛑 [Shutdown] Suspended paper engine: {owner_id}:{run_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save paper engine {owner_id}:{run_id}: {e}")
     # Save all running live engines (state file for auto-restore + runs.json for history)

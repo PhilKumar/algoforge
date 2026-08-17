@@ -1035,9 +1035,31 @@ class PaperTradingEngine:
                     self.log_event("error", f"Tick error: {str(e)}")
                 await asyncio.sleep(poll_interval)
 
-    def stop(self):
-        """Stop the paper trading engine"""
+    def stop(self, *, close_positions: bool = True):
+        """Stop the paper trading engine.
+
+        `close_positions=False` SUSPENDS instead: the run goes quiet with its
+        position intact so a restart can pick it up where it left off.
+
+        Phil, 2026-08-17. A deploy restarted the app at 09:58 and this method
+        force-closed his open PE at the last quote it happened to hold, booked
+        it as ENGINE_STOP, and spent the day's single allowed entry -- a trade
+        ended by a deploy, not by his strategy. The live engine has always got
+        this right: it leaves the position alone and `_restore_live_engines`
+        picks it back up. Paper has the same state file and the same restore
+        (`_restore_paper_engines`); all it lacked was a way to be told the
+        process is going away rather than that the user pressed Stop.
+        """
         self.running = False
+
+        if not close_positions:
+            if self.positions:
+                self.log_event(
+                    "stop",
+                    f"⏸ Suspended with {len(self.positions)} open position(s) — resuming after restart",
+                )
+            self._save_state()
+            return
 
         # Close all open positions
         if self.positions:

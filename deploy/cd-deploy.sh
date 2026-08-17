@@ -90,6 +90,43 @@ sudo systemctl enable --now "${APP}-backup.timer"
 log "Clearing __pycache__ to prevent stale bytecode..."
 find "$APP_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
+# ── 1b. NOT DURING THE SESSION, NOT WHILE AN ENGINE IS RUNNING ──
+# Phil, 2026-08-17: a deploy at 09:58 IST ended a paper trade that was going
+# fine. The engines survive a restart now, but a blue-green cutover still puts a
+# gap in the middle of a live session, and a trade being managed is not
+# something to interrupt for a chart label. So: refuse, unless told otherwise.
+#
+#   FORCE_DEPLOY=1  deploy anyway (say why in the commit or to Phil first)
+#
+# "Running" is read from the engines' own state files rather than from an HTTP
+# call, because it must be answerable even when the app is wedged.
+IST_NOW="$(TZ=Asia/Kolkata date '+%H%M')"
+IST_DOW="$(TZ=Asia/Kolkata date '+%u')"          # 1=Mon .. 7=Sun
+STATE_ROOT="${PHILFORGE_USER_DATA_ROOT:-$APP_DIR/user_data}"
+
+engines_running() {
+    # A state file that says running AND carries today's session date.
+    local today
+    today="$(TZ=Asia/Kolkata date '+%Y-%m-%d')"
+    find "$STATE_ROOT" -maxdepth 3 -name 'live_state_*.json' -o -maxdepth 3 -name 'paper_state_*.json' 2>/dev/null \
+      | while read -r f; do
+            grep -q '"running": *true' "$f" 2>/dev/null || continue
+            grep -q "\"session_date\": *\"$today\"" "$f" 2>/dev/null || continue
+            echo "$f"
+        done
+}
+
+if [[ "${FORCE_DEPLOY:-0}" != "1" && "$IST_DOW" -le 5 && "$IST_NOW" > "0915" && "$IST_NOW" < "1530" ]]; then
+    BUSY="$(engines_running | head -3)"
+    if [[ -n "$BUSY" ]]; then
+        log "✋ REFUSING TO DEPLOY — NSE session is open (IST $IST_NOW) and these engines are running:"
+        printf '%s\n' "$BUSY" | while read -r f; do log "     $(basename "$f")"; done
+        log "     A deploy restarts them mid-session. Wait for 15:30 IST, or re-run with FORCE_DEPLOY=1."
+        exit 78
+    fi
+    log "NSE session is open (IST $IST_NOW) but no engine is running — deploying."
+fi
+
 # ── 2. Stop standby if somehow still running ──────────────────
 sudo systemctl stop "${APP}@${STANDBY_PORT}" 2>/dev/null || true
 
