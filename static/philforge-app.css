@@ -2210,13 +2210,40 @@
     gap: 10px;
     margin-bottom: 7px;
   }
+  /* One row of chips -- mode, state, instrument, folder -- then one row of
+     actions. Two rows of two chips over a lone centred button read as four
+     stray banners (Phil, 2026-08-17: "2 rows, 4 banners awkward"). Wraps
+     only when the card is genuinely too narrow. */
   .arsenal-running-status-row {
     display: flex;
     align-items: center;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 6px;
     min-height: 24px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .arsenal-running-folder {
+    background: rgba(245,158,11,0.12);
+    border-color: rgba(245,158,11,0.24);
+    color: var(--warn);
+    cursor: pointer;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .55px;
+    text-transform: uppercase;
+  }
+  .arsenal-running-folder.is-unlinked {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border);
+    color: var(--muted);
+    cursor: default;
+  }
+  .arsenal-running-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
   }
   .arsenal-running-status-pill {
     display: inline-flex;

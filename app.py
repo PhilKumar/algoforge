@@ -13944,6 +13944,11 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     strategy_dict = {
         "strategy_id": int(payload.strategy_id or 0),
         "run_name": payload.run_name,
+        # The folder the run was deployed from. The Running Now cards open the
+        # saved strategy's folder from here; without it a run started with no
+        # saved-strategy id (Phil's My_First_Run_PE, 2026-08-17) resolved to
+        # nothing and the card printed a made-up "Intraday".
+        "folder": str(payload.folder or "").strip(),
         "instrument": payload.instrument,
         "indicators": normalized_indicators,
         "max_trades_per_day": int(payload.max_trades_per_day or 1),

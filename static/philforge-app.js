@@ -10934,13 +10934,17 @@ function renderRunningArsenal(engines) {
       <div class="arsenal-running-status-row">
         <span class="arsenal-running-status-pill" style="background:${modeBg};color:${modeColor};border-color:${modeBorder};">${escapeHtml(mode)}</span>
         <span class="arsenal-running-status-pill" style="background:rgba(34,197,94,0.12);color:${statusColor};border-color:rgba(34,197,94,0.22);">${escapeHtml(statusLabel)}</span>
+        <span class="arsenal-tag instrument arsenal-running-status-pill" style="font-size:10px;">${escapeHtml(instLabel)}</span>
+        ${folderName
+          ? `<button type="button" class="arsenal-running-status-pill arsenal-running-folder" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName)}',${strategyId || 0})" title="${escapeAttr(`Open folder: ${folderName}`)}">${ICO.folder(10)} ${escapeHtml(folderName)}</button>`
+          // No made-up folder. This run was started without a saved-strategy
+          // link (strategy_id 0, no folder), so there is nothing to open --
+          // printing "Intraday" here and toasting "Folder not found" on the
+          // click was the lie Phil caught on 2026-08-17.
+          : `<span class="arsenal-running-status-pill arsenal-running-folder is-unlinked" title="Started without a saved-strategy link — save the strategy and deploy from it to wire this">${ICO.folder(10)} No folder</span>`}
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-        <span class="arsenal-tag instrument" style="font-size:10px;padding:3px 8px;">${escapeHtml(instLabel)}</span>
-        <button type="button" onclick="event.stopPropagation();openSavedStrategyFolder('${escapeJsSingleQuoted(strategyName)}','${escapeJsSingleQuoted(folderName || '')}',${strategyId || 0})" title="${escapeAttr(`Open folder: ${folderName || 'Intraday'}`)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.24);color:var(--warn);font-weight:700;cursor:pointer;">${ICO.folder(10)} ${escapeHtml(folderName || 'Intraday')}</button>
+      <div class="arsenal-running-actions">
         ${savedStrategy ? `<button class="btn btn-sm arsenal-running-edit-btn" onclick="event.stopPropagation();showPage('builder-page', document.getElementById('nav-builder'));ensureStrategiesLoaded().then(() => loadStrategy(${savedStrategy.id}))" style="font-size:11px;padding:4px 12px;">Edit</button>` : ''}
-      </div>
-      <div style="display:flex;justify-content:center;align-items:center;">
         <button class="btn btn-sm" onclick="event.stopPropagation();openLiveRunMonitor('${escapeJsSingleQuoted(runId)}','${escapeJsSingleQuoted(engine.mode || '')}')" style="font-size:11px;padding:5px 18px;min-width:108px;text-align:center;">Open Live</button>
       </div>
     </div>`;
