@@ -53,7 +53,14 @@ function _pfBenchChartHostHtml() {
     + '<canvas id="pf-bench-canvas-overlay"></canvas>'
     + '<div class="pf-bench-zoom" data-bench-zoom>'
     + '<button type="button" data-bench-zoom-out aria-label="Zoom out">&minus;</button>'
-    + '<span data-bench-zoom-level title="Double-click the chart to reset">100%</span>'
+    // The readout IS the reset. Reset used to be a double-click on the plot,
+    // announced in a title tooltip -- a phone has neither hover nor a reliable
+    // double-click, so on mobile the function existed and could not be found
+    // (Phil, 2026-08-17: "Chart zoom functions must be clear for charts in
+    // mobile"). A button carrying the percentage is the obvious target, and it
+    // still shows what it always showed.
+    + '<button type="button" class="pf-bench-zoom-reset" data-bench-zoom-level data-bench-zoom-reset'
+    + ' aria-label="Reset zoom to fit" title="Reset zoom to fit">100%</button>'
     + '<button type="button" data-bench-zoom-in aria-label="Zoom in">+</button>'
     + '</div>'
     + '</div>';
@@ -187,6 +194,7 @@ function _pfChartCanvasMount(d, scope) {
     zoomBox.addEventListener('click', function (event) {
       if (event.target.closest('[data-bench-zoom-in]')) _pfChartCanvasZoom(0.8);
       else if (event.target.closest('[data-bench-zoom-out]')) _pfChartCanvasZoom(1.25);
+      else if (event.target.closest('[data-bench-zoom-reset]')) _pfChartCanvasZoom(0, true);
       else return;
       paintLevel();
     });

@@ -6916,6 +6916,37 @@ body.terminal-cascade-chart-open { overflow: hidden; }
     font: 600 10.5px 'JetBrains Mono', monospace;
     color: var(--muted); font-variant-numeric: tabular-nums;
   }
+  /* The readout doubles as Reset (see the host markup): give it a button's own
+     affordances rather than leaving it looking like dead text. */
+  .pf-bench-zoom-reset {
+    border: 0; background: transparent; cursor: pointer;
+    padding: 2px 4px; border-radius: 7px;
+  }
+  .pf-bench-zoom-reset:hover { background: rgba(148,163,184,0.15); color: var(--text); }
+
+  /* TOUCH. A 24x20 target under a thumb is a miss, and this cluster sits
+     exactly where a thumb also pans — so on coarse pointers every control
+     grows to the 44px both platforms ask for (Phil, 2026-08-17: "Chart zoom
+     functions must be clear for charts in mobile"). Desktop is untouched. */
+  @media (pointer: coarse), (max-width: 620px) {
+    .pf-bench-zoom {
+      top: 10px; right: 10px;
+      gap: 4px; padding: 4px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card, #0b1220) 92%, transparent);
+    }
+    .pf-bench-zoom button {
+      min-width: 44px; min-height: 44px;
+      padding: 0 10px;
+      font-size: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .pf-bench-zoom [data-bench-zoom-level] {
+      min-width: 58px;
+      font-size: 12.5px;
+      color: var(--text);
+    }
+  }
 
 /* ═════════════════════════════════════════════════════════════════════
    DEPTH PASS — CryptoForge's material grade, in PhilForge's own palette.
