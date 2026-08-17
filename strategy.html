@@ -2461,11 +2461,12 @@
         <p class="pf-info-lede">You give one candle. The engine draws the lines, waits for the fall, buys the levels on the way down and leaves the sell order on the broker. <strong>Fib Boundary and Fib Space are one strategy now</strong> (15 Aug 2026) — same lines, same levels, and a switch for what it buys. Paper and Live is a plain toggle.</p>
         <section>
           <h5>1 &middot; You give the mother. It never moves.</h5>
-          <p>The mother only says <strong>where to start looking</strong>. Nothing is measured from its own range except the target. Pick the chart you read it on — 1m, 5m, 15m or 1H — and the lines are drawn on <em>that</em> chart. If price closes past the mother <strong>before anything is bought</strong>, the campaign closes with no buys and waits for the next mother you give it. The mother is never moved for you.</p>
+          <p>The mother only says <strong>where to start looking</strong>. Nothing is measured from its own range except the target. Pick the chart you read it on — 1m, 5m, 15m or 1H — and the lines are drawn on <em>that</em> chart. If price closes past the mother <strong>before anything is bought</strong> — whether a swing has formed yet or not — the campaign closes with no buys and waits for the next mother you give it. The mother is never moved for you.</p>
         </section>
         <section>
           <h5>2 &middot; How the lines get drawn</h5>
           <p>Same rule as the crypto Cascade. Price falls and makes a low. Buyers lift it off that low to a high. A <strong>trendline</strong> is carried down from above. When price <strong>cuts back below that low</strong>, the leg is finished and a <strong>fib</strong> is drawn on it: <strong>0</strong> is the high the buyers reached, <strong>1</strong> is the low they lifted off. Nothing is drawn while the market is rising.</p>
+          <p>A swing has to be at least <strong>one typical candle</strong> of your mother chart tall to count — smaller is chop. That is measured in <em>candles</em>, not in a fraction of price: the crypto-sized floor (0.1% of price, 24 points on NIFTY) was wider than the whole 19-point swing on the 14&nbsp;Aug&nbsp;2026 5m chart, and it silently ate the fib after the trendline and the break had both done their part.</p>
         </section>
         <section>
           <h5>3 &middot; Fibs STACK</h5>
@@ -2501,20 +2502,25 @@
           <p>Deliberate. There is no automatic cut — <strong>you cut by hand</strong> if the target is not reached. Half auto, half manual, as asked for.</p>
         </section>
         <section>
-          <h5>11 &middot; Rounds &mdash; one target, then wait for a lower low</h5>
+          <h5>11 &middot; Session &mdash; out by 3:15, or carry</h5>
+          <p><strong>Intraday</strong>: whatever is held is sold at <strong>15:15 IST</strong> on the campaign's own day, at what it is worth, and the mother is finished — tomorrow gets a fresh one. <strong>Normal · carry</strong>: the campaign runs to its target, a broken mother or expiry. On the 22-month replay carrying to expiry was where the large losses lived (11–22 whole-premium wipes per configuration); intraday caps the damage per trade to a few thousand rupees but has not turned green either.</p>
+        </section>
+        <section>
+          <h5>12 &middot; Rounds &mdash; one target, then wait for a lower low</h5>
           <p>Banking the target <strong>stops</strong> the campaign; the mother is parked, not killed. If price later makes a <strong>new deepest low of the whole campaign</strong>, the same mother arms again and trades another round. Not the low standing when it sold — the deepest one it has ever seen.</p>
         </section>
-        <p class="pf-info-warn">Two things worth remembering. <strong>Every Fib Boundary number from before 15 Aug 2026 is void</strong> — the geometry that produced them is gone. And on the 22-month replay, every exit variant of the old touch ladder lost money; this tab exists to paper-prove the merged one forward. Live orders are still blocked in the code until broker fills, partial fills and restart recovery are verified — the Paper/Live toggle does not answer that.</p>
+        <p class="pf-info-warn">Three things worth remembering. <strong>Every Fib Boundary number from before 17 Aug 2026 is void</strong> — the earlier ones came from a geometry that is gone, and the replay tool that measured them fed the fibs ahead of the entry bars and dropped the campaigns that expired. Measured honestly under this rule, NIFTY CE, Oct 2024 to Jul 2026: every combination of mother chart, buy switch and session lost money; <em>where two meet · intraday</em> lost least (a few thousand rupees a trade), <em>carry</em> lost most. This tab exists to paper-prove the strategy forward, not to assume it. Live orders are still blocked in the code until broker fills, partial fills and restart recovery are verified — the Paper/Live toggle does not answer that.</p>
         </div><!-- /en -->
         <div class="pf-doc-lang" data-pf-lang="ta">
         <p class="pf-info-lede">நீங்கள் ஒரே ஒரு candle கொடுக்கிறீர்கள். Engine கோடுகளை வரையும், வீழ்ச்சிக்குக் காத்திருக்கும், இறங்கும் வழியில் levels-ஐ வாங்கும், விற்பனை ஆர்டரை broker-இல் வைத்துவிடும். <strong>Fib Boundary-யும் Fib Space-உம் இப்போது ஒரே strategy</strong> (15 ஆக 2026) &mdash; ஒரே கோடுகள், ஒரே levels, என்ன வாங்குவது என்பதற்கு மட்டும் ஒரு switch. Paper / Live ஒரு எளிய toggle.</p>
         <section>
           <h5>1 &middot; Mother நீங்கள் கொடுப்பது. அது நகராது.</h5>
-          <p>Mother சொல்வது <strong>எங்கிருந்து பார்க்க வேண்டும்</strong> என்பது மட்டுமே. இலக்கைத் தவிர வேறு எதுவும் அதன் சொந்த அளவிலிருந்து அளக்கப்படுவதில்லை. நீங்கள் படிக்கும் chart-ஐத் தேர்வு செய்யுங்கள் &mdash; 1m, 5m, 15m அல்லது 1H &mdash; கோடுகள் <em>அதே</em> chart-இல் வரையப்படும். <strong>எதுவும் வாங்கும் முன்</strong> விலை mother-ஐத் தாண்டி close ஆனால், campaign எந்த வாங்கலும் இல்லாமல் மூடப்படும்; நீங்கள் கொடுக்கும் அடுத்த mother-க்குக் காத்திருக்கும். Mother உங்களுக்காக நகர்த்தப்படாது.</p>
+          <p>Mother சொல்வது <strong>எங்கிருந்து பார்க்க வேண்டும்</strong> என்பது மட்டுமே. இலக்கைத் தவிர வேறு எதுவும் அதன் சொந்த அளவிலிருந்து அளக்கப்படுவதில்லை. நீங்கள் படிக்கும் chart-ஐத் தேர்வு செய்யுங்கள் &mdash; 1m, 5m, 15m அல்லது 1H &mdash; கோடுகள் <em>அதே</em> chart-இல் வரையப்படும். <strong>எதுவும் வாங்கும் முன்</strong> விலை mother-ஐத் தாண்டி close ஆனால் &mdash; swing உருவாகியிருந்தாலும் இல்லாவிட்டாலும் &mdash; campaign எந்த வாங்கலும் இல்லாமல் மூடப்படும்; நீங்கள் கொடுக்கும் அடுத்த mother-க்குக் காத்திருக்கும். Mother உங்களுக்காக நகர்த்தப்படாது.</p>
         </section>
         <section>
           <h5>2 &middot; கோடுகள் எப்படி வரையப்படுகின்றன</h5>
           <p>Crypto Cascade-இன் அதே விதி. விலை விழுந்து ஒரு low செய்கிறது. வாங்குபவர்கள் அதை ஒரு high வரை தூக்குகிறார்கள். மேலிருந்து ஒரு <strong>trendline</strong> இறங்கி வருகிறது. விலை <strong>அந்த low-க்குக் கீழே திரும்ப வெட்டும்</strong>போது அந்த leg முடிகிறது; அதன் மேல் ஒரு <strong>fib</strong> வரையப்படுகிறது: <strong>0</strong> = வாங்குபவர்கள் எட்டிய high, <strong>1</strong> = அவர்கள் தூக்கிய low. சந்தை ஏறிக்கொண்டிருக்கும்போது எதுவும் வரையப்படாது.</p>
+          <p>ஒரு swing கணக்கில் வர, உங்கள் mother chart-இன் <strong>ஒரு சாதாரண candle</strong> அளவாவது உயரமாக இருக்க வேண்டும் &mdash; சிறியது வெறும் அசைவு. இது <em>candles</em>-இல் அளக்கப்படுகிறது, விலையின் சதவீதத்தில் அல்ல: crypto அளவிலான தளம் (விலையின் 0.1%, NIFTY-இல் 24 புள்ளிகள்) 14&nbsp;ஆக&nbsp;2026 5m chart-இன் 19-புள்ளி swing முழுவதையும்விடப் பெரியதாக இருந்தது; trendline-உம் break-உம் தங்கள் வேலையைச் செய்த பிறகும் அது fib-ஐ அமைதியாக விழுங்கியது.</p>
         </section>
         <section>
           <h5>3 &middot; Fibs அடுக்கப்படும் (STACK)</h5>
@@ -2550,10 +2556,14 @@
           <p>வேண்டுமென்றே. தானியங்கி வெட்டு இல்லை &mdash; இலக்கு எட்டவில்லை என்றால் <strong>நீங்களே கையால் வெட்டுவீர்கள்</strong>. நீங்கள் கேட்டபடி பாதி auto, பாதி manual.</p>
         </section>
         <section>
-          <h5>11 &middot; சுற்றுகள் &mdash; ஒரு இலக்கு, பிறகு இன்னும் தாழ்ந்த low-க்குக் காத்திருப்பு</h5>
+          <h5>11 &middot; Session &mdash; 3:15-க்குள் வெளியே, அல்லது தொடர்</h5>
+          <p><strong>Intraday</strong>: வைத்திருப்பது campaign-இன் அன்றே <strong>15:15 IST</strong>-க்கு அதன் மதிப்பில் விற்கப்படும்; mother முடிந்தது &mdash; நாளைக்குப் புதியது. <strong>Normal · carry</strong>: campaign தன் இலக்கு, உடைந்த mother அல்லது expiry வரை ஓடும். 22-மாத replay-இல் expiry வரை carry செய்ததுதான் பெரிய நஷ்டங்கள் இருந்த இடம் (ஒவ்வொரு அமைப்பிலும் 11&ndash;22 முழு-premium அழிவுகள்); intraday ஒரு trade-க்கு சில ஆயிரம் ரூபாய்க்குள் சேதத்தை நிறுத்துகிறது, ஆனால் லாபமாக மாறவும் இல்லை.</p>
+        </section>
+        <section>
+          <h5>12 &middot; சுற்றுகள் &mdash; ஒரு இலக்கு, பிறகு இன்னும் தாழ்ந்த low-க்குக் காத்திருப்பு</h5>
           <p>இலக்கை அடைந்து பணமாக்கியதும் campaign <strong>நிற்கும்</strong>; mother அணைக்கப்படவில்லை, ஓய்வில் நிறுத்தப்படுகிறது. பிறகு விலை <strong>முழு campaign-இன் மிக ஆழமான புதிய low</strong>-ஐச் செய்தால், அதே mother மீண்டும் தயாராகி இன்னொரு சுற்று வர்த்தகம் செய்யும். விற்ற நேரத்தில் இருந்த low அல்ல &mdash; அது பார்த்த மிக ஆழமான low.</p>
         </section>
-        <p class="pf-info-warn">இரண்டு விஷயங்கள் நினைவில் இருக்கட்டும். <strong>15 ஆக 2026-க்கு முந்தைய எல்லா Fib Boundary எண்களும் செல்லாது</strong> &mdash; அவற்றை உருவாக்கிய geometry இப்போது இல்லை. மேலும் 22-மாத replay-இல் பழைய touch ladder-இன் எல்லா exit வகைகளும் நஷ்டம்; இணைக்கப்பட்ட இதை முன்னோக்கி paper-நிரூபிக்கவே இந்த tab. Broker fills, partial fills, restart மீட்பு சரிபார்க்கப்படும் வரை நிஜ ஆர்டர்கள் code-இல் தடுக்கப்பட்டுள்ளன &mdash; Paper/Live toggle அதற்குப் பதில் அல்ல.</p>
+        <p class="pf-info-warn">மூன்று விஷயங்கள் நினைவில் இருக்கட்டும். <strong>17 ஆக 2026-க்கு முந்தைய எல்லா Fib Boundary எண்களும் செல்லாது</strong> &mdash; முந்தையவை இப்போது இல்லாத geometry-யிலிருந்து வந்தவை; அவற்றை அளந்த replay கருவி fibs-ஐ entry bars-க்கு முன்னே ஊட்டியது, expiry ஆன campaigns-ஐ விட்டுவிட்டது. இந்த விதியின் கீழ் நேர்மையாக அளந்தால், NIFTY CE, அக் 2024 &ndash; ஜூலை 2026: mother chart, வாங்கும் switch, session &mdash; எல்லாச் சேர்க்கைகளும் நஷ்டம்; <em>இரண்டு சந்திக்கும் இடம் · intraday</em> குறைந்த நஷ்டம் (ஒரு trade-க்கு சில ஆயிரம் ரூபாய்), <em>carry</em> அதிக நஷ்டம். இந்த strategy-ஐ முன்னோக்கி paper-நிரூபிக்கவே இந்த tab, ஊகிக்க அல்ல. Broker fills, partial fills, restart மீட்பு சரிபார்க்கப்படும் வரை நிஜ ஆர்டர்கள் code-இல் தடுக்கப்பட்டுள்ளன &mdash; Paper/Live toggle அதற்குப் பதில் அல்ல.</p>
         </div><!-- /ta -->
       </div>
     </div>
