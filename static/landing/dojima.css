@@ -219,14 +219,15 @@ nav.stuck{background:rgba(6,7,10,.86);backdrop-filter:blur(14px) saturate(1.2);
   width:clamp(28px,9vw,110px);z-index:3;pointer-events:none}
 .tape::before{left:0;background:linear-gradient(90deg,var(--obsidian),transparent)}
 .tape::after{right:0;background:linear-gradient(270deg,var(--obsidian),transparent)}
-.tape-run{display:flex;width:max-content;animation:run 46s linear infinite;
-  will-change:transform}
-/* Pause on hover only where a pointer can actually leave. On a touch screen
-   :hover STICKS after a tap, which stopped the tape dead and never resumed. */
-@media (hover:hover) and (pointer:fine){
-  .tape:hover .tape-run{animation-play-state:paused}
-}
-@keyframes run{to{transform:translateX(-50%)}}
+/* The tape SCROLLS its container; it does not transform a long track.
+   Transforming made the 4818px run one composited layer -- 14,454 device px
+   at dpr 3, past the ~8192px max texture -- so a phone dropped its tiles on
+   the way past and painted a BLANK strip on the way back. A scroll container
+   paints tiled and on demand, so there is no giant texture to lose. The
+   motion is driven in dojima.js; without JS the tape is simply still. */
+.tape{scrollbar-width:none;-ms-overflow-style:none}
+.tape::-webkit-scrollbar{display:none}
+.tape-run{display:flex;width:max-content}
 .tape-i{display:flex;align-items:baseline;gap:11px;padding:9px 30px;white-space:nowrap;
   border-right:1px solid var(--hairline)}
 .tape-i .v{font-family:var(--mono);font-size:14px;color:var(--ink-hi);font-variant-numeric:tabular-nums}

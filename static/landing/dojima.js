@@ -27,6 +27,45 @@ const run=document.getElementById('tapeRun');
 run.innerHTML=[...TAPE,...TAPE].map(([v,l,c])=>
   '<div class="tape-i"><span class="v '+c+'">'+v+'</span><span class="l">'+l+'</span></div>').join('');
 
+/* The run is two identical copies, so scrolling past the first copy and
+   subtracting its width is seamless. 52.4 px/s is the old 46s CSS loop.
+   Driven here rather than in CSS because a transformed 4818px track became
+   one oversized layer and went blank on a phone after scrolling away. */
+(function tapeTicker(){
+  const tape=document.querySelector('.tape');
+  if(!tape||!run.children.length) return;
+  const SPEED=52.4;
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let pos=0,last=0,vis=true,hover=false,raf=0;
+  const lap=()=>run.scrollWidth/2;               /* one copy */
+  const step=(t)=>{
+    if(last){
+      if(!hover){
+        pos+=SPEED*(t-last)/1000;
+        const l=lap();
+        if(l>0&&pos>=l) pos-=l;                  /* seamless wrap */
+        tape.scrollLeft=pos;
+      }
+    }
+    last=t; raf=vis?requestAnimationFrame(step):0;
+  };
+  const start=()=>{ if(!raf){ last=0; raf=requestAnimationFrame(step); } };
+  const stop=()=>{ if(raf){ cancelAnimationFrame(raf); raf=0; } };
+  /* Nothing burns a phone battery scrolling a strip nobody is looking at. */
+  if('IntersectionObserver' in window){
+    new IntersectionObserver((es)=>{ vis=es[0].isIntersecting; vis?start():stop(); },
+      {threshold:0}).observe(tape);
+  } else { start(); }
+  document.addEventListener('visibilitychange',()=>{ document.hidden?stop():(vis&&start()); });
+  /* Pause under a real pointer only. On a touch screen :hover STICKS after a
+     tap, which used to stop the tape for good. */
+  if(matchMedia('(hover:hover) and (pointer:fine)').matches){
+    tape.addEventListener('mouseenter',()=>{hover=true});
+    tape.addEventListener('mouseleave',()=>{hover=false});
+  }
+  start();
+})();
+
 /* ── nav ────────────────────────────────────────────────────── */
 const nav=document.getElementById('nav');
 addEventListener('scroll',()=>nav.classList.toggle('stuck',scrollY>40),{passive:true});
