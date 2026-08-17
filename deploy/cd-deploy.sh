@@ -106,14 +106,25 @@ STATE_ROOT="${PHILFORGE_USER_DATA_ROOT:-$APP_DIR/user_data}"
 
 engines_running() {
     # A state file that says running AND carries today's session date.
+    #
+    # THIS RUNS UNDER `set -euo pipefail`. On its first live run (2026-08-17
+    # 14:55 IST) $STATE_ROOT did not exist on the box, `find` exited 1, the
+    # pipeline failed, the `BUSY="$(...)"` capture failed, and the deploy died
+    # with NO message -- before either "REFUSING" or "no engine is running"
+    # could print -- while the checkout had already moved to the new commit
+    # (front end new, engine old). A missing state root, an unreadable dir or
+    # a last file that simply does not match must all read as "nothing
+    # running", which is the truthful answer, not as a crash.
     local today
     today="$(TZ=Asia/Kolkata date '+%Y-%m-%d')"
-    find "$STATE_ROOT" -maxdepth 3 -name 'live_state_*.json' -o -maxdepth 3 -name 'paper_state_*.json' 2>/dev/null \
+    [[ -d "$STATE_ROOT" ]] || return 0
+    { find "$STATE_ROOT" -maxdepth 3 \( -name 'live_state_*.json' -o -name 'paper_state_*.json' \) 2>/dev/null || true; } \
       | while read -r f; do
             grep -q '"running": *true' "$f" 2>/dev/null || continue
             grep -q "\"session_date\": *\"$today\"" "$f" 2>/dev/null || continue
             echo "$f"
         done
+    return 0
 }
 
 if [[ "${FORCE_DEPLOY:-0}" != "1" && "$IST_DOW" -le 5 && "$IST_NOW" > "0915" && "$IST_NOW" < "1530" ]]; then
