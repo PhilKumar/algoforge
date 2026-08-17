@@ -8134,52 +8134,52 @@ body :is(
   border-radius: 50%;
   transform: rotate(-18deg);
 }
-/* THE RAIL. Phil, 2026-08-17: "a similar graphics on every page head panel
-   like a line moving around like we see a line moving straight on the shared
-   request to audit path." The Atlas flow-board's .flow-rail: a thin tinted
-   track along the hero's foot with a bright pulse that travels it end to end
-   and fades at both edges. One element per hero, one rule here -- both hero
-   pseudo-elements were already spoken for. Sits under the copy (z-index -1
-   inside the hero's own isolation) so it never fights the text. */
+/* THE RAIL. Phil, 2026-08-17, first: "a similar graphics on every page head
+   panel like a line moving around like we see a line moving straight on the
+   shared request to audit path." Then, seeing a straight line: "I need not in
+   straight line.. I want it to rotate that heading fully."
+
+   So the pulse ORBITS the hero. A rounded rectangle has no path CSS can
+   animate along, but a conic gradient spun inside a 1.5px border ring is
+   exactly a bright arc sweeping the perimeter -- corners included. The ring
+   is the element; the mask leaves only its border painted; the ::before is
+   the oversized spinning gradient behind it. One element per hero, one rule.
+   Sits under the copy inside the hero's own isolation. */
 .pf-hero-rail {
   position: absolute;
   z-index: -1;
-  left: 28px;
-  right: 24px;
-  bottom: 12px;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg,
-    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .10),
-    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .55),
-    rgba(167, 139, 250, .55),
-    rgba(245, 184, 75, .45));
-  opacity: .6;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;                       /* the ring's thickness */
   pointer-events: none;
-  overflow: visible;
+  overflow: hidden;
+  /* paint only the padding ring: content box knocked out */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  opacity: .9;
 }
-.pf-hero-rail::after {
+.pf-hero-rail::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: -120px;
-  width: 110px;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, #fff, transparent);
-  box-shadow: 0 0 12px rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .9);
-  filter: blur(.35px);
-  animation: pfHeroRail 3.2s linear infinite;
-  will-change: left, opacity;
+  /* big enough that the spinning square always covers the hero's corners */
+  inset: -60%;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    transparent 300deg,
+    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .35) 322deg,
+    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .95) 340deg,
+    #ffffff 350deg,
+    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .95) 356deg,
+    transparent 360deg);
+  animation: pfHeroOrbit 4.8s linear infinite;
+  will-change: transform;
 }
-@keyframes pfHeroRail {
-  0%   { left: -120px; opacity: 0; }
-  8%   { opacity: 1; }
-  92%  { opacity: 1; }
-  100% { left: 100%;  opacity: 0; }
-}
+@keyframes pfHeroOrbit { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .pf-hero-rail::after { animation: none; left: 30%; opacity: .5; }
+  .pf-hero-rail::before { animation: none; transform: rotate(210deg); }
+  .pf-hero-rail { opacity: .55; }
 }
 .pf-workspace-hero-copy { min-width: 0; max-width: 720px; }
 .pf-workspace-eyebrow {
@@ -8360,11 +8360,15 @@ body :is(
   box-shadow: 0 14px 30px rgba(15,23,42,.08), inset 0 1px 0 #fff;
 }
 [data-theme="light"] .pf-workspace-hero-meta > div { background: rgba(255,255,255,.72); border-color: rgba(15,23,42,.10); }
-/* A white pulse vanishes on a white hero; in light the pulse IS the tint. */
-[data-theme="light"] .pf-hero-rail { opacity: .8; }
-[data-theme="light"] .pf-hero-rail::after {
-  background: linear-gradient(90deg, transparent, rgb(var(--pf-tint-primary-rgb, 0,191,165)), transparent);
-  box-shadow: 0 0 10px rgba(var(--pf-tint-primary-rgb, 0,191,165), .55);
+/* A white head on the arc vanishes on a white hero; in light the arc's head IS the tint. */
+[data-theme="light"] .pf-hero-rail::before {
+  background: conic-gradient(from 0deg,
+    transparent 0deg, transparent 300deg,
+    rgba(var(--pf-tint-primary-rgb, 0,191,165), .30) 322deg,
+    rgba(var(--pf-tint-primary-rgb, 0,191,165), .85) 340deg,
+    rgb(var(--pf-tint-primary-rgb, 0,191,165)) 350deg,
+    rgba(var(--pf-tint-primary-rgb, 0,191,165), .85) 356deg,
+    transparent 360deg);
 }
 [data-theme="light"] .pf-unified-page .card { background: linear-gradient(155deg, #ffffff, #f7f9fc); }
 [data-theme="light"] .pf-unified-page .card-glass { background: linear-gradient(155deg, #ffffff, #f2f7fa); }
