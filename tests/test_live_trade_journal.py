@@ -89,8 +89,12 @@ class PaperEngineRecordsWhyTests(unittest.TestCase):
         engine.running = True
         engine.current_time = datetime(2026, 8, 17, 9, 59, 22)
         engine.daily_pnl = 0.0
-        engine.exit_conditions = [{"left": "current_close", "operator": "crosses_above", "right": "CPR_TC", "logic": "IF"}]
-        engine.candle_buffer = pd.DataFrame([_row("2026-08-17 09:55:00").to_dict()], index=[pd.Timestamp("2026-08-17 09:55:00")])
+        engine.exit_conditions = [
+            {"left": "current_close", "operator": "crosses_above", "right": "CPR_TC", "logic": "IF"}
+        ]
+        engine.candle_buffer = pd.DataFrame(
+            [_row("2026-08-17 09:55:00").to_dict()], index=[pd.Timestamp("2026-08-17 09:55:00")]
+        )
         engine._prev_row = None
         engine.closed_trades = []
         engine.events = []
@@ -190,8 +194,27 @@ class TradeChartRouteTests(unittest.IsolatedAsyncioTestCase):
                     "entry_spot": 24280.5,
                     "pnl": 3614.10,
                     "exit_reason": "ENGINE_STOP",
-                    "entry_why": {"reason": "ENTRY_SIGNAL", "conditions": [{"condition": "current_close is_below EMA_20_5m", "left_value": "24,280.50", "right_value": "24,295.10", "result": True}], "indicators": {"CPR_TC": 24310.2}, "bar_time": "2026-08-17T09:15:00", "spot": 24280.5},
-                    "exit_why": {"reason": "ENGINE_STOP", "conditions": [], "indicators": {"CPR_TC": 24310.2}, "bar_time": "2026-08-17T09:55:00", "spot": 24300.0},
+                    "entry_why": {
+                        "reason": "ENTRY_SIGNAL",
+                        "conditions": [
+                            {
+                                "condition": "current_close is_below EMA_20_5m",
+                                "left_value": "24,280.50",
+                                "right_value": "24,295.10",
+                                "result": True,
+                            }
+                        ],
+                        "indicators": {"CPR_TC": 24310.2},
+                        "bar_time": "2026-08-17T09:15:00",
+                        "spot": 24280.5,
+                    },
+                    "exit_why": {
+                        "reason": "ENGINE_STOP",
+                        "conditions": [],
+                        "indicators": {"CPR_TC": 24310.2},
+                        "bar_time": "2026-08-17T09:55:00",
+                        "spot": 24300.0,
+                    },
                 }
             ],
         )
@@ -203,7 +226,9 @@ class TradeChartRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_the_chart_is_frozen_at_the_exit_and_carries_the_why(self):
         with patch.object(app_module.ScripMaster, "lookup", return_value="99999"):
-            data = await app_module.live_trade_chart(_DummyRequest(self.user_id), run_id=self.run_id, trade_id="3", timeframe="5m")
+            data = await app_module.live_trade_chart(
+                _DummyRequest(self.user_id), run_id=self.run_id, trade_id="3", timeframe="5m"
+            )
         self.assertEqual(data["status"], "ok")
         self.assertFalse(data["is_open"])
         self.assertEqual(data["frozen_at"], self.exit_ts)
@@ -221,7 +246,14 @@ class TradeChartRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["why"]["exit"]["reason"], "ENGINE_STOP")
         self.assertEqual(data["trade"]["exit_reason"], "ENGINE_STOP")
         # analytics still there -- CPR/EMA lines from the same helper as the entry chart
-        self.assertTrue(any(str(line.get("label", "")).upper().startswith(("CPR", "R1", "S1", "TC", "BC", "PIVOT", "P")) or "EMA" in str(line.get("label", "")).upper() for line in data["lines"]), data["lines"][:4])
+        self.assertTrue(
+            any(
+                str(line.get("label", "")).upper().startswith(("CPR", "R1", "S1", "TC", "BC", "PIVOT", "P"))
+                or "EMA" in str(line.get("label", "")).upper()
+                for line in data["lines"]
+            ),
+            data["lines"][:4],
+        )
 
     async def test_an_unknown_trade_id_is_a_404(self):
         with patch.object(app_module.ScripMaster, "lookup", return_value="99999"):
@@ -234,12 +266,32 @@ class TradeChartRouteTests(unittest.IsolatedAsyncioTestCase):
         app_module.paper_engines.clear()
         rows = list(app_module.paper_engines.get(self.user_id, {}).values())
         self.assertEqual(rows, [])
-        with patch.object(app_module, "_live_run_history_trades", return_value=[{
-            "id": 9, "underlying": "NIFTY", "strike": 24550, "option_type": "PE", "expiry": "2026-08-18",
-            "entry_time": "2026-08-17T09:20:00+05:30", "exit_time": "2026-08-17T09:59:22+05:30",
-            "entry_premium": 242.29, "exit_premium": 256.19, "pnl": 3614.10, "exit_reason": "TARGET",
-        }]), patch.object(app_module.ScripMaster, "lookup", return_value="99999"), patch.object(
-            app_module, "_request_broker_context", AsyncMock(return_value=({"id": 7}, _FakeBroker(datetime(2026, 8, 17).date()), "user"))
+        with (
+            patch.object(
+                app_module,
+                "_live_run_history_trades",
+                return_value=[
+                    {
+                        "id": 9,
+                        "underlying": "NIFTY",
+                        "strike": 24550,
+                        "option_type": "PE",
+                        "expiry": "2026-08-18",
+                        "entry_time": "2026-08-17T09:20:00+05:30",
+                        "exit_time": "2026-08-17T09:59:22+05:30",
+                        "entry_premium": 242.29,
+                        "exit_premium": 256.19,
+                        "pnl": 3614.10,
+                        "exit_reason": "TARGET",
+                    }
+                ],
+            ),
+            patch.object(app_module.ScripMaster, "lookup", return_value="99999"),
+            patch.object(
+                app_module,
+                "_request_broker_context",
+                AsyncMock(return_value=({"id": 7}, _FakeBroker(datetime(2026, 8, 17).date()), "user")),
+            ),
         ):
             data = await app_module.live_trade_chart(_DummyRequest(self.user_id), run_id="gone", trade_id="9")
         self.assertEqual(data["trade"]["id"], 9)
