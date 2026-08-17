@@ -5608,9 +5608,12 @@ function _portfolioTradeTimeLabel(value) {
   return match ? match[1] : s.slice(-8);
 }
 
-function _portfolioCompletedTradeRowHtml(trade) {
+function _portfolioCompletedTradeRowHtml(trade, index, all, runId) {
   const pnl = round2(trade?.pnl || 0);
-  return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${_portfolioTradeDateLabel(trade?.entry_time)}</td><td style="padding:8px 12px;">${escapeHtml(trade?.symbol || trade?.trading_symbol || '—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${trade?.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'}">${escapeHtml(trade?.transaction_type || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.entry_premium || trade?.entry_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.exit_premium || trade?.exit_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(trade?.lots || trade?.quantity || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(trade?.exit_reason || trade?.reason || '—')}</td></tr>`;
+  const journalBtn = runId && trade?.id !== undefined && trade?.id !== null
+    ? `<button type="button" class="live-journal-btn" title="Journal chart — frozen at the exit, with the why" onclick="openLiveTradeJournal('${escapeHtml(String(runId)).replace(/'/g, "\\'")}','${escapeHtml(String(trade.id))}')">${typeof ICO !== 'undefined' && ICO.chart ? ICO.chart(12) : '▤'}</button>`
+    : '';
+  return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${_portfolioTradeDateLabel(trade?.entry_time)}</td><td style="padding:8px 12px;">${escapeHtml(trade?.symbol || trade?.trading_symbol || '—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${trade?.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'}">${escapeHtml(trade?.transaction_type || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.entry_premium || trade?.entry_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.exit_premium || trade?.exit_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(trade?.lots || trade?.quantity || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(trade?.exit_reason || trade?.reason || '—')}</td>${journalBtn ? `<td style="padding:6px 8px;text-align:right;white-space:nowrap;">${journalBtn}</td>` : ''}</tr>`;
 }
 
 function _portfolioCompletedTradeCardHtml(trade) {
@@ -5664,9 +5667,10 @@ function _renderCompletedTradesBlock(trades, options = {}) {
   const start = (page - 1) * perPage;
   const slice = (trades || []).slice(start, start + perPage);
   const emptyMessage = options.emptyMessage || 'No completed trades yet';
+  const runId = options.runId ? String(options.runId) : '';
   const tbodyHtml = total
-    ? slice.map(_portfolioCompletedTradeRowHtml).join('')
-    : `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">${escapeHtml(emptyMessage)}</td></tr>`;
+    ? slice.map((trade, i, all) => _portfolioCompletedTradeRowHtml(trade, i, all, runId)).join('')
+    : `<tr><td colspan="${runId ? 11 : 10}" style="text-align:center;padding:20px;color:var(--muted);">${escapeHtml(emptyMessage)}</td></tr>`;
   const prevPage = Math.max(1, page - 1);
   const nextPage = Math.min(totalPages, page + 1);
   const pageTemplate = String(options.pageHandlerTemplate || '');
@@ -5687,7 +5691,7 @@ function _renderCompletedTradesBlock(trades, options = {}) {
     </div>
     <div class="trade-table-scroll">
       <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
-        <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Date</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th></tr></thead>
+        <thead><tr style="background:var(--card2);"><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Date</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Symbol</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Entry Time</th><th style="padding:8px 12px;text-align:left;color:var(--muted);font-size:11px;">Exit Time</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Type</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Entry ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Exit ₹</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Qty</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">P&L</th><th style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px;">Reason</th>${runId ? '<th style="padding:8px 8px;text-align:right;color:var(--muted);font-size:11px;">Chart</th>' : ''}</tr></thead>
         <tbody>${tbodyHtml}</tbody>
       </table>
     </div>
@@ -10016,6 +10020,7 @@ function _ensureLiveEntryChartOverlay() {
       <div class="terminal-cascade-chart-actions" id="live-entry-chart-actions"></div>
     </div>
     <div id="live-entry-chart-body" class="terminal-cascade-chart-body"><div class="pf-cascade-chart-empty">Loading entry candles...</div></div>
+    <div id="live-trade-why" class="live-trade-why" hidden></div>
   </section>`;
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) hideLiveEntryChart();
@@ -10025,8 +10030,8 @@ function _ensureLiveEntryChartOverlay() {
     pfChartStrip(overlay.querySelector('#live-entry-chart-actions'), {
       timeframes: ['5m', '15m', '1h'],
       active: _liveEntryChartTf,
-      onTimeframe: (tf) => { _liveEntryChartTf = tf; openLiveEntryChart(_liveEntryChartRunId); },
-      onRefresh: () => openLiveEntryChart(_liveEntryChartRunId),
+      onTimeframe: (tf) => { _liveEntryChartTf = tf; _liveJournalTradeId ? openLiveTradeJournal(_liveEntryChartRunId, _liveJournalTradeId) : openLiveEntryChart(_liveEntryChartRunId); },
+      onRefresh: () => (_liveJournalTradeId ? openLiveTradeJournal(_liveEntryChartRunId, _liveJournalTradeId) : openLiveEntryChart(_liveEntryChartRunId)),
       onClose: () => hideLiveEntryChart(),
     });
   }
@@ -10035,6 +10040,7 @@ function _ensureLiveEntryChartOverlay() {
 
 async function openLiveEntryChart(runId, options = {}) {
   const liveRefresh = !!options.liveRefresh;
+  if (!liveRefresh) { _liveJournalTradeId = ''; const w = document.getElementById('live-trade-why'); if (w) { w.hidden = true; w.innerHTML = ''; } }
   _liveEntryChartRunId = runId || _liveEntryChartRunId || '';
   const requestId = ++_liveEntryChartRequest;
   const overlay = _ensureLiveEntryChartOverlay();
@@ -10102,6 +10108,9 @@ function _startLiveEntryChartPolling() {
 function hideLiveEntryChart() {
   _liveEntryChartRequest++;
   _liveEntryChartDrawnKey = '';
+  _liveJournalTradeId = '';
+  const whyBox = document.getElementById('live-trade-why');
+  if (whyBox) { whyBox.hidden = true; whyBox.innerHTML = ''; }
   if (_liveEntryChartPollTimer) { clearInterval(_liveEntryChartPollTimer); _liveEntryChartPollTimer = null; }
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
   const overlay = document.getElementById('live-entry-chart-overlay');
@@ -10114,6 +10123,96 @@ function hideLiveEntryChart() {
     document.body.classList.remove('terminal-cascade-chart-open');
   }
 }
+
+// ── The trade JOURNAL: one closed trade, frozen at its exit, with the why ──
+// Phil, 2026-08-17: "a journal chart on every live trade ... where, when, why
+// the trade was taken and exited, with all CPR and indicators ... a frozen
+// chart like CryptoForge." Same overlay, same renderer, same CPR/EMA lines as
+// the entry chart; the candles STOP at the exit and never poll, and a why
+// panel under the canvas quotes the entry conditions with the values that
+// fired them, the indicator readings at that bar, and the exit reason.
+let _liveJournalTradeId = '';
+
+function _liveWhyValue(v) {
+  if (v === null || v === undefined || v === '' || v === 'None') return '—';
+  const n = Number(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : String(v);
+}
+
+function _liveWhyHtml(data) {
+  const trade = data.trade || {};
+  const why = data.why || {};
+  const fmtT = (s) => (s ? new Date(s * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
+  const conds = (side) => {
+    const rows = ((why[side] || {}).conditions || []);
+    if (!rows.length) return `<div class="live-why-empty">${side === 'entry' ? 'No entry conditions were recorded on this trade (it predates the journal).' : 'No exit conditions decided this exit.'}</div>`;
+    return `<ul class="live-why-conds">${rows.map(c => `<li class="${c.result ? 'is-true' : 'is-false'}"><span class="live-why-tick">${c.result ? '✓' : '✗'}</span><span class="live-why-cond">${escapeHtml(c.condition || '')}</span><span class="live-why-vals">${escapeHtml(_liveWhyValue(c.left_value))} <em>vs</em> ${escapeHtml(_liveWhyValue(c.right_value))}</span></li>`).join('')}</ul>`;
+  };
+  const inds = (side) => {
+    const ind = (why[side] || {}).indicators || {};
+    const keys = Object.keys(ind);
+    if (!keys.length) return '';
+    return `<div class="live-why-inds">${keys.map(k => `<span class="live-why-ind"><b>${escapeHtml(k.replace(/^CPR_/, ''))}</b> ${escapeHtml(_liveWhyValue(ind[k]))}</span>`).join('')}</div>`;
+  };
+  const pnl = Number(trade.pnl || 0);
+  return `
+    <div class="live-why-grid">
+      <section class="live-why-side is-entry">
+        <header><span class="live-why-label">Entry · why taken</span><span class="live-why-when">${escapeHtml(fmtT(trade.entry_time))} · spot ${escapeHtml(_liveWhyValue((why.entry || {}).spot ?? trade.entry_spot))} · paid ₹${escapeHtml(_liveWhyValue(trade.entry_premium))}</span></header>
+        ${conds('entry')}
+        ${inds('entry')}
+      </section>
+      <section class="live-why-side is-exit">
+        <header><span class="live-why-label">Exit · why closed</span><span class="live-why-when">${escapeHtml(fmtT(trade.exit_time))} · got ₹${escapeHtml(_liveWhyValue(trade.exit_premium))} · <b style="color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${escapeHtml(_liveWhyValue(pnl))}</b></span></header>
+        <div class="live-why-reason">${escapeHtml(String(trade.exit_reason || (why.exit || {}).reason || '—').replaceAll('_', ' '))}</div>
+        ${conds('exit')}
+        ${inds('exit')}
+      </section>
+    </div>`;
+}
+
+async function openLiveTradeJournal(runId, tradeId) {
+  _liveEntryChartRunId = runId || _liveEntryChartRunId || '';
+  _liveJournalTradeId = String(tradeId || '');
+  const requestId = ++_liveEntryChartRequest;
+  if (_liveEntryChartPollTimer) { clearInterval(_liveEntryChartPollTimer); _liveEntryChartPollTimer = null; }
+  const overlay = _ensureLiveEntryChartOverlay();
+  const body = document.getElementById('live-entry-chart-body');
+  const whyBox = document.getElementById('live-trade-why');
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('terminal-cascade-chart-open');
+  if (body && !body.querySelector('#live-entry-chart-canvas')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading the trade’s frozen chart...</div>';
+  try {
+    const qs = `run_id=${encodeURIComponent(_liveEntryChartRunId)}&trade_id=${encodeURIComponent(_liveJournalTradeId)}&timeframe=${encodeURIComponent(_liveEntryChartTf)}`;
+    const response = await fetch(`/api/live/trade-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (requestId !== _liveEntryChartRequest) return;
+    if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Journal chart failed (${response.status})`));
+    const instrument = data.instrument || {};
+    const trade = data.trade || {};
+    const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
+    const title = document.getElementById('live-entry-chart-title');
+    const meta = document.getElementById('live-entry-chart-meta');
+    if (title) title.textContent = `${symbol || 'Trade'} · journal`;
+    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · FROZEN at the exit · ${trade.transaction_type || ''} ${trade.quantity ? trade.quantity + ' qty' : ''} · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom`;
+    if (body) {
+      let host = document.getElementById('live-entry-chart-canvas');
+      if (!host) { body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>'; host = document.getElementById('live-entry-chart-canvas'); }
+      if (!host || typeof pfBenchDrawChart !== 'function') throw new Error('Chart renderer is unavailable');
+      if (!(data.candles || []).length) throw new Error('No candles for this trade’s contract.');
+      if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+      if (!pfBenchDrawChart(host, data)) throw new Error('Journal chart could not be drawn.');
+      _liveEntryChartDrawnKey = `${_liveEntryChartRunId}|journal|${_liveJournalTradeId}|${data.timeframe || _liveEntryChartTf}`;
+    }
+    if (whyBox) { whyBox.innerHTML = _liveWhyHtml(data); whyBox.hidden = false; }
+  } catch (error) {
+    if (requestId !== _liveEntryChartRequest) return;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Journal chart unavailable')}</div>`;
+    if (whyBox) { whyBox.hidden = true; whyBox.innerHTML = ''; }
+  }
+}
+window.openLiveTradeJournal = openLiveTradeJournal;
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && document.getElementById('live-entry-chart-overlay')?.classList.contains('is-open')) {
@@ -14067,6 +14166,7 @@ function renderLivePanel(d, idx) {
     page: closedPage,
     perPage: _LIVE_TRADES_PER_PAGE,
     pageHandlerTemplate: `_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}', __PAGE__)`,
+    runId: d.run_id || runId,
   });
 
   // Build full panel

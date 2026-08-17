@@ -8649,6 +8649,57 @@ body :is(
 #live-page .live-chip.is-exit { background: rgba(245,158,11,.10); border-color: rgba(245,158,11,.22); }
 #live-page .live-chip.is-leg { background: rgba(139,92,246,.10); border-color: rgba(139,92,246,.24); }
 
+/* ── The trade journal: a per-trade chart button and the why panel under the
+   frozen chart. Phil, 2026-08-17: "where, when, why the trade was taken and
+   exited, with all CPR and indicators ... a frozen chart like CryptoForge."
+   The overlay is the entry chart's, so these live with it, not on #live-page
+   only -- the Portfolio page shares the trades block. ── */
+.live-journal-btn {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: rgba(56,189,248,.10); color: var(--accent);
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+.live-journal-btn:hover { background: rgba(56,189,248,.20); border-color: rgba(56,189,248,.45); }
+.live-journal-btn:active { transform: translateY(1px); }
+.live-journal-btn svg { width: 12px; height: 12px; }
+.live-trade-why {
+  border-top: 1px solid var(--border);
+  padding: 12px 16px 14px;
+  background: var(--card);
+  font: 11px/1.5 'JetBrains Mono', monospace;
+  color: var(--text);
+  max-height: 34vh; overflow: auto;
+}
+.live-why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.live-why-side { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: rgba(148,163,184,.04); }
+.live-why-side.is-entry { border-left: 3px solid var(--success); }
+.live-why-side.is-exit { border-left: 3px solid var(--warn); }
+.live-why-side header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; }
+.live-why-label { font: 800 9.5px 'JetBrains Mono', monospace; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.live-why-when { color: var(--muted); }
+.live-why-reason { display: inline-block; margin: 0 0 8px; padding: 2px 9px; border-radius: 999px; font-weight: 700; color: var(--warn); border: 1px solid rgba(245,158,11,.30); background: rgba(245,158,11,.10); }
+.live-why-conds { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.live-why-conds li { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 6px; background: rgba(148,163,184,.05); }
+.live-why-conds li.is-true .live-why-tick { color: var(--success); }
+.live-why-conds li.is-false .live-why-tick { color: var(--danger); }
+.live-why-conds li.is-false .live-why-cond { color: var(--muted); }
+.live-why-tick { font-weight: 800; }
+.live-why-cond { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-why-vals { color: var(--muted); white-space: nowrap; }
+.live-why-vals em { font-style: normal; opacity: .6; padding: 0 3px; }
+.live-why-inds { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.live-why-ind { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: rgba(148,163,184,.06); color: var(--muted); }
+.live-why-ind b { color: var(--text); font-weight: 700; margin-right: 4px; }
+.live-why-empty { color: var(--muted); font-style: italic; }
+@media (max-width: 780px) { .live-why-grid { grid-template-columns: 1fr; } .live-trade-why { max-height: 42vh; } }
+[data-theme="light"] .live-trade-why { background: #fff; }
+[data-theme="light"] .live-why-side { background: rgba(15,23,42,.025); }
+[data-theme="light"] .live-why-conds li { background: rgba(15,23,42,.035); }
+[data-theme="light"] .live-why-ind { background: rgba(15,23,42,.04); }
+[data-theme="light"] .live-journal-btn { background: rgba(2,132,199,.10); color: #0369a1; }
+[data-theme="light"] .live-journal-btn:hover { background: rgba(2,132,199,.18); }
+
 /* Tiles: they wrap instead of crushing, and every figure is tabular. */
 #live-page .live-panel-stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
