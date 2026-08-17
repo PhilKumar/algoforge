@@ -3545,6 +3545,21 @@ async function killFibBoundaryPaper(_event, button) {
 // This function is now only a translator: it reshapes the chart route's payload
 // (plus the live campaign on `_lastFibBoundaryStatus`) into the renderer's
 // vocabulary. Every pixel decision lives in philforge-bench-chart.js.
+// "L4" is how the engine names a lone-fib zone; the chart says level numbers.
+function _fibxZoneName(label) {
+  return String(label || '').replace(/^L/, '');
+}
+
+// Which of two lines on the same price is worth keeping: money and state beat
+// a zone, a zone beats the structure line it sits on.
+function _fibxLineRank(line) {
+  const text = String(line.label || '');
+  if (Number(line.inr_notional) > 0 || /filled|collected/.test(text)) return 3;
+  if (/zone|lone fib|floor/.test(text)) return 2;
+  if (/TARGET|AVG ENTRY|MOTHER|BUY STOP|RE-ARM/.test(text)) return 4;
+  return 1;
+}
+
 function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // The campaign whose panel was clicked -- with several ladders running, the
   // buys drawn on a chart have to be that instrument's own. A BACKTEST has no
@@ -3674,7 +3689,8 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
 
   // The zones the ROUTE says this mode would buy -- drawn even with no campaign
   // running, which is when the question "what would this have taken?" is asked.
-  (Array.isArray(payload?.zones) ? payload.zones : []).forEach(zone => {
+  const campaignZones = rungs.some(row => row && row.zone_label);
+  (campaignZones ? [] : (Array.isArray(payload?.zones) ? payload.zones : [])).forEach(zone => {
     const color = fibColor(zone.top_fib_id);
     // A ZONE is where two fibs meet. When only one was ever drawn there is
     // nothing to converge with and this is that fib's own line -- calling it a
@@ -3682,13 +3698,13 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     const single = zone.kind === 'level';
     lines.push({
       price: Number(zone.top),
-      label: single ? `${zone.label} lone fib` : `${zone.label} zone`,
+      label: single ? `${_fibxZoneName(zone.label)} lone fib` : `${_fibxZoneName(zone.label)} zone`,
       color, filled: true, dash: [], opacity: 0.95, width: 1.3, inr_notional: 0,
     });
     if (zone.floor != null && Number(zone.floor) !== Number(zone.top)) {
       lines.push({
         price: Number(zone.floor),
-        label: `${zone.label} floor`,
+        label: `${_fibxZoneName(zone.label)} floor`,
         color, filled: true, dash: [], opacity: 0.5, width: 0.8, inr_notional: 0,
       });
     }
@@ -3701,7 +3717,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     const color = fibColor(row.fib_id);
     const status = String(row.status || 'PENDING');
     const lone = !row.zone_bottom_fib_id || row.zone_bottom_fib_id === row.fib_id;
-    const name = lone ? `${row.zone_label} lone fib` : `${row.zone_label} zone`;
+    const name = lone ? `${_fibxZoneName(row.zone_label)} lone fib` : `${_fibxZoneName(row.zone_label)} zone`;
     lines.push({
       price: Number(row.index_price),
       label: name + (status === 'FILLED' ? ' filled' : status === 'COLLECTED' ? ' collected' : ''),
@@ -3751,7 +3767,18 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     });
   }
 
-  const drawable = lines.filter(line => Number.isFinite(line.price) && line.price > 0);
+  // ONE LINE PER PRICE. A lone-fib zone IS its fib's own level, so the ghost
+  // structure line under it drew the same price a second time -- three labels
+  // stacked on 24,454.50 and two on the floor (Phil, 2026-08-17). The most
+  // informative label wins: a zone or a filled rung over a bare structure line.
+  const byPrice = new Map();
+  lines.forEach(line => {
+    if (!Number.isFinite(line.price) || line.price <= 0) return;
+    const key = line.price.toFixed(2);
+    const held = byPrice.get(key);
+    if (!held || _fibxLineRank(line) > _fibxLineRank(held)) byPrice.set(key, line);
+  });
+  const drawable = [...byPrice.values()];
 
   // One white buy mark per fill, every round included.
   const entries = allFills

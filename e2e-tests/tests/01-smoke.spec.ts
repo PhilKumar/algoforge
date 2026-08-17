@@ -1259,6 +1259,17 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   expect(labels.some((t) => t.includes('2-4 floor'))).toBe(true);
   expect(labels.some((t) => t.includes('4-8 zone'))).toBe(true);
 
+  // ONE LABEL PER PRICE. A zone sits on its own fib's level, and the route
+  // sends zones too -- three labels were stacking on one line (Phil,
+  // 2026-08-17: "Why too much of labels, L4 floor? twice?").
+  const prices = await page.evaluate(() => {
+    const app = window as typeof window & { _pfChartCanvas?: { data?: { lines?: { price: number }[] } } };
+    return (app._pfChartCanvas?.data?.lines || []).map((l) => l.price.toFixed(2));
+  });
+  expect(prices.length).toBe(new Set(prices).size);
+  // and no "L4" spelling survives -- levels are numbers here
+  expect(labels.some((t) => /\bL\d/.test(t))).toBe(false);
+
   await page.click('#fibx-chart-strip [data-strip-close]');
   expect(jsErrors).toEqual([]);
 });
