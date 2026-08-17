@@ -792,6 +792,15 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(killed)
         self.assertEqual(engine.status, "KILLED")
         self.assertEqual([row[4] for row in sent], ["BUY", "SELL"])
+        # Phil, 2026-08-17, after Kill: "This ladder still reports holdings; it
+        # cannot be deleted." The basket was sold and booked; the legs are kept
+        # only so the console can show what was bought. They are not open.
+        self.assertFalse(engine.holds_position)
+        self.assertEqual(engine.open_lots, 0)
+        self.assertEqual(engine.get_status()["open_lots"], 0)
+        self.assertEqual(len(engine.rounds), 1)
+        self.assertEqual(len(engine.fills), 1, "the legs stay visible")
+        self.assertIsNotNone(engine.average_premium, "and the average entry stays drawable")
 
     def test_arming_is_explicit_and_never_a_default(self):
         import inspect

@@ -370,6 +370,36 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["mode"], "live")
         self.assertFalse(status["armed"])
 
+    async def test_a_killed_ladder_can_be_deleted(self):
+        """Phil, 2026-08-17: Kill worked, then Delete said "This ladder still
+        reports holdings; it cannot be deleted." Kill sells and books the
+        basket; what it leaves in `fills` is the record, not a position."""
+        broker = _Broker()
+        engine = _live_ladder("NIFTY", broker, live=False)
+        self.assertTrue(engine.fills, "fixture should have bought a rung")
+        runtime = app_module._CascadeRuntime(engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = {"NIFTY": runtime}
+
+        killed = await app_module.fib_boundary_paper_kill(_DummyRequest(), symbol="NIFTY")
+        self.assertEqual(killed["status"], "killed")
+        self.assertEqual(killed["campaign"]["open_lots"], 0)
+        self.assertEqual(len(killed["campaign"]["fills"]), 1, "the record of the buy is kept")
+
+        deleted = await app_module.fib_boundary_paper_delete(_DummyRequest(), symbol="NIFTY")
+        self.assertEqual(deleted, {"status": "ok", "deleted": "NIFTY"})
+        self.assertNotIn("NIFTY", app_module._fib_boundary_engines.get(11, {}))
+
+    async def test_a_ladder_still_holding_cannot_be_deleted(self):
+        """The other half: Delete is bookkeeping, never an exit."""
+        broker = _Broker()
+        engine = _live_ladder("NIFTY", broker, live=False)
+        runtime = app_module._CascadeRuntime(engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = {"NIFTY": runtime}
+        with self.assertRaises(app_module.HTTPException) as caught:
+            await app_module.fib_boundary_paper_delete(_DummyRequest(), symbol="NIFTY")
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("NIFTY", app_module._fib_boundary_engines[11])
+
     async def test_a_restart_brings_back_every_ladder_and_arms_none_of_them(self):
         broker = _Broker()
         app_module._fib_boundary_engines[11] = {

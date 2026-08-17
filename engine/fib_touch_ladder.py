@@ -953,23 +953,39 @@ class FibTouchLadder:
         return round(max(0.0, self.config.capital_cap_inr - self.deployed_inr), 2)
 
     @property
+    def holds_position(self) -> bool:
+        """Whether any leg is still ON -- not merely remembered.
+
+        Every terminal exit (kill, target, intraday close, expiry, mother
+        broken) sells the basket and books the round BEFORE it sets the
+        status, and then leaves the legs in `fills` so the console can still
+        show what the campaign bought. Counting those as open lots is what
+        made a killed ladder say "still reports holdings" and refuse to be
+        deleted (Phil, 2026-08-17): the money was booked, the screen said
+        otherwise.
+        """
+        return bool(self.fills) and self.status not in _TERMINAL_STATUSES
+
+    @property
     def open_lots(self) -> int:
-        return sum(fill.lots for fill in self.fills)
+        return sum(fill.lots for fill in self.fills) if self.holds_position else 0
 
     @property
     def open_quantity(self) -> int:
-        return sum(fill.quantity for fill in self.fills)
+        return sum(fill.quantity for fill in self.fills) if self.holds_position else 0
 
     @property
     def average_index_entry(self) -> Optional[float]:
-        quantity = self.open_quantity
+        # From the legs themselves, not from `open_quantity`: a closed round's
+        # average entry is still a fact worth drawing on the chart.
+        quantity = sum(fill.quantity for fill in self.fills)
         if quantity <= 0:
             return None
         return sum(fill.index_price * fill.quantity for fill in self.fills) / quantity
 
     @property
     def average_premium(self) -> Optional[float]:
-        quantity = self.open_quantity
+        quantity = sum(fill.quantity for fill in self.fills)
         if quantity <= 0:
             return None
         return sum(fill.premium * fill.quantity for fill in self.fills) / quantity
@@ -2105,7 +2121,7 @@ class FibTouchLadder:
         self.exit_reason = "killed"
         self.status = "KILLED"
         self._settle(prices)
-        self._log(bar.timestamp, "killed", net=self.net_pnl, open_lots=self.open_lots)
+        self._log(bar.timestamp, "killed", net=self.net_pnl, lots=sum(fill.lots for fill in self.fills))
         return True
 
     def run(self, candles: Iterable[Bar]) -> "FibTouchLadder":
