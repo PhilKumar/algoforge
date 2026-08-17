@@ -185,6 +185,23 @@
             display: block;
             min-width: 0;
           }
+          /* LIGHT IS A COMPLETE PALETTE, NOT A PATCH LIST. The host borrows the
+             terminal's --panel / --panel-hi above; in light mode those do not
+             reach the shadow root (they resolve to ""), so every surface fell
+             to the DARK hex fallback -- the metric strip and the I/O chips
+             painted near-black under black text (Phil, 2026-08-17: "Assets
+             page is not light compatible"). The three hand-patched selectors
+             below only covered what someone had noticed. Redefine the TOKENS
+             for light -- the same values architecture.css uses standalone --
+             and every rule that reads them follows. */
+          :host-context(html[data-theme="light"]) {
+            --surface: #f9fbfd;
+            --surface-2: #eef3f8;
+            --surface-3: #e5edf5;
+            --line: rgba(38, 65, 93, .16);
+            --line-strong: rgba(38, 65, 93, .28);
+            --dim: #7d8b9d;
+          }
           .atlas-shell { width: 100%; }
           .control-deck { top: 8px; margin-top: 0; }
           .document-dock { margin-bottom: 0; }
