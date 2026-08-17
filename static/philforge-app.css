@@ -627,6 +627,15 @@
     border-color: rgba(248,113,113,0.42);
     color: #fecaca;
   }
+  /* Ember: the fib-boundary RULE toggles ("what it buys", "session").
+     Phil, 2026-08-17: "give orange tint for the toggles". These are rule
+     choices, not side or mode, so they get their own colour instead of
+     borrowing bull/bear/paper/live. */
+  .scalp-toggle-btn.active[data-tone="ember"] {
+    background: linear-gradient(180deg, rgba(251,146,60,0.24) 0%, rgba(194,65,12,0.42) 100%);
+    border-color: rgba(251,146,60,0.42);
+    color: #fed7aa;
+  }
   .scalp-live-note {
     margin-top: 8px;
     font-size: 10px;
@@ -1479,6 +1488,11 @@
     background: linear-gradient(180deg, rgba(248,113,113,0.14) 0%, rgba(185,28,28,0.24) 100%);
     border-color: rgba(185,28,28,0.24);
     color: #b91c1c;
+  }
+  [data-theme="light"] .scalp-toggle-btn.active[data-tone="ember"] {
+    background: linear-gradient(180deg, rgba(251,146,60,0.16) 0%, rgba(194,65,12,0.22) 100%);
+    border-color: rgba(194,65,12,0.26);
+    color: #9a3412;
   }
   [data-theme="light"] .scalp-live-note { color: #475569; }
   [data-theme="light"] .live-event-log {
