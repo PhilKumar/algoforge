@@ -43,11 +43,26 @@ sys.path.insert(0, str(_HERE.parent.parent))
 
 from engine.backtest import _calc_fees, get_option_contract_lot_size  # noqa: E402
 
-DL = Path.home() / "Downloads"
+# The runs ship WITH the document, so anything published here can be rebuilt
+# from the repo alone. ~/Downloads is only a fallback for a freshly exported
+# file that has not been copied in yet.
+DL = _HERE.parent.parent / "docs" / "assets" / "data"
+FALLBACK = Path.home() / "Downloads"
 # The put book as it is being traded: no profit target. The old target export
 # is kept only to show what the previously published figure was, and why.
-PE_FILE = "12186788-PE_BUY_LIVE_BEST_5yrs copy-6.csv"
-PE_TARGET_FILE = "12170898-PE_BUY_LIVE_BEST_5yrs Mod.csv"
+PE_FILE = "pe_no_target_5yr.csv"
+PE_TARGET_FILE = "pe_target10000_5yr.csv"
+CE_FILE = "ce_5yr.csv"
+PE_UPSTOX_FILE = "pe_upstox_real.csv"
+CE_UPSTOX_FILE = "ce_upstox_real.csv"
+
+
+def src(name: str) -> Path:
+    """Prefer the copy shipped in the repo; fall back to a fresh export."""
+    here = DL / name
+    return here if here.exists() else FALLBACK / name
+
+
 MON = {m: i + 1 for i, m in enumerate("JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split())}
 SYM = re.compile(r"^NIFTY(\d{2})([A-Z]{3})(\d{2})(\d+)(CE|PE)$")
 LOTS = 4
@@ -266,10 +281,10 @@ def peak_day_premium(trades):
 
 
 def build(honest_fill: bool, pe_file: str = PE_FILE) -> dict:
-    pe = load_external(DL / pe_file, "PE", False)
-    ce = load_external(DL / "12170969-CE_BUY_LIVE Mod.csv", "CE", honest_fill)
-    upe = load_upstox(DL / "PE_CPR_4Lot_Upstox_Real_trades.csv", "PE")
-    uce = load_upstox(DL / "CE_BUY_LIVE_copy-1_Upstox_Real_trades.csv", "CE")
+    pe = load_external(src(pe_file), "PE", False)
+    ce = load_external(src(CE_FILE), "CE", honest_fill)
+    upe = load_upstox(src(PE_UPSTOX_FILE), "PE")
+    uce = load_upstox(src(CE_UPSTOX_FILE), "CE")
     both = pe + ce
 
     by_day = defaultdict(float)
@@ -339,8 +354,8 @@ def build(honest_fill: bool, pe_file: str = PE_FILE) -> dict:
 
     # The third correction, measured rather than asserted, so the page can
     # interpolate it instead of quoting hand-typed numbers.
-    pe_old = load_external(DL / PE_TARGET_FILE, "PE", False)
-    pe_old_honest = load_external(DL / PE_TARGET_FILE, "PE", True)
+    pe_old = load_external(src(PE_TARGET_FILE), "PE", False)
+    pe_old_honest = load_external(src(PE_TARGET_FILE), "PE", True)
     overpaid = [t for t, u in zip(pe_old_honest, pe_old) if u["exit"] > t["entry"] + PE_TARGET_RUPEES / t["qty"] + 1e-9]
     pe_published = sum(t["net"] for t in pe_old)
 

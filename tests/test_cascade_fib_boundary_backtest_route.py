@@ -149,15 +149,20 @@ class FibBoundarySerializerTests(unittest.TestCase):
 class NiftyLotSizeTests(unittest.TestCase):
     """One hardcoded lot size cannot be right for a replay that spans a change.
 
-    NIFTY stepped 50 -> 75 on 2024-11-20 and 75 -> 65 on 2026-01-01. The fib
-    backtest pinned 75, so every 2026 mother was sized 15% too large and every
-    pre-2024 one 50% too small -- a silent scale error on the P&L, which is the
-    exact failure the constant's own comment promised to prevent.
+    The dates below are ground truth from Upstox's real listed expired contract
+    chains, recorded in data/nse_contract_rules.json: NIFTY carried lot 25
+    through the 26-Dec-2024 expiry, 75 from 02-Jan-2025, and 65 from 06-Jan-2026.
+
+    This test previously asserted 50 for Nov-2024, matching a LOT_SIZES table
+    that ran 50 straight through to Nov-2024. Anything sized off that table
+    between Apr and Dec 2024 was sized at twice the real contract.
     """
 
     def test_the_lot_size_follows_the_mother_date(self):
-        self.assertEqual(_nifty_lot_size_on(date(2024, 11, 19)), 50)
-        self.assertEqual(_nifty_lot_size_on(date(2024, 11, 20)), 75)
+        self.assertEqual(_nifty_lot_size_on(date(2024, 3, 1)), 50)
+        self.assertEqual(_nifty_lot_size_on(date(2024, 11, 19)), 25)
+        self.assertEqual(_nifty_lot_size_on(date(2024, 12, 26)), 25)
+        self.assertEqual(_nifty_lot_size_on(date(2025, 1, 2)), 75)
         self.assertEqual(_nifty_lot_size_on(date(2025, 12, 31)), 75)
         self.assertEqual(_nifty_lot_size_on(date(2026, 1, 1)), 65)
 

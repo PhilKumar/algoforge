@@ -33,7 +33,12 @@ def _dte_weekly(d):
 
 # ── Lot Size Lookup (accurate) ────────────────────────────────────
 LOT_SIZES = {
-    "NIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 75), (date(2000, 1, 1), 50)],
+    # NIFTY's 2024 steps are ground truth from Upstox's real listed expired
+    # contract chains (data/nse_contract_rules.json): lot 25 through the
+    # 26-Dec-2024 expiry, 75 from 02-Jan-2025, 65 from 06-Jan-2026. The table
+    # previously ran 50 straight through to Nov-2024, which sized every
+    # Apr-Dec 2024 backtest at twice the real contract.
+    "NIFTY": [(date(2026, 1, 1), 65), (date(2025, 1, 1), 75), (date(2024, 4, 26), 25), (date(2000, 1, 1), 50)],
     "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2024, 11, 20), 30), (date(2000, 1, 1), 25)],
     "FINNIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 65), (date(2000, 1, 1), 40)],
     "MIDCPNIFTY": [(date(2026, 1, 1), 50), (date(2024, 11, 20), 75), (date(2000, 1, 1), 75)],
