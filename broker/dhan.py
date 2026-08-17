@@ -744,14 +744,32 @@ class ScripMaster:
         return count > 0
 
     @classmethod
-    def lookup(cls, symbol: str, strike: int, expiry: str, option_type: str) -> str:
+    def strike_key(cls, strike) -> str:
+        """The strike spelled the way the cache spells it.
+
+        The cache is built with `str(int(strike_f))` above, so 24350 is stored
+        as "24350". A caller holding a FLOAT strike asked for "24350.0" and
+        missed every time -- and every Fib Boundary fill holds a float, because
+        `atm_strike` multiplies. The ".0" fallback below only ever rescued an
+        int caller; a float one had no way through, so its legs could not be
+        priced live and the ladder could not be killed at all.
+        """
+        try:
+            value = float(strike)
+        except (TypeError, ValueError):
+            return str(strike)
+        return str(int(value)) if value == int(value) else str(strike)
+
+    @classmethod
+    def lookup(cls, symbol: str, strike, expiry: str, option_type: str) -> str:
         """Look up security ID for a specific option contract."""
         cls.ensure_loaded()
-        key = f"{symbol}_{strike}_{expiry}_{option_type}"
+        strike_key = cls.strike_key(strike)
+        key = f"{symbol}_{strike_key}_{expiry}_{option_type}"
         sec_id = cls._options_cache.get(key, "")
         if not sec_id:
             # Try with trailing .0 in strike (some scrip masters store decimals)
-            alt_key = f"{symbol}_{strike}.0_{expiry}_{option_type}"
+            alt_key = f"{symbol}_{strike_key}.0_{expiry}_{option_type}"
             sec_id = cls._options_cache.get(alt_key, "")
         if not sec_id:
             print(f"[SCRIP] ⚠ Security ID not found: {key}")
