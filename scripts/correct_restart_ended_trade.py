@@ -74,8 +74,18 @@ def _trades_of(doc):
 
 
 def _matches(trade: dict, entry_time: str) -> bool:
+    """The restart's trade -- by entry time, and by the mark the restart left.
+
+    ENGINE_STOP is that mark. A trade this script has ALREADY corrected once
+    carries `restart_exit` instead (the mark moved into the audit block), and
+    it must stay reachable: the first correction of Phil's 17-Aug PE used the
+    CPR_S2 cross at 10:45, but his ₹10,000 rupee target had fired at 10:18 --
+    a second pass had to be possible without hand-editing the file.
+    """
     stamp = str(trade.get("entry_time") or "")
-    return entry_time in stamp and str(trade.get("exit_reason") or "").upper() == "ENGINE_STOP"
+    if entry_time not in stamp:
+        return False
+    return str(trade.get("exit_reason") or "").upper() == "ENGINE_STOP" or bool(trade.get("restart_exit"))
 
 
 def correct(trade: dict, *, exit_time: str, exit_premium: float, reason: str) -> dict:
@@ -90,16 +100,30 @@ def correct(trade: dict, *, exit_time: str, exit_premium: float, reason: str) ->
 
     fixed = dict(trade)
     # The restart's version, preserved. A corrected P&L with no trace of what it
-    # replaced is indistinguishable from a number somebody made up.
-    fixed["restart_exit"] = {
-        "exit_time": trade.get("exit_time"),
-        "exit_premium": trade.get("exit_premium"),
-        "exit_quote_premium": trade.get("exit_quote_premium"),
-        "pnl": trade.get("pnl"),
-        "exit_reason": trade.get("exit_reason"),
-        "corrected_at": datetime.now().isoformat(timespec="seconds"),
-        "note": "closed by an app restart, not by the strategy",
-    }
+    # replaced is indistinguishable from a number somebody made up. On a second
+    # pass the ORIGINAL restart exit is kept as it was, and the superseded
+    # correction is filed under it, so the whole trail stays readable.
+    if trade.get("restart_exit"):
+        fixed["restart_exit"] = dict(trade["restart_exit"])
+        fixed["restart_exit"].setdefault("superseded_corrections", []).append(
+            {
+                "exit_time": trade.get("exit_time"),
+                "exit_premium": trade.get("exit_premium"),
+                "pnl": trade.get("pnl"),
+                "exit_reason": trade.get("exit_reason"),
+                "replaced_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+    else:
+        fixed["restart_exit"] = {
+            "exit_time": trade.get("exit_time"),
+            "exit_premium": trade.get("exit_premium"),
+            "exit_quote_premium": trade.get("exit_quote_premium"),
+            "pnl": trade.get("pnl"),
+            "exit_reason": trade.get("exit_reason"),
+            "corrected_at": datetime.now().isoformat(timespec="seconds"),
+            "note": "closed by an app restart, not by the strategy",
+        }
     fixed["exit_time"] = exit_time
     fixed["exit_premium"] = float(exit_premium)
     fixed["exit_quote_premium"] = float(exit_premium)
@@ -163,7 +187,7 @@ def main() -> int:
             print(f"   written · original kept at {os.path.basename(path)}.bak")
 
     if not touched:
-        print(f"No ENGINE_STOP trade entered at {args.entry_time} was found.")
+        print(f"No restart-ended (or previously corrected) trade entered at {args.entry_time} was found.")
         return 1
     if not args.apply:
         print("\nNothing was written. Re-run with --apply once the numbers above look right.")
