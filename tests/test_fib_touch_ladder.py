@@ -1047,6 +1047,27 @@ class MotherBreakTests(unittest.TestCase):
     """Phil: "If mother candle broken, stop the trade" -- but only once the
     ladder has actually bought. Before that the setup has MOVED, not failed."""
 
+    def test_a_mother_broken_before_any_swing_forms_ends_the_campaign(self):
+        """The 2-Jun-2026 zombie. A CE mother at the bottom of an up-day is
+        closed above on the very next bar -- no swing, no anchor, nothing
+        bought. Until 2026-08-17 the break was only looked for AFTER an anchor
+        existed, so the campaign idled at WAITING_FOR_SWING for nine sessions
+        on a geometry that had already declared itself finished. Phil's
+        2026-08-15 ruling (no buys + broken mother = close it, wait for his
+        next MC) applies before arming exactly as it does after."""
+        candles = falling_then_bouncing()
+        engine, _, _ = ladder()
+        engine.on_candle(candles[0])  # the mother: high 24,780
+        self.assertIsNone(engine.anchor)
+        # Straight up through the mother high before any bounce can form.
+        engine.on_candle(Bar(candles[0].timestamp + timedelta(minutes=1), 24_700, 24_820, 24_690, 24_810))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.exit_reason, "mother_broken_no_buys")
+        self.assertEqual(engine.fills, [])
+        # And it stays ended -- no zombie geometry keeps it alive.
+        engine.on_candle(Bar(candles[0].timestamp + timedelta(minutes=2), 24_810, 24_815, 24_600, 24_605))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+
     def test_a_close_above_the_mother_high_ends_a_ce_campaign(self):
         engine, candles, _ = ladder()
         for bar in candles:

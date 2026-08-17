@@ -249,9 +249,19 @@ def find_swing_anchor(
     lookback_bars: int = 240,
     involvement: int = INVOLVEMENT_CANDLES,
 ) -> Optional[SwingAnchor]:
-    """Anchor the fib on the counter-swing that FOLLOWS the mother.
+    """RETIRED -- the ladder no longer draws its fibs with this.
 
-    Both anchors sit after the mother, and they are found in order. Phil,
+    Since the 2026-08-15 merge (b9578ad) every fib the ladder trades comes from
+    `LadderGeometry` -> `fib_space_geometry`: the adjudicated CryptoForge
+    trendline+fib rule. Phil, 2026-08-17: "all has to follow cryptoforge method
+    of drawing Fibs and TLs. That is the base for the whole trading system."
+    This function survives only for `tools/fib_ladder_nse.py`; nothing on the
+    console reaches it. Do NOT read it as the ladder's rule -- that mistake
+    cost a morning on 2026-08-17.
+
+    Original rule, kept for the tool that still uses it: anchor the fib on the
+    counter-swing that FOLLOWS the mother. Both anchors sit after the mother,
+    and they are found in order. Phil,
     2026-08-06, correcting a chart that had used the mother's own high: "the fib
     has to be drawn from the swing low to the high but it takes the mother
     candle high -- wrong."
@@ -1968,6 +1978,16 @@ class FibTouchLadder:
         # the same position: its new mother came off the 1m series.
         if self.config.timeframe == self.config.entry_bar_timeframe:
             self.on_geometry_candle(bar)
+        # THE MOTHER CAN BREAK BEFORE A SWING EVER FORMS. A CE mother at the
+        # bottom of an up-day is broken on the very next bar; the geometry
+        # underneath marks itself finished, but until 2026-08-17 the ladder
+        # only looked for a break AFTER an anchor existed, so an unarmed
+        # campaign sat at WAITING_FOR_SWING forever on a dead structure
+        # (2-Jun-2026 09:15 idled nine sessions in the sweep). Phil's
+        # 2026-08-15 ruling -- no buys, mother broken, close it and wait for
+        # his next MC -- applies here exactly as it does after arming.
+        if self.anchor is None and self.mother_high is not None and self._try_mother_break(bar):
+            return
         if self.anchor is None:
             return
         # The bar that confirmed the swing is the earliest one that may trade;
