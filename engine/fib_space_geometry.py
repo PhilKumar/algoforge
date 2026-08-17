@@ -61,6 +61,19 @@ FIB_LEVELS: tuple[int, ...] = (2, 4, 8)
 # of price and at NIFTY scale 0.02% is ~5 points, which is the right order.
 DECISIVE_BREAK_PCT = 0.0002
 # A swing smaller than this is chop whose levels would be noise.
+#
+# MEASURED IN CANDLES, NOT PRICE, since 2026-08-17.  The crypto value (0.1% of
+# price) is a real swing on BTC and 24 points on NIFTY at 24,400 -- larger
+# than the whole 19.65-point swing Phil marked on the 14-Aug-2026 5m chart, so
+# the engine drew his trendline, found his touch on the 14:55 swing high, saw
+# the low break at 15:10, and then threw the fib away as "chop".  The same
+# instrument-scaling trap the anchor slack fell into (see
+# GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES); the same fix: a swing has to be at
+# least this many TYPICAL BARS of the mother's own timeframe tall, so a 5m
+# ladder and a 1H ladder each judge chop by their own candles.
+MIN_FIB_RANGE_CANDLES = 1.0
+# The old price fraction, kept only as the floor when a window is too young to
+# have a median bar yet (fewer than a handful of candles after the mother).
 MIN_FIB_RANGE_PCT = 0.001
 # Two fibs whose touch highs sit this close are the same shelf.
 MIN_LEG_SEPARATION_PCT = 0.0003
@@ -232,11 +245,28 @@ class SpaceGeometry:
     def _window(self, upto: Bar) -> list[Bar]:
         return [b for b in self._history if self.mother.index < b.index <= upto.index]
 
+    def _typical_bar(self, window: list[Bar]) -> float:
+        """The window's median candle range, in points -- the unit both
+        instrument-scaled gates are measured in."""
+        ranges = sorted(b.range for b in window if b.range > 0)
+        return ranges[len(ranges) // 2] if ranges else 0.0
+
     def _slack(self, window: list[Bar]) -> float:
         """The anchor slack in points: a fraction of the window's median bar."""
-        ranges = sorted(b.range for b in window)
-        typical = ranges[len(ranges) // 2] if ranges else 0.0
-        return typical * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES
+        return self._typical_bar(window) * GEOMETRY_ANCHOR_CLOSE_TOLERANCE_CANDLES
+
+    def _min_range(self, at_price: float, window: Optional[list[Bar]] = None) -> float:
+        """The smallest swing that is a structure and not chop, in points.
+
+        Candle-scaled (MIN_FIB_RANGE_CANDLES typical bars) once the window has
+        enough bars to know its own size; before that, the price-fraction floor
+        so a two-bar-old window is not judged against a median of nothing.
+        """
+        window = self._window(self._history[-1]) if window is None else window
+        typical = self._typical_bar(window) if len(window) >= 3 else 0.0
+        if typical > 0:
+            return typical * MIN_FIB_RANGE_CANDLES
+        return at_price * MIN_FIB_RANGE_PCT
 
     # -- the state machine ------------------------------------------------
 
@@ -312,7 +342,7 @@ class SpaceGeometry:
                 if other.index <= self.mother.index or other.index >= bar.index:
                     continue
                 ultimate = other.low if ultimate is None else min(ultimate, other.low)
-            if ultimate is not None and (bar.high - ultimate) >= bar.high * MIN_FIB_RANGE_PCT:
+            if ultimate is not None and (bar.high - ultimate) >= self._min_range(bar.high):
                 self._file_pending(bar.high, bar.index, bar.timestamp, ultimate, 0)
 
         # 5. Low tracking: run down while falling, lock on the rise.  A GREEN
@@ -324,7 +354,7 @@ class SpaceGeometry:
                 self.low = bar.low
                 self.low_index = bar.index
                 self.low_close = bar.close
-                if bar.is_green and (bar.close - bar.low) >= bar.close * MIN_FIB_RANGE_PCT:
+                if bar.is_green and (bar.close - bar.low) >= self._min_range(bar.close):
                     self.low_locked = True
         elif not self.low_locked and self.low_close is not None and bar.close > self.low_close:
             self.low_locked = True
@@ -418,7 +448,7 @@ class SpaceGeometry:
             anchor_bar = next((b for b in window if b.index == candidate_line.anchor2_index), None)
             if ultimate is not None and anchor_bar is not None and anchor_bar.high < self.mother.high:
                 fib1 = min(ultimate, anchor_bar.low)
-                if (anchor_bar.high - fib1) >= anchor_bar.high * MIN_FIB_RANGE_PCT:
+                if (anchor_bar.high - fib1) >= self._min_range(anchor_bar.high, window):
                     touch = (anchor_bar.high, anchor_bar.index, anchor_bar.timestamp, fib1)
         if touch is None:
             return
@@ -451,7 +481,7 @@ class SpaceGeometry:
                 level = line.price_at(bar.index)
                 if level > 0 and bar.high >= level and bar.close < level:
                     fib1 = min(ultimate, bar.low)
-                    if (bar.high - fib1) >= bar.high * MIN_FIB_RANGE_PCT:
+                    if (bar.high - fib1) >= self._min_range(bar.high, window):
                         if best is None or fib1 < best[3] - best[3] * 1e-9:
                             best = (bar.high, bar.index, bar.timestamp, fib1)
                         elif bar.high > best[0]:
@@ -464,7 +494,7 @@ class SpaceGeometry:
     def _file_pending(self, fib0: float, index: int, stamp: datetime, fib1: float, trendline_id: int) -> None:
         if fib1 is None or fib0 <= fib1:
             return
-        if (fib0 - fib1) < fib0 * MIN_FIB_RANGE_PCT:
+        if (fib0 - fib1) < self._min_range(fib0):
             return
         for row in self.pending:
             if abs(row["fib1"] - fib1) <= fib1 * 1e-9:

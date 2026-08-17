@@ -211,5 +211,80 @@ class ConfigurationTests(unittest.TestCase):
             LadderGeometry(())
 
 
+# NIFTY 5m, 14-Aug-2026, 14:00 mother -- the real bars, from Upstox.
+# (open, high, low, close), one row per 5m candle from the mother on.
+_AUG14_5M = [
+    (24395.00, 24405.20, 24393.00, 24395.55),  # 14:00 MOTHER
+    (24395.90, 24398.80, 24387.35, 24389.95),  # 14:05
+    (24390.50, 24392.05, 24382.50, 24383.55),  # 14:10
+    (24383.20, 24389.20, 24378.65, 24379.95),  # 14:15
+    (24378.70, 24381.00, 24372.80, 24376.90),  # 14:20
+    (24377.30, 24379.20, 24369.65, 24371.60),  # 14:25
+    (24372.60, 24375.00, 24367.55, 24371.60),  # 14:30
+    (24371.95, 24373.50, 24366.40, 24369.35),  # 14:35
+    (24369.35, 24373.85, 24368.40, 24369.45),  # 14:40  low locks on this close
+    (24370.00, 24374.15, 24364.75, 24366.80),  # 14:45  ultimate low 24,364.75
+    (24365.65, 24383.40, 24365.65, 24382.40),  # 14:50
+    (24380.90, 24384.40, 24373.40, 24374.60),  # 14:55  the swing high the TL touches
+    (24374.25, 24382.25, 24370.70, 24375.45),  # 15:00
+    (24375.75, 24377.45, 24368.25, 24371.05),  # 15:05
+    (24371.15, 24375.20, 24354.45, 24354.45),  # 15:10  decisive break of the low
+]
+
+
+class InstrumentScaledSwingGateTests(unittest.TestCase):
+    """The chop gate is measured in the instrument's own candles, not in a
+    fraction of price.
+
+    Phil's 14-Aug-2026 chart: trendline from the mother, touching the 14:55
+    swing high; the low broke decisively at 15:10. Every part of the rule
+    fired -- and the fib was thrown away, because the swing measured 19.65
+    points and the crypto-sized MIN_FIB_RANGE_PCT demanded 24.4 (0.1% of
+    24,384). A swing bigger than a whole 5m bar is not chop on a 5m chart.
+    Phil, 2026-08-17: "Market has fallen so much and still we had not drawn
+    a fib means it is ridiculous."
+    """
+
+    def _replay(self):
+        g = LadderGeometry(LEVELS)
+        base = datetime(2026, 8, 14, 14, 0)
+        for i, (o, h, lo, c) in enumerate(_AUG14_5M):
+            g.on_bar(_Candle(base + timedelta(minutes=5 * i), o, h, lo, c), is_mother=(i == 0))
+        return g
+
+    def test_the_trendline_touches_the_swing_high(self):
+        g = self._replay()
+        self.assertEqual(len(g.trendlines), 1)
+        self.assertEqual(g.trendlines[0].anchor2_timestamp, datetime(2026, 8, 14, 14, 55))
+
+    def test_the_fib_is_drawn_on_the_break_of_the_low(self):
+        g = self._replay()
+        self.assertEqual(len(g.fibs), 1, "the swing is a whole candle tall; it is a structure, not chop")
+        fib = g.fibs[0]
+        self.assertEqual(fib.drawn_timestamp, datetime(2026, 8, 14, 15, 10))
+        self.assertAlmostEqual(fib.fib0, 24384.40, places=2)
+        self.assertAlmostEqual(fib.fib1, 24364.75, places=2)
+
+    def test_the_swing_is_smaller_than_the_old_price_gate(self):
+        """Documents WHY this test exists: under 0.1%-of-price it fails."""
+        fib = self._replay().fibs[0]
+        self.assertLess(fib.span, fib.fib0 * 0.001)
+
+    def test_a_swing_smaller_than_a_candle_is_still_chop(self):
+        """The gate did not vanish -- it scaled. A wobble narrower than one
+        candle on eight-point candles draws nothing that size."""
+        g = LadderGeometry(LEVELS)
+        base = datetime(2026, 8, 14, 14, 0)
+        rows = [(100.0, 108.0, 100.0, 101.0)]  # mother, an 8-point bar
+        px = 100.0
+        for i in range(1, 14):
+            px -= 0.4
+            rows.append((px + 4, px + 8, px, px + 3.5 if i % 4 else px + 0.5))
+        for i, (o, h, lo, c) in enumerate(rows):
+            g.on_bar(_Candle(base + timedelta(minutes=5 * i), o, h, lo, c), is_mother=(i == 0))
+        for fib in g.fibs:
+            self.assertGreaterEqual(fib.span, 8.0 * 0.99, "a fib narrower than one candle slipped through")
+
+
 if __name__ == "__main__":
     unittest.main()
