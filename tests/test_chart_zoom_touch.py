@@ -35,7 +35,7 @@ class ZoomResetControlTests(unittest.TestCase):
     def test_the_readout_is_a_real_button_that_resets(self):
         host = self.js.split("function _pfBenchChartHostHtml", 1)[1].split("\nfunction ", 1)[0]
         self.assertIn("data-bench-zoom-reset", host)
-        self.assertIn("aria-label=\"Reset zoom to fit\"", host)
+        self.assertIn('aria-label="Reset zoom to fit"', host)
         # Still the same readout hook, so every zoom updates it as before.
         self.assertIn("data-bench-zoom-level", host)
         self.assertNotRegex(host, r"<span[^>]*data-bench-zoom-level", "the readout must be a button, not dead text")
