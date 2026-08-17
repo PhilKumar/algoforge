@@ -200,7 +200,20 @@
             --surface-3: #e5edf5;
             --line: rgba(38, 65, 93, .16);
             --line-strong: rgba(38, 65, 93, .28);
-            --dim: #7d8b9d;
+            /* Accents too. The dark values are LIGHT colours -- teal #27d3b4
+               on a white surface is 1.8:1, amber 1.7:1, violet 2.6:1 -- so
+               every node number, eyebrow, tag and legend dot washed out
+               (Phil, 2026-08-17: "contrast not in sync, the colours are not
+               visible"). These clear WCAG 4.5:1 on #f9fbfd, measured:
+               teal 5.3, amber 4.8, violet 6.9, blue 6.5, dim 4.6. */
+            --teal: #0f766e;
+            --teal-rgb: 15, 118, 110;
+            --blue: #1d4ed8;
+            --blue-rgb: 29, 78, 216;
+            --violet: #6d28d9;
+            --amber: #b45309;
+            --red: #b91c1c;
+            --dim: #64748b;
           }
           .atlas-shell { width: 100%; }
           .control-deck { top: 8px; margin-top: 0; }
