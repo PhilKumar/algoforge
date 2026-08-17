@@ -858,7 +858,12 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         execution_timeframe_minutes=execution_timeframe,
     )
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
-    entry_earliest = time(9, 20)
+    # No entry before the first 5-minute candle of the session has closed. A
+    # strategy running on 1-minute execution can legitimately want an earlier
+    # floor, so the time is configurable; the default keeps every existing run
+    # byte-identical.
+    entry_earliest_raw = str(sc.get("entry_earliest_time") or "").strip()
+    entry_earliest = _parse_time(entry_earliest_raw) if entry_earliest_raw else time(9, 20)
 
     total_pnl = 0.0
     total_fees = 0.0
@@ -1339,12 +1344,23 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 )
                 exited_this_candle = True
             if not exited_this_candle and strategy_tp_val > 0 and portfolio_best_pnl >= strategy_tp_val:
-                _close_selected_positions(
-                    list(open_positions),
-                    ts,
-                    lambda position, snap_map=snapshots: snap_map[id(position)]["best"],
-                    "StrategyTP",
-                )
+                # Fill AT the target, never at the candle's best price. The
+                # target is touched somewhere inside the candle; booking the
+                # extreme instead books a price no order can get, and on the
+                # live PE book that was 66% of the backtested profit. P&L is
+                # linear in price, so interpolate current -> best to the exact
+                # point the target is met. If the candle already opened past
+                # the target the fraction is 0 and the fill is the current
+                # price, which is the honest worst case of the two.
+                span = portfolio_best_pnl - portfolio_cur_pnl
+                reach = (strategy_tp_val - portfolio_cur_pnl) / span if span > 0 else 0.0
+                reach = min(1.0, max(0.0, reach))
+
+                def exit_at_target(position, snap_map=snapshots, f=reach):
+                    snap = snap_map[id(position)]
+                    return snap["current"] + (snap["best"] - snap["current"]) * f
+
+                _close_selected_positions(list(open_positions), ts, exit_at_target, "StrategyTP")
                 exited_this_candle = True
             if not exited_this_candle and trailing_sl_pct > 0 and trade_peak_pnl > 0:
                 if portfolio_cur_pnl <= trade_peak_pnl * (1 - trailing_sl_pct / 100):

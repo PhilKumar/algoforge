@@ -20,6 +20,7 @@ D = json.load(open(_HERE / "report_data.json"))
 H = D["headline"]
 BW = D["best_worst"]
 DAY = D["daily"]
+FC = D["fill_correction"]
 OUT = str(_REPO / "docs" / "assets" / "backtest-tearsheet-5yr.html")
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -422,8 +423,8 @@ LEDGER_BTNS = "".join(f'<button type="button" data-year="{y}" aria-pressed="fals
 
 # ── prose blocks, bilingual ──────────────────────────────────────────
 PARA01 = t(
-    f"""Restating both moves the headline from <span class="num">{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> as exported to <span class="num"><strong>{r(H["combined"]["net"])}</strong></span> net &mdash; <span class="num">{r(H["combined"]["fees"])}</span> of that gap is transaction cost. The lower number is the one this document uses throughout.""",
-    f"""இரண்டையும் திருத்தியதும் தலைப்பு எண் <span class='num'>{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> என்பதிலிருந்து <span class='num'><strong>{r(H["combined"]["net"])}</strong></span> நிகரமாக மாறுகிறது &mdash; அந்த இடைவெளியில் <span class='num'>{r(H["combined"]["fees"])}</span> பரிவர்த்தனைக் கட்டணம். இந்த ஆவணம் முழுவதும் சிறிய எண்ணையே பயன்படுத்துகிறது.""",
+    f"""Restating all three moves the headline from <span class="num">{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> as exported to <span class="num"><strong>{r(H["combined"]["net"])}</strong></span> net &mdash; <span class="num">{r(H["combined"]["fees"])}</span> of that gap is transaction cost and <span class="num">{r(FC["pe_removed"])}</span> is the unreachable target fill described below. The lower number is the one this document uses throughout.""",
+    f"""மூன்றையும் திருத்தியதும் தலைப்பு எண் <span class='num'>{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> என்பதிலிருந்து <span class='num'><strong>{r(H["combined"]["net"])}</strong></span> நிகரமாக மாறுகிறது &mdash; அந்த இடைவெளியில் <span class='num'>{r(H["combined"]["fees"])}</span> பரிவர்த்தனைக் கட்டணம், <span class='num'>{r(FC["pe_removed"])}</span> கீழே விவரிக்கப்பட்ட அடைய முடியாத இலக்கு விலை. இந்த ஆவணம் முழுவதும் சிறிய எண்ணையே பயன்படுத்துகிறது.""",
 )
 
 PARA02 = t(
@@ -621,6 +622,12 @@ PARA40 = t(
     """இது ஒரு பேக்டெஸ்ட். ஒவ்வொரு சிக்னலும் பதிவான பிரீமியத்தில் நிறைவேறியதாக, நிராகரிப்பு இல்லாமல், பகுதி நிறைவேற்றம் இல்லாமல், கணக்கிட்ட கட்டணங்களுக்கு மேல் ஸ்லிப்பேஜ் இல்லாமல் கருதுகிறது. லைவ் செயல்பாடு இந்த மூன்றையும் சேர்க்கிறது. ஒரு குறியீட்டின் கடந்தகால நடத்தை, அதன் லாட் அளவு, எக்ஸ்பயரி நாட்காட்டி ஆகியவை அப்படியே நீடிக்கும் என்பதற்கு உத்தரவாதம் இல்லை &mdash; இந்தப் பதிவிலேயே அத்தகைய இரண்டு மாற்றங்கள் உள்ளன. இங்குள்ள எதுவும் முதலீட்டு ஆலோசனை அல்ல, பணத்தை நிர்வகிக்கும் சலுகையும் அல்ல.""",
 )
 
+
+PARA44 = t(
+    f"""A version of this document published on 14 August 2026 showed {r(FC["combined_published"])} and is superseded. That figure had the target in it, and the target exit was being recorded at the <strong>best price the option touched inside that candle</strong> rather than at the target &mdash; a fill no order can achieve. It affected {FC["trades_overpaid"]} of the put book's {FC["pe_trades"]} trades and overstated the put book by {r(FC["pe_removed"])}. Corrected, that configuration was worth {r(FC["combined_old_honest"])}; without the target it is the {r(H["combined"]["net"])} shown here. The call book never had a target and never carried the error &mdash; checked against real one-minute option prices, {FC["ce_exits_on_candle_high_pct"]}% of its exits land on a candle high against {FC["pe_target_exits_on_candle_high_pct"]}% of the old put targets.""",
+    f"""14 ஆகஸ்ட் 2026 அன்று வெளியிடப்பட்ட பதிப்பு {r(FC["combined_published"])} எனக் காட்டியது; அது இப்போது செல்லாது. அந்த எண்ணில் இலக்கு இருந்தது, மேலும் இலக்கு வெளியேற்றம் இலக்கு விலையில் அல்லாமல் <strong>அந்த கேண்டிலில் ஆப்ஷன் தொட்ட உயர்ந்த விலையில்</strong> பதிவாகியது &mdash; எந்த ஆர்டரும் அடைய முடியாத விலை. இது PUT புத்தகத்தின் {FC["pe_trades"]} டிரேடுகளில் {FC["trades_overpaid"]} ஐப் பாதித்து, புத்தகத்தை {r(FC["pe_removed"])} அளவுக்கு மிகைப்படுத்தியது. திருத்தியபின் அந்த அமைப்பு {r(FC["combined_old_honest"])}; இலக்கு இல்லாமல் அது இங்கே காட்டப்படும் {r(H["combined"]["net"])}. CALL புத்தகத்தில் இலக்கு ஒருபோதும் இல்லை, பிழையும் இல்லை &mdash; உண்மையான ஒரு நிமிட விலைகளுடன் சரிபார்க்கையில், அதன் வெளியேற்றங்களில் {FC["ce_exits_on_candle_high_pct"]}% மட்டுமே கேண்டில் உச்சத்தில் விழுகின்றன; பழைய PUT இலக்குகளில் {FC["pe_target_exits_on_candle_high_pct"]}%.""",
+)
+
 READER_JS = """
 <script>
 /* The blueprint reader's behaviours, on this document's own markup: a contents
@@ -719,6 +726,7 @@ READER_JS = """
 
 
 page = f"""<title>PhilForge Options Tearsheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 /* The palette, the grid ground, the type and the card geometry below are the
    PhilForge blueprint reader's (static/architecture-document.css), so this
@@ -1077,6 +1085,12 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
   <h2 class="note-h">{t("Two corrections were mandatory before any figure here could be quoted", "இங்கு எந்த எண்ணையும் சொல்வதற்கு முன் இரண்டு திருத்தங்கள் கட்டாயம்")}</h2>
   <p>{t("The source export stamps <strong>quantity 260 on every trade in all five years</strong> &mdash; four lots at <em>today's</em> NIFTY lot size &mdash; and reports profit <strong>gross of costs</strong>. The real lot was 50 until Apr 2024, 25 until Dec 2024, then 75, then 65. Left uncorrected, that alone overstates the early years.", "மூல ஏற்றுமதி (export) <strong>ஐந்து ஆண்டுகளின் ஒவ்வொரு டிரேடுக்கும் 260 என்ற அளவையே</strong> பதிக்கிறது &mdash; அதாவது <em>இன்றைய</em> NIFTY லாட் அளவில் நான்கு லாட் &mdash; மேலும் லாபத்தை <strong>கட்டணங்களுக்கு முன்</strong> காட்டுகிறது. உண்மையான லாட் ஏப்ரல் 2024 வரை 50, டிசம்பர் 2024 வரை 25, பின்னர் 75, பின்னர் 65. திருத்தாமல் விட்டால் இதுவே ஆரம்ப ஆண்டுகளை மிகைப்படுத்திக் காட்டும்.")}</p>
   <p>{PARA01}</p>
+</div>
+
+<div class="note note-warn">
+  <h2 class="note-h">{t("The put book no longer takes a profit target, and an earlier version of this document was overstated", "PUT புத்தகம் இனி இலக்கு எடுப்பதில்லை; இந்த ஆவணத்தின் முந்தைய பதிப்பு மிகைப்படுத்தப்பட்டிருந்தது")}</h2>
+  <p>{t("The put book previously exited at a &#8377;10,000 profit target. It has been removed &mdash; the 20% stop, the CPR level exits and the call book are unchanged &mdash; and every put figure on this page is the book running without it.", "PUT புத்தகம் முன்பு &#8377;10,000 இலக்கில் வெளியேறியது. அது நீக்கப்பட்டுவிட்டது &mdash; 20% ஸ்டாப், CPR லெவல் வெளியேற்றங்கள், CALL புத்தகம் அனைத்தும் மாறவில்லை &mdash; இப்பக்கத்தின் ஒவ்வொரு PUT எண்ணும் இலக்கு இல்லாமல் இயங்கிய புத்தகமே.")}</p>
+  <p>{PARA44}</p>
 </div>
 
 <section>
