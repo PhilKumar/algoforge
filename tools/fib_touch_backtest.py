@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from data.cascade_upstox import UpstoxPremiumSource  # noqa: E402
+from engine.backtest import get_lot_size  # noqa: E402
 from engine.fib_touch_ladder import (  # noqa: E402
     FibTouchConfig,
     FibTouchLadder,
@@ -163,40 +164,82 @@ def sweep(args) -> None:
         if start.timestamp < session_open or offset % tf_minutes:
             index += 1
             continue
+        # A mother inside the closing auction (15:15 on) can never trade: the
+        # intraday square-off for its day is already behind it and its first
+        # geometry bar is a flat print. Live, nobody starts a campaign there;
+        # here it parked a campaign for nine sessions doing nothing.
+        if (start.timestamp.hour, start.timestamp.minute) >= (15, 15):
+            index += 1
+            continue
 
         config = FibTouchConfig(
             symbol=terms.symbol,
             side=args.side,
             mother_timestamp=start.timestamp,
-            lot_size=65 if terms.symbol == "NIFTY" else terms.lot_size,
+            # The lot as it WAS on that day: NIFTY was 50 until 2024-11-20, 75
+            # until 2026-01-01, 65 since. A flat 65 sizes every pre-2026
+            # campaign ~15% small and lets rungs under the cap that the cap
+            # would not have funded at the time.
+            lot_size=get_lot_size(terms.symbol, start.timestamp.date()),
             strike_step=terms.strike_step,
             timeframe=args.timeframe,
+            # Touches are read on 1m whatever the mother chart is -- the console
+            # says so explicitly, and leaving it blank makes the engine treat every
+            # 1m entry bar as a geometry bar of the mother's timeframe.
+            entry_timeframe="1m",
             capital_cap_inr=args.cap,
             itm_steps=args.itm_steps,
             min_dte=args.min_dte,
             deep_target=not args.flat_target,
             trailing_stop=args.trail > 0,
             trail_span_multiple=args.trail or 1.0,
+            buy_mode=args.buy_mode,
+            intraday_close=(args.session == "intraday"),
         )
         engine = FibTouchLadder(config, premium_lookup=lookup, expiry_source=lambda on: expiries)
         window = every[index : index + args.horizon_days * 400]
-        if args.timeframe != "1m":
-            for bar in resample(window, tf_minutes):
-                engine.on_geometry_candle(bar)
+        # THE GEOMETRY BAR IS DELIVERED WHEN IT CLOSES, NOT UP FRONT. Feeding
+        # the whole resampled window before the first 1m bar let a campaign
+        # read fibs from days it had not reached -- lookahead, and every
+        # option-side sweep before 2026-08-17 carried it. A 5m bar closes when
+        # its fifth minute has, so it goes in right after that minute, the
+        # same order the live loop sees them in.
         consumed = 0
-        for bar in window:
-            engine.on_candle(bar)
-            consumed += 1
-            if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
-                break
+        if args.timeframe == "1m":
+            for bar in window:
+                engine.on_candle(bar)
+                consumed += 1
+                if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
+                    break
+        else:
+            geo = resample(window, tf_minutes)
+            geo_i = 0
+            for bar in window:
+                # deliver every geometry bar whose LAST minute is this bar
+                while geo_i < len(geo) and geo[geo_i].timestamp + timedelta(
+                    minutes=tf_minutes
+                ) <= bar.timestamp + timedelta(minutes=1):
+                    engine.on_geometry_candle(geo[geo_i])
+                    geo_i += 1
+                engine.on_candle(bar)
+                consumed += 1
+                if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
+                    break
         st = engine.get_status()
-        if st["fills"]:
+        # A campaign that ran to EXPIRY has moved every leg into `settled_fills`
+        # and left `fills` empty. Testing `fills` alone drops exactly the
+        # campaigns that lost the whole premium: 18 of them, -Rs 11.6L, were
+        # invisible across 22 months of "profitable" sweeps on 2026-08-08. The
+        # tell is an exit mix with zero `expiry_square_off` on a strategy with
+        # no stop loss -- impossible. Count what TRADED, whichever list it is in.
+        traded = st["fills"] + st.get("settled_fills", [])
+        if traded:
             rows.append(
                 {
                     "mother": start.timestamp,
                     "status": st["status"],
                     "exit": st["exit_reason"],
-                    "fills": len(st["fills"]),
+                    "fills": len(traded),
                     "net": st["net_pnl"],
                     "gaps": len(st["data_gaps"]),
                     "rebases": sum(1 for e in st["events"] if e["event"] == "mother_rebased"),
@@ -212,6 +255,7 @@ def sweep(args) -> None:
     net = sum(r["net"] for r in priced)
     mode = "flat 0.25" if args.flat_target else "0.25/0.5 deep"
     mode += f" · trail {args.trail} span" if args.trail else " · no trail"
+    mode += f" · {args.buy_mode} · {args.session}"
     print(f"\n=== {terms.symbol} {args.side} · {args.timeframe} mother · {mode} · {first} to {last} ===")
     print(f"campaigns that bought : {len(rows)}   priced {len(priced)}   unpriced {unpriced}")
     if priced:
@@ -245,6 +289,18 @@ def main() -> None:
     ap.add_argument("--to", dest="to_day", help="sweep mode: last day")
     ap.add_argument("--flat-target", action="store_true", help="keep 0.25 at every depth")
     ap.add_argument("--trail", type=float, default=0.0, help="trailing exit, in fib spans (0 = off)")
+    ap.add_argument(
+        "--buy-mode",
+        default="levels",
+        choices=["levels", "convergence"],
+        help="the console's WHAT IT BUYS: every level (Fib Boundary) or where two meet (Fib Space)",
+    )
+    ap.add_argument(
+        "--session",
+        default="intraday",
+        choices=["intraday", "normal"],
+        help="the console's SESSION: square off 15:15 same day, or carry to target/mother/expiry",
+    )
     args = ap.parse_args()
 
     if args.from_day:
