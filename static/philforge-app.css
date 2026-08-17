@@ -8134,6 +8134,53 @@ body :is(
   border-radius: 50%;
   transform: rotate(-18deg);
 }
+/* THE RAIL. Phil, 2026-08-17: "a similar graphics on every page head panel
+   like a line moving around like we see a line moving straight on the shared
+   request to audit path." The Atlas flow-board's .flow-rail: a thin tinted
+   track along the hero's foot with a bright pulse that travels it end to end
+   and fades at both edges. One element per hero, one rule here -- both hero
+   pseudo-elements were already spoken for. Sits under the copy (z-index -1
+   inside the hero's own isolation) so it never fights the text. */
+.pf-hero-rail {
+  position: absolute;
+  z-index: -1;
+  left: 28px;
+  right: 24px;
+  bottom: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .10),
+    rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .55),
+    rgba(167, 139, 250, .55),
+    rgba(245, 184, 75, .45));
+  opacity: .6;
+  pointer-events: none;
+  overflow: visible;
+}
+.pf-hero-rail::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -120px;
+  width: 110px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  box-shadow: 0 0 12px rgba(var(--pf-tint-primary-rgb, 0, 191, 165), .9);
+  filter: blur(.35px);
+  animation: pfHeroRail 3.2s linear infinite;
+  will-change: left, opacity;
+}
+@keyframes pfHeroRail {
+  0%   { left: -120px; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { left: 100%;  opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pf-hero-rail::after { animation: none; left: 30%; opacity: .5; }
+}
 .pf-workspace-hero-copy { min-width: 0; max-width: 720px; }
 .pf-workspace-eyebrow {
   margin-bottom: 6px;
@@ -8313,6 +8360,12 @@ body :is(
   box-shadow: 0 14px 30px rgba(15,23,42,.08), inset 0 1px 0 #fff;
 }
 [data-theme="light"] .pf-workspace-hero-meta > div { background: rgba(255,255,255,.72); border-color: rgba(15,23,42,.10); }
+/* A white pulse vanishes on a white hero; in light the pulse IS the tint. */
+[data-theme="light"] .pf-hero-rail { opacity: .8; }
+[data-theme="light"] .pf-hero-rail::after {
+  background: linear-gradient(90deg, transparent, rgb(var(--pf-tint-primary-rgb, 0,191,165)), transparent);
+  box-shadow: 0 0 10px rgba(var(--pf-tint-primary-rgb, 0,191,165), .55);
+}
 [data-theme="light"] .pf-unified-page .card { background: linear-gradient(155deg, #ffffff, #f7f9fc); }
 [data-theme="light"] .pf-unified-page .card-glass { background: linear-gradient(155deg, #ffffff, #f2f7fa); }
 /* The rest of the light counterpart this pass was missing (Phil's screenshot,
