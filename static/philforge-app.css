@@ -8137,14 +8137,31 @@ body :is(
 /* THE RAIL. Phil, 2026-08-17, first: "a similar graphics on every page head
    panel like a line moving around like we see a line moving straight on the
    shared request to audit path." Then, seeing a straight line: "I need not in
-   straight line.. I want it to rotate that heading fully."
+   straight line.. I want it to rotate that heading fully." Then, seeing it
+   only mid-top and mid-bottom: "not fully from left to right completely."
 
-   So the pulse ORBITS the hero. A rounded rectangle has no path CSS can
-   animate along, but a conic gradient spun inside a 1.5px border ring is
-   exactly a bright arc sweeping the perimeter -- corners included. The ring
-   is the element; the mask leaves only its border painted; the ::before is
-   the oversized spinning gradient behind it. One element per hero, one rule.
-   Sits under the copy inside the hero's own isolation. */
+   So the pulse ORBITS the head panel -- every head panel, whichever class
+   builds it (.pf-workspace-hero on seven pages, .oc-hero on Results and the
+   Cascade desk, .trading-workspace-head on Trading). A rounded rectangle has
+   no path CSS can animate along, but a conic gradient spun inside a 1.5px
+   border ring is exactly a bright arc sweeping the perimeter, corners
+   included. The ring is the element; the mask leaves only its border
+   painted; the ::before is the spinning gradient behind it.
+
+   WHY IT ONLY LIT THE MIDDLE BEFORE: the spinning square was `inset:-60%`,
+   i.e. ~2.2x the hero's WIDTH -- but a rotating square covers a rectangle's
+   corners only if its side is at least the rectangle's DIAGONAL, and it must
+   stay covering through every angle. On a 1200x110 hero the square's own
+   corners swept the panel's short middle and left both long ends dark. Now
+   the square is sized off the panel's larger side, big enough that no angle
+   ever uncovers an edge. */
+.pf-workspace-hero,
+.oc-hero,
+.trading-workspace-head {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
 .pf-hero-rail {
   position: absolute;
   z-index: -1;
@@ -8163,8 +8180,15 @@ body :is(
 .pf-hero-rail::before {
   content: '';
   position: absolute;
-  /* big enough that the spinning square always covers the hero's corners */
-  inset: -60%;
+  /* A square centred on the panel whose side is 2x the panel's LARGER
+     dimension: its inscribed circle (radius = the larger side) already
+     reaches past every corner of the panel, so no rotation angle uncovers
+     an edge -- however wide or tall the head is. */
+  left: 50%;
+  top: 50%;
+  width: 2400px;
+  height: 2400px;
+  translate: -50% -50%;
   background: conic-gradient(from 0deg,
     transparent 0deg,
     transparent 300deg,
